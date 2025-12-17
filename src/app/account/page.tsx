@@ -1,17 +1,21 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
-import { User, CreditCard, Bell, LogOut, Settings, MapPin, ChevronRight } from 'lucide-react'
+import { User, CreditCard, Bell, LogOut, Settings, MapPin, ChevronRight, CheckCircle, AlertCircle } from 'lucide-react'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
 export default function AccountPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const subscriptionSuccess = searchParams.get('subscription') === 'success'
   const [user, setUser] = useState<any>(null)
   const [loading, setLoading] = useState(true)
+  const [hasSubscription, setHasSubscription] = useState<boolean | null>(null)
+  const [subscriptionData, setSubscriptionData] = useState<any>(null)
 
   useEffect(() => {
     const token = localStorage.getItem('auth_token')
@@ -26,25 +30,49 @@ export default function AccountPage() {
       setUser(JSON.parse(cachedUser))
     }
 
-    // Fetch fresh user data
-    fetchUser(token)
+    // Fetch fresh user data and subscription status
+    fetchUserAndSubscription(token)
   }, [router])
 
-  const fetchUser = async (token: string) => {
+  const fetchUserAndSubscription = async (token: string) => {
     try {
-      const response = await fetch(`${API_URL}/api/auth/me`, {
+      // Fetch user data
+      const userResponse = await fetch(`${API_URL}/api/auth/me`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
       })
 
-      if (!response.ok) {
+      if (!userResponse.ok) {
         throw new Error('Session expired')
       }
 
-      const userData = await response.json()
+      const userData = await userResponse.json()
       setUser(userData)
       localStorage.setItem('user', JSON.stringify(userData))
+
+      // Skip subscription check for admins
+      if (userData.account_type === 'groundgoat_admin' || userData.account_type === 'groundgoat_sales') {
+        setHasSubscription(true)
+        setLoading(false)
+        return
+      }
+
+      // Check subscription status
+      const subsResponse = await fetch(`${API_URL}/api/subscriptions/areas`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      })
+
+      if (subsResponse.ok) {
+        const subsData = await subsResponse.json()
+        setSubscriptionData(subsData)
+        const hasActive = subsData.unlimited || (subsData.areas && subsData.areas.some((a: any) => a.status === 'active'))
+        setHasSubscription(hasActive)
+      } else {
+        setHasSubscription(false)
+      }
     } catch (err) {
       localStorage.removeItem('auth_token')
       localStorage.removeItem('user')
@@ -81,6 +109,34 @@ export default function AccountPage() {
   return (
     <div className="min-h-screen bg-gg-black pt-24 pb-12">
       <div className="max-w-4xl mx-auto px-6">
+        {/* Subscription Success Message */}
+        {subscriptionSuccess && (
+          <div className="mb-6 bg-green-500/10 border border-green-500/30 rounded-lg p-4 flex items-center gap-3">
+            <CheckCircle className="text-green-500 flex-shrink-0" size={24} />
+            <div>
+              <p className="text-green-400 font-medium">Subscription activated!</p>
+              <p className="text-green-400/70 text-sm">You now have access to your selected areas.</p>
+            </div>
+          </div>
+        )}
+
+        {/* No Subscription Warning */}
+        {hasSubscription === false && (
+          <div className="mb-6 bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="text-yellow-500 flex-shrink-0 mt-0.5" size={24} />
+              <div className="flex-1">
+                <p className="text-yellow-400 font-medium">No active subscription</p>
+                <p className="text-yellow-400/70 text-sm mb-3">Subscribe to access auction alerts, sale results, and more.</p>
+                <Link href="/signup?step=2" className="btn-primary inline-flex items-center gap-2 text-sm py-2">
+                  Choose a Plan
+                  <ChevronRight size={16} />
+                </Link>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Header */}
         <div className="mb-8">
           <h1 className="font-display text-4xl font-bold text-white mb-2">Account</h1>

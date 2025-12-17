@@ -53,13 +53,16 @@ function SignUpContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const initialPlan = searchParams.get('plan') as keyof typeof PLANS || 'state'
+  const initialStep = searchParams.get('step') ? parseInt(searchParams.get('step')!) : 1
+  const cancelled = searchParams.get('cancelled') === 'true'
   
-  const [step, setStep] = useState(1)
+  const [step, setStep] = useState(initialStep)
   const [selectedPlan, setSelectedPlan] = useState(initialPlan)
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('monthly')
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState(cancelled ? 'Payment was cancelled. Please try again.' : '')
+  const [isReturningUser, setIsReturningUser] = useState(false)
   
   // Territory selection state
   const [availableStates, setAvailableStates] = useState<string[]>([])
@@ -71,6 +74,23 @@ function SignUpContent() {
   const [selectedAreas, setSelectedAreas] = useState<SelectedArea[]>([])
   const [showStateDropdown, setShowStateDropdown] = useState(false)
   const [showCountyDropdown, setShowCountyDropdown] = useState(false)
+  
+  // Check if user is already logged in (returning user without subscription)
+  useEffect(() => {
+    const token = localStorage.getItem('auth_token')
+    const user = localStorage.getItem('user')
+    if (token && user && initialStep >= 2) {
+      setIsReturningUser(true)
+      // Pre-fill form data from stored user
+      const userData = JSON.parse(user)
+      setFormData(prev => ({
+        ...prev,
+        firstName: userData.first_name || '',
+        lastName: userData.last_name || '',
+        email: userData.email || '',
+      }))
+    }
+  }, [initialStep])
   
   const [formData, setFormData] = useState({
     firstName: '',
@@ -244,58 +264,66 @@ function SignUpContent() {
     setError('')
     
     try {
-      // Step 1: Register the user
       let authData;
+      let token = localStorage.getItem('auth_token')
       
-      const registerResponse = await fetch(`${API_URL}/api/auth/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          first_name: formData.firstName,
-          last_name: formData.lastName,
-          email: formData.email,
-          password: formData.password,
-          account_type: selectedPlan === 'firm' ? 'firm_admin' : 'individual',
-        }),
-      })
-
-      if (!registerResponse.ok) {
-        const data = await registerResponse.json().catch(() => ({}))
-        // If user already exists, try to log them in instead
-        if (data.detail?.includes('already') || data.detail?.includes('exists')) {
-          const loginResponse = await fetch(`${API_URL}/api/auth/login`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              email: formData.email,
-              password: formData.password,
-            }),
-          })
-          
-          if (!loginResponse.ok) {
-            throw new Error('Account already exists. Please sign in instead.')
-          }
-          
-          authData = await loginResponse.json()
-        } else {
-          throw new Error(data.detail || 'Registration failed. Please try again.')
-        }
+      // If returning user with existing token, skip registration
+      if (isReturningUser && token) {
+        authData = { access_token: token }
       } else {
-        authData = await registerResponse.json()
-      }
-      
-      // Store tokens
-      localStorage.setItem('auth_token', authData.access_token)
-      localStorage.setItem('refresh_token', authData.refresh_token)
-      
-      // Fetch user data
-      const userResponse = await fetch(`${API_URL}/api/auth/me`, {
-        headers: { 'Authorization': `Bearer ${authData.access_token}` }
-      })
-      
-      if (userResponse.ok) {
-        const userData = await userResponse.json()
-        localStorage.setItem('user', JSON.stringify(userData))
+        // Step 1: Register the user
+        const registerResponse = await fetch(`${API_URL}/api/auth/register`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            first_name: formData.firstName,
+            last_name: formData.lastName,
+            email: formData.email,
+            password: formData.password,
+            account_type: selectedPlan === 'firm' ? 'firm_admin' : 'individual',
+          }),
+        })
+
+        if (!registerResponse.ok) {
+          const data = await registerResponse.json().catch(() => ({}))
+          // If user already exists, try to log them in instead
+          if (data.detail?.includes('already') || data.detail?.includes('exists')) {
+            const loginResponse = await fetch(`${API_URL}/api/auth/login`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                email: formData.email,
+                password: formData.password,
+              }),
+            })
+            
+            if (!loginResponse.ok) {
+              throw new Error('Account already exists. Please sign in instead.')
+            }
+            
+            authData = await loginResponse.json()
+          } else {
+            throw new Error(data.detail || 'Registration failed. Please try again.')
+          }
+        } else {
+          authData = await registerResponse.json()
+        }
+        
+        // Store tokens
+        localStorage.setItem('auth_token', authData.access_token)
+        if (authData.refresh_token) {
+          localStorage.setItem('refresh_token', authData.refresh_token)
+        }
+        
+        // Fetch user data
+        const userResponse = await fetch(`${API_URL}/api/auth/me`, {
+          headers: { 'Authorization': `Bearer ${authData.access_token}` }
+        })
+        
+        if (userResponse.ok) {
+          const userData = await userResponse.json()
+          localStorage.setItem('user', JSON.stringify(userData))
+        }
       }
 
       // Step 2: Create subscription checkout for each area

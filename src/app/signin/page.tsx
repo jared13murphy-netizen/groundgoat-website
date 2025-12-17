@@ -69,7 +69,27 @@ function SignInContent() {
         if (userData.account_type === 'groundgoat_admin' || userData.account_type === 'groundgoat_sales') {
           router.push('/admin/dashboard')
         } else {
-          router.push('/account')
+          // Check if user has an active subscription
+          const subsResponse = await fetch(`${API_URL}/api/subscriptions/areas`, {
+            headers: {
+              'Authorization': `Bearer ${data.access_token}`,
+            },
+          })
+          
+          if (subsResponse.ok) {
+            const subsData = await subsResponse.json()
+            const hasActiveSubscription = subsData.unlimited || (subsData.areas && subsData.areas.length > 0)
+            
+            if (hasActiveSubscription) {
+              router.push('/account')
+            } else {
+              // No subscription - redirect to choose a plan
+              router.push('/signup?step=2')
+            }
+          } else {
+            // If we can't check subscriptions, go to account and let that page handle it
+            router.push('/account')
+          }
         }
       }
       
