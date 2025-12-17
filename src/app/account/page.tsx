@@ -4,7 +4,7 @@ import { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
-import { User, CreditCard, Bell, LogOut, Settings, MapPin, ChevronRight, CheckCircle, AlertCircle, Loader2 } from 'lucide-react'
+import { User, CreditCard, LogOut, MapPin, ChevronRight, CheckCircle, AlertCircle, Loader2 } from 'lucide-react'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -185,20 +185,13 @@ function AccountContent() {
             description="View your subscribed counties and states"
             href="/account/areas"
           />
+        </div>
 
-          <MenuItem
-            icon={<Bell size={20} />}
-            label="Notifications"
-            description="Configure email and push notifications"
-            href="/account/notifications"
-          />
-
-          <MenuItem
-            icon={<Settings size={20} />}
-            label="Settings"
-            description="App preferences and security"
-            href="/account/settings"
-          />
+        {/* App Settings Note */}
+        <div className="mt-6 p-4 bg-gg-gray-800/50 rounded-lg">
+          <p className="text-gg-gray-400 text-sm">
+            <span className="text-gg-gray-300">Notifications & Settings</span> can be managed in the Ground Goat mobile app.
+          </p>
         </div>
 
         {/* Admin Link */}
