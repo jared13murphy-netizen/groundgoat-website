@@ -1,14 +1,14 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
-import { User, CreditCard, Bell, LogOut, Settings, MapPin, ChevronRight, CheckCircle, AlertCircle } from 'lucide-react'
+import { User, CreditCard, Bell, LogOut, Settings, MapPin, ChevronRight, CheckCircle, AlertCircle, Loader2 } from 'lucide-react'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
-export default function AccountPage() {
+function AccountContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const subscriptionSuccess = searchParams.get('subscription') === 'success'
@@ -271,5 +271,17 @@ function MenuItem({ icon, label, description, href }: { icon: React.ReactNode, l
       </div>
       <ChevronRight className="text-gg-gray-500" />
     </Link>
+  )
+}
+
+export default function AccountPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gg-black flex items-center justify-center">
+        <Loader2 className="animate-spin text-gg-pink" size={32} />
+      </div>
+    }>
+      <AccountContent />
+    </Suspense>
   )
 }
