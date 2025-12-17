@@ -8,6 +8,18 @@ import { Check, ArrowLeft, ArrowRight, Eye, EyeOff, MapPin, ChevronDown, X, Load
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
+// Valid US states to filter against - defined outside component to avoid reference issues
+const VALID_STATES = [
+  'Alabama', 'Alaska', 'Arizona', 'Arkansas', 'California', 'Colorado', 'Connecticut',
+  'Delaware', 'Florida', 'Georgia', 'Hawaii', 'Idaho', 'Illinois', 'Indiana', 'Iowa',
+  'Kansas', 'Kentucky', 'Louisiana', 'Maine', 'Maryland', 'Massachusetts', 'Michigan',
+  'Minnesota', 'Mississippi', 'Missouri', 'Montana', 'Nebraska', 'Nevada', 'New Hampshire',
+  'New Jersey', 'New Mexico', 'New York', 'North Carolina', 'North Dakota', 'Ohio',
+  'Oklahoma', 'Oregon', 'Pennsylvania', 'Rhode Island', 'South Carolina', 'South Dakota',
+  'Tennessee', 'Texas', 'Utah', 'Vermont', 'Virginia', 'Washington', 'West Virginia',
+  'Wisconsin', 'Wyoming'
+]
+
 const PLANS = {
   county: {
     name: 'County',
@@ -86,7 +98,15 @@ function SignUpContent() {
       const response = await fetch(`${API_URL}/api/subscriptions/available-states`)
       if (response.ok) {
         const data = await response.json()
-        setAvailableStates(data.states || data || [])
+        // Handle array of {state, listing_count} objects and filter to valid states only
+        let states: string[] = []
+        if (Array.isArray(data)) {
+          states = data
+            .map((item: any) => typeof item === 'string' ? item : item.state)
+            .filter((s: string) => VALID_STATES.includes(s))
+            .sort()
+        }
+        setAvailableStates(states.length > 0 ? states : VALID_STATES.slice(0, 10))
       }
     } catch (err) {
       console.error('Failed to fetch states:', err)
@@ -104,7 +124,15 @@ function SignUpContent() {
       const response = await fetch(`${API_URL}/api/subscriptions/available-counties/${encodeURIComponent(state)}`)
       if (response.ok) {
         const data = await response.json()
-        setAvailableCounties(data.counties || data || [])
+        // Handle array of {county, listing_count} objects and filter out townships/bad data
+        let counties: string[] = []
+        if (Array.isArray(data)) {
+          counties = data
+            .map((item: any) => typeof item === 'string' ? item : item.county)
+            .filter((c: string) => c && !c.includes('Township') && !c.includes('Precinct') && !c.match(/^\d/))
+            .sort()
+        }
+        setAvailableCounties(counties)
       }
     } catch (err) {
       console.error('Failed to fetch counties:', err)
@@ -457,7 +485,11 @@ function SignUpContent() {
                   <button
                     key={key}
                     onClick={() => setSelectedPlan(key as keyof typeof PLANS)}
-                    className={`w-full text-left card ${selectedPlan === key ? 'border-gg-pink glow-pink-sm' : ''}`}
+                    className={`w-full text-left card transition-all duration-200 ${
+                      selectedPlan === key 
+                        ? 'border-white border-2 shadow-[0_0_20px_rgba(245,140,222,0.4)] bg-gg-gray-800/80' 
+                        : 'border-gg-gray-700 hover:border-gg-gray-600'
+                    }`}
                   >
                     <div className="flex justify-between items-start">
                       <div>

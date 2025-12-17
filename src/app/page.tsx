@@ -56,7 +56,7 @@ const FALLBACK_LISTINGS: Listing[] = [
     auction_time: '1:00 PM',
     total_acres: 156,
     listing_type: 'auction',
-    primary_image_url: 'https://images.unsplash.com/photo-1530836369250-ef72a3f5cda8?w=1920&q=80',
+    primary_image_url: 'https://images.unsplash.com/photo-1625246333195-78d9c38ad449?w=1920&q=80',
     company_name: 'Sullivan Auctioneers',
     land_types: ['Farm', 'Recreational']
   },
@@ -68,7 +68,7 @@ const FALLBACK_LISTINGS: Listing[] = [
     auction_time: '10:30 AM',
     total_acres: 240,
     listing_type: 'auction',
-    primary_image_url: 'https://images.unsplash.com/photo-1523348837708-15d4a09cfac2?w=1920&q=80',
+    primary_image_url: 'https://images.unsplash.com/photo-1560493676-04071c5f467b?w=1920&q=80',
     company_name: 'Agri Affiliates',
     land_types: ['Pasture', 'Timber']
   },
@@ -80,7 +80,7 @@ const FALLBACK_LISTINGS: Listing[] = [
     auction_time: '11:00 AM',
     total_acres: 80,
     listing_type: 'auction',
-    primary_image_url: 'https://images.unsplash.com/photo-1574943320219-553eb213f72d?w=1920&q=80',
+    primary_image_url: 'https://images.unsplash.com/photo-1595841696677-6489ff3f8cd1?w=1920&q=80',
     company_name: 'Farmers National',
     land_types: ['Farm']
   },

@@ -67,13 +67,32 @@ export default function MyAreasPage() {
     }
   }
 
+  // Valid US states to filter against
+  const VALID_STATES = [
+    'Alabama', 'Alaska', 'Arizona', 'Arkansas', 'California', 'Colorado', 'Connecticut',
+    'Delaware', 'Florida', 'Georgia', 'Hawaii', 'Idaho', 'Illinois', 'Indiana', 'Iowa',
+    'Kansas', 'Kentucky', 'Louisiana', 'Maine', 'Maryland', 'Massachusetts', 'Michigan',
+    'Minnesota', 'Mississippi', 'Missouri', 'Montana', 'Nebraska', 'Nevada', 'New Hampshire',
+    'New Jersey', 'New Mexico', 'New York', 'North Carolina', 'North Dakota', 'Ohio',
+    'Oklahoma', 'Oregon', 'Pennsylvania', 'Rhode Island', 'South Carolina', 'South Dakota',
+    'Tennessee', 'Texas', 'Utah', 'Vermont', 'Virginia', 'Washington', 'West Virginia',
+    'Wisconsin', 'Wyoming'
+  ]
+
   const fetchAvailableStates = async () => {
     setLoadingStates(true)
     try {
       const response = await fetch(`${API_URL}/api/subscriptions/available-states`)
       if (response.ok) {
         const data = await response.json()
-        setAvailableStates(data.states || data || [])
+        let states: string[] = []
+        if (Array.isArray(data)) {
+          states = data
+            .map((item: any) => typeof item === 'string' ? item : item.state)
+            .filter((s: string) => VALID_STATES.includes(s))
+            .sort()
+        }
+        setAvailableStates(states.length > 0 ? states : VALID_STATES.slice(0, 10))
       }
     } catch (err) {
       setAvailableStates(['Illinois', 'Iowa', 'Missouri', 'Indiana', 'Wisconsin'])
@@ -89,7 +108,14 @@ export default function MyAreasPage() {
       const response = await fetch(`${API_URL}/api/subscriptions/available-counties/${encodeURIComponent(state)}`)
       if (response.ok) {
         const data = await response.json()
-        setAvailableCounties(data.counties || data || [])
+        let counties: string[] = []
+        if (Array.isArray(data)) {
+          counties = data
+            .map((item: any) => typeof item === 'string' ? item : item.county)
+            .filter((c: string) => c && !c.includes('Township') && !c.includes('Precinct') && !c.match(/^\d/))
+            .sort()
+        }
+        setAvailableCounties(counties)
       }
     } catch (err) {
       console.error('Failed to fetch counties:', err)
