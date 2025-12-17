@@ -51,14 +51,17 @@ function AccountContent() {
       setUser(userData)
       localStorage.setItem('user', JSON.stringify(userData))
 
-      // Skip subscription check for admins
-      if (userData.account_type === 'groundgoat_admin' || userData.account_type === 'groundgoat_sales') {
+      // Skip subscription check for admins and firm users (firm users inherit firm access)
+      if (userData.account_type === 'groundgoat_admin' || 
+          userData.account_type === 'groundgoat_sales' ||
+          userData.account_type === 'firm_admin' ||
+          userData.account_type === 'firm_user') {
         setHasSubscription(true)
         setLoading(false)
         return
       }
 
-      // Check subscription status
+      // Check subscription status for individual users
       const subsResponse = await fetch(`${API_URL}/api/subscriptions/areas`, {
         headers: {
           'Authorization': `Bearer ${token}`,

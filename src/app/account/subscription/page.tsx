@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Loader2, CreditCard, Calendar, AlertTriangle, CheckCircle, Crown, MapPin, Plus, ExternalLink } from 'lucide-react'
+import { ArrowLeft, Loader2, CreditCard, Calendar, AlertTriangle, CheckCircle, Crown, MapPin, Plus, ExternalLink, Building2 } from 'lucide-react'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -32,6 +32,7 @@ export default function SubscriptionPage() {
   const [error, setError] = useState('')
   const [cancellingId, setCancellingId] = useState<string | null>(null)
   const [showCancelConfirm, setShowCancelConfirm] = useState<string | null>(null)
+  const [user, setUser] = useState<any>(null)
 
   useEffect(() => {
     const token = localStorage.getItem('auth_token')
@@ -39,8 +40,27 @@ export default function SubscriptionPage() {
       router.push('/signin')
       return
     }
+    
+    // Get user info
+    const cachedUser = localStorage.getItem('user')
+    if (cachedUser) {
+      setUser(JSON.parse(cachedUser))
+    }
+    
     fetchSubscriptions(token)
   }, [router])
+
+  // Helper to check if user can manage subscriptions
+  const canManageSubscription = () => {
+    if (!user) return false
+    // Admins, sales, firm admins, and individual users can manage
+    return ['groundgoat_admin', 'groundgoat_sales', 'firm_admin', 'individual'].includes(user.account_type)
+  }
+
+  // Helper to check if user is a firm member (not admin)
+  const isFirmMember = () => {
+    return user?.account_type === 'firm_user'
+  }
 
   const fetchSubscriptions = async (token: string) => {
     try {
@@ -202,8 +222,23 @@ export default function SubscriptionPage() {
           </div>
         )}
 
-        {/* Unlimited Access Banner */}
-        {subscriptionData?.unlimited && (
+        {/* Firm Member Banner */}
+        {isFirmMember() && (
+          <div className="card bg-gradient-to-r from-blue-500/20 to-indigo-500/20 border-blue-500/30 mb-8">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 bg-blue-500/20 rounded-xl flex items-center justify-center">
+                <Building2 className="text-blue-400" size={24} />
+              </div>
+              <div>
+                <h3 className="font-semibold text-white">Firm Member Access</h3>
+                <p className="text-gg-gray-400 text-sm">Your access is managed by your firm administrator. Contact them for any subscription changes.</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Unlimited Access Banner (for firm admins) */}
+        {subscriptionData?.unlimited && !isFirmMember() && (
           <div className="card bg-gradient-to-r from-gg-pink/20 to-purple-500/20 border-gg-pink/30 mb-8">
             <div className="flex items-center gap-4">
               <div className="w-12 h-12 bg-gg-pink/20 rounded-xl flex items-center justify-center">
@@ -217,8 +252,8 @@ export default function SubscriptionPage() {
           </div>
         )}
 
-        {/* Billing Summary */}
-        {activeSubscriptions.length > 0 && !subscriptionData?.unlimited && (
+        {/* Billing Summary - only show if user can manage */}
+        {activeSubscriptions.length > 0 && !subscriptionData?.unlimited && canManageSubscription() && (
           <div className="card mb-8">
             <div className="flex items-center justify-between mb-4">
               <h2 className="font-semibold text-white">Billing Summary</h2>
@@ -324,12 +359,14 @@ export default function SubscriptionPage() {
                           </button>
                         </div>
                       ) : (
-                        <button
-                          onClick={() => setShowCancelConfirm(sub.id)}
-                          className="text-sm text-gg-gray-500 hover:text-red-400"
-                        >
-                          Cancel
-                        </button>
+                        canManageSubscription() && (
+                          <button
+                            onClick={() => setShowCancelConfirm(sub.id)}
+                            className="text-sm text-gg-gray-500 hover:text-red-400"
+                          >
+                            Cancel
+                          </button>
+                        )
                       )}
                     </div>
                   </div>

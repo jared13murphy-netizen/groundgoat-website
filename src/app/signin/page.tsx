@@ -67,9 +67,14 @@ function SignInContent() {
         
         // Redirect based on account type
         if (userData.account_type === 'groundgoat_admin' || userData.account_type === 'groundgoat_sales') {
+          // Admin/Sales - unlimited access, go to admin dashboard
           router.push('/admin/dashboard')
+        } else if (userData.account_type === 'firm_admin' || userData.account_type === 'firm_user') {
+          // Firm users - access is tied to firm subscription, go directly to account
+          // The /api/subscriptions/areas endpoint should return unlimited:true for firm users
+          router.push('/account')
         } else {
-          // Check if user has an active subscription
+          // Individual users - check if they have an active subscription
           const subsResponse = await fetch(`${API_URL}/api/subscriptions/areas`, {
             headers: {
               'Authorization': `Bearer ${data.access_token}`,
