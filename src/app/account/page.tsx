@@ -4,7 +4,7 @@ import { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
-import { User, CreditCard, LogOut, MapPin, ChevronRight, CheckCircle, AlertCircle, Loader2 } from 'lucide-react'
+import { User, CreditCard, LogOut, MapPin, ChevronRight, CheckCircle, AlertCircle, Loader2, Users } from 'lucide-react'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -188,6 +188,16 @@ function AccountContent() {
             description="View your subscribed counties and states"
             href="/account/areas"
           />
+
+          {/* Team Management - Only for Firm Admins */}
+          {user?.account_type === 'firm_admin' && (
+            <MenuItem
+              icon={<Users size={20} />}
+              label="Team Management"
+              description="Add and manage your firm's team members"
+              href="/account/team"
+            />
+          )}
         </div>
 
         {/* App Settings Note */}
