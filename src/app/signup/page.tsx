@@ -245,6 +245,8 @@ function SignUpContent() {
     
     try {
       // Step 1: Register the user
+      let authData;
+      
       const registerResponse = await fetch(`${API_URL}/api/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -258,11 +260,29 @@ function SignUpContent() {
       })
 
       if (!registerResponse.ok) {
-        const data = await registerResponse.json()
-        throw new Error(data.detail || 'Registration failed')
+        const data = await registerResponse.json().catch(() => ({}))
+        // If user already exists, try to log them in instead
+        if (data.detail?.includes('already') || data.detail?.includes('exists')) {
+          const loginResponse = await fetch(`${API_URL}/api/auth/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              email: formData.email,
+              password: formData.password,
+            }),
+          })
+          
+          if (!loginResponse.ok) {
+            throw new Error('Account already exists. Please sign in instead.')
+          }
+          
+          authData = await loginResponse.json()
+        } else {
+          throw new Error(data.detail || 'Registration failed. Please try again.')
+        }
+      } else {
+        authData = await registerResponse.json()
       }
-
-      const authData = await registerResponse.json()
       
       // Store tokens
       localStorage.setItem('auth_token', authData.access_token)
@@ -292,8 +312,6 @@ function SignUpContent() {
             state: primaryArea.state,
             county: primaryArea.county || null,
             billing_cycle: billingCycle,
-            // Include additional areas in metadata if API supports it
-            additional_areas: selectedAreas.slice(1),
           }),
         })
 
@@ -303,7 +321,12 @@ function SignUpContent() {
           if (checkoutData.checkout_url) {
             window.location.href = checkoutData.checkout_url
             return
+          } else {
+            throw new Error('Could not create checkout session. Please try again.')
           }
+        } else {
+          const errorData = await checkoutResponse.json().catch(() => ({}))
+          throw new Error(errorData.detail || 'Payment setup failed. Please try again.')
         }
       }
 
@@ -311,7 +334,8 @@ function SignUpContent() {
       router.push('/account?welcome=true')
       
     } catch (err: any) {
-      setError(err.message || 'Something went wrong')
+      console.error('Registration error:', err)
+      setError(err.message || 'Something went wrong. Please try again.')
       setStep(3) // Go back to territory selection on error
     } finally {
       setLoading(false)
@@ -485,10 +509,10 @@ function SignUpContent() {
                   <button
                     key={key}
                     onClick={() => setSelectedPlan(key as keyof typeof PLANS)}
-                    className={`w-full text-left card transition-all duration-200 ${
+                    className={`w-full text-left bg-gg-gray-800 rounded-2xl p-6 transition-all duration-200 ${
                       selectedPlan === key 
-                        ? 'border-white border-2 shadow-[0_0_20px_rgba(245,140,222,0.4)] bg-gg-gray-800/80' 
-                        : 'border-gg-gray-700 hover:border-gg-gray-600'
+                        ? 'border-2 border-white shadow-[0_0_25px_rgba(245,140,222,0.5)]' 
+                        : 'border border-gg-gray-700 hover:border-gg-gray-500'
                     }`}
                   >
                     <div className="flex justify-between items-start">
