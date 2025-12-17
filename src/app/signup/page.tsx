@@ -505,11 +505,15 @@ function SignUpContent() {
             'Authorization': `Bearer ${authData.access_token}`
           },
           body: JSON.stringify({
-            subscription_type: selectedPlan,
-            state: primaryArea.state,
-            county: primaryArea.county || null,
-            billing_cycle: billingCycle,
-          }),
+  subscription_type: selectedPlan,
+  state: primaryArea.state,
+  county: primaryArea.county || null,
+  billing_cycle: billingCycle,
+  additional_areas: selectedAreas.slice(1).map(area => ({
+    state: area.state,
+    county: area.county || null,
+  })),
+}),
         })
 
         if (checkoutResponse.ok) {
