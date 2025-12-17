@@ -287,24 +287,7 @@ function SignUpContent() {
         if (!registerResponse.ok) {
           const data = await registerResponse.json().catch(() => ({}))
           // If user already exists, try to log them in instead
-          if (data.detail?.includes('already') || data.detail?.includes('exists')) {
-            const loginResponse = await fetch(`${API_URL}/api/auth/login`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                email: formData.email,
-                password: formData.password,
-              }),
-            })
-            
-            if (!loginResponse.ok) {
-              throw new Error('Account already exists. Please sign in instead.')
-            }
-            
-            authData = await loginResponse.json()
-          } else {
-            throw new Error(data.detail || 'Registration failed. Please try again.')
-          }
+          throw new Error(data.detail || 'Registration failed. Please try again.')
         } else {
           authData = await registerResponse.json()
         }
