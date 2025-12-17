@@ -239,6 +239,25 @@ function SignUpContent() {
         setError(validationError)
         return
       }
+      
+      // Check if email already exists
+      setLoading(true)
+      try {
+        const checkResponse = await fetch(`${API_URL}/api/auth/check-email?email=${encodeURIComponent(formData.email)}`)
+        if (checkResponse.ok) {
+          const data = await checkResponse.json()
+          if (data.exists) {
+            setError('This email is already registered. Please sign in instead.')
+            setLoading(false)
+            return
+          }
+        }
+      } catch (err) {
+        console.error('Email check failed:', err)
+        // Continue anyway if check fails - registration will catch it
+      }
+      setLoading(false)
+      
       setStep(2)
     } else if (step === 2) {
       if (selectedPlan === 'firm') {
