@@ -34,13 +34,13 @@ export default function AdminCompaniesPage() {
 
   const fetchCompanies = async (token: string) => {
     try {
-      const response = await fetch(`${API_URL}/api/listing-companies`, {
+      const response = await fetch(`${API_URL}/api/companies`, {
         headers: { 'Authorization': `Bearer ${token}` },
       })
 
       if (response.ok) {
         const data = await response.json()
-        setCompanies(data.companies || data || [])
+        setCompanies(Array.isArray(data) ? data : [])
       }
     } catch (err) {
       console.error('Failed to fetch companies:', err)
