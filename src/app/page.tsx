@@ -192,26 +192,6 @@ export default function Home() {
           <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/30" />
         </div>
 
-        {/* Carousel Navigation Arrows */}
-        {listings.length > 1 && (
-          <>
-            <button
-              onClick={prevSlide}
-              className="absolute left-6 top-1/2 -translate-y-1/2 z-20 p-3 rounded-full bg-black/30 hover:bg-black/50 backdrop-blur-sm border border-white/10 transition-all hover:scale-110"
-              aria-label="Previous slide"
-            >
-              <ChevronLeft size={24} className="text-white" />
-            </button>
-            <button
-              onClick={nextSlide}
-              className="absolute right-6 top-1/2 -translate-y-1/2 z-20 p-3 rounded-full bg-black/30 hover:bg-black/50 backdrop-blur-sm border border-white/10 transition-all hover:scale-110"
-              aria-label="Next slide"
-            >
-              <ChevronRightIcon size={24} className="text-white" />
-            </button>
-          </>
-        )}
-
         {/* Content Overlay */}
         <div className="relative z-10 max-w-7xl mx-auto px-6 w-full">
           <div className="max-w-2xl">
@@ -268,16 +248,6 @@ export default function Home() {
                     <Maximize size={16} />
                     <span>{currentListing.total_acres?.toLocaleString()} acres</span>
                   </div>
-                  {currentListing.land_types && currentListing.land_types.length > 0 && (
-                    <>
-                      <span className="text-gray-500">•</span>
-                      <div className="flex gap-2">
-                        {currentListing.land_types.slice(0, 3).map((type, i) => (
-                          <span key={i} className="text-gray-300">{type}</span>
-                        ))}
-                      </div>
-                    </>
-                  )}
                   {currentListing.company_name && (
                     <>
                       <span className="text-gray-500">•</span>
@@ -327,7 +297,7 @@ export default function Home() {
             <FeatureCard 
               icon={<Search />}
               title="Smart Search"
-              description="Filter by state, county, acreage, land type, and more. Find exactly what you're looking for."
+              description="Filter by state and county to find exactly what you're looking for."
             />
             <FeatureCard 
               icon={<Bell />}
