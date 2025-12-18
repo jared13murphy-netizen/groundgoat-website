@@ -1,9 +1,9 @@
 'use client'
 
-import { useState, useEffect, Suspense } from 'react'
+import { useState, useEffect, Suspense, useRef } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Check, ArrowLeft, ArrowRight, Eye, EyeOff, MapPin, ChevronDown, X, Loader2, Building2, Users, Plus } from 'lucide-react'
+import { Check, ArrowLeft, ArrowRight, Eye, EyeOff, MapPin, ChevronDown, X, Loader2, Building2, Users, Plus, Mail } from 'lucide-react'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -24,7 +24,7 @@ const PLANS = {
     basePrice: 7.99,
     additionalPrice: 3.99,
     description: 'Perfect for focused investors',
-    features: ['1 county included', 'Upcoming auction alerts', 'Sale results access', 'Mobile app access'],
+    features: ['1 county included', 'Upcoming land sale alerts', 'Sale results access', 'Mobile app access'],
   },
   state: {
     name: 'State',
@@ -67,7 +67,13 @@ function SignUpContent() {
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(cancelled ? 'Payment was cancelled. Please try again.' : '')
-  const [isReturningUser, setIsReturningUser] = useState(false)
+  const [verificationToken, setVerificationToken] = useState<string | null>(null)
+  
+  // Verification code state
+  const [verificationCode, setVerificationCode] = useState(['', '', '', '', '', ''])
+  const [codeSent, setCodeSent] = useState(false)
+  const [resendCountdown, setResendCountdown] = useState(0)
+  const codeInputRefs = useRef<(HTMLInputElement | null)[]>([])
   
   // Territory selection state
   const [availableStates, setAvailableStates] = useState<string[]>([])
@@ -96,22 +102,6 @@ function SignUpContent() {
   const [additionalSeats, setAdditionalSeats] = useState(0)
   const [showAddMember, setShowAddMember] = useState(false)
   
-  // Check if user is already logged in
-  useEffect(() => {
-    const token = localStorage.getItem('auth_token')
-    const user = localStorage.getItem('user')
-    if (token && user && initialStep >= 2) {
-      setIsReturningUser(true)
-      const userData = JSON.parse(user)
-      setFormData(prev => ({
-        ...prev,
-        firstName: userData.first_name || '',
-        lastName: userData.last_name || '',
-        email: userData.email || '',
-      }))
-    }
-  }, [initialStep])
-  
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -119,6 +109,14 @@ function SignUpContent() {
     password: '',
     confirmPassword: '',
   })
+
+  // Resend countdown timer
+  useEffect(() => {
+    if (resendCountdown > 0) {
+      const timer = setTimeout(() => setResendCountdown(resendCountdown - 1), 1000)
+      return () => clearTimeout(timer)
+    }
+  }, [resendCountdown])
 
   useEffect(() => {
     fetchAvailableStates()
@@ -189,6 +187,35 @@ function SignUpContent() {
   const handleNewMemberChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setNewMember({ ...newMember, [e.target.name]: e.target.value })
     setError('')
+  }
+
+  const handleCodeChange = (index: number, value: string) => {
+    if (value.length > 1) {
+      const digits = value.replace(/\D/g, '').slice(0, 6).split('')
+      const newCode = [...verificationCode]
+      digits.forEach((digit, i) => {
+        if (index + i < 6) {
+          newCode[index + i] = digit
+        }
+      })
+      setVerificationCode(newCode)
+      const nextIndex = Math.min(index + digits.length, 5)
+      codeInputRefs.current[nextIndex]?.focus()
+    } else {
+      const newCode = [...verificationCode]
+      newCode[index] = value.replace(/\D/g, '')
+      setVerificationCode(newCode)
+      if (value && index < 5) {
+        codeInputRefs.current[index + 1]?.focus()
+      }
+    }
+    setError('')
+  }
+
+  const handleCodeKeyDown = (index: number, e: React.KeyboardEvent) => {
+    if (e.key === 'Backspace' && !verificationCode[index] && index > 0) {
+      codeInputRefs.current[index - 1]?.focus()
+    }
   }
 
   const validateStep1 = () => {
@@ -266,7 +293,6 @@ function SignUpContent() {
       return
     }
     
-    // Check if email already exists
     try {
       const checkResponse = await fetch(`${API_URL}/api/auth/check-email?email=${encodeURIComponent(newMember.email)}`)
       if (checkResponse.ok) {
@@ -280,15 +306,13 @@ function SignUpContent() {
       console.error('Email check failed:', err)
     }
     
-    // Check if already added
     if (teamMembers.some(m => m.email.toLowerCase() === newMember.email.toLowerCase())) {
       setError('This team member is already added')
       return
     }
     
-    // Check seat limit
     const baseSeats = 3
-    const maxMembers = baseSeats - 1 + additionalSeats // -1 for admin
+    const maxMembers = baseSeats - 1 + additionalSeats
     if (teamMembers.length >= maxMembers) {
       setError(`You've reached your seat limit. Add more seats to invite more members.`)
       return
@@ -323,9 +347,9 @@ function SignUpContent() {
 
   const getTotalSteps = () => {
     if (selectedPlan === 'firm') {
-      return 5 // Account, Plan, Firm Profile, Team, Payment
+      return 5
     }
-    return 4 // Account, Plan, Areas, Payment
+    return 4
   }
 
   const getStepLabel = (stepNum: number) => {
@@ -347,37 +371,89 @@ function SignUpContent() {
     return ''
   }
 
+  const sendVerificationCode = async () => {
+    setLoading(true)
+    setError('')
+    
+    try {
+      const response = await fetch(`${API_URL}/api/auth/send-code`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: formData.email,
+          first_name: formData.firstName,
+          last_name: formData.lastName,
+          password: formData.password,
+        }),
+      })
+
+      if (response.ok) {
+        setCodeSent(true)
+        setResendCountdown(60)
+        setVerificationCode(['', '', '', '', '', ''])
+      } else {
+        const data = await response.json()
+        throw new Error(data.detail || 'Failed to send verification code')
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to send verification code')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const verifyCode = async () => {
+    const code = verificationCode.join('')
+    if (code.length !== 6) {
+      setError('Please enter the complete 6-digit code')
+      return
+    }
+
+    setLoading(true)
+    setError('')
+
+    try {
+      const response = await fetch(`${API_URL}/api/auth/verify-code`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: formData.email,
+          code: code,
+        }),
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        setVerificationToken(data.verification_token)
+        setStep(2)
+      } else {
+        const data = await response.json()
+        throw new Error(data.detail || 'Invalid verification code')
+      }
+    } catch (err: any) {
+      setError(err.message || 'Verification failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const handleContinue = async () => {
     if (step === 1) {
-      const validationError = validateStep1()
-      if (validationError) {
-        setError(validationError)
-        return
-      }
-      
-      // Check if email already exists
-      setLoading(true)
-      try {
-        const checkResponse = await fetch(`${API_URL}/api/auth/check-email?email=${encodeURIComponent(formData.email)}`)
-        if (checkResponse.ok) {
-          const data = await checkResponse.json()
-          if (data.exists) {
-            setError('This email is already registered. Please sign in instead.')
-            setLoading(false)
-            return
-          }
+      if (!codeSent) {
+        const validationError = validateStep1()
+        if (validationError) {
+          setError(validationError)
+          return
         }
-      } catch (err) {
-        console.error('Email check failed:', err)
+        await sendVerificationCode()
+      } else {
+        await verifyCode()
       }
-      setLoading(false)
-      
-      setStep(2)
     } else if (step === 2) {
       if (selectedPlan === 'firm') {
-        setStep(3) // Go to firm profile
+        setStep(3)
       } else {
-        setStep(3) // Go to area selection
+        setStep(3)
       }
     } else if (step === 3) {
       if (selectedPlan === 'firm') {
@@ -386,7 +462,7 @@ function SignUpContent() {
           setError(validationError)
           return
         }
-        setStep(4) // Go to team setup
+        setStep(4)
       } else {
         const validationError = validateStep3()
         if (validationError) {
@@ -455,44 +531,38 @@ function SignUpContent() {
     setError('')
     
     try {
-      let authData;
-      let token = localStorage.getItem('auth_token')
-      
-      if (isReturningUser && token) {
-        authData = { access_token: token }
-      } else {
-        const registerResponse = await fetch(`${API_URL}/api/auth/register`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            first_name: formData.firstName,
-            last_name: formData.lastName,
-            email: formData.email,
-            password: formData.password,
-            account_type: 'individual',
-          }),
-        })
+      // Register the user
+      const registerResponse = await fetch(`${API_URL}/api/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          first_name: formData.firstName,
+          last_name: formData.lastName,
+          email: formData.email,
+          password: formData.password,
+          account_type: 'individual',
+        }),
+      })
 
-        if (!registerResponse.ok) {
-          const data = await registerResponse.json().catch(() => ({}))
-          throw new Error(data.detail || 'Registration failed. Please try again.')
-        } else {
-          authData = await registerResponse.json()
-        }
-        
-        localStorage.setItem('auth_token', authData.access_token)
-        if (authData.refresh_token) {
-          localStorage.setItem('refresh_token', authData.refresh_token)
-        }
-        
-        const userResponse = await fetch(`${API_URL}/api/auth/me`, {
-          headers: { 'Authorization': `Bearer ${authData.access_token}` }
-        })
-        
-        if (userResponse.ok) {
-          const userData = await userResponse.json()
-          localStorage.setItem('user', JSON.stringify(userData))
-        }
+      if (!registerResponse.ok) {
+        const data = await registerResponse.json().catch(() => ({}))
+        throw new Error(data.detail || 'Registration failed. Please try again.')
+      }
+      
+      const authData = await registerResponse.json()
+      
+      localStorage.setItem('auth_token', authData.access_token)
+      if (authData.refresh_token) {
+        localStorage.setItem('refresh_token', authData.refresh_token)
+      }
+      
+      const userResponse = await fetch(`${API_URL}/api/auth/me`, {
+        headers: { 'Authorization': `Bearer ${authData.access_token}` }
+      })
+      
+      if (userResponse.ok) {
+        const userData = await userResponse.json()
+        localStorage.setItem('user', JSON.stringify(userData))
       }
 
       if (selectedAreas.length > 0) {
@@ -504,15 +574,15 @@ function SignUpContent() {
             'Authorization': `Bearer ${authData.access_token}`
           },
           body: JSON.stringify({
-  subscription_type: selectedPlan,
-  state: primaryArea.state,
-  county: primaryArea.county || null,
-  billing_cycle: billingCycle,
-  additional_areas: selectedAreas.slice(1).map(area => ({
-    state: area.state,
-    county: area.county || null,
-  })),
-}),
+            subscription_type: selectedPlan,
+            state: primaryArea.state,
+            county: primaryArea.county || null,
+            billing_cycle: billingCycle,
+            additional_areas: selectedAreas.slice(1).map(area => ({
+              state: area.state,
+              county: area.county || null,
+            })),
+          }),
         })
 
         if (checkoutResponse.ok) {
@@ -540,8 +610,6 @@ function SignUpContent() {
     }
   }
 
-  const plan = PLANS[selectedPlan]
-
   return (
     <div className="min-h-screen bg-gg-black pt-24 pb-12">
       <div className="max-w-4xl mx-auto px-6">
@@ -551,7 +619,8 @@ function SignUpContent() {
             Create Your Account
           </h1>
           <p className="text-gg-gray-400">
-            {step === 1 && 'Enter your information to get started'}
+            {step === 1 && !codeSent && 'Enter your information to get started'}
+            {step === 1 && codeSent && 'Enter the verification code sent to your email'}
             {step === 2 && 'Choose your subscription plan'}
             {step === 3 && selectedPlan === 'firm' && 'Tell us about your company'}
             {step === 3 && selectedPlan !== 'firm' && 'Select your coverage areas'}
@@ -579,7 +648,7 @@ function SignUpContent() {
         {/* Step Content */}
         <div className="max-w-xl mx-auto">
           {/* Step 1: Account Info */}
-          {step === 1 && (
+          {step === 1 && !codeSent && (
             <div className="card">
               <div className="space-y-6">
                 <div className="grid grid-cols-2 gap-4">
@@ -661,7 +730,7 @@ function SignUpContent() {
                   disabled={loading}
                   className="btn-primary w-full flex items-center justify-center gap-2"
                 >
-                  {loading ? <Loader2 size={20} className="animate-spin" /> : <>Continue <ArrowRight size={20} /></>}
+                  {loading ? <Loader2 size={20} className="animate-spin" /> : <>Send Verification Code <ArrowRight size={20} /></>}
                 </button>
 
                 <p className="text-center text-gg-gray-500 text-sm">
@@ -669,6 +738,75 @@ function SignUpContent() {
                   <Link href="/signin" className="text-gg-pink hover:underline">Sign in</Link>
                 </p>
               </div>
+            </div>
+          )}
+
+          {/* Step 1b: Verification Code Entry */}
+          {step === 1 && codeSent && (
+            <div className="card">
+              <div className="text-center mb-8">
+                <div className="w-16 h-16 bg-gg-pink/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Mail className="text-gg-pink" size={32} />
+                </div>
+                <h2 className="font-display text-2xl font-bold text-white mb-2">Check Your Email</h2>
+                <p className="text-gg-gray-400">
+                  We sent a 6-digit code to <span className="text-white">{formData.email}</span>
+                </p>
+              </div>
+
+              <div className="flex justify-center gap-3 mb-8">
+                {verificationCode.map((digit, index) => (
+                  <input
+                    key={index}
+                    ref={(el) => { codeInputRefs.current[index] = el }}
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={6}
+                    value={digit}
+                    onChange={(e) => handleCodeChange(index, e.target.value)}
+                    onKeyDown={(e) => handleCodeKeyDown(index, e)}
+                    className="w-12 h-14 bg-gg-gray-900 border border-gg-gray-700 rounded-lg text-center text-2xl font-bold text-white focus:border-gg-pink focus:outline-none"
+                  />
+                ))}
+              </div>
+
+              {error && (
+                <p className="text-red-400 text-sm text-center mb-4">{error}</p>
+              )}
+
+              <button
+                onClick={handleContinue}
+                disabled={loading}
+                className="btn-primary w-full flex items-center justify-center gap-2 mb-4"
+              >
+                {loading ? <Loader2 size={20} className="animate-spin" /> : <>Verify Code <ArrowRight size={20} /></>}
+              </button>
+
+              <div className="text-center">
+                <p className="text-gg-gray-500 text-sm mb-2">Didn't receive the code?</p>
+                {resendCountdown > 0 ? (
+                  <p className="text-gg-gray-400 text-sm">Resend in {resendCountdown}s</p>
+                ) : (
+                  <button
+                    onClick={sendVerificationCode}
+                    disabled={loading}
+                    className="text-gg-pink hover:underline text-sm"
+                  >
+                    Resend Code
+                  </button>
+                )}
+              </div>
+
+              <button
+                onClick={() => {
+                  setCodeSent(false)
+                  setVerificationCode(['', '', '', '', '', ''])
+                  setError('')
+                }}
+                className="w-full mt-6 text-center text-gg-gray-400 hover:text-white text-sm"
+              >
+                ← Change email address
+              </button>
             </div>
           )}
 
@@ -735,7 +873,10 @@ function SignUpContent() {
 
               <div className="flex gap-4">
                 <button
-                  onClick={() => setStep(1)}
+                  onClick={() => {
+                    setStep(1)
+                    setCodeSent(false)
+                  }}
                   className="btn-secondary flex items-center justify-center gap-2"
                 >
                   <ArrowLeft size={20} />
@@ -752,7 +893,7 @@ function SignUpContent() {
             </div>
           )}
 
-          {/* Step 3: Firm Profile OR Territory Selection */}
+          {/* Step 3: Firm Profile */}
           {step === 3 && selectedPlan === 'firm' && (
             <div className="space-y-6">
               <div className="card">
@@ -837,7 +978,7 @@ function SignUpContent() {
                 </h3>
                 <p className="text-gg-gray-400 text-sm mb-6">
                   {selectedPlan === 'county' 
-                    ? 'Choose the counties you want to monitor for land auctions and sales.'
+                    ? 'Choose the counties you want to monitor for land sales.'
                     : 'Choose the states you want full access to. All counties in selected states will be included.'
                   }
                 </p>
@@ -1020,7 +1161,6 @@ function SignUpContent() {
                   </div>
                 </div>
 
-                {/* Seat Info */}
                 <div className="bg-gg-gray-900 rounded-lg p-4 mb-6">
                   <div className="flex justify-between items-center">
                     <span className="text-gg-gray-300">Seats Used</span>
@@ -1036,7 +1176,6 @@ function SignUpContent() {
                   </div>
                 </div>
 
-                {/* Team Members List */}
                 {teamMembers.length > 0 && (
                   <div className="space-y-2 mb-6">
                     {teamMembers.map((member, index) => (
@@ -1059,7 +1198,6 @@ function SignUpContent() {
                   </div>
                 )}
 
-                {/* Add Member Form */}
                 {showAddMember ? (
                   <div className="border border-gg-gray-700 rounded-lg p-4 space-y-4">
                     <div className="grid grid-cols-2 gap-4">
@@ -1139,7 +1277,6 @@ function SignUpContent() {
                   </button>
                 )}
 
-                {/* Additional Seats */}
                 <div className="mt-6 pt-6 border-t border-gg-gray-700">
                   <div className="flex items-center justify-between">
                     <div>
@@ -1166,7 +1303,6 @@ function SignUpContent() {
                 </div>
               </div>
 
-              {/* Price Summary */}
               <div className="card">
                 <h4 className="font-medium text-white mb-4">Order Summary</h4>
                 <div className="space-y-2 text-sm">
