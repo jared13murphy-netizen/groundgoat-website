@@ -4,7 +4,7 @@ import { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
-import { User, CreditCard, LogOut, MapPin, ChevronRight, CheckCircle, AlertCircle, Loader2, Users } from 'lucide-react'
+import { User, CreditCard, LogOut, MapPin, ChevronRight, CheckCircle, AlertCircle, Loader2, Users, Mail } from 'lucide-react'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -16,6 +16,8 @@ function AccountContent() {
   const [loading, setLoading] = useState(true)
   const [hasSubscription, setHasSubscription] = useState<boolean | null>(null)
   const [subscriptionData, setSubscriptionData] = useState<any>(null)
+  const [sendingVerification, setSendingVerification] = useState(false)
+  const [verificationSent, setVerificationSent] = useState(false)
 
   useEffect(() => {
     const token = localStorage.getItem('auth_token')
@@ -85,6 +87,29 @@ function AccountContent() {
     }
   }
 
+const handleResendVerification = async () => {
+    const token = localStorage.getItem('auth_token')
+    if (!token) return
+
+    setSendingVerification(true)
+    try {
+      const response = await fetch(`${API_URL}/api/auth/send-verification`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      })
+
+      if (response.ok) {
+        setVerificationSent(true)
+      }
+    } catch (err) {
+      console.error('Failed to send verification email:', err)
+    } finally {
+      setSendingVerification(false)
+    }
+}
+  
   const handleLogout = () => {
     localStorage.removeItem('auth_token')
     localStorage.removeItem('user')
@@ -123,6 +148,42 @@ function AccountContent() {
           </div>
         )}
 
+{/* Email Verification Banner */}
+        {user && !user.is_verified && (
+          <div className="mb-6 bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
+            <div className="flex items-start gap-3">
+              <Mail className="text-blue-400 flex-shrink-0 mt-0.5" size={24} />
+              <div className="flex-1">
+                <p className="text-blue-400 font-medium">Verify your email address</p>
+                <p className="text-blue-400/70 text-sm mb-3">
+                  Please check your inbox and click the verification link to complete your account setup.
+                </p>
+                {verificationSent ? (
+                  <p className="text-green-400 text-sm flex items-center gap-2">
+                    <CheckCircle size={16} />
+                    Verification email sent! Check your inbox.
+                  </p>
+                ) : (
+                  <button
+                    onClick={handleResendVerification}
+                    disabled={sendingVerification}
+                    className="text-blue-400 hover:text-blue-300 text-sm font-medium flex items-center gap-2"
+                  >
+                    {sendingVerification ? (
+                      <>
+                        <Loader2 size={16} className="animate-spin" />
+                        Sending...
+                      </>
+                    ) : (
+                      'Resend verification email'
+                    )}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+        
         {/* No Subscription Warning */}
         {hasSubscription === false && (
           <div className="mb-6 bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
