@@ -2,8 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import Image from 'next/image'
-import { Send, Mail, MapPin, CheckCircle } from 'lucide-react'
+import { Send, CheckCircle } from 'lucide-react'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -106,43 +105,6 @@ export default function ContactPage() {
                 <p className="text-gg-gray-400">
                   Fill out the form and we'll respond as soon as we can.
                 </p>
-              </div>
-
-              <div className="space-y-6">
-                <div className="flex items-start gap-4">
-                  <div className="w-12 h-12 bg-gg-pink/10 rounded-xl flex items-center justify-center flex-shrink-0">
-                    <Mail className="text-gg-pink" size={24} />
-                  </div>
-                  <div>
-                    <h3 className="text-white font-medium mb-1">Email</h3>
-                    <a href="mailto:no-reply@groundgoat.com" className="text-gg-gray-400 hover:text-gg-pink transition-colors">
-                      no-reply@groundgoat.com
-                    </a>
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-4">
-                  <div className="w-12 h-12 bg-gg-pink/10 rounded-xl flex items-center justify-center flex-shrink-0">
-                    <MapPin className="text-gg-pink" size={24} />
-                  </div>
-                  <div>
-                    <h3 className="text-white font-medium mb-1">Location</h3>
-                    <p className="text-gg-gray-400">
-                      Carthage, Illinois
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Logo */}
-              <div className="pt-8">
-                <Image
-                  src="/logo.png"
-                  alt="Ground Goat"
-                  width={150}
-                  height={50}
-                  className="h-12 w-auto opacity-50"
-                />
               </div>
             </div>
           </div>
