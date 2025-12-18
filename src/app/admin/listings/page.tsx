@@ -38,13 +38,13 @@ export default function AdminListingsPage() {
 
   const fetchListings = async (token: string) => {
     try {
-      const response = await fetch(`${API_URL}/api/listings?limit=500`, {
+      const response = await fetch(`${API_URL}/api/listings`, {
         headers: { 'Authorization': `Bearer ${token}` },
       })
 
       if (response.ok) {
         const data = await response.json()
-        setListings(data.listings || data || [])
+        setListings(Array.isArray(data) ? data : [])
       }
     } catch (err) {
       console.error('Failed to fetch listings:', err)
