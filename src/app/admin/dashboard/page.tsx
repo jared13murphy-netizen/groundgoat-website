@@ -106,9 +106,6 @@ export default function AdminDashboard() {
             <h1 className="font-display text-4xl font-bold text-white mb-2">Admin Dashboard</h1>
             <p className="text-gg-gray-400">Welcome back, {user?.first_name}</p>
           </div>
-          <Link href="/admin/scraper" className="btn-primary">
-            Open Scraper
-          </Link>
         </div>
 
         {/* Stats Grid */}
