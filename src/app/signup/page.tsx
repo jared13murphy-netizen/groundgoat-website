@@ -3,7 +3,6 @@
 import { useState, useEffect, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import Image from 'next/image'
 import { Check, ArrowLeft, ArrowRight, Eye, EyeOff, MapPin, ChevronDown, X, Loader2, Building2, Users, Plus } from 'lucide-react'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
@@ -548,9 +547,6 @@ function SignUpContent() {
       <div className="max-w-4xl mx-auto px-6">
         {/* Header */}
         <div className="text-center mb-12">
-          <Link href="/" className="inline-block mb-8">
-            <Image src="/logo.png" alt="Ground Goat" width={150} height={50} className="h-12 w-auto" />
-          </Link>
           <h1 className="font-display text-4xl font-bold text-white mb-4">
             Create Your Account
           </h1>
