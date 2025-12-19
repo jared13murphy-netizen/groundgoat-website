@@ -192,7 +192,7 @@ export default function AdminListingsPage() {
             </button>
             {showFilterDropdown && (
               <div className="absolute right-0 top-full mt-1 bg-gg-gray-800 border border-gg-gray-700 rounded-lg shadow-xl z-10">
-                {['all', 'upcoming', 'active', 'completed', 'cancelled'].map(status => (
+                {['all', 'listed', 'live', 'pending', 'sold', 'no_sale'].map(status => (
                   <button
                     key={status}
                     onClick={() => { setFilterStatus(status); setShowFilterDropdown(false) }}
