@@ -3,9 +3,10 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Search, MapPin, Calendar, Loader2, ChevronDown, ExternalLink, Trash2 } from 'lucide-react'
+import { ArrowLeft, Search, MapPin, Calendar, Loader2, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, Trash2 } from 'lucide-react'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
+const ITEMS_PER_PAGE = 50
 
 interface Listing {
   id: string
@@ -15,7 +16,10 @@ interface Listing {
   total_acres: number
   status: string
   listing_type: string
-  company_name: string
+  company?: {
+    id: string
+    name: string
+  }
   created_at: string
 }
 
@@ -26,6 +30,8 @@ export default function AdminListingsPage() {
   const [searchTerm, setSearchTerm] = useState('')
   const [filterStatus, setFilterStatus] = useState('all')
   const [showFilterDropdown, setShowFilterDropdown] = useState(false)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [hasMore, setHasMore] = useState(true)
 
   useEffect(() => {
     const token = localStorage.getItem('auth_token')
@@ -33,18 +39,42 @@ export default function AdminListingsPage() {
       router.push('/signin')
       return
     }
-    fetchListings(token)
+    checkAuth(token)
   }, [router])
 
-  const fetchListings = async (token: string) => {
+  const checkAuth = async (token: string) => {
     try {
-      const response = await fetch(`${API_URL}/api/listings`, {
+      const response = await fetch(`${API_URL}/api/auth/me`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      })
+
+      if (!response.ok) throw new Error('Not authenticated')
+
+      const userData = await response.json()
+      
+      if (userData.account_type !== 'groundgoat_admin') {
+        router.push('/account')
+        return
+      }
+
+      fetchListings(token, 1)
+    } catch (err) {
+      router.push('/signin')
+    }
+  }
+
+  const fetchListings = async (token: string, page: number) => {
+    setLoading(true)
+    try {
+      const offset = (page - 1) * ITEMS_PER_PAGE
+      const response = await fetch(`${API_URL}/api/listings?limit=${ITEMS_PER_PAGE}&offset=${offset}`, {
         headers: { 'Authorization': `Bearer ${token}` },
       })
 
       if (response.ok) {
         const data = await response.json()
         setListings(Array.isArray(data) ? data : [])
+        setHasMore(data.length === ITEMS_PER_PAGE)
       }
     } catch (err) {
       console.error('Failed to fetch listings:', err)
@@ -53,11 +83,21 @@ export default function AdminListingsPage() {
     }
   }
 
+  const handlePageChange = (newPage: number) => {
+    const token = localStorage.getItem('auth_token')
+    if (token && newPage >= 1) {
+      setCurrentPage(newPage)
+      fetchListings(token, newPage)
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    }
+  }
+
   const filteredListings = listings.filter(listing => {
+    const companyName = listing.company?.name || ''
     const matchesSearch = 
       listing.county?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       listing.state?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      listing.company_name?.toLowerCase().includes(searchTerm.toLowerCase())
+      companyName.toLowerCase().includes(searchTerm.toLowerCase())
     
     const matchesFilter = filterStatus === 'all' || listing.status === filterStatus
     
@@ -84,7 +124,28 @@ export default function AdminListingsPage() {
     })
   }
 
-  if (loading) {
+  const handleDelete = async (listingId: string) => {
+    if (!confirm('Are you sure you want to delete this listing?')) return
+    
+    const token = localStorage.getItem('auth_token')
+    try {
+      const response = await fetch(`${API_URL}/api/listings/${listingId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` },
+      })
+      
+      if (response.ok) {
+        setListings(listings.filter(l => l.id !== listingId))
+      } else {
+        alert('Failed to delete listing')
+      }
+    } catch (err) {
+      console.error('Delete error:', err)
+      alert('Failed to delete listing')
+    }
+  }
+
+  if (loading && listings.length === 0) {
     return (
       <div className="min-h-screen bg-gg-black flex items-center justify-center">
         <Loader2 className="animate-spin text-gg-pink" size={32} />
@@ -102,7 +163,10 @@ export default function AdminListingsPage() {
           </Link>
           <div>
             <h1 className="font-display text-4xl font-bold text-white">Manage Listings</h1>
-            <p className="text-gg-gray-400">{listings.length} total listings</p>
+            <p className="text-gg-gray-400">
+              Page {currentPage} • Showing {filteredListings.length} listings
+              {hasMore && ' (more available)'}
+            </p>
           </div>
         </div>
 
@@ -185,17 +249,25 @@ export default function AdminListingsPage() {
                         {listing.total_acres?.toLocaleString() || 'N/A'}
                       </td>
                       <td className="py-4 px-4 text-gg-gray-300 text-sm">
-                        {listing.company_name || 'Unknown'}
+                        {listing.company?.name || 'Unknown'}
                       </td>
                       <td className="py-4 px-4">
                         {getStatusBadge(listing.status)}
                       </td>
                       <td className="py-4 px-4">
                         <div className="flex items-center gap-2">
-                          <button className="text-gg-gray-400 hover:text-white p-1" title="View">
+                          <Link 
+                            href={`/listing/${listing.id}`}
+                            className="text-gg-gray-400 hover:text-white p-1" 
+                            title="View"
+                          >
                             <ExternalLink size={16} />
-                          </button>
-                          <button className="text-gg-gray-400 hover:text-red-400 p-1" title="Delete">
+                          </Link>
+                          <button 
+                            onClick={() => handleDelete(listing.id)}
+                            className="text-gg-gray-400 hover:text-red-400 p-1" 
+                            title="Delete"
+                          >
                             <Trash2 size={16} />
                           </button>
                         </div>
@@ -205,6 +277,41 @@ export default function AdminListingsPage() {
                 )}
               </tbody>
             </table>
+          </div>
+
+          {/* Pagination */}
+          <div className="flex items-center justify-between px-4 py-4 border-t border-gg-gray-700">
+            <button
+              onClick={() => handlePageChange(currentPage - 1)}
+              disabled={currentPage === 1}
+              className="flex items-center gap-2 px-4 py-2 bg-gg-gray-800 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gg-gray-700"
+            >
+              <ChevronLeft size={16} />
+              Previous
+            </button>
+            
+            <div className="flex items-center gap-2">
+              <span className="text-gg-gray-400">Page</span>
+              <input
+                type="number"
+                min="1"
+                value={currentPage}
+                onChange={(e) => {
+                  const page = parseInt(e.target.value)
+                  if (page >= 1) handlePageChange(page)
+                }}
+                className="w-16 bg-gg-gray-800 border border-gg-gray-700 rounded px-2 py-1 text-white text-center"
+              />
+            </div>
+
+            <button
+              onClick={() => handlePageChange(currentPage + 1)}
+              disabled={!hasMore}
+              className="flex items-center gap-2 px-4 py-2 bg-gg-gray-800 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gg-gray-700"
+            >
+              Next
+              <ChevronRight size={16} />
+            </button>
           </div>
         </div>
       </div>
