@@ -3,35 +3,38 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Search, MapPin, Calendar, Loader2, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, Trash2 } from 'lucide-react'
+import { Loader2, Pencil, Trash2, ChevronLeft, ChevronRight, MapPin, Calendar, Clock, Layers } from 'lucide-react'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
-const ITEMS_PER_PAGE = 50
 
 interface Listing {
   id: string
+  title: string
   county: string
   state: string
-  auction_date: string
   total_acres: number
-  status: string
   listing_type: string
+  status: string
+  auction_date: string
+  auction_time: string
+  primary_image_url: string
   company?: {
     id: string
     name: string
   }
-  created_at: string
+  company_name?: string
+  tract_count?: number
+  tracts?: any[]
 }
 
 export default function AdminListingsPage() {
   const router = useRouter()
   const [listings, setListings] = useState<Listing[]>([])
   const [loading, setLoading] = useState(true)
-  const [searchTerm, setSearchTerm] = useState('')
-  const [filterStatus, setFilterStatus] = useState('all')
-  const [showFilterDropdown, setShowFilterDropdown] = useState(false)
-  const [currentPage, setCurrentPage] = useState(1)
-  const [hasMore, setHasMore] = useState(true)
+  const [page, setPage] = useState(1)
+  const [totalPages, setTotalPages] = useState(1)
+  const [pageInput, setPageInput] = useState('1')
+  const itemsPerPage = 50
 
   useEffect(() => {
     const token = localStorage.getItem('auth_token')
@@ -41,6 +44,13 @@ export default function AdminListingsPage() {
     }
     checkAuth(token)
   }, [router])
+
+  useEffect(() => {
+    const token = localStorage.getItem('auth_token')
+    if (token) {
+      fetchListings(token)
+    }
+  }, [page])
 
   const checkAuth = async (token: string) => {
     try {
@@ -57,24 +67,30 @@ export default function AdminListingsPage() {
         return
       }
 
-      fetchListings(token, 1)
+      await fetchListings(token)
     } catch (err) {
       router.push('/signin')
     }
   }
 
-  const fetchListings = async (token: string, page: number) => {
+  const fetchListings = async (token: string) => {
     setLoading(true)
     try {
-      const offset = (page - 1) * ITEMS_PER_PAGE
-      const response = await fetch(`${API_URL}/api/listings?limit=${ITEMS_PER_PAGE}&offset=${offset}`, {
-        headers: { 'Authorization': `Bearer ${token}` },
-      })
+      const offset = (page - 1) * itemsPerPage
+      const response = await fetch(
+        `${API_URL}/api/listings?limit=${itemsPerPage}&offset=${offset}`,
+        { headers: { 'Authorization': `Bearer ${token}` } }
+      )
 
       if (response.ok) {
         const data = await response.json()
-        setListings(Array.isArray(data) ? data : [])
-        setHasMore(data.length === ITEMS_PER_PAGE)
+        setListings(data)
+        // Estimate total pages (API should return total count ideally)
+        if (data.length === itemsPerPage) {
+          setTotalPages(Math.max(totalPages, page + 1))
+        } else if (data.length < itemsPerPage && data.length > 0) {
+          setTotalPages(page)
+        }
       }
     } catch (err) {
       console.error('Failed to fetch listings:', err)
@@ -83,65 +99,65 @@ export default function AdminListingsPage() {
     }
   }
 
-  const handlePageChange = (newPage: number) => {
-    const token = localStorage.getItem('auth_token')
-    if (token && newPage >= 1) {
-      setCurrentPage(newPage)
-      fetchListings(token, newPage)
-      window.scrollTo({ top: 0, behavior: 'smooth' })
-    }
-  }
-
-  const filteredListings = listings.filter(listing => {
-    const companyName = listing.company?.name || ''
-    const matchesSearch = 
-      listing.county?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      listing.state?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      companyName.toLowerCase().includes(searchTerm.toLowerCase())
-    
-    const matchesFilter = filterStatus === 'all' || listing.status === filterStatus
-    
-    return matchesSearch && matchesFilter
-  })
-
-  const getStatusBadge = (status: string) => {
-    const badges: Record<string, { label: string, class: string }> = {
-      'upcoming': { label: 'Upcoming', class: 'bg-blue-500/20 text-blue-400' },
-      'active': { label: 'Active', class: 'bg-green-500/20 text-green-400' },
-      'completed': { label: 'Completed', class: 'bg-gray-500/20 text-gray-400' },
-      'cancelled': { label: 'Cancelled', class: 'bg-red-500/20 text-red-400' },
-    }
-    const badge = badges[status] || { label: status, class: 'bg-gray-500/20 text-gray-400' }
-    return <span className={`px-2 py-1 rounded-full text-xs font-medium ${badge.class}`}>{badge.label}</span>
-  }
-
-  const formatDate = (dateString: string) => {
-    if (!dateString) return 'N/A'
-    return new Date(dateString).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric'
-    })
-  }
-
-  const handleDelete = async (listingId: string) => {
+  const handleDelete = async (id: string) => {
     if (!confirm('Are you sure you want to delete this listing?')) return
-    
+
     const token = localStorage.getItem('auth_token')
     try {
-      const response = await fetch(`${API_URL}/api/listings/${listingId}`, {
+      const response = await fetch(`${API_URL}/api/listings/${id}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` },
       })
-      
+
       if (response.ok) {
-        setListings(listings.filter(l => l.id !== listingId))
-      } else {
-        alert('Failed to delete listing')
+        setListings(prev => prev.filter(l => l.id !== id))
       }
     } catch (err) {
-      console.error('Delete error:', err)
-      alert('Failed to delete listing')
+      console.error('Failed to delete listing:', err)
+    }
+  }
+
+  const formatDate = (dateString: string) => {
+    if (!dateString) return '—'
+    const date = new Date(dateString)
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  }
+
+  const formatTime = (timeString: string) => {
+    if (!timeString) return '—'
+    const date = new Date(timeString)
+    if (isNaN(date.getTime())) return timeString
+    return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+  }
+
+  const getCompanyName = (listing: Listing) => {
+    if (listing.company?.name) return listing.company.name
+    if (listing.company_name) return listing.company_name
+    return '—'
+  }
+
+  const getTractCount = (listing: Listing) => {
+    if (listing.tract_count !== undefined) return listing.tract_count
+    if (listing.tracts?.length) return listing.tracts.length
+    return 0
+  }
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'listed': return 'bg-blue-500/20 text-blue-400'
+      case 'live': return 'bg-green-500/20 text-green-400'
+      case 'pending': return 'bg-yellow-500/20 text-yellow-400'
+      case 'sold': return 'bg-purple-500/20 text-purple-400'
+      case 'no_sale': return 'bg-red-500/20 text-red-400'
+      default: return 'bg-gray-500/20 text-gray-400'
+    }
+  }
+
+  const handlePageInput = (e: React.FormEvent) => {
+    e.preventDefault()
+    const newPage = parseInt(pageInput)
+    if (newPage >= 1) {
+      setPage(newPage)
     }
   }
 
@@ -157,162 +173,145 @@ export default function AdminListingsPage() {
     <div className="min-h-screen bg-gg-black pt-24 pb-12">
       <div className="max-w-7xl mx-auto px-6">
         {/* Header */}
-        <div className="flex items-center gap-4 mb-8">
-          <Link href="/admin/dashboard" className="text-gg-gray-400 hover:text-white">
-            <ArrowLeft size={24} />
-          </Link>
+        <div className="flex items-center justify-between mb-8">
           <div>
-            <h1 className="font-display text-4xl font-bold text-white">Manage Listings</h1>
-            <p className="text-gg-gray-400">
-              Page {currentPage} • Showing {filteredListings.length} listings
-              {hasMore && ' (more available)'}
-            </p>
+            <h1 className="font-display text-3xl font-bold text-white">Listings</h1>
+            <p className="text-gg-gray-400">Manage all property listings</p>
           </div>
+          <Link
+            href="/admin"
+            className="px-4 py-2 bg-gg-gray-800 text-white rounded-lg hover:bg-gg-gray-700"
+          >
+            ← Back to Admin
+          </Link>
         </div>
 
-        {/* Filters */}
-        <div className="flex flex-col sm:flex-row gap-4 mb-6">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gg-gray-500" size={20} />
-            <input
-              type="text"
-              placeholder="Search by county, state, or company..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg pl-10 pr-4 py-3 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none"
-            />
-          </div>
-          <div className="relative">
-            <button
-              onClick={() => setShowFilterDropdown(!showFilterDropdown)}
-              className="flex items-center gap-2 bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white"
-            >
-              <span>Status: {filterStatus === 'all' ? 'All' : filterStatus}</span>
-              <ChevronDown size={16} />
-            </button>
-            {showFilterDropdown && (
-              <div className="absolute right-0 top-full mt-1 bg-gg-gray-800 border border-gg-gray-700 rounded-lg shadow-xl z-10">
-                {['all', 'listed', 'live', 'pending', 'sold', 'no_sale'].map(status => (
-                  <button
-                    key={status}
-                    onClick={() => { setFilterStatus(status); setShowFilterDropdown(false) }}
-                    className="block w-full px-4 py-2 text-left text-gg-gray-300 hover:bg-gg-gray-700 hover:text-white capitalize"
-                  >
-                    {status === 'all' ? 'All Statuses' : status}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Listings Table */}
-        <div className="card overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-gg-gray-700">
-                  <th className="text-left py-4 px-4 text-gg-gray-400 font-medium">Location</th>
-                  <th className="text-left py-4 px-4 text-gg-gray-400 font-medium">Date</th>
-                  <th className="text-left py-4 px-4 text-gg-gray-400 font-medium">Acres</th>
-                  <th className="text-left py-4 px-4 text-gg-gray-400 font-medium">Company</th>
-                  <th className="text-left py-4 px-4 text-gg-gray-400 font-medium">Status</th>
-                  <th className="text-left py-4 px-4 text-gg-gray-400 font-medium">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredListings.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="text-center py-8 text-gg-gray-400">
-                      No listings found
-                    </td>
-                  </tr>
+        {/* Listings Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+          {listings.map((listing) => (
+            <div key={listing.id} className="card overflow-hidden group">
+              {/* Image */}
+              <div className="relative h-40 bg-gg-gray-800">
+                {listing.primary_image_url ? (
+                  <img
+                    src={listing.primary_image_url}
+                    alt={listing.title || 'Listing'}
+                    className="w-full h-full object-cover"
+                  />
                 ) : (
-                  filteredListings.map(listing => (
-                    <tr key={listing.id} className="border-b border-gg-gray-800 hover:bg-gg-gray-800/50">
-                      <td className="py-4 px-4">
-                        <div className="flex items-center gap-2">
-                          <MapPin size={16} className="text-gg-pink" />
-                          <div>
-                            <p className="text-white font-medium">{listing.county} County</p>
-                            <p className="text-gg-gray-400 text-sm">{listing.state}</p>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="py-4 px-4">
-                        <div className="flex items-center gap-2 text-gg-gray-300">
-                          <Calendar size={14} />
-                          {formatDate(listing.auction_date)}
-                        </div>
-                      </td>
-                      <td className="py-4 px-4 text-white">
-                        {listing.total_acres?.toLocaleString() || 'N/A'}
-                      </td>
-                      <td className="py-4 px-4 text-gg-gray-300 text-sm">
-                        {listing.company?.name || 'Unknown'}
-                      </td>
-                      <td className="py-4 px-4">
-                        {getStatusBadge(listing.status)}
-                      </td>
-                      <td className="py-4 px-4">
-                        <div className="flex items-center gap-2">
-                          <Link 
-                            href={`/listing/${listing.id}`}
-                            className="text-gg-gray-400 hover:text-white p-1" 
-                            title="View"
-                          >
-                            <ExternalLink size={16} />
-                          </Link>
-                          <button 
-                            onClick={() => handleDelete(listing.id)}
-                            className="text-gg-gray-400 hover:text-red-400 p-1" 
-                            title="Delete"
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
+                  <div className="w-full h-full flex items-center justify-center">
+                    <MapPin className="text-gg-gray-600" size={40} />
+                  </div>
                 )}
-              </tbody>
-            </table>
-          </div>
+                {/* Status Badge */}
+                <div className={`absolute top-3 left-3 px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(listing.status)}`}>
+                  {listing.status?.replace('_', ' ')}
+                </div>
+                {/* Type Badge */}
+                <div className="absolute top-3 right-3 px-2 py-1 rounded-full text-xs font-medium bg-gg-gray-900/80 text-white">
+                  {listing.listing_type === 'auction' ? 'Auction' : 'Private Treaty'}
+                </div>
+              </div>
 
-          {/* Pagination */}
-          <div className="flex items-center justify-between px-4 py-4 border-t border-gg-gray-700">
-            <button
-              onClick={() => handlePageChange(currentPage - 1)}
-              disabled={currentPage === 1}
-              className="flex items-center gap-2 px-4 py-2 bg-gg-gray-800 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gg-gray-700"
-            >
-              <ChevronLeft size={16} />
-              Previous
-            </button>
-            
-            <div className="flex items-center gap-2">
-              <span className="text-gg-gray-400">Page</span>
-              <input
-                type="number"
-                min="1"
-                value={currentPage}
-                onChange={(e) => {
-                  const page = parseInt(e.target.value)
-                  if (page >= 1) handlePageChange(page)
-                }}
-                className="w-16 bg-gg-gray-800 border border-gg-gray-700 rounded px-2 py-1 text-white text-center"
-              />
+              {/* Content */}
+              <div className="p-4">
+                {/* Location */}
+                <h3 className="text-white font-semibold text-lg mb-1">
+                  {listing.county} County, {listing.state}
+                </h3>
+                
+                {/* Company */}
+                <p className="text-gg-pink text-sm mb-3">{getCompanyName(listing)}</p>
+
+                {/* Stats Grid */}
+                <div className="grid grid-cols-2 gap-3 mb-4">
+                  <div className="flex items-center gap-2 text-gg-gray-400 text-sm">
+                    <MapPin size={14} />
+                    <span>{listing.total_acres?.toLocaleString() || '—'} acres</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-gg-gray-400 text-sm">
+                    <Layers size={14} />
+                    <span>{getTractCount(listing)} tracts</span>
+                  </div>
+                  {listing.listing_type === 'auction' && (
+                    <>
+                      <div className="flex items-center gap-2 text-gg-gray-400 text-sm">
+                        <Calendar size={14} />
+                        <span>{formatDate(listing.auction_date)}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-gg-gray-400 text-sm">
+                        <Clock size={14} />
+                        <span>{formatTime(listing.auction_time)}</span>
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* Actions */}
+                <div className="flex gap-2 pt-3 border-t border-gg-gray-800">
+                  <Link
+                    href={`/admin/listings/${listing.id}`}
+                    className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-gg-gray-800 text-white rounded-lg hover:bg-gg-gray-700 transition-colors"
+                  >
+                    <Pencil size={14} />
+                    Edit
+                  </Link>
+                  <button
+                    onClick={() => handleDelete(listing.id)}
+                    className="flex items-center justify-center gap-2 px-3 py-2 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30 transition-colors"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              </div>
             </div>
+          ))}
+        </div>
 
-            <button
-              onClick={() => handlePageChange(currentPage + 1)}
-              disabled={!hasMore}
-              className="flex items-center gap-2 px-4 py-2 bg-gg-gray-800 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gg-gray-700"
-            >
-              Next
-              <ChevronRight size={16} />
-            </button>
+        {/* Empty State */}
+        {listings.length === 0 && !loading && (
+          <div className="text-center py-12">
+            <MapPin className="mx-auto text-gg-gray-600 mb-4" size={48} />
+            <p className="text-gg-gray-400">No listings found</p>
           </div>
+        )}
+
+        {/* Pagination */}
+        <div className="flex items-center justify-center gap-4">
+          <button
+            onClick={() => setPage(p => Math.max(1, p - 1))}
+            disabled={page === 1}
+            className="flex items-center gap-2 px-4 py-2 bg-gg-gray-800 text-white rounded-lg hover:bg-gg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <ChevronLeft size={16} />
+            Previous
+          </button>
+          
+          <form onSubmit={handlePageInput} className="flex items-center gap-2">
+            <span className="text-gg-gray-400">Page</span>
+            <input
+              type="number"
+              value={pageInput}
+              onChange={(e) => setPageInput(e.target.value)}
+              className="w-16 bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-3 py-2 text-white text-center"
+              min="1"
+            />
+            <button type="submit" className="px-3 py-2 bg-gg-pink text-white rounded-lg hover:bg-gg-pink/80">
+              Go
+            </button>
+          </form>
+
+          <button
+            onClick={() => {
+              setPage(p => p + 1)
+              setPageInput((page + 1).toString())
+            }}
+            disabled={listings.length < itemsPerPage}
+            className="flex items-center gap-2 px-4 py-2 bg-gg-gray-800 text-white rounded-lg hover:bg-gg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Next
+            <ChevronRight size={16} />
+          </button>
         </div>
       </div>
     </div>
