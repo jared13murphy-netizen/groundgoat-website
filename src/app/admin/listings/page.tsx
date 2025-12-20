@@ -217,7 +217,7 @@ export default function AdminListingsPage() {
   }
 
   // Get unique counties from listings for filter dropdown
-  const uniqueCounties = [...new Set(listings.map(l => l.county).filter(Boolean))].sort()
+  const uniqueCounties = Array.from(new Set(listings.map(l => l.county).filter(Boolean))).sort()
 
   if (loading && listings.length === 0) {
     return (
