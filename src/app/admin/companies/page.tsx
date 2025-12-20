@@ -54,32 +54,20 @@ export default function AdminCompaniesPage() {
 
   const fetchCompaniesWithListingCounts = async (token: string) => {
     try {
-      // Fetch companies
-      const companiesResponse = await fetch(`${API_URL}/api/companies`, {
-        headers: { 'Authorization': `Bearer ${token}` },
-      })
+      // Fetch companies and listing counts in parallel
+      const [companiesResponse, countsResponse] = await Promise.all([
+        fetch(`${API_URL}/api/companies`, {
+          headers: { 'Authorization': `Bearer ${token}` },
+        }),
+        fetch(`${API_URL}/api/companies/listing-counts`, {
+          headers: { 'Authorization': `Bearer ${token}` },
+        })
+      ])
       
       if (!companiesResponse.ok) throw new Error('Failed to fetch companies')
       
       const companiesData = await companiesResponse.json()
-      
-      // Fetch all listings to count per company
-      const listingsResponse = await fetch(`${API_URL}/api/listings?limit=1000`, {
-        headers: { 'Authorization': `Bearer ${token}` },
-      })
-      
-      let listingCounts: Record<string, number> = {}
-      
-      if (listingsResponse.ok) {
-        const listings = await listingsResponse.json()
-        // Count listings per company
-        listings.forEach((listing: any) => {
-          const companyId = listing.listing_company_id || listing.company?.id
-          if (companyId) {
-            listingCounts[companyId] = (listingCounts[companyId] || 0) + 1
-          }
-        })
-      }
+      const listingCounts = countsResponse.ok ? await countsResponse.json() : {}
       
       // Add listing counts to companies
       const companiesWithCounts = companiesData.map((company: Company) => ({
@@ -151,11 +139,13 @@ export default function AdminCompaniesPage() {
               {/* Header with logo */}
               <div className="relative h-24 bg-gg-gray-800 flex items-center justify-center">
                 {company.logo_url ? (
-                  <img
-                    src={company.logo_url}
-                    alt={company.name}
-                    className="h-16 object-contain"
-                  />
+                  <div className="bg-white rounded-[10px] p-3 flex items-center justify-center">
+                    <img
+                      src={company.logo_url}
+                      alt={company.name}
+                      className="h-12 object-contain"
+                    />
+                  </div>
                 ) : (
                   <Building2 className="text-gg-gray-600" size={40} />
                 )}
