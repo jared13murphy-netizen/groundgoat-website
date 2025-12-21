@@ -199,19 +199,46 @@ export default function EditListingPage() {
     try {
       const updateData: any = {}
       
+      // Text fields - always include if they have a value
       if (formData.title) updateData.title = formData.title
       if (formData.description) updateData.description = formData.description
+      if (formData.listing_type) updateData.listing_type = formData.listing_type
       if (formData.status) updateData.status = formData.status
+      
+      // Location fields
+      if (formData.county) updateData.county = formData.county
+      if (formData.state) updateData.state = formData.state
+      if (formData.city) updateData.city = formData.city
+      if (formData.zip) updateData.zip = formData.zip
+      if (formData.address) updateData.address = formData.address
+      
+      // Numeric fields
       if (formData.total_acres) updateData.total_acres = parseFloat(formData.total_acres)
       if (formData.price_per_acre) updateData.price_per_acre = parseFloat(formData.price_per_acre)
       if (formData.sale_price) updateData.sale_price = parseFloat(formData.sale_price)
-      if (formData.primary_image_url) updateData.primary_image_url = formData.primary_image_url
+      if (formData.asking_price) updateData.asking_price = parseFloat(formData.asking_price)
       
+      // URL fields
+      if (formData.primary_image_url) updateData.primary_image_url = formData.primary_image_url
+      if (formData.brochure_url) updateData.brochure_url = formData.brochure_url
+      if (formData.source_url) updateData.source_url = formData.source_url
+      if (formData.bidding_url) updateData.bidding_url = formData.bidding_url
+      
+      // Company
+      if (formData.listing_company_id) updateData.listing_company_id = formData.listing_company_id
+      
+      // Auction fields
+      if (formData.auction_location) updateData.auction_location = formData.auction_location
       if (formData.auction_date) {
         updateData.auction_date = new Date(formData.auction_date).toISOString()
       }
       if (formData.auction_date && formData.auction_time) {
         updateData.auction_time = new Date(`${formData.auction_date}T${formData.auction_time}`).toISOString()
+      }
+      
+      // Land types array
+      if (formData.land_types && formData.land_types.length > 0) {
+        updateData.land_types = formData.land_types
       }
 
       const response = await fetch(`${API_URL}/api/listings/${listingId}`, {
@@ -225,6 +252,8 @@ export default function EditListingPage() {
 
       if (response.ok) {
         setSuccess('Listing updated successfully!')
+        // Refresh listing data
+        await fetchListing(token!)
         setTimeout(() => setSuccess(''), 3000)
       } else {
         const data = await response.json()
