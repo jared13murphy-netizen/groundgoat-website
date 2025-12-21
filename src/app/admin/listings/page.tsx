@@ -106,7 +106,7 @@ export default function AdminListingsPage() {
     setLoading(true)
     try {
       const offset = (page - 1) * itemsPerPage
-      let url = `${API_URL}/api/listings?limit=${itemsPerPage}&offset=${offset}`
+      let url = `${API_URL}/api/listings?limit=${itemsPerPage}&offset=${offset}&sort_order=desc`
       
       if (filterCounty) {
         url += `&county=${encodeURIComponent(filterCounty)}`
