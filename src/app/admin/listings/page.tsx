@@ -44,8 +44,9 @@ export default function AdminListingsPage() {
   const [pageInput, setPageInput] = useState('1')
   const [filterCompany, setFilterCompany] = useState('')
   const [filterCounty, setFilterCounty] = useState('')
+  const [filterListingType, setFilterListingType] = useState('')
   const [showFilters, setShowFilters] = useState(false)
-  const itemsPerPage = 50
+  const itemsPerPage = 100
 
   useEffect(() => {
     const token = localStorage.getItem('auth_token')
@@ -61,7 +62,7 @@ export default function AdminListingsPage() {
     if (token) {
       fetchListings(token)
     }
-  }, [page, filterCompany, filterCounty])
+  }, [page, filterCompany, filterCounty, filterListingType])
 
   const checkAuth = async (token: string) => {
     try {
@@ -111,6 +112,10 @@ export default function AdminListingsPage() {
         url += `&county=${encodeURIComponent(filterCounty)}`
       }
       
+      if (filterListingType) {
+        url += `&listing_type=${filterListingType}`
+      }
+      
       const response = await fetch(url, {
         headers: { 'Authorization': `Bearer ${token}` }
       })
@@ -126,11 +131,15 @@ export default function AdminListingsPage() {
           )
         }
         
-        // Sort by created_at descending (newest first)
+        // Sort by auction_date DESC, then auction_time DESC
         data.sort((a: Listing, b: Listing) => {
-          const dateA = new Date(a.created_at).getTime()
-          const dateB = new Date(b.created_at).getTime()
-          return dateB - dateA
+          const dateA = a.auction_date ? new Date(a.auction_date).getTime() : 0
+          const dateB = b.auction_date ? new Date(b.auction_date).getTime() : 0
+          if (dateB !== dateA) return dateB - dateA
+          
+          const timeA = a.auction_time ? new Date(a.auction_time).getTime() : 0
+          const timeB = b.auction_time ? new Date(b.auction_time).getTime() : 0
+          return timeB - timeA
         })
         
         setListings(data)
@@ -212,6 +221,7 @@ export default function AdminListingsPage() {
   const clearFilters = () => {
     setFilterCompany('')
     setFilterCounty('')
+    setFilterListingType('')
     setPage(1)
     setPageInput('1')
   }
@@ -244,16 +254,16 @@ export default function AdminListingsPage() {
           <button
             onClick={() => setShowFilters(!showFilters)}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
-              showFilters || filterCompany || filterCounty
+              showFilters || filterCompany || filterCounty || filterListingType
                 ? 'bg-gg-pink text-white'
                 : 'bg-gg-gray-800 text-white hover:bg-gg-gray-700'
             }`}
           >
             <Filter size={16} />
             Filters
-            {(filterCompany || filterCounty) && (
+            {(filterCompany || filterCounty || filterListingType) && (
               <span className="ml-1 px-2 py-0.5 bg-white/20 rounded-full text-xs">
-                {[filterCompany, filterCounty].filter(Boolean).length}
+                {[filterCompany, filterCounty, filterListingType].filter(Boolean).length}
               </span>
             )}
           </button>
@@ -281,6 +291,22 @@ export default function AdminListingsPage() {
                 </select>
               </div>
               <div className="flex-1 min-w-[200px]">
+                <label className="block text-gg-gray-400 text-sm mb-1">Listing Type</label>
+                <select
+                  value={filterListingType}
+                  onChange={(e) => {
+                    setFilterListingType(e.target.value)
+                    setPage(1)
+                    setPageInput('1')
+                  }}
+                  className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-2 text-white"
+                >
+                  <option value="">All Types</option>
+                  <option value="auction">Auction</option>
+                  <option value="private_treaty">Private Treaty</option>
+                </select>
+              </div>
+              <div className="flex-1 min-w-[200px]">
                 <label className="block text-gg-gray-400 text-sm mb-1">County</label>
                 <input
                   type="text"
@@ -294,7 +320,7 @@ export default function AdminListingsPage() {
                   className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-2 text-white"
                 />
               </div>
-              {(filterCompany || filterCounty) && (
+              {(filterCompany || filterCounty || filterListingType) && (
                 <button
                   onClick={clearFilters}
                   className="px-4 py-2 bg-gg-gray-800 text-white rounded-lg hover:bg-gg-gray-700"
