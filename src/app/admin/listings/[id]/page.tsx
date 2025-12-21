@@ -3,9 +3,22 @@
 import { useState, useEffect } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Save, Loader2, Trash2, ExternalLink, Pencil } from 'lucide-react'
+import { ArrowLeft, Save, Loader2, Trash2, ExternalLink, Pencil, Plus } from 'lucide-react'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
+
+const US_STATES = [
+  "Alabama", "Alaska", "Arizona", "Arkansas", "California", "Colorado", "Connecticut", "Delaware",
+  "Florida", "Georgia", "Hawaii", "Idaho", "Illinois", "Indiana", "Iowa", "Kansas", "Kentucky",
+  "Louisiana", "Maine", "Maryland", "Massachusetts", "Michigan", "Minnesota", "Mississippi",
+  "Missouri", "Montana", "Nebraska", "Nevada", "New Hampshire", "New Jersey", "New Mexico",
+  "New York", "North Carolina", "North Dakota", "Ohio", "Oklahoma", "Oregon", "Pennsylvania",
+  "Rhode Island", "South Carolina", "South Dakota", "Tennessee", "Texas", "Utah", "Vermont",
+  "Virginia", "Washington", "West Virginia", "Wisconsin", "Wyoming"
+]
+
+const STATUSES = ['listed', 'live', 'pending', 'sold', 'no_sale']
+const LAND_TYPES = ['Farm', 'Recreational', 'Pasture', 'Timber', 'Commercial', 'Residential', 'Development', 'CRP']
 
 interface Listing {
   id: string
@@ -55,6 +68,8 @@ export default function EditListingPage() {
   const [companies, setCompanies] = useState<Company[]>([])
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  const [showAddTract, setShowAddTract] = useState(false)
+  const [addingTract, setAddingTract] = useState(false)
 
   // Form state
   const [formData, setFormData] = useState({
@@ -80,6 +95,15 @@ export default function EditListingPage() {
     price_per_acre: '',
     sale_price: '',
     listing_company_id: '',
+  })
+
+  // New tract form state
+  const [newTract, setNewTract] = useState({
+    tract_number: '',
+    total_acres: '',
+    tillable_acres: '',
+    land_type: 'Farm',
+    description: '',
   })
 
   useEffect(() => {
@@ -165,6 +189,7 @@ export default function EditListingPage() {
       const response = await fetch(`${API_URL}/api/companies`, {
         headers: { 'Authorization': `Bearer ${token}` },
       })
+
       if (response.ok) {
         const data = await response.json()
         setCompanies(data)
@@ -251,10 +276,8 @@ export default function EditListingPage() {
       })
 
       if (response.ok) {
-        setSuccess('Listing updated successfully!')
-        // Refresh listing data
-        await fetchListing(token!)
-        setTimeout(() => setSuccess(''), 3000)
+        // Redirect to listings page after successful save
+        router.push('/admin/listings')
       } else {
         const data = await response.json()
         setError(data.detail || 'Failed to update listing')
@@ -287,6 +310,57 @@ export default function EditListingPage() {
     }
   }
 
+  const handleAddTract = async () => {
+    if (!newTract.tract_number || !newTract.total_acres) {
+      setError('Tract number and total acres are required')
+      return
+    }
+
+    setAddingTract(true)
+    setError('')
+
+    const token = localStorage.getItem('auth_token')
+
+    try {
+      const response = await fetch(`${API_URL}/api/listings/${listingId}/tracts`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          tract_number: parseInt(newTract.tract_number),
+          total_acres: parseFloat(newTract.total_acres),
+          tillable_acres: newTract.tillable_acres ? parseFloat(newTract.tillable_acres) : null,
+          land_type: newTract.land_type,
+          description: newTract.description || null,
+        }),
+      })
+
+      if (response.ok) {
+        // Reset form and refresh listing
+        setNewTract({
+          tract_number: '',
+          total_acres: '',
+          tillable_acres: '',
+          land_type: 'Farm',
+          description: '',
+        })
+        setShowAddTract(false)
+        await fetchListing(token!)
+        setSuccess('Tract added successfully!')
+        setTimeout(() => setSuccess(''), 3000)
+      } else {
+        const data = await response.json()
+        setError(data.detail || 'Failed to add tract')
+      }
+    } catch (err) {
+      setError('Failed to add tract')
+    } finally {
+      setAddingTract(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gg-black flex items-center justify-center">
@@ -307,9 +381,6 @@ export default function EditListingPage() {
       </div>
     )
   }
-
-  const LAND_TYPES = ['Farm', 'Recreational', 'Pasture', 'Commercial', 'Residential', 'Development']
-  const STATUSES = ['listed', 'live', 'pending', 'sold', 'no_sale']
 
   return (
     <div className="min-h-screen bg-gg-black pt-24 pb-12">
@@ -443,22 +514,27 @@ export default function EditListingPage() {
             <h2 className="text-xl font-semibold text-white mb-4">Location</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
+                <label className="block text-gg-gray-400 text-sm mb-1">State</label>
+                <select
+                  name="state"
+                  value={formData.state}
+                  onChange={handleChange}
+                  className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white"
+                >
+                  <option value="">Select State</option>
+                  {US_STATES.map(state => (
+                    <option key={state} value={state}>{state}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
                 <label className="block text-gg-gray-400 text-sm mb-1">County</label>
                 <input
                   type="text"
                   name="county"
                   value={formData.county}
                   onChange={handleChange}
-                  className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white"
-                />
-              </div>
-              <div>
-                <label className="block text-gg-gray-400 text-sm mb-1">State</label>
-                <input
-                  type="text"
-                  name="state"
-                  value={formData.state}
-                  onChange={handleChange}
+                  placeholder="Enter county name"
                   className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white"
                 />
               </div>
@@ -649,10 +725,99 @@ export default function EditListingPage() {
             </div>
           </div>
 
-          {/* Tracts Info */}
-          {listing.tracts && listing.tracts.length > 0 && (
-            <div className="card">
-              <h2 className="text-xl font-semibold text-white mb-4">Tracts ({listing.tracts.length})</h2>
+          {/* Tracts */}
+          <div className="card">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-semibold text-white">Tracts ({listing.tracts?.length || 0})</h2>
+              <button
+                type="button"
+                onClick={() => setShowAddTract(!showAddTract)}
+                className="flex items-center gap-2 px-4 py-2 bg-gg-pink text-white rounded-lg hover:bg-gg-pink/80"
+              >
+                <Plus size={16} />
+                Add Tract
+              </button>
+            </div>
+
+            {/* Add Tract Form */}
+            {showAddTract && (
+              <div className="mb-4 p-4 bg-gg-gray-800 rounded-lg">
+                <h3 className="text-white font-medium mb-3">New Tract</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-gg-gray-400 text-sm mb-1">Tract Number *</label>
+                    <input
+                      type="number"
+                      value={newTract.tract_number}
+                      onChange={(e) => setNewTract(prev => ({ ...prev, tract_number: e.target.value }))}
+                      className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-2 text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-gg-gray-400 text-sm mb-1">Total Acres *</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={newTract.total_acres}
+                      onChange={(e) => setNewTract(prev => ({ ...prev, total_acres: e.target.value }))}
+                      className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-2 text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-gg-gray-400 text-sm mb-1">Tillable Acres</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={newTract.tillable_acres}
+                      onChange={(e) => setNewTract(prev => ({ ...prev, tillable_acres: e.target.value }))}
+                      className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-2 text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-gg-gray-400 text-sm mb-1">Land Type</label>
+                    <select
+                      value={newTract.land_type}
+                      onChange={(e) => setNewTract(prev => ({ ...prev, land_type: e.target.value }))}
+                      className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-2 text-white"
+                    >
+                      {LAND_TYPES.map(type => (
+                        <option key={type} value={type}>{type}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="block text-gg-gray-400 text-sm mb-1">Description</label>
+                    <input
+                      type="text"
+                      value={newTract.description}
+                      onChange={(e) => setNewTract(prev => ({ ...prev, description: e.target.value }))}
+                      className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-2 text-white"
+                    />
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2 mt-4">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddTract(false)}
+                    className="px-4 py-2 bg-gg-gray-700 text-white rounded-lg hover:bg-gg-gray-600"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleAddTract}
+                    disabled={addingTract}
+                    className="flex items-center gap-2 px-4 py-2 bg-gg-pink text-white rounded-lg hover:bg-gg-pink/80 disabled:opacity-50"
+                  >
+                    {addingTract ? <Loader2 className="animate-spin" size={16} /> : <Plus size={16} />}
+                    Add Tract
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Existing Tracts */}
+            {listing.tracts && listing.tracts.length > 0 ? (
               <div className="space-y-2">
                 {listing.tracts.map((tract: any, index: number) => (
                   <div key={tract.id || index} className="flex justify-between items-center p-3 bg-gg-gray-800 rounded-lg">
@@ -670,8 +835,10 @@ export default function EditListingPage() {
                   </div>
                 ))}
               </div>
-            </div>
-          )}
+            ) : (
+              <p className="text-gg-gray-400 text-center py-4">No tracts added yet</p>
+            )}
+          </div>
 
           {/* Submit */}
           <div className="flex justify-end gap-4">
