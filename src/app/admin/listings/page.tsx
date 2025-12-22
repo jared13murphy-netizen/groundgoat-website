@@ -1,53 +1,30 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useRouter, useParams } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Save, Loader2, Trash2, ExternalLink, Pencil, Plus } from 'lucide-react'
+import { Loader2, Pencil, Trash2, ChevronLeft, ChevronRight, MapPin, Calendar, Clock, Layers, ArrowLeft, Filter } from 'lucide-react'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
-
-const US_STATES = [
-  "Alabama", "Alaska", "Arizona", "Arkansas", "California", "Colorado", "Connecticut", "Delaware",
-  "Florida", "Georgia", "Hawaii", "Idaho", "Illinois", "Indiana", "Iowa", "Kansas", "Kentucky",
-  "Louisiana", "Maine", "Maryland", "Massachusetts", "Michigan", "Minnesota", "Mississippi",
-  "Missouri", "Montana", "Nebraska", "Nevada", "New Hampshire", "New Jersey", "New Mexico",
-  "New York", "North Carolina", "North Dakota", "Ohio", "Oklahoma", "Oregon", "Pennsylvania",
-  "Rhode Island", "South Carolina", "South Dakota", "Tennessee", "Texas", "Utah", "Vermont",
-  "Virginia", "Washington", "West Virginia", "Wisconsin", "Wyoming"
-]
-
-const STATUSES = ['listed', 'live', 'pending', 'sold', 'no_sale']
-const LAND_TYPES = ['Farm', 'Recreational', 'Pasture', 'Timber', 'Commercial', 'Residential', 'Development', 'CRP']
 
 interface Listing {
   id: string
   title: string
-  description: string
-  listing_type: 'auction' | 'private_treaty'
-  status: string
-  address: string
-  city: string
   county: string
   state: string
-  zip: string
   total_acres: number
-  land_types: string[]
-  primary_image_url: string
-  brochure_url: string
-  source_url: string
+  listing_type: string
+  status: string
   auction_date: string
   auction_time: string
-  auction_location: string
-  bidding_url: string
-  asking_price: number
-  price_per_acre: number
-  sale_price: number
-  listing_company_id: string
+  primary_image_url: string
   company?: {
     id: string
     name: string
   }
+  company_name?: string
+  listing_company_id?: string
+  tract_count?: number
   tracts?: any[]
   created_at: string
 }
@@ -57,55 +34,19 @@ interface Company {
   name: string
 }
 
-export default function EditListingPage() {
+export default function AdminListingsPage() {
   const router = useRouter()
-  const params = useParams()
-  const listingId = params.id as string
-
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [listing, setListing] = useState<Listing | null>(null)
+  const [listings, setListings] = useState<Listing[]>([])
   const [companies, setCompanies] = useState<Company[]>([])
-  const [error, setError] = useState('')
-  const [success, setSuccess] = useState('')
-  const [showAddTract, setShowAddTract] = useState(false)
-  const [addingTract, setAddingTract] = useState(false)
-
-  // Form state
-  const [formData, setFormData] = useState({
-    title: '',
-    description: '',
-    listing_type: 'auction',
-    status: 'listed',
-    address: '',
-    city: '',
-    county: '',
-    state: '',
-    zip: '',
-    total_acres: '',
-    land_types: [] as string[],
-    primary_image_url: '',
-    brochure_url: '',
-    source_url: '',
-    auction_date: '',
-    auction_time: '',
-    auction_location: '',
-    bidding_url: '',
-    asking_price: '',
-    price_per_acre: '',
-    sale_price: '',
-    listing_company_id: '',
-  })
-
-  // New tract form state
-  const [newTract, setNewTract] = useState({
-    tract_number: '',
-    total_acres: '',
-    tillable_acres: '',
-    land_type: 'Farm',
-    description: '',
-    soil_rating: '',
-  })
+  const [loading, setLoading] = useState(true)
+  const [page, setPage] = useState(1)
+  const [totalPages, setTotalPages] = useState(1)
+  const [pageInput, setPageInput] = useState('1')
+  const [filterCompany, setFilterCompany] = useState('')
+  const [filterCounty, setFilterCounty] = useState('')
+  const [filterListingType, setFilterListingType] = useState('')
+  const [showFilters, setShowFilters] = useState(false)
+  const itemsPerPage = 100
 
   useEffect(() => {
     const token = localStorage.getItem('auth_token')
@@ -114,7 +55,14 @@ export default function EditListingPage() {
       return
     }
     checkAuth(token)
-  }, [router, listingId])
+  }, [router])
+
+  useEffect(() => {
+    const token = localStorage.getItem('auth_token')
+    if (token) {
+      fetchListings(token)
+    }
+  }, [page, filterCompany, filterCounty, filterListingType])
 
   const checkAuth = async (token: string) => {
     try {
@@ -132,56 +80,11 @@ export default function EditListingPage() {
       }
 
       await Promise.all([
-        fetchListing(token),
+        fetchListings(token),
         fetchCompanies(token)
       ])
     } catch (err) {
       router.push('/signin')
-    }
-  }
-
-  const fetchListing = async (token: string) => {
-    try {
-      const response = await fetch(`${API_URL}/api/listings/${listingId}`, {
-        headers: { 'Authorization': `Bearer ${token}` },
-      })
-
-      if (response.ok) {
-        const data = await response.json()
-        setListing(data)
-        
-        // Populate form
-        setFormData({
-          title: data.title || '',
-          description: data.description || '',
-          listing_type: data.listing_type || 'auction',
-          status: data.status || 'listed',
-          address: data.address || '',
-          city: data.city || '',
-          county: data.county || '',
-          state: data.state || '',
-          zip: data.zip || '',
-          total_acres: data.total_acres?.toString() || '',
-          land_types: data.land_types || [],
-          primary_image_url: data.primary_image_url || '',
-          brochure_url: data.brochure_url || '',
-          source_url: data.source_url || '',
-          auction_date: data.auction_date ? data.auction_date.split('T')[0] : '',
-          auction_time: data.auction_time ? data.auction_time.split('T')[1]?.substring(0, 5) : '',
-          auction_location: data.auction_location || '',
-          bidding_url: data.bidding_url || '',
-          asking_price: data.asking_price?.toString() || '',
-          price_per_acre: data.price_per_acre?.toString() || '',
-          sale_price: data.sale_price?.toString() || '',
-          listing_company_id: data.listing_company_id || data.company?.id || '',
-        })
-      } else {
-        setError('Listing not found')
-      }
-    } catch (err) {
-      setError('Failed to fetch listing')
-    } finally {
-      setLoading(false)
     }
   }
 
@@ -190,7 +93,6 @@ export default function EditListingPage() {
       const response = await fetch(`${API_URL}/api/companies`, {
         headers: { 'Authorization': `Bearer ${token}` },
       })
-
       if (response.ok) {
         const data = await response.json()
         setCompanies(data)
@@ -200,171 +102,134 @@ export default function EditListingPage() {
     }
   }
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-    const { name, value } = e.target
-    setFormData(prev => ({ ...prev, [name]: value }))
-  }
-
-  const handleLandTypeChange = (type: string) => {
-    setFormData(prev => ({
-      ...prev,
-      land_types: prev.land_types.includes(type)
-        ? prev.land_types.filter(t => t !== type)
-        : [...prev.land_types, type]
-    }))
-  }
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setSaving(true)
-    setError('')
-    setSuccess('')
-
-    const token = localStorage.getItem('auth_token')
-
+  const fetchListings = async (token: string) => {
+    setLoading(true)
     try {
-      const updateData: any = {}
+      const offset = (page - 1) * itemsPerPage
+      let url = `${API_URL}/api/listings?limit=${itemsPerPage}&offset=${offset}&sort_order=desc`
       
-      // Text fields - always include if they have a value
-      if (formData.title) updateData.title = formData.title
-      if (formData.description) updateData.description = formData.description
-      if (formData.listing_type) updateData.listing_type = formData.listing_type
-      if (formData.status) updateData.status = formData.status
-      
-      // Location fields
-      if (formData.county) updateData.county = formData.county
-      if (formData.state) updateData.state = formData.state
-      if (formData.city) updateData.city = formData.city
-      if (formData.zip) updateData.zip = formData.zip
-      if (formData.address) updateData.address = formData.address
-      
-      // Numeric fields
-      if (formData.total_acres) updateData.total_acres = parseFloat(formData.total_acres)
-      if (formData.price_per_acre) updateData.price_per_acre = parseFloat(formData.price_per_acre)
-      if (formData.sale_price) updateData.sale_price = parseFloat(formData.sale_price)
-      if (formData.asking_price) updateData.asking_price = parseFloat(formData.asking_price)
-      
-      // URL fields
-      if (formData.primary_image_url) updateData.primary_image_url = formData.primary_image_url
-      if (formData.brochure_url) updateData.brochure_url = formData.brochure_url
-      if (formData.source_url) updateData.source_url = formData.source_url
-      if (formData.bidding_url) updateData.bidding_url = formData.bidding_url
-      
-      // Company
-      if (formData.listing_company_id) updateData.listing_company_id = formData.listing_company_id
-      
-      // Auction fields
-      if (formData.auction_location) updateData.auction_location = formData.auction_location
-      if (formData.auction_date) {
-        updateData.auction_date = new Date(formData.auction_date).toISOString()
-      }
-      if (formData.auction_date && formData.auction_time) {
-        updateData.auction_time = new Date(`${formData.auction_date}T${formData.auction_time}`).toISOString()
+      if (filterCounty) {
+        url += `&county=${encodeURIComponent(filterCounty)}`
       }
       
-      // Land types array
-      if (formData.land_types && formData.land_types.length > 0) {
-        updateData.land_types = formData.land_types
+      if (filterListingType) {
+        url += `&listing_type=${filterListingType}`
       }
-
-      const response = await fetch(`${API_URL}/api/listings/${listingId}`, {
-        method: 'PATCH',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(updateData),
+      
+      const response = await fetch(url, {
+        headers: { 'Authorization': `Bearer ${token}` }
       })
 
       if (response.ok) {
-        // Redirect to listings page after successful save
-        router.push('/admin/listings')
-      } else {
-        const data = await response.json()
-        setError(data.detail || 'Failed to update listing')
+        let data = await response.json()
+        
+        // Filter by company client-side if selected
+        if (filterCompany) {
+          data = data.filter((l: Listing) => 
+            l.listing_company_id === filterCompany || 
+            l.company?.id === filterCompany
+          )
+        }
+        
+        // Sort by auction_date DESC, then auction_time DESC
+        data.sort((a: Listing, b: Listing) => {
+          const dateA = a.auction_date ? new Date(a.auction_date).getTime() : 0
+          const dateB = b.auction_date ? new Date(b.auction_date).getTime() : 0
+          if (dateB !== dateA) return dateB - dateA
+          
+          const timeA = a.auction_time ? new Date(a.auction_time).getTime() : 0
+          const timeB = b.auction_time ? new Date(b.auction_time).getTime() : 0
+          return timeB - timeA
+        })
+        
+        setListings(data)
+        if (data.length === itemsPerPage) {
+          setTotalPages(Math.max(totalPages, page + 1))
+        } else if (data.length < itemsPerPage && data.length > 0) {
+          setTotalPages(page)
+        }
       }
     } catch (err) {
-      setError('Failed to update listing')
+      console.error('Failed to fetch listings:', err)
     } finally {
-      setSaving(false)
+      setLoading(false)
     }
   }
 
-  const handleDelete = async () => {
-    if (!confirm('Are you sure you want to delete this listing? This cannot be undone.')) return
+  const handleDelete = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this listing?')) return
 
     const token = localStorage.getItem('auth_token')
-
     try {
-      const response = await fetch(`${API_URL}/api/listings/${listingId}`, {
+      const response = await fetch(`${API_URL}/api/listings/${id}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` },
       })
 
       if (response.ok) {
-        router.push('/admin/listings')
-      } else {
-        setError('Failed to delete listing')
+        setListings(prev => prev.filter(l => l.id !== id))
       }
     } catch (err) {
-      setError('Failed to delete listing')
+      console.error('Failed to delete listing:', err)
     }
   }
 
-  const handleAddTract = async () => {
-    if (!newTract.tract_number || !newTract.total_acres) {
-      setError('Tract number and total acres are required')
-      return
-    }
+  const formatDate = (dateString: string) => {
+    if (!dateString) return '—'
+    const date = new Date(dateString)
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  }
 
-    setAddingTract(true)
-    setError('')
+  const formatTime = (timeString: string) => {
+    if (!timeString) return '—'
+    const date = new Date(timeString)
+    if (isNaN(date.getTime())) return timeString
+    return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+  }
 
-    const token = localStorage.getItem('auth_token')
+  const getCompanyName = (listing: Listing) => {
+    if (listing.company?.name) return listing.company.name
+    if (listing.company_name) return listing.company_name
+    return '—'
+  }
 
-    try {
-      const response = await fetch(`${API_URL}/api/listings/${listingId}/tracts`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          tract_number: parseInt(newTract.tract_number),
-          total_acres: parseFloat(newTract.total_acres),
-          tillable_acres: newTract.tillable_acres ? parseFloat(newTract.tillable_acres) : null,
-          land_type: newTract.land_type,
-          description: newTract.description || null,
-          soil_rating: newTract.soil_rating ? parseFloat(newTract.soil_rating) : null,
-        }),
-      })
+  const getTractCount = (listing: Listing) => {
+    if (listing.tract_count !== undefined) return listing.tract_count
+    if (listing.tracts?.length) return listing.tracts.length
+    return 0
+  }
 
-      if (response.ok) {
-        // Reset form and refresh listing
-        setNewTract({
-          tract_number: '',
-          total_acres: '',
-          tillable_acres: '',
-          land_type: 'Farm',
-          description: '',
-          soil_rating: '',
-        })
-        setShowAddTract(false)
-        await fetchListing(token!)
-        setSuccess('Tract added successfully!')
-        setTimeout(() => setSuccess(''), 3000)
-      } else {
-        const data = await response.json()
-        setError(data.detail || 'Failed to add tract')
-      }
-    } catch (err) {
-      setError('Failed to add tract')
-    } finally {
-      setAddingTract(false)
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'listed': return 'bg-blue-500 text-white'
+      case 'live': return 'bg-green-500 text-white'
+      case 'pending': return 'bg-yellow-500 text-black'
+      case 'sold': return 'bg-purple-500 text-white'
+      case 'no_sale': return 'bg-red-500 text-white'
+      default: return 'bg-gray-500 text-white'
     }
   }
 
-  if (loading) {
+  const handlePageInput = (e: React.FormEvent) => {
+    e.preventDefault()
+    const newPage = parseInt(pageInput)
+    if (newPage >= 1) {
+      setPage(newPage)
+    }
+  }
+
+  const clearFilters = () => {
+    setFilterCompany('')
+    setFilterCounty('')
+    setFilterListingType('')
+    setPage(1)
+    setPageInput('1')
+  }
+
+  // Get unique counties from listings for filter dropdown
+  const uniqueCounties = Array.from(new Set(listings.map(l => l.county).filter(Boolean))).sort()
+
+  if (loading && listings.length === 0) {
     return (
       <div className="min-h-screen bg-gg-black flex items-center justify-center">
         <Loader2 className="animate-spin text-gg-pink" size={32} />
@@ -372,515 +237,241 @@ export default function EditListingPage() {
     )
   }
 
-  if (!listing) {
-    return (
-      <div className="min-h-screen bg-gg-black flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-white text-xl mb-4">Listing not found</p>
-          <Link href="/admin/listings" className="text-gg-pink hover:underline">
-            Back to Listings
-          </Link>
-        </div>
-      </div>
-    )
-  }
-
   return (
     <div className="min-h-screen bg-gg-black pt-24 pb-12">
-      <div className="max-w-4xl mx-auto px-6">
+      <div className="max-w-7xl mx-auto px-6">
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div className="flex items-center gap-4">
-            <Link href="/admin/listings" className="text-gg-gray-400 hover:text-white">
+            <Link href="/admin/dashboard" className="text-gg-gray-400 hover:text-white">
               <ArrowLeft size={24} />
             </Link>
             <div>
-              <h1 className="font-display text-3xl font-bold text-white">Edit Listing</h1>
-              <p className="text-gg-gray-400">{listing.county} County, {listing.state}</p>
+              <h1 className="font-display text-3xl font-bold text-white">Listings</h1>
+              <p className="text-gg-gray-400">Manage all property listings</p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            {listing.source_url && (
-              <a
-                href={listing.source_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-2 px-4 py-2 bg-gg-gray-800 text-white rounded-lg hover:bg-gg-gray-700"
-              >
-                <ExternalLink size={16} />
-                Source
-              </a>
+          <button
+            onClick={() => setShowFilters(!showFilters)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+              showFilters || filterCompany || filterCounty || filterListingType
+                ? 'bg-gg-pink text-white'
+                : 'bg-gg-gray-800 text-white hover:bg-gg-gray-700'
+            }`}
+          >
+            <Filter size={16} />
+            Filters
+            {(filterCompany || filterCounty || filterListingType) && (
+              <span className="ml-1 px-2 py-0.5 bg-white/20 rounded-full text-xs">
+                {[filterCompany, filterCounty, filterListingType].filter(Boolean).length}
+              </span>
             )}
-            <button
-              onClick={handleDelete}
-              className="flex items-center gap-2 px-4 py-2 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30"
-            >
-              <Trash2 size={16} />
-              Delete
-            </button>
-          </div>
+          </button>
         </div>
 
-        {/* Messages */}
-        {error && (
-          <div className="mb-6 p-4 bg-red-500/20 border border-red-500/50 rounded-lg text-red-400">
-            {error}
-          </div>
-        )}
-        {success && (
-          <div className="mb-6 p-4 bg-green-500/20 border border-green-500/50 rounded-lg text-green-400">
-            {success}
-          </div>
-        )}
-
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Basic Info */}
-          <div className="card">
-            <h2 className="text-xl font-semibold text-white mb-4">Basic Information</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="md:col-span-2">
-                <label className="block text-gg-gray-400 text-sm mb-1">Title</label>
-                <input
-                  type="text"
-                  name="title"
-                  value={formData.title}
-                  onChange={handleChange}
-                  className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white"
-                />
-              </div>
-              <div className="md:col-span-2">
-                <label className="block text-gg-gray-400 text-sm mb-1">Description</label>
-                <textarea
-                  name="description"
-                  value={formData.description}
-                  onChange={handleChange}
-                  rows={4}
-                  className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white"
-                />
-              </div>
-              <div>
-                <label className="block text-gg-gray-400 text-sm mb-1">Listing Type</label>
-                <select
-                  name="listing_type"
-                  value={formData.listing_type}
-                  onChange={handleChange}
-                  className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white"
-                >
-                  <option value="auction">Auction</option>
-                  <option value="private_treaty">Private Treaty</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-gg-gray-400 text-sm mb-1">Status</label>
-                <select
-                  name="status"
-                  value={formData.status}
-                  onChange={handleChange}
-                  className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white"
-                >
-                  {STATUSES.map(status => (
-                    <option key={status} value={status} className="capitalize">{status.replace('_', ' ')}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
+        {/* Filters */}
+        {showFilters && (
+          <div className="card mb-6">
+            <div className="flex flex-wrap gap-4 items-end">
+              <div className="flex-1 min-w-[200px]">
                 <label className="block text-gg-gray-400 text-sm mb-1">Company</label>
                 <select
-                  name="listing_company_id"
-                  value={formData.listing_company_id}
-                  onChange={handleChange}
-                  className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white"
+                  value={filterCompany}
+                  onChange={(e) => {
+                    setFilterCompany(e.target.value)
+                    setPage(1)
+                    setPageInput('1')
+                  }}
+                  className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-2 text-white"
                 >
-                  <option value="">Select Company</option>
+                  <option value="">All Companies</option>
                   {companies.map(company => (
                     <option key={company.id} value={company.id}>{company.name}</option>
                   ))}
                 </select>
               </div>
-              <div>
-                <label className="block text-gg-gray-400 text-sm mb-1">Total Acres</label>
-                <input
-                  type="number"
-                  name="total_acres"
-                  value={formData.total_acres}
-                  onChange={handleChange}
-                  step="0.01"
-                  className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Location */}
-          <div className="card">
-            <h2 className="text-xl font-semibold text-white mb-4">Location</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-gg-gray-400 text-sm mb-1">State</label>
+              <div className="flex-1 min-w-[200px]">
+                <label className="block text-gg-gray-400 text-sm mb-1">Listing Type</label>
                 <select
-                  name="state"
-                  value={formData.state}
-                  onChange={handleChange}
-                  className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white"
+                  value={filterListingType}
+                  onChange={(e) => {
+                    setFilterListingType(e.target.value)
+                    setPage(1)
+                    setPageInput('1')
+                  }}
+                  className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-2 text-white"
                 >
-                  <option value="">Select State</option>
-                  {US_STATES.map(state => (
-                    <option key={state} value={state}>{state}</option>
-                  ))}
+                  <option value="">All Types</option>
+                  <option value="auction">Auction</option>
+                  <option value="private_treaty">Private Treaty</option>
                 </select>
               </div>
-              <div>
+              <div className="flex-1 min-w-[200px]">
                 <label className="block text-gg-gray-400 text-sm mb-1">County</label>
                 <input
                   type="text"
-                  name="county"
-                  value={formData.county}
-                  onChange={handleChange}
-                  placeholder="Enter county name"
-                  className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white"
+                  value={filterCounty}
+                  onChange={(e) => {
+                    setFilterCounty(e.target.value)
+                    setPage(1)
+                    setPageInput('1')
+                  }}
+                  placeholder="Enter county name..."
+                  className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-2 text-white"
                 />
               </div>
-              <div>
-                <label className="block text-gg-gray-400 text-sm mb-1">City</label>
-                <input
-                  type="text"
-                  name="city"
-                  value={formData.city}
-                  onChange={handleChange}
-                  className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white"
-                />
-              </div>
-              <div>
-                <label className="block text-gg-gray-400 text-sm mb-1">ZIP</label>
-                <input
-                  type="text"
-                  name="zip"
-                  value={formData.zip}
-                  onChange={handleChange}
-                  className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white"
-                />
-              </div>
-              <div className="md:col-span-2">
-                <label className="block text-gg-gray-400 text-sm mb-1">Address</label>
-                <input
-                  type="text"
-                  name="address"
-                  value={formData.address}
-                  onChange={handleChange}
-                  className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Auction Details */}
-          {formData.listing_type === 'auction' && (
-            <div className="card">
-              <h2 className="text-xl font-semibold text-white mb-4">Auction Details</h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-gg-gray-400 text-sm mb-1">Auction Date</label>
-                  <input
-                    type="date"
-                    name="auction_date"
-                    value={formData.auction_date}
-                    onChange={handleChange}
-                    className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-gg-gray-400 text-sm mb-1">Auction Time</label>
-                  <input
-                    type="time"
-                    name="auction_time"
-                    value={formData.auction_time}
-                    onChange={handleChange}
-                    className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white"
-                  />
-                </div>
-                <div className="md:col-span-2">
-                  <label className="block text-gg-gray-400 text-sm mb-1">Auction Location</label>
-                  <input
-                    type="text"
-                    name="auction_location"
-                    value={formData.auction_location}
-                    onChange={handleChange}
-                    className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white"
-                  />
-                </div>
-                <div className="md:col-span-2">
-                  <label className="block text-gg-gray-400 text-sm mb-1">Bidding URL</label>
-                  <input
-                    type="url"
-                    name="bidding_url"
-                    value={formData.bidding_url}
-                    onChange={handleChange}
-                    className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white"
-                  />
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Pricing */}
-          <div className="card">
-            <h2 className="text-xl font-semibold text-white mb-4">Pricing</h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-gg-gray-400 text-sm mb-1">Asking Price ($)</label>
-                <input
-                  type="number"
-                  name="asking_price"
-                  value={formData.asking_price}
-                  onChange={handleChange}
-                  step="0.01"
-                  className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white"
-                />
-              </div>
-              <div>
-                <label className="block text-gg-gray-400 text-sm mb-1">Price per Acre ($)</label>
-                <input
-                  type="number"
-                  name="price_per_acre"
-                  value={formData.price_per_acre}
-                  onChange={handleChange}
-                  step="0.01"
-                  className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white"
-                />
-              </div>
-              <div>
-                <label className="block text-gg-gray-400 text-sm mb-1">Sale Price ($)</label>
-                <input
-                  type="number"
-                  name="sale_price"
-                  value={formData.sale_price}
-                  onChange={handleChange}
-                  step="0.01"
-                  className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Land Types */}
-          <div className="card">
-            <h2 className="text-xl font-semibold text-white mb-4">Land Types</h2>
-            <div className="flex flex-wrap gap-3">
-              {LAND_TYPES.map(type => (
+              {(filterCompany || filterCounty || filterListingType) && (
                 <button
-                  key={type}
-                  type="button"
-                  onClick={() => handleLandTypeChange(type)}
-                  className={`px-4 py-2 rounded-lg border transition-colors ${
-                    formData.land_types.includes(type)
-                      ? 'bg-gg-pink/20 border-gg-pink text-gg-pink'
-                      : 'bg-gg-gray-800 border-gg-gray-700 text-gg-gray-400 hover:border-gg-gray-500'
-                  }`}
+                  onClick={clearFilters}
+                  className="px-4 py-2 bg-gg-gray-800 text-white rounded-lg hover:bg-gg-gray-700"
                 >
-                  {type}
+                  Clear Filters
                 </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Media */}
-          <div className="card">
-            <h2 className="text-xl font-semibold text-white mb-4">Media & Links</h2>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-gg-gray-400 text-sm mb-1">Primary Image URL</label>
-                <input
-                  type="url"
-                  name="primary_image_url"
-                  value={formData.primary_image_url}
-                  onChange={handleChange}
-                  className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white"
-                />
-                {formData.primary_image_url && (
-                  <img 
-                    src={formData.primary_image_url} 
-                    alt="Preview" 
-                    className="mt-2 h-32 object-cover rounded-lg"
-                  />
-                )}
-              </div>
-              <div>
-                <label className="block text-gg-gray-400 text-sm mb-1">Brochure URL</label>
-                <input
-                  type="url"
-                  name="brochure_url"
-                  value={formData.brochure_url}
-                  onChange={handleChange}
-                  className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white"
-                />
-              </div>
-              <div>
-                <label className="block text-gg-gray-400 text-sm mb-1">Source URL</label>
-                <input
-                  type="url"
-                  name="source_url"
-                  value={formData.source_url}
-                  onChange={handleChange}
-                  className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Tracts */}
-          <div className="card">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-semibold text-white">Tracts ({listing.tracts?.length || 0})</h2>
-              <button
-                type="button"
-                onClick={() => setShowAddTract(!showAddTract)}
-                className="flex items-center gap-2 px-4 py-2 bg-gg-pink text-white rounded-lg hover:bg-gg-pink/80"
-              >
-                <Plus size={16} />
-                Add Tract
-              </button>
-            </div>
-
-            {/* Add Tract Form */}
-            {showAddTract && (
-              <div className="mb-4 p-4 bg-gg-gray-800 rounded-lg">
-                <h3 className="text-white font-medium mb-3">New Tract</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-gg-gray-400 text-sm mb-1">Tract Number *</label>
-                    <input
-                      type="number"
-                      value={newTract.tract_number}
-                      onChange={(e) => setNewTract(prev => ({ ...prev, tract_number: e.target.value }))}
-                      className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-2 text-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-gg-gray-400 text-sm mb-1">Total Acres *</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={newTract.total_acres}
-                      onChange={(e) => setNewTract(prev => ({ ...prev, total_acres: e.target.value }))}
-                      className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-2 text-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-gg-gray-400 text-sm mb-1">Tillable Acres</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={newTract.tillable_acres}
-                      onChange={(e) => setNewTract(prev => ({ ...prev, tillable_acres: e.target.value }))}
-                      className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-2 text-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-gg-gray-400 text-sm mb-1">Land Type</label>
-                    <select
-                      value={newTract.land_type}
-                      onChange={(e) => setNewTract(prev => ({ ...prev, land_type: e.target.value }))}
-                      className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-2 text-white"
-                    >
-                      {LAND_TYPES.map(type => (
-                        <option key={type} value={type}>{type}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-gg-gray-400 text-sm mb-1">Productivity Rating</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={newTract.soil_rating}
-                      onChange={(e) => setNewTract(prev => ({ ...prev, soil_rating: e.target.value }))}
-                      placeholder="e.g. 120.5"
-                      className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-2 text-white"
-                    />
-                  </div>
-                  <div className="md:col-span-2">
-                    <label className="block text-gg-gray-400 text-sm mb-1">Description</label>
-                    <input
-                      type="text"
-                      value={newTract.description}
-                      onChange={(e) => setNewTract(prev => ({ ...prev, description: e.target.value }))}
-                      className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-2 text-white"
-                    />
-                  </div>
-                </div>
-                <div className="flex justify-end gap-2 mt-4">
-                  <button
-                    type="button"
-                    onClick={() => setShowAddTract(false)}
-                    className="px-4 py-2 bg-gg-gray-700 text-white rounded-lg hover:bg-gg-gray-600"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleAddTract}
-                    disabled={addingTract}
-                    className="flex items-center gap-2 px-4 py-2 bg-gg-pink text-white rounded-lg hover:bg-gg-pink/80 disabled:opacity-50"
-                  >
-                    {addingTract ? <Loader2 className="animate-spin" size={16} /> : <Plus size={16} />}
-                    Add Tract
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Existing Tracts */}
-            {listing.tracts && listing.tracts.length > 0 ? (
-              <div className="space-y-2">
-                {listing.tracts.map((tract: any, index: number) => (
-                  <div key={tract.id || index} className="flex justify-between items-center p-3 bg-gg-gray-800 rounded-lg">
-                    <div className="flex-1">
-                      <span className="text-white font-medium">Tract {tract.tract_number || index + 1}</span>
-                      <span className="text-gg-gray-400 ml-4">{tract.total_acres} acres • {tract.land_type || 'N/A'}</span>
-                    </div>
-                    <Link
-                      href={`/admin/tracts/${tract.id}`}
-                      className="flex items-center gap-2 px-3 py-1 bg-gg-gray-700 text-gg-gray-300 rounded hover:bg-gg-gray-600 hover:text-white transition-colors"
-                    >
-                      <Pencil size={14} />
-                      Edit
-                    </Link>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-gg-gray-400 text-center py-4">No tracts added yet</p>
-            )}
-          </div>
-
-          {/* Submit */}
-          <div className="flex justify-end gap-4">
-            <Link
-              href="/admin/listings"
-              className="px-6 py-3 bg-gg-gray-800 text-white rounded-lg hover:bg-gg-gray-700"
-            >
-              Cancel
-            </Link>
-            <button
-              type="submit"
-              disabled={saving}
-              className="flex items-center gap-2 px-6 py-3 bg-gg-pink text-white rounded-lg hover:bg-gg-pink/80 disabled:opacity-50"
-            >
-              {saving ? (
-                <>
-                  <Loader2 className="animate-spin" size={16} />
-                  Saving...
-                </>
-              ) : (
-                <>
-                  <Save size={16} />
-                  Save Changes
-                </>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* Listings Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+          {listings.map((listing) => (
+            <div key={listing.id} className="card overflow-hidden group">
+              {/* Image */}
+              <div className="relative h-40 bg-gg-gray-800">
+                {listing.primary_image_url ? (
+                  <img
+                    src={listing.primary_image_url}
+                    alt={listing.title || 'Listing'}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center">
+                    <MapPin className="text-gg-gray-600" size={40} />
+                  </div>
+                )}
+                {/* Status Badge - Solid background */}
+                <div className={`absolute top-3 left-3 px-2 py-1 rounded-full text-xs font-semibold ${getStatusColor(listing.status)}`}>
+                  {listing.status?.replace('_', ' ')}
+                </div>
+                {/* Type Badge */}
+                <div className="absolute top-3 right-3 px-2 py-1 rounded-full text-xs font-medium bg-black/70 text-white">
+                  {listing.listing_type === 'auction' ? 'Auction' : 'Private Treaty'}
+                </div>
+              </div>
+
+              {/* Content */}
+              <div className="p-4">
+                {/* Location */}
+                <h3 className="text-white font-semibold text-lg mb-1">
+                  {listing.county} County, {listing.state}
+                </h3>
+                
+                {/* Company */}
+                <p className="text-gg-pink text-sm mb-3">{getCompanyName(listing)}</p>
+
+                {/* Stats Grid */}
+                <div className="grid grid-cols-2 gap-3 mb-4">
+                  <div className="flex items-center gap-2 text-gg-gray-400 text-sm">
+                    <MapPin size={14} />
+                    <span>{listing.total_acres?.toLocaleString() || '—'} acres</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-gg-gray-400 text-sm">
+                    <Layers size={14} />
+                    <span>{getTractCount(listing)} tracts</span>
+                  </div>
+                  {listing.listing_type === 'auction' && (
+                    <>
+                      <div className="flex items-center gap-2 text-gg-gray-400 text-sm">
+                        <Calendar size={14} />
+                        <span>{formatDate(listing.auction_date)}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-gg-gray-400 text-sm">
+                        <Clock size={14} />
+                        <span>{formatTime(listing.auction_time)}</span>
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* Actions */}
+                <div className="flex gap-2 pt-3 border-t border-gg-gray-800">
+                  <Link
+                    href={`/admin/listings/${listing.id}`}
+                    className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-gg-gray-800 text-white rounded-lg hover:bg-gg-gray-700 transition-colors"
+                  >
+                    <Pencil size={14} />
+                    Edit
+                  </Link>
+                  <button
+                    onClick={() => handleDelete(listing.id)}
+                    className="flex items-center justify-center gap-2 px-3 py-2 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30 transition-colors"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Empty State */}
+        {listings.length === 0 && !loading && (
+          <div className="text-center py-12">
+            <MapPin className="mx-auto text-gg-gray-600 mb-4" size={48} />
+            <p className="text-gg-gray-400">No listings found</p>
+            {(filterCompany || filterCounty) && (
+              <button
+                onClick={clearFilters}
+                className="mt-4 px-4 py-2 bg-gg-pink text-white rounded-lg hover:bg-gg-pink/80"
+              >
+                Clear Filters
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Pagination */}
+        {listings.length > 0 && (
+          <div className="flex items-center justify-center gap-4">
+            <button
+              onClick={() => {
+                setPage(p => Math.max(1, p - 1))
+                setPageInput((Math.max(1, page - 1)).toString())
+              }}
+              disabled={page === 1}
+              className="flex items-center gap-2 px-4 py-2 bg-gg-gray-800 text-white rounded-lg hover:bg-gg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <ChevronLeft size={16} />
+              Previous
+            </button>
+            
+            <form onSubmit={handlePageInput} className="flex items-center gap-2">
+              <span className="text-gg-gray-400">Page</span>
+              <input
+                type="number"
+                value={pageInput}
+                onChange={(e) => setPageInput(e.target.value)}
+                className="w-16 bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-3 py-2 text-white text-center"
+                min="1"
+              />
+              <button type="submit" className="px-3 py-2 bg-gg-pink text-white rounded-lg hover:bg-gg-pink/80">
+                Go
+              </button>
+            </form>
+
+            <button
+              onClick={() => {
+                setPage(p => p + 1)
+                setPageInput((page + 1).toString())
+              }}
+              disabled={listings.length < itemsPerPage}
+              className="flex items-center gap-2 px-4 py-2 bg-gg-gray-800 text-white rounded-lg hover:bg-gg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Next
+              <ChevronRight size={16} />
             </button>
           </div>
-        </form>
+        )}
       </div>
     </div>
   )
