@@ -350,7 +350,41 @@ export default function EditListingPage() {
           soil_rating: '',
         })
         setShowAddTract(false)
+        
+        // Refresh listing to get updated tracts
         await fetchListing(token!)
+        
+        // Calculate total acres from all tracts and update listing
+        const listingResponse = await fetch(`${API_URL}/api/listings/${listingId}`, {
+          headers: { 'Authorization': `Bearer ${token}` },
+        })
+        
+        if (listingResponse.ok) {
+          const listingData = await listingResponse.json()
+          const tracts = listingData.tracts || []
+          
+          if (tracts.length > 0) {
+            const totalAcres = tracts.reduce((sum: number, t: any) => sum + (parseFloat(t.total_acres) || 0), 0)
+            const tillableAcres = tracts.reduce((sum: number, t: any) => sum + (parseFloat(t.tillable_acres) || 0), 0)
+            
+            // Update listing with calculated acres
+            await fetch(`${API_URL}/api/listings/${listingId}`, {
+              method: 'PATCH',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                total_acres: totalAcres,
+                // Note: tillable_acres field may need to be added to ListingUpdate schema
+              }),
+            })
+            
+            // Update form data to reflect new total
+            setFormData(prev => ({ ...prev, total_acres: totalAcres.toString() }))
+          }
+        }
+        
         setSuccess('Tract added successfully!')
         setTimeout(() => setSuccess(''), 3000)
       } else {
