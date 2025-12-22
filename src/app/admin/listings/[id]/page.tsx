@@ -104,6 +104,7 @@ export default function EditListingPage() {
     tillable_acres: '',
     land_type: 'Farm',
     description: '',
+    soil_rating: '',
   })
 
   useEffect(() => {
@@ -334,6 +335,7 @@ export default function EditListingPage() {
           tillable_acres: newTract.tillable_acres ? parseFloat(newTract.tillable_acres) : null,
           land_type: newTract.land_type,
           description: newTract.description || null,
+          soil_rating: newTract.soil_rating ? parseFloat(newTract.soil_rating) : null,
         }),
       })
 
@@ -345,6 +347,7 @@ export default function EditListingPage() {
           tillable_acres: '',
           land_type: 'Farm',
           description: '',
+          soil_rating: '',
         })
         setShowAddTract(false)
         await fetchListing(token!)
@@ -784,6 +787,17 @@ export default function EditListingPage() {
                         <option key={type} value={type}>{type}</option>
                       ))}
                     </select>
+                  </div>
+                  <div>
+                    <label className="block text-gg-gray-400 text-sm mb-1">Productivity Rating</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={newTract.soil_rating}
+                      onChange={(e) => setNewTract(prev => ({ ...prev, soil_rating: e.target.value }))}
+                      placeholder="e.g. 120.5"
+                      className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-2 text-white"
+                    />
                   </div>
                   <div className="md:col-span-2">
                     <label className="block text-gg-gray-400 text-sm mb-1">Description</label>
