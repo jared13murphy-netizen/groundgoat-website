@@ -11,7 +11,8 @@ import {
   Clock, 
   AlertCircle,
   ChevronRight,
-  RefreshCw
+  RefreshCw,
+  Radio
 } from 'lucide-react'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
@@ -117,6 +118,25 @@ export default function AdminDashboard() {
           <StatCard icon={<Clock />} label="Upcoming" value={stats?.upcoming_auctions || 0} />
           <StatCard icon={<AlertCircle />} label="Results" value={stats?.recent_results || 0} />
         </div>
+
+        {/* Control Center Banner */}
+        <Link 
+          href="/admin/control-center" 
+          className="block mb-8 p-6 bg-gradient-to-r from-gg-pink/20 to-purple-600/20 border border-gg-pink/50 rounded-xl hover:border-gg-pink transition-colors group"
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="w-14 h-14 bg-gg-pink/20 rounded-xl flex items-center justify-center text-gg-pink group-hover:bg-gg-pink/30 transition-colors">
+                <Radio size={28} />
+              </div>
+              <div>
+                <h2 className="text-xl font-bold text-white">Auction Control Center</h2>
+                <p className="text-gg-gray-400">Manage live auctions in real-time</p>
+              </div>
+            </div>
+            <ChevronRight className="text-gg-pink" size={24} />
+          </div>
+        </Link>
 
         {/* Quick Actions */}
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
