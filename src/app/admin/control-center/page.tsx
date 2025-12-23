@@ -128,6 +128,7 @@ export default function ControlCenterPage() {
 
         // Initialize tract states
         const initialStates: Record<string, TractState> = {}
+        const expandedIds: string[] = []
         listingsWithTracts.forEach((listing: Listing) => {
           listing.tracts?.forEach((tract: Tract) => {
             initialStates[tract.id] = {
@@ -138,9 +139,10 @@ export default function ControlCenterPage() {
             }
           })
           // Expand all listings by default
-          setExpandedListings(prev => new Set([...prev, listing.id]))
+          expandedIds.push(listing.id)
         })
         setTractStates(initialStates)
+        setExpandedListings(new Set(expandedIds))
       }
     } catch (err) {
       setError('Failed to fetch auctions')
