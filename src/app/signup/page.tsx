@@ -425,6 +425,45 @@ function SignUpContent() {
       if (response.ok) {
         const data = await response.json()
         setVerificationToken(data.verification_token)
+        
+        // Check if Ground Goat employee - register immediately and skip subscription
+        if (formData.email.toLowerCase().endsWith('@groundgoat.com')) {
+          // Register the user directly
+          const registerResponse = await fetch(`${API_URL}/api/auth/register`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              first_name: formData.firstName,
+              last_name: formData.lastName,
+              email: formData.email,
+              password: formData.password,
+            }),
+          })
+
+          if (!registerResponse.ok) {
+            const regData = await registerResponse.json().catch(() => ({}))
+            throw new Error(regData.detail || 'Registration failed')
+          }
+
+          const authData = await registerResponse.json()
+          localStorage.setItem('auth_token', authData.access_token)
+          if (authData.refresh_token) {
+            localStorage.setItem('refresh_token', authData.refresh_token)
+          }
+
+          // Get user data
+          const userResponse = await fetch(`${API_URL}/api/auth/me`, {
+            headers: { 'Authorization': `Bearer ${authData.access_token}` }
+          })
+          if (userResponse.ok) {
+            const userData = await userResponse.json()
+            localStorage.setItem('user', JSON.stringify(userData))
+          }
+
+          router.push('/account?welcome=true')
+          return
+        }
+        
         setStep(2)
       } else {
         const data = await response.json()
