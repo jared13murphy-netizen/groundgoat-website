@@ -4,19 +4,12 @@ import { useState, useEffect, Suspense, useRef } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Check, ArrowLeft, ArrowRight, Eye, EyeOff, MapPin, ChevronDown, X, Loader2, Building2, Users, Plus, Mail } from 'lucide-react'
+import { US_STATES, getCountiesForState } from '@/data/counties'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
-const VALID_STATES = [
-  'Alabama', 'Alaska', 'Arizona', 'Arkansas', 'California', 'Colorado', 'Connecticut',
-  'Delaware', 'Florida', 'Georgia', 'Hawaii', 'Idaho', 'Illinois', 'Indiana', 'Iowa',
-  'Kansas', 'Kentucky', 'Louisiana', 'Maine', 'Maryland', 'Massachusetts', 'Michigan',
-  'Minnesota', 'Mississippi', 'Missouri', 'Montana', 'Nebraska', 'Nevada', 'New Hampshire',
-  'New Jersey', 'New Mexico', 'New York', 'North Carolina', 'North Dakota', 'Ohio',
-  'Oklahoma', 'Oregon', 'Pennsylvania', 'Rhode Island', 'South Carolina', 'South Dakota',
-  'Tennessee', 'Texas', 'Utah', 'Vermont', 'Virginia', 'Washington', 'West Virginia',
-  'Wisconsin', 'Wyoming'
-]
+
+// VALID_STATES now imported from @/data/counties as US_STATES
 
 const PLANS = {
   county: {
@@ -138,14 +131,14 @@ function SignUpContent() {
         if (Array.isArray(data)) {
           states = data
             .map((item: any) => typeof item === 'string' ? item : item.state)
-            .filter((s: string) => VALID_STATES.includes(s))
+            .filter((s: string) => US_STATES.includes(s))
             .sort()
         }
-        setAvailableStates(states.length > 0 ? states : VALID_STATES.slice(0, 10))
+        setAvailableStates(states.length > 0 ? states : US_STATES)
       }
     } catch (err) {
       console.error('Failed to fetch states:', err)
-      setAvailableStates(['Illinois', 'Iowa', 'Missouri', 'Indiana', 'Wisconsin'])
+      setAvailableStates(US_STATES)
     } finally {
       setLoadingStates(false)
     }
@@ -165,10 +158,16 @@ function SignUpContent() {
             .filter((c: string) => c && !c.includes('Township') && !c.includes('Precinct') && !c.match(/^\d/))
             .sort()
         }
-        setAvailableCounties(counties)
+        // If API returns counties, use them; otherwise fall back to local data
+        setAvailableCounties(counties.length > 0 ? counties : getCountiesForState(state))
+      } else {
+        // API failed, use local data
+        setAvailableCounties(getCountiesForState(state))
       }
     } catch (err) {
       console.error('Failed to fetch counties:', err)
+      // Use local data as fallback
+      setAvailableCounties(getCountiesForState(state))
     } finally {
       setLoadingCounties(false)
     }

@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Save, Loader2, Trash2, ExternalLink, Pencil, Plus } from 'lucide-react'
+import { getCountiesForState } from '@/data/counties'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -566,14 +567,17 @@ export default function EditListingPage() {
               </div>
               <div>
                 <label className="block text-gg-gray-400 text-sm mb-1">County</label>
-                <input
-                  type="text"
+                <select
                   name="county"
                   value={formData.county}
                   onChange={handleChange}
-                  placeholder="Enter county name"
                   className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white"
-                />
+                >
+                  <option value="">Select County</option>
+                  {formData.state && getCountiesForState(formData.state).map(county => (
+                    <option key={county} value={county}>{county}</option>
+                  ))}
+                </select>
               </div>
               <div>
                 <label className="block text-gg-gray-400 text-sm mb-1">City</label>
