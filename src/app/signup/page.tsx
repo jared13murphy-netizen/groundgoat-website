@@ -563,6 +563,12 @@ function SignUpContent() {
       if (userResponse.ok) {
         const userData = await userResponse.json()
         localStorage.setItem('user', JSON.stringify(userData))
+        
+        // Skip subscription for Ground Goat employees
+        if (userData.account_type === 'groundgoat_sales' || userData.account_type === 'groundgoat_admin') {
+          router.push('/account?welcome=true')
+          return
+        }
       }
 
       if (selectedAreas.length > 0) {
