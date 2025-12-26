@@ -45,10 +45,11 @@ interface Listing {
 }
 
 interface TractState {
-  currentPrice: number
+  pricePerAcre: number
   bidIncrement: number
   status: string
   saving: boolean
+  bidMode: 'per_acre' | 'lump_sum'
 }
 
 export default function ControlCenterPage() {
@@ -106,10 +107,11 @@ export default function ControlCenterPage() {
         listingsWithTracts.forEach((listing: Listing) => {
           listing.tracts?.forEach((tract: Tract) => {
             initialStates[tract.id] = {
-              currentPrice: tract.sale_price || 0,
+              pricePerAcre: tract.price_per_acre || 0,
               bidIncrement: 1000,
               status: normalizeStatus(tract.sale_status || 'listed'),
               saving: false,
+              bidMode: 'per_acre',
             }
           })
           expandedIds.push(listing.id)
@@ -125,7 +127,6 @@ export default function ControlCenterPage() {
     }
   }
 
-  // Normalize status to consistent capitalization
   const normalizeStatus = (status: string): string => {
     if (!status) return 'Listed'
     const lower = status.toLowerCase().replace('_', ' ')
@@ -133,7 +134,6 @@ export default function ControlCenterPage() {
     return lower.charAt(0).toUpperCase() + lower.slice(1)
   }
 
-  // Convert display status to database format
   const toDbStatus = (status: string): string => {
     return status.toLowerCase().replace(' ', '_')
   }
@@ -165,15 +165,30 @@ export default function ControlCenterPage() {
     }))
   }
 
-  const handlePriceChange = (tractId: string, price: string) => {
+  const handlePricePerAcreChange = (tractId: string, price: string) => {
     const numPrice = parseFloat(price) || 0
-    updateTractState(tractId, { currentPrice: numPrice })
+    updateTractState(tractId, { pricePerAcre: numPrice })
   }
 
-  const handleAddBid = (tractId: string) => {
+  const handleLumpSumChange = (tractId: string, totalPrice: string, acres: number) => {
+    const numPrice = parseFloat(totalPrice) || 0
+    const pricePerAcre = acres > 0 ? numPrice / acres : 0
+    updateTractState(tractId, { pricePerAcre })
+  }
+
+  const handleAddBid = (tractId: string, acres: number) => {
     const state = tractStates[tractId]
     if (state) {
-      updateTractState(tractId, { currentPrice: state.currentPrice + state.bidIncrement })
+      if (state.bidMode === 'per_acre') {
+        // Add increment to price per acre
+        updateTractState(tractId, { pricePerAcre: state.pricePerAcre + state.bidIncrement })
+      } else {
+        // Add increment to total price, then convert to price per acre
+        const currentTotal = state.pricePerAcre * acres
+        const newTotal = currentTotal + state.bidIncrement
+        const newPricePerAcre = acres > 0 ? newTotal / acres : 0
+        updateTractState(tractId, { pricePerAcre: newPricePerAcre })
+      }
     }
   }
 
@@ -185,31 +200,33 @@ export default function ControlCenterPage() {
     updateTractState(tractId, { status })
   }
 
+  const handleToggleBidMode = (tractId: string) => {
+    const state = tractStates[tractId]
+    if (state) {
+      updateTractState(tractId, { 
+        bidMode: state.bidMode === 'per_acre' ? 'lump_sum' : 'per_acre' 
+      })
+    }
+  }
+
   const handleSetListingStatus = async (listingId: string, status: string) => {
     setListings(prev => prev.map(l => 
       l.id === listingId ? { ...l, status: toDbStatus(status) } : l
     ))
   }
 
-  // Calculate listing status based on tract statuses
   const calculateListingStatus = (tracts: Tract[], tractStates: Record<string, TractState>): string => {
     if (!tracts || tracts.length === 0) return 'Listed'
     
     const statuses = tracts.map(t => tractStates[t.id]?.status || normalizeStatus(t.sale_status || 'listed'))
     
-    // If any tract is Sold, listing is Sold
     if (statuses.some(s => s === 'Sold')) return 'Sold'
-    // If any tract is Pending but none Sold, listing is Pending
     if (statuses.some(s => s === 'Pending')) return 'Pending'
-    // If any tract is Live, listing is Live
     if (statuses.some(s => s === 'Live')) return 'Live'
-    // If all tracts are No Sale, listing is No Sale
     if (statuses.every(s => s === 'No Sale')) return 'No Sale'
-    // Default to Listed
     return 'Listed'
   }
 
-  // Calculate sold acres based on tract statuses
   const calculateSoldAcres = (tracts: Tract[], tractStates: Record<string, TractState>): number => {
     if (!tracts || tracts.length === 0) return 0
     
@@ -222,6 +239,12 @@ export default function ControlCenterPage() {
     }, 0)
   }
 
+  const getTotalPrice = (tractId: string, acres: number): number => {
+    const state = tractStates[tractId]
+    if (!state) return 0
+    return state.pricePerAcre * acres
+  }
+
   const handleSaveTract = async (tractId: string, listingId: string) => {
     const state = tractStates[tractId]
     if (!state) return
@@ -232,7 +255,7 @@ export default function ControlCenterPage() {
     try {
       const listing = listings.find(l => l.id === listingId)
       const tract = listing?.tracts?.find(t => t.id === tractId)
-      const pricePerAcre = tract?.total_acres ? state.currentPrice / tract.total_acres : null
+      const totalPrice = tract?.total_acres ? state.pricePerAcre * tract.total_acres : 0
 
       // Update tract
       const response = await fetch(`${API_URL}/api/tracts/${tractId}`, {
@@ -242,8 +265,8 @@ export default function ControlCenterPage() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          sale_price: state.currentPrice,
-          price_per_acre: pricePerAcre,
+          sale_price: totalPrice,
+          price_per_acre: state.pricePerAcre,
           sale_status: toDbStatus(state.status),
         }),
       })
@@ -254,9 +277,10 @@ export default function ControlCenterPage() {
         let totalSalePrice = 0
         allTracts.forEach(t => {
           if (t.id === tractId) {
-            totalSalePrice += state.currentPrice || 0
+            totalSalePrice += totalPrice
           } else {
-            totalSalePrice += tractStates[t.id]?.currentPrice || t.sale_price || 0
+            const tState = tractStates[t.id]
+            totalSalePrice += tState ? tState.pricePerAcre * (t.total_acres || 0) : (t.sale_price || 0)
           }
         })
 
@@ -289,7 +313,7 @@ export default function ControlCenterPage() {
               status: toDbStatus(listingStatus),
               tracts: l.tracts.map(t => {
                 if (t.id === tractId) {
-                  return { ...t, sale_price: state.currentPrice, sale_status: toDbStatus(state.status), price_per_acre: pricePerAcre }
+                  return { ...t, sale_price: totalPrice, sale_status: toDbStatus(state.status), price_per_acre: state.pricePerAcre }
                 }
                 return t
               })
@@ -319,7 +343,7 @@ export default function ControlCenterPage() {
       for (const tract of listing.tracts || []) {
         const state = tractStates[tract.id]
         if (state) {
-          const pricePerAcre = tract.total_acres ? state.currentPrice / tract.total_acres : null
+          const totalPrice = tract.total_acres ? state.pricePerAcre * tract.total_acres : 0
           await fetch(`${API_URL}/api/tracts/${tract.id}`, {
             method: 'PATCH',
             headers: {
@@ -327,8 +351,8 @@ export default function ControlCenterPage() {
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              sale_price: state.currentPrice,
-              price_per_acre: pricePerAcre,
+              sale_price: totalPrice,
+              price_per_acre: state.pricePerAcre,
               sale_status: toDbStatus(state.status),
             }),
           })
@@ -339,7 +363,8 @@ export default function ControlCenterPage() {
       const allTracts = listing.tracts || []
       let totalSalePrice = 0
       allTracts.forEach(t => {
-        totalSalePrice += tractStates[t.id]?.currentPrice || t.sale_price || 0
+        const tState = tractStates[t.id]
+        totalSalePrice += tState ? tState.pricePerAcre * (t.total_acres || 0) : (t.sale_price || 0)
       })
 
       const listingStatus = calculateListingStatus(allTracts, tractStates)
@@ -401,7 +426,7 @@ export default function ControlCenterPage() {
       for (const tract of listing.tracts || []) {
         const state = tractStates[tract.id]
         if (state) {
-          const pricePerAcre = tract.total_acres ? state.currentPrice / tract.total_acres : null
+          const totalPrice = tract.total_acres ? state.pricePerAcre * tract.total_acres : 0
           await fetch(`${API_URL}/api/tracts/${tract.id}`, {
             method: 'PATCH',
             headers: {
@@ -409,8 +434,8 @@ export default function ControlCenterPage() {
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              sale_price: state.currentPrice,
-              price_per_acre: pricePerAcre,
+              sale_price: totalPrice,
+              price_per_acre: state.pricePerAcre,
               sale_status: toDbStatus(state.status),
             }),
           })
@@ -421,7 +446,8 @@ export default function ControlCenterPage() {
       const allTracts = listing.tracts || []
       let totalSalePrice = 0
       allTracts.forEach(t => {
-        totalSalePrice += tractStates[t.id]?.currentPrice || t.sale_price || 0
+        const tState = tractStates[t.id]
+        totalSalePrice += tState ? tState.pricePerAcre * (t.total_acres || 0) : (t.sale_price || 0)
       })
 
       const listingStatus = calculateListingStatus(allTracts, tractStates)
@@ -643,7 +669,10 @@ export default function ControlCenterPage() {
                       <p className="p-4 text-gg-gray-400 text-center">No tracts for this listing</p>
                     )}
                     {listing.tracts?.map(tract => {
-                      const state = tractStates[tract.id] || { currentPrice: 0, bidIncrement: 1000, status: 'Listed', saving: false }
+                      const state = tractStates[tract.id] || { pricePerAcre: 0, bidIncrement: 1000, status: 'Listed', saving: false, bidMode: 'per_acre' }
+                      const totalPrice = getTotalPrice(tract.id, tract.total_acres)
+                      const isPerAcre = state.bidMode === 'per_acre'
+                      
                       return (
                         <div key={tract.id} className="p-4">
                           {/* Tract Header */}
@@ -661,27 +690,47 @@ export default function ControlCenterPage() {
                           </div>
 
                           {/* Price Controls */}
-                          <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-                            {/* Current Price Input */}
+                          <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+                            {/* Price Input with Toggle */}
                             <div>
-                              <label className="block text-gg-gray-400 text-xs mb-1">Current Price</label>
+                              <div className="flex items-center justify-between mb-1">
+                                <label className="text-gg-gray-400 text-xs">
+                                  {isPerAcre ? 'Price/Acre' : 'Total Price'}
+                                </label>
+                                <button
+                                  onClick={() => handleToggleBidMode(tract.id)}
+                                  className="text-xs text-gg-pink hover:text-gg-pink/80"
+                                >
+                                  {isPerAcre ? '→ Lump Sum' : '→ Per Acre'}
+                                </button>
+                              </div>
                               <div className="relative">
                                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gg-gray-400">$</span>
-                                <input
-                                  type="number"
-                                  value={state.currentPrice || ''}
-                                  onChange={(e) => handlePriceChange(tract.id, e.target.value)}
-                                  className="w-full bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-3 py-2 pl-7 text-white text-lg font-bold"
-                                />
+                                {isPerAcre ? (
+                                  <input
+                                    type="number"
+                                    value={state.pricePerAcre || ''}
+                                    onChange={(e) => handlePricePerAcreChange(tract.id, e.target.value)}
+                                    className="w-full bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-3 py-2 pl-7 text-white text-lg font-bold"
+                                  />
+                                ) : (
+                                  <input
+                                    type="number"
+                                    value={totalPrice || ''}
+                                    onChange={(e) => handleLumpSumChange(tract.id, e.target.value, tract.total_acres)}
+                                    className="w-full bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-3 py-2 pl-7 text-white text-lg font-bold"
+                                  />
+                                )}
                               </div>
-                              {tract.total_acres > 0 && state.currentPrice > 0 && (
-                                <p className="text-gg-gray-400 text-xs mt-1">
-                                  {formatCurrency(state.currentPrice / tract.total_acres)}/acre
-                                </p>
-                              )}
+                              <p className="text-gg-gray-400 text-xs mt-1">
+                                {isPerAcre 
+                                  ? `Total: ${formatCurrency(totalPrice)}`
+                                  : `${formatCurrency(state.pricePerAcre)}/acre`
+                                }
+                              </p>
                             </div>
 
-                            {/* Status Selector - moved to left */}
+                            {/* Status Selector */}
                             <div>
                               <label className="block text-gg-gray-400 text-xs mb-1">Status</label>
                               <div className="flex flex-wrap gap-1">
@@ -701,9 +750,11 @@ export default function ControlCenterPage() {
                               </div>
                             </div>
 
-                            {/* Bid Increment Selector - moved to right */}
-                            <div>
-                              <label className="block text-gg-gray-400 text-xs mb-1">Bid Increment</label>
+                            {/* Bid Increment Selector */}
+                            <div className="lg:col-span-2">
+                              <label className="block text-gg-gray-400 text-xs mb-1">
+                                Bid Increment {isPerAcre ? '(per acre)' : '(lump sum)'}
+                              </label>
                               <div className="flex flex-wrap gap-1">
                                 {BID_INCREMENTS.map(inc => (
                                   <button
@@ -724,10 +775,10 @@ export default function ControlCenterPage() {
                             {/* Action Buttons */}
                             <div className="flex flex-col gap-2">
                               <button
-                                onClick={() => handleAddBid(tract.id)}
+                                onClick={() => handleAddBid(tract.id, tract.total_acres)}
                                 className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg font-bold hover:bg-green-500 text-sm"
                               >
-                                + {formatCurrency(state.bidIncrement)}
+                                + {formatCurrency(state.bidIncrement)}{isPerAcre ? '/ac' : ''}
                               </button>
                               <button
                                 onClick={() => handleSaveTract(tract.id, listing.id)}
