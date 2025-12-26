@@ -37,18 +37,21 @@ interface User {
   total_monthly: number
   subscription_status: string | null
   subscriptions: Subscription[]
+  sales_rep_id: string | null
+  sales_rep?: { id: string; first_name: string; last_name: string; email: string } | null
 }
 
 export default function AdminUsersPage() {
   const router = useRouter()
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [users, setUsers] = useState<User[]>([])
+  const [salesReps, setSalesReps] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [filterType, setFilterType] = useState('all')
   const [showFilterDropdown, setShowFilterDropdown] = useState(false)
   const [editingUser, setEditingUser] = useState<string | null>(null)
-  const [editForm, setEditForm] = useState<{ account_type: string; is_active: boolean }>({ account_type: '', is_active: true })
+  const [editForm, setEditForm] = useState<{ account_type: string; is_active: boolean; sales_rep_id: string | null }>({ account_type: '', is_active: true, sales_rep_id: null })
   const [saving, setSaving] = useState(false)
   const [expandedUser, setExpandedUser] = useState<string | null>(null)
 
@@ -91,7 +94,14 @@ export default function AdminUsersPage() {
 
       if (response.ok) {
         const data = await response.json()
-        setUsers(data.users || data || [])
+        const allUsers = data.users || data || []
+        setUsers(allUsers)
+        
+        // Filter sales reps (GG Sales and GG Admin)
+        const reps = allUsers.filter((u: User) => 
+          u.account_type === 'groundgoat_sales' || u.account_type === 'groundgoat_admin'
+        )
+        setSalesReps(reps)
       }
     } catch (err) {
       console.error('Failed to fetch users:', err)
@@ -105,6 +115,7 @@ export default function AdminUsersPage() {
     setEditForm({
       account_type: user.account_type,
       is_active: user.is_active,
+      sales_rep_id: user.sales_rep_id,
     })
   }
 
@@ -124,9 +135,21 @@ export default function AdminUsersPage() {
 
       if (response.ok) {
         // Update local state
+        const assignedRep = salesReps.find(r => r.id === editForm.sales_rep_id)
         setUsers(prev => prev.map(u => 
           u.id === userId 
-            ? { ...u, account_type: editForm.account_type, is_active: editForm.is_active }
+            ? { 
+                ...u, 
+                account_type: editForm.account_type, 
+                is_active: editForm.is_active,
+                sales_rep_id: editForm.sales_rep_id,
+                sales_rep: assignedRep ? { 
+                  id: assignedRep.id, 
+                  first_name: assignedRep.first_name, 
+                  last_name: assignedRep.last_name,
+                  email: assignedRep.email 
+                } : null
+              }
             : u
         ))
         setEditingUser(null)
@@ -273,13 +296,14 @@ export default function AdminUsersPage() {
                   <th className="text-left py-4 px-4 text-gg-gray-400 font-medium">Subscription</th>
                   <th className="text-left py-4 px-4 text-gg-gray-400 font-medium">Monthly</th>
                   <th className="text-left py-4 px-4 text-gg-gray-400 font-medium">Joined</th>
+                  <th className="text-left py-4 px-4 text-gg-gray-400 font-medium">Sales Rep</th>
                   {canEdit && <th className="text-left py-4 px-4 text-gg-gray-400 font-medium">Actions</th>}
                 </tr>
               </thead>
               <tbody>
                 {filteredUsers.length === 0 ? (
                   <tr>
-                    <td colSpan={canEdit ? 7 : 6} className="text-center py-8 text-gg-gray-400">
+                    <td colSpan={canEdit ? 8 : 7} className="text-center py-8 text-gg-gray-400">
                       No users found
                     </td>
                   </tr>
@@ -363,6 +387,30 @@ export default function AdminUsersPage() {
                         <td className="py-4 px-4 text-gg-gray-400 text-sm">
                           {formatDate(user.created_at)}
                         </td>
+                        <td className="py-4 px-4">
+                          {editingUser === user.id ? (
+                            <select
+                              value={editForm.sales_rep_id || ''}
+                              onChange={(e) => setEditForm(prev => ({ ...prev, sales_rep_id: e.target.value || null }))}
+                              className="bg-gg-gray-800 border border-gg-gray-600 rounded px-2 py-1 text-white text-sm min-w-[120px]"
+                            >
+                              <option value="">No Rep</option>
+                              {salesReps.map(rep => (
+                                <option key={rep.id} value={rep.id}>
+                                  {rep.first_name} {rep.last_name}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            user.sales_rep ? (
+                              <span className="text-gg-gray-300 text-sm">
+                                {user.sales_rep.first_name} {user.sales_rep.last_name}
+                              </span>
+                            ) : (
+                              <span className="text-gg-gray-500 text-sm">-</span>
+                            )
+                          )}
+                        </td>
                         {canEdit && (
                           <td className="py-4 px-4">
                             {editingUser === user.id ? (
@@ -395,7 +443,7 @@ export default function AdminUsersPage() {
                       {/* Expanded Subscription Details */}
                       {expandedUser === user.id && user.subscriptions && user.subscriptions.length > 0 && (
                         <tr key={`${user.id}-subs`} className="bg-gg-gray-800/30">
-                          <td colSpan={canEdit ? 7 : 6} className="py-3 px-8">
+                          <td colSpan={canEdit ? 8 : 7} className="py-3 px-8">
                             <div className="text-sm">
                               <p className="text-gg-gray-400 mb-2 font-medium">Subscriptions:</p>
                               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
