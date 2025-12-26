@@ -121,18 +121,25 @@ export default function AdminScraperPage() {
 
         if (response.ok) {
           const result = await response.json()
-          setJobs(prev => prev.map((job, idx) => 
-            idx === i ? { 
-              ...job, 
-              status: 'completed', 
-              result: {
-                listings_created: result.listings_created,
-                tracts_created: result.tracts_created,
-                listing_id: result.listing_id,
-                company_id: result.company_id
-              }
-            } : job
-          ))
+          // Check if backend returned success: false (e.g., duplicate)
+          if (result.success === false) {
+            setJobs(prev => prev.map((job, idx) => 
+              idx === i ? { ...job, status: 'failed', error: result.error || 'Failed to scrape' } : job
+            ))
+          } else {
+            setJobs(prev => prev.map((job, idx) => 
+              idx === i ? { 
+                ...job, 
+                status: 'completed', 
+                result: {
+                  listings_created: result.listings_created,
+                  tracts_created: result.tracts_created,
+                  listing_id: result.listing_id,
+                  company_id: result.company_id
+                }
+              } : job
+            ))
+          }
         } else {
           const error = await response.json()
           setJobs(prev => prev.map((job, idx) => 
