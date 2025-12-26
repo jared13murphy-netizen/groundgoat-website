@@ -98,13 +98,24 @@ export default function ControlCenterPage() {
       if (response.ok) {
         const allListings = await response.json()
         
+        console.log('Today string:', todayStr)
+        console.log('All listings count:', allListings.length)
+        console.log('First 3 listings:', allListings.slice(0, 3).map((l: any) => ({
+          title: l.title,
+          auction_datetime: l.auction_datetime,
+          auction_date: l.auction_date
+        })))
+        
         // Filter for today's auctions
         const todaysAuctions = allListings.filter((listing: any) => {
           const dateField = listing.auction_datetime || listing.auction_date
           if (!dateField) return false
           const auctionDate = dateField.split('T')[0]
+          console.log('Checking:', listing.title?.substring(0, 30), 'dateField:', dateField, 'auctionDate:', auctionDate, 'match:', auctionDate === todayStr)
           return auctionDate === todayStr
         })
+        
+        console.log('Todays auctions count:', todaysAuctions.length)
 
         // Sort by auction datetime (earliest first)
         todaysAuctions.sort((a: any, b: any) => {
