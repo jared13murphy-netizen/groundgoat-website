@@ -133,14 +133,11 @@ export default function AdminListingsPage() {
         }
         
         // Sort by auction_date DESC, then auction_time DESC
+        // Sort by auction_datetime DESC
         data.sort((a: Listing, b: Listing) => {
-          const dateA = a.auction_date ? new Date(a.auction_date).getTime() : 0
-          const dateB = b.auction_date ? new Date(b.auction_date).getTime() : 0
-          if (dateB !== dateA) return dateB - dateA
-          
-          const timeA = a.auction_time ? new Date(a.auction_time).getTime() : 0
-          const timeB = b.auction_time ? new Date(b.auction_time).getTime() : 0
-          return timeB - timeA
+          const dateA = a.auction_datetime ? new Date(a.auction_datetime).getTime() : (a.auction_date ? new Date(a.auction_date).getTime() : 0)
+          const dateB = b.auction_datetime ? new Date(b.auction_datetime).getTime() : (b.auction_date ? new Date(b.auction_date).getTime() : 0)
+          return dateB - dateA
         })
         
         setListings(data)
