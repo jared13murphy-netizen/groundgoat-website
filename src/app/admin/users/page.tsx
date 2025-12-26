@@ -97,10 +97,14 @@ export default function AdminUsersPage() {
         const allUsers = data.users || data || []
         setUsers(allUsers)
         
-        // Filter sales reps (GG Sales and GG Admin)
-        const reps = allUsers.filter((u: User) => 
-          u.account_type === 'groundgoat_sales' || u.account_type === 'groundgoat_admin'
-        )
+        // Filter sales reps (GG Sales and GG Admin) and sort by first name
+        const reps = allUsers
+          .filter((u: User) => 
+            u.account_type === 'groundgoat_sales' || u.account_type === 'groundgoat_admin'
+          )
+          .sort((a: User, b: User) => 
+            (a.first_name || '').localeCompare(b.first_name || '')
+          )
         setSalesReps(reps)
       }
     } catch (err) {
