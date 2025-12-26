@@ -30,6 +30,7 @@ interface Listing {
   state: string
   total_acres: number
   auction_date: string
+  auction_datetime: string
   auction_time: string
   status: string
   company_name: string
@@ -99,8 +100,9 @@ export default function ControlCenterPage() {
         
         // Filter for today's auctions
         const todaysAuctions = allListings.filter((listing: any) => {
-          if (!listing.auction_date) return false
-          const auctionDate = listing.auction_date.split('T')[0]
+          const dateField = listing.auction_datetime || listing.auction_date
+          if (!dateField) return false
+          const auctionDate = dateField.split('T')[0]
           return auctionDate === todayStr
         })
 
