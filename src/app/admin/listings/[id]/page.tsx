@@ -168,7 +168,7 @@ export default function EditListingPage() {
           brochure_url: data.brochure_url || '',
           source_url: data.source_url || '',
           auction_date: data.auction_date ? data.auction_date.split('T')[0] : '',
-          auction_time: data.auction_time ? data.auction_time.split('T')[1]?.substring(0, 5) : '',
+          auction_time: data.auction_time ? new Date(data.auction_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }) : '',
           auction_location: data.auction_location || '',
           bidding_url: data.bidding_url || '',
           asking_price: data.asking_price?.toString() || '',
