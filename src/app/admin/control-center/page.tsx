@@ -106,10 +106,10 @@ export default function ControlCenterPage() {
           return auctionDate === todayStr
         })
 
-        // Sort by auction time (earliest first)
+        // Sort by auction datetime (earliest first)
         todaysAuctions.sort((a: any, b: any) => {
-          const timeA = a.auction_time || '23:59:59'
-          const timeB = b.auction_time || '23:59:59'
+          const timeA = a.auction_datetime || a.auction_time || '9999-12-31'
+          const timeB = b.auction_datetime || b.auction_time || '9999-12-31'
           return timeA.localeCompare(timeB)
         })
 
