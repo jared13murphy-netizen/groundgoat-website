@@ -21,7 +21,7 @@ const PLANS = {
   },
   state: {
     name: 'State',
-    basePrice: 29.99,
+    basePrice: 39.99,
     additionalPrice: 12.99,
     description: 'Best for active land investors',
     features: ['1 state included (all counties)', 'Everything in County plan', 'Priority notifications', 'Historical data access'],
