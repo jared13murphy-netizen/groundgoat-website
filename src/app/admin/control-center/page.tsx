@@ -86,57 +86,13 @@ export default function ControlCenterPage() {
 
   const fetchTodaysAuctions = async (token: string) => {
     try {
-      // Get today's date in YYYY-MM-DD format
-      const today = new Date()
-      const todayStr = today.toISOString().split('T')[0]
-      
-      // Fetch all auction listings
-      const response = await fetch(`${API_URL}/api/listings?limit=100&listing_type=auction`, {
+      // Fetch today's auctions directly from the API
+      const response = await fetch(`${API_URL}/api/listings/today`, {
         headers: { 'Authorization': `Bearer ${token}` },
       })
 
       if (response.ok) {
-        const allListings = await response.json()
-        
-        console.log('Today string:', todayStr)
-        console.log('All listings count:', allListings.length)
-        console.log('First 3 listings:', allListings.slice(0, 3).map((l: any) => ({
-          title: l.title,
-          auction_datetime: l.auction_datetime,
-          auction_date: l.auction_date
-        })))
-        
-        // Filter for today's auctions
-        const todaysAuctions = allListings.filter((listing: any) => {
-          const dateField = listing.auction_datetime || listing.auction_date
-          if (!dateField) return false
-          const auctionDate = dateField.split('T')[0]
-          console.log('Checking:', listing.title?.substring(0, 30), 'dateField:', dateField, 'auctionDate:', auctionDate, 'match:', auctionDate === todayStr)
-          return auctionDate === todayStr
-        })
-        
-        console.log('Todays auctions count:', todaysAuctions.length)
-
-        // Sort by auction datetime (earliest first)
-        todaysAuctions.sort((a: any, b: any) => {
-          const timeA = a.auction_datetime || a.auction_time || '9999-12-31'
-          const timeB = b.auction_datetime || b.auction_time || '9999-12-31'
-          return timeA.localeCompare(timeB)
-        })
-
-        // Fetch full details with tracts for each listing
-        const listingsWithTracts = await Promise.all(
-          todaysAuctions.map(async (listing: any) => {
-            const detailResponse = await fetch(`${API_URL}/api/listings/${listing.id}`, {
-              headers: { 'Authorization': `Bearer ${token}` },
-            })
-            if (detailResponse.ok) {
-              return await detailResponse.json()
-            }
-            return { ...listing, tracts: [] }
-          })
-        )
-
+        const listingsWithTracts = await response.json()
         setListings(listingsWithTracts)
 
         // Initialize tract states
