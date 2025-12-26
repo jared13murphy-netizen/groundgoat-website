@@ -17,6 +17,7 @@ interface Listing {
   status: string
   auction_date: string
   auction_time: string
+  auction_datetime: string
   primary_image_url: string
   company?: {
     id: string
@@ -383,11 +384,11 @@ export default function AdminListingsPage() {
                     <>
                       <div className="flex items-center gap-2 text-gg-gray-400 text-sm">
                         <Calendar size={14} />
-                        <span>{formatDate(listing.auction_date)}</span>
+                        <span>{formatDate(listing.auction_datetime || listing.auction_date)}</span>
                       </div>
                       <div className="flex items-center gap-2 text-gg-gray-400 text-sm">
                         <Clock size={14} />
-                        <span>{formatTime(listing.auction_time)}</span>
+                        <span>{formatTime(listing.auction_datetime || listing.auction_time)}</span>
                       </div>
                     </>
                   )}
