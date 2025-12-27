@@ -47,12 +47,18 @@ interface TeamMember {
   password: string
 }
 
+interface ReferrerInfo {
+  first_name: string
+  account_type: string
+}
+
 function SignUpContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const initialPlan = searchParams.get('plan') as keyof typeof PLANS || 'state'
   const initialStep = searchParams.get('step') ? parseInt(searchParams.get('step')!) : 1
   const cancelled = searchParams.get('cancelled') === 'true'
+  const referralCode = searchParams.get('ref') || null  // Capture referral code from URL
   
   const [step, setStep] = useState(initialStep)
   const [selectedPlan, setSelectedPlan] = useState(initialPlan)
@@ -61,6 +67,9 @@ function SignUpContent() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(cancelled ? 'Payment was cancelled. Please try again.' : '')
   const [verificationToken, setVerificationToken] = useState<string | null>(null)
+  
+  // Referral state
+  const [referrerInfo, setReferrerInfo] = useState<ReferrerInfo | null>(null)
   
   // Verification code state
   const [verificationCode, setVerificationCode] = useState(['', '', '', '', '', ''])
@@ -102,6 +111,27 @@ function SignUpContent() {
     password: '',
     confirmPassword: '',
   })
+
+  // Validate referral code on mount
+  useEffect(() => {
+    if (referralCode) {
+      validateReferralCode(referralCode)
+    }
+  }, [referralCode])
+
+  const validateReferralCode = async (code: string) => {
+    try {
+      const response = await fetch(`${API_URL}/api/referral/validate/${code}`)
+      if (response.ok) {
+        const data = await response.json()
+        if (data.valid && data.referrer) {
+          setReferrerInfo(data.referrer)
+        }
+      }
+    } catch (err) {
+      console.error('Failed to validate referral code:', err)
+    }
+  }
 
   // Resend countdown timer
   useEffect(() => {
@@ -383,6 +413,7 @@ function SignUpContent() {
           first_name: formData.firstName,
           last_name: formData.lastName,
           password: formData.password,
+          referral_code: referralCode,  // Pass referral code
         }),
       })
 
@@ -436,6 +467,7 @@ function SignUpContent() {
               last_name: formData.lastName,
               email: formData.email,
               password: formData.password,
+              referral_code: referralCode,  // Pass referral code
             }),
           })
 
@@ -569,7 +601,7 @@ function SignUpContent() {
     setError('')
     
     try {
-      // Register the user
+      // Register the user with referral code
       const registerResponse = await fetch(`${API_URL}/api/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -578,7 +610,7 @@ function SignUpContent() {
           last_name: formData.lastName,
           email: formData.email,
           password: formData.password,
-          account_type: 'individual',
+          referral_code: referralCode,  // Pass referral code
         }),
       })
 
@@ -657,6 +689,15 @@ function SignUpContent() {
   return (
     <div className="min-h-screen bg-gg-black pt-24 pb-12">
       <div className="max-w-4xl mx-auto px-6">
+        {/* Referral Banner */}
+        {referrerInfo && (
+          <div className="bg-gg-pink/10 border border-gg-pink/30 rounded-xl p-4 mb-8 text-center">
+            <p className="text-gg-pink">
+              🎉 You were referred by <span className="font-semibold">{referrerInfo.first_name}</span>!
+            </p>
+          </div>
+        )}
+
         {/* Header */}
         <div className="text-center mb-12">
           <h1 className="font-display text-4xl font-bold text-white mb-4">
