@@ -1,9 +1,9 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { DollarSign, useState, useEffect } from 'react'
+import { DollarSign, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { 
+import { DollarSign, 
   Users, 
   FileText, 
   Building2, 
@@ -157,6 +157,12 @@ export default function AdminDashboard() {
             description="Edit or remove auction listings"
             href="/admin/listings"
             icon={<FileText />}
+          />
+          <QuickActionCard
+            title="Commissions"
+            description="View sales rep commissions"
+            href="/admin/commissions"
+            icon={<DollarSign />}
           />
           <QuickActionCard
             title="Companies"
