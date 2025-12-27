@@ -155,10 +155,27 @@ export default function AdminListingsPage() {
   }
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this listing?')) return
+    if (!confirm('Are you sure you want to delete this listing and all its tracts?')) return
 
     const token = localStorage.getItem('auth_token')
     try {
+      // First, fetch the listing's tracts
+      const tractsResponse = await fetch(`${API_URL}/api/listings/${id}/tracts`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      })
+      
+      if (tractsResponse.ok) {
+        const tracts = await tractsResponse.json()
+        // Delete each tract
+        for (const tract of tracts) {
+          await fetch(`${API_URL}/api/listings/${id}/tracts/${tract.id}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` },
+          })
+        }
+      }
+
+      // Then delete the listing
       const response = await fetch(`${API_URL}/api/listings/${id}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` },
