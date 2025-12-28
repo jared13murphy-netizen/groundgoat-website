@@ -6,7 +6,7 @@ export default function TermsPage() {
       <div className="max-w-4xl mx-auto px-6">
         <div className="mb-12">
           <h1 className="font-display text-4xl md:text-5xl font-bold text-white mb-4">Terms of Service</h1>
-          <p className="text-gg-gray-400">Last Updated: December 2024</p>
+          <p className="text-gg-gray-400">Last Updated: December 28, 2025</p>
         </div>
 
         <div className="space-y-8 text-gg-gray-300">
@@ -68,7 +68,7 @@ export default function TermsPage() {
 
           <section>
             <h2 className="font-display text-2xl font-bold text-white mb-4">11. Contact Us</h2>
-            <p>If you have questions about these Terms, contact us at: <a href="mailto:no-reply@groundgoat.com" className="text-gg-pink hover:underline">no-reply@groundgoat.com</a></p>
+            <p>If you have questions about these Terms, contact us at: <a href="mailto:info@groundgoat.com" className="text-gg-pink hover:underline">info@groundgoat.com</a></p>
           </section>
         </div>
 
