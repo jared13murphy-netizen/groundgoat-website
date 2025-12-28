@@ -133,11 +133,11 @@ export default function AdminCompaniesPage() {
         </div>
 
         {/* Companies Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-5">
           {companies.map((company) => (
             <div key={company.id} className="card overflow-hidden">
               {/* Header with logo */}
-              <div className="relative h-16 bg-gg-gray-800 flex items-center justify-center">
+              <div className="relative h-20 bg-gg-gray-800 flex items-center justify-center">
                 {company.logo_url ? (
                   <div className="bg-white rounded-lg p-2 flex items-center justify-center">
                     <img
@@ -150,13 +150,13 @@ export default function AdminCompaniesPage() {
                   <Building2 className="text-gg-gray-600" size={28} />
                 )}
                 {/* Listing count badge */}
-                <div className="absolute top-2 right-2 px-1.5 py-0.5 bg-gg-pink text-white rounded-full text-[10px] font-semibold">
+                <div className="absolute top-2 right-2 px-1.5 py-0.5 bg-gg-pink text-black rounded-full text-[10px] font-semibold">
                   {company.listing_count || 0} listings
                 </div>
               </div>
 
               {/* Content */}
-              <div className="p-3">
+              <div className="p-4">
                 <h3 className="text-white font-semibold text-sm mb-0.5 line-clamp-1">{company.name}</h3>
                 {(company.city || company.state) && (
                   <p className="text-gg-gray-400 text-xs mb-2">
