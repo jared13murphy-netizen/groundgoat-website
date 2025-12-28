@@ -4,7 +4,7 @@ import { useState, useEffect, Suspense, useRef } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Check, ArrowLeft, ArrowRight, Eye, EyeOff, MapPin, ChevronDown, X, Loader2, Building2, Users, Plus, Mail } from 'lucide-react'
-import { US_STATES, getCountiesForState } from '@/data/counties'
+import { US_STATES, getCountiesForState, getStateAbbreviation } from '@/data/counties'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -614,11 +614,11 @@ function SignUpContent() {
           },
           body: JSON.stringify({
             subscription_type: selectedPlan,
-            state: primaryArea.state,
+            state: getStateAbbreviation(primaryArea.state),
             county: primaryArea.county || null,
             billing_cycle: billingCycle,
             additional_areas: selectedAreas.slice(1).map(area => ({
-              state: area.state,
+              state: getStateAbbreviation(area.state),
               county: area.county || null,
             })),
           }),
