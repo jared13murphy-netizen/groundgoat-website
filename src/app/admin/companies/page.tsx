@@ -133,17 +133,17 @@ export default function AdminCompaniesPage() {
         </div>
 
         {/* Companies Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
           {companies.map((company) => (
             <div key={company.id} className="card overflow-hidden">
               {/* Header with logo */}
-              <div className="relative h-20 bg-gg-gray-800 flex items-center justify-center">
+              <div className="relative h-14 bg-gg-gray-800 flex items-center justify-center">
                 {company.logo_url ? (
                   <div className="bg-white rounded-lg p-2 flex items-center justify-center">
                     <img
                       src={company.logo_url}
                       alt={company.name}
-                      className="h-8 object-contain max-w-[100px]"
+                      className="h-10 object-contain max-w-[120px]"
                     />
                   </div>
                 ) : (
@@ -156,7 +156,7 @@ export default function AdminCompaniesPage() {
               </div>
 
               {/* Content */}
-              <div className="p-4">
+              <div className="px-2 py-3">
                 <h3 className="text-white font-semibold text-sm mb-0.5 line-clamp-1">{company.name}</h3>
                 {(company.city || company.state) && (
                   <p className="text-gg-gray-400 text-xs mb-2">
@@ -165,7 +165,7 @@ export default function AdminCompaniesPage() {
                 )}
 
                 {/* Actions */}
-                <div className="flex gap-1.5 pt-2 border-t border-gg-gray-800">
+                <div className="flex gap-1.5 pt-2 mt-2 border-t border-gg-gray-800">
                   {company.website && (
                     <a
                       href={company.website}
