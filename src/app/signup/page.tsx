@@ -151,56 +151,19 @@ function SignUpContent() {
     }
   }, [selectedState, selectedPlan])
 
-  const fetchAvailableStates = async () => {
+  const fetchAvailableStates = () => {
     setLoadingStates(true)
-    try {
-      const response = await fetch(`${API_URL}/api/subscriptions/available-states`)
-      if (response.ok) {
-        const data = await response.json()
-        let states: string[] = []
-        if (Array.isArray(data)) {
-          states = data
-            .map((item: any) => typeof item === 'string' ? item : item.state)
-            .filter((s: string) => US_STATES.includes(s))
-            .sort()
-        }
-        setAvailableStates(states.length > 0 ? states : US_STATES)
-      }
-    } catch (err) {
-      console.error('Failed to fetch states:', err)
-      setAvailableStates(US_STATES)
-    } finally {
-      setLoadingStates(false)
-    }
+    // Use local county data for consistency with listings
+    setAvailableStates(US_STATES)
+    setLoadingStates(false)
   }
 
-  const fetchAvailableCounties = async (state: string) => {
+  const fetchAvailableCounties = (state: string) => {
     setLoadingCounties(true)
     setAvailableCounties([])
-    try {
-      const response = await fetch(`${API_URL}/api/subscriptions/available-counties/${encodeURIComponent(state)}`)
-      if (response.ok) {
-        const data = await response.json()
-        let counties: string[] = []
-        if (Array.isArray(data)) {
-          counties = data
-            .map((item: any) => typeof item === 'string' ? item : item.county)
-            .filter((c: string) => c && !c.includes('Township') && !c.includes('Precinct') && !c.match(/^\d/))
-            .sort()
-        }
-        // If API returns counties, use them; otherwise fall back to local data
-        setAvailableCounties(counties.length > 0 ? counties : getCountiesForState(state))
-      } else {
-        // API failed, use local data
-        setAvailableCounties(getCountiesForState(state))
-      }
-    } catch (err) {
-      console.error('Failed to fetch counties:', err)
-      // Use local data as fallback
-      setAvailableCounties(getCountiesForState(state))
-    } finally {
-      setLoadingCounties(false)
-    }
+    // Use local county data for consistency with listings
+    setAvailableCounties(getCountiesForState(state))
+    setLoadingCounties(false)
   }
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
