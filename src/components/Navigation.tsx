@@ -4,12 +4,13 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { useState, useEffect } from 'react'
 import { Menu, X, LogOut, User } from 'lucide-react'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
 export default function Navigation() {
   const router = useRouter()
+  const pathname = usePathname()
   const [isScrolled, setIsScrolled] = useState(false)
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [user, setUser] = useState<any>(null)
@@ -24,19 +25,36 @@ export default function Navigation() {
   }, [])
 
   useEffect(() => {
-    // Check for existing auth
-    const token = localStorage.getItem('auth_token')
-    const cachedUser = localStorage.getItem('user')
-    
-    if (cachedUser) {
-      setUser(JSON.parse(cachedUser))
+    const checkAuth = () => {
+      const token = localStorage.getItem('auth_token')
+      const cachedUser = localStorage.getItem('user')
+      
+      if (cachedUser) {
+        setUser(JSON.parse(cachedUser))
+      } else {
+        setUser(null)
+      }
+      
+      if (token) {
+        // Verify token is still valid
+        fetchUser(token)
+      }
     }
     
-    if (token) {
-      // Verify token is still valid
-      fetchUser(token)
+    // Check on mount
+    checkAuth()
+    
+    // Listen for storage changes (login/logout in other tabs)
+    window.addEventListener('storage', checkAuth)
+    
+    // Re-check every time the component is focused
+    window.addEventListener('focus', checkAuth)
+    
+    return () => {
+      window.removeEventListener('storage', checkAuth)
+      window.removeEventListener('focus', checkAuth)
     }
-  }, [])
+  }, [pathname])
 
   const fetchUser = async (token: string) => {
     try {
