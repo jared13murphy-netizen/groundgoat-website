@@ -220,10 +220,21 @@ export default function ControlCenterPage() {
     
     const statuses = tracts.map(t => tractStates[t.id]?.status || normalizeStatus(t.sale_status || 'listed'))
     
-    if (statuses.some(s => s === 'Sold')) return 'Sold'
-    if (statuses.some(s => s === 'Pending')) return 'Pending'
+    // If at least one tract is Live, listing is Live
     if (statuses.some(s => s === 'Live')) return 'Live'
+    
+    // If at least one tract is Sold AND no tracts are Listed or Live, listing is Sold
+    const hasSold = statuses.some(s => s === 'Sold')
+    const hasListedOrLive = statuses.some(s => s === 'Listed' || s === 'Live')
+    if (hasSold && !hasListedOrLive) return 'Sold'
+    
+    // If all tracts are Pending, listing is Pending
+    if (statuses.every(s => s === 'Pending')) return 'Pending'
+    
+    // If all tracts are No Sale, listing is No Sale
     if (statuses.every(s => s === 'No Sale')) return 'No Sale'
+    
+    // Otherwise listing is Listed
     return 'Listed'
   }
 
