@@ -156,7 +156,7 @@ export default function AdminCompaniesPage() {
               </div>
 
               {/* Content */}
-              <div className="px-2 py-3">
+              <div className="px-2 py-2">
                 <h3 className="text-white font-semibold text-sm mb-0.5 line-clamp-1">{company.name}</h3>
                 {(company.city || company.state) && (
                   <p className="text-gg-gray-400 text-xs mb-2">
