@@ -75,9 +75,9 @@ export default function AdminCompaniesPage() {
         listing_count: listingCounts[company.id] || 0
       }))
       
-      // Sort by listing count descending
+      // Sort alphabetically by name
       companiesWithCounts.sort((a: Company, b: Company) => 
-        (b.listing_count || 0) - (a.listing_count || 0)
+        a.name.localeCompare(b.name)
       )
       
       setCompanies(companiesWithCounts)
@@ -133,61 +133,61 @@ export default function AdminCompaniesPage() {
         </div>
 
         {/* Companies Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
           {companies.map((company) => (
             <div key={company.id} className="card overflow-hidden">
               {/* Header with logo */}
-              <div className="relative h-24 bg-gg-gray-800 flex items-center justify-center">
+              <div className="relative h-16 bg-gg-gray-800 flex items-center justify-center">
                 {company.logo_url ? (
-                  <div className="bg-white rounded-[10px] p-3 flex items-center justify-center">
+                  <div className="bg-white rounded-lg p-2 flex items-center justify-center">
                     <img
                       src={company.logo_url}
                       alt={company.name}
-                      className="h-12 object-contain"
+                      className="h-8 object-contain max-w-[100px]"
                     />
                   </div>
                 ) : (
-                  <Building2 className="text-gg-gray-600" size={40} />
+                  <Building2 className="text-gg-gray-600" size={28} />
                 )}
                 {/* Listing count badge */}
-                <div className="absolute top-3 right-3 px-2 py-1 bg-gg-pink text-white rounded-full text-xs font-semibold">
+                <div className="absolute top-2 right-2 px-1.5 py-0.5 bg-gg-pink text-white rounded-full text-[10px] font-semibold">
                   {company.listing_count || 0} listings
                 </div>
               </div>
 
               {/* Content */}
-              <div className="p-4">
-                <h3 className="text-white font-semibold text-lg mb-1">{company.name}</h3>
+              <div className="p-3">
+                <h3 className="text-white font-semibold text-sm mb-0.5 line-clamp-1">{company.name}</h3>
                 {(company.city || company.state) && (
-                  <p className="text-gg-gray-400 text-sm mb-3">
+                  <p className="text-gg-gray-400 text-xs mb-2">
                     {[company.city, company.state].filter(Boolean).join(', ')}
                   </p>
                 )}
 
                 {/* Actions */}
-                <div className="flex gap-2 pt-3 border-t border-gg-gray-800">
+                <div className="flex gap-1.5 pt-2 border-t border-gg-gray-800">
                   {company.website && (
                     <a
                       href={company.website}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="flex items-center justify-center gap-2 px-3 py-2 bg-gg-gray-800 text-white rounded-lg hover:bg-gg-gray-700 transition-colors"
+                      className="flex items-center justify-center gap-1 px-2 py-1.5 bg-gg-gray-800 text-white rounded-md hover:bg-gg-gray-700 transition-colors text-xs"
                     >
-                      <ExternalLink size={14} />
+                      <ExternalLink size={12} />
                     </a>
                   )}
                   <Link
                     href={`/admin/companies/${company.id}`}
-                    className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-gg-gray-800 text-white rounded-lg hover:bg-gg-gray-700 transition-colors"
+                    className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 bg-gg-gray-800 text-white rounded-md hover:bg-gg-gray-700 transition-colors text-xs"
                   >
-                    <Pencil size={14} />
+                    <Pencil size={12} />
                     Edit
                   </Link>
                   <button
                     onClick={() => handleDelete(company.id)}
-                    className="flex items-center justify-center gap-2 px-3 py-2 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30 transition-colors"
+                    className="flex items-center justify-center px-2 py-1.5 bg-red-500/20 text-red-400 rounded-md hover:bg-red-500/30 transition-colors"
                   >
-                    <Trash2 size={14} />
+                    <Trash2 size={12} />
                   </button>
                 </div>
               </div>
