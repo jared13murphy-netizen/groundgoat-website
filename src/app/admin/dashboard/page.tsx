@@ -18,6 +18,48 @@ import {
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
+// Token refresh helper
+async function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Response> {
+  let token = localStorage.getItem('auth_token')
+  
+  const headers = new Headers(options.headers || {})
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`)
+  }
+
+  let response = await fetch(url, { ...options, headers })
+
+  // If 401, try to refresh the token
+  if (response.status === 401) {
+    const refreshToken = localStorage.getItem('refresh_token')
+    if (refreshToken) {
+      const refreshResponse = await fetch(`${API_URL}/api/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      })
+
+      if (refreshResponse.ok) {
+        const data = await refreshResponse.json()
+        localStorage.setItem('auth_token', data.access_token)
+        if (data.refresh_token) {
+          localStorage.setItem('refresh_token', data.refresh_token)
+        }
+        // Retry original request with new token
+        headers.set('Authorization', `Bearer ${data.access_token}`)
+        response = await fetch(url, { ...options, headers })
+      } else {
+        // Refresh failed, clear tokens
+        localStorage.removeItem('auth_token')
+        localStorage.removeItem('refresh_token')
+        localStorage.removeItem('user')
+      }
+    }
+  }
+
+  return response
+}
+
 export default function AdminDashboard() {
   const router = useRouter()
   const [user, setUser] = useState<any>(null)

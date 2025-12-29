@@ -51,8 +51,11 @@ function SignInContent() {
 
       const data = await response.json()
       
-      // Store token
+      // Store tokens
       localStorage.setItem('auth_token', data.access_token)
+      if (data.refresh_token) {
+        localStorage.setItem('refresh_token', data.refresh_token)
+      }
       
       // Fetch user to check account type
       const userResponse = await fetch(`${API_URL}/api/auth/me`, {
