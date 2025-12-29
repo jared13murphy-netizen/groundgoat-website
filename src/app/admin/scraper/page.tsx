@@ -51,9 +51,7 @@ export default function AdminScraperPage() {
 
   const checkAuth = async (token: string) => {
     try {
-      const response = await fetch(`${API_URL}/api/auth/me`, {
-        headers: { 'Authorization': `Bearer ${token}` },
-      })
+      const response = await fetchWithAuth(`${API_URL}/api/auth/me`)
 
       if (!response.ok) throw new Error('Not authenticated')
 
@@ -108,10 +106,9 @@ export default function AdminScraperPage() {
       ))
 
       try {
-        const response = await fetch(`${API_URL}/api/scraper/run`, {
+        const response = await fetchWithAuth(`${API_URL}/api/scraper/run`, {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({ 
