@@ -150,13 +150,13 @@ export default function MapComponent({ listings, priceRange }: MapComponentProps
                 {listing.listedAcres > 0 && (
                   <div className="flex justify-between">
                     <span className="text-gray-500">Listed Acres:</span>
-                    <span className="text-gray-800">{listing.listedAcres.toFixed(1)}</span>
+                    <span className="text-gray-800">{Number(listing.listedAcres).toFixed(1)}</span>
                   </div>
                 )}
                 {listing.soldAcres > 0 && (
                   <div className="flex justify-between">
                     <span className="text-gray-500">Sold Acres:</span>
-                    <span className="text-gray-800">{listing.soldAcres.toFixed(1)}</span>
+                    <span className="text-gray-800">{Number(listing.soldAcres).toFixed(1)}</span>
                   </div>
                 )}
                 {listing.tractCount > 0 && (
