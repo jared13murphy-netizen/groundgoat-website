@@ -29,31 +29,31 @@ interface MapComponentProps {
 
 export default function MapComponent({ listings, priceRange }: MapComponentProps) {
   // Calculate circle radius based on price per acre
-  // For "listed" status, use standard medium size
-  // Below $8k = small (4-8px), $8k-$12k = medium (8-18px), $12k-$20k+ = large (20-40px)
+  // For "listed" status, use standard size (10px)
+  // Below $8k = small (4-8px), $8k-$12k = medium (8-14px), $12k-$20k = large (14-24px), $20k+ = extra large (24-32px)
   const getRadius = (pricePerAcre: number, status: string): number => {
-    // Listed listings get a standard medium size
+    // Listed listings get a standard size
     if (status === 'listed' || status === 'active') {
-      return 12
+      return 10
     }
     
-    if (pricePerAcre <= 0) return 6
+    if (pricePerAcre <= 0) return 5
     
     if (pricePerAcre < 8000) {
       // Small range: 4-8px for $0-$8k
       return 4 + (pricePerAcre / 8000) * 4
     } else if (pricePerAcre < 12000) {
-      // Medium range: 8-18px for $8k-$12k
+      // Medium range: 8-14px for $8k-$12k
       const normalized = (pricePerAcre - 8000) / 4000
-      return 8 + normalized * 10
+      return 8 + normalized * 6
     } else if (pricePerAcre < 20000) {
-      // Large range: 18-32px for $12k-$20k
+      // Large range: 14-24px for $12k-$20k
       const normalized = (pricePerAcre - 12000) / 8000
-      return 18 + normalized * 14
+      return 14 + normalized * 10
     } else {
-      // Extra large: 32-45px for $20k+
+      // Extra large: 24-32px for $20k+
       const normalized = Math.min((pricePerAcre - 20000) / 10000, 1)
-      return 32 + normalized * 13
+      return 24 + normalized * 8
     }
   }
 
@@ -135,7 +135,7 @@ export default function MapComponent({ listings, priceRange }: MapComponentProps
                   <div className="flex justify-between">
                     <span className="text-gray-500">Price/Acre:</span>
                     <span className="font-medium text-gray-900">
-                      ${listing.pricePerAcre.toLocaleString()}
+                      ${Number(listing.pricePerAcre).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </span>
                   </div>
                 )}
