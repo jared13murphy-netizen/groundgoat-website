@@ -44,12 +44,11 @@ interface Listing {
   listing_company_id?: string
   auction_date?: string
   auction_time?: string
-  tracts?: { 
-    price_per_acre?: number
-    total_acres?: number
-    sale_price?: number
-    sale_status?: string
-  }[]
+  price_per_acre?: number
+  sale_price?: number
+  total_acres?: number
+  sold_acres?: number
+  tract_count?: number
 }
 
 interface MapListing {
@@ -193,31 +192,12 @@ export default function AdminDashboard() {
       const coords = countyCentroids[key]
       if (!coords) return
 
-      let pricePerAcre = 0
-      let totalPrice = 0
-      let listedAcres = 0
-      let soldAcres = 0
-      const tractCount = listing.tracts?.length || 0
-      
-      if (listing.tracts && listing.tracts.length > 0) {
-        const tractsWithPrice = listing.tracts.filter(t => t.price_per_acre && t.price_per_acre > 0)
-        if (tractsWithPrice.length > 0) {
-          pricePerAcre = tractsWithPrice.reduce((sum, t) => sum + (t.price_per_acre || 0), 0) / tractsWithPrice.length
-        }
-        listedAcres = listing.tracts.reduce((sum, t) => sum + (t.total_acres || 0), 0)
-        
-        // Calculate sold acres and total price
-        listing.tracts.forEach(t => {
-          if (t.sale_status === 'sold' && t.total_acres) {
-            soldAcres += t.total_acres
-          }
-          if (t.sale_price) {
-            totalPrice += t.sale_price
-          } else if (t.price_per_acre && t.total_acres) {
-            totalPrice += t.price_per_acre * t.total_acres
-          }
-        })
-      }
+      // Use direct fields from API
+      const pricePerAcre = listing.price_per_acre || 0
+      const totalPrice = listing.sale_price || (pricePerAcre * (listing.total_acres || 0))
+      const listedAcres = listing.total_acres || 0
+      const soldAcres = listing.sold_acres || 0
+      const tractCount = listing.tract_count || 0
 
       if (selectedCompany !== 'all' && listing.listing_company_id !== selectedCompany) {
         return
@@ -386,7 +366,7 @@ export default function AdminDashboard() {
               <span className="text-gg-gray-300">Sold</span>
             </div>
             <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full bg-blue-500 opacity-70"></div>
+              <div className="w-3 h-3 rounded-full bg-gg-pink opacity-70"></div>
               <span className="text-gg-gray-300">Listed</span>
             </div>
             <div className="flex items-center gap-2">

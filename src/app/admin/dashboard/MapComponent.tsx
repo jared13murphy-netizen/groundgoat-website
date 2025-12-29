@@ -29,9 +29,15 @@ interface MapComponentProps {
 
 export default function MapComponent({ listings, priceRange }: MapComponentProps) {
   // Calculate circle radius based on price per acre
-  // Below $8k = small (5-8px), $8k-$12k = medium (10-18px), $12k-$20k+ = large (20-40px)
-  const getRadius = (pricePerAcre: number): number => {
-    if (pricePerAcre <= 0) return 4
+  // For "listed" status, use standard medium size
+  // Below $8k = small (4-8px), $8k-$12k = medium (8-18px), $12k-$20k+ = large (20-40px)
+  const getRadius = (pricePerAcre: number, status: string): number => {
+    // Listed listings get a standard medium size
+    if (status === 'listed' || status === 'active') {
+      return 12
+    }
+    
+    if (pricePerAcre <= 0) return 6
     
     if (pricePerAcre < 8000) {
       // Small range: 4-8px for $0-$8k
@@ -61,7 +67,7 @@ export default function MapComponent({ listings, priceRange }: MapComponentProps
       case 'no_sale':
         return '#ef4444' // red
       default:
-        return '#3b82f6' // blue for listed/active
+        return '#f58cde' // Ground Goat pink for listed/active
     }
   }
 
@@ -110,7 +116,7 @@ export default function MapComponent({ listings, priceRange }: MapComponentProps
         <CircleMarker
           key={listing.id}
           center={[listing.lat, listing.lng]}
-          radius={getRadius(listing.pricePerAcre)}
+          radius={getRadius(listing.pricePerAcre, listing.status)}
           fillColor={getColor(listing.status)}
           color={getColor(listing.status)}
           weight={1}
@@ -175,7 +181,7 @@ export default function MapComponent({ listings, priceRange }: MapComponentProps
                     listing.status === 'sold' ? 'text-green-600' :
                     listing.status === 'pending' ? 'text-yellow-600' :
                     listing.status === 'no_sale' ? 'text-red-600' :
-                    'text-blue-600'
+                    'text-pink-500'
                   }`}>
                     {listing.status.replace('_', ' ')}
                   </span>
