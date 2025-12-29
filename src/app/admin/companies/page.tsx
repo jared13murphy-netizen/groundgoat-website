@@ -158,7 +158,7 @@ export default function AdminCompaniesPage() {
 
               {/* Website */}
               {company.website && (
-                
+                <a
                   href={company.website}
                   target="_blank"
                   rel="noopener noreferrer"
