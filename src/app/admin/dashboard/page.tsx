@@ -13,7 +13,8 @@ import {
   AlertCircle,
   ChevronRight,
   RefreshCw,
-  Radio
+  Radio,
+  Map
 } from 'lucide-react'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
@@ -220,6 +221,12 @@ export default function AdminDashboard() {
             description="View analytics and reports"
             href="/admin/reports"
             icon={<TrendingUp />}
+          />
+          <QuickActionCard
+            title="Listings Map"
+            description="View listings on a map by price/acre"
+            href="/admin/map"
+            icon={<Map />}
           />
           <QuickActionCard
             title="Settings"
