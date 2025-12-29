@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, Suspense } from 'react'
+import fetchWithAuth from '@/lib/fetchWithAuth'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
@@ -39,11 +40,7 @@ function AccountContent() {
   const fetchUserAndSubscription = async (token: string) => {
     try {
       // Fetch user data
-      const userResponse = await fetch(`${API_URL}/api/auth/me`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      })
+      const userResponse = await fetchWithAuth(`${API_URL}/api/auth/me`)
 
       if (!userResponse.ok) {
         throw new Error('Session expired')
@@ -64,11 +61,7 @@ function AccountContent() {
       }
 
       // Check subscription status for individual users
-      const subsResponse = await fetch(`${API_URL}/api/subscriptions/areas`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      })
+      const subsResponse = await fetchWithAuth(`${API_URL}/api/subscriptions/areas`)
 
       if (subsResponse.ok) {
         const subsData = await subsResponse.json()

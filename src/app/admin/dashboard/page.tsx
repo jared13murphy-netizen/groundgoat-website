@@ -78,9 +78,7 @@ export default function AdminDashboard() {
 
   const checkAuth = async (token: string) => {
     try {
-      const response = await fetch(`${API_URL}/api/auth/me`, {
-        headers: { 'Authorization': `Bearer ${token}` },
-      })
+      const response = await fetchWithAuth(`${API_URL}/api/auth/me`)
 
       if (!response.ok) throw new Error('Not authenticated')
 
@@ -93,17 +91,15 @@ export default function AdminDashboard() {
       }
 
       setUser(userData)
-      fetchStats(token)
+      fetchStats()
     } catch (err) {
       router.push('/signin')
     }
   }
 
-  const fetchStats = async (token: string) => {
+  const fetchStats = async () => {
     try {
-      const response = await fetch(`${API_URL}/api/admin/stats`, {
-        headers: { 'Authorization': `Bearer ${token}` },
-      })
+      const response = await fetchWithAuth(`${API_URL}/api/admin/stats`)
 
       if (response.ok) {
         const data = await response.json()

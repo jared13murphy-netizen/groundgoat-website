@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import fetchWithAuth from '@/lib/fetchWithAuth'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Search, UserCheck, UserX, Shield, Loader2, ChevronDown, Edit2, X, Check, DollarSign } from 'lucide-react'
