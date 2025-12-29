@@ -56,8 +56,8 @@ export default function PrivateTreatyReportsPage() {
   const fetchReports = async (token: string) => {
     setLoading(true)
     try {
-      const response = await fetch(`${API_URL}/api/admin/private-treaty-reports`, {
-        headers: { 'Authorization': `Bearer ${token}` },
+      const response = await fetch(API_URL + '/api/admin/private-treaty-reports', {
+        headers: { 'Authorization': 'Bearer ' + token },
       })
 
       if (response.ok) {
@@ -77,12 +77,11 @@ export default function PrivateTreatyReportsPage() {
   const runCheckNow = async () => {
     setRunning(true)
     try {
-      const response = await fetch(`${SCRAPER_URL}/api/cron/private-treaty-check`, {
+      const response = await fetch(SCRAPER_URL + '/api/cron/private-treaty-check', {
         method: 'POST',
       })
       
       if (response.ok) {
-        // Wait a moment then refresh reports
         setTimeout(() => {
           const token = localStorage.getItem('auth_token')
           if (token) fetchReports(token)
@@ -142,7 +141,6 @@ export default function PrivateTreatyReportsPage() {
   return (
     <div className="min-h-screen bg-gg-black pt-24 pb-12">
       <div className="max-w-7xl mx-auto px-6">
-        {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div className="flex items-center gap-4">
             <Link href="/admin/dashboard" className="text-gg-gray-400 hover:text-white">
@@ -185,7 +183,6 @@ export default function PrivateTreatyReportsPage() {
           </div>
         ) : (
           <div className="grid lg:grid-cols-3 gap-6">
-            {/* Report List */}
             <div className="lg:col-span-1">
               <div className="card">
                 <h3 className="font-semibold text-white mb-4">Report History</h3>
@@ -219,7 +216,6 @@ export default function PrivateTreatyReportsPage() {
               </div>
             </div>
 
-            {/* Report Details */}
             <div className="lg:col-span-2">
               {selectedReport && (
                 <div className="card">
@@ -229,7 +225,7 @@ export default function PrivateTreatyReportsPage() {
                         Report: {formatDate(selectedReport.run_time)}
                       </h3>
                       <p className="text-gg-gray-400 text-sm">
-                        {selectedReport.total_checked} listings checked • {selectedReport.needs_update_count} need attention
+                        {selectedReport.total_checked} listings checked, {selectedReport.needs_update_count} need attention
                       </p>
                     </div>
                   </div>
@@ -257,7 +253,7 @@ export default function PrivateTreatyReportsPage() {
                                   {item.county} County, {item.state}
                                 </h4>
                                 <span className={`inline-block mt-1 text-xs px-2 py-0.5 rounded border ${getStatusBadge(item.detected_status)}`}>
-                                  {item.detected_status} • {item.confidence} confidence
+                                  {item.detected_status} - {item.confidence} confidence
                                 </span>
                               </div>
                             </div>
@@ -282,10 +278,10 @@ export default function PrivateTreatyReportsPage() {
                               ID: {item.listing_id}
                             </span>
                             <Link
-                              href={`/admin/listings?id=${item.listing_id}`}
+                              href={'/admin/listings?id=' + item.listing_id}
                               className="text-gg-pink hover:underline"
                             >
-                              Edit Listing →
+                              Edit Listing
                             </Link>
                           </div>
                         </div>
