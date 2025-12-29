@@ -179,8 +179,8 @@ export default function EditTractPage() {
         if (updateParentListing && tract) {
           try {
             // Fetch all tracts for this listing to recalculate
-            const tractsResponse = await fetch(\`\${API_URL}/api/listings/\${tract.listing_id}\`, {
-              headers: { 'Authorization': \`Bearer \${token}\` },
+            const tractsResponse = await fetch(\`${API_URL}/api/listings/${tract.listing_id}`, {
+              headers: { 'Authorization': \`Bearer ${token}` },
             })
             if (tractsResponse.ok) {
               const listingData = await tractsResponse.json()
@@ -215,10 +215,10 @@ export default function EditTractPage() {
               const pricePerAcre = totalAcres > 0 ? totalSalePrice / totalAcres : 0
               
               // Update the parent listing
-              await fetch(\`\${API_URL}/api/listings/\${tract.listing_id}\`, {
+              await fetch(\`${API_URL}/api/listings/${tract.listing_id}`, {
                 method: 'PATCH',
                 headers: {
-                  'Authorization': \`Bearer \${token}\`,
+                  'Authorization': \`Bearer ${token}`,
                   'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
