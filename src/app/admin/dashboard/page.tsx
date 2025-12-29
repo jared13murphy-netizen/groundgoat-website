@@ -254,16 +254,6 @@ export default function AdminDashboard() {
           </div>
         </div>
 
-        {/* Stats Grid */}
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
-          <StatCard icon={<Users />} label="Total Users" value={stats?.total_users || 0} />
-          <StatCard icon={<FileText />} label="Listings" value={stats?.total_listings || 0} />
-          <StatCard icon={<Building2 />} label="Companies" value={stats?.total_companies || 0} />
-          <StatCard icon={<TrendingUp />} label="Active Subs" value={stats?.active_subscriptions || 0} />
-          <StatCard icon={<Clock />} label="Upcoming" value={stats?.upcoming_auctions || 0} />
-          <StatCard icon={<AlertCircle />} label="Results" value={stats?.recent_results || 0} />
-        </div>
-
         {/* Control Center Banner */}
         <Link 
           href="/admin/control-center" 
@@ -302,6 +292,7 @@ export default function AdminDashboard() {
             description="View and manage user accounts"
             href="/admin/users"
             icon={<Users />}
+            count={stats?.total_users}
           />
           <QuickActionCard
             title="Commissions"
@@ -314,12 +305,14 @@ export default function AdminDashboard() {
             description="Edit or remove auction listings"
             href="/admin/listings"
             icon={<FileText />}
+            count={stats?.total_listings}
           />
           <QuickActionCard
             title="Companies"
             description="Manage auction company records"
             href="/admin/companies"
             icon={<Building2 />}
+            count={stats?.total_companies}
           />
           <QuickActionCard
             title="Reports"
@@ -394,26 +387,18 @@ export default function AdminDashboard() {
   )
 }
 
-function StatCard({ icon, label, value }: { icon: React.ReactNode, label: string, value: number }) {
-  return (
-    <div className="card text-center">
-      <div className="w-10 h-10 bg-gg-pink/10 rounded-lg flex items-center justify-center text-gg-pink mx-auto mb-2">
-        {icon}
-      </div>
-      <div className="text-2xl font-bold text-white">{value.toLocaleString()}</div>
-      <div className="text-xs text-gg-gray-400">{label}</div>
-    </div>
-  )
-}
-
-function QuickActionCard({ title, description, href, icon }: { title: string, description: string, href: string, icon: React.ReactNode }) {
+function QuickActionCard({ title, description, href, icon, count }: { title: string, description: string, href: string, icon: React.ReactNode, count?: number }) {
   return (
     <Link href={href} className="card hover:border-gg-pink group">
       <div className="flex items-start justify-between">
         <div className="w-12 h-12 bg-gg-pink/10 rounded-xl flex items-center justify-center text-gg-pink mb-4 group-hover:bg-gg-pink/20 transition-colors">
           {icon}
         </div>
-        <ChevronRight className="text-gg-gray-500 group-hover:text-gg-pink transition-colors" />
+        {count !== undefined ? (
+          <span className="text-2xl font-bold text-gg-pink">{count.toLocaleString()}</span>
+        ) : (
+          <ChevronRight className="text-gg-gray-500 group-hover:text-gg-pink transition-colors" />
+        )}
       </div>
       <h3 className="font-semibold text-white mb-1">{title}</h3>
       <p className="text-sm text-gg-gray-400">{description}</p>
