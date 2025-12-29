@@ -137,3 +137,33 @@ input:focus, textarea:focus, select:focus {
   pointer-events: none;
   opacity: 0.4;
 }
+
+/* Admin form inputs - white background with dark text */
+.admin-input,
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="number"],
+input[type="url"],
+input[type="date"],
+input[type="time"],
+input[type="datetime-local"],
+textarea,
+select {
+  background-color: #ffffff;
+  color: #1a1a1a;
+  border: 1px solid #d1d5db;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #9ca3af;
+}
+
+/* Keep buttons styled correctly */
+input[type="submit"],
+input[type="button"],
+button {
+  background-color: inherit;
+  color: inherit;
+}
