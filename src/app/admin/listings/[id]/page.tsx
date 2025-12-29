@@ -250,11 +250,11 @@ export default function EditListingPage() {
       if (formData.sold_acres) updateData.sold_acres = parseFloat(formData.sold_acres)
       if (formData.asking_price) updateData.asking_price = parseFloat(formData.asking_price)
       
-      // URL fields
-      if (formData.primary_image_url) updateData.primary_image_url = formData.primary_image_url
-      if (formData.brochure_url) updateData.brochure_url = formData.brochure_url
-      if (formData.source_url) updateData.source_url = formData.source_url
-      if (formData.bidding_url) updateData.bidding_url = formData.bidding_url
+      // URL fields - allow clearing by sending empty string or null
+      updateData.primary_image_url = formData.primary_image_url || null
+      updateData.brochure_url = formData.brochure_url || null
+      updateData.source_url = formData.source_url || null
+      updateData.bidding_url = formData.bidding_url || null
       
       // Company
       if (formData.listing_company_id) updateData.listing_company_id = formData.listing_company_id
