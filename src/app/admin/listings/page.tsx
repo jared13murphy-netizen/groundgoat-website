@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'next/navigation'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
@@ -44,7 +45,8 @@ export default function AdminListingsPage() {
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const [pageInput, setPageInput] = useState('1')
-  const [filterCompany, setFilterCompany] = useState('')
+  const searchParams = useSearchParams()
+  const [filterCompany, setFilterCompany] = useState(searchParams.get('company') || '')
   const [filterCounty, setFilterCounty] = useState('')
   const [filterListingType, setFilterListingType] = useState('')
   const [showFilters, setShowFilters] = useState(false)
