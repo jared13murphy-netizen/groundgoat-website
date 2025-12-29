@@ -229,19 +229,24 @@ const handleResendVerification = async () => {
             href="/account/profile"
           />
           
-          <MenuItem
-            icon={<CreditCard size={20} />}
-            label="Subscription"
-            description="Manage your plan and billing"
-            href="/account/subscription"
-          />
+          {/* Subscription & Areas - Only for individual users */}
+          {user?.account_type === 'individual' && (
+            <>
+              <MenuItem
+                icon={<CreditCard size={20} />}
+                label="Subscription"
+                description="Manage your plan and billing"
+                href="/account/subscription"
+              />
 
-          <MenuItem
-            icon={<MapPin size={20} />}
-            label="My Areas"
-            description="View your subscribed counties and states"
-            href="/account/areas"
-          />
+              <MenuItem
+                icon={<MapPin size={20} />}
+                label="My Areas"
+                description="View your subscribed counties and states"
+                href="/account/areas"
+              />
+            </>
+          )}
 
           {/* Team Management - Only for Firm Admins */}
           {user?.account_type === 'firm_admin' && (
