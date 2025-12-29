@@ -42,7 +42,14 @@ interface Listing {
   status: string
   company_name?: string
   listing_company_id?: string
-  tracts?: { price_per_acre?: number; total_acres?: number }[]
+  auction_date?: string
+  auction_time?: string
+  tracts?: { 
+    price_per_acre?: number
+    total_acres?: number
+    sale_price?: number
+    sale_status?: string
+  }[]
 }
 
 interface MapListing {
@@ -53,7 +60,12 @@ interface MapListing {
   lat: number
   lng: number
   pricePerAcre: number
-  totalAcres: number
+  totalPrice: number
+  listedAcres: number
+  soldAcres: number
+  tractCount: number
+  auctionDate: string
+  auctionTime: string
   companyName: string
   companyId: string
   status: string
@@ -182,13 +194,29 @@ export default function AdminDashboard() {
       if (!coords) return
 
       let pricePerAcre = 0
-      let totalAcres = 0
+      let totalPrice = 0
+      let listedAcres = 0
+      let soldAcres = 0
+      const tractCount = listing.tracts?.length || 0
+      
       if (listing.tracts && listing.tracts.length > 0) {
         const tractsWithPrice = listing.tracts.filter(t => t.price_per_acre && t.price_per_acre > 0)
         if (tractsWithPrice.length > 0) {
           pricePerAcre = tractsWithPrice.reduce((sum, t) => sum + (t.price_per_acre || 0), 0) / tractsWithPrice.length
         }
-        totalAcres = listing.tracts.reduce((sum, t) => sum + (t.total_acres || 0), 0)
+        listedAcres = listing.tracts.reduce((sum, t) => sum + (t.total_acres || 0), 0)
+        
+        // Calculate sold acres and total price
+        listing.tracts.forEach(t => {
+          if (t.sale_status === 'sold' && t.total_acres) {
+            soldAcres += t.total_acres
+          }
+          if (t.sale_price) {
+            totalPrice += t.sale_price
+          } else if (t.price_per_acre && t.total_acres) {
+            totalPrice += t.price_per_acre * t.total_acres
+          }
+        })
       }
 
       if (selectedCompany !== 'all' && listing.listing_company_id !== selectedCompany) {
@@ -203,7 +231,12 @@ export default function AdminDashboard() {
         lat: coords[0],
         lng: coords[1],
         pricePerAcre,
-        totalAcres,
+        totalPrice,
+        listedAcres,
+        soldAcres,
+        tractCount,
+        auctionDate: listing.auction_date || '',
+        auctionTime: listing.auction_time || '',
         companyName: listing.company_name || 'Unknown',
         companyId: listing.listing_company_id || '',
         status: listing.status
