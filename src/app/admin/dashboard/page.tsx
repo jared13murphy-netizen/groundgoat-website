@@ -190,22 +190,28 @@ export default function AdminDashboard() {
             icon={<RefreshCw />}
           />
           <QuickActionCard
+            title="Private Treaty Check"
+            description="View status check reports for private treaty listings"
+            href="/admin/private-treaty-reports"
+            icon={<Clock />}
+          />
+          <QuickActionCard
             title="Manage Users"
             description="View and manage user accounts"
             href="/admin/users"
             icon={<Users />}
           />
           <QuickActionCard
-            title="Manage Listings"
-            description="Edit or remove auction listings"
-            href="/admin/listings"
-            icon={<FileText />}
-          />
-          <QuickActionCard
             title="Commissions"
             description="View sales rep commissions"
             href="/admin/commissions"
             icon={<DollarSign />}
+          />
+          <QuickActionCard
+            title="Manage Listings"
+            description="Edit or remove auction listings"
+            href="/admin/listings"
+            icon={<FileText />}
           />
           <QuickActionCard
             title="Companies"
@@ -225,16 +231,6 @@ export default function AdminDashboard() {
             href="/admin/settings"
             icon={<AlertCircle />}
           />
-        </div>
-
-        {/* Recent Activity */}
-        <div className="mt-12">
-          <h2 className="font-display text-2xl font-bold text-white mb-4">Recent Activity</h2>
-          <div className="card">
-            <p className="text-gg-gray-400 text-center py-8">
-              Activity feed coming soon...
-            </p>
-          </div>
         </div>
       </div>
     </div>
