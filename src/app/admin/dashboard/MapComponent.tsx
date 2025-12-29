@@ -75,7 +75,7 @@ export default function MapComponent({ listings, priceRange }: MapComponentProps
     if (amount >= 1000000) {
       return '$' + (amount / 1000000).toFixed(2) + 'M'
     }
-    return '$' + amount.toLocaleString()
+    return '$' + Math.round(amount).toLocaleString()
   }
 
   const formatDate = (dateStr: string): string => {
