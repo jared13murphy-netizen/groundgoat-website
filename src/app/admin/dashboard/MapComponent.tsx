@@ -29,31 +29,31 @@ interface MapComponentProps {
 
 export default function MapComponent({ listings, priceRange }: MapComponentProps) {
   // Calculate circle radius based on price per acre
-  // For "listed" status, use standard size (10px)
-  // Below $8k = small (4-8px), $8k-$12k = medium (8-14px), $12k-$20k = large (14-24px), $20k+ = extra large (24-32px)
+  // For "listed" status, use standard size (6px)
+  // Below $8k = small (3-5px), $8k-$12k = medium (5-8px), $12k-$20k = large (8-12px), $20k+ = extra large (12-16px)
   const getRadius = (pricePerAcre: number, status: string): number => {
     // Listed listings get a standard size
     if (status === 'listed' || status === 'active') {
-      return 10
+      return 6
     }
     
-    if (pricePerAcre <= 0) return 5
+    if (pricePerAcre <= 0) return 4
     
     if (pricePerAcre < 8000) {
-      // Small range: 4-8px for $0-$8k
-      return 4 + (pricePerAcre / 8000) * 4
+      // Small range: 3-5px for $0-$8k
+      return 3 + (pricePerAcre / 8000) * 2
     } else if (pricePerAcre < 12000) {
-      // Medium range: 8-14px for $8k-$12k
+      // Medium range: 5-8px for $8k-$12k
       const normalized = (pricePerAcre - 8000) / 4000
-      return 8 + normalized * 6
+      return 5 + normalized * 3
     } else if (pricePerAcre < 20000) {
-      // Large range: 14-24px for $12k-$20k
+      // Large range: 8-12px for $12k-$20k
       const normalized = (pricePerAcre - 12000) / 8000
-      return 14 + normalized * 10
+      return 8 + normalized * 4
     } else {
-      // Extra large: 24-32px for $20k+
+      // Extra large: 12-16px for $20k+
       const normalized = Math.min((pricePerAcre - 20000) / 10000, 1)
-      return 24 + normalized * 8
+      return 12 + normalized * 4
     }
   }
 
@@ -69,6 +69,27 @@ export default function MapComponent({ listings, priceRange }: MapComponentProps
       default:
         return '#f58cde' // Ground Goat pink for listed/active
     }
+  }
+
+  // Group listings by county to add offsets for overlapping markers
+  const getOffset = (listing: MapListing, index: number): [number, number] => {
+    // Count how many listings share this exact lat/lng
+    const sameLocation = listings.filter(
+      l => l.lat === listing.lat && l.lng === listing.lng
+    )
+    if (sameLocation.length <= 1) return [0, 0]
+    
+    // Find this listing's position among same-location listings
+    const posIndex = sameLocation.findIndex(l => l.id === listing.id)
+    
+    // Spread them in a circle pattern
+    const angle = (posIndex / sameLocation.length) * 2 * Math.PI
+    const distance = 0.08 // degrees offset (~5-8 miles)
+    
+    return [
+      Math.cos(angle) * distance,
+      Math.sin(angle) * distance
+    ]
   }
 
   const formatCurrency = (amount: number): string => {
@@ -112,10 +133,12 @@ export default function MapComponent({ listings, priceRange }: MapComponentProps
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
       />
-      {listings.map((listing) => (
+      {listings.map((listing, index) => {
+        const offset = getOffset(listing, index)
+        return (
         <CircleMarker
           key={listing.id}
-          center={[listing.lat, listing.lng]}
+          center={[listing.lat + offset[0], listing.lng + offset[1]]}
           radius={getRadius(listing.pricePerAcre, listing.status)}
           fillColor={getColor(listing.status)}
           color={getColor(listing.status)}
@@ -190,7 +213,8 @@ export default function MapComponent({ listings, priceRange }: MapComponentProps
             </div>
           </Popup>
         </CircleMarker>
-      ))}
+        )
+      })}
     </MapContainer>
   )
 }
