@@ -118,20 +118,16 @@ export default function AdminListingsPage() {
         url += `&listing_type=${filterListingType}`
       }
       
+      if (filterCompany) {
+        url += `&company_id=${filterCompany}`
+      }
+      
       const response = await fetch(url, {
         headers: { 'Authorization': `Bearer ${token}` }
       })
 
       if (response.ok) {
         let data = await response.json()
-        
-        // Filter by company client-side if selected
-        if (filterCompany) {
-          data = data.filter((l: Listing) => 
-            l.listing_company_id === filterCompany || 
-            l.company?.id === filterCompany
-          )
-        }
         
         // Sort by auction_date DESC, then auction_time DESC
         // Sort by auction_datetime DESC
