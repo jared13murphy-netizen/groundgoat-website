@@ -1,8 +1,9 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import dynamic from 'next/dynamic'
 import { 
   DollarSign,
   Users, 
@@ -14,51 +15,48 @@ import {
   ChevronRight,
   RefreshCw,
   Radio,
-  Map
+  Filter,
+  Loader2
 } from 'lucide-react'
+import fetchWithAuth from '@/lib/fetchWithAuth'
+import countyCentroids from '@/data/countyCentroids'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
-// Token refresh helper
-async function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Response> {
-  let token = localStorage.getItem('auth_token')
-  
-  const headers = new Headers(options.headers || {})
-  if (token) {
-    headers.set('Authorization', `Bearer ${token}`)
-  }
+// Dynamically import map to avoid SSR issues
+const MapComponent = dynamic(() => import('./MapComponent'), { 
+  ssr: false,
+  loading: () => (
+    <div className="h-[500px] bg-gg-gray-800 rounded-xl flex items-center justify-center">
+      <Loader2 className="animate-spin text-gg-pink" size={32} />
+    </div>
+  )
+})
 
-  let response = await fetch(url, { ...options, headers })
+interface Listing {
+  id: string
+  title: string
+  county: string
+  state: string
+  listing_type: string
+  status: string
+  company_name?: string
+  listing_company_id?: string
+  tracts?: { price_per_acre?: number; total_acres?: number }[]
+}
 
-  // If 401, try to refresh the token
-  if (response.status === 401) {
-    const refreshToken = localStorage.getItem('refresh_token')
-    if (refreshToken) {
-      const refreshResponse = await fetch(`${API_URL}/api/auth/refresh`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refresh_token: refreshToken }),
-      })
-
-      if (refreshResponse.ok) {
-        const data = await refreshResponse.json()
-        localStorage.setItem('auth_token', data.access_token)
-        if (data.refresh_token) {
-          localStorage.setItem('refresh_token', data.refresh_token)
-        }
-        // Retry original request with new token
-        headers.set('Authorization', `Bearer ${data.access_token}`)
-        response = await fetch(url, { ...options, headers })
-      } else {
-        // Refresh failed, clear tokens
-        localStorage.removeItem('auth_token')
-        localStorage.removeItem('refresh_token')
-        localStorage.removeItem('user')
-      }
-    }
-  }
-
-  return response
+interface MapListing {
+  id: string
+  title: string
+  county: string
+  state: string
+  lat: number
+  lng: number
+  pricePerAcre: number
+  totalAcres: number
+  companyName: string
+  companyId: string
+  status: string
 }
 
 export default function AdminDashboard() {
@@ -66,6 +64,10 @@ export default function AdminDashboard() {
   const [user, setUser] = useState<any>(null)
   const [stats, setStats] = useState<any>(null)
   const [loading, setLoading] = useState(true)
+  const [listings, setListings] = useState<Listing[]>([])
+  const [companies, setCompanies] = useState<{ id: string; name: string }[]>([])
+  const [selectedCompany, setSelectedCompany] = useState<string>('all')
+  const [mapLoading, setMapLoading] = useState(true)
 
   useEffect(() => {
     const token = localStorage.getItem('auth_token')
@@ -74,12 +76,12 @@ export default function AdminDashboard() {
       return
     }
 
-    checkAuth(token)
+    checkAuth()
   }, [router])
 
-  const checkAuth = async (token: string) => {
+  const checkAuth = async () => {
     try {
-      const response = await fetchWithAuth(`${API_URL}/api/auth/me`)
+      const response = await fetchWithAuth(API_URL + '/api/auth/me')
 
       if (!response.ok) throw new Error('Not authenticated')
 
@@ -93,6 +95,7 @@ export default function AdminDashboard() {
 
       setUser(userData)
       fetchStats()
+      fetchListings()
     } catch (err) {
       router.push('/signin')
     }
@@ -100,13 +103,12 @@ export default function AdminDashboard() {
 
   const fetchStats = async () => {
     try {
-      const response = await fetchWithAuth(`${API_URL}/api/admin/stats`)
+      const response = await fetchWithAuth(API_URL + '/api/admin/stats')
 
       if (response.ok) {
         const data = await response.json()
         setStats(data)
       } else {
-        // Use mock stats if endpoint doesn't exist
         setStats({
           total_users: 0,
           total_listings: 0,
@@ -129,6 +131,96 @@ export default function AdminDashboard() {
       setLoading(false)
     }
   }
+
+  const fetchListings = async () => {
+    try {
+      const allListings: Listing[] = []
+      let offset = 0
+      const limit = 100
+
+      while (true) {
+        const response = await fetchWithAuth(
+          API_URL + '/api/listings?limit=' + limit + '&offset=' + offset
+        )
+        if (!response.ok) break
+        const batch = await response.json()
+        if (!batch || batch.length === 0) break
+        allListings.push(...batch)
+        if (batch.length < limit) break
+        offset += limit
+      }
+
+      setListings(allListings)
+
+      // Extract unique companies
+      const companyMap = new Map<string, string>()
+      allListings.forEach(l => {
+        if (l.listing_company_id && l.company_name) {
+          companyMap.set(l.listing_company_id, l.company_name)
+        }
+      })
+      const uniqueCompanies = Array.from(companyMap.entries())
+        .map(([id, name]) => ({ id, name }))
+        .sort((a, b) => a.name.localeCompare(b.name))
+      setCompanies(uniqueCompanies)
+    } catch (err) {
+      console.error('Failed to fetch listings:', err)
+    } finally {
+      setMapLoading(false)
+    }
+  }
+
+  // Convert listings to map format with coordinates
+  const mapListings = useMemo(() => {
+    const result: MapListing[] = []
+
+    listings.forEach(listing => {
+      const stateAbbr = getStateAbbr(listing.state)
+      const key = listing.county + ', ' + stateAbbr
+
+      const coords = countyCentroids[key]
+      if (!coords) return
+
+      let pricePerAcre = 0
+      let totalAcres = 0
+      if (listing.tracts && listing.tracts.length > 0) {
+        const tractsWithPrice = listing.tracts.filter(t => t.price_per_acre && t.price_per_acre > 0)
+        if (tractsWithPrice.length > 0) {
+          pricePerAcre = tractsWithPrice.reduce((sum, t) => sum + (t.price_per_acre || 0), 0) / tractsWithPrice.length
+        }
+        totalAcres = listing.tracts.reduce((sum, t) => sum + (t.total_acres || 0), 0)
+      }
+
+      if (selectedCompany !== 'all' && listing.listing_company_id !== selectedCompany) {
+        return
+      }
+
+      result.push({
+        id: listing.id,
+        title: listing.title || listing.county + ' County, ' + listing.state,
+        county: listing.county,
+        state: listing.state,
+        lat: coords[0],
+        lng: coords[1],
+        pricePerAcre,
+        totalAcres,
+        companyName: listing.company_name || 'Unknown',
+        companyId: listing.listing_company_id || '',
+        status: listing.status
+      })
+    })
+
+    return result
+  }, [listings, selectedCompany])
+
+  const priceRange = useMemo(() => {
+    const prices = mapListings.filter(l => l.pricePerAcre > 0).map(l => l.pricePerAcre)
+    if (prices.length === 0) return { min: 0, max: 20000 }
+    return {
+      min: Math.min(...prices),
+      max: Math.max(...prices)
+    }
+  }, [mapListings])
 
   if (loading) {
     return (
@@ -179,7 +271,7 @@ export default function AdminDashboard() {
         </Link>
 
         {/* Quick Actions */}
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
           <QuickActionCard
             title="Scraper"
             description="Run the auction scraper to fetch new listings"
@@ -223,17 +315,66 @@ export default function AdminDashboard() {
             icon={<TrendingUp />}
           />
           <QuickActionCard
-            title="Listings Map"
-            description="View listings on a map by price/acre"
-            href="/admin/map"
-            icon={<Map />}
-          />
-          <QuickActionCard
             title="Settings"
             description="Configure system settings"
             href="/admin/settings"
             icon={<AlertCircle />}
           />
+        </div>
+
+        {/* Listings Map */}
+        <div className="card">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-xl font-bold text-white">Listings Map</h2>
+              <p className="text-gg-gray-400 text-sm">
+                {mapListings.length} listings • Circle size = price/acre
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Filter size={18} className="text-gg-gray-400" />
+              <select
+                value={selectedCompany}
+                onChange={(e) => setSelectedCompany(e.target.value)}
+                className="bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-3 py-2 text-white text-sm min-w-[180px]"
+              >
+                <option value="all">All Companies</option>
+                {companies.map(c => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Legend */}
+          <div className="flex items-center gap-6 mb-4 text-sm">
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 rounded-full bg-green-500 opacity-70"></div>
+              <span className="text-gg-gray-300">Sold</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 rounded-full bg-blue-500 opacity-70"></div>
+              <span className="text-gg-gray-300">Listed</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 rounded-full bg-yellow-500 opacity-70"></div>
+              <span className="text-gg-gray-300">Pending</span>
+            </div>
+            <div className="text-gg-gray-500 ml-auto">
+              ${priceRange.min.toLocaleString()} - ${priceRange.max.toLocaleString()}/acre
+            </div>
+          </div>
+
+          {/* Map */}
+          {mapLoading ? (
+            <div className="h-[500px] bg-gg-gray-800 rounded-xl flex items-center justify-center">
+              <Loader2 className="animate-spin text-gg-pink" size={32} />
+            </div>
+          ) : (
+            <div className="rounded-xl overflow-hidden">
+              <MapComponent listings={mapListings} priceRange={priceRange} />
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -265,4 +406,20 @@ function QuickActionCard({ title, description, href, icon }: { title: string, de
       <p className="text-sm text-gg-gray-400">{description}</p>
     </Link>
   )
+}
+
+function getStateAbbr(state: string): string {
+  const abbrs: Record<string, string> = {
+    'Illinois': 'IL',
+    'Iowa': 'IA',
+    'Missouri': 'MO',
+    'Minnesota': 'MN',
+    'Indiana': 'IN',
+    'Wisconsin': 'WI',
+    'Kansas': 'KS',
+    'Nebraska': 'NE',
+    'Ohio': 'OH',
+    'Michigan': 'MI',
+  }
+  return abbrs[state] || state
 }
