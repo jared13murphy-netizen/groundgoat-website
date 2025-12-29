@@ -44,6 +44,7 @@ interface Listing {
   asking_price: number
   price_per_acre: number
   sale_price: number
+  sold_acres: number
   listing_company_id: string
   company?: {
     id: string
@@ -95,6 +96,7 @@ export default function EditListingPage() {
     asking_price: '',
     price_per_acre: '',
     sale_price: '',
+    sold_acres: '',
     listing_company_id: '',
   })
 
@@ -174,6 +176,7 @@ export default function EditListingPage() {
           asking_price: data.asking_price?.toString() || '',
           price_per_acre: data.price_per_acre?.toString() || '',
           sale_price: data.sale_price?.toString() || '',
+          sold_acres: data.sold_acres?.toString() || '',
           listing_company_id: data.listing_company_id || data.company?.id || '',
         })
       } else {
@@ -243,6 +246,7 @@ export default function EditListingPage() {
       if (formData.total_acres) updateData.total_acres = parseFloat(formData.total_acres)
       if (formData.price_per_acre) updateData.price_per_acre = parseFloat(formData.price_per_acre)
       if (formData.sale_price) updateData.sale_price = parseFloat(formData.sale_price)
+      if (formData.sold_acres) updateData.sold_acres = parseFloat(formData.sold_acres)
       if (formData.asking_price) updateData.asking_price = parseFloat(formData.asking_price)
       
       // URL fields
@@ -693,6 +697,17 @@ export default function EditListingPage() {
                   type="number"
                   name="sale_price"
                   value={formData.sale_price}
+                  onChange={handleChange}
+                  step="0.01"
+                  className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-gg-gray-400 text-sm mb-1">Sold Acres</label>
+                <input
+                  type="number"
+                  name="sold_acres"
+                  value={formData.sold_acres}
                   onChange={handleChange}
                   step="0.01"
                   className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white"

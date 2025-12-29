@@ -40,6 +40,8 @@ export default function EditTractPage() {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
 
+  const [updateParentListing, setUpdateParentListing] = useState(false)
+
   const [formData, setFormData] = useState({
     tract_number: '',
     name: '',
@@ -173,7 +175,66 @@ export default function EditTractPage() {
       })
 
       if (response.ok) {
-        setSuccess('Tract updated successfully!')
+        // If checkbox is checked, update parent listing values
+        if (updateParentListing && tract) {
+          try {
+            // Fetch all tracts for this listing to recalculate
+            const tractsResponse = await fetch(\`\${API_URL}/api/listings/\${tract.listing_id}\`, {
+              headers: { 'Authorization': \`Bearer \${token}\` },
+            })
+            if (tractsResponse.ok) {
+              const listingData = await tractsResponse.json()
+              const allTracts = listingData.tracts || []
+              
+              // Calculate totals from all tracts
+              let totalAcres = 0
+              let soldAcres = 0
+              let totalSalePrice = 0
+              
+              allTracts.forEach((t: any) => {
+                const tractAcres = parseFloat(t.total_acres) || 0
+                const tractSalePrice = parseFloat(t.sale_price) || 0
+                const tractPricePerAcre = parseFloat(t.price_per_acre) || 0
+                
+                // Use the updated values if this is the current tract
+                if (t.id === tractId) {
+                  totalAcres += parseFloat(formData.total_acres) || 0
+                  if (formData.sale_status === 'sold') {
+                    soldAcres += parseFloat(formData.total_acres) || 0
+                  }
+                  totalSalePrice += parseFloat(formData.sale_price) || 0
+                } else {
+                  totalAcres += tractAcres
+                  if (t.sale_status === 'sold') {
+                    soldAcres += tractAcres
+                  }
+                  totalSalePrice += tractSalePrice
+                }
+              })
+              
+              const pricePerAcre = totalAcres > 0 ? totalSalePrice / totalAcres : 0
+              
+              // Update the parent listing
+              await fetch(\`\${API_URL}/api/listings/\${tract.listing_id}\`, {
+                method: 'PATCH',
+                headers: {
+                  'Authorization': \`Bearer \${token}\`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  total_acres: totalAcres,
+                  sold_acres: soldAcres,
+                  sale_price: totalSalePrice,
+                  price_per_acre: pricePerAcre,
+                }),
+              })
+            }
+          } catch (err) {
+            console.error('Failed to update parent listing:', err)
+          }
+        }
+        
+        setSuccess('Tract updated successfully!' + (updateParentListing ? ' Parent listing also updated.' : ''))
         setTimeout(() => setSuccess(''), 3000)
       } else {
         const data = await response.json()
@@ -487,6 +548,22 @@ export default function EditTractPage() {
                 </select>
               </div>
             </div>
+          </div>
+
+          {/* Update Parent Listing Option */}
+          <div className="card">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={updateParentListing}
+                onChange={(e) => setUpdateParentListing(e.target.checked)}
+                className="w-5 h-5 rounded border-gg-gray-700 bg-gg-gray-900 text-gg-pink focus:ring-gg-pink"
+              />
+              <div>
+                <span className="text-white font-medium">Update parent listing values</span>
+                <p className="text-gg-gray-400 text-sm">Recalculate listing's total acres, sold acres, sale price, and price/acre from all tracts</p>
+              </div>
+            </label>
           </div>
 
           {/* Submit */}
