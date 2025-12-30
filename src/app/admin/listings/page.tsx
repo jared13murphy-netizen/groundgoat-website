@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { useRouter } from 'next/navigation'
@@ -37,7 +37,7 @@ interface Company {
   name: string
 }
 
-export default function AdminListingsPage() {
+function AdminListingsPageContent() {
   const router = useRouter()
   const [listings, setListings] = useState<Listing[]>([])
   const [companies, setCompanies] = useState<Company[]>([])
@@ -488,5 +488,17 @@ export default function AdminListingsPage() {
         )}
       </div>
     </div>
+  )
+}
+
+export default function AdminListingsPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gg-black flex items-center justify-center">
+        <Loader2 className="animate-spin text-gg-pink" size={32} />
+      </div>
+    }>
+      <AdminListingsPageContent />
+    </Suspense>
   )
 }
