@@ -173,7 +173,7 @@ export default function AdminCompaniesPage() {
               )}
 
               {/* Listing Count */}
-              <div className="flex-shrink-0 px-3 py-1 bg-gg-pink/20 text-gg-pink rounded-full text-sm font-medium">
+              <div className="flex-shrink-0 px-3 py-1 bg-gg-pink/20 text-white rounded-full text-sm font-medium">
                 {company.listing_count || 0} listings
               </div>
 
