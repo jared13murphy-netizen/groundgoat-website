@@ -9,8 +9,7 @@ import {
   Bookmark,
   CheckCircle,
   Copy,
-  Loader2,
-  ExternalLink
+  Loader2
 } from 'lucide-react'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
@@ -22,33 +21,9 @@ export default function BookmarkletPage() {
   const [copied, setCopied] = useState(false)
   const [schemaId, setSchemaId] = useState(2)
 
-  // Bookmarklet code - minified JavaScript that runs on the listing page
-  const bookmarkletCode = `javascript:(function(){
-    var schema=${schemaId};
-    var html=document.documentElement.outerHTML;
-    var url=window.location.href;
-    var API='${API_URL}/api/scraper/bookmarklet';
-    var token=prompt('Enter your Ground Goat auth token (from Settings):');
-    if(!token){alert('Token required');return;}
-    fetch(API,{
-      method:'POST',
-      headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
-      body:JSON.stringify({html:html,url:url,schema_id:schema})
-    })
-    .then(r=>r.json())
-    .then(d=>{
-      if(d.success){
-        alert('✓ Listing created!\\n'+
-          'Acres: '+(d.details?.total_acres||'N/A')+'\\n'+
-          'County: '+(d.details?.county||'N/A')+'\\n'+
-          'State: '+(d.details?.state||'N/A')+'\\n'+
-          'Price: $'+(d.details?.asking_price?.toLocaleString()||'N/A'));
-      }else{
-        alert('Error: '+(d.error||'Failed')+(d.duplicate?'\\n\\nThis listing already exists.':''));
-      }
-    })
-    .catch(e=>alert('Error: '+e.message));
-  })();`
+  const getBookmarkletCode = () => {
+    return "javascript:(function(){var schema=" + schemaId + ";var html=document.documentElement.outerHTML;var url=window.location.href;var API='" + API_URL + "/api/scraper/bookmarklet';var token=prompt('Enter your Ground Goat auth token:');if(!token){alert('Token required');return;}fetch(API,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},body:JSON.stringify({html:html,url:url,schema_id:schema})}).then(function(r){return r.json()}).then(function(d){if(d.success){alert('Listing created! Acres: '+(d.details&&d.details.total_acres||'N/A')+' County: '+(d.details&&d.details.county||'N/A'));}else{alert('Error: '+(d.error||'Failed'));}}).catch(function(e){alert('Error: '+e.message);});})();"
+  }
 
   useEffect(() => {
     const token = localStorage.getItem('auth_token')
@@ -61,7 +36,7 @@ export default function BookmarkletPage() {
 
   const checkAuth = async (token: string) => {
     try {
-      const response = await fetchWithAuth(`${API_URL}/api/auth/me`)
+      const response = await fetchWithAuth(API_URL + '/api/auth/me')
       if (!response.ok) throw new Error('Not authenticated')
       const userData = await response.json()
       if (userData.account_type !== 'groundgoat_admin' && userData.account_type !== 'groundgoat_sales') {
@@ -96,7 +71,6 @@ export default function BookmarkletPage() {
   return (
     <div className="min-h-screen bg-gg-black pt-24 pb-12">
       <div className="max-w-3xl mx-auto px-6">
-        {/* Header */}
         <div className="flex items-center gap-4 mb-8">
           <Link href="/admin/scraper" className="text-gg-gray-400 hover:text-white">
             <ArrowLeft size={24} />
@@ -107,17 +81,15 @@ export default function BookmarkletPage() {
           </div>
         </div>
 
-        {/* Why use this */}
         <div className="card mb-8 bg-gg-gray-900/50 border-gg-pink/20">
           <h2 className="font-semibold text-white mb-2">Why use the bookmarklet?</h2>
           <p className="text-gg-gray-400 text-sm">
             Some websites (like Whitetail Properties) block requests from cloud servers. 
             The bookmarklet runs in YOUR browser using YOUR internet connection, 
-            which bypasses these blocks. It grabs the page content and sends it to Ground Goat for processing.
+            which bypasses these blocks.
           </p>
         </div>
 
-        {/* Schema Selection */}
         <div className="card mb-8">
           <h2 className="font-semibold text-white mb-4">1. Select Listing Type</h2>
           <select
@@ -134,28 +106,25 @@ export default function BookmarkletPage() {
           </p>
         </div>
 
-        {/* Bookmarklet */}
         <div className="card mb-8">
           <h2 className="font-semibold text-white mb-4">2. Drag to Bookmarks Bar</h2>
           <div className="flex items-center gap-4 mb-4">
             
-              href={bookmarkletCode}
+              href={getBookmarkletCode()}
               onClick={(e) => e.preventDefault()}
-              draggable="true"
+              draggable={true}
               className="inline-flex items-center gap-2 px-6 py-3 bg-gg-pink text-white rounded-lg font-semibold hover:bg-gg-pink/80 cursor-grab active:cursor-grabbing"
             >
               <Bookmark size={20} />
               Scrape to Ground Goat
             </a>
-            <span className="text-gg-gray-400">← Drag this to your bookmarks bar</span>
+            <span className="text-gg-gray-400">Drag this to your bookmarks bar</span>
           </div>
           <p className="text-gg-gray-500 text-sm">
-            If you dont see your bookmarks bar, press <code className="bg-gg-gray-800 px-1 rounded">Cmd+Shift+B</code> (Mac) 
-            or <code className="bg-gg-gray-800 px-1 rounded">Ctrl+Shift+B</code> (Windows).
+            Press Cmd+Shift+B (Mac) or Ctrl+Shift+B (Windows) to show bookmarks bar.
           </p>
         </div>
 
-        {/* Auth Token */}
         <div className="card mb-8">
           <h2 className="font-semibold text-white mb-4">3. Copy Your Auth Token</h2>
           <p className="text-gg-gray-400 text-sm mb-4">
@@ -170,29 +139,27 @@ export default function BookmarkletPage() {
           </button>
         </div>
 
-        {/* Instructions */}
         <div className="card bg-gg-gray-900/50">
           <h2 className="font-semibold text-white mb-4">How to Use</h2>
           <ol className="space-y-3 text-sm text-gg-gray-400 list-decimal list-inside">
             <li>Go to a listing page (e.g., Whitetail Properties listing)</li>
-            <li>Click the <strong className="text-white">Scrape to Ground Goat</strong> bookmark</li>
+            <li>Click the Scrape to Ground Goat bookmark</li>
             <li>Paste your auth token when prompted</li>
-            <li>Wait for the confirmation popup showing the extracted data</li>
-            <li>The listing is now in Ground Goat! View it in the <Link href="/admin/listings" className="text-gg-pink hover:underline">Listings page</Link></li>
+            <li>Wait for the confirmation popup</li>
+            <li>The listing is now in Ground Goat!</li>
           </ol>
         </div>
 
-        {/* Supported Sites */}
         <div className="mt-8 card bg-gg-gray-900/50">
           <h3 className="font-semibold text-white mb-2">Supported Sites</h3>
           <ul className="space-y-1 text-sm text-gg-gray-400">
             <li className="flex items-center gap-2">
               <CheckCircle size={16} className="text-green-400" />
-              Whitetail Properties (whitetailproperties.com)
+              Whitetail Properties
             </li>
             <li className="flex items-center gap-2">
               <CheckCircle size={16} className="text-gg-gray-500" />
-              Any other listing site that blocks server requests
+              Any site that blocks server requests
             </li>
           </ul>
         </div>
