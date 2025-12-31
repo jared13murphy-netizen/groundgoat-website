@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Save, Loader2, Trash2, ExternalLink, Pencil, Plus } from 'lucide-react'
+import { ArrowLeft, Save, Loader2, Trash2, ExternalLink, Pencil, Plus, CheckCircle } from 'lucide-react'
 import { getCountiesForState } from '@/data/counties'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
@@ -47,6 +47,7 @@ interface Listing {
   sale_price: number
   sold_acres: number
   listing_company_id: string
+  verified: boolean
   company?: {
     id: string
     name: string
@@ -73,6 +74,7 @@ export default function EditListingPage() {
   const [success, setSuccess] = useState('')
   const [showAddTract, setShowAddTract] = useState(false)
   const [addingTract, setAddingTract] = useState(false)
+  const [verifying, setVerifying] = useState(false)
 
   // Form state
   const [formData, setFormData] = useState({
@@ -317,6 +319,40 @@ export default function EditListingPage() {
     }
   }
 
+  const handleVerify = async () => {
+    if (!listing) return
+
+    setVerifying(true)
+    setError('')
+    setSuccess('')
+
+    const token = localStorage.getItem('auth_token')
+
+    try {
+      const response = await fetch(`${API_URL}/api/listings/${listingId}`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ verified: !listing.verified }),
+      })
+
+      if (response.ok) {
+        const updatedListing = await response.json()
+        setListing(updatedListing)
+        setSuccess(updatedListing.verified ? 'Listing marked as verified!' : 'Listing unmarked as verified')
+        setTimeout(() => setSuccess(''), 3000)
+      } else {
+        setError('Failed to update verification status')
+      }
+    } catch (err) {
+      setError('Failed to update verification status')
+    } finally {
+      setVerifying(false)
+    }
+  }
+
   const handleAddTract = async () => {
     if (!newTract.tract_number || !newTract.total_acres) {
       setError('Tract number and total acres are required')
@@ -451,6 +487,22 @@ export default function EditListingPage() {
                 Source
               </a>
             )}
+            <button
+              onClick={handleVerify}
+              disabled={verifying}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg ${
+                listing.verified
+                  ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30'
+                  : 'bg-gg-gray-800 text-white hover:bg-gg-gray-700'
+              } disabled:opacity-50`}
+            >
+              {verifying ? (
+                <Loader2 className="animate-spin" size={16} />
+              ) : (
+                <CheckCircle size={16} />
+              )}
+              {listing.verified ? 'Verified' : 'Mark as Verified'}
+            </button>
             <button
               onClick={handleDelete}
               className="flex items-center gap-2 px-4 py-2 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30"

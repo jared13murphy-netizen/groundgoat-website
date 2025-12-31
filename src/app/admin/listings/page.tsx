@@ -5,7 +5,7 @@ import { useSearchParams } from 'next/navigation'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Loader2, Trash2, ChevronLeft, ChevronRight, MapPin, ArrowLeft, Filter, Pencil } from 'lucide-react'
+import { Loader2, Trash2, ChevronLeft, ChevronRight, MapPin, ArrowLeft, Filter, Pencil, CheckCircle } from 'lucide-react'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -20,6 +20,7 @@ interface Listing {
   auction_datetime: string
   primary_image_url: string
   asking_price: number
+  verified: boolean
   company?: {
     id: string
     name: string
@@ -282,9 +283,17 @@ function AdminListingsPageContent() {
 
                 {/* Title/Location */}
                 <div className="flex-1 min-w-0">
-                  <h3 className="text-white font-semibold truncate">
-                    {listing.county} County, {listing.state}
-                  </h3>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-white font-semibold truncate">
+                      {listing.county} County, {listing.state}
+                    </h3>
+                    {listing.verified && (
+                      <div className="flex-shrink-0 flex items-center gap-1 px-2 py-0.5 bg-green-500/20 text-green-400 rounded-full text-xs font-medium">
+                        <CheckCircle size={12} />
+                        Verified
+                      </div>
+                    )}
+                  </div>
                   <p className="text-gg-gray-400 text-sm truncate">{getCompanyName(listing)}</p>
                 </div>
 
