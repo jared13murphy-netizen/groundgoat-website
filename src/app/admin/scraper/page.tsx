@@ -48,7 +48,7 @@ export default function AdminScraperPage() {
   const [urls, setUrls] = useState<string[]>([''])
   const [jobs, setJobs] = useState<ScraperJob[]>([])
   const [running, setRunning] = useState(false)
-  const [schemaId, setSchemaId] = useState(1) // 1 = Land Auction, 2 = Land Private Treaty
+  const [schemaId, setSchemaId] = useState(1) // 1 = Land Auction, 2 = Private Treaty, 3 = Equipment
 
   useEffect(() => {
     const token = localStorage.getItem('auth_token')
@@ -216,6 +216,7 @@ export default function AdminScraperPage() {
               >
                 <option value={1}>Land Auction</option>
                 <option value={2}>Private Treaty</option>
+                <option value={3}>Equipment Auction</option>
               </select>
             </div>
           </div>
@@ -380,7 +381,7 @@ export default function AdminScraperPage() {
           <h3 className="font-semibold text-white mb-2">Instructions</h3>
           <ul className="space-y-2 text-sm text-gg-gray-400">
             <li>• Enter one or more auction listing URLs from supported auction company websites</li>
-            <li>• Select the listing type (Land Auction or Private Treaty)</li>
+            <li>• Select the listing type (Land Auction, Private Treaty, or Equipment Auction)</li>
             <li>• The scraper will extract property details, tract information, and company data</li>
             <li>• Each URL should be a direct link to a specific listing page</li>
             <li>• Results are automatically added to the Ground Goat database</li>
