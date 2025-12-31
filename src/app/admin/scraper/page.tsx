@@ -387,6 +387,14 @@ export default function AdminScraperPage() {
             <li>• Results are automatically added to the Ground Goat database</li>
             <li>• Click the listing link after completion to review and edit the extracted data</li>
           </ul>
+          <div className="mt-4 pt-4 border-t border-gg-gray-700">
+            <p className="text-sm text-gg-gray-400 mb-2">
+              <strong className="text-white">Having trouble with certain sites?</strong> Some sites (like Whitetail Properties) block our servers.
+            </p>
+            <Link href="/admin/bookmarklet" className="text-gg-pink hover:underline text-sm">
+              Use the Bookmarklet Scraper →
+            </Link>
+          </div>
         </div>
       </div>
     </div>
