@@ -110,6 +110,7 @@ export default function BookmarkletPage() {
           <h2 className="font-semibold text-white mb-4">2. Drag to Bookmarks Bar</h2>
           <div className="flex items-center gap-4 mb-4">
             
+            <a
               href={getBookmarkletCode()}
               onClick={(e) => e.preventDefault()}
               draggable={true}
