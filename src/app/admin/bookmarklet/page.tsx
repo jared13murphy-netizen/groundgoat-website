@@ -150,7 +150,7 @@ export default function BookmarkletPage() {
             <span className="text-gg-gray-400">← Drag this to your bookmarks bar</span>
           </div>
           <p className="text-gg-gray-500 text-sm">
-            If you don't see your bookmarks bar, press <code className="bg-gg-gray-800 px-1 rounded">Cmd+Shift+B</code> (Mac) 
+            If you dont see your bookmarks bar, press <code className="bg-gg-gray-800 px-1 rounded">Cmd+Shift+B</code> (Mac) 
             or <code className="bg-gg-gray-800 px-1 rounded">Ctrl+Shift+B</code> (Windows).
           </p>
         </div>
@@ -175,7 +175,7 @@ export default function BookmarkletPage() {
           <h2 className="font-semibold text-white mb-4">How to Use</h2>
           <ol className="space-y-3 text-sm text-gg-gray-400 list-decimal list-inside">
             <li>Go to a listing page (e.g., Whitetail Properties listing)</li>
-            <li>Click the <strong className="text-white">"Scrape to Ground Goat"</strong> bookmark</li>
+            <li>Click the <strong className="text-white">Scrape to Ground Goat</strong> bookmark</li>
             <li>Paste your auth token when prompted</li>
             <li>Wait for the confirmation popup showing the extracted data</li>
             <li>The listing is now in Ground Goat! View it in the <Link href="/admin/listings" className="text-gg-pink hover:underline">Listings page</Link></li>
