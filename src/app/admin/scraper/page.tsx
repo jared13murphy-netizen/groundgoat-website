@@ -27,6 +27,15 @@ interface ScraperJob {
     tracts_created: number
     listing_id?: string
     company_id?: string
+    details?: {
+      total_acres?: number
+      county?: string
+      state?: string
+      company_name?: string
+      listing_type?: string
+      auction_datetime?: string
+      asking_price?: number
+    }
   }
   error?: string
   existing_listing_id?: string
@@ -139,7 +148,8 @@ export default function AdminScraperPage() {
                   listings_created: result.listings_created,
                   tracts_created: result.tracts_created,
                   listing_id: result.listing_id,
-                  company_id: result.company_id
+                  company_id: result.company_id,
+                  details: result.details
                 }
               } : job
             ))
@@ -309,10 +319,29 @@ export default function AdminScraperPage() {
                       {job.status === 'completed' && job.result && (
                         <div className="text-sm text-green-400">
                           <p>Created {job.result.listings_created} listing(s), {job.result.tracts_created} tract(s)</p>
+                          {job.result.details && (
+                            <div className="mt-1 text-gg-gray-300 text-xs space-y-0.5">
+                              {job.result.details.total_acres && (
+                                <p><span className="text-gg-gray-500">Acres:</span> {job.result.details.total_acres}</p>
+                              )}
+                              {job.result.details.county && job.result.details.state && (
+                                <p><span className="text-gg-gray-500">Location:</span> {job.result.details.county} County, {job.result.details.state}</p>
+                              )}
+                              {job.result.details.company_name && (
+                                <p><span className="text-gg-gray-500">Company:</span> {job.result.details.company_name}</p>
+                              )}
+                              {job.result.details.listing_type === 'auction' && job.result.details.auction_datetime && (
+                                <p><span className="text-gg-gray-500">Auction:</span> {new Date(job.result.details.auction_datetime).toLocaleString()}</p>
+                              )}
+                              {job.result.details.listing_type === 'private_treaty' && job.result.details.asking_price && (
+                                <p><span className="text-gg-gray-500">Price:</span> ${job.result.details.asking_price.toLocaleString()}</p>
+                              )}
+                            </div>
+                          )}
                           {job.result.listing_id && (
                             <Link 
                               href={`/admin/listings/${job.result.listing_id}`}
-                              className="text-gg-pink hover:underline"
+                              className="text-gg-pink hover:underline mt-1 inline-block"
                             >
                               View/Edit Listing →
                             </Link>
