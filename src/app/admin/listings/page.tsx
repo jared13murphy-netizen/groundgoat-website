@@ -5,7 +5,7 @@ import { useSearchParams } from 'next/navigation'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Loader2, Trash2, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, MapPin, ArrowLeft, Filter, Save, X, Plus, Building2, ExternalLink } from 'lucide-react'
+import { Loader2, Trash2, ChevronLeft, ChevronRight, MapPin, ArrowLeft, Filter, Pencil } from 'lucide-react'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -64,10 +64,6 @@ function AdminListingsPageContent() {
   const [listings, setListings] = useState<Listing[]>([])
   const [companies, setCompanies] = useState<Company[]>([])
   const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState<string | null>(null)
-  const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [editedListings, setEditedListings] = useState<{[key: string]: Listing}>({})
-  const [editedTracts, setEditedTracts] = useState<{[key: string]: Tract[]}>({})
   
   // Pagination
   const [page, setPage] = useState(1)
@@ -456,17 +452,11 @@ function AdminListingsPageContent() {
         {/* Listings */}
         <div className="space-y-2">
           {listings.map((listing) => {
-            const isExpanded = expandedId === listing.id
-            const editedListing = editedListings[listing.id] || listing
-            const tracts = editedTracts[listing.id] || []
             
             return (
               <div key={listing.id} className="bg-gg-gray-900 border border-gg-gray-800 rounded-lg overflow-hidden">
                 {/* Row Header */}
-                <div 
-                  className="flex items-center gap-4 p-3 cursor-pointer hover:bg-gg-gray-800/50"
-                  onClick={() => toggleExpand(listing)}
-                >
+                <div className="flex items-center gap-4 p-3 hover:bg-gg-gray-800/50">
                   {/* Image */}
                   <div className="w-16 h-16 flex-shrink-0 bg-gg-gray-800 rounded-lg overflow-hidden">
                     {listing.primary_image_url ? (
@@ -517,10 +507,14 @@ function AdminListingsPageContent() {
                     ))}
                   </select>
 
-                  {/* Expand Icon */}
-                  <div className="text-gg-gray-400">
-                    {isExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
-                  </div>
+                  {/* Edit Icon */}
+                  <Link
+                    href={`/admin/listings/${listing.id}`}
+                    onClick={(e) => e.stopPropagation()}
+                    className="p-2 text-gg-gray-400 hover:text-white hover:bg-gg-gray-800 rounded-lg"
+                  >
+                    <Pencil size={16} />
+                  </Link>
 
                   {/* Delete */}
                   <button
@@ -531,267 +525,7 @@ function AdminListingsPageContent() {
                   </button>
                 </div>
 
-                {/* Expanded Edit Panel */}
-                {isExpanded && (
-                  <div className="border-t border-gg-gray-800 p-4 bg-gg-gray-950">
-                    {/* Listing Info */}
-                    <div className="mb-6">
-                      <h4 className="text-white font-semibold mb-3 flex items-center gap-2">
-                        <Building2 size={16} />
-                        Listing Info
-                      </h4>
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        <div>
-                          <label className="block text-gg-gray-400 text-xs mb-1">Title</label>
-                          <input
-                            type="text"
-                            value={editedListing.title || ''}
-                            onChange={(e) => updateListingField(listing.id, 'title', e.target.value)}
-                            className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded px-3 py-2 text-white text-sm"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-gg-gray-400 text-xs mb-1">County</label>
-                          <input
-                            type="text"
-                            value={editedListing.county || ''}
-                            onChange={(e) => updateListingField(listing.id, 'county', e.target.value)}
-                            className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded px-3 py-2 text-white text-sm"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-gg-gray-400 text-xs mb-1">State</label>
-                          <select
-                            value={editedListing.state || ''}
-                            onChange={(e) => updateListingField(listing.id, 'state', e.target.value)}
-                            className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded px-3 py-2 text-white text-sm"
-                          >
-                            <option value="">Select...</option>
-                            {STATE_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
-                          </select>
-                        </div>
-                        <div>
-                          <label className="block text-gg-gray-400 text-xs mb-1">Company</label>
-                          <select
-                            value={editedListing.listing_company_id || ''}
-                            onChange={(e) => updateListingField(listing.id, 'listing_company_id', e.target.value)}
-                            className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded px-3 py-2 text-white text-sm"
-                          >
-                            <option value="">Select...</option>
-                            {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                          </select>
-                        </div>
-                        <div>
-                          <label className="block text-gg-gray-400 text-xs mb-1">Total Acres</label>
-                          <input
-                            type="number"
-                            value={editedListing.total_acres || ''}
-                            onChange={(e) => updateListingField(listing.id, 'total_acres', e.target.value)}
-                            className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded px-3 py-2 text-white text-sm"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-gg-gray-400 text-xs mb-1">Tillable Acres</label>
-                          <input
-                            type="number"
-                            value={editedListing.tillable_acres || ''}
-                            onChange={(e) => updateListingField(listing.id, 'tillable_acres', e.target.value)}
-                            className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded px-3 py-2 text-white text-sm"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-gg-gray-400 text-xs mb-1">Asking Price</label>
-                          <input
-                            type="number"
-                            value={editedListing.asking_price || ''}
-                            onChange={(e) => updateListingField(listing.id, 'asking_price', e.target.value)}
-                            className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded px-3 py-2 text-white text-sm"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-gg-gray-400 text-xs mb-1">Land Type</label>
-                          <select
-                            value={editedListing.land_type || ''}
-                            onChange={(e) => updateListingField(listing.id, 'land_type', e.target.value)}
-                            className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded px-3 py-2 text-white text-sm"
-                          >
-                            <option value="">Select...</option>
-                            {LAND_TYPE_OPTIONS.map(t => <option key={t} value={t}>{t}</option>)}
-                          </select>
-                        </div>
-                        <div>
-                          <label className="block text-gg-gray-400 text-xs mb-1">Listing Type</label>
-                          <select
-                            value={editedListing.listing_type || ''}
-                            onChange={(e) => updateListingField(listing.id, 'listing_type', e.target.value)}
-                            className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded px-3 py-2 text-white text-sm"
-                          >
-                            {LISTING_TYPE_OPTIONS.map(t => <option key={t} value={t}>{t.replace('_', ' ')}</option>)}
-                          </select>
-                        </div>
-                        <div>
-                          <label className="block text-gg-gray-400 text-xs mb-1">Status</label>
-                          <select
-                            value={editedListing.status || ''}
-                            onChange={(e) => updateListingField(listing.id, 'status', e.target.value)}
-                            className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded px-3 py-2 text-white text-sm"
-                          >
-                            {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
-                          </select>
-                        </div>
-                        <div className="md:col-span-2">
-                          <label className="block text-gg-gray-400 text-xs mb-1">Image URL</label>
-                          <input
-                            type="text"
-                            value={editedListing.primary_image_url || ''}
-                            onChange={(e) => updateListingField(listing.id, 'primary_image_url', e.target.value)}
-                            className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded px-3 py-2 text-white text-sm"
-                          />
-                        </div>
-                        <div className="md:col-span-2">
-                          <label className="block text-gg-gray-400 text-xs mb-1 flex items-center gap-2">
-                            Source URL
-                            {editedListing.source_url && (
-                              <a href={editedListing.source_url} target="_blank" rel="noopener noreferrer" className="text-gg-pink">
-                                <ExternalLink size={12} />
-                              </a>
-                            )}
-                          </label>
-                          <input
-                            type="text"
-                            value={editedListing.source_url || ''}
-                            onChange={(e) => updateListingField(listing.id, 'source_url', e.target.value)}
-                            className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded px-3 py-2 text-white text-sm"
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Tracts */}
-                    <div className="mb-4">
-                      <div className="flex items-center justify-between mb-3">
-                        <h4 className="text-white font-semibold flex items-center gap-2">
-                          <MapPin size={16} />
-                          Tracts ({tracts.length})
-                        </h4>
-                        <button
-                          onClick={() => addTract(listing.id)}
-                          className="flex items-center gap-1 px-3 py-1 bg-gg-pink text-white rounded text-sm hover:bg-gg-pink/80"
-                        >
-                          <Plus size={14} />
-                          Add Tract
-                        </button>
-                      </div>
-                      
-                      {tracts.length === 0 ? (
-                        <p className="text-gg-gray-500 text-sm">No tracts yet</p>
-                      ) : (
-                        <div className="space-y-3">
-                          {tracts.map((tract, idx) => (
-                            <div key={tract.id} className="bg-gg-gray-900 border border-gg-gray-700 rounded-lg p-3">
-                              <div className="flex items-center justify-between mb-2">
-                                <span className="text-white font-medium text-sm">Tract {tract.tract_number}</span>
-                                <button
-                                  onClick={() => deleteTract(listing.id, tract.id, idx)}
-                                  className="text-red-400 hover:text-red-300 p-1"
-                                >
-                                  <Trash2 size={14} />
-                                </button>
-                              </div>
-                              <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
-                                <div>
-                                  <label className="block text-gg-gray-400 text-xs mb-1">Acres</label>
-                                  <input
-                                    type="number"
-                                    value={tract.acres || ''}
-                                    onChange={(e) => updateTractField(listing.id, idx, 'acres', e.target.value)}
-                                    className="w-full bg-gg-gray-800 border border-gg-gray-600 rounded px-2 py-1 text-white text-sm"
-                                  />
-                                </div>
-                                <div>
-                                  <label className="block text-gg-gray-400 text-xs mb-1">Tillable</label>
-                                  <input
-                                    type="number"
-                                    value={tract.tillable_acres || ''}
-                                    onChange={(e) => updateTractField(listing.id, idx, 'tillable_acres', e.target.value)}
-                                    className="w-full bg-gg-gray-800 border border-gg-gray-600 rounded px-2 py-1 text-white text-sm"
-                                  />
-                                </div>
-                                <div>
-                                  <label className="block text-gg-gray-400 text-xs mb-1">PI</label>
-                                  <input
-                                    type="number"
-                                    value={tract.pi || ''}
-                                    onChange={(e) => updateTractField(listing.id, idx, 'pi', e.target.value)}
-                                    className="w-full bg-gg-gray-800 border border-gg-gray-600 rounded px-2 py-1 text-white text-sm"
-                                  />
-                                </div>
-                                <div>
-                                  <label className="block text-gg-gray-400 text-xs mb-1">Type</label>
-                                  <select
-                                    value={tract.land_type || ''}
-                                    onChange={(e) => updateTractField(listing.id, idx, 'land_type', e.target.value)}
-                                    className="w-full bg-gg-gray-800 border border-gg-gray-600 rounded px-2 py-1 text-white text-sm"
-                                  >
-                                    {LAND_TYPE_OPTIONS.map(t => <option key={t} value={t}>{t}</option>)}
-                                  </select>
-                                </div>
-                                <div>
-                                  <label className="block text-gg-gray-400 text-xs mb-1">Sale Price</label>
-                                  <input
-                                    type="number"
-                                    value={tract.sale_price || ''}
-                                    onChange={(e) => updateTractField(listing.id, idx, 'sale_price', e.target.value)}
-                                    className="w-full bg-gg-gray-800 border border-gg-gray-600 rounded px-2 py-1 text-white text-sm"
-                                  />
-                                </div>
-                                <div className="flex items-end gap-4 pb-1">
-                                  <label className="flex items-center gap-2 text-sm text-gg-gray-300 cursor-pointer">
-                                    <input
-                                      type="checkbox"
-                                      checked={tract.has_house || false}
-                                      onChange={(e) => updateTractField(listing.id, idx, 'has_house', e.target.checked)}
-                                      className="rounded"
-                                    />
-                                    House
-                                  </label>
-                                  <label className="flex items-center gap-2 text-sm text-gg-gray-300 cursor-pointer">
-                                    <input
-                                      type="checkbox"
-                                      checked={tract.has_building || false}
-                                      onChange={(e) => updateTractField(listing.id, idx, 'has_building', e.target.checked)}
-                                      className="rounded"
-                                    />
-                                    Building
-                                  </label>
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Save/Cancel */}
-                    <div className="flex items-center gap-3 pt-4 border-t border-gg-gray-800">
-                      <button
-                        onClick={() => saveListing(listing.id)}
-                        disabled={saving === listing.id}
-                        className="flex items-center gap-2 px-4 py-2 bg-gg-pink text-white rounded-lg hover:bg-gg-pink/80 disabled:opacity-50"
-                      >
-                        {saving === listing.id ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
-                        Save Changes
-                      </button>
-                      <button
-                        onClick={() => setExpandedId(null)}
-                        className="flex items-center gap-2 px-4 py-2 bg-gg-gray-700 text-white rounded-lg hover:bg-gg-gray-600"
-                      >
-                        <X size={16} />
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                )}
+}
               </div>
             )
           })}
