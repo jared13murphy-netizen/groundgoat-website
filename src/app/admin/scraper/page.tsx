@@ -29,6 +29,7 @@ interface ScraperJob {
     company_id?: string
   }
   error?: string
+  existing_listing_id?: string
 }
 
 export default function AdminScraperPage() {
@@ -122,7 +123,12 @@ export default function AdminScraperPage() {
           // Check if backend returned success: false (e.g., duplicate)
           if (result.success === false) {
             setJobs(prev => prev.map((job, idx) => 
-              idx === i ? { ...job, status: 'failed', error: result.error || 'Failed to scrape' } : job
+              idx === i ? { 
+                ...job, 
+                status: 'failed', 
+                error: result.error || 'Failed to scrape',
+                existing_listing_id: result.listing_id  // For duplicates
+              } : job
             ))
           } else {
             setJobs(prev => prev.map((job, idx) => 
@@ -314,7 +320,17 @@ export default function AdminScraperPage() {
                         </div>
                       )}
                       {job.status === 'failed' && job.error && (
-                        <p className="text-sm text-red-400">{job.error}</p>
+                        <div className="text-sm text-red-400">
+                          <p>{job.error}</p>
+                          {job.existing_listing_id && (
+                            <Link 
+                              href={`/admin/listings/${job.existing_listing_id}`}
+                              className="text-gg-pink hover:underline"
+                            >
+                              Edit Existing Listing →
+                            </Link>
+                          )}
+                        </div>
                       )}
                       {job.status === 'running' && (
                         <p className="text-sm text-gg-pink">Extracting data and creating listing...</p>
