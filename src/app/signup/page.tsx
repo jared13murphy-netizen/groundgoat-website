@@ -809,16 +809,16 @@ function SignUpContent() {
                             setShowHomeStateDropdown(!showHomeStateDropdown)
                             setShowHomeCountyDropdown(false)
                           }}
-                          className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-left text-white flex items-center justify-between focus:border-gg-pink focus:outline-none"
+                          className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-left text-black flex items-center justify-between focus:border-gg-pink focus:outline-none"
                         >
-                          <span className={formData.homeState ? 'text-white' : 'text-gg-gray-500'}>
+                          <span className={formData.homeState ? 'text-black' : 'text-gray-500'}>
                             {formData.homeState || 'Select...'}
                           </span>
-                          <ChevronDown size={16} className={`text-gg-gray-500 transition-transform ${showHomeStateDropdown ? 'rotate-180' : ''}`} />
+                          <ChevronDown size={16} className={`text-gray-500 transition-transform ${showHomeStateDropdown ? 'rotate-180' : ''}`} />
                         </button>
 
                         {showHomeStateDropdown && (
-                          <div className="absolute z-20 w-full mt-1 bg-gg-gray-800 border border-gg-gray-700 rounded-lg shadow-xl max-h-48 overflow-y-auto">
+                          <div className="absolute z-20 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-xl max-h-48 overflow-y-auto">
                             {US_STATES.map(state => (
                               <button
                                 key={state}
@@ -827,7 +827,7 @@ function SignUpContent() {
                                   setFormData(prev => ({ ...prev, homeState: state, homeCounty: '' }))
                                   setShowHomeStateDropdown(false)
                                 }}
-                                className="w-full px-4 py-2 text-left text-sm text-gg-gray-300 hover:bg-gg-gray-700 hover:text-white transition-colors"
+                                className="w-full px-4 py-2 text-left text-sm text-black hover:bg-gray-100 transition-colors"
                               >
                                 {state}
                               </button>
@@ -849,16 +849,16 @@ function SignUpContent() {
                             }
                           }}
                           disabled={!formData.homeState}
-                          className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-left text-white flex items-center justify-between focus:border-gg-pink focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-left text-black flex items-center justify-between focus:border-gg-pink focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                          <span className={formData.homeCounty ? 'text-white' : 'text-gg-gray-500'}>
+                          <span className={formData.homeCounty ? 'text-black' : 'text-gray-500'}>
                             {formData.homeCounty || (formData.homeState ? 'Select...' : 'Select state first')}
                           </span>
-                          <ChevronDown size={16} className={`text-gg-gray-500 transition-transform ${showHomeCountyDropdown ? 'rotate-180' : ''}`} />
+                          <ChevronDown size={16} className={`text-gray-500 transition-transform ${showHomeCountyDropdown ? 'rotate-180' : ''}`} />
                         </button>
 
                         {showHomeCountyDropdown && homeCounties.length > 0 && (
-                          <div className="absolute z-20 w-full mt-1 bg-gg-gray-800 border border-gg-gray-700 rounded-lg shadow-xl max-h-48 overflow-y-auto">
+                          <div className="absolute z-20 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-xl max-h-48 overflow-y-auto">
                             {homeCounties.map(county => (
                               <button
                                 key={county}
@@ -867,7 +867,7 @@ function SignUpContent() {
                                   setFormData(prev => ({ ...prev, homeCounty: county }))
                                   setShowHomeCountyDropdown(false)
                                 }}
-                                className="w-full px-4 py-2 text-left text-sm text-gg-gray-300 hover:bg-gg-gray-700 hover:text-white transition-colors"
+                                className="w-full px-4 py-2 text-left text-sm text-black hover:bg-gray-100 transition-colors"
                               >
                                 {county}
                               </button>
