@@ -6,8 +6,19 @@ import fetchWithAuth from '@/lib/fetchWithAuth'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Loader2, Trash2, ChevronLeft, ChevronRight, MapPin, ArrowLeft, Filter, Pencil, CheckCircle } from 'lucide-react'
+import { getCountiesForState } from '@/data/counties'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
+
+const US_STATES = [
+  "Alabama", "Alaska", "Arizona", "Arkansas", "California", "Colorado", "Connecticut", "Delaware",
+  "Florida", "Georgia", "Hawaii", "Idaho", "Illinois", "Indiana", "Iowa", "Kansas", "Kentucky",
+  "Louisiana", "Maine", "Maryland", "Massachusetts", "Michigan", "Minnesota", "Mississippi",
+  "Missouri", "Montana", "Nebraska", "Nevada", "New Hampshire", "New Jersey", "New Mexico",
+  "New York", "North Carolina", "North Dakota", "Ohio", "Oklahoma", "Oregon", "Pennsylvania",
+  "Rhode Island", "South Carolina", "South Dakota", "Tennessee", "Texas", "Utah", "Vermont",
+  "Virginia", "Washington", "West Virginia", "Wisconsin", "Wyoming"
+]
 
 interface Listing {
   id: string
@@ -49,10 +60,15 @@ function AdminListingsPageContent() {
   
   // Filters
   const [filterCompany, setFilterCompany] = useState(searchParams.get('company') || '')
+  const [filterState, setFilterState] = useState('')
   const [filterCounty, setFilterCounty] = useState('')
   const [filterListingType, setFilterListingType] = useState('')
   const [filterStatus, setFilterStatus] = useState('')
+  const [filterVerified, setFilterVerified] = useState('')
   const [showFilters, setShowFilters] = useState(false)
+
+  // Get counties for selected state
+  const availableCounties = filterState ? getCountiesForState(filterState) : []
 
   useEffect(() => {
     checkAuth()
@@ -60,7 +76,7 @@ function AdminListingsPageContent() {
 
   useEffect(() => {
     fetchListings()
-  }, [page, filterCompany, filterCounty, filterListingType, filterStatus])
+  }, [page, filterCompany, filterState, filterCounty, filterListingType, filterStatus, filterVerified])
 
   const checkAuth = async () => {
     try {
@@ -94,15 +110,24 @@ function AdminListingsPageContent() {
     try {
       const offset = (page - 1) * itemsPerPage
       let url = `${API_URL}/api/listings?limit=${itemsPerPage}&offset=${offset}&sort_order=desc`
-      
+
+      if (filterState) url += `&state=${encodeURIComponent(filterState)}`
       if (filterCounty) url += `&county=${encodeURIComponent(filterCounty)}`
       if (filterListingType) url += `&listing_type=${filterListingType}`
       if (filterCompany) url += `&company_id=${filterCompany}`
       if (filterStatus) url += `&status=${filterStatus}`
-      
+
       const response = await fetchWithAuth(url)
       if (response.ok) {
-        const data = await response.json()
+        let data = await response.json()
+
+        // Client-side filter for verified status (since API doesn't support it yet)
+        if (filterVerified === 'verified') {
+          data = data.filter((l: Listing) => l.verified === true)
+        } else if (filterVerified === 'unverified') {
+          data = data.filter((l: Listing) => l.verified === false)
+        }
+
         setListings(data)
       }
     } catch (err) {
@@ -168,9 +193,11 @@ function AdminListingsPageContent() {
 
   const clearFilters = () => {
     setFilterCompany('')
+    setFilterState('')
     setFilterCounty('')
     setFilterListingType('')
     setFilterStatus('')
+    setFilterVerified('')
     setPage(1)
   }
 
@@ -199,7 +226,7 @@ function AdminListingsPageContent() {
           <button
             onClick={() => setShowFilters(!showFilters)}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
-              showFilters || filterCompany || filterCounty || filterListingType || filterStatus
+              showFilters || filterCompany || filterState || filterCounty || filterListingType || filterStatus || filterVerified
                 ? 'bg-gg-pink text-white' : 'bg-gg-gray-800 text-white hover:bg-gg-gray-700'
             }`}
           >
@@ -211,55 +238,97 @@ function AdminListingsPageContent() {
         {/* Filters */}
         {showFilters && (
           <div className="card mb-6 p-4">
-            <div className="flex flex-wrap gap-4 items-end">
-              <div className="flex-1 min-w-[150px]">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+              <div>
                 <label className="block text-gg-gray-400 text-sm mb-1">Company</label>
                 <select
                   value={filterCompany}
                   onChange={(e) => { setFilterCompany(e.target.value); setPage(1) }}
                   className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-3 py-2 text-white text-sm"
                 >
-                  <option value="">All</option>
+                  <option value="">All Companies</option>
                   {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </div>
-              <div className="flex-1 min-w-[150px]">
+
+              <div>
+                <label className="block text-gg-gray-400 text-sm mb-1">State</label>
+                <select
+                  value={filterState}
+                  onChange={(e) => {
+                    setFilterState(e.target.value)
+                    setFilterCounty('') // Reset county when state changes
+                    setPage(1)
+                  }}
+                  className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-3 py-2 text-white text-sm"
+                >
+                  <option value="">All States</option>
+                  {US_STATES.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-gg-gray-400 text-sm mb-1">County</label>
+                <select
+                  value={filterCounty}
+                  onChange={(e) => { setFilterCounty(e.target.value); setPage(1) }}
+                  disabled={!filterState}
+                  className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-3 py-2 text-white text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <option value="">
+                    {filterState ? 'All Counties' : 'Select State First'}
+                  </option>
+                  {availableCounties.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+
+              <div>
                 <label className="block text-gg-gray-400 text-sm mb-1">Type</label>
                 <select
                   value={filterListingType}
                   onChange={(e) => { setFilterListingType(e.target.value); setPage(1) }}
                   className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-3 py-2 text-white text-sm"
                 >
-                  <option value="">All</option>
+                  <option value="">All Types</option>
                   <option value="auction">Auction</option>
                   <option value="private_treaty">Private Treaty</option>
                 </select>
               </div>
-              <div className="flex-1 min-w-[150px]">
+
+              <div>
                 <label className="block text-gg-gray-400 text-sm mb-1">Status</label>
                 <select
                   value={filterStatus}
                   onChange={(e) => { setFilterStatus(e.target.value); setPage(1) }}
                   className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-3 py-2 text-white text-sm"
                 >
-                  <option value="">All</option>
+                  <option value="">All Statuses</option>
                   {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
                 </select>
               </div>
-              <div className="flex-1 min-w-[150px]">
-                <label className="block text-gg-gray-400 text-sm mb-1">County</label>
-                <input
-                  type="text"
-                  value={filterCounty}
-                  onChange={(e) => { setFilterCounty(e.target.value); setPage(1) }}
-                  placeholder="Enter county..."
+
+              <div>
+                <label className="block text-gg-gray-400 text-sm mb-1">Verified</label>
+                <select
+                  value={filterVerified}
+                  onChange={(e) => { setFilterVerified(e.target.value); setPage(1) }}
                   className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-3 py-2 text-white text-sm"
-                />
+                >
+                  <option value="">All</option>
+                  <option value="verified">Verified Only</option>
+                  <option value="unverified">Unverified Only</option>
+                </select>
               </div>
-              {(filterCompany || filterCounty || filterListingType || filterStatus) && (
-                <button onClick={clearFilters} className="px-4 py-2 bg-gg-gray-700 text-white rounded-lg text-sm">
-                  Clear
-                </button>
+
+              {(filterCompany || filterState || filterCounty || filterListingType || filterStatus || filterVerified) && (
+                <div className="flex items-end">
+                  <button
+                    onClick={clearFilters}
+                    className="w-full px-4 py-2 bg-gg-gray-700 text-white rounded-lg text-sm hover:bg-gg-gray-600"
+                  >
+                    Clear All
+                  </button>
+                </div>
               )}
             </div>
           </div>
