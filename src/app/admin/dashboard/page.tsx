@@ -80,6 +80,7 @@ export default function AdminDashboard() {
   const [companies, setCompanies] = useState<{ id: string; name: string }[]>([])
   const [selectedCompany, setSelectedCompany] = useState<string>('all')
   const [mapLoading, setMapLoading] = useState(true)
+  const [migrationStatus, setMigrationStatus] = useState<string>('')
 
   useEffect(() => {
     const token = localStorage.getItem('auth_token')
@@ -236,6 +237,21 @@ export default function AdminDashboard() {
     }
   }, [mapListings])
 
+  const runMigration = async () => {
+    setMigrationStatus('running')
+    try {
+      const response = await fetchWithAuth(API_URL + '/api/admin/migrate-private-treaty-update-reports')
+      if (response.ok) {
+        const data = await response.json()
+        setMigrationStatus(data.already_existed ? 'already_done' : 'success')
+      } else {
+        setMigrationStatus('error')
+      }
+    } catch (err) {
+      setMigrationStatus('error')
+    }
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gg-black flex items-center justify-center">
@@ -254,6 +270,40 @@ export default function AdminDashboard() {
             <p className="text-gg-gray-400">Welcome back, {user?.first_name}</p>
           </div>
         </div>
+
+        {/* Migration Button (temporary) */}
+        {migrationStatus !== 'success' && migrationStatus !== 'already_done' && (
+          <div className="mb-8 p-6 bg-gg-gray-900 border border-gg-gray-700 rounded-xl">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-bold text-white">Database Setup Required</h2>
+                <p className="text-gg-gray-400">Create the nightly updates table (one-time setup)</p>
+              </div>
+              <button
+                onClick={runMigration}
+                disabled={migrationStatus === 'running'}
+                className="px-6 py-3 bg-gg-pink text-white rounded-lg font-semibold hover:bg-gg-pink/90 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {migrationStatus === 'running' ? 'Running...' : 'Run Setup'}
+              </button>
+            </div>
+            {migrationStatus === 'error' && (
+              <p className="text-red-400 mt-2">Setup failed. Check console for errors.</p>
+            )}
+          </div>
+        )}
+
+        {migrationStatus === 'success' && (
+          <div className="mb-8 p-6 bg-green-500/20 border border-green-500/50 rounded-xl">
+            <p className="text-green-400 font-semibold">Setup completed successfully! You can now use the Nightly Updates feature.</p>
+          </div>
+        )}
+
+        {migrationStatus === 'already_done' && (
+          <div className="mb-8 p-6 bg-blue-500/20 border border-blue-500/50 rounded-xl">
+            <p className="text-blue-400 font-semibold">Setup already completed - nightly updates table exists.</p>
+          </div>
+        )}
 
         {/* Control Center Banner */}
         <Link
