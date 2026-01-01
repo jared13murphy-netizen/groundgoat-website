@@ -17,10 +17,7 @@ import {
   Radio,
   Filter,
   Loader2,
-  Moon,
-  Database,
-  CheckCircle,
-  XCircle
+  Moon
 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import countyCentroids from '@/data/countyCentroids'
@@ -83,8 +80,6 @@ export default function AdminDashboard() {
   const [companies, setCompanies] = useState<{ id: string; name: string }[]>([])
   const [selectedCompany, setSelectedCompany] = useState<string>('all')
   const [mapLoading, setMapLoading] = useState(true)
-  const [migrationLoading, setMigrationLoading] = useState<string | null>(null)
-  const [migrationResult, setMigrationResult] = useState<{ type: string; success: boolean; message: string } | null>(null)
 
   useEffect(() => {
     const token = localStorage.getItem('auth_token')
@@ -184,30 +179,6 @@ export default function AdminDashboard() {
       console.error('Failed to fetch listings:', err)
     } finally {
       setMapLoading(false)
-    }
-  }
-
-  const runMigration = async (endpoint: string, name: string) => {
-    setMigrationLoading(name)
-    setMigrationResult(null)
-    try {
-      const response = await fetchWithAuth(API_URL + endpoint, {
-        method: 'POST'
-      })
-      const data = await response.json()
-      setMigrationResult({
-        type: name,
-        success: data.success,
-        message: data.message || data.error || 'Migration completed'
-      })
-    } catch (err) {
-      setMigrationResult({
-        type: name,
-        success: false,
-        message: 'Failed to run migration'
-      })
-    } finally {
-      setMigrationLoading(null)
     }
   }
 
@@ -363,59 +334,6 @@ export default function AdminDashboard() {
             icon={<AlertCircle />}
           />
         </div>
-
-        {/* Database Migrations */}
-        {user?.account_type === 'groundgoat_admin' && (
-          <div className="card mb-8">
-            <div className="flex items-center gap-3 mb-4">
-              <Database className="text-gg-pink" size={24} />
-              <h2 className="text-xl font-bold text-white">Database Migrations</h2>
-            </div>
-            <p className="text-gg-gray-400 text-sm mb-4">
-              Run database migrations to update schema. Only run each migration once.
-            </p>
-
-            {migrationResult && (
-              <div className={`mb-4 p-3 rounded-lg flex items-center gap-2 ${
-                migrationResult.success
-                  ? 'bg-green-500/20 border border-green-500/50'
-                  : 'bg-red-500/20 border border-red-500/50'
-              }`}>
-                {migrationResult.success ? (
-                  <CheckCircle className="text-green-500" size={18} />
-                ) : (
-                  <XCircle className="text-red-500" size={18} />
-                )}
-                <span className={migrationResult.success ? 'text-green-400' : 'text-red-400'}>
-                  {migrationResult.message}
-                </span>
-              </div>
-            )}
-
-            <div className="flex flex-wrap gap-3">
-              <button
-                onClick={() => runMigration('/api/admin/migrate-push-notifications', 'push-notifications')}
-                disabled={migrationLoading !== null}
-                className="px-4 py-2 bg-gg-gray-800 border border-gg-gray-700 rounded-lg text-white hover:border-gg-pink transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-              >
-                {migrationLoading === 'push-notifications' && (
-                  <Loader2 className="animate-spin" size={16} />
-                )}
-                Push Notifications + Home Location
-              </button>
-              <button
-                onClick={() => runMigration('/api/admin/migrate-verification', 'verification')}
-                disabled={migrationLoading !== null}
-                className="px-4 py-2 bg-gg-gray-800 border border-gg-gray-700 rounded-lg text-white hover:border-gg-pink transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-              >
-                {migrationLoading === 'verification' && (
-                  <Loader2 className="animate-spin" size={16} />
-                )}
-                Verification Columns
-              </button>
-            </div>
-          </div>
-        )}
 
         {/* Listings Map */}
         <div className="card">
