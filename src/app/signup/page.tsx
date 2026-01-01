@@ -110,7 +110,14 @@ function SignUpContent() {
     email: '',
     password: '',
     confirmPassword: '',
+    homeState: '',
+    homeCounty: '',
   })
+
+  // Home location dropdowns
+  const [homeCounties, setHomeCounties] = useState<string[]>([])
+  const [showHomeStateDropdown, setShowHomeStateDropdown] = useState(false)
+  const [showHomeCountyDropdown, setShowHomeCountyDropdown] = useState(false)
 
   // Validate referral code on mount
   useEffect(() => {
@@ -150,6 +157,16 @@ function SignUpContent() {
       fetchAvailableCounties(selectedState)
     }
   }, [selectedState, selectedPlan])
+
+  // Load counties for home location when home state changes
+  useEffect(() => {
+    if (formData.homeState) {
+      setHomeCounties(getCountiesForState(formData.homeState))
+      setFormData(prev => ({ ...prev, homeCounty: '' }))
+    } else {
+      setHomeCounties([])
+    }
+  }, [formData.homeState])
 
   const fetchAvailableStates = () => {
     setLoadingStates(true)
@@ -217,6 +234,8 @@ function SignUpContent() {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) return 'Invalid email address'
     if (formData.password.length < 8) return 'Password must be at least 8 characters'
     if (formData.password !== formData.confirmPassword) return 'Passwords do not match'
+    if (!formData.homeState) return 'Please select your home state'
+    if (!formData.homeCounty) return 'Please select your home county'
     return null
   }
 
@@ -430,6 +449,8 @@ function SignUpContent() {
               last_name: formData.lastName,
               email: formData.email,
               password: formData.password,
+              home_state: getStateAbbreviation(formData.homeState),
+              home_county: formData.homeCounty,
               referral_code: referralCode,  // Pass referral code
             }),
           })
@@ -573,6 +594,8 @@ function SignUpContent() {
           last_name: formData.lastName,
           email: formData.email,
           password: formData.password,
+          home_state: getStateAbbreviation(formData.homeState),
+          home_county: formData.homeCounty,
           referral_code: referralCode,  // Pass referral code
         }),
       })
@@ -767,6 +790,93 @@ function SignUpContent() {
                     className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none"
                     placeholder="••••••••"
                   />
+                </div>
+
+                {/* Home Location */}
+                <div className="pt-4 border-t border-gg-gray-700">
+                  <p className="text-sm text-gg-gray-400 mb-4">
+                    <MapPin size={14} className="inline mr-1" />
+                    Your home location helps us send you relevant notifications
+                  </p>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gg-gray-300 mb-2">Home State</label>
+                      <div className="relative">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowHomeStateDropdown(!showHomeStateDropdown)
+                            setShowHomeCountyDropdown(false)
+                          }}
+                          className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-left text-white flex items-center justify-between focus:border-gg-pink focus:outline-none"
+                        >
+                          <span className={formData.homeState ? 'text-white' : 'text-gg-gray-500'}>
+                            {formData.homeState || 'Select...'}
+                          </span>
+                          <ChevronDown size={16} className={`text-gg-gray-500 transition-transform ${showHomeStateDropdown ? 'rotate-180' : ''}`} />
+                        </button>
+
+                        {showHomeStateDropdown && (
+                          <div className="absolute z-20 w-full mt-1 bg-gg-gray-800 border border-gg-gray-700 rounded-lg shadow-xl max-h-48 overflow-y-auto">
+                            {US_STATES.map(state => (
+                              <button
+                                key={state}
+                                type="button"
+                                onClick={() => {
+                                  setFormData(prev => ({ ...prev, homeState: state, homeCounty: '' }))
+                                  setShowHomeStateDropdown(false)
+                                }}
+                                className="w-full px-4 py-2 text-left text-sm text-gg-gray-300 hover:bg-gg-gray-700 hover:text-white transition-colors"
+                              >
+                                {state}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gg-gray-300 mb-2">Home County</label>
+                      <div className="relative">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (formData.homeState) {
+                              setShowHomeCountyDropdown(!showHomeCountyDropdown)
+                              setShowHomeStateDropdown(false)
+                            }
+                          }}
+                          disabled={!formData.homeState}
+                          className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-left text-white flex items-center justify-between focus:border-gg-pink focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <span className={formData.homeCounty ? 'text-white' : 'text-gg-gray-500'}>
+                            {formData.homeCounty || (formData.homeState ? 'Select...' : 'Select state first')}
+                          </span>
+                          <ChevronDown size={16} className={`text-gg-gray-500 transition-transform ${showHomeCountyDropdown ? 'rotate-180' : ''}`} />
+                        </button>
+
+                        {showHomeCountyDropdown && homeCounties.length > 0 && (
+                          <div className="absolute z-20 w-full mt-1 bg-gg-gray-800 border border-gg-gray-700 rounded-lg shadow-xl max-h-48 overflow-y-auto">
+                            {homeCounties.map(county => (
+                              <button
+                                key={county}
+                                type="button"
+                                onClick={() => {
+                                  setFormData(prev => ({ ...prev, homeCounty: county }))
+                                  setShowHomeCountyDropdown(false)
+                                }}
+                                className="w-full px-4 py-2 text-left text-sm text-gg-gray-300 hover:bg-gg-gray-700 hover:text-white transition-colors"
+                              >
+                                {county}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
                 {error && (
