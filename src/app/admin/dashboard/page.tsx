@@ -79,6 +79,9 @@ export default function AdminDashboard() {
   const [companies, setCompanies] = useState<{ id: string; name: string }[]>([])
   const [selectedCompany, setSelectedCompany] = useState<string>('all')
   const [mapLoading, setMapLoading] = useState(true)
+  const [migrating, setMigrating] = useState(false)
+  const [migrationDone, setMigrationDone] = useState(false)
+  const [migrationError, setMigrationError] = useState('')
 
   useEffect(() => {
     const token = localStorage.getItem('auth_token')
@@ -89,6 +92,33 @@ export default function AdminDashboard() {
 
     checkAuth()
   }, [router])
+
+  const runMigration = async () => {
+    setMigrating(true)
+    setMigrationError('')
+
+    try {
+      const response = await fetchWithAuth(`${API_URL}/api/admin/migrate-verified-column`, {
+        method: 'POST'
+      })
+
+      const data = await response.json()
+
+      if (response.ok) {
+        setMigrationDone(true)
+        // Refresh the page data
+        setTimeout(() => {
+          window.location.reload()
+        }, 2000)
+      } else {
+        setMigrationError(data.detail || 'Migration failed')
+      }
+    } catch (err) {
+      setMigrationError('Failed to run migration: ' + err)
+    } finally {
+      setMigrating(false)
+    }
+  }
 
   const checkAuth = async () => {
     try {
@@ -255,8 +285,8 @@ export default function AdminDashboard() {
         </div>
 
         {/* Control Center Banner */}
-        <Link 
-          href="/admin/control-center" 
+        <Link
+          href="/admin/control-center"
           className="block mb-8 p-6 bg-gradient-to-r from-gg-pink/20 to-purple-600/20 border border-gg-pink/50 rounded-xl hover:border-gg-pink transition-colors group"
         >
           <div className="flex items-center justify-between">
@@ -272,6 +302,60 @@ export default function AdminDashboard() {
             <ChevronRight className="text-gg-pink" size={24} />
           </div>
         </Link>
+
+        {/* Migration Banner - Only show if not done */}
+        {!migrationDone && (
+          <div className="mb-8 p-6 bg-gradient-to-r from-yellow-600/20 to-orange-600/20 border border-yellow-500/50 rounded-xl">
+            <div className="flex items-start gap-4">
+              <div className="w-14 h-14 bg-yellow-500/20 rounded-xl flex items-center justify-center text-yellow-400 flex-shrink-0">
+                <AlertCircle size={28} />
+              </div>
+              <div className="flex-1">
+                <h2 className="text-xl font-bold text-white mb-2">Database Migration Required</h2>
+                <p className="text-gg-gray-400 mb-4">
+                  A new database column needs to be added for the verification feature.
+                  Click the button below to run the migration and restore your listings.
+                </p>
+                {migrationError && (
+                  <div className="mb-4 p-3 bg-red-500/20 border border-red-500/50 rounded-lg text-red-400 text-sm">
+                    {migrationError}
+                  </div>
+                )}
+                <button
+                  onClick={runMigration}
+                  disabled={migrating}
+                  className="flex items-center gap-2 px-6 py-3 bg-yellow-500 text-black rounded-lg hover:bg-yellow-400 disabled:opacity-50 disabled:cursor-not-allowed font-semibold"
+                >
+                  {migrating ? (
+                    <>
+                      <Loader2 className="animate-spin" size={20} />
+                      Running Migration...
+                    </>
+                  ) : (
+                    'Run Migration Now'
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Success Message */}
+        {migrationDone && (
+          <div className="mb-8 p-6 bg-gradient-to-r from-green-600/20 to-emerald-600/20 border border-green-500/50 rounded-xl">
+            <div className="flex items-start gap-4">
+              <div className="w-14 h-14 bg-green-500/20 rounded-xl flex items-center justify-center text-green-400 flex-shrink-0">
+                <ChevronRight size={28} />
+              </div>
+              <div className="flex-1">
+                <h2 className="text-xl font-bold text-white mb-2">Migration Successful!</h2>
+                <p className="text-gg-gray-400">
+                  The verified column has been added successfully. Reloading page...
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Quick Actions */}
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
