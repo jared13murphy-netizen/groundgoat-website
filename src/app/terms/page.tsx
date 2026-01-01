@@ -47,27 +47,32 @@ export default function TermsPage() {
           </section>
 
           <section>
-            <h2 className="font-display text-2xl font-bold text-white mb-4">7. Intellectual Property</h2>
+            <h2 className="font-display text-2xl font-bold text-white mb-4">7. Images and Content</h2>
+            <p>Images displayed for property listings may not always be representative of the actual property. When a listing does not have an available image from the original source, a stock image may be used as a placeholder. Users should always refer to the original listing source for accurate property images and details.</p>
+          </section>
+
+          <section>
+            <h2 className="font-display text-2xl font-bold text-white mb-4">8. Intellectual Property</h2>
             <p>The App and its original content, features, and functionality are owned by Ground Goat and are protected by international copyright, trademark, and other intellectual property laws.</p>
           </section>
 
           <section>
-            <h2 className="font-display text-2xl font-bold text-white mb-4">8. Limitation of Liability</h2>
+            <h2 className="font-display text-2xl font-bold text-white mb-4">9. Limitation of Liability</h2>
             <p>To the maximum extent permitted by law, Ground Goat shall not be liable for any indirect, incidental, special, consequential, or punitive damages resulting from your use of the service.</p>
           </section>
 
           <section>
-            <h2 className="font-display text-2xl font-bold text-white mb-4">9. Termination</h2>
+            <h2 className="font-display text-2xl font-bold text-white mb-4">10. Termination</h2>
             <p>We may terminate or suspend your account immediately, without prior notice, for any reason, including breach of these Terms.</p>
           </section>
 
           <section>
-            <h2 className="font-display text-2xl font-bold text-white mb-4">10. Governing Law</h2>
+            <h2 className="font-display text-2xl font-bold text-white mb-4">11. Governing Law</h2>
             <p>These Terms shall be governed by and construed in accordance with the laws of the State of Illinois.</p>
           </section>
 
           <section>
-            <h2 className="font-display text-2xl font-bold text-white mb-4">11. Contact Us</h2>
+            <h2 className="font-display text-2xl font-bold text-white mb-4">12. Contact Us</h2>
             <p>If you have questions about these Terms, contact us at: <a href="mailto:info@groundgoat.com" className="text-gg-pink hover:underline">info@groundgoat.com</a></p>
           </section>
         </div>
