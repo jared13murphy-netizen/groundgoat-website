@@ -32,6 +32,7 @@ interface Listing {
   primary_image_url: string
   asking_price: number
   verified: boolean
+  data_confidence?: number
   source_url?: string
   tract_count?: number
   company?: {
@@ -191,6 +192,13 @@ function AdminListingsPageContent() {
     if (listing.company?.name) return listing.company.name
     const company = companies.find(c => c.id === listing.listing_company_id)
     return company?.name || '—'
+  }
+
+  const getConfidenceColor = (confidence: number) => {
+    if (confidence >= 80) return 'bg-green-500/20 text-green-400'
+    if (confidence >= 60) return 'bg-yellow-500/20 text-yellow-400'
+    if (confidence >= 40) return 'bg-orange-500/20 text-orange-400'
+    return 'bg-red-500/20 text-red-400'
   }
 
   const clearFilters = () => {
@@ -358,10 +366,14 @@ function AdminListingsPageContent() {
                     <h3 className="text-white font-semibold truncate">
                       {listing.county} County, {listing.state}
                     </h3>
-                    {listing.verified && (
+                    {listing.verified ? (
                       <div className="flex-shrink-0 flex items-center gap-1 px-2 py-0.5 bg-green-500/20 text-green-400 rounded-full text-xs font-medium">
                         <CheckCircle size={12} />
                         Verified
+                      </div>
+                    ) : (
+                      <div className={`flex-shrink-0 px-2 py-0.5 ${getConfidenceColor(listing.data_confidence || 0)} rounded-full text-xs font-medium`}>
+                        {listing.data_confidence || 0}% Confidence
                       </div>
                     )}
                   </div>
