@@ -17,7 +17,10 @@ import {
   Radio,
   Filter,
   Loader2,
-  Moon
+  Moon,
+  UserPlus,
+  CheckCircle,
+  XCircle
 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import countyCentroids from '@/data/countyCentroids'
@@ -80,6 +83,8 @@ export default function AdminDashboard() {
   const [companies, setCompanies] = useState<{ id: string; name: string }[]>([])
   const [selectedCompany, setSelectedCompany] = useState<string>('all')
   const [mapLoading, setMapLoading] = useState(true)
+  const [testUsersLoading, setTestUsersLoading] = useState(false)
+  const [testUsersResult, setTestUsersResult] = useState<{ success: boolean; message: string; password?: string } | null>(null)
 
   useEffect(() => {
     const token = localStorage.getItem('auth_token')
@@ -179,6 +184,36 @@ export default function AdminDashboard() {
       console.error('Failed to fetch listings:', err)
     } finally {
       setMapLoading(false)
+    }
+  }
+
+  const createTestUsers = async () => {
+    setTestUsersLoading(true)
+    setTestUsersResult(null)
+    try {
+      const response = await fetchWithAuth(API_URL + '/api/admin/create-test-users', {
+        method: 'POST'
+      })
+      const data = await response.json()
+      if (data.success) {
+        setTestUsersResult({
+          success: true,
+          message: data.message,
+          password: data.password
+        })
+      } else {
+        setTestUsersResult({
+          success: false,
+          message: data.detail || 'Failed to create test users'
+        })
+      }
+    } catch (err) {
+      setTestUsersResult({
+        success: false,
+        message: 'Failed to create test users'
+      })
+    } finally {
+      setTestUsersLoading(false)
     }
   }
 
@@ -334,6 +369,63 @@ export default function AdminDashboard() {
             icon={<AlertCircle />}
           />
         </div>
+
+        {/* Test Users Section */}
+        {user?.account_type === 'groundgoat_admin' && (
+          <div className="card mb-8">
+            <div className="flex items-center gap-3 mb-4">
+              <UserPlus className="text-gg-pink" size={24} />
+              <h2 className="text-xl font-bold text-white">Test Users</h2>
+            </div>
+            <p className="text-gg-gray-400 text-sm mb-4">
+              Create test user accounts for testing different account types and subscriptions.
+            </p>
+
+            {testUsersResult && (
+              <div className={`mb-4 p-3 rounded-lg flex items-start gap-2 ${
+                testUsersResult.success
+                  ? 'bg-green-500/20 border border-green-500/50'
+                  : 'bg-red-500/20 border border-red-500/50'
+              }`}>
+                {testUsersResult.success ? (
+                  <CheckCircle className="text-green-500 flex-shrink-0 mt-0.5" size={18} />
+                ) : (
+                  <XCircle className="text-red-500 flex-shrink-0 mt-0.5" size={18} />
+                )}
+                <div>
+                  <span className={testUsersResult.success ? 'text-green-400' : 'text-red-400'}>
+                    {testUsersResult.message}
+                  </span>
+                  {testUsersResult.password && (
+                    <div className="mt-2 text-sm">
+                      <span className="text-gg-gray-300">Password for all accounts: </span>
+                      <code className="bg-gg-gray-800 px-2 py-1 rounded text-gg-pink">{testUsersResult.password}</code>
+                    </div>
+                  )}
+                  {testUsersResult.success && (
+                    <div className="mt-2 text-xs text-gg-gray-400">
+                      <div>• test-2county@groundgoat.com - Individual (2 counties)</div>
+                      <div>• test-state@groundgoat.com - Individual (Iowa state)</div>
+                      <div>• test-firmadmin@groundgoat.com - Firm Admin</div>
+                      <div>• test-firmuser1-4@groundgoat.com - Firm Users</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            <button
+              onClick={createTestUsers}
+              disabled={testUsersLoading}
+              className="px-4 py-2 bg-gg-gray-800 border border-gg-gray-700 rounded-lg text-white hover:border-gg-pink transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            >
+              {testUsersLoading && (
+                <Loader2 className="animate-spin" size={16} />
+              )}
+              {testUsersLoading ? 'Creating...' : 'Create Test Users'}
+            </button>
+          </div>
+        )}
 
         {/* Listings Map */}
         <div className="card">
