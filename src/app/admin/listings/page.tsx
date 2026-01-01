@@ -5,7 +5,7 @@ import { useSearchParams } from 'next/navigation'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Loader2, Trash2, ChevronLeft, ChevronRight, MapPin, ArrowLeft, Filter, Pencil, CheckCircle } from 'lucide-react'
+import { Loader2, Trash2, ChevronLeft, ChevronRight, MapPin, ArrowLeft, Filter, Pencil, CheckCircle, ExternalLink } from 'lucide-react'
 import { getCountiesForState } from '@/data/counties'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
@@ -32,6 +32,8 @@ interface Listing {
   primary_image_url: string
   asking_price: number
   verified: boolean
+  source_url?: string
+  tract_count?: number
   company?: {
     id: string
     name: string
@@ -373,6 +375,10 @@ function AdminListingsPageContent() {
                     <div className="text-gg-gray-500 text-xs">acres</div>
                   </div>
                   <div className="text-center">
+                    <div className="text-white font-medium">{listing.tract_count || 0}</div>
+                    <div className="text-gg-gray-500 text-xs">tracts</div>
+                  </div>
+                  <div className="text-center">
                     <div className="text-white font-medium">{formatCurrency(listing.asking_price)}</div>
                     <div className="text-gg-gray-500 text-xs">price</div>
                   </div>
@@ -392,6 +398,19 @@ function AdminListingsPageContent() {
                     <option key={s} value={s} className="bg-gg-gray-900 text-white">{s.replace('_', ' ')}</option>
                   ))}
                 </select>
+
+                {/* External Link Icon */}
+                {listing.source_url && (
+                  <a
+                    href={listing.source_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="p-2 text-gg-gray-400 hover:text-white hover:bg-gg-gray-800 rounded-lg"
+                    title="View original listing"
+                  >
+                    <ExternalLink size={16} />
+                  </a>
+                )}
 
                 {/* Edit Icon */}
                 <Link
