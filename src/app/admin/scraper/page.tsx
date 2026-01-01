@@ -18,10 +18,20 @@ import {
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
+interface TractDetail {
+  tract_number: number
+  total_acres?: number
+  tillable_acres?: number
+  soil_rating?: number
+  land_type?: string
+}
+
 interface ScraperJob {
   id: string
   url: string
   status: 'pending' | 'running' | 'completed' | 'failed'
+  verified?: boolean
+  verifying?: boolean
   result?: {
     listings_created: number
     tracts_created: number
@@ -29,13 +39,19 @@ interface ScraperJob {
     company_id?: string
     confidence?: number
     details?: {
+      title?: string
+      description?: string
       total_acres?: number
       county?: string
       state?: string
       company_name?: string
       listing_type?: string
       auction_datetime?: string
+      auction_location?: string
       asking_price?: number
+      primary_image_url?: string
+      bidding_url?: string
+      tracts?: TractDetail[]
     }
   }
   error?: string
@@ -182,6 +198,37 @@ export default function AdminScraperPage() {
     setUrls([''])
   }
 
+  const handleVerify = async (jobIndex: number) => {
+    const job = jobs[jobIndex]
+    if (!job.result?.listing_id) return
+
+    setJobs(prev => prev.map((j, idx) =>
+      idx === jobIndex ? { ...j, verifying: true } : j
+    ))
+
+    try {
+      const response = await fetchWithAuth(`${API_URL}/api/listings/${job.result.listing_id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ verified: true }),
+      })
+
+      if (response.ok) {
+        setJobs(prev => prev.map((j, idx) =>
+          idx === jobIndex ? { ...j, verified: true, verifying: false } : j
+        ))
+      } else {
+        setJobs(prev => prev.map((j, idx) =>
+          idx === jobIndex ? { ...j, verifying: false } : j
+        ))
+      }
+    } catch (err) {
+      setJobs(prev => prev.map((j, idx) =>
+        idx === jobIndex ? { ...j, verifying: false } : j
+      ))
+    }
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gg-black flex items-center justify-center">
@@ -214,11 +261,11 @@ export default function AdminScraperPage() {
                 value={schemaId}
                 onChange={(e) => setSchemaId(Number(e.target.value))}
                 disabled={running}
-                className="bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-3 py-1 text-white text-sm"
+                className="bg-white border border-gg-gray-300 rounded-lg px-3 py-1 text-black text-sm"
               >
-                <option value={1}>Land Auction</option>
-                <option value={2}>Private Treaty</option>
-                <option value={3}>Equipment Auction</option>
+                <option value={1} className="text-black">Land Auction</option>
+                <option value={2} className="text-black">Private Treaty</option>
+                <option value={3} className="text-black">Equipment Auction</option>
               </select>
             </div>
           </div>
@@ -320,56 +367,132 @@ export default function AdminScraperPage() {
                         </a>
                       </div>
                       {job.status === 'completed' && job.result && (
-                        <div className="text-sm text-green-400">
-                          <p>Created {job.result.listings_created} listing(s), {job.result.tracts_created} tract(s)</p>
-                          {job.result.confidence !== undefined && (
-                            <p className={job.result.confidence < 75 ? 'text-yellow-400' : 'text-gg-gray-300'}>
-                              <span className="text-gg-gray-500">Confidence:</span>{' '}
-                              <span className={job.result.confidence < 75 ? 'font-semibold' : ''}>
-                                {job.result.confidence}%
-                              </span>
-                              {job.result.confidence < 75 && (
-                                <span className="ml-2 text-yellow-400">⚠ Please verify listing data</span>
+                        <div className="text-sm">
+                          <div className="flex gap-4">
+                            {/* Image thumbnail */}
+                            {job.result.details?.primary_image_url && (
+                              <div className="flex-shrink-0">
+                                <img
+                                  src={job.result.details.primary_image_url}
+                                  alt="Listing"
+                                  className="w-24 h-24 object-cover rounded-lg border border-gg-gray-700"
+                                />
+                              </div>
+                            )}
+
+                            {/* Details */}
+                            <div className="flex-1 min-w-0">
+                              <p className="text-green-400 mb-1">
+                                Created {job.result.listings_created} listing(s), {job.result.tracts_created} tract(s)
+                              </p>
+
+                              {job.result.confidence !== undefined && (
+                                <p className={job.result.confidence < 75 ? 'text-yellow-400 mb-2' : 'text-gg-gray-300 mb-2'}>
+                                  <span className="text-gg-gray-500">Confidence:</span>{' '}
+                                  <span className={job.result.confidence < 75 ? 'font-semibold' : ''}>
+                                    {job.result.confidence}%
+                                  </span>
+                                  {job.result.confidence < 75 && (
+                                    <span className="ml-2 text-yellow-400">⚠ Please verify</span>
+                                  )}
+                                </p>
                               )}
-                            </p>
-                          )}
-                          {job.result.details && (
-                            <div className="mt-1 text-gg-gray-300 text-xs space-y-0.5">
-                              {job.result.details.total_acres && (
-                                <p><span className="text-gg-gray-500">Acres:</span> {job.result.details.total_acres}</p>
+
+                              {job.result.details && (
+                                <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                                  {job.result.details.title && (
+                                    <p className="col-span-2 text-white font-medium truncate">{job.result.details.title}</p>
+                                  )}
+                                  <p><span className="text-gg-gray-500">Type:</span> <span className="text-gg-gray-300">{job.result.details.listing_type === 'auction' ? 'Auction' : 'Private Treaty'}</span></p>
+                                  {job.result.details.total_acres && (
+                                    <p><span className="text-gg-gray-500">Acres:</span> <span className="text-gg-gray-300">{job.result.details.total_acres}</span></p>
+                                  )}
+                                  {job.result.details.county && job.result.details.state && (
+                                    <p><span className="text-gg-gray-500">Location:</span> <span className="text-gg-gray-300">{job.result.details.county} County, {job.result.details.state}</span></p>
+                                  )}
+                                  {job.result.details.company_name && (
+                                    <p><span className="text-gg-gray-500">Company:</span> <span className="text-gg-gray-300">{job.result.details.company_name}</span></p>
+                                  )}
+                                  {job.result.details.listing_type === 'auction' && job.result.details.auction_datetime && (
+                                    <p><span className="text-gg-gray-500">Auction:</span> <span className="text-gg-gray-300">{new Date(job.result.details.auction_datetime).toLocaleString()}</span></p>
+                                  )}
+                                  {job.result.details.auction_location && (
+                                    <p><span className="text-gg-gray-500">Location:</span> <span className="text-gg-gray-300 truncate">{job.result.details.auction_location}</span></p>
+                                  )}
+                                  {job.result.details.listing_type === 'private_treaty' && job.result.details.asking_price && (
+                                    <p><span className="text-gg-gray-500">Price:</span> <span className="text-gg-gray-300">${job.result.details.asking_price.toLocaleString()}</span></p>
+                                  )}
+                                  {job.result.details.bidding_url && (
+                                    <p><span className="text-gg-gray-500">Bidding:</span> <a href={job.result.details.bidding_url} target="_blank" rel="noopener noreferrer" className="text-gg-pink hover:underline">Link</a></p>
+                                  )}
+                                </div>
                               )}
-                              {job.result.details.county && job.result.details.state && (
-                                <p><span className="text-gg-gray-500">Location:</span> {job.result.details.county} County, {job.result.details.state}</p>
+
+                              {/* Tracts */}
+                              {job.result.details?.tracts && job.result.details.tracts.length > 0 && (
+                                <div className="mt-2 pt-2 border-t border-gg-gray-700">
+                                  <p className="text-xs text-gg-gray-500 mb-1">Tracts ({job.result.details.tracts.length}):</p>
+                                  <div className="flex flex-wrap gap-2">
+                                    {job.result.details.tracts.slice(0, 5).map((tract, i) => (
+                                      <div key={i} className="text-xs bg-gg-gray-800 px-2 py-1 rounded">
+                                        <span className="text-white">#{tract.tract_number}</span>
+                                        {tract.total_acres && <span className="text-gg-gray-400 ml-1">{tract.total_acres}ac</span>}
+                                        {tract.tillable_acres && <span className="text-gg-gray-500 ml-1">({tract.tillable_acres} till)</span>}
+                                        {tract.soil_rating && <span className="text-gg-gray-500 ml-1">PI:{tract.soil_rating}</span>}
+                                      </div>
+                                    ))}
+                                    {job.result.details.tracts.length > 5 && (
+                                      <span className="text-xs text-gg-gray-500">+{job.result.details.tracts.length - 5} more</span>
+                                    )}
+                                  </div>
+                                </div>
                               )}
-                              {job.result.details.company_name && (
-                                <p><span className="text-gg-gray-500">Company:</span> {job.result.details.company_name}</p>
-                              )}
-                              {job.result.details.listing_type === 'auction' && job.result.details.auction_datetime && (
-                                <p><span className="text-gg-gray-500">Auction:</span> {new Date(job.result.details.auction_datetime).toLocaleString()}</p>
-                              )}
-                              {job.result.details.listing_type === 'private_treaty' && job.result.details.asking_price && (
-                                <p><span className="text-gg-gray-500">Price:</span> ${job.result.details.asking_price.toLocaleString()}</p>
-                              )}
+
+                              {/* Actions */}
+                              <div className="flex items-center gap-3 mt-3">
+                                {job.result.confidence !== undefined && job.result.confidence < 75 && (
+                                  <a
+                                    href={job.url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-yellow-400 hover:underline text-xs"
+                                  >
+                                    Check Source →
+                                  </a>
+                                )}
+                                {job.result.listing_id && (
+                                  <Link
+                                    href={`/admin/listings/${job.result.listing_id}`}
+                                    className="text-gg-pink hover:underline text-xs"
+                                  >
+                                    View/Edit →
+                                  </Link>
+                                )}
+                              </div>
                             </div>
-                          )}
-                          {job.result.confidence !== undefined && job.result.confidence < 75 && job.result.listing_id && (
-                            <a
-                              href={job.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-yellow-400 hover:underline mt-1 mr-3 inline-block"
-                            >
-                              Check Source →
-                            </a>
-                          )}
-                          {job.result.listing_id && (
-                            <Link
-                              href={`/admin/listings/${job.result.listing_id}`}
-                              className="text-gg-pink hover:underline mt-1 inline-block"
-                            >
-                              View/Edit Listing →
-                            </Link>
-                          )}
+
+                            {/* Verify button */}
+                            {job.result.listing_id && (
+                              <div className="flex-shrink-0">
+                                <button
+                                  onClick={() => handleVerify(index)}
+                                  disabled={job.verifying || job.verified}
+                                  className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm ${
+                                    job.verified
+                                      ? 'bg-green-500/20 text-green-400'
+                                      : 'bg-gg-gray-800 text-white hover:bg-gg-gray-700'
+                                  } disabled:opacity-50`}
+                                >
+                                  {job.verifying ? (
+                                    <Loader2 className="animate-spin" size={16} />
+                                  ) : (
+                                    <CheckCircle size={16} />
+                                  )}
+                                  {job.verified ? 'Verified' : 'Verify'}
+                                </button>
+                              </div>
+                            )}
+                          </div>
                         </div>
                       )}
                       {job.status === 'failed' && job.error && (
