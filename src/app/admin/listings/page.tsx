@@ -68,6 +68,7 @@ function AdminListingsPageContent() {
   const [filterListingType, setFilterListingType] = useState('')
   const [filterStatus, setFilterStatus] = useState('')
   const [filterVerified, setFilterVerified] = useState('')
+  const [filterConfidence, setFilterConfidence] = useState('')
   const [showFilters, setShowFilters] = useState(false)
 
   // Get counties for selected state
@@ -79,7 +80,7 @@ function AdminListingsPageContent() {
 
   useEffect(() => {
     fetchListings()
-  }, [page, filterCompany, filterState, filterCounty, filterListingType, filterStatus, filterVerified])
+  }, [page, filterCompany, filterState, filterCounty, filterListingType, filterStatus, filterVerified, filterConfidence])
 
   const checkAuth = async () => {
     try {
@@ -129,6 +130,17 @@ function AdminListingsPageContent() {
           data = data.filter((l: Listing) => l.verified === true)
         } else if (filterVerified === 'unverified') {
           data = data.filter((l: Listing) => l.verified === false)
+        }
+
+        // Client-side filter for confidence level
+        if (filterConfidence === 'excellent') {
+          data = data.filter((l: Listing) => (l.data_confidence || 0) >= 80)
+        } else if (filterConfidence === 'good') {
+          data = data.filter((l: Listing) => (l.data_confidence || 0) >= 60 && (l.data_confidence || 0) < 80)
+        } else if (filterConfidence === 'fair') {
+          data = data.filter((l: Listing) => (l.data_confidence || 0) >= 40 && (l.data_confidence || 0) < 60)
+        } else if (filterConfidence === 'poor') {
+          data = data.filter((l: Listing) => (l.data_confidence || 0) < 40)
         }
 
         setListings(data)
@@ -208,6 +220,7 @@ function AdminListingsPageContent() {
     setFilterListingType('')
     setFilterStatus('')
     setFilterVerified('')
+    setFilterConfidence('')
     setPage(1)
   }
 
@@ -236,7 +249,7 @@ function AdminListingsPageContent() {
           <button
             onClick={() => setShowFilters(!showFilters)}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
-              showFilters || filterCompany || filterState || filterCounty || filterListingType || filterStatus || filterVerified
+              showFilters || filterCompany || filterState || filterCounty || filterListingType || filterStatus || filterVerified || filterConfidence
                 ? 'bg-gg-pink text-white' : 'bg-gg-gray-800 text-white hover:bg-gg-gray-700'
             }`}
           >
@@ -330,7 +343,22 @@ function AdminListingsPageContent() {
                 </select>
               </div>
 
-              {(filterCompany || filterState || filterCounty || filterListingType || filterStatus || filterVerified) && (
+              <div>
+                <label className="block text-gg-gray-400 text-sm mb-1">Confidence</label>
+                <select
+                  value={filterConfidence}
+                  onChange={(e) => { setFilterConfidence(e.target.value); setPage(1) }}
+                  className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-3 py-2 text-white text-sm"
+                >
+                  <option value="">All Levels</option>
+                  <option value="excellent">Excellent (80%+)</option>
+                  <option value="good">Good (60-79%)</option>
+                  <option value="fair">Fair (40-59%)</option>
+                  <option value="poor">Poor (&lt;40%)</option>
+                </select>
+              </div>
+
+              {(filterCompany || filterState || filterCounty || filterListingType || filterStatus || filterVerified || filterConfidence) && (
                 <div className="flex items-end">
                   <button
                     onClick={clearFilters}
