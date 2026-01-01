@@ -4,19 +4,20 @@ import { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
-import { 
+import {
   DollarSign,
-  Users, 
-  FileText, 
-  Building2, 
-  TrendingUp, 
-  Clock, 
+  Users,
+  FileText,
+  Building2,
+  TrendingUp,
+  Clock,
   AlertCircle,
   ChevronRight,
   RefreshCw,
   Radio,
   Filter,
-  Loader2
+  Loader2,
+  Moon
 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import countyCentroids from '@/data/countyCentroids'
@@ -286,6 +287,12 @@ export default function AdminDashboard() {
             description="View status check reports for private treaty listings"
             href="/admin/private-treaty-reports"
             icon={<Clock />}
+          />
+          <QuickActionCard
+            title="Nightly Updates"
+            description="Price & status changes from nightly monitoring"
+            href="/admin/nightly-updates"
+            icon={<Moon />}
           />
           <QuickActionCard
             title="Manage Users"
