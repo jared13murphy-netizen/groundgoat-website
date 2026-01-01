@@ -79,9 +79,6 @@ export default function AdminDashboard() {
   const [companies, setCompanies] = useState<{ id: string; name: string }[]>([])
   const [selectedCompany, setSelectedCompany] = useState<string>('all')
   const [mapLoading, setMapLoading] = useState(true)
-  const [migrationStatus, setMigrationStatus] = useState<string>('')
-  const [backfillStatus, setBackfillStatus] = useState<string>('')
-  const [backfillResult, setBackfillResult] = useState<any>(null)
 
   useEffect(() => {
     const token = localStorage.getItem('auth_token')
@@ -229,38 +226,6 @@ export default function AdminDashboard() {
     return result
   }, [listings, selectedCompany])
 
-  const runMigration = async () => {
-    setMigrationStatus('running')
-    try {
-      const response = await fetchWithAuth(API_URL + '/api/admin/run-data-confidence-migration')
-      if (response.ok) {
-        const data = await response.json()
-        setMigrationStatus(data.already_existed ? 'already_done' : 'success')
-      } else {
-        setMigrationStatus('error')
-      }
-    } catch (err) {
-      setMigrationStatus('error')
-    }
-  }
-
-  const runBackfill = async () => {
-    setBackfillStatus('running')
-    setBackfillResult(null)
-    try {
-      const response = await fetchWithAuth(API_URL + '/api/admin/backfill-confidence')
-      if (response.ok) {
-        const data = await response.json()
-        setBackfillStatus('success')
-        setBackfillResult(data)
-      } else {
-        setBackfillStatus('error')
-      }
-    } catch (err) {
-      setBackfillStatus('error')
-    }
-  }
-
   const priceRange = useMemo(() => {
     const prices = mapListings.filter(l => l.pricePerAcre > 0).map(l => l.pricePerAcre)
     if (prices.length === 0) return { min: 0, max: 20000 }
@@ -287,70 +252,6 @@ export default function AdminDashboard() {
             <h1 className="font-display text-4xl font-bold text-white mb-2">Admin Dashboard</h1>
             <p className="text-gg-gray-400">Welcome back, {user?.first_name}</p>
           </div>
-        </div>
-
-        {/* Migration Button (temporary) */}
-        {migrationStatus !== 'success' && migrationStatus !== 'already_done' && (
-          <div className="mb-8 p-6 bg-gg-gray-900 border border-gg-gray-700 rounded-xl">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-xl font-bold text-white">Database Migration</h2>
-                <p className="text-gg-gray-400">Run the data_confidence migration (one-time setup)</p>
-              </div>
-              <button
-                onClick={runMigration}
-                disabled={migrationStatus === 'running'}
-                className="px-6 py-3 bg-gg-pink text-white rounded-lg font-semibold hover:bg-gg-pink/90 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {migrationStatus === 'running' ? 'Running...' : 'Run Migration'}
-              </button>
-            </div>
-            {migrationStatus === 'error' && (
-              <p className="text-red-400 mt-2">Migration failed. Check console for errors.</p>
-            )}
-          </div>
-        )}
-
-        {migrationStatus === 'success' && (
-          <div className="mb-8 p-6 bg-green-500/20 border border-green-500/50 rounded-xl">
-            <p className="text-green-400 font-semibold">✓ Migration completed successfully!</p>
-          </div>
-        )}
-
-        {migrationStatus === 'already_done' && (
-          <div className="mb-8 p-6 bg-blue-500/20 border border-blue-500/50 rounded-xl">
-            <p className="text-blue-400 font-semibold">Migration already completed - data_confidence column exists</p>
-          </div>
-        )}
-
-        {/* Backfill Confidence Button */}
-        <div className="mb-8 p-6 bg-gg-gray-900 border border-gg-gray-700 rounded-xl">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-xl font-bold text-white">Update Confidence Scores</h2>
-              <p className="text-gg-gray-400">Calculate confidence for all existing listings</p>
-            </div>
-            <button
-              onClick={runBackfill}
-              disabled={backfillStatus === 'running'}
-              className="px-6 py-3 bg-gg-pink text-white rounded-lg font-semibold hover:bg-gg-pink/90 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {backfillStatus === 'running' ? 'Running...' : 'Run Backfill'}
-            </button>
-          </div>
-          {backfillStatus === 'error' && (
-            <p className="text-red-400 mt-2">Backfill failed. Check console for errors.</p>
-          )}
-          {backfillStatus === 'success' && backfillResult && (
-            <div className="mt-4 p-4 bg-green-500/20 border border-green-500/50 rounded-lg">
-              <p className="text-green-400 font-semibold mb-2">Backfill completed successfully!</p>
-              <div className="text-sm text-gg-gray-300">
-                <p>Total listings: {backfillResult.total_listings}</p>
-                <p>Updated: {backfillResult.updated}</p>
-                <p>Skipped (already correct): {backfillResult.skipped}</p>
-              </div>
-            </div>
-          )}
         </div>
 
         {/* Control Center Banner */}
