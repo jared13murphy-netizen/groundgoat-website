@@ -27,6 +27,7 @@ interface ScraperJob {
     tracts_created: number
     listing_id?: string
     company_id?: string
+    confidence?: number
     details?: {
       total_acres?: number
       county?: string
@@ -140,15 +141,16 @@ export default function AdminScraperPage() {
               } : job
             ))
           } else {
-            setJobs(prev => prev.map((job, idx) => 
-              idx === i ? { 
-                ...job, 
-                status: 'completed', 
+            setJobs(prev => prev.map((job, idx) =>
+              idx === i ? {
+                ...job,
+                status: 'completed',
                 result: {
                   listings_created: result.listings_created,
                   tracts_created: result.tracts_created,
                   listing_id: result.listing_id,
                   company_id: result.company_id,
+                  confidence: result.confidence,
                   details: result.details
                 }
               } : job
@@ -320,6 +322,17 @@ export default function AdminScraperPage() {
                       {job.status === 'completed' && job.result && (
                         <div className="text-sm text-green-400">
                           <p>Created {job.result.listings_created} listing(s), {job.result.tracts_created} tract(s)</p>
+                          {job.result.confidence !== undefined && (
+                            <p className={job.result.confidence < 75 ? 'text-yellow-400' : 'text-gg-gray-300'}>
+                              <span className="text-gg-gray-500">Confidence:</span>{' '}
+                              <span className={job.result.confidence < 75 ? 'font-semibold' : ''}>
+                                {job.result.confidence}%
+                              </span>
+                              {job.result.confidence < 75 && (
+                                <span className="ml-2 text-yellow-400">⚠ Please verify listing data</span>
+                              )}
+                            </p>
+                          )}
                           {job.result.details && (
                             <div className="mt-1 text-gg-gray-300 text-xs space-y-0.5">
                               {job.result.details.total_acres && (
@@ -339,8 +352,18 @@ export default function AdminScraperPage() {
                               )}
                             </div>
                           )}
+                          {job.result.confidence !== undefined && job.result.confidence < 75 && job.result.listing_id && (
+                            <a
+                              href={job.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-yellow-400 hover:underline mt-1 mr-3 inline-block"
+                            >
+                              Check Source →
+                            </a>
+                          )}
                           {job.result.listing_id && (
-                            <Link 
+                            <Link
                               href={`/admin/listings/${job.result.listing_id}`}
                               className="text-gg-pink hover:underline mt-1 inline-block"
                             >

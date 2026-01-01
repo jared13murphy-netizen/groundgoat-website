@@ -16,6 +16,7 @@ interface Company {
   city: string
   state: string
   listing_count?: number
+  latest_listing_date?: string
 }
 
 export default function AdminCompaniesPage() {
@@ -53,25 +54,28 @@ export default function AdminCompaniesPage() {
 
   const fetchCompaniesWithListingCounts = async (token: string) => {
     try {
-      const [companiesResponse, countsResponse] = await Promise.all([
+      const [companiesResponse, countsResponse, datesResponse] = await Promise.all([
         fetchWithAuth(`${API_URL}/api/companies`),
-        fetchWithAuth(`${API_URL}/api/companies/listing-counts`)
+        fetchWithAuth(`${API_URL}/api/companies/listing-counts`),
+        fetchWithAuth(`${API_URL}/api/companies/latest-listing-dates`)
       ])
-      
+
       if (!companiesResponse.ok) throw new Error('Failed to fetch companies')
-      
+
       const companiesData = await companiesResponse.json()
       const listingCounts = countsResponse.ok ? await countsResponse.json() : {}
-      
+      const latestDates = datesResponse.ok ? await datesResponse.json() : {}
+
       const companiesWithCounts = companiesData.map((company: Company) => ({
         ...company,
-        listing_count: listingCounts[company.id] || 0
+        listing_count: listingCounts[company.id] || 0,
+        latest_listing_date: latestDates[company.id] || null
       }))
-      
-      companiesWithCounts.sort((a: Company, b: Company) => 
+
+      companiesWithCounts.sort((a: Company, b: Company) =>
         a.name.localeCompare(b.name)
       )
-      
+
       setCompanies(companiesWithCounts)
     } catch (err) {
       console.error('Failed to fetch companies:', err)
@@ -171,6 +175,17 @@ export default function AdminCompaniesPage() {
                   </span>
                 </a>
               )}
+
+              {/* Last Listing Date */}
+              <div className="hidden md:block flex-shrink-0 text-xs text-gg-gray-400 w-24 text-right">
+                {company.latest_listing_date ? (
+                  <span title="Last listing created">
+                    {new Date(company.latest_listing_date).toLocaleDateString()}
+                  </span>
+                ) : (
+                  <span className="text-gg-gray-600">—</span>
+                )}
+              </div>
 
               {/* Listing Count */}
               <div className="flex-shrink-0 px-3 py-1 bg-gg-pink/20 text-white rounded-full text-sm font-medium">
