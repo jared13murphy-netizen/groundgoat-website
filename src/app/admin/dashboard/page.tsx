@@ -18,7 +18,8 @@ import {
   Filter,
   Loader2,
   Moon,
-  Tractor
+  Tractor,
+  ClipboardList
 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import countyCentroids from '@/data/countyCentroids'
@@ -333,9 +334,9 @@ export default function AdminDashboard() {
             icon={<Moon />}
           />
           <QuickActionCard
-            title="Equipment Scraper"
-            description="Scrape equipment auction results from Steffes"
-            href="/admin/equipment-scraper"
+            title="Equipment Manager"
+            description="View, filter, and edit equipment auction data"
+            href="/admin/equipment"
             icon={<Tractor />}
           />
           <QuickActionCard
