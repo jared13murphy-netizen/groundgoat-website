@@ -17,7 +17,8 @@ import {
   Radio,
   Filter,
   Loader2,
-  Moon
+  Moon,
+  Tractor
 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import countyCentroids from '@/data/countyCentroids'
@@ -336,6 +337,12 @@ export default function AdminDashboard() {
             description="Price & status changes from nightly monitoring"
             href="/admin/nightly-updates"
             icon={<Moon />}
+          />
+          <QuickActionCard
+            title="Equipment Scraper"
+            description="Scrape equipment auction results from Steffes"
+            href="/admin/equipment-scraper"
+            icon={<Tractor />}
           />
           <QuickActionCard
             title="Manage Users"
