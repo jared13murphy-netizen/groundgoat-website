@@ -15,7 +15,8 @@ import {
   ExternalLink,
   Loader2,
   TrendingDown,
-  Ban
+  Ban,
+  Play
 } from 'lucide-react'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
@@ -64,6 +65,7 @@ interface Report {
 export default function NightlyUpdatesPage() {
   const router = useRouter()
   const [loading, setLoading] = useState(true)
+  const [running, setRunning] = useState(false)
   const [reports, setReports] = useState<Report[]>([])
   const [selectedReport, setSelectedReport] = useState<Report | null>(null)
 
@@ -92,6 +94,28 @@ export default function NightlyUpdatesPage() {
       console.error('Failed to fetch reports:', err)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const runNightlyMonitor = async () => {
+    setRunning(true)
+    try {
+      const response = await fetchWithAuth(API_URL + '/api/admin/run-nightly-monitor', {
+        method: 'POST'
+      })
+
+      if (response.ok) {
+        // Refresh reports after successful run
+        await fetchReports()
+      } else {
+        const error = await response.json()
+        alert(`Failed to run monitor: ${error.detail || 'Unknown error'}`)
+      }
+    } catch (err) {
+      console.error('Failed to run nightly monitor:', err)
+      alert('Failed to run nightly monitor')
+    } finally {
+      setRunning(false)
     }
   }
 
@@ -195,6 +219,23 @@ export default function NightlyUpdatesPage() {
               <p className="text-gg-gray-400">Private treaty price & status monitoring</p>
             </div>
           </div>
+          <button
+            onClick={runNightlyMonitor}
+            disabled={running}
+            className="flex items-center gap-2 bg-gg-pink text-black font-semibold px-4 py-2 rounded-lg hover:bg-gg-pink/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {running ? (
+              <>
+                <Loader2 size={18} className="animate-spin" />
+                Running...
+              </>
+            ) : (
+              <>
+                <Play size={18} />
+                Run Now
+              </>
+            )}
+          </button>
         </div>
 
         {reports.length === 0 ? (
