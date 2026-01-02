@@ -327,12 +327,6 @@ export default function AdminDashboard() {
             icon={<RefreshCw />}
           />
           <QuickActionCard
-            title="Private Treaty Check"
-            description="View status check reports for private treaty listings"
-            href="/admin/private-treaty-reports"
-            icon={<Clock />}
-          />
-          <QuickActionCard
             title="Nightly Updates"
             description="Price & status changes from nightly monitoring"
             href="/admin/nightly-updates"
