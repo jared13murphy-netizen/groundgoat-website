@@ -111,9 +111,9 @@ export default function NightlyUpdatesPage() {
         const error = await response.json()
         alert(`Failed to run monitor: ${error.detail || 'Unknown error'}`)
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to run nightly monitor:', err)
-      alert('Failed to run nightly monitor')
+      alert(`Failed to run nightly monitor: ${err?.message || 'Network error or timeout'}`)
     } finally {
       setRunning(false)
     }
