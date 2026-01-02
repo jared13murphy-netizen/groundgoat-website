@@ -20,12 +20,12 @@ interface MapListing {
   companyName: string
   companyId: string
   status: string
+  listingType: string
 }
 
 interface MapComponentProps {
   listings: MapListing[]
   priceRange: { min: number; max: number }
-  colorByCompany?: boolean
   companyColors?: Record<string, string>
 }
 
@@ -45,7 +45,7 @@ const COMPANY_COLORS = [
   '#06b6d4', // Cyan
 ]
 
-export default function MapComponent({ listings, priceRange, colorByCompany = false, companyColors = {} }: MapComponentProps) {
+export default function MapComponent({ listings, priceRange, companyColors = {} }: MapComponentProps) {
   // Calculate circle radius based on price per acre
   // For "listed" status, use standard size (6px)
   // Below $8k = small (3-5px), $8k-$12k = medium (5-8px), $12k-$20k = large (8-12px), $20k+ = extra large (12-16px)
@@ -54,9 +54,9 @@ export default function MapComponent({ listings, priceRange, colorByCompany = fa
     if (status === 'listed' || status === 'active') {
       return 6
     }
-    
+
     if (pricePerAcre <= 0) return 4
-    
+
     if (pricePerAcre < 8000) {
       // Small range: 3-5px for $0-$8k
       return 3 + (pricePerAcre / 8000) * 2
@@ -75,28 +75,33 @@ export default function MapComponent({ listings, priceRange, colorByCompany = fa
     }
   }
 
-  // Get color based on status or company
-  const getColor = (listing: MapListing): string => {
-    if (colorByCompany && listing.companyId) {
-      // Use provided company colors or generate from list
-      if (companyColors[listing.companyId]) {
-        return companyColors[listing.companyId]
-      }
-      // Fallback to hash-based color selection
+  // Get fill color based on company
+  const getFillColor = (listing: MapListing): string => {
+    if (listing.companyId && companyColors[listing.companyId]) {
+      return companyColors[listing.companyId]
+    }
+    // Fallback to hash-based color selection
+    if (listing.companyId) {
       const hash = listing.companyId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0)
       return COMPANY_COLORS[hash % COMPANY_COLORS.length]
     }
+    return '#888888' // Gray for unknown company
+  }
 
-    // Color by status
-    switch (listing.status) {
+  // Get border color based on status
+  // No Sale: red, Pending: dark yellow, Listed: pink, Live: blue, Sold: black
+  const getBorderColor = (status: string): string => {
+    switch (status) {
       case 'sold':
-        return '#22c55e' // green
+        return '#000000' // Black
       case 'pending':
-        return '#eab308' // yellow
+        return '#ca8a04' // Dark yellow (yellow-600)
       case 'no_sale':
-        return '#ef4444' // red
+        return '#ef4444' // Red
+      case 'live':
+        return '#3b82f6' // Blue
       default:
-        return '#f58cde' // Ground Goat pink for listed/active
+        return '#f58cde' // Pink for listed/active
     }
   }
 
@@ -164,16 +169,17 @@ export default function MapComponent({ listings, priceRange, colorByCompany = fa
       />
       {listings.map((listing, index) => {
         const offset = getOffset(listing, index)
-        const markerColor = getColor(listing)
+        const fillColor = getFillColor(listing)
+        const borderColor = getBorderColor(listing.status)
         return (
         <CircleMarker
           key={listing.id}
           center={[listing.lat + offset[0], listing.lng + offset[1]]}
           radius={getRadius(listing.pricePerAcre, listing.status)}
-          fillColor={markerColor}
-          color={markerColor}
-          weight={1}
-          opacity={0.9}
+          fillColor={fillColor}
+          color={borderColor}
+          weight={2}
+          opacity={1}
           fillOpacity={0.7}
         >
           <Popup>
