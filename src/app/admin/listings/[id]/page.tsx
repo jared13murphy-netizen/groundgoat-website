@@ -557,7 +557,7 @@ export default function EditListingPage() {
                   name="listing_type"
                   value={formData.listing_type}
                   onChange={handleChange}
-                  className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white"
+                  className="w-full bg-white border border-gg-gray-300 rounded-lg px-4 py-3 text-black"
                 >
                   <option value="auction">Auction</option>
                   <option value="private_treaty">Private Treaty</option>
@@ -569,7 +569,7 @@ export default function EditListingPage() {
                   name="status"
                   value={formData.status}
                   onChange={handleChange}
-                  className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white"
+                  className="w-full bg-white border border-gg-gray-300 rounded-lg px-4 py-3 text-black"
                 >
                   {STATUSES.map(status => (
                     <option key={status} value={status} className="capitalize">{status.replace('_', ' ')}</option>
@@ -582,7 +582,7 @@ export default function EditListingPage() {
                   name="listing_company_id"
                   value={formData.listing_company_id}
                   onChange={handleChange}
-                  className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white"
+                  className="w-full bg-white border border-gg-gray-300 rounded-lg px-4 py-3 text-black"
                 >
                   <option value="">Select Company</option>
                   {companies.map(company => (
@@ -614,7 +614,7 @@ export default function EditListingPage() {
                   name="state"
                   value={formData.state}
                   onChange={handleChange}
-                  className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white"
+                  className="w-full bg-white border border-gg-gray-300 rounded-lg px-4 py-3 text-black"
                 >
                   <option value="">Select State</option>
                   {US_STATES.map(state => (
@@ -628,7 +628,7 @@ export default function EditListingPage() {
                   name="county"
                   value={formData.county}
                   onChange={handleChange}
-                  className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white"
+                  className="w-full bg-white border border-gg-gray-300 rounded-lg px-4 py-3 text-black"
                 >
                   <option value="">Select County</option>
                   {formData.state && getCountiesForState(formData.state).map(county => (
@@ -769,27 +769,6 @@ export default function EditListingPage() {
             </div>
           </div>
 
-          {/* Land Types */}
-          <div className="card">
-            <h2 className="text-xl font-semibold text-white mb-4">Land Types</h2>
-            <div className="flex flex-wrap gap-3">
-              {LAND_TYPES.map(type => (
-                <button
-                  key={type}
-                  type="button"
-                  onClick={() => handleLandTypeChange(type)}
-                  className={`px-4 py-2 rounded-lg border transition-colors ${
-                    formData.land_types.includes(type)
-                      ? 'bg-gg-pink/20 border-gg-pink text-gg-pink'
-                      : 'bg-gg-gray-800 border-gg-gray-700 text-gg-gray-400 hover:border-gg-gray-500'
-                  }`}
-                >
-                  {type}
-                </button>
-              ))}
-            </div>
-          </div>
-
           {/* Media */}
           <div className="card">
             <h2 className="text-xl font-semibold text-white mb-4">Media & Links</h2>
@@ -804,22 +783,12 @@ export default function EditListingPage() {
                   className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white"
                 />
                 {formData.primary_image_url && (
-                  <img 
-                    src={formData.primary_image_url} 
-                    alt="Preview" 
+                  <img
+                    src={formData.primary_image_url}
+                    alt="Preview"
                     className="mt-2 h-32 object-cover rounded-lg"
                   />
                 )}
-              </div>
-              <div>
-                <label className="block text-gg-gray-400 text-sm mb-1">Brochure URL</label>
-                <input
-                  type="url"
-                  name="brochure_url"
-                  value={formData.brochure_url}
-                  onChange={handleChange}
-                  className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white"
-                />
               </div>
               <div>
                 <label className="block text-gg-gray-400 text-sm mb-1">Source URL</label>

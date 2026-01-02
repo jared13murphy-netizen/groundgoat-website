@@ -362,7 +362,7 @@ export default function EditTractPage() {
                   value={formData.description}
                   onChange={handleChange}
                   rows={3}
-                  className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white"
+                  className="w-full bg-white border border-gg-gray-300 rounded-lg px-4 py-3 text-black"
                 />
               </div>
               <div>
@@ -371,7 +371,7 @@ export default function EditTractPage() {
                   name="land_type"
                   value={formData.land_type}
                   onChange={handleChange}
-                  className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white"
+                  className="w-full bg-white border border-gg-gray-300 rounded-lg px-4 py-3 text-black"
                 >
                   <option value="">Select Type</option>
                   {LAND_TYPES.map(type => (
@@ -504,7 +504,7 @@ export default function EditTractPage() {
                   name="bid_type"
                   value={formData.bid_type}
                   onChange={handleChange}
-                  className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white"
+                  className="w-full bg-white border border-gg-gray-300 rounded-lg px-4 py-3 text-black"
                 >
                   <option value="">Select Type</option>
                   {BID_TYPES.map(type => (
@@ -540,7 +540,7 @@ export default function EditTractPage() {
                   name="sale_status"
                   value={formData.sale_status}
                   onChange={handleChange}
-                  className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white"
+                  className="w-full bg-white border border-gg-gray-300 rounded-lg px-4 py-3 text-black"
                 >
                   <option value="">Select Status</option>
                   {SALE_STATUSES.map(status => (

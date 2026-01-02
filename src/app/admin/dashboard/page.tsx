@@ -398,7 +398,7 @@ export default function AdminDashboard() {
             <select
               value={selectedCompany}
               onChange={(e) => setSelectedCompany(e.target.value)}
-              className="bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-3 py-2 text-white text-sm"
+              className="bg-white border border-gg-gray-300 rounded-lg px-3 py-2 text-black text-sm"
             >
               <option value="all">All Companies</option>
               {companies.map(c => (
@@ -408,7 +408,7 @@ export default function AdminDashboard() {
             <select
               value={selectedStatus}
               onChange={(e) => setSelectedStatus(e.target.value)}
-              className="bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-3 py-2 text-white text-sm"
+              className="bg-white border border-gg-gray-300 rounded-lg px-3 py-2 text-black text-sm"
             >
               <option value="all">All Statuses</option>
               <option value="active">Listed/Active</option>
@@ -420,7 +420,7 @@ export default function AdminDashboard() {
             <select
               value={selectedType}
               onChange={(e) => setSelectedType(e.target.value)}
-              className="bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-3 py-2 text-white text-sm"
+              className="bg-white border border-gg-gray-300 rounded-lg px-3 py-2 text-black text-sm"
             >
               <option value="all">All Types</option>
               <option value="auction">Auction</option>
@@ -432,7 +432,7 @@ export default function AdminDashboard() {
                 type="date"
                 value={dateFrom}
                 onChange={(e) => setDateFrom(e.target.value)}
-                className="bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-3 py-2 text-white text-sm"
+                className="bg-white border border-gg-gray-300 rounded-lg px-3 py-2 text-black text-sm"
                 placeholder="From"
               />
               <span className="text-gg-gray-500">to</span>
@@ -440,7 +440,7 @@ export default function AdminDashboard() {
                 type="date"
                 value={dateTo}
                 onChange={(e) => setDateTo(e.target.value)}
-                className="bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-3 py-2 text-white text-sm"
+                className="bg-white border border-gg-gray-300 rounded-lg px-3 py-2 text-black text-sm"
                 placeholder="To"
               />
             </div>
