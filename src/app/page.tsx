@@ -107,20 +107,18 @@ export default function Home() {
     getLocation()
   }, [])
 
-  // Fetch real listings from API
+  // Fetch real listings from public API endpoint
+  // Gets next 12 upcoming auctions (after current time) in random order
   useEffect(() => {
     const fetchListings = async () => {
       try {
-        const response = await fetch(`${API_URL}/api/listings?status=upcoming&limit=10`)
+        const response = await fetch(`${API_URL}/api/public/featured-auctions?limit=12`)
         if (response.ok) {
           const data = await response.json()
-          let listingsData = data.listings || data || []
-          
-          // Filter to only those with images
-          listingsData = listingsData.filter((l: Listing) => l.primary_image_url)
-          
-          if (listingsData.length > 0) {
-            setListings(listingsData.slice(0, 8))
+
+          if (data && data.length > 0) {
+            // Take up to 8 listings for the carousel
+            setListings(data.slice(0, 8))
           }
         }
       } catch (err) {
@@ -128,7 +126,7 @@ export default function Home() {
         console.log('Using fallback listings')
       }
     }
-    
+
     fetchListings()
   }, [])
 
