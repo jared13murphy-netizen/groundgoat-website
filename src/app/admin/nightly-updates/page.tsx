@@ -16,7 +16,8 @@ import {
   Loader2,
   TrendingDown,
   Ban,
-  Play
+  Play,
+  Pencil
 } from 'lucide-react'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
@@ -368,14 +369,24 @@ export default function NightlyUpdatesPage() {
                                   </span>
                                 </div>
                               </div>
-                              <a
-                                href={item.source_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-gg-gray-400 hover:text-gg-pink transition-colors"
-                              >
-                                <ExternalLink size={18} />
-                              </a>
+                              <div className="flex items-center gap-2">
+                                <Link
+                                  href={`/admin/scraper?edit=${item.listing_id}`}
+                                  className="text-gg-gray-400 hover:text-gg-pink transition-colors"
+                                  title="Edit Listing"
+                                >
+                                  <Pencil size={18} />
+                                </Link>
+                                <a
+                                  href={item.source_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-gg-gray-400 hover:text-gg-pink transition-colors"
+                                  title="View Source"
+                                >
+                                  <ExternalLink size={18} />
+                                </a>
+                              </div>
                             </div>
 
                             <div className="space-y-2">

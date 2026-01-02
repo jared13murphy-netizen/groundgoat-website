@@ -228,7 +228,7 @@ export default function ProfilePage() {
             )}
 
             <div className="flex gap-4">
-              <Link href="/account" className="btn-secondary flex-1 text-center">
+              <Link href="/account" className="btn-secondary flex-1 flex items-center justify-center">
                 Cancel
               </Link>
               <button

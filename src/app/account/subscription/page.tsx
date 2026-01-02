@@ -115,30 +115,9 @@ export default function SubscriptionPage() {
     }
   }
 
-  const handleManageBilling = async () => {
-    const token = localStorage.getItem('auth_token')
-    if (!token) {
-      router.push('/signin')
-      return
-    }
-
-    try {
-      const response = await fetch(`${API_URL}/api/subscriptions/billing-portal`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
-      })
-
-      if (response.ok) {
-        const data = await response.json()
-        if (data.url) {
-          window.location.href = data.url
-        }
-      } else {
-        setError('Unable to open billing portal. Please try again.')
-      }
-    } catch (err) {
-      setError('Unable to open billing portal. Please try again.')
-    }
+  const handleManageBilling = () => {
+    // Open Stripe billing portal via subscribe.groundgoat.com
+    window.open('https://subscribe.groundgoat.com/p/login/6oEbKA1FWdiQe4wfYY', '_blank')
   }
 
   const getStatusBadge = (status: string) => {

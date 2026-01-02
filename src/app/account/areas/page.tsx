@@ -363,7 +363,12 @@ export default function MyAreasPage() {
                     )}
                   </div>
                   <p className="text-xs text-gg-gray-500 mt-2">
-                    {selectedCounty ? 'County subscription: $3.99/mo additional' : 'State subscription: $12.99/mo additional'}
+                    {selectedCounty
+                      ? 'County subscription: $3.99/mo additional'
+                      : areasData?.areas?.some(a => a.subscription_type === 'state' && a.status === 'active')
+                        ? 'Additional state subscription: $12.99/mo'
+                        : 'State subscription: $39.99/mo (includes all counties)'
+                    }
                   </p>
                 </div>
               )}
