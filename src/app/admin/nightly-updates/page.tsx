@@ -206,8 +206,8 @@ export default function NightlyUpdatesPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gg-black">
-      <div className="max-w-7xl mx-auto px-4 py-8">
+    <div className="min-h-screen bg-gg-black pt-24 pb-12">
+      <div className="max-w-7xl mx-auto px-6">
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div className="flex items-center gap-4">
