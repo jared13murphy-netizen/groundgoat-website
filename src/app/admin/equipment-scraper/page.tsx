@@ -7,51 +7,40 @@ import Link from 'next/link'
 import {
   ArrowLeft,
   Tractor,
-  Play,
   Loader2,
-  CheckCircle,
-  XCircle,
+  Play,
+  Check,
+  X,
+  AlertCircle,
   ExternalLink,
-  Download,
-  Trash2
+  ListChecks
 } from 'lucide-react'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 const SCRAPER_URL = 'https://ground-goat-scraper-production.up.railway.app'
 
-interface EquipmentItem {
-  id?: number
-  title: string
-  year: number | null
-  make: string | null
-  model: string | null
-  category: string
-  sale_price: number | null
-  city: string | null
-  state: string | null
-  lot_number: string | null
-  image_url: string | null
-  auction_company: string
-}
-
 interface ScrapeResult {
+  url: string
   success: boolean
   items_count: number
   items_saved: number
-  items: EquipmentItem[]
-  message: string
   error?: string
+  message?: string
 }
 
 export default function EquipmentScraperPage() {
   const router = useRouter()
   const [loading, setLoading] = useState(true)
+  const [urlsInput, setUrlsInput] = useState('')
   const [scraping, setScraping] = useState(false)
-  const [url, setUrl] = useState('')
-  const [result, setResult] = useState<ScrapeResult | null>(null)
+  const [results, setResults] = useState<ScrapeResult[]>([])
+  const [summary, setSummary] = useState<{
+    urls_processed: number
+    total_items: number
+    total_saved: number
+    errors_count: number
+  } | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [equipment, setEquipment] = useState<EquipmentItem[]>([])
-  const [stats, setStats] = useState<any>(null)
 
   useEffect(() => {
     const token = localStorage.getItem('auth_token')
@@ -71,91 +60,58 @@ export default function EquipmentScraperPage() {
         router.push('/account')
         return
       }
-      fetchEquipment()
-      fetchStats()
+      setLoading(false)
     } catch (err) {
       router.push('/signin')
-    } finally {
-      setLoading(false)
     }
   }
 
-  const fetchEquipment = async () => {
-    try {
-      const response = await fetch(SCRAPER_URL + '/api/equipment?limit=50')
-      if (response.ok) {
-        const data = await response.json()
-        setEquipment(data.sales || [])
-      }
-    } catch (err) {
-      console.error('Failed to fetch equipment:', err)
-    }
+  const parseUrls = (): string[] => {
+    return urlsInput
+      .split('\n')
+      .map(line => line.trim())
+      .filter(line => line.length > 0 && line.startsWith('http'))
   }
 
-  const fetchStats = async () => {
-    try {
-      const response = await fetch(SCRAPER_URL + '/api/equipment/stats')
-      if (response.ok) {
-        const data = await response.json()
-        setStats(data)
-      }
-    } catch (err) {
-      console.error('Failed to fetch stats:', err)
-    }
-  }
-
-  const runScraper = async () => {
-    if (!url.trim()) {
-      setError('Please enter a URL')
+  const runBatchScrape = async () => {
+    const urls = parseUrls()
+    if (urls.length === 0) {
+      setError('Please enter at least one valid URL')
       return
     }
 
     setScraping(true)
     setError(null)
-    setResult(null)
+    setResults([])
+    setSummary(null)
 
     try {
-      const response = await fetch(SCRAPER_URL + '/api/scrape-equipment', {
+      const response = await fetch(`${SCRAPER_URL}/api/scrape-equipment/batch`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: url.trim() })
+        body: JSON.stringify({ urls })
       })
 
-      const data = await response.json()
-
       if (!response.ok) {
-        setError(data.error || 'Scraping failed')
-      } else {
-        setResult(data)
-        fetchEquipment()
-        fetchStats()
+        throw new Error(`HTTP ${response.status}`)
       }
+
+      const data = await response.json()
+      setResults(data.results || [])
+      setSummary({
+        urls_processed: data.urls_processed,
+        total_items: data.total_items,
+        total_saved: data.total_saved,
+        errors_count: data.errors_count
+      })
     } catch (err: any) {
-      setError(err.message || 'Network error')
+      setError(err.message || 'Failed to run batch scrape')
     } finally {
       setScraping(false)
     }
   }
 
-  const exportToExcel = () => {
-    window.open(SCRAPER_URL + '/api/equipment/export', '_blank')
-  }
-
-  const clearAll = async () => {
-    if (!confirm('Are you sure you want to delete ALL equipment records?')) return
-
-    try {
-      const response = await fetch(SCRAPER_URL + '/api/equipment/clear', {
-        method: 'POST'
-      })
-      if (response.ok) {
-        setEquipment([])
-        fetchStats()
-      }
-    } catch (err) {
-      console.error('Failed to clear equipment:', err)
-    }
-  }
+  const urlCount = parseUrls().length
 
   if (loading) {
     return (
@@ -167,214 +123,154 @@ export default function EquipmentScraperPage() {
 
   return (
     <div className="min-h-screen bg-gg-black pt-24 pb-12">
-      <div className="max-w-7xl mx-auto px-6">
+      <div className="max-w-4xl mx-auto px-6">
         {/* Header */}
-        <div className="flex items-center gap-4 mb-8">
-          <Link href="/admin/dashboard" className="text-gg-gray-400 hover:text-white transition-colors">
+        <div className="flex items-center gap-4 mb-6">
+          <Link href="/admin/equipment" className="text-gg-gray-400 hover:text-white transition-colors">
             <ArrowLeft size={24} />
           </Link>
           <div>
             <h1 className="font-display text-3xl font-bold text-white flex items-center gap-3">
               <Tractor className="text-gg-pink" />
-              Equipment Scraper
+              Equipment Batch Scraper
             </h1>
-            <p className="text-gg-gray-400">Scrape equipment auction results from Steffes Group</p>
+            <p className="text-gg-gray-400">Scrape multiple equipment auction URLs at once</p>
           </div>
         </div>
 
-        {/* Stats */}
-        {stats && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-            <div className="bg-gg-gray-900 rounded-xl p-4 border border-gg-gray-800">
-              <div className="text-2xl font-bold text-white">{stats.total_count?.toLocaleString() || 0}</div>
-              <div className="text-sm text-gg-gray-400">Total Items</div>
-            </div>
-            <div className="bg-gg-gray-900 rounded-xl p-4 border border-gg-gray-800">
-              <div className="text-2xl font-bold text-green-400">
-                ${stats.price_stats?.avg ? Math.round(stats.price_stats.avg).toLocaleString() : 0}
-              </div>
-              <div className="text-sm text-gg-gray-400">Avg Sale Price</div>
-            </div>
-            <div className="bg-gg-gray-900 rounded-xl p-4 border border-gg-gray-800">
-              <div className="text-2xl font-bold text-blue-400">{stats.top_makes?.[0]?.make || 'N/A'}</div>
-              <div className="text-sm text-gg-gray-400">Top Make</div>
-            </div>
-            <div className="bg-gg-gray-900 rounded-xl p-4 border border-gg-gray-800">
-              <div className="text-2xl font-bold text-yellow-400">{stats.top_categories?.[0]?.category || 'N/A'}</div>
-              <div className="text-sm text-gg-gray-400">Top Category</div>
-            </div>
+        {/* URL Input */}
+        <div className="bg-gg-gray-900 rounded-xl p-6 border border-gg-gray-800 mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <label className="text-white font-medium">Auction URLs</label>
+            <span className="text-sm text-gg-gray-400">
+              {urlCount} URL{urlCount !== 1 ? 's' : ''} detected
+            </span>
           </div>
-        )}
+          <textarea
+            value={urlsInput}
+            onChange={(e) => setUrlsInput(e.target.value)}
+            placeholder="Paste URLs here, one per line...
 
-        {/* Scraper Input */}
-        <div className="bg-gg-gray-900 rounded-xl p-6 border border-gg-gray-800 mb-8">
-          <h2 className="text-lg font-semibold text-white mb-4">Run Equipment Scraper</h2>
-          <p className="text-gg-gray-400 text-sm mb-4">
-            Enter a Steffes Group auction URL to scrape equipment listings.
-            Example: <code className="bg-gg-gray-800 px-2 py-1 rounded text-xs">
-              https://steffesgroup.com/auctions/[auction-id]/listings/[listing-id]?activeStatus=All
-            </code>
-          </p>
-
-          <div className="flex gap-3">
-            <input
-              type="url"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              placeholder="https://steffesgroup.com/auctions/..."
-              className="flex-1 bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:outline-none focus:border-gg-pink"
-            />
+https://www.steffesgroup.com/auctions/auction123/results
+https://www.steffesgroup.com/auctions/auction456/results
+https://bid.wheelerauctions.com/auction/789"
+            className="w-full h-64 bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-4 py-3 text-white text-sm font-mono focus:outline-none focus:border-gg-pink resize-none"
+            disabled={scraping}
+          />
+          <div className="mt-4 flex items-center justify-between">
+            <div className="text-sm text-gg-gray-400">
+              Supported sites: <span className="text-gg-pink">steffesgroup.com</span>, <span className="text-gg-pink">wheelerauctions.com</span>
+            </div>
             <button
-              onClick={runScraper}
-              disabled={scraping}
-              className="flex items-center gap-2 bg-gg-pink text-black font-semibold px-6 py-3 rounded-lg hover:bg-gg-pink/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={runBatchScrape}
+              disabled={scraping || urlCount === 0}
+              className="flex items-center gap-2 bg-gg-pink text-black font-semibold px-6 py-2 rounded-lg hover:bg-gg-pink/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {scraping ? (
                 <>
-                  <Loader2 size={18} className="animate-spin" />
+                  <Loader2 className="animate-spin" size={18} />
                   Scraping...
                 </>
               ) : (
                 <>
                   <Play size={18} />
-                  Scrape
+                  Run Batch Scrape
                 </>
               )}
             </button>
           </div>
-
-          {/* Error */}
-          {error && (
-            <div className="mt-4 p-4 bg-red-500/20 border border-red-500/50 rounded-lg flex items-center gap-3">
-              <XCircle className="text-red-400" size={20} />
-              <span className="text-red-400">{error}</span>
-            </div>
-          )}
-
-          {/* Result */}
-          {result && (
-            <div className="mt-4 p-4 bg-green-500/20 border border-green-500/50 rounded-lg">
-              <div className="flex items-center gap-3 mb-2">
-                <CheckCircle className="text-green-400" size={20} />
-                <span className="text-green-400 font-semibold">{result.message}</span>
-              </div>
-              <div className="text-sm text-gg-gray-300">
-                Found {result.items_count} items, saved {result.items_saved} to database
-              </div>
-            </div>
-          )}
         </div>
 
-        {/* Actions */}
-        <div className="flex gap-3 mb-6">
-          <button
-            onClick={exportToExcel}
-            className="flex items-center gap-2 bg-gg-gray-800 text-white px-4 py-2 rounded-lg hover:bg-gg-gray-700 transition-colors"
-          >
-            <Download size={18} />
-            Export to Excel
-          </button>
-          <button
-            onClick={clearAll}
-            className="flex items-center gap-2 bg-red-500/20 text-red-400 px-4 py-2 rounded-lg hover:bg-red-500/30 transition-colors"
-          >
-            <Trash2 size={18} />
-            Clear All
-          </button>
-        </div>
-
-        {/* Equipment List */}
-        <div className="bg-gg-gray-900 rounded-xl border border-gg-gray-800 overflow-hidden">
-          <div className="p-4 border-b border-gg-gray-800">
-            <h2 className="text-lg font-semibold text-white">Recent Equipment ({equipment.length})</h2>
+        {/* Error */}
+        {error && (
+          <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 mb-6 flex items-center gap-3">
+            <AlertCircle className="text-red-400 flex-shrink-0" size={20} />
+            <p className="text-red-400">{error}</p>
           </div>
+        )}
 
-          {equipment.length === 0 ? (
-            <div className="p-12 text-center">
-              <Tractor size={48} className="mx-auto text-gg-gray-600 mb-4" />
-              <h3 className="text-lg font-semibold text-white mb-2">No Equipment Yet</h3>
-              <p className="text-gg-gray-400">Run the scraper to fetch equipment auction results.</p>
+        {/* Summary */}
+        {summary && (
+          <div className="bg-gg-gray-900 rounded-xl p-6 border border-gg-gray-800 mb-6">
+            <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+              <ListChecks className="text-gg-pink" size={20} />
+              Batch Results
+            </h2>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="bg-gg-gray-800 rounded-lg p-4">
+                <div className="text-2xl font-bold text-white">{summary.urls_processed}</div>
+                <div className="text-sm text-gg-gray-400">URLs Processed</div>
+              </div>
+              <div className="bg-gg-gray-800 rounded-lg p-4">
+                <div className="text-2xl font-bold text-gg-pink">{summary.total_items}</div>
+                <div className="text-sm text-gg-gray-400">Items Found</div>
+              </div>
+              <div className="bg-gg-gray-800 rounded-lg p-4">
+                <div className="text-2xl font-bold text-green-400">{summary.total_saved}</div>
+                <div className="text-sm text-gg-gray-400">Items Saved</div>
+              </div>
+              <div className="bg-gg-gray-800 rounded-lg p-4">
+                <div className={`text-2xl font-bold ${summary.errors_count > 0 ? 'text-red-400' : 'text-gg-gray-400'}`}>
+                  {summary.errors_count}
+                </div>
+                <div className="text-sm text-gg-gray-400">Errors</div>
+              </div>
             </div>
-          ) : (
-            <div className="divide-y divide-gg-gray-800">
-              {equipment.map((item, idx) => (
-                <div key={item.id || idx} className="p-4 hover:bg-gg-gray-800/50 transition-colors">
-                  <div className="flex items-start gap-4">
-                    {item.image_url && (
-                      <img
-                        src={item.image_url}
-                        alt={item.title}
-                        className="w-20 h-20 object-cover rounded-lg flex-shrink-0"
-                      />
+          </div>
+        )}
+
+        {/* Results List */}
+        {results.length > 0 && (
+          <div className="bg-gg-gray-900 rounded-xl border border-gg-gray-800 overflow-hidden">
+            <div className="px-4 py-3 border-b border-gg-gray-800">
+              <h3 className="text-white font-medium">Individual Results</h3>
+            </div>
+            <div className="divide-y divide-gg-gray-800 max-h-96 overflow-y-auto">
+              {results.map((result, idx) => (
+                <div key={idx} className="px-4 py-3 flex items-center gap-3">
+                  <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${
+                    result.success ? 'bg-green-500/20' : 'bg-red-500/20'
+                  }`}>
+                    {result.success ? (
+                      <Check className="text-green-400" size={16} />
+                    ) : (
+                      <X className="text-red-400" size={16} />
                     )}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between gap-4">
-                        <div>
-                          <h3 className="text-white font-medium truncate">
-                            {item.lot_number && <span className="text-gg-gray-500">Lot #{item.lot_number} </span>}
-                            {item.year && <span className="text-gg-pink">{item.year} </span>}
-                            {item.title}
-                          </h3>
-                          <div className="flex items-center gap-3 mt-1 text-sm text-gg-gray-400">
-                            {item.make && <span>{item.make}</span>}
-                            {item.category && (
-                              <span className="bg-gg-gray-700 px-2 py-0.5 rounded">{item.category}</span>
-                            )}
-                            {item.city && item.state && (
-                              <span>{item.city}, {item.state}</span>
-                            )}
-                          </div>
-                        </div>
-                        {item.sale_price && (
-                          <div className="text-green-400 font-bold whitespace-nowrap">
-                            ${item.sale_price.toLocaleString()}
-                          </div>
-                        )}
-                      </div>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <a
+                      href={result.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm text-gg-pink hover:underline flex items-center gap-1 truncate"
+                    >
+                      {result.url}
+                      <ExternalLink size={12} />
+                    </a>
+                    <div className="text-xs text-gg-gray-400">
+                      {result.success ? (
+                        `${result.items_count} items found, ${result.items_saved} saved`
+                      ) : (
+                        <span className="text-red-400">{result.error}</span>
+                      )}
                     </div>
                   </div>
                 </div>
               ))}
             </div>
-          )}
-        </div>
-
-        {/* Supported Sites */}
-        <div className="mt-8 bg-gg-gray-900 rounded-xl p-6 border border-gg-gray-800">
-          <h2 className="text-lg font-semibold text-white mb-4">Supported Sites</h2>
-          <div className="grid md:grid-cols-2 gap-4">
-            <div className="flex items-center gap-3 p-3 bg-gg-gray-800 rounded-lg">
-              <CheckCircle className="text-green-400" size={20} />
-              <div>
-                <div className="text-white font-medium">Steffes Group</div>
-                <div className="text-sm text-gg-gray-400">steffesgroup.com</div>
-              </div>
-              <a
-                href="https://steffesgroup.com"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="ml-auto text-gg-gray-400 hover:text-gg-pink"
-              >
-                <ExternalLink size={16} />
-              </a>
-            </div>
-            <div className="flex items-center gap-3 p-3 bg-gg-gray-800 rounded-lg">
-              <CheckCircle className="text-green-400" size={20} />
-              <div>
-                <div className="text-white font-medium">Wheeler Auctions</div>
-                <div className="text-sm text-gg-gray-400">bid.wheelerauctions.com</div>
-              </div>
-              <a
-                href="https://bid.wheelerauctions.com"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="ml-auto text-gg-gray-400 hover:text-gg-pink"
-              >
-                <ExternalLink size={16} />
-              </a>
-            </div>
           </div>
-        </div>
+        )}
+
+        {/* Empty state */}
+        {!scraping && results.length === 0 && !error && (
+          <div className="bg-gg-gray-900 rounded-xl p-12 border border-gg-gray-800 text-center">
+            <Tractor size={48} className="mx-auto text-gg-gray-600 mb-4" />
+            <h3 className="text-lg font-semibold text-white mb-2">Ready to Scrape</h3>
+            <p className="text-gg-gray-400 max-w-md mx-auto">
+              Paste equipment auction result URLs above (one per line) and click "Run Batch Scrape" to extract equipment data from multiple auctions at once.
+            </p>
+          </div>
+        )}
       </div>
     </div>
   )
