@@ -19,7 +19,8 @@ import {
   Loader2,
   Moon,
   Tractor,
-  ClipboardList
+  ClipboardList,
+  Layers
 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import countyCentroids from '@/data/countyCentroids'
@@ -326,6 +327,12 @@ export default function AdminDashboard() {
             description="Run the auction scraper to fetch new listings"
             href="/admin/scraper"
             icon={<RefreshCw />}
+          />
+          <QuickActionCard
+            title="Batch Discovery"
+            description="Discover & scrape multiple listings from one URL"
+            href="/admin/batch-scraper"
+            icon={<Layers />}
           />
           <QuickActionCard
             title="Nightly Updates"

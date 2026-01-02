@@ -1,0 +1,514 @@
+'use client'
+
+import { useState, useEffect } from 'react'
+import fetchWithAuth from '@/lib/fetchWithAuth'
+import { useRouter } from 'next/navigation'
+import Link from 'next/link'
+import {
+  ArrowLeft,
+  Search,
+  Loader2,
+  CheckCircle,
+  XCircle,
+  AlertTriangle,
+  Play,
+  MapPin,
+  Filter,
+  ChevronDown,
+  ChevronUp,
+  ExternalLink,
+  Trash2
+} from 'lucide-react'
+
+const API_URL = 'https://practical-serenity-production.up.railway.app'
+const SCRAPER_URL = 'https://ground-goat-scraper-production.up.railway.app'
+
+interface DiscoveredUrl {
+  url: string
+  text: string
+  reason: string
+}
+
+interface ScrapeResult {
+  url: string
+  success: boolean
+  duplicate?: boolean
+  error?: string
+  listing_id?: string
+}
+
+type Phase = 'input' | 'discovering' | 'review' | 'checking' | 'scraping' | 'complete'
+
+export default function BatchScraperPage() {
+  const router = useRouter()
+  const [loading, setLoading] = useState(true)
+  const [phase, setPhase] = useState<Phase>('input')
+
+  // Input phase
+  const [parentUrl, setParentUrl] = useState('')
+  const [maxPages, setMaxPages] = useState(10)
+
+  // Discovery phase
+  const [landUrls, setLandUrls] = useState<DiscoveredUrl[]>([])
+  const [excludedUrls, setExcludedUrls] = useState<DiscoveredUrl[]>([])
+  const [showExcluded, setShowExcluded] = useState(false)
+
+  // Check phase - URLs after deduplication
+  const [newUrls, setNewUrls] = useState<string[]>([])
+  const [existingUrls, setExistingUrls] = useState<string[]>([])
+
+  // Scrape phase
+  const [scrapeResults, setScrapeResults] = useState<ScrapeResult[]>([])
+  const [currentIndex, setCurrentIndex] = useState(0)
+
+  // Summary
+  const [summary, setSummary] = useState<{
+    total: number
+    success: number
+    duplicates: number
+    errors: number
+  } | null>(null)
+
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    const token = localStorage.getItem('auth_token')
+    if (!token) {
+      router.push('/signin')
+      return
+    }
+    checkAuth()
+  }, [router])
+
+  const checkAuth = async () => {
+    try {
+      const response = await fetchWithAuth(API_URL + '/api/auth/me')
+      if (!response.ok) throw new Error('Not authenticated')
+      const userData = await response.json()
+      if (userData.account_type !== 'groundgoat_admin') {
+        router.push('/account')
+        return
+      }
+      setLoading(false)
+    } catch (err) {
+      router.push('/signin')
+    }
+  }
+
+  const discoverUrls = async () => {
+    if (!parentUrl.trim()) {
+      setError('Please enter a URL')
+      return
+    }
+
+    setPhase('discovering')
+    setError(null)
+    setLandUrls([])
+    setExcludedUrls([])
+
+    try {
+      const response = await fetch(SCRAPER_URL + '/api/batch-discover', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: parentUrl.trim(), max_pages: maxPages })
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Discovery failed')
+      }
+
+      setLandUrls(data.land_urls || [])
+      setExcludedUrls(data.excluded_urls || [])
+      setPhase('review')
+
+    } catch (err: any) {
+      setError(err.message || 'Discovery failed')
+      setPhase('input')
+    }
+  }
+
+  const checkDuplicates = async () => {
+    if (landUrls.length === 0) {
+      setError('No land URLs to check')
+      return
+    }
+
+    setPhase('checking')
+    setError(null)
+
+    try {
+      const urlList = landUrls.map(u => u.url)
+      const response = await fetch(API_URL + '/api/listings/check-urls', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ urls: urlList })
+      })
+
+      const data = await response.json()
+
+      setNewUrls(data.new || [])
+      setExistingUrls(data.existing || [])
+
+      // If there are new URLs, proceed to scraping automatically
+      if (data.new && data.new.length > 0) {
+        startScraping(data.new)
+      } else {
+        setPhase('complete')
+        setSummary({
+          total: urlList.length,
+          success: 0,
+          duplicates: data.existing?.length || 0,
+          errors: 0
+        })
+      }
+
+    } catch (err: any) {
+      setError(err.message || 'Failed to check duplicates')
+      setPhase('review')
+    }
+  }
+
+  const startScraping = async (urls: string[]) => {
+    setPhase('scraping')
+    setScrapeResults([])
+    setCurrentIndex(0)
+
+    try {
+      const response = await fetch(SCRAPER_URL + '/api/batch-scrape', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ urls })
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Scraping failed')
+      }
+
+      setScrapeResults(data.results || [])
+      setSummary(data.summary)
+      setPhase('complete')
+
+    } catch (err: any) {
+      setError(err.message || 'Scraping failed')
+      setPhase('review')
+    }
+  }
+
+  const removeUrl = (urlToRemove: string) => {
+    setLandUrls(prev => prev.filter(u => u.url !== urlToRemove))
+  }
+
+  const resetScraper = () => {
+    setPhase('input')
+    setParentUrl('')
+    setLandUrls([])
+    setExcludedUrls([])
+    setNewUrls([])
+    setExistingUrls([])
+    setScrapeResults([])
+    setSummary(null)
+    setError(null)
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gg-black flex items-center justify-center">
+        <Loader2 className="animate-spin text-gg-pink" size={32} />
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-h-screen bg-gg-black pt-24 pb-12">
+      <div className="max-w-5xl mx-auto px-6">
+        {/* Header */}
+        <div className="flex items-center gap-4 mb-8">
+          <Link href="/admin/dashboard" className="text-gg-gray-400 hover:text-white transition-colors">
+            <ArrowLeft size={24} />
+          </Link>
+          <div>
+            <h1 className="font-display text-3xl font-bold text-white flex items-center gap-3">
+              <Search className="text-gg-pink" />
+              Batch Listing Discovery
+            </h1>
+            <p className="text-gg-gray-400">
+              Discover and scrape multiple land listings from a single URL
+            </p>
+          </div>
+        </div>
+
+        {/* Error Display */}
+        {error && (
+          <div className="mb-6 p-4 bg-red-500/20 border border-red-500/50 rounded-lg flex items-center gap-3">
+            <XCircle className="text-red-400 flex-shrink-0" size={20} />
+            <span className="text-red-400">{error}</span>
+          </div>
+        )}
+
+        {/* Phase: Input */}
+        {phase === 'input' && (
+          <div className="bg-gg-gray-900 rounded-xl p-6 border border-gg-gray-800">
+            <h2 className="text-lg font-semibold text-white mb-4">Enter Parent URL</h2>
+            <p className="text-gg-gray-400 text-sm mb-4">
+              Enter the URL of a page that lists multiple auctions or properties.
+              The scraper will find all land listings and filter out equipment, livestock, etc.
+            </p>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm text-gg-gray-300 mb-2">Parent URL</label>
+                <input
+                  type="url"
+                  value={parentUrl}
+                  onChange={(e) => setParentUrl(e.target.value)}
+                  placeholder="https://www.sullivanauctioneers.com"
+                  className="w-full bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:outline-none focus:border-gg-pink"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm text-gg-gray-300 mb-2">Max Pages to Scan</label>
+                <select
+                  value={maxPages}
+                  onChange={(e) => setMaxPages(Number(e.target.value))}
+                  className="bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-gg-pink"
+                >
+                  <option value={1}>1 page</option>
+                  <option value={3}>3 pages</option>
+                  <option value={5}>5 pages</option>
+                  <option value={10}>10 pages</option>
+                  <option value={20}>20 pages</option>
+                </select>
+              </div>
+
+              <button
+                onClick={discoverUrls}
+                className="flex items-center gap-2 bg-gg-pink text-black font-semibold px-6 py-3 rounded-lg hover:bg-gg-pink/90 transition-colors"
+              >
+                <Search size={18} />
+                Discover Listings
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Phase: Discovering */}
+        {phase === 'discovering' && (
+          <div className="bg-gg-gray-900 rounded-xl p-12 border border-gg-gray-800 text-center">
+            <Loader2 className="animate-spin text-gg-pink mx-auto mb-4" size={48} />
+            <h2 className="text-xl font-semibold text-white mb-2">Discovering Listings...</h2>
+            <p className="text-gg-gray-400">
+              Scanning pages and identifying land listings. This may take a minute.
+            </p>
+          </div>
+        )}
+
+        {/* Phase: Review */}
+        {phase === 'review' && (
+          <div className="space-y-6">
+            {/* Summary */}
+            <div className="bg-gg-gray-900 rounded-xl p-6 border border-gg-gray-800">
+              <h2 className="text-lg font-semibold text-white mb-4">Discovery Results</h2>
+              <div className="grid grid-cols-2 gap-4 mb-6">
+                <div className="bg-green-500/20 rounded-lg p-4">
+                  <div className="text-2xl font-bold text-green-400">{landUrls.length}</div>
+                  <div className="text-sm text-green-300">Land Listings Found</div>
+                </div>
+                <div className="bg-gg-gray-800 rounded-lg p-4">
+                  <div className="text-2xl font-bold text-gg-gray-400">{excludedUrls.length}</div>
+                  <div className="text-sm text-gg-gray-500">Non-Land URLs Filtered</div>
+                </div>
+              </div>
+
+              {landUrls.length > 0 && (
+                <button
+                  onClick={checkDuplicates}
+                  className="flex items-center gap-2 bg-gg-pink text-black font-semibold px-6 py-3 rounded-lg hover:bg-gg-pink/90 transition-colors"
+                >
+                  <Play size={18} />
+                  Check for Duplicates & Scrape New
+                </button>
+              )}
+            </div>
+
+            {/* Land URLs */}
+            {landUrls.length > 0 && (
+              <div className="bg-gg-gray-900 rounded-xl border border-gg-gray-800 overflow-hidden">
+                <div className="p-4 border-b border-gg-gray-800 flex items-center justify-between">
+                  <h3 className="font-semibold text-white flex items-center gap-2">
+                    <MapPin className="text-green-400" size={18} />
+                    Land Listings ({landUrls.length})
+                  </h3>
+                </div>
+                <div className="max-h-96 overflow-y-auto divide-y divide-gg-gray-800">
+                  {landUrls.map((item, idx) => (
+                    <div key={idx} className="p-3 hover:bg-gg-gray-800/50 flex items-center gap-3">
+                      <CheckCircle className="text-green-400 flex-shrink-0" size={16} />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-white text-sm truncate">{item.text || item.url}</div>
+                        <div className="text-gg-gray-500 text-xs truncate">{item.url}</div>
+                        <div className="text-green-400/60 text-xs">{item.reason}</div>
+                      </div>
+                      <a
+                        href={item.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-gg-gray-400 hover:text-gg-pink p-1"
+                      >
+                        <ExternalLink size={14} />
+                      </a>
+                      <button
+                        onClick={() => removeUrl(item.url)}
+                        className="text-gg-gray-400 hover:text-red-400 p-1"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Excluded URLs (collapsible) */}
+            {excludedUrls.length > 0 && (
+              <div className="bg-gg-gray-900 rounded-xl border border-gg-gray-800 overflow-hidden">
+                <button
+                  onClick={() => setShowExcluded(!showExcluded)}
+                  className="w-full p-4 flex items-center justify-between hover:bg-gg-gray-800/50 transition-colors"
+                >
+                  <h3 className="font-semibold text-gg-gray-400 flex items-center gap-2">
+                    <Filter size={18} />
+                    Filtered Out ({excludedUrls.length})
+                  </h3>
+                  {showExcluded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                </button>
+                {showExcluded && (
+                  <div className="max-h-64 overflow-y-auto divide-y divide-gg-gray-800 border-t border-gg-gray-800">
+                    {excludedUrls.map((item, idx) => (
+                      <div key={idx} className="p-3 flex items-center gap-3">
+                        <XCircle className="text-gg-gray-500 flex-shrink-0" size={16} />
+                        <div className="flex-1 min-w-0">
+                          <div className="text-gg-gray-400 text-sm truncate">{item.text || item.url}</div>
+                          <div className="text-gg-gray-600 text-xs truncate">{item.url}</div>
+                          <div className="text-red-400/60 text-xs">{item.reason}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <button
+              onClick={resetScraper}
+              className="text-gg-gray-400 hover:text-white text-sm underline"
+            >
+              Start Over
+            </button>
+          </div>
+        )}
+
+        {/* Phase: Checking */}
+        {phase === 'checking' && (
+          <div className="bg-gg-gray-900 rounded-xl p-12 border border-gg-gray-800 text-center">
+            <Loader2 className="animate-spin text-gg-pink mx-auto mb-4" size={48} />
+            <h2 className="text-xl font-semibold text-white mb-2">Checking for Duplicates...</h2>
+            <p className="text-gg-gray-400">
+              Comparing discovered URLs against existing listings in the database.
+            </p>
+          </div>
+        )}
+
+        {/* Phase: Scraping */}
+        {phase === 'scraping' && (
+          <div className="bg-gg-gray-900 rounded-xl p-12 border border-gg-gray-800 text-center">
+            <Loader2 className="animate-spin text-gg-pink mx-auto mb-4" size={48} />
+            <h2 className="text-xl font-semibold text-white mb-2">Scraping Listings...</h2>
+            <p className="text-gg-gray-400 mb-4">
+              Processing {newUrls.length} new listings. This may take several minutes.
+            </p>
+            {existingUrls.length > 0 && (
+              <p className="text-yellow-400 text-sm">
+                Skipped {existingUrls.length} duplicate URLs
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Phase: Complete */}
+        {phase === 'complete' && summary && (
+          <div className="space-y-6">
+            <div className="bg-gg-gray-900 rounded-xl p-6 border border-gg-gray-800">
+              <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                <CheckCircle className="text-green-400" size={24} />
+                Scraping Complete
+              </h2>
+
+              <div className="grid grid-cols-4 gap-4 mb-6">
+                <div className="bg-gg-gray-800 rounded-lg p-4 text-center">
+                  <div className="text-2xl font-bold text-white">{summary.total}</div>
+                  <div className="text-sm text-gg-gray-400">Total</div>
+                </div>
+                <div className="bg-green-500/20 rounded-lg p-4 text-center">
+                  <div className="text-2xl font-bold text-green-400">{summary.success}</div>
+                  <div className="text-sm text-green-300">Scraped</div>
+                </div>
+                <div className="bg-yellow-500/20 rounded-lg p-4 text-center">
+                  <div className="text-2xl font-bold text-yellow-400">{summary.duplicates + existingUrls.length}</div>
+                  <div className="text-sm text-yellow-300">Duplicates</div>
+                </div>
+                <div className="bg-red-500/20 rounded-lg p-4 text-center">
+                  <div className="text-2xl font-bold text-red-400">{summary.errors}</div>
+                  <div className="text-sm text-red-300">Errors</div>
+                </div>
+              </div>
+
+              <button
+                onClick={resetScraper}
+                className="flex items-center gap-2 bg-gg-pink text-black font-semibold px-6 py-3 rounded-lg hover:bg-gg-pink/90 transition-colors"
+              >
+                <Search size={18} />
+                Scrape Another Site
+              </button>
+            </div>
+
+            {/* Results List */}
+            {scrapeResults.length > 0 && (
+              <div className="bg-gg-gray-900 rounded-xl border border-gg-gray-800 overflow-hidden">
+                <div className="p-4 border-b border-gg-gray-800">
+                  <h3 className="font-semibold text-white">Scrape Results</h3>
+                </div>
+                <div className="max-h-96 overflow-y-auto divide-y divide-gg-gray-800">
+                  {scrapeResults.map((result, idx) => (
+                    <div key={idx} className="p-3 flex items-center gap-3">
+                      {result.success ? (
+                        <CheckCircle className="text-green-400 flex-shrink-0" size={16} />
+                      ) : result.duplicate ? (
+                        <AlertTriangle className="text-yellow-400 flex-shrink-0" size={16} />
+                      ) : (
+                        <XCircle className="text-red-400 flex-shrink-0" size={16} />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <div className="text-gg-gray-300 text-sm truncate">{result.url}</div>
+                        {result.error && (
+                          <div className="text-red-400 text-xs">{result.error}</div>
+                        )}
+                        {result.listing_id && (
+                          <div className="text-green-400 text-xs">Created listing</div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
