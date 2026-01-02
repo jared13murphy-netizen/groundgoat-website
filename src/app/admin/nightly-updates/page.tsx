@@ -202,7 +202,7 @@ export default function NightlyUpdatesPage() {
             <Clock size={48} className="mx-auto text-gg-gray-600 mb-4" />
             <h2 className="text-xl font-semibold text-white mb-2">No Reports Yet</h2>
             <p className="text-gg-gray-400">
-              The nightly monitor runs at 3:00 AM UTC. Reports will appear here after the first run.
+              The nightly monitor runs at 3:00 AM CST. Reports will appear here after the first run.
             </p>
           </div>
         ) : (
