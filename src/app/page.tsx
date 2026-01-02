@@ -25,8 +25,7 @@ interface Listing {
   id: string
   county: string
   state: string
-  auction_date: string
-  auction_time: string
+  auction_datetime: string
   total_acres: number
   listing_type: string
   primary_image_url: string
@@ -40,8 +39,7 @@ const FALLBACK_LISTINGS: Listing[] = [
     id: '1',
     county: 'Adams',
     state: 'Illinois',
-    auction_date: '2025-01-15',
-    auction_time: '10:00 AM',
+    auction_datetime: '2025-01-15T16:00:00Z',
     total_acres: 320,
     listing_type: 'auction',
     primary_image_url: 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=1920&q=80',
@@ -52,8 +50,7 @@ const FALLBACK_LISTINGS: Listing[] = [
     id: '2',
     county: 'Hancock',
     state: 'Illinois',
-    auction_date: '2025-01-18',
-    auction_time: '1:00 PM',
+    auction_datetime: '2025-01-18T19:00:00Z',
     total_acres: 156,
     listing_type: 'auction',
     primary_image_url: 'https://images.unsplash.com/photo-1625246333195-78d9c38ad449?w=1920&q=80',
@@ -64,8 +61,7 @@ const FALLBACK_LISTINGS: Listing[] = [
     id: '3',
     county: 'Pike',
     state: 'Illinois',
-    auction_date: '2025-01-22',
-    auction_time: '10:30 AM',
+    auction_datetime: '2025-01-22T16:30:00Z',
     total_acres: 240,
     listing_type: 'auction',
     primary_image_url: 'https://images.unsplash.com/photo-1560493676-04071c5f467b?w=1920&q=80',
@@ -76,8 +72,7 @@ const FALLBACK_LISTINGS: Listing[] = [
     id: '4',
     county: 'Schuyler',
     state: 'Illinois',
-    auction_date: '2025-01-25',
-    auction_time: '11:00 AM',
+    auction_datetime: '2025-01-25T17:00:00Z',
     total_acres: 80,
     listing_type: 'auction',
     primary_image_url: 'https://images.unsplash.com/photo-1595841696677-6489ff3f8cd1?w=1920&q=80',
@@ -149,14 +144,20 @@ export default function Home() {
     setCurrentSlide((prev) => (prev - 1 + listings.length) % listings.length)
   }, [listings.length])
 
-  const formatDate = (dateString: string) => {
-    if (!dateString) return ''
+  const formatDateTime = (dateString: string) => {
+    if (!dateString) return { date: '', time: '' }
     const date = new Date(dateString)
-    return date.toLocaleDateString('en-US', { 
+    const dateFormatted = date.toLocaleDateString('en-US', {
       weekday: 'short',
-      month: 'short', 
-      day: 'numeric' 
+      month: 'short',
+      day: 'numeric'
     })
+    const timeFormatted = date.toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    }).toLowerCase()
+    return { date: dateFormatted, time: timeFormatted }
   }
 
   const currentListing = listings[currentSlide]
@@ -219,15 +220,17 @@ export default function Home() {
             {currentListing && (
               <div className="mt-12 bg-black/40 backdrop-blur-xl rounded-2xl border border-white/10 p-6 animate-fade-in delay-300">
                 <div className="flex flex-wrap items-center gap-3 mb-3">
-                  <div className="bg-gg-pink text-black text-sm font-bold px-3 py-1 rounded-full flex items-center gap-1">
-                    <Calendar size={14} />
-                    {formatDate(currentListing.auction_date)}
-                  </div>
-                  {currentListing.auction_time && (
-                    <div className="bg-white/10 text-white text-sm px-3 py-1 rounded-full flex items-center gap-1">
-                      <Clock size={14} />
-                      {currentListing.auction_time}
-                    </div>
+                  {currentListing.auction_datetime && (
+                    <>
+                      <div className="bg-gg-pink text-black text-sm font-bold px-3 py-1 rounded-full flex items-center gap-1">
+                        <Calendar size={14} />
+                        {formatDateTime(currentListing.auction_datetime).date}
+                      </div>
+                      <div className="bg-white/10 text-white text-sm px-3 py-1 rounded-full flex items-center gap-1">
+                        <Clock size={14} />
+                        {formatDateTime(currentListing.auction_datetime).time}
+                      </div>
+                    </>
                   )}
                   <div className="bg-white/10 text-white text-sm px-3 py-1 rounded-full capitalize">
                     {currentListing.listing_type?.replace('_', ' ')}
