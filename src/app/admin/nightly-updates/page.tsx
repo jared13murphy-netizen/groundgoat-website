@@ -105,16 +105,34 @@ export default function NightlyUpdatesPage() {
       })
 
       if (response.ok) {
-        // Refresh reports after successful run
-        await fetchReports()
+        const data = await response.json()
+        // Show message that it's running in background
+        alert(data.message || 'Monitor started! Check back in a few minutes for results.')
+
+        // Poll for new reports every 30 seconds for up to 5 minutes
+        let pollCount = 0
+        const maxPolls = 10
+        const pollInterval = setInterval(async () => {
+          pollCount++
+          await fetchReports()
+
+          // Stop polling after max attempts
+          if (pollCount >= maxPolls) {
+            clearInterval(pollInterval)
+            setRunning(false)
+          }
+        }, 30000) // 30 seconds
+
+        // Also stop the spinner after first poll
+        setTimeout(() => setRunning(false), 2000)
       } else {
         const error = await response.json()
         alert(`Failed to run monitor: ${error.detail || 'Unknown error'}`)
+        setRunning(false)
       }
     } catch (err: any) {
       console.error('Failed to run nightly monitor:', err)
       alert(`Failed to run nightly monitor: ${err?.message || 'Network error or timeout'}`)
-    } finally {
       setRunning(false)
     }
   }
