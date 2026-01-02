@@ -80,6 +80,7 @@ export default function AdminDashboard() {
   const [companies, setCompanies] = useState<{ id: string; name: string }[]>([])
   const [selectedCompany, setSelectedCompany] = useState<string>('all')
   const [mapLoading, setMapLoading] = useState(true)
+  const [colorByCompany, setColorByCompany] = useState(false)
 
   useEffect(() => {
     const token = localStorage.getItem('auth_token')
@@ -236,6 +237,20 @@ export default function AdminDashboard() {
     }
   }, [mapListings])
 
+  // Generate consistent colors for companies
+  const companyColors = useMemo(() => {
+    const colors: Record<string, string> = {}
+    const COMPANY_COLORS = [
+      '#f58cde', '#3b82f6', '#22c55e', '#f59e0b', '#8b5cf6',
+      '#ef4444', '#14b8a6', '#f97316', '#6366f1', '#ec4899',
+      '#84cc16', '#06b6d4'
+    ]
+    companies.forEach((c, i) => {
+      colors[c.id] = COMPANY_COLORS[i % COMPANY_COLORS.length]
+    })
+    return colors
+  }, [companies])
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gg-black flex items-center justify-center">
@@ -344,35 +359,65 @@ export default function AdminDashboard() {
                 {mapListings.length} listings • Circle size = price/acre
               </p>
             </div>
-            <div className="flex items-center gap-2">
-              <Filter size={18} className="text-gg-gray-400" />
-              <select
-                value={selectedCompany}
-                onChange={(e) => setSelectedCompany(e.target.value)}
-                className="bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-3 py-2 text-white text-sm min-w-[180px]"
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => setColorByCompany(!colorByCompany)}
+                className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  colorByCompany
+                    ? 'bg-gg-pink text-white'
+                    : 'bg-gg-gray-800 text-gg-gray-300 hover:bg-gg-gray-700'
+                }`}
               >
-                <option value="all">All Companies</option>
-                {companies.map(c => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
+                Color by Company
+              </button>
+              <div className="flex items-center gap-2">
+                <Filter size={18} className="text-gg-gray-400" />
+                <select
+                  value={selectedCompany}
+                  onChange={(e) => setSelectedCompany(e.target.value)}
+                  className="bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-3 py-2 text-white text-sm min-w-[180px]"
+                >
+                  <option value="all">All Companies</option>
+                  {companies.map(c => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
             </div>
           </div>
 
           {/* Legend */}
-          <div className="flex items-center gap-6 mb-4 text-sm">
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full bg-green-500 opacity-70"></div>
-              <span className="text-gg-gray-300">Sold</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full bg-gg-pink opacity-70"></div>
-              <span className="text-gg-gray-300">Listed</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full bg-yellow-500 opacity-70"></div>
-              <span className="text-gg-gray-300">Pending</span>
-            </div>
+          <div className="flex items-center gap-6 mb-4 text-sm flex-wrap">
+            {colorByCompany ? (
+              // Show company legend when color by company is active
+              companies.slice(0, 8).map(c => (
+                <div key={c.id} className="flex items-center gap-2">
+                  <div
+                    className="w-3 h-3 rounded-full"
+                    style={{ backgroundColor: companyColors[c.id], opacity: 0.85 }}
+                  ></div>
+                  <span className="text-gg-gray-300 truncate max-w-[120px]" title={c.name}>
+                    {c.name.length > 15 ? c.name.substring(0, 15) + '...' : c.name}
+                  </span>
+                </div>
+              ))
+            ) : (
+              // Show status legend
+              <>
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full bg-green-500" style={{ opacity: 0.85 }}></div>
+                  <span className="text-gg-gray-300">Sold</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full bg-gg-pink" style={{ opacity: 0.85 }}></div>
+                  <span className="text-gg-gray-300">Listed</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full bg-yellow-500" style={{ opacity: 0.85 }}></div>
+                  <span className="text-gg-gray-300">Pending</span>
+                </div>
+              </>
+            )}
             <div className="text-gg-gray-500 ml-auto">
               ${priceRange.min.toLocaleString()} - ${priceRange.max.toLocaleString()}/acre
             </div>
@@ -385,7 +430,12 @@ export default function AdminDashboard() {
             </div>
           ) : (
             <div className="rounded-xl overflow-hidden">
-              <MapComponent listings={mapListings} priceRange={priceRange} />
+              <MapComponent
+                listings={mapListings}
+                priceRange={priceRange}
+                colorByCompany={colorByCompany}
+                companyColors={companyColors}
+              />
             </div>
           )}
         </div>

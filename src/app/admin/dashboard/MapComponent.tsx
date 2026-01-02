@@ -25,9 +25,27 @@ interface MapListing {
 interface MapComponentProps {
   listings: MapListing[]
   priceRange: { min: number; max: number }
+  colorByCompany?: boolean
+  companyColors?: Record<string, string>
 }
 
-export default function MapComponent({ listings, priceRange }: MapComponentProps) {
+// Predefined set of distinct colors for companies
+const COMPANY_COLORS = [
+  '#f58cde', // Pink (Ground Goat)
+  '#3b82f6', // Blue
+  '#22c55e', // Green
+  '#f59e0b', // Amber
+  '#8b5cf6', // Purple
+  '#ef4444', // Red
+  '#14b8a6', // Teal
+  '#f97316', // Orange
+  '#6366f1', // Indigo
+  '#ec4899', // Pink dark
+  '#84cc16', // Lime
+  '#06b6d4', // Cyan
+]
+
+export default function MapComponent({ listings, priceRange, colorByCompany = false, companyColors = {} }: MapComponentProps) {
   // Calculate circle radius based on price per acre
   // For "listed" status, use standard size (6px)
   // Below $8k = small (3-5px), $8k-$12k = medium (5-8px), $12k-$20k = large (8-12px), $20k+ = extra large (12-16px)
@@ -57,9 +75,20 @@ export default function MapComponent({ listings, priceRange }: MapComponentProps
     }
   }
 
-  // Get color based on status
-  const getColor = (status: string): string => {
-    switch (status) {
+  // Get color based on status or company
+  const getColor = (listing: MapListing): string => {
+    if (colorByCompany && listing.companyId) {
+      // Use provided company colors or generate from list
+      if (companyColors[listing.companyId]) {
+        return companyColors[listing.companyId]
+      }
+      // Fallback to hash-based color selection
+      const hash = listing.companyId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0)
+      return COMPANY_COLORS[hash % COMPANY_COLORS.length]
+    }
+
+    // Color by status
+    switch (listing.status) {
       case 'sold':
         return '#22c55e' // green
       case 'pending':
@@ -135,16 +164,17 @@ export default function MapComponent({ listings, priceRange }: MapComponentProps
       />
       {listings.map((listing, index) => {
         const offset = getOffset(listing, index)
+        const markerColor = getColor(listing)
         return (
         <CircleMarker
           key={listing.id}
           center={[listing.lat + offset[0], listing.lng + offset[1]]}
           radius={getRadius(listing.pricePerAcre, listing.status)}
-          fillColor={getColor(listing.status)}
-          color={getColor(listing.status)}
+          fillColor={markerColor}
+          color={markerColor}
           weight={1}
-          opacity={0.8}
-          fillOpacity={0.5}
+          opacity={0.9}
+          fillOpacity={0.7}
         >
           <Popup>
             <div className="text-sm min-w-[200px]">
