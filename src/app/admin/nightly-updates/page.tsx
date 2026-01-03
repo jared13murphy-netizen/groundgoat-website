@@ -107,32 +107,48 @@ export default function NightlyUpdatesPage() {
 
   const runNightlyMonitor = async () => {
     setRunning(true)
+    const startTime = Date.now()
+    const initialReportCount = reports.length
+    const initialLatestReportId = reports[0]?.id
+
     try {
       const response = await fetchWithAuth(API_URL + '/api/admin/run-nightly-monitor', {
         method: 'POST'
       })
 
       if (response.ok) {
-        const data = await response.json()
-        // Show message that it's running in background
-        alert(data.message || 'Monitor started! Check back in a few minutes for results.')
-
-        // Poll for new reports every 30 seconds for up to 5 minutes
-        let pollCount = 0
-        const maxPolls = 10
+        // Poll for new reports every 10 seconds until a new report appears or timeout (15 minutes)
+        const maxWaitTime = 15 * 60 * 1000 // 15 minutes
         const pollInterval = setInterval(async () => {
-          pollCount++
-          await fetchReports()
+          try {
+            const reportsResponse = await fetchWithAuth(API_URL + '/api/admin/private-treaty-update-reports')
+            if (reportsResponse.ok) {
+              const data = await reportsResponse.json()
 
-          // Stop polling after max attempts
-          if (pollCount >= maxPolls) {
-            clearInterval(pollInterval)
-            setRunning(false)
+              // Check if we have a new report
+              const hasNewReport = data.length > initialReportCount ||
+                (data.length > 0 && data[0].id !== initialLatestReportId)
+
+              if (hasNewReport) {
+                // New report found! Update state and stop polling
+                setReports(data)
+                setSelectedReport(data[0])
+                clearInterval(pollInterval)
+                setRunning(false)
+                return
+              }
+
+              // Check for timeout
+              if (Date.now() - startTime > maxWaitTime) {
+                clearInterval(pollInterval)
+                setRunning(false)
+                alert('Monitor is taking longer than expected. Check back later for results.')
+              }
+            }
+          } catch (err) {
+            console.error('Error polling for reports:', err)
           }
-        }, 30000) // 30 seconds
-
-        // Also stop the spinner after first poll
-        setTimeout(() => setRunning(false), 2000)
+        }, 10000) // Poll every 10 seconds
       } else {
         const error = await response.json()
         alert(`Failed to run monitor: ${error.detail || 'Unknown error'}`)
