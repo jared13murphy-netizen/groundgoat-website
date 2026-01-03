@@ -724,10 +724,20 @@ export default function BatchScraperPage() {
                                     </p>
                                   )}
                                   {result.details.listing_type === 'auction' && result.details.auction_datetime && (
-                                    <p>
-                                      <span className="text-gg-gray-500">Auction:</span>{' '}
-                                      <span className="text-gg-gray-300">{result.details.auction_datetime}</span>
-                                    </p>
+                                    <>
+                                      <p>
+                                        <span className="text-gg-gray-500">Auction Date:</span>{' '}
+                                        <span className="text-gg-gray-300">
+                                          {new Date(result.details.auction_datetime).toLocaleDateString()}
+                                        </span>
+                                      </p>
+                                      <p>
+                                        <span className="text-gg-gray-500">Auction Time:</span>{' '}
+                                        <span className="text-gg-gray-300">
+                                          {new Date(result.details.auction_datetime).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                                        </span>
+                                      </p>
+                                    </>
                                   )}
                                   {result.details.listing_type === 'private_treaty' && result.details.asking_price && (
                                     <p>
