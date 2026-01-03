@@ -27,6 +27,9 @@ import countyCentroids from '@/data/countyCentroids'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
+// Temporary button for one-time scripts
+const SHOW_SOLD_ACRES_BUTTON = true
+
 // Dynamically import map to avoid SSR issues
 const MapComponent = dynamic(() => import('./MapComponent'), { 
   ssr: false,
@@ -88,6 +91,29 @@ export default function AdminDashboard() {
   const [dateFrom, setDateFrom] = useState<string>('')
   const [dateTo, setDateTo] = useState<string>('')
   const [mapLoading, setMapLoading] = useState(true)
+  const [soldAcresRunning, setSoldAcresRunning] = useState(false)
+  const [soldAcresResult, setSoldAcresResult] = useState<string | null>(null)
+
+  const runSoldAcresUpdate = async () => {
+    setSoldAcresRunning(true)
+    setSoldAcresResult(null)
+    try {
+      const response = await fetchWithAuth(API_URL + '/api/admin/update-sold-acres', {
+        method: 'POST'
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setSoldAcresResult(`Updated ${data.listings_updated} listings, marked ${data.tracts_marked_sold} tracts as sold`)
+      } else {
+        const error = await response.json()
+        setSoldAcresResult(`Error: ${error.detail || 'Unknown error'}`)
+      }
+    } catch (err) {
+      setSoldAcresResult('Error: Failed to run update')
+    } finally {
+      setSoldAcresRunning(false)
+    }
+  }
 
   useEffect(() => {
     const token = localStorage.getItem('auth_token')
@@ -386,6 +412,42 @@ export default function AdminDashboard() {
             icon={<AlertCircle />}
           />
         </div>
+
+        {/* One-time Script Button */}
+        {SHOW_SOLD_ACRES_BUTTON && (
+          <div className="card mb-8">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-white">Update Sold Acres</h3>
+                <p className="text-sm text-gg-gray-400">
+                  Calculate and update sold_acres for sold auction listings based on tract data
+                </p>
+              </div>
+              <button
+                onClick={runSoldAcresUpdate}
+                disabled={soldAcresRunning}
+                className="btn-primary flex items-center gap-2 disabled:opacity-50"
+              >
+                {soldAcresRunning ? (
+                  <>
+                    <Loader2 className="animate-spin" size={18} />
+                    Running...
+                  </>
+                ) : (
+                  <>
+                    <ClipboardList size={18} />
+                    Run Update
+                  </>
+                )}
+              </button>
+            </div>
+            {soldAcresResult && (
+              <div className={`mt-4 p-3 rounded-lg ${soldAcresResult.startsWith('Error') ? 'bg-red-900/50 text-red-300' : 'bg-green-900/50 text-green-300'}`}>
+                {soldAcresResult}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Listings Map */}
         <div className="card">
