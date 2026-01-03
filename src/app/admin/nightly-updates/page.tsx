@@ -33,6 +33,7 @@ interface UpdateItem {
   listing_id: string
   county: string
   state: string
+  company_name?: string
   source_url: string
   changes: Change[]
   confidence: string
