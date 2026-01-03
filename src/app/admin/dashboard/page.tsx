@@ -28,7 +28,7 @@ import countyCentroids from '@/data/countyCentroids'
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
 // Temporary button for one-time scripts
-const SHOW_SOLD_ACRES_BUTTON = true
+const SHOW_SOLD_ACRES_BUTTON = false
 
 // Dynamically import map to avoid SSR issues
 const MapComponent = dynamic(() => import('./MapComponent'), { 
