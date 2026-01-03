@@ -484,7 +484,7 @@ export default function BatchScraperPage() {
               <div className="grid grid-cols-2 gap-4 mb-6">
                 <div className="bg-green-500/20 rounded-lg p-4">
                   <div className="text-2xl font-bold text-green-400">{landUrls.length}</div>
-                  <div className="text-sm text-green-300">Land Listings Found</div>
+                  <div className="text-sm text-green-300">New Land Listings Found</div>
                 </div>
                 <div className="bg-gg-gray-800 rounded-lg p-4">
                   <div className="text-2xl font-bold text-gg-gray-400">{excludedUrls.length}</div>
@@ -509,7 +509,7 @@ export default function BatchScraperPage() {
                 <div className="p-4 border-b border-gg-gray-800 flex items-center justify-between">
                   <h3 className="font-semibold text-white flex items-center gap-2">
                     <MapPin className="text-green-400" size={18} />
-                    Land Listings ({landUrls.length})
+                    New Land Listings ({landUrls.length})
                   </h3>
                 </div>
                 <div className="max-h-96 overflow-y-auto divide-y divide-gg-gray-800">
