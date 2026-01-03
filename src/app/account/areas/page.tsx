@@ -144,6 +144,10 @@ export default function MyAreasPage() {
     setError('')
     try {
       const subscriptionType = selectedCounty ? 'county' : 'state'
+      // Check if this is an upgrade from county to state (county subscriber adding state)
+      const hasCountySubscription = areasData?.areas?.some(a => a.subscription_type === 'county' && a.status === 'active')
+      const isUpgrade = subscriptionType === 'state' && hasCountySubscription
+
       const response = await fetch(`${API_URL}/api/subscriptions/checkout`, {
         method: 'POST',
         headers: {
@@ -154,7 +158,8 @@ export default function MyAreasPage() {
           subscription_type: subscriptionType,
           state: selectedState,
           county: selectedCounty || null,
-          billing_cycle: 'monthly'
+          billing_cycle: 'monthly',
+          is_upgrade: isUpgrade
         })
       })
       if (!response.ok) {
