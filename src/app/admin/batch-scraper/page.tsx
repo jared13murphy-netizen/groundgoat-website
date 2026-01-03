@@ -34,12 +34,28 @@ interface DiscoveredUrl {
   method?: string
 }
 
+interface ScrapeResultDetails {
+  title?: string
+  listing_type?: string
+  total_acres?: number
+  county?: string
+  state?: string
+  company_name?: string
+  asking_price?: number
+  auction_datetime?: string
+  primary_image_url?: string
+  tracts?: Array<{ tract_number?: string; acres?: number }>
+}
+
 interface ScrapeResult {
   url: string
   success: boolean
   duplicate?: boolean
   error?: string
   listing_id?: string
+  details?: ScrapeResultDetails
+  verified?: boolean
+  verifying?: boolean
 }
 
 type Phase = 'input' | 'discovering' | 'review' | 'checking' | 'scraping' | 'complete'
@@ -239,6 +255,38 @@ export default function BatchScraperPage() {
 
   const removeUrl = (urlToRemove: string) => {
     setLandUrls(prev => prev.filter(u => u.url !== urlToRemove))
+  }
+
+  const handleVerify = async (resultIndex: number) => {
+    const result = scrapeResults[resultIndex]
+    if (!result.listing_id) return
+
+    // Set verifying state
+    setScrapeResults(prev => prev.map((r, idx) =>
+      idx === resultIndex ? { ...r, verifying: true } : r
+    ))
+
+    try {
+      const response = await fetchWithAuth(`${API_URL}/api/listings/${result.listing_id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ verified: true }),
+      })
+
+      if (response.ok) {
+        setScrapeResults(prev => prev.map((r, idx) =>
+          idx === resultIndex ? { ...r, verified: true, verifying: false } : r
+        ))
+      } else {
+        setScrapeResults(prev => prev.map((r, idx) =>
+          idx === resultIndex ? { ...r, verifying: false } : r
+        ))
+      }
+    } catch (err) {
+      setScrapeResults(prev => prev.map((r, idx) =>
+        idx === resultIndex ? { ...r, verifying: false } : r
+      ))
+    }
   }
 
   const ignoreUrl = (urlToIgnore: string) => {
@@ -611,24 +659,171 @@ export default function BatchScraperPage() {
                 <div className="p-4 border-b border-gg-gray-800">
                   <h3 className="font-semibold text-white">Scrape Results</h3>
                 </div>
-                <div className="max-h-96 overflow-y-auto divide-y divide-gg-gray-800">
+                <div className="divide-y divide-gg-gray-800">
                   {scrapeResults.map((result, idx) => (
-                    <div key={idx} className="p-3 flex items-center gap-3">
-                      {result.success ? (
-                        <CheckCircle className="text-green-400 flex-shrink-0" size={16} />
-                      ) : result.duplicate ? (
-                        <AlertTriangle className="text-yellow-400 flex-shrink-0" size={16} />
-                      ) : (
-                        <XCircle className="text-red-400 flex-shrink-0" size={16} />
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <div className="text-gg-gray-300 text-sm truncate">{result.url}</div>
-                        {result.error && (
-                          <div className="text-red-400 text-xs">{result.error}</div>
+                    <div key={idx} className="p-4">
+                      <div className="flex items-start gap-3">
+                        {result.success ? (
+                          <CheckCircle className="text-green-400 flex-shrink-0 mt-1" size={18} />
+                        ) : result.duplicate ? (
+                          <AlertTriangle className="text-yellow-400 flex-shrink-0 mt-1" size={18} />
+                        ) : (
+                          <XCircle className="text-red-400 flex-shrink-0 mt-1" size={18} />
                         )}
-                        {result.listing_id && (
-                          <div className="text-green-400 text-xs">Created listing</div>
-                        )}
+
+                        <div className="flex-1 min-w-0">
+                          {/* URL */}
+                          <div className="text-gg-gray-400 text-xs truncate mb-2">{result.url}</div>
+
+                          {result.error && (
+                            <div className="text-red-400 text-sm">{result.error}</div>
+                          )}
+
+                          {result.success && result.details && (
+                            <div className="flex gap-4">
+                              {/* Image thumbnail */}
+                              {result.details.primary_image_url && (
+                                <div className="flex-shrink-0">
+                                  <img
+                                    src={result.details.primary_image_url}
+                                    alt="Listing"
+                                    className="w-24 h-24 object-cover rounded-lg border border-gg-gray-700"
+                                  />
+                                </div>
+                              )}
+
+                              {/* Listing details */}
+                              <div className="flex-1 min-w-0">
+                                {result.details.title && (
+                                  <p className="text-white font-medium text-sm mb-2 line-clamp-2">{result.details.title}</p>
+                                )}
+
+                                <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                                  <p>
+                                    <span className="text-gg-gray-500">Type:</span>{' '}
+                                    <span className="text-gg-gray-300">
+                                      {result.details.listing_type === 'auction' ? 'Auction' : 'Private Treaty'}
+                                    </span>
+                                  </p>
+                                  {result.details.total_acres && (
+                                    <p>
+                                      <span className="text-gg-gray-500">Acres:</span>{' '}
+                                      <span className="text-gg-gray-300">{result.details.total_acres}</span>
+                                    </p>
+                                  )}
+                                  {result.details.county && result.details.state && (
+                                    <p>
+                                      <span className="text-gg-gray-500">Location:</span>{' '}
+                                      <span className="text-gg-gray-300">{result.details.county} County, {result.details.state}</span>
+                                    </p>
+                                  )}
+                                  {result.details.company_name && (
+                                    <p>
+                                      <span className="text-gg-gray-500">Company:</span>{' '}
+                                      <span className="text-gg-gray-300">{result.details.company_name}</span>
+                                    </p>
+                                  )}
+                                  {result.details.listing_type === 'auction' && result.details.auction_datetime && (
+                                    <p>
+                                      <span className="text-gg-gray-500">Auction:</span>{' '}
+                                      <span className="text-gg-gray-300">{result.details.auction_datetime}</span>
+                                    </p>
+                                  )}
+                                  {result.details.listing_type === 'private_treaty' && result.details.asking_price && (
+                                    <p>
+                                      <span className="text-gg-gray-500">Price:</span>{' '}
+                                      <span className="text-gg-gray-300">${result.details.asking_price.toLocaleString()}</span>
+                                    </p>
+                                  )}
+                                </div>
+
+                                {/* Tracts */}
+                                {result.details.tracts && result.details.tracts.length > 0 && (
+                                  <div className="mt-2 pt-2 border-t border-gg-gray-700">
+                                    <p className="text-xs text-gg-gray-500 mb-1">Tracts ({result.details.tracts.length}):</p>
+                                    <div className="flex flex-wrap gap-2">
+                                      {result.details.tracts.slice(0, 5).map((tract, i) => (
+                                        <div key={i} className="text-xs bg-gg-gray-800 px-2 py-1 rounded">
+                                          <span className="text-white">#{tract.tract_number || i + 1}</span>
+                                          {tract.acres && (
+                                            <span className="text-gg-gray-400 ml-1">{tract.acres} ac</span>
+                                          )}
+                                        </div>
+                                      ))}
+                                      {result.details.tracts.length > 5 && (
+                                        <span className="text-xs text-gg-gray-500">+{result.details.tracts.length - 5} more</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Actions */}
+                                <div className="flex items-center gap-3 mt-3">
+                                  {result.listing_id && (
+                                    <Link
+                                      href={`/admin/listings/${result.listing_id}`}
+                                      className="text-gg-pink hover:underline text-xs"
+                                    >
+                                      View Listing →
+                                    </Link>
+                                  )}
+                                  <a
+                                    href={result.url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-gg-gray-400 hover:text-white text-xs"
+                                  >
+                                    View Source ↗
+                                  </a>
+                                </div>
+                              </div>
+
+                              {/* Verify button */}
+                              {result.listing_id && (
+                                <div className="flex-shrink-0">
+                                  <button
+                                    onClick={() => handleVerify(idx)}
+                                    disabled={result.verifying || result.verified}
+                                    className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm ${
+                                      result.verified
+                                        ? 'bg-green-500/20 text-green-400'
+                                        : 'bg-gg-gray-800 text-white hover:bg-gg-gray-700'
+                                    } disabled:opacity-50`}
+                                  >
+                                    {result.verifying ? (
+                                      <Loader2 size={16} className="animate-spin" />
+                                    ) : (
+                                      <CheckCircle size={16} />
+                                    )}
+                                    {result.verified ? 'Verified' : 'Verify'}
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {result.success && !result.details && result.listing_id && (
+                            <div className="flex items-center justify-between">
+                              <div className="text-green-400 text-sm">Created listing</div>
+                              <button
+                                onClick={() => handleVerify(idx)}
+                                disabled={result.verifying || result.verified}
+                                className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm ${
+                                  result.verified
+                                    ? 'bg-green-500/20 text-green-400'
+                                    : 'bg-gg-gray-800 text-white hover:bg-gg-gray-700'
+                                } disabled:opacity-50`}
+                              >
+                                {result.verifying ? (
+                                  <Loader2 size={16} className="animate-spin" />
+                                ) : (
+                                  <CheckCircle size={16} />
+                                )}
+                                {result.verified ? 'Verified' : 'Verify'}
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   ))}
