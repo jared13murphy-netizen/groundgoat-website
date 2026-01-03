@@ -357,6 +357,9 @@ export default function NightlyUpdatesPage() {
                                 <h4 className="text-white font-medium">
                                   {item.county} County, {item.state}
                                 </h4>
+                                {item.company_name && (
+                                  <p className="text-sm text-gg-pink">{item.company_name}</p>
+                                )}
                                 <div className="flex items-center gap-2 mt-1">
                                   <span className={`text-xs px-2 py-0.5 rounded-full ${
                                     item.confidence === 'high'

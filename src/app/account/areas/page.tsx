@@ -318,60 +318,109 @@ export default function MyAreasPage() {
                 </div>
               </div>
 
-              {selectedState && (
-                <div className="mb-6">
-                  <label className="block text-sm font-medium text-gg-gray-300 mb-2">County (optional)</label>
-                  <div className="relative">
-                    <button
-                      onClick={() => setShowCountyDropdown(!showCountyDropdown)}
-                      className="w-full bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-4 py-3 text-left text-white flex items-center justify-between"
-                    >
-                      <span className={selectedCounty ? 'text-white' : 'text-gg-gray-500'}>
-                        {selectedCounty || 'All counties (state subscription)'}
-                      </span>
-                      <ChevronDown size={20} className="text-gg-gray-500" />
-                    </button>
-                    {showCountyDropdown && (
-                      <div className="absolute z-10 w-full mt-1 bg-gg-gray-800 border border-gg-gray-700 rounded-lg shadow-xl max-h-60 overflow-y-auto">
-                        <button
-                          onClick={() => {
-                            setSelectedCounty('')
-                            setShowCountyDropdown(false)
-                          }}
-                          className="w-full px-4 py-3 text-left text-gg-gray-300 hover:bg-gg-gray-700 hover:text-white"
-                        >
-                          All counties (state subscription)
-                        </button>
-                        {loadingCounties ? (
-                          <div className="px-4 py-3 text-gg-gray-400 flex items-center gap-2">
-                            <Loader2 size={16} className="animate-spin" />
-                            Loading...
-                          </div>
-                        ) : availableCounties.map(county => (
-                          <button
-                            key={county}
-                            onClick={() => {
-                              setSelectedCounty(county)
-                              setShowCountyDropdown(false)
-                            }}
-                            className="w-full px-4 py-3 text-left text-gg-gray-300 hover:bg-gg-gray-700 hover:text-white"
-                          >
-                            {county}
-                          </button>
-                        ))}
+              {selectedState && (() => {
+                const hasStateSubscription = areasData?.areas?.some(a => a.subscription_type === 'state' && a.status === 'active')
+                const hasCountySubscription = areasData?.areas?.some(a => a.subscription_type === 'county' && a.status === 'active')
+
+                // If user already has a state subscription, they can only add more states
+                if (hasStateSubscription) {
+                  return (
+                    <div className="mb-6">
+                      <div className="bg-gg-gray-800 rounded-lg p-4 border border-gg-gray-700">
+                        <p className="text-white font-medium">Add {selectedState} state subscription</p>
+                        <p className="text-gg-pink text-lg font-semibold mt-1">$12.99/mo</p>
+                        <p className="text-xs text-gg-gray-400 mt-2">
+                          Access to all counties in {selectedState}
+                        </p>
                       </div>
-                    )}
+                    </div>
+                  )
+                }
+
+                // If user has county subscription(s), show both options
+                return (
+                  <div className="mb-6">
+                    <label className="block text-sm font-medium text-gg-gray-300 mb-2">Subscription Type</label>
+                    <div className="space-y-3">
+                      {/* County option */}
+                      <button
+                        onClick={() => setShowCountyDropdown(!showCountyDropdown)}
+                        className={`w-full bg-gg-gray-800 border rounded-lg px-4 py-3 text-left transition-colors ${
+                          selectedCounty ? 'border-gg-pink' : 'border-gg-gray-700 hover:border-gg-gray-600'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-white font-medium">
+                              {selectedCounty ? `${selectedCounty} County` : 'Select a county'}
+                            </p>
+                            <p className="text-gg-pink text-sm">$3.99/mo per county</p>
+                          </div>
+                          <ChevronDown size={20} className="text-gg-gray-500" />
+                        </div>
+                      </button>
+                      {showCountyDropdown && (
+                        <div className="bg-gg-gray-800 border border-gg-gray-700 rounded-lg shadow-xl max-h-48 overflow-y-auto">
+                          {loadingCounties ? (
+                            <div className="px-4 py-3 text-gg-gray-400 flex items-center gap-2">
+                              <Loader2 size={16} className="animate-spin" />
+                              Loading counties...
+                            </div>
+                          ) : availableCounties.map(county => (
+                            <button
+                              key={county}
+                              onClick={() => {
+                                setSelectedCounty(county)
+                                setShowCountyDropdown(false)
+                              }}
+                              className="w-full px-4 py-3 text-left text-gg-gray-300 hover:bg-gg-gray-700 hover:text-white"
+                            >
+                              {county}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Divider */}
+                      <div className="flex items-center gap-3 py-2">
+                        <div className="flex-1 border-t border-gg-gray-700"></div>
+                        <span className="text-xs text-gg-gray-500 uppercase">or</span>
+                        <div className="flex-1 border-t border-gg-gray-700"></div>
+                      </div>
+
+                      {/* State option */}
+                      <button
+                        onClick={() => {
+                          setSelectedCounty('')
+                          setShowCountyDropdown(false)
+                        }}
+                        className={`w-full bg-gg-gray-800 border rounded-lg px-4 py-3 text-left transition-colors ${
+                          !selectedCounty && selectedState ? 'border-gg-pink' : 'border-gg-gray-700 hover:border-gg-gray-600'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-white font-medium">Entire {selectedState} state</p>
+                            <p className="text-gg-pink text-sm">$39.99/mo (all counties included)</p>
+                          </div>
+                          {!selectedCounty && selectedState && (
+                            <div className="w-5 h-5 bg-gg-pink rounded-full flex items-center justify-center">
+                              <svg className="w-3 h-3 text-black" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                              </svg>
+                            </div>
+                          )}
+                        </div>
+                        {hasCountySubscription && !selectedCounty && (
+                          <p className="text-xs text-yellow-400 mt-2">
+                            Note: This will replace your existing county subscription(s)
+                          </p>
+                        )}
+                      </button>
+                    </div>
                   </div>
-                  <p className="text-xs text-gg-gray-500 mt-2">
-                    {selectedCounty
-                      ? 'County subscription: $3.99/mo additional'
-                      : areasData?.areas?.some(a => a.subscription_type === 'state' && a.status === 'active')
-                        ? 'Additional state subscription: $12.99/mo'
-                        : 'State subscription: $39.99/mo (includes all counties)'
-                    }
-                  </p>
-                </div>
-              )}
+                )
+              })()}
 
               {error && showAddModal && (
                 <p className="text-red-400 text-sm mb-4">{error}</p>
