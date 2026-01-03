@@ -78,6 +78,10 @@ export default function BatchScraperPage() {
   const [landUrls, setLandUrls] = useState<DiscoveredUrl[]>([])
   const [excludedUrls, setExcludedUrls] = useState<DiscoveredUrl[]>([])
   const [showExcluded, setShowExcluded] = useState(false)
+  const [discoverySummary, setDiscoverySummary] = useState<{
+    totalListings: number
+    alreadyExist: number
+  } | null>(null)
 
   // Check phase - URLs after deduplication
   const [newUrls, setNewUrls] = useState<string[]>([])
@@ -176,6 +180,15 @@ export default function BatchScraperPage() {
 
       setLandUrls(filteredLandUrls)
       setExcludedUrls([...ignoredFromResults, ...(data.excluded_urls || [])])
+
+      // Store discovery summary for display
+      if (data.summary) {
+        setDiscoverySummary({
+          totalListings: data.summary.listing_cards || 0,
+          alreadyExist: data.summary.already_exist || 0
+        })
+      }
+
       setPhase('review')
 
     } catch (err: any) {
@@ -316,6 +329,7 @@ export default function BatchScraperPage() {
     setParentUrl('')
     setLandUrls([])
     setExcludedUrls([])
+    setDiscoverySummary(null)
     setNewUrls([])
     setExistingUrls([])
     setScrapeResults([])
@@ -481,6 +495,21 @@ export default function BatchScraperPage() {
             {/* Summary */}
             <div className="bg-gg-gray-900 rounded-xl p-6 border border-gg-gray-800">
               <h2 className="text-lg font-semibold text-white mb-4">Discovery Results</h2>
+
+              {/* Total listings info */}
+              {discoverySummary && (
+                <div className="bg-gg-gray-800/50 rounded-lg px-4 py-3 mb-4 text-sm">
+                  <span className="text-gg-gray-300">
+                    Found <span className="text-white font-semibold">{discoverySummary.totalListings}</span> total listings on page
+                  </span>
+                  {discoverySummary.alreadyExist > 0 && (
+                    <span className="text-gg-gray-400">
+                      {' '}— <span className="text-blue-400">{discoverySummary.alreadyExist}</span> already in database
+                    </span>
+                  )}
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-4 mb-6">
                 <div className="bg-green-500/20 rounded-lg p-4">
                   <div className="text-2xl font-bold text-green-400">{landUrls.length}</div>
