@@ -17,7 +17,10 @@ import {
   ChevronDown,
   ChevronUp,
   ExternalLink,
-  Trash2
+  Trash2,
+  Ban,
+  Gavel,
+  FileText
 } from 'lucide-react'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
@@ -27,6 +30,8 @@ interface DiscoveredUrl {
   url: string
   text: string
   reason: string
+  image_url?: string
+  method?: string
 }
 
 interface ScrapeResult {
@@ -47,6 +52,11 @@ export default function BatchScraperPage() {
   // Input phase
   const [parentUrl, setParentUrl] = useState('')
   const [maxPages, setMaxPages] = useState(10)
+  const [allListingsAreLand, setAllListingsAreLand] = useState(false)
+  const [listingType, setListingType] = useState<'auction' | 'private_treaty'>('auction')
+
+  // Ignored URLs (persisted to localStorage)
+  const [ignoredUrls, setIgnoredUrls] = useState<string[]>([])
 
   // Discovery phase
   const [landUrls, setLandUrls] = useState<DiscoveredUrl[]>([])
@@ -70,6 +80,18 @@ export default function BatchScraperPage() {
   } | null>(null)
 
   const [error, setError] = useState<string | null>(null)
+
+  // Load ignored URLs from localStorage on mount
+  useEffect(() => {
+    const stored = localStorage.getItem('batch_scraper_ignored_urls')
+    if (stored) {
+      try {
+        setIgnoredUrls(JSON.parse(stored))
+      } catch (e) {
+        console.error('Failed to parse ignored URLs:', e)
+      }
+    }
+  }, [])
 
   useEffect(() => {
     const token = localStorage.getItem('auth_token')
@@ -110,7 +132,12 @@ export default function BatchScraperPage() {
       const response = await fetch(SCRAPER_URL + '/api/batch-discover', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: parentUrl.trim(), max_pages: maxPages })
+        body: JSON.stringify({
+          url: parentUrl.trim(),
+          max_pages: maxPages,
+          all_land: allListingsAreLand,
+          listing_type: listingType
+        })
       })
 
       const data = await response.json()
@@ -119,8 +146,20 @@ export default function BatchScraperPage() {
         throw new Error(data.error || 'Discovery failed')
       }
 
-      setLandUrls(data.land_urls || [])
-      setExcludedUrls(data.excluded_urls || [])
+      // Filter out ignored URLs from land_urls
+      const filteredLandUrls = (data.land_urls || []).filter(
+        (item: DiscoveredUrl) => !ignoredUrls.includes(item.url)
+      )
+      // Add ignored URLs to excluded list
+      const ignoredFromResults = (data.land_urls || []).filter(
+        (item: DiscoveredUrl) => ignoredUrls.includes(item.url)
+      ).map((item: DiscoveredUrl) => ({
+        ...item,
+        reason: 'Ignored by user'
+      }))
+
+      setLandUrls(filteredLandUrls)
+      setExcludedUrls([...ignoredFromResults, ...(data.excluded_urls || [])])
       setPhase('review')
 
     } catch (err: any) {
@@ -179,7 +218,7 @@ export default function BatchScraperPage() {
       const response = await fetch(SCRAPER_URL + '/api/batch-scrape', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ urls })
+        body: JSON.stringify({ urls, listing_type: listingType })
       })
 
       const data = await response.json()
@@ -200,6 +239,28 @@ export default function BatchScraperPage() {
 
   const removeUrl = (urlToRemove: string) => {
     setLandUrls(prev => prev.filter(u => u.url !== urlToRemove))
+  }
+
+  const ignoreUrl = (urlToIgnore: string) => {
+    // Add to ignored list and persist
+    const newIgnored = [...ignoredUrls, urlToIgnore]
+    setIgnoredUrls(newIgnored)
+    localStorage.setItem('batch_scraper_ignored_urls', JSON.stringify(newIgnored))
+
+    // Move from land URLs to excluded URLs
+    const urlItem = landUrls.find(u => u.url === urlToIgnore)
+    if (urlItem) {
+      setLandUrls(prev => prev.filter(u => u.url !== urlToIgnore))
+      setExcludedUrls(prev => [{
+        ...urlItem,
+        reason: 'Ignored by user'
+      }, ...prev])
+    }
+  }
+
+  const clearIgnoredUrls = () => {
+    setIgnoredUrls([])
+    localStorage.removeItem('batch_scraper_ignored_urls')
   }
 
   const resetScraper = () => {
@@ -270,20 +331,79 @@ export default function BatchScraperPage() {
                 />
               </div>
 
-              <div>
-                <label className="block text-sm text-gg-gray-300 mb-2">Max Pages to Scan</label>
-                <select
-                  value={maxPages}
-                  onChange={(e) => setMaxPages(Number(e.target.value))}
-                  className="bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-gg-pink"
-                >
-                  <option value={1}>1 page</option>
-                  <option value={3}>3 pages</option>
-                  <option value={5}>5 pages</option>
-                  <option value={10}>10 pages</option>
-                  <option value={20}>20 pages</option>
-                </select>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm text-gg-gray-300 mb-2">Listing Type</label>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setListingType('auction')}
+                      className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg border transition-colors ${
+                        listingType === 'auction'
+                          ? 'bg-gg-pink/20 border-gg-pink text-gg-pink'
+                          : 'bg-gg-gray-800 border-gg-gray-700 text-gg-gray-400 hover:border-gg-gray-600'
+                      }`}
+                    >
+                      <Gavel size={18} />
+                      Auction
+                    </button>
+                    <button
+                      onClick={() => setListingType('private_treaty')}
+                      className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg border transition-colors ${
+                        listingType === 'private_treaty'
+                          ? 'bg-gg-pink/20 border-gg-pink text-gg-pink'
+                          : 'bg-gg-gray-800 border-gg-gray-700 text-gg-gray-400 hover:border-gg-gray-600'
+                      }`}
+                    >
+                      <FileText size={18} />
+                      Private Treaty
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm text-gg-gray-300 mb-2">Max Pages to Scan</label>
+                  <select
+                    value={maxPages}
+                    onChange={(e) => setMaxPages(Number(e.target.value))}
+                    className="w-full bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-gg-pink"
+                  >
+                    <option value={1}>1 page</option>
+                    <option value={3}>3 pages</option>
+                    <option value={5}>5 pages</option>
+                    <option value={10}>10 pages</option>
+                    <option value={20}>20 pages</option>
+                  </select>
+                </div>
               </div>
+
+              <div className="flex items-center gap-3">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={allListingsAreLand}
+                    onChange={(e) => setAllListingsAreLand(e.target.checked)}
+                    className="w-5 h-5 rounded border-gg-gray-600 bg-gg-gray-800 text-gg-pink focus:ring-gg-pink focus:ring-offset-0"
+                  />
+                  <span className="text-white">All listings are Land</span>
+                </label>
+                <span className="text-gg-gray-500 text-sm">
+                  (Skip classification - saves API credits)
+                </span>
+              </div>
+
+              {ignoredUrls.length > 0 && (
+                <div className="flex items-center justify-between bg-gg-gray-800 rounded-lg px-4 py-3">
+                  <span className="text-gg-gray-400 text-sm">
+                    {ignoredUrls.length} URL{ignoredUrls.length !== 1 ? 's' : ''} in ignore list
+                  </span>
+                  <button
+                    onClick={clearIgnoredUrls}
+                    className="text-red-400 hover:text-red-300 text-sm underline"
+                  >
+                    Clear ignore list
+                  </button>
+                </div>
+              )}
 
               <button
                 onClick={discoverUrls}
@@ -358,12 +478,21 @@ export default function BatchScraperPage() {
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-gg-gray-400 hover:text-gg-pink p-1"
+                        title="Open in new tab"
                       >
                         <ExternalLink size={14} />
                       </a>
                       <button
+                        onClick={() => ignoreUrl(item.url)}
+                        className="text-gg-gray-400 hover:text-yellow-400 p-1"
+                        title="Ignore this URL permanently"
+                      >
+                        <Ban size={14} />
+                      </button>
+                      <button
                         onClick={() => removeUrl(item.url)}
                         className="text-gg-gray-400 hover:text-red-400 p-1"
+                        title="Remove from this batch only"
                       >
                         <Trash2 size={14} />
                       </button>
