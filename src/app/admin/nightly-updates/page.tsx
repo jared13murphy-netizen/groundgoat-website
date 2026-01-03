@@ -77,25 +77,31 @@ export default function NightlyUpdatesPage() {
       router.push('/signin')
       return
     }
-    fetchReports()
+    fetchReports(true)
   }, [router])
 
-  const fetchReports = async () => {
-    setLoading(true)
+  const fetchReports = async (isInitialLoad = false) => {
+    // Only show loading spinner on initial page load, not during polling
+    if (isInitialLoad) {
+      setLoading(true)
+    }
     try {
       const response = await fetchWithAuth(API_URL + '/api/admin/private-treaty-update-reports')
 
       if (response.ok) {
         const data = await response.json()
         setReports(data)
-        if (data.length > 0) {
+        // Only auto-select first report on initial load
+        if (isInitialLoad && data.length > 0) {
           setSelectedReport(data[0])
         }
       }
     } catch (err) {
       console.error('Failed to fetch reports:', err)
     } finally {
-      setLoading(false)
+      if (isInitialLoad) {
+        setLoading(false)
+      }
     }
   }
 
