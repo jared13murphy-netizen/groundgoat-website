@@ -912,7 +912,10 @@ export default function EditListingPage() {
                   <div key={tract.id || index} className="flex justify-between items-center p-3 bg-gg-gray-800 rounded-lg">
                     <div className="flex-1">
                       <span className="text-white font-medium">Tract {tract.tract_number || index + 1}</span>
-                      <span className="text-gg-gray-400 ml-4">{tract.total_acres} acres • {tract.land_type || 'N/A'}</span>
+                      <span className="text-gg-gray-400 ml-4">
+                        {tract.total_acres} acres • {tract.land_type || 'N/A'}
+                        {tract.price_per_acre ? ` • $${tract.price_per_acre.toLocaleString()}/acre` : ''}
+                      </span>
                     </div>
                     <Link
                       href={`/admin/tracts/${tract.id}`}
