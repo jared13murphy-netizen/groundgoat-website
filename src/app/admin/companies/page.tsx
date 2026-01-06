@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Loader2, Pencil, Trash2, Building2, ArrowLeft, ExternalLink } from 'lucide-react'
+import { Loader2, Pencil, Trash2, Building2, ArrowLeft, ExternalLink, Plus, X } from 'lucide-react'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -19,10 +19,33 @@ interface Company {
   latest_listing_date?: string
 }
 
+const US_STATES = [
+  "Alabama", "Alaska", "Arizona", "Arkansas", "California", "Colorado", "Connecticut", "Delaware",
+  "Florida", "Georgia", "Hawaii", "Idaho", "Illinois", "Indiana", "Iowa", "Kansas", "Kentucky",
+  "Louisiana", "Maine", "Maryland", "Massachusetts", "Michigan", "Minnesota", "Mississippi",
+  "Missouri", "Montana", "Nebraska", "Nevada", "New Hampshire", "New Jersey", "New Mexico",
+  "New York", "North Carolina", "North Dakota", "Ohio", "Oklahoma", "Oregon", "Pennsylvania",
+  "Rhode Island", "South Carolina", "South Dakota", "Tennessee", "Texas", "Utah", "Vermont",
+  "Virginia", "Washington", "West Virginia", "Wisconsin", "Wyoming"
+]
+
 export default function AdminCompaniesPage() {
   const router = useRouter()
   const [companies, setCompanies] = useState<Company[]>([])
   const [loading, setLoading] = useState(true)
+  const [showAddModal, setShowAddModal] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [newCompany, setNewCompany] = useState({
+    name: '',
+    website: '',
+    city: '',
+    state: '',
+    phone: '',
+    email: '',
+    logo_url: '',
+    auction_list_url: '',
+    private_treaty_list_url: ''
+  })
 
   useEffect(() => {
     const token = localStorage.getItem('auth_token')
@@ -84,6 +107,47 @@ export default function AdminCompaniesPage() {
     }
   }
 
+  const handleAddCompany = async () => {
+    if (!newCompany.name.trim()) {
+      alert('Company name is required')
+      return
+    }
+
+    setSaving(true)
+    try {
+      const response = await fetchWithAuth(`${API_URL}/api/companies`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newCompany)
+      })
+
+      if (response.ok) {
+        const created = await response.json()
+        setCompanies(prev => [...prev, { ...created, listing_count: 0 }].sort((a, b) => a.name.localeCompare(b.name)))
+        setShowAddModal(false)
+        setNewCompany({
+          name: '',
+          website: '',
+          city: '',
+          state: '',
+          phone: '',
+          email: '',
+          logo_url: '',
+          auction_list_url: '',
+          private_treaty_list_url: ''
+        })
+      } else {
+        const error = await response.json()
+        alert(error.detail || 'Failed to create company')
+      }
+    } catch (err) {
+      console.error('Failed to create company:', err)
+      alert('Failed to create company')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const handleDelete = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation()
     e.preventDefault()
@@ -127,7 +191,137 @@ export default function AdminCompaniesPage() {
               <p className="text-gg-gray-400">{companies.length} auction companies</p>
             </div>
           </div>
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-gg-pink text-white rounded-lg hover:bg-gg-pink/80"
+          >
+            <Plus size={18} />
+            Add Company
+          </button>
         </div>
+
+        {/* Add Company Modal */}
+        {showAddModal && (
+          <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+            <div className="bg-gg-gray-900 rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+              <div className="flex items-center justify-between p-4 border-b border-gg-gray-800">
+                <h2 className="text-xl font-bold text-white">Add Company</h2>
+                <button onClick={() => setShowAddModal(false)} className="text-gg-gray-400 hover:text-white">
+                  <X size={24} />
+                </button>
+              </div>
+              <div className="p-4 space-y-4">
+                <div>
+                  <label className="block text-gg-gray-400 text-sm mb-1">Company Name *</label>
+                  <input
+                    type="text"
+                    value={newCompany.name}
+                    onChange={(e) => setNewCompany(prev => ({ ...prev, name: e.target.value }))}
+                    className="w-full bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-4 py-2 text-white"
+                    placeholder="e.g. Sullivan Auctioneers"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-gg-gray-400 text-sm mb-1">City</label>
+                    <input
+                      type="text"
+                      value={newCompany.city}
+                      onChange={(e) => setNewCompany(prev => ({ ...prev, city: e.target.value }))}
+                      className="w-full bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-4 py-2 text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-gg-gray-400 text-sm mb-1">State</label>
+                    <select
+                      value={newCompany.state}
+                      onChange={(e) => setNewCompany(prev => ({ ...prev, state: e.target.value }))}
+                      className="w-full bg-white border border-gg-gray-300 rounded-lg px-4 py-2 text-black"
+                    >
+                      <option value="">Select State</option>
+                      {US_STATES.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-gg-gray-400 text-sm mb-1">Website</label>
+                  <input
+                    type="url"
+                    value={newCompany.website}
+                    onChange={(e) => setNewCompany(prev => ({ ...prev, website: e.target.value }))}
+                    className="w-full bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-4 py-2 text-white"
+                    placeholder="https://example.com"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-gg-gray-400 text-sm mb-1">Phone</label>
+                    <input
+                      type="tel"
+                      value={newCompany.phone}
+                      onChange={(e) => setNewCompany(prev => ({ ...prev, phone: e.target.value }))}
+                      className="w-full bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-4 py-2 text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-gg-gray-400 text-sm mb-1">Email</label>
+                    <input
+                      type="email"
+                      value={newCompany.email}
+                      onChange={(e) => setNewCompany(prev => ({ ...prev, email: e.target.value }))}
+                      className="w-full bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-4 py-2 text-white"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-gg-gray-400 text-sm mb-1">Logo URL</label>
+                  <input
+                    type="url"
+                    value={newCompany.logo_url}
+                    onChange={(e) => setNewCompany(prev => ({ ...prev, logo_url: e.target.value }))}
+                    className="w-full bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-4 py-2 text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-gg-gray-400 text-sm mb-1">Auction List URL</label>
+                  <input
+                    type="url"
+                    value={newCompany.auction_list_url}
+                    onChange={(e) => setNewCompany(prev => ({ ...prev, auction_list_url: e.target.value }))}
+                    className="w-full bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-4 py-2 text-white"
+                    placeholder="URL to scrape auctions from"
+                  />
+                </div>
+                <div>
+                  <label className="block text-gg-gray-400 text-sm mb-1">Private Treaty List URL</label>
+                  <input
+                    type="url"
+                    value={newCompany.private_treaty_list_url}
+                    onChange={(e) => setNewCompany(prev => ({ ...prev, private_treaty_list_url: e.target.value }))}
+                    className="w-full bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-4 py-2 text-white"
+                    placeholder="URL to scrape private treaties from"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end gap-3 p-4 border-t border-gg-gray-800">
+                <button
+                  onClick={() => setShowAddModal(false)}
+                  className="px-4 py-2 bg-gg-gray-700 text-white rounded-lg hover:bg-gg-gray-600"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleAddCompany}
+                  disabled={saving}
+                  className="flex items-center gap-2 px-4 py-2 bg-gg-pink text-white rounded-lg hover:bg-gg-pink/80 disabled:opacity-50"
+                >
+                  {saving ? <Loader2 className="animate-spin" size={16} /> : <Plus size={16} />}
+                  {saving ? 'Creating...' : 'Create Company'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Companies List */}
         <div className="space-y-2">

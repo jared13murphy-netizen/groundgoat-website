@@ -5,7 +5,7 @@ import { useSearchParams } from 'next/navigation'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Loader2, Trash2, ChevronLeft, ChevronRight, MapPin, ArrowLeft, Filter, Pencil, CheckCircle, ExternalLink } from 'lucide-react'
+import { Loader2, Trash2, ChevronLeft, ChevronRight, MapPin, ArrowLeft, Filter, Pencil, CheckCircle, ExternalLink, Plus, X } from 'lucide-react'
 import { getCountiesForState } from '@/data/counties'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
@@ -48,6 +48,7 @@ interface Company {
 }
 
 const STATUS_OPTIONS = ['listed', 'live', 'pending', 'sold', 'no_sale']
+const LISTING_TYPES = ['auction', 'private_treaty']
 
 function AdminListingsPageContent() {
   const router = useRouter()
@@ -55,12 +56,12 @@ function AdminListingsPageContent() {
   const [listings, setListings] = useState<Listing[]>([])
   const [companies, setCompanies] = useState<Company[]>([])
   const [loading, setLoading] = useState(true)
-  
+
   // Pagination
   const [page, setPage] = useState(1)
   const [pageInput, setPageInput] = useState('1')
   const itemsPerPage = 50
-  
+
   // Filters
   const [filterCompany, setFilterCompany] = useState(searchParams.get('company') || '')
   const [filterState, setFilterState] = useState('')
@@ -71,8 +72,24 @@ function AdminListingsPageContent() {
   const [filterConfidence, setFilterConfidence] = useState('')
   const [showFilters, setShowFilters] = useState(false)
 
+  // Add listing modal
+  const [showAddModal, setShowAddModal] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [newListing, setNewListing] = useState({
+    listing_type: 'auction',
+    listing_company_id: '',
+    county: '',
+    state: '',
+    total_acres: '',
+    status: 'listed',
+    source_url: '',
+    auction_datetime: '',
+    asking_price: ''
+  })
+
   // Get counties for selected state
   const availableCounties = filterState ? getCountiesForState(filterState) : []
+  const newListingCounties = newListing.state ? getCountiesForState(newListing.state) : []
 
   useEffect(() => {
     checkAuth()
@@ -167,6 +184,49 @@ function AdminListingsPageContent() {
     }
   }
 
+  const handleAddListing = async () => {
+    if (!newListing.county || !newListing.state || !newListing.listing_company_id) {
+      alert('County, State, and Company are required')
+      return
+    }
+
+    setSaving(true)
+    try {
+      const payload: any = {
+        listing_type: newListing.listing_type,
+        listing_company_id: newListing.listing_company_id,
+        county: newListing.county,
+        state: newListing.state,
+        status: newListing.status,
+      }
+
+      if (newListing.total_acres) payload.total_acres = parseFloat(newListing.total_acres)
+      if (newListing.source_url) payload.source_url = newListing.source_url
+      if (newListing.auction_datetime) payload.auction_datetime = newListing.auction_datetime
+      if (newListing.asking_price) payload.asking_price = parseFloat(newListing.asking_price)
+
+      const response = await fetchWithAuth(`${API_URL}/api/listings`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+
+      if (response.ok) {
+        const created = await response.json()
+        // Redirect to the listing edit page so they can add more details and tracts
+        router.push(`/admin/listings/${created.id}`)
+      } else {
+        const error = await response.json()
+        alert(error.detail || 'Failed to create listing')
+      }
+    } catch (err) {
+      console.error('Failed to create listing:', err)
+      alert('Failed to create listing')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const handleQuickStatusChange = async (listingId: string, newStatus: string) => {
     try {
       const response = await fetchWithAuth(`${API_URL}/api/listings/${listingId}`, {
@@ -246,17 +306,169 @@ function AdminListingsPageContent() {
               <p className="text-gg-gray-400">{listings.length} listings</p>
             </div>
           </div>
-          <button
-            onClick={() => setShowFilters(!showFilters)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
-              showFilters || filterCompany || filterState || filterCounty || filterListingType || filterStatus || filterVerified || filterConfidence
-                ? 'bg-gg-pink text-white' : 'bg-gg-gray-800 text-white hover:bg-gg-gray-700'
-            }`}
-          >
-            <Filter size={16} />
-            Filters
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-gg-pink text-white rounded-lg hover:bg-gg-pink/80"
+            >
+              <Plus size={16} />
+              Add Listing
+            </button>
+            <button
+              onClick={() => setShowFilters(!showFilters)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+                showFilters || filterCompany || filterState || filterCounty || filterListingType || filterStatus || filterVerified || filterConfidence
+                  ? 'bg-gg-pink text-white' : 'bg-gg-gray-800 text-white hover:bg-gg-gray-700'
+              }`}
+            >
+              <Filter size={16} />
+              Filters
+            </button>
+          </div>
         </div>
+
+        {/* Add Listing Modal */}
+        {showAddModal && (
+          <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+            <div className="bg-gg-gray-900 rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+              <div className="flex items-center justify-between p-4 border-b border-gg-gray-800">
+                <h2 className="text-xl font-bold text-white">Add Listing</h2>
+                <button onClick={() => setShowAddModal(false)} className="text-gg-gray-400 hover:text-white">
+                  <X size={24} />
+                </button>
+              </div>
+              <div className="p-4 space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-gg-gray-400 text-sm mb-1">Listing Type *</label>
+                    <select
+                      value={newListing.listing_type}
+                      onChange={(e) => setNewListing(prev => ({ ...prev, listing_type: e.target.value }))}
+                      className="w-full bg-white border border-gg-gray-300 rounded-lg px-4 py-2 text-black"
+                    >
+                      {LISTING_TYPES.map(t => (
+                        <option key={t} value={t}>{t.replace('_', ' ')}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-gg-gray-400 text-sm mb-1">Company *</label>
+                    <select
+                      value={newListing.listing_company_id}
+                      onChange={(e) => setNewListing(prev => ({ ...prev, listing_company_id: e.target.value }))}
+                      className="w-full bg-white border border-gg-gray-300 rounded-lg px-4 py-2 text-black"
+                    >
+                      <option value="">Select Company</option>
+                      {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-gg-gray-400 text-sm mb-1">State *</label>
+                    <select
+                      value={newListing.state}
+                      onChange={(e) => setNewListing(prev => ({ ...prev, state: e.target.value, county: '' }))}
+                      className="w-full bg-white border border-gg-gray-300 rounded-lg px-4 py-2 text-black"
+                    >
+                      <option value="">Select State</option>
+                      {US_STATES.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-gg-gray-400 text-sm mb-1">County *</label>
+                    <select
+                      value={newListing.county}
+                      onChange={(e) => setNewListing(prev => ({ ...prev, county: e.target.value }))}
+                      disabled={!newListing.state}
+                      className="w-full bg-white border border-gg-gray-300 rounded-lg px-4 py-2 text-black disabled:opacity-50"
+                    >
+                      <option value="">{newListing.state ? 'Select County' : 'Select State First'}</option>
+                      {newListingCounties.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-gg-gray-400 text-sm mb-1">Total Acres</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={newListing.total_acres}
+                      onChange={(e) => setNewListing(prev => ({ ...prev, total_acres: e.target.value }))}
+                      className="w-full bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-4 py-2 text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-gg-gray-400 text-sm mb-1">Status</label>
+                    <select
+                      value={newListing.status}
+                      onChange={(e) => setNewListing(prev => ({ ...prev, status: e.target.value }))}
+                      className="w-full bg-white border border-gg-gray-300 rounded-lg px-4 py-2 text-black"
+                    >
+                      {STATUS_OPTIONS.map(s => (
+                        <option key={s} value={s}>{s.replace('_', ' ')}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                {newListing.listing_type === 'auction' && (
+                  <div>
+                    <label className="block text-gg-gray-400 text-sm mb-1">Auction Date & Time</label>
+                    <input
+                      type="datetime-local"
+                      value={newListing.auction_datetime}
+                      onChange={(e) => setNewListing(prev => ({ ...prev, auction_datetime: e.target.value }))}
+                      className="w-full bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-4 py-2 text-white"
+                    />
+                  </div>
+                )}
+                {newListing.listing_type === 'private_treaty' && (
+                  <div>
+                    <label className="block text-gg-gray-400 text-sm mb-1">Asking Price</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={newListing.asking_price}
+                      onChange={(e) => setNewListing(prev => ({ ...prev, asking_price: e.target.value }))}
+                      className="w-full bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-4 py-2 text-white"
+                      placeholder="$"
+                    />
+                  </div>
+                )}
+                <div>
+                  <label className="block text-gg-gray-400 text-sm mb-1">Source URL</label>
+                  <input
+                    type="url"
+                    value={newListing.source_url}
+                    onChange={(e) => setNewListing(prev => ({ ...prev, source_url: e.target.value }))}
+                    className="w-full bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-4 py-2 text-white"
+                    placeholder="https://..."
+                  />
+                </div>
+                <p className="text-gg-gray-500 text-sm">
+                  After creating, you'll be redirected to the listing page to add tracts and more details.
+                </p>
+              </div>
+              <div className="flex justify-end gap-3 p-4 border-t border-gg-gray-800">
+                <button
+                  onClick={() => setShowAddModal(false)}
+                  className="px-4 py-2 bg-gg-gray-700 text-white rounded-lg hover:bg-gg-gray-600"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleAddListing}
+                  disabled={saving}
+                  className="flex items-center gap-2 px-4 py-2 bg-gg-pink text-white rounded-lg hover:bg-gg-pink/80 disabled:opacity-50"
+                >
+                  {saving ? <Loader2 className="animate-spin" size={16} /> : <Plus size={16} />}
+                  {saving ? 'Creating...' : 'Create Listing'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Filters */}
         {showFilters && (
