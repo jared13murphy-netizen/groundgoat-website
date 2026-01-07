@@ -445,7 +445,7 @@ export default function ControlCenterPage() {
       }
 
       // Mark this listing as notified
-      setNotifiedListings(prev => new Set([...prev, listingId]))
+      setNotifiedListings(prev => new Set(Array.from(prev).concat(listingId)))
     } catch (err) {
       setError('Failed to save and notify')
     } finally {
