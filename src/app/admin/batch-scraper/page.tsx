@@ -70,6 +70,7 @@ export default function BatchScraperPage() {
   const [maxPages, setMaxPages] = useState(10)
   const [allListingsAreLand, setAllListingsAreLand] = useState(false)
   const [listingType, setListingType] = useState<'auction' | 'private_treaty'>('auction')
+  const [requireAcres, setRequireAcres] = useState(false)
 
   // Ignored URLs (persisted to localStorage)
   const [ignoredUrls, setIgnoredUrls] = useState<string[]>([])
@@ -156,7 +157,8 @@ export default function BatchScraperPage() {
           url: parentUrl.trim(),
           max_pages: maxPages,
           all_land: allListingsAreLand,
-          listing_type: listingType
+          listing_type: listingType,
+          require_acres: requireAcres
         })
       })
 
@@ -450,6 +452,21 @@ export default function BatchScraperPage() {
                 </label>
                 <span className="text-gg-gray-500 text-sm">
                   (Skip classification - saves API credits)
+                </span>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={requireAcres}
+                    onChange={(e) => setRequireAcres(e.target.checked)}
+                    className="w-5 h-5 rounded border-gg-gray-600 bg-gg-gray-800 text-gg-pink focus:ring-gg-pink focus:ring-offset-0"
+                  />
+                  <span className="text-white">Require &quot;acres&quot; in text</span>
+                </label>
+                <span className="text-gg-gray-500 text-sm">
+                  (Strict mode - filters out listings without &quot;acres&quot;)
                 </span>
               </div>
 
