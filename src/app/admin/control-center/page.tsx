@@ -65,6 +65,8 @@ export default function ControlCenterPage() {
   const [error, setError] = useState('')
   const [refreshing, setRefreshing] = useState(false)
   const [savingListing, setSavingListing] = useState<string | null>(null)
+  // Track which listings have had notifications sent (persisted per session)
+  const [notifiedListings, setNotifiedListings] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     const token = localStorage.getItem('auth_token')
@@ -441,6 +443,9 @@ export default function ControlCenterPage() {
           })
         }
       }
+
+      // Mark this listing as notified
+      setNotifiedListings(prev => new Set([...prev, listingId]))
     } catch (err) {
       setError('Failed to save and notify')
     } finally {
@@ -566,6 +571,11 @@ export default function ControlCenterPage() {
     const state = tractStates[tractId]
     if (!state) return false
     return state.pricePerAcre !== state.originalPricePerAcre || state.status !== state.originalStatus
+  }
+
+  const hasListingChanges = (listing: Listing): boolean => {
+    if (!listing.tracts || listing.tracts.length === 0) return false
+    return listing.tracts.some(tract => hasTractChanges(tract.id))
   }
 
   const isListingLive = (listing: Listing): boolean => {
@@ -695,19 +705,27 @@ export default function ControlCenterPage() {
                     <div className="flex items-center gap-2">
                       <button
                         onClick={(e) => { e.stopPropagation(); handleSaveWithoutNotify(listing.id) }}
-                        disabled={savingListing === listing.id}
-                        className="flex items-center gap-1 px-3 py-1.5 bg-gg-gray-600 text-white text-sm rounded-lg hover:bg-gg-gray-500 disabled:opacity-50"
+                        disabled={savingListing === listing.id || !hasListingChanges(listing)}
+                        className={`flex items-center gap-1 px-3 py-1.5 text-sm rounded-lg disabled:opacity-50 ${
+                          hasListingChanges(listing)
+                            ? 'bg-gg-gray-600 text-white hover:bg-gg-gray-500'
+                            : 'bg-gg-gray-700 text-gg-gray-400 cursor-default'
+                        }`}
                       >
                         <Save size={14} />
-                        Save
+                        {hasListingChanges(listing) ? 'Save' : 'Up-to-Date'}
                       </button>
                       <button
                         onClick={(e) => { e.stopPropagation(); handleSaveAndNotify(listing.id) }}
-                        disabled={savingListing === listing.id}
-                        className="flex items-center gap-1 px-3 py-1.5 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-500 disabled:opacity-50"
+                        disabled={savingListing === listing.id || notifiedListings.has(listing.id)}
+                        className={`flex items-center gap-1 px-3 py-1.5 text-sm rounded-lg disabled:opacity-50 ${
+                          notifiedListings.has(listing.id)
+                            ? 'bg-gg-gray-700 text-gg-gray-400 cursor-default'
+                            : 'bg-purple-600 text-white hover:bg-purple-500'
+                        }`}
                       >
                         <Bell size={14} />
-                        {savingListing === listing.id ? 'Saving...' : 'Save & Notify'}
+                        {savingListing === listing.id ? 'Saving...' : notifiedListings.has(listing.id) ? 'Notified' : 'Save & Notify'}
                       </button>
                     </div>
                   </div>
