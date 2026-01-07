@@ -51,6 +51,9 @@ interface TractState {
   status: string
   saving: boolean
   bidMode: 'per_acre' | 'lump_sum'
+  // Track original values to detect changes
+  originalPricePerAcre: number
+  originalStatus: string
 }
 
 export default function ControlCenterPage() {
@@ -107,12 +110,16 @@ export default function ControlCenterPage() {
         const expandedIds: string[] = []
         listingsWithTracts.forEach((listing: Listing) => {
           listing.tracts?.forEach((tract: Tract) => {
+            const pricePerAcre = tract.price_per_acre || 0
+            const status = normalizeStatus(tract.sale_status || 'listed')
             initialStates[tract.id] = {
-              pricePerAcre: tract.price_per_acre || 0,
+              pricePerAcre,
               bidIncrement: 1000,
-              status: normalizeStatus(tract.sale_status || 'listed'),
+              status,
               saving: false,
               bidMode: 'per_acre',
+              originalPricePerAcre: pricePerAcre,
+              originalStatus: status,
             }
           })
           expandedIds.push(listing.id)
@@ -302,7 +309,7 @@ export default function ControlCenterPage() {
 
         // Update listing
         const listingPricePerAcre = listing?.total_acres ? totalSalePrice / listing.total_acres : null
-        
+
         await fetch(`${API_URL}/api/listings/${listingId}`, {
           method: 'PATCH',
           headers: {
@@ -333,6 +340,12 @@ export default function ControlCenterPage() {
           }
           return l
         }))
+
+        // Update original values so button shows "Up-to-Date"
+        updateTractState(tractId, {
+          originalPricePerAcre: state.pricePerAcre,
+          originalStatus: state.status
+        })
       } else {
         setError('Failed to save tract')
       }
@@ -418,7 +431,16 @@ export default function ControlCenterPage() {
         return l
       }))
 
-      alert('Listing saved and notifications sent!')
+      // Update original values for all tracts so buttons show "Up-to-Date"
+      for (const tract of listing.tracts || []) {
+        const tState = tractStates[tract.id]
+        if (tState) {
+          updateTractState(tract.id, {
+            originalPricePerAcre: tState.pricePerAcre,
+            originalStatus: tState.status
+          })
+        }
+      }
     } catch (err) {
       setError('Failed to save and notify')
     } finally {
@@ -489,7 +511,16 @@ export default function ControlCenterPage() {
         return l
       }))
 
-      alert('Listing saved!')
+      // Update original values for all tracts so buttons show "Up-to-Date"
+      for (const tract of listing.tracts || []) {
+        const tState = tractStates[tract.id]
+        if (tState) {
+          updateTractState(tract.id, {
+            originalPricePerAcre: tState.pricePerAcre,
+            originalStatus: tState.status
+          })
+        }
+      }
     } catch (err) {
       setError('Failed to save listing')
     } finally {
@@ -529,6 +560,12 @@ export default function ControlCenterPage() {
       case 'No Sale': return 'bg-red-500'
       default: return 'bg-gray-500'
     }
+  }
+
+  const hasTractChanges = (tractId: string): boolean => {
+    const state = tractStates[tractId]
+    if (!state) return false
+    return state.pricePerAcre !== state.originalPricePerAcre || state.status !== state.originalStatus
   }
 
   const isListingLive = (listing: Listing): boolean => {
@@ -794,10 +831,14 @@ export default function ControlCenterPage() {
                               </button>
                               <button
                                 onClick={() => handleSaveTract(tract.id, listing.id)}
-                                disabled={state.saving}
-                                className="flex-1 px-4 py-2 bg-gg-pink text-white rounded-lg font-bold hover:bg-gg-pink/80 disabled:opacity-50 text-sm"
+                                disabled={state.saving || !hasTractChanges(tract.id)}
+                                className={`flex-1 px-4 py-2 rounded-lg font-bold text-sm ${
+                                  hasTractChanges(tract.id)
+                                    ? 'bg-gg-pink text-white hover:bg-gg-pink/80'
+                                    : 'bg-gg-gray-700 text-gg-gray-400 cursor-default'
+                                } disabled:opacity-50`}
                               >
-                                {state.saving ? 'Saving...' : 'Save Tract'}
+                                {state.saving ? 'Saving...' : hasTractChanges(tract.id) ? 'Save Tract' : 'Up-to-Date'}
                               </button>
                             </div>
                           </div>

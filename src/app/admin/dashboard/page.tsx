@@ -554,9 +554,6 @@ export default function AdminDashboard() {
               <div className="w-3 h-3 rounded-full border-2 border-red-500 bg-gg-gray-600"></div>
               <span className="text-gg-gray-300">No Sale</span>
             </div>
-            <div className="text-gg-gray-500 ml-auto">
-              ${priceRange.min.toLocaleString()} - ${priceRange.max.toLocaleString()}/acre
-            </div>
           </div>
 
           {/* Map */}
