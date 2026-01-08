@@ -170,11 +170,13 @@ export default function ControlCenterPage() {
         method: 'POST'
       })
 
-      if (response.success) {
+      const data = await response.json()
+
+      if (data.success) {
         alert('Migration completed successfully! Refreshing page...')
         window.location.reload()
       } else {
-        alert(`Migration failed: ${response.error}`)
+        alert(`Migration failed: ${data.error}`)
       }
     } catch (error) {
       console.error('Migration error:', error)
