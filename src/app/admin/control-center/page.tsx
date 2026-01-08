@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Loader2, Bell, ChevronDown, ChevronUp, RefreshCw, Save } from 'lucide-react'
+import { ArrowLeft, Loader2, Bell, ChevronDown, ChevronUp, RefreshCw, Save, ExternalLink, Lock } from 'lucide-react'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -43,6 +43,8 @@ interface Listing {
   company: Company | null
   source_url: string
   tracts: Tract[]
+  control_center_locked: boolean
+  notified_at: string | null
 }
 
 interface TractState {
@@ -655,6 +657,25 @@ export default function ControlCenterPage() {
                     <span className={`px-2 py-0.5 rounded-lg text-xs font-medium ${getStatusColor(listing.status)}`}>
                       {normalizeStatus(listing.status)}
                     </span>
+                    {listing.control_center_locked && (
+                      <span className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-medium bg-amber-900/30 text-amber-400 border border-amber-700">
+                        <Lock size={12} />
+                        Locked
+                      </span>
+                    )}
+                    {listing.source_url && (
+                      <a
+                        href={listing.source_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-medium bg-gg-gray-700 text-gg-gray-300 hover:bg-gg-gray-600 hover:text-white transition-colors"
+                        title="Open listing URL"
+                      >
+                        <ExternalLink size={12} />
+                        View Listing
+                      </a>
+                    )}
                   </div>
                   <h3 className="text-white font-medium mt-1">
                     {listing.county} County, {listing.state} • {listing.total_acres} acres
@@ -691,9 +712,12 @@ export default function ControlCenterPage() {
                           <button
                             key={status}
                             onClick={(e) => { e.stopPropagation(); handleSetListingStatus(listing.id, status) }}
+                            disabled={listing.control_center_locked}
                             className={`px-2 py-1 text-xs rounded-lg ${
                               normalizeStatus(listing.status) === status
                                 ? getStatusColor(status) + ' text-white'
+                                : listing.control_center_locked
+                                ? 'bg-gg-gray-800 text-gg-gray-600 cursor-not-allowed'
                                 : 'bg-gg-gray-700 text-gg-gray-300 hover:bg-gg-gray-600'
                             }`}
                           >
@@ -705,27 +729,27 @@ export default function ControlCenterPage() {
                     <div className="flex items-center gap-2">
                       <button
                         onClick={(e) => { e.stopPropagation(); handleSaveWithoutNotify(listing.id) }}
-                        disabled={savingListing === listing.id || !hasListingChanges(listing)}
+                        disabled={savingListing === listing.id || !hasListingChanges(listing) || listing.control_center_locked}
                         className={`flex items-center gap-1 px-3 py-1.5 text-sm rounded-lg disabled:opacity-50 ${
-                          hasListingChanges(listing)
+                          hasListingChanges(listing) && !listing.control_center_locked
                             ? 'bg-gg-gray-600 text-white hover:bg-gg-gray-500'
                             : 'bg-gg-gray-700 text-gg-gray-400 cursor-default'
                         }`}
                       >
                         <Save size={14} />
-                        {hasListingChanges(listing) ? 'Save' : 'Up-to-Date'}
+                        {listing.control_center_locked ? 'Locked' : hasListingChanges(listing) ? 'Save' : 'Up-to-Date'}
                       </button>
                       <button
                         onClick={(e) => { e.stopPropagation(); handleSaveAndNotify(listing.id) }}
-                        disabled={savingListing === listing.id || notifiedListings.has(listing.id)}
+                        disabled={savingListing === listing.id || notifiedListings.has(listing.id) || listing.control_center_locked}
                         className={`flex items-center gap-1 px-3 py-1.5 text-sm rounded-lg disabled:opacity-50 ${
-                          notifiedListings.has(listing.id)
+                          notifiedListings.has(listing.id) || listing.control_center_locked
                             ? 'bg-gg-gray-700 text-gg-gray-400 cursor-default'
                             : 'bg-purple-600 text-white hover:bg-purple-500'
                         }`}
                       >
                         <Bell size={14} />
-                        {savingListing === listing.id ? 'Saving...' : notifiedListings.has(listing.id) ? 'Notified' : 'Save & Notify'}
+                        {savingListing === listing.id ? 'Saving...' : notifiedListings.has(listing.id) || listing.control_center_locked ? 'Notified' : 'Save & Notify'}
                       </button>
                     </div>
                   </div>
@@ -739,7 +763,8 @@ export default function ControlCenterPage() {
                       const state = tractStates[tract.id] || { pricePerAcre: 0, bidIncrement: 1000, status: 'Listed', saving: false, bidMode: 'per_acre' }
                       const totalPrice = getTotalPrice(tract.id, tract.total_acres)
                       const isPerAcre = state.bidMode === 'per_acre'
-                      
+                      const isLocked = listing.control_center_locked
+
                       return (
                         <div key={tract.id} className="p-4">
                           {/* Tract Header */}
@@ -766,7 +791,8 @@ export default function ControlCenterPage() {
                                 </label>
                                 <button
                                   onClick={() => handleToggleBidMode(tract.id)}
-                                  className="text-xs text-gg-pink hover:text-gg-pink/80"
+                                  disabled={isLocked}
+                                  className={`text-xs ${isLocked ? 'text-gg-gray-600 cursor-not-allowed' : 'text-gg-pink hover:text-gg-pink/80'}`}
                                 >
                                   {isPerAcre ? '→ Lump Sum' : '→ Per Acre'}
                                 </button>
@@ -778,14 +804,16 @@ export default function ControlCenterPage() {
                                     type="number"
                                     value={state.pricePerAcre || ''}
                                     onChange={(e) => handlePricePerAcreChange(tract.id, e.target.value)}
-                                    className="w-full bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-3 py-2 pl-7 text-white text-lg font-bold"
+                                    disabled={isLocked}
+                                    className={`w-full bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-3 py-2 pl-7 text-lg font-bold ${isLocked ? 'text-gg-gray-500 cursor-not-allowed' : 'text-white'}`}
                                   />
                                 ) : (
                                   <input
                                     type="number"
                                     value={totalPrice || ''}
                                     onChange={(e) => handleLumpSumChange(tract.id, e.target.value, tract.total_acres)}
-                                    className="w-full bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-3 py-2 pl-7 text-white text-lg font-bold"
+                                    disabled={isLocked}
+                                    className={`w-full bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-3 py-2 pl-7 text-lg font-bold ${isLocked ? 'text-gg-gray-500 cursor-not-allowed' : 'text-white'}`}
                                   />
                                 )}
                               </div>
@@ -805,9 +833,12 @@ export default function ControlCenterPage() {
                                   <button
                                     key={status}
                                     onClick={() => handleSetStatus(tract.id, status)}
+                                    disabled={isLocked}
                                     className={`px-2 py-1 text-xs rounded-lg ${
                                       state.status === status
                                         ? getStatusColor(status) + ' text-white'
+                                        : isLocked
+                                        ? 'bg-gg-gray-800 text-gg-gray-600 cursor-not-allowed'
                                         : 'bg-gg-gray-700 text-gg-gray-300 hover:bg-gg-gray-600'
                                     }`}
                                   >
@@ -827,9 +858,12 @@ export default function ControlCenterPage() {
                                   <button
                                     key={inc}
                                     onClick={() => handleSetIncrement(tract.id, inc)}
+                                    disabled={isLocked}
                                     className={`px-2 py-1 text-xs rounded-lg ${
                                       state.bidIncrement === inc
                                         ? 'bg-gg-pink text-white'
+                                        : isLocked
+                                        ? 'bg-gg-gray-800 text-gg-gray-600 cursor-not-allowed'
                                         : 'bg-gg-gray-700 text-gg-gray-300 hover:bg-gg-gray-600'
                                     }`}
                                   >
@@ -843,20 +877,25 @@ export default function ControlCenterPage() {
                             <div className="flex flex-col gap-2">
                               <button
                                 onClick={() => handleAddBid(tract.id, tract.total_acres)}
-                                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg font-bold hover:bg-green-500 text-sm"
+                                disabled={isLocked}
+                                className={`flex-1 px-4 py-2 rounded-lg font-bold text-sm ${
+                                  isLocked
+                                    ? 'bg-gg-gray-800 text-gg-gray-600 cursor-not-allowed'
+                                    : 'bg-green-600 text-white hover:bg-green-500'
+                                }`}
                               >
                                 + {formatCurrency(state.bidIncrement)}{isPerAcre ? '/ac' : ''}
                               </button>
                               <button
                                 onClick={() => handleSaveTract(tract.id, listing.id)}
-                                disabled={state.saving || !hasTractChanges(tract.id)}
+                                disabled={state.saving || !hasTractChanges(tract.id) || isLocked}
                                 className={`flex-1 px-4 py-2 rounded-lg font-bold text-sm ${
-                                  hasTractChanges(tract.id)
+                                  hasTractChanges(tract.id) && !isLocked
                                     ? 'bg-gg-pink text-white hover:bg-gg-pink/80'
                                     : 'bg-gg-gray-700 text-gg-gray-400 cursor-default'
                                 } disabled:opacity-50`}
                               >
-                                {state.saving ? 'Saving...' : hasTractChanges(tract.id) ? 'Save Tract' : 'Up-to-Date'}
+                                {state.saving ? 'Saving...' : isLocked ? 'Locked' : hasTractChanges(tract.id) ? 'Save Tract' : 'Up-to-Date'}
                               </button>
                             </div>
                           </div>
