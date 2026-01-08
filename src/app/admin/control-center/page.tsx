@@ -69,6 +69,7 @@ export default function ControlCenterPage() {
   const [savingListing, setSavingListing] = useState<string | null>(null)
   // Track which listings have had notifications sent (persisted per session)
   const [notifiedListings, setNotifiedListings] = useState<Set<string>>(new Set())
+  const [runningMigration, setRunningMigration] = useState(false)
 
   useEffect(() => {
     const token = localStorage.getItem('auth_token')
@@ -155,6 +156,31 @@ export default function ControlCenterPage() {
     const token = localStorage.getItem('auth_token')
     if (token) {
       await fetchTodaysAuctions(token)
+    }
+  }
+
+  const handleRunMigration = async () => {
+    if (!confirm('Run database migration to add lock columns? This is safe to run multiple times.')) {
+      return
+    }
+
+    setRunningMigration(true)
+    try {
+      const response = await fetchWithAuth(`${API_URL}/api/admin/migrate-lock-columns`, {
+        method: 'POST'
+      })
+
+      if (response.success) {
+        alert('Migration completed successfully! Refreshing page...')
+        window.location.reload()
+      } else {
+        alert(`Migration failed: ${response.error}`)
+      }
+    } catch (error) {
+      console.error('Migration error:', error)
+      alert('Migration failed. Check console for details.')
+    } finally {
+      setRunningMigration(false)
     }
   }
 
@@ -609,14 +635,26 @@ export default function ControlCenterPage() {
               </p>
             </div>
           </div>
-          <button
-            onClick={handleRefresh}
-            disabled={refreshing}
-            className="flex items-center gap-2 px-4 py-2 bg-gg-gray-800 text-white rounded-lg hover:bg-gg-gray-700 disabled:opacity-50"
-          >
-            <RefreshCw className={refreshing ? 'animate-spin' : ''} size={16} />
-            Refresh
-          </button>
+          <div className="flex items-center gap-2">
+            {listings.length === 0 && !loading && (
+              <button
+                onClick={handleRunMigration}
+                disabled={runningMigration}
+                className="flex items-center gap-2 px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-500 disabled:opacity-50 font-medium"
+              >
+                <Loader2 className={runningMigration ? 'animate-spin' : 'hidden'} size={16} />
+                {runningMigration ? 'Running Migration...' : 'Run DB Migration'}
+              </button>
+            )}
+            <button
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="flex items-center gap-2 px-4 py-2 bg-gg-gray-800 text-white rounded-lg hover:bg-gg-gray-700 disabled:opacity-50"
+            >
+              <RefreshCw className={refreshing ? 'animate-spin' : ''} size={16} />
+              Refresh
+            </button>
+          </div>
         </div>
 
         {/* Error Message */}
