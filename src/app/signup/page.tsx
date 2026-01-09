@@ -452,6 +452,7 @@ function SignUpContent() {
               home_state: getStateAbbreviation(formData.homeState),
               home_county: formData.homeCounty,
               referral_code: referralCode,  // Pass referral code
+              verification_token: data.verification_token,  // Pass verification token
             }),
           })
 
@@ -585,7 +586,7 @@ function SignUpContent() {
     setError('')
     
     try {
-      // Register the user with referral code
+      // Register the user with referral code and verification token
       const registerResponse = await fetch(`${API_URL}/api/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -597,6 +598,7 @@ function SignUpContent() {
           home_state: getStateAbbreviation(formData.homeState),
           home_county: formData.homeCounty,
           referral_code: referralCode,  // Pass referral code
+          verification_token: verificationToken,  // Pass verification token to mark user as verified
         }),
       })
 
