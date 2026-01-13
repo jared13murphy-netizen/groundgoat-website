@@ -19,6 +19,8 @@ interface Company {
   phone: string
   email: string
   logo_url: string
+  auction_list_url: string
+  private_treaty_list_url: string
   created_at: string
 }
 
@@ -43,6 +45,8 @@ export default function EditCompanyPage() {
     phone: '',
     email: '',
     logo_url: '',
+    auction_list_url: '',
+    private_treaty_list_url: '',
   })
 
   useEffect(() => {
@@ -95,6 +99,8 @@ export default function EditCompanyPage() {
           phone: data.phone || '',
           email: data.email || '',
           logo_url: data.logo_url || '',
+          auction_list_url: data.auction_list_url || '',
+          private_treaty_list_url: data.private_treaty_list_url || '',
         })
       } else {
         setError('Company not found')
@@ -131,6 +137,9 @@ export default function EditCompanyPage() {
       if (formData.phone) updateData.phone = formData.phone
       if (formData.email) updateData.email = formData.email
       if (formData.logo_url) updateData.logo_url = formData.logo_url
+      // Include URL fields even if empty to allow clearing them
+      updateData.auction_list_url = formData.auction_list_url || null
+      updateData.private_treaty_list_url = formData.private_treaty_list_url || null
 
       const response = await fetch(`${API_URL}/api/companies/${companyId}`, {
         method: 'PATCH',
@@ -359,6 +368,40 @@ export default function EditCompanyPage() {
                   onChange={handleChange}
                   className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white"
                 />
+              </div>
+            </div>
+          </div>
+
+          {/* Listing URLs */}
+          <div className="card">
+            <h2 className="text-xl font-semibold text-white mb-4">Listing Page URLs</h2>
+            <p className="text-gg-gray-400 text-sm mb-4">
+              URLs to the company's pages showing their upcoming auctions or current listings
+            </p>
+            <div className="grid grid-cols-1 gap-4">
+              <div>
+                <label className="block text-gg-gray-400 text-sm mb-1">Auction Listings URL</label>
+                <input
+                  type="url"
+                  name="auction_list_url"
+                  value={formData.auction_list_url}
+                  onChange={handleChange}
+                  placeholder="https://example.com/auctions"
+                  className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white"
+                />
+                <p className="text-gg-gray-500 text-xs mt-1">URL to the company's upcoming auctions page</p>
+              </div>
+              <div>
+                <label className="block text-gg-gray-400 text-sm mb-1">Private Treaty Listings URL</label>
+                <input
+                  type="url"
+                  name="private_treaty_list_url"
+                  value={formData.private_treaty_list_url}
+                  onChange={handleChange}
+                  placeholder="https://example.com/listings"
+                  className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white"
+                />
+                <p className="text-gg-gray-500 text-xs mt-1">URL to the company's private treaty listings page</p>
               </div>
             </div>
           </div>
