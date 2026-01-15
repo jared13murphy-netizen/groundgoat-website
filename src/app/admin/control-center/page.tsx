@@ -563,18 +563,22 @@ export default function ControlCenterPage() {
     }
   }
 
+  // Format datetime - extract directly from ISO string to avoid timezone conversion
   const formatDateTime = (dateTimeStr: string | null) => {
     if (!dateTimeStr) return 'TBD'
     try {
-      const date = new Date(dateTimeStr)
-      return date.toLocaleString('en-US', { 
-        month: 'short', 
-        day: 'numeric', 
-        year: 'numeric',
-        hour: 'numeric', 
-        minute: '2-digit', 
-        hour12: true 
-      })
+      // Extract date and time from ISO string directly
+      const dateMatch = dateTimeStr.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/)
+      if (dateMatch) {
+        const [, year, month, day, hourStr, minute] = dateMatch
+        const hours = parseInt(hourStr, 10)
+        const ampm = hours >= 12 ? 'PM' : 'AM'
+        const displayHours = hours % 12 || 12
+        const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+        const monthName = monthNames[parseInt(month, 10) - 1]
+        return `${monthName} ${parseInt(day, 10)}, ${year}, ${displayHours}:${minute} ${ampm}`
+      }
+      return 'TBD'
     } catch {
       return 'TBD'
     }
