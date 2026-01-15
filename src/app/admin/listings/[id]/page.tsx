@@ -172,9 +172,28 @@ export default function EditListingPage() {
           primary_image_url: data.primary_image_url || '',
           brochure_url: data.brochure_url || '',
           source_url: data.source_url || '',
-          auction_date: data.auction_datetime ? data.auction_datetime.split('T')[0] : (data.auction_date ? data.auction_date.split('T')[0] : ''),
-          // Extract time directly from ISO string (HH:MM) to avoid timezone conversion
-          auction_time: data.auction_datetime ? data.auction_datetime.split('T')[1]?.substring(0, 5) || '' : (data.auction_time ? data.auction_time.split('T')[1]?.substring(0, 5) || '' : ''),
+          // Convert UTC datetime to local date/time for display in the form
+          auction_date: (() => {
+            if (data.auction_datetime) {
+              const utcDate = new Date(data.auction_datetime)
+              // Format as YYYY-MM-DD in local timezone
+              const year = utcDate.getFullYear()
+              const month = String(utcDate.getMonth() + 1).padStart(2, '0')
+              const day = String(utcDate.getDate()).padStart(2, '0')
+              return `${year}-${month}-${day}`
+            }
+            return data.auction_date ? data.auction_date.split('T')[0] : ''
+          })(),
+          auction_time: (() => {
+            if (data.auction_datetime) {
+              const utcDate = new Date(data.auction_datetime)
+              // Format as HH:MM in local timezone
+              const hours = String(utcDate.getHours()).padStart(2, '0')
+              const minutes = String(utcDate.getMinutes()).padStart(2, '0')
+              return `${hours}:${minutes}`
+            }
+            return data.auction_time ? data.auction_time.split('T')[1]?.substring(0, 5) || '' : ''
+          })(),
           auction_location: data.auction_location || '',
           bidding_url: data.bidding_url || '',
           asking_price: data.asking_price?.toString() || '',
@@ -266,9 +285,10 @@ export default function EditListingPage() {
       if (formData.auction_location) updateData.auction_location = formData.auction_location
       if (formData.auction_date) {
         // Combine date and time into auction_datetime (the primary field)
-        // Send as UTC string to preserve the exact time entered without timezone conversion
+        // Create a local datetime and convert to true UTC
         const timeStr = formData.auction_time || '00:00'
-        updateData.auction_datetime = `${formData.auction_date}T${timeStr}:00.000Z`
+        const localDateTime = new Date(`${formData.auction_date}T${timeStr}:00`)
+        updateData.auction_datetime = localDateTime.toISOString()
       }
       
       // Land types array

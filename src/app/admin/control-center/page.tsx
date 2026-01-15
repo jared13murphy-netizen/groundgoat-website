@@ -563,22 +563,23 @@ export default function ControlCenterPage() {
     }
   }
 
-  // Format datetime - extract directly from ISO string to avoid timezone conversion
+  // Format datetime - convert UTC to local time for display
   const formatDateTime = (dateTimeStr: string | null) => {
     if (!dateTimeStr) return 'TBD'
     try {
-      // Extract date and time from ISO string directly
-      const dateMatch = dateTimeStr.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/)
-      if (dateMatch) {
-        const [, year, month, day, hourStr, minute] = dateMatch
-        const hours = parseInt(hourStr, 10)
-        const ampm = hours >= 12 ? 'PM' : 'AM'
-        const displayHours = hours % 12 || 12
-        const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-        const monthName = monthNames[parseInt(month, 10) - 1]
-        return `${monthName} ${parseInt(day, 10)}, ${year}, ${displayHours}:${minute} ${ampm}`
-      }
-      return 'TBD'
+      const date = new Date(dateTimeStr)
+      if (isNaN(date.getTime())) return 'TBD'
+
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+      const month = monthNames[date.getMonth()]
+      const day = date.getDate()
+      const year = date.getFullYear()
+      const hours = date.getHours()
+      const minutes = String(date.getMinutes()).padStart(2, '0')
+      const ampm = hours >= 12 ? 'PM' : 'AM'
+      const displayHours = hours % 12 || 12
+
+      return `${month} ${day}, ${year}, ${displayHours}:${minutes} ${ampm}`
     } catch {
       return 'TBD'
     }
