@@ -630,17 +630,17 @@ export default function ControlCenterPage() {
   }
 
   return (
-    <div className="min-h-screen bg-white pt-24 pb-12">
+    <div className="min-h-screen bg-gray-200 pt-24 pb-12">
       <div className="max-w-7xl mx-auto px-4">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-4">
-            <Link href="/admin/dashboard" className="text-gg-gray-400 hover:text-white">
+            <Link href="/admin/dashboard" className="text-gray-600 hover:text-black">
               <ArrowLeft size={24} />
             </Link>
             <div>
-              <h1 className="font-display text-3xl font-bold text-white">Auction Control Center</h1>
-              <p className="text-gg-gray-400">
+              <h1 className="font-display text-3xl font-bold text-black">Auction Control Center</h1>
+              <p className="text-gray-600">
                 {new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
                 {' • '}{listings.length} auction{listings.length !== 1 ? 's' : ''} today
               </p>
@@ -679,7 +679,7 @@ export default function ControlCenterPage() {
         {/* No Auctions */}
         {listings.length === 0 && (
           <div className="text-center py-12">
-            <p className="text-gg-gray-400 text-lg">No auctions scheduled for today</p>
+            <p className="text-gray-600 text-lg">No auctions scheduled for today</p>
           </div>
         )}
 
