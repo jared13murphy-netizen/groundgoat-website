@@ -616,6 +616,11 @@ export default function ControlCenterPage() {
     return normalizeStatus(listing.status) === 'Live'
   }
 
+  const canNotifyListing = (listing: Listing): boolean => {
+    const status = normalizeStatus(listing.status)
+    return status === 'Sold' || status === 'No Sale' || status === 'Pending'
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gg-black flex items-center justify-center">
@@ -625,7 +630,7 @@ export default function ControlCenterPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gg-black pt-24 pb-12">
+    <div className="min-h-screen bg-white pt-24 pb-12">
       <div className="max-w-7xl mx-auto px-4">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
@@ -681,11 +686,11 @@ export default function ControlCenterPage() {
         {/* Auctions List */}
         <div className="space-y-4">
           {listings.map(listing => (
-            <div 
-              key={listing.id} 
+            <div
+              key={listing.id}
               className={`bg-gg-gray-900 rounded-xl overflow-hidden ${
-                isListingLive(listing) 
-                  ? 'border-2 border-white' 
+                isListingLive(listing)
+                  ? 'border-[5px] border-gg-pink'
                   : 'border border-gg-gray-800'
               }`}
             >
@@ -785,15 +790,15 @@ export default function ControlCenterPage() {
                       </button>
                       <button
                         onClick={(e) => { e.stopPropagation(); handleSaveAndNotify(listing.id) }}
-                        disabled={savingListing === listing.id || notifiedListings.has(listing.id) || listing.control_center_locked}
+                        disabled={savingListing === listing.id || notifiedListings.has(listing.id) || listing.control_center_locked || !canNotifyListing(listing)}
                         className={`flex items-center gap-1 px-3 py-1.5 text-sm rounded-lg disabled:opacity-50 ${
-                          notifiedListings.has(listing.id) || listing.control_center_locked
+                          notifiedListings.has(listing.id) || listing.control_center_locked || !canNotifyListing(listing)
                             ? 'bg-gg-gray-700 text-gg-gray-400 cursor-default'
                             : 'bg-purple-600 text-white hover:bg-purple-500'
                         }`}
                       >
                         <Bell size={14} />
-                        {savingListing === listing.id ? 'Saving...' : notifiedListings.has(listing.id) || listing.control_center_locked ? 'Notified' : 'Save & Notify'}
+                        {savingListing === listing.id ? 'Saving...' : notifiedListings.has(listing.id) || listing.control_center_locked ? 'Notified' : !canNotifyListing(listing) ? 'Set Final Status' : 'Save & Notify'}
                       </button>
                     </div>
                   </div>
