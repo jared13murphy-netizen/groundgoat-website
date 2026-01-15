@@ -173,7 +173,8 @@ export default function EditListingPage() {
           brochure_url: data.brochure_url || '',
           source_url: data.source_url || '',
           auction_date: data.auction_datetime ? data.auction_datetime.split('T')[0] : (data.auction_date ? data.auction_date.split('T')[0] : ''),
-          auction_time: data.auction_datetime ? new Date(data.auction_datetime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }) : (data.auction_time ? new Date(data.auction_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }) : ''),
+          // Extract time directly from ISO string (HH:MM) to avoid timezone conversion
+          auction_time: data.auction_datetime ? data.auction_datetime.split('T')[1]?.substring(0, 5) || '' : (data.auction_time ? data.auction_time.split('T')[1]?.substring(0, 5) || '' : ''),
           auction_location: data.auction_location || '',
           bidding_url: data.bidding_url || '',
           asking_price: data.asking_price?.toString() || '',
@@ -264,10 +265,12 @@ export default function EditListingPage() {
       // Auction fields
       if (formData.auction_location) updateData.auction_location = formData.auction_location
       if (formData.auction_date) {
-        updateData.auction_date = new Date(formData.auction_date).toISOString()
+        // Send date as midnight UTC to avoid timezone shifts
+        updateData.auction_date = `${formData.auction_date}T00:00:00.000Z`
       }
       if (formData.auction_date && formData.auction_time) {
-        updateData.auction_time = new Date(`${formData.auction_date}T${formData.auction_time}`).toISOString()
+        // Send datetime as UTC to preserve the exact time entered
+        updateData.auction_time = `${formData.auction_date}T${formData.auction_time}:00.000Z`
       }
       
       // Land types array
