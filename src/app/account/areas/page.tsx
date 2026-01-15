@@ -259,7 +259,12 @@ export default function MyAreasPage() {
                     </p>
                   </div>
                 </div>
-                {getStatusBadge(area.status)}
+                <div className="flex items-center gap-4">
+                  <span className="text-gg-pink font-medium">
+                    {area.subscription_type === 'county' ? '$3.99' : '$39.99'}/mo
+                  </span>
+                  {getStatusBadge(area.status)}
+                </div>
               </div>
             ))}
           </div>
