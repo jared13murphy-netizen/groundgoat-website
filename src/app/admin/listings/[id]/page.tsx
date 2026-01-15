@@ -265,12 +265,10 @@ export default function EditListingPage() {
       // Auction fields
       if (formData.auction_location) updateData.auction_location = formData.auction_location
       if (formData.auction_date) {
-        // Send date as midnight UTC to avoid timezone shifts
-        updateData.auction_date = `${formData.auction_date}T00:00:00.000Z`
-      }
-      if (formData.auction_date && formData.auction_time) {
-        // Send datetime as UTC to preserve the exact time entered
-        updateData.auction_time = `${formData.auction_date}T${formData.auction_time}:00.000Z`
+        // Combine date and time into auction_datetime (the primary field)
+        // Send as UTC string to preserve the exact time entered without timezone conversion
+        const timeStr = formData.auction_time || '00:00'
+        updateData.auction_datetime = `${formData.auction_date}T${timeStr}:00.000Z`
       }
       
       // Land types array
