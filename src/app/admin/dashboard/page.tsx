@@ -327,64 +327,72 @@ export default function AdminDashboard() {
           </div>
         </div>
 
-        {/* Control Center Banner */}
-        <Link
-          href="/admin/control-center"
-          className="block mb-8 p-6 bg-gradient-to-r from-gg-pink/20 to-purple-600/20 border border-gg-pink/50 rounded-xl hover:border-gg-pink transition-colors group"
-        >
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <div className="w-14 h-14 bg-gg-pink/20 rounded-xl flex items-center justify-center text-gg-pink group-hover:bg-gg-pink/30 transition-colors">
-                <Radio size={28} />
+        {/* Control Center Banner - Admin only */}
+        {user?.account_type === 'groundgoat_admin' && (
+          <Link
+            href="/admin/control-center"
+            className="block mb-8 p-6 bg-gradient-to-r from-gg-pink/20 to-purple-600/20 border border-gg-pink/50 rounded-xl hover:border-gg-pink transition-colors group"
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 bg-gg-pink/20 rounded-xl flex items-center justify-center text-gg-pink group-hover:bg-gg-pink/30 transition-colors">
+                  <Radio size={28} />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-white">Auction Control Center</h2>
+                  <p className="text-gg-gray-400">Manage live auctions in real-time</p>
+                </div>
               </div>
-              <div>
-                <h2 className="text-xl font-bold text-white">Auction Control Center</h2>
-                <p className="text-gg-gray-400">Manage live auctions in real-time</p>
-              </div>
+              <ChevronRight className="text-gg-pink" size={24} />
             </div>
-            <ChevronRight className="text-gg-pink" size={24} />
-          </div>
-        </Link>
+          </Link>
+        )}
 
         {/* Quick Actions */}
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-          <QuickActionCard
-            title="Scraper"
-            description="Run the auction scraper to fetch new listings"
-            href="/admin/scraper"
-            icon={<RefreshCw />}
-          />
-          <QuickActionCard
-            title="Batch Discovery"
-            description="Discover & scrape multiple listings from one URL"
-            href="/admin/batch-scraper"
-            icon={<Layers />}
-          />
-          <QuickActionCard
-            title="Nightly Updates"
-            description="Price & status changes from nightly monitoring"
-            href="/admin/nightly-updates"
-            icon={<Moon />}
-          />
-          <QuickActionCard
-            title="Equipment Manager"
-            description="View, filter, and edit equipment auction data"
-            href="/admin/equipment"
-            icon={<Tractor />}
-          />
-          <QuickActionCard
-            title="Manage Users"
-            description="View and manage user accounts"
-            href="/admin/users"
-            icon={<Users />}
-            count={stats?.total_users}
-          />
-          <QuickActionCard
-            title="Commissions"
-            description="View sales rep commissions"
-            href="/admin/commissions"
-            icon={<DollarSign />}
-          />
+          {/* Admin-only actions */}
+          {user?.account_type === 'groundgoat_admin' && (
+            <>
+              <QuickActionCard
+                title="Scraper"
+                description="Run the auction scraper to fetch new listings"
+                href="/admin/scraper"
+                icon={<RefreshCw />}
+              />
+              <QuickActionCard
+                title="Batch Discovery"
+                description="Discover & scrape multiple listings from one URL"
+                href="/admin/batch-scraper"
+                icon={<Layers />}
+              />
+              <QuickActionCard
+                title="Nightly Updates"
+                description="Price & status changes from nightly monitoring"
+                href="/admin/nightly-updates"
+                icon={<Moon />}
+              />
+              <QuickActionCard
+                title="Equipment Manager"
+                description="View, filter, and edit equipment auction data"
+                href="/admin/equipment"
+                icon={<Tractor />}
+              />
+              <QuickActionCard
+                title="Manage Users"
+                description="View and manage user accounts"
+                href="/admin/users"
+                icon={<Users />}
+                count={stats?.total_users}
+              />
+              <QuickActionCard
+                title="Commissions"
+                description="View sales rep commissions"
+                href="/admin/commissions"
+                icon={<DollarSign />}
+              />
+            </>
+          )}
+          {/* Visible to both Admin and Sales */}
           <QuickActionCard
             title="Manage Listings"
             description="Edit or remove auction listings"
@@ -399,18 +407,23 @@ export default function AdminDashboard() {
             icon={<Building2 />}
             count={stats?.total_companies}
           />
-          <QuickActionCard
-            title="Reports"
-            description="View analytics and reports"
-            href="/admin/reports"
-            icon={<TrendingUp />}
-          />
-          <QuickActionCard
-            title="Settings"
-            description="Configure system settings"
-            href="/admin/settings"
-            icon={<AlertCircle />}
-          />
+          {/* Admin-only actions */}
+          {user?.account_type === 'groundgoat_admin' && (
+            <>
+              <QuickActionCard
+                title="Reports"
+                description="View analytics and reports"
+                href="/admin/reports"
+                icon={<TrendingUp />}
+              />
+              <QuickActionCard
+                title="Settings"
+                description="Configure system settings"
+                href="/admin/settings"
+                icon={<AlertCircle />}
+              />
+            </>
+          )}
         </div>
 
         {/* One-time Script Button */}
