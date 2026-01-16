@@ -5,7 +5,7 @@ import fetchWithAuth from '@/lib/fetchWithAuth'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
-import { User, CreditCard, LogOut, MapPin, ChevronRight, CheckCircle, AlertCircle, Loader2, Users, Mail } from 'lucide-react'
+import { User, CreditCard, LogOut, MapPin, ChevronRight, CheckCircle, AlertCircle, Loader2, Users, Mail, Trash2 } from 'lucide-react'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -19,6 +19,9 @@ function AccountContent() {
   const [subscriptionData, setSubscriptionData] = useState<any>(null)
   const [sendingVerification, setSendingVerification] = useState(false)
   const [verificationSent, setVerificationSent] = useState(false)
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   useEffect(() => {
     const token = localStorage.getItem('auth_token')
@@ -107,6 +110,31 @@ const handleResendVerification = async () => {
     localStorage.removeItem('auth_token')
     localStorage.removeItem('user')
     router.push('/')
+  }
+
+  const handleDeleteAccount = async () => {
+    setDeleting(true)
+    setDeleteError(null)
+
+    try {
+      const response = await fetchWithAuth(`${API_URL}/api/auth/me`, {
+        method: 'DELETE',
+      })
+
+      if (!response.ok) {
+        const data = await response.json()
+        throw new Error(data.detail || 'Failed to delete account')
+      }
+
+      // Clear local storage and redirect to home
+      localStorage.removeItem('auth_token')
+      localStorage.removeItem('user')
+      router.push('/')
+    } catch (err: any) {
+      setDeleteError(err.message)
+    } finally {
+      setDeleting(false)
+    }
   }
 
   const getAccountTypeLabel = (type: string) => {
@@ -292,6 +320,69 @@ const handleResendVerification = async () => {
             Sign Out
           </button>
         </div>
+
+        {/* Delete Account */}
+        <div className="mt-8 pt-8 border-t border-gg-gray-800">
+          <button
+            onClick={() => setShowDeleteModal(true)}
+            className="flex items-center gap-2 text-gg-gray-500 hover:text-red-400 transition-colors text-sm"
+          >
+            <Trash2 size={16} />
+            Delete Account
+          </button>
+        </div>
+
+        {/* Delete Account Modal */}
+        {showDeleteModal && (
+          <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+            <div className="bg-gg-gray-900 rounded-xl p-6 max-w-md w-full border border-gg-gray-700">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 bg-red-500/20 rounded-full flex items-center justify-center">
+                  <Trash2 className="text-red-500" size={20} />
+                </div>
+                <h3 className="text-xl font-semibold text-white">Delete Account</h3>
+              </div>
+
+              <p className="text-gg-gray-400 mb-4">
+                Are you sure you want to delete your account? This action cannot be undone and will permanently delete all your data.
+              </p>
+
+              {deleteError && (
+                <div className="mb-4 bg-red-500/10 border border-red-500/30 rounded-lg p-3 flex items-start gap-2">
+                  <AlertCircle className="text-red-500 flex-shrink-0 mt-0.5" size={18} />
+                  <p className="text-red-400 text-sm">{deleteError}</p>
+                </div>
+              )}
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    setShowDeleteModal(false)
+                    setDeleteError(null)
+                  }}
+                  className="flex-1 btn-secondary"
+                  disabled={deleting}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleDeleteAccount}
+                  disabled={deleting}
+                  className="flex-1 bg-red-600 hover:bg-red-700 text-white font-medium py-2 px-4 rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {deleting ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" />
+                      Deleting...
+                    </>
+                  ) : (
+                    'Delete Account'
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Download App CTA */}
         <div className="mt-12 card bg-gradient-to-r from-gg-gray-800 to-gg-gray-900 border-gg-pink/30">
