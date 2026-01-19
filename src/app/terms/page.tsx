@@ -31,7 +31,7 @@ export default function TermsPage() {
             <ul className="list-disc list-inside mt-4 space-y-2">
               <li>County subscriptions start at $7.99/month</li>
               <li>State subscriptions start at $19.99/month</li>
-              <li>Management Firm subscriptions are $189.99/month</li>
+              <li>Management Firm subscriptions are $199.99/month</li>
               <li>Annual billing provides a 10% discount</li>
             </ul>
           </section>

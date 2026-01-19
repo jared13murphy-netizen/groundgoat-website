@@ -33,7 +33,7 @@ export default function AdminSettingsPage() {
     // Pricing
     countyPlanPrice: '7.99',
     statePlanPrice: '29.99',
-    firmPlanPrice: '189.99',
+    firmPlanPrice: '199.99',
   })
 
   useEffect(() => {

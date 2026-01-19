@@ -28,7 +28,7 @@ const PLANS = {
   },
   firm: {
     name: 'Management Firm',
-    basePrice: 189.99,
+    basePrice: 199.99,
     additionalPrice: 39.99,
     description: 'For teams and professionals',
     features: ['Unlimited states & counties', 'Up to 3 team members', 'Comparable sales lookup', 'Priority support'],

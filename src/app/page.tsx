@@ -507,7 +507,7 @@ export default function Home() {
               <h3 className="font-display text-2xl font-bold text-white mb-2">Management Firm</h3>
               <p className="text-gg-gray-400 mb-6">For teams and professionals</p>
               <div className="mb-6">
-                <span className="text-4xl font-bold text-white">$189.99</span>
+                <span className="text-4xl font-bold text-white">$199.99</span>
                 <span className="text-gg-gray-400">/month</span>
               </div>
               <ul className="space-y-3 mb-8">
