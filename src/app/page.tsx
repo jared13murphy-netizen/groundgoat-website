@@ -469,7 +469,7 @@ export default function Home() {
               <h3 className="font-display text-2xl font-bold text-white mb-2">State</h3>
               <p className="text-gg-gray-400 mb-6">Best for active land investors</p>
               <div className="mb-6">
-                <span className="text-4xl font-bold text-white">$39.99</span>
+                <span className="text-4xl font-bold text-white">$19.99</span>
                 <span className="text-gg-gray-400">/month</span>
               </div>
               <ul className="space-y-3 mb-8">
@@ -479,7 +479,7 @@ export default function Home() {
                 </li>
                 <li className="flex items-center gap-2 text-gg-gray-300">
                   <Check className="text-gg-pink" size={18} />
-                  +$12.99/mo per additional state
+                  +$19.99/mo per additional state
                 </li>
                 <li className="flex items-center gap-2 text-gg-gray-300">
                   <Check className="text-gg-pink" size={18} />

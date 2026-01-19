@@ -356,7 +356,7 @@ function UpgradePageContent() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-white font-medium">Entire {selectedState} state</p>
-                      <p className="text-gg-pink text-sm">$39.99/mo (all counties included)</p>
+                      <p className="text-gg-pink text-sm">$19.99/mo (all counties included)</p>
                     </div>
                     {!selectedCounty && selectedState && (
                       <div className="w-5 h-5 bg-gg-pink rounded-full flex items-center justify-center">
