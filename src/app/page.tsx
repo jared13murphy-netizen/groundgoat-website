@@ -479,7 +479,7 @@ export default function Home() {
                 </li>
                 <li className="flex items-center gap-2 text-gg-gray-300">
                   <Check className="text-gg-pink" size={18} />
-                  +$19.99/mo per additional state
+                  +$12.99/mo per additional state
                 </li>
                 <li className="flex items-center gap-2 text-gg-gray-300">
                   <Check className="text-gg-pink" size={18} />

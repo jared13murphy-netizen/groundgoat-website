@@ -260,9 +260,6 @@ export default function MyAreasPage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-4">
-                  <span className="text-gg-pink font-medium">
-                    {area.subscription_type === 'county' ? '$3.99' : '$19.99'}/mo
-                  </span>
                   {getStatusBadge(area.status)}
                 </div>
               </div>
