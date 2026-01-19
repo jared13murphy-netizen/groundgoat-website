@@ -21,7 +21,6 @@ interface Tract {
   other_acres: number
   land_type: string
   soil_rating: number
-  csr2: number
   bid_amount: number
   bid_type: string
   sale_price: number
@@ -54,7 +53,6 @@ export default function EditTractPage() {
     other_acres: '',
     land_type: '',
     soil_rating: '',
-    csr2: '',
     bid_amount: '',
     bid_type: '',
     sale_price: '',
@@ -114,7 +112,6 @@ export default function EditTractPage() {
           other_acres: data.other_acres?.toString() || '',
           land_type: data.land_type || '',
           soil_rating: data.soil_rating?.toString() || '',
-          csr2: data.csr2?.toString() || '',
           bid_amount: data.bid_amount?.toString() || '',
           bid_type: data.bid_type || '',
           sale_price: data.sale_price?.toString() || '',
@@ -158,7 +155,6 @@ export default function EditTractPage() {
       if (formData.other_acres) updateData.other_acres = parseFloat(formData.other_acres)
       if (formData.land_type) updateData.land_type = formData.land_type
       if (formData.soil_rating) updateData.soil_rating = parseFloat(formData.soil_rating)
-      if (formData.csr2) updateData.csr2 = parseFloat(formData.csr2)
       if (formData.bid_amount) updateData.bid_amount = parseFloat(formData.bid_amount)
       if (formData.bid_type) updateData.bid_type = formData.bid_type
       if (formData.sale_price) updateData.sale_price = parseFloat(formData.sale_price)
@@ -459,22 +455,11 @@ export default function EditTractPage() {
             <h2 className="text-xl font-semibold text-white mb-4">Soil Information</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-gg-gray-400 text-sm mb-1">Soil Rating (PI)</label>
+                <label className="block text-gg-gray-400 text-sm mb-1">Soil Productivity</label>
                 <input
                   type="number"
                   name="soil_rating"
                   value={formData.soil_rating}
-                  onChange={handleChange}
-                  step="0.01"
-                  className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white"
-                />
-              </div>
-              <div>
-                <label className="block text-gg-gray-400 text-sm mb-1">CSR2</label>
-                <input
-                  type="number"
-                  name="csr2"
-                  value={formData.csr2}
                   onChange={handleChange}
                   step="0.01"
                   className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white"
