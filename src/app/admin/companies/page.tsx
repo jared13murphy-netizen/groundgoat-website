@@ -86,25 +86,58 @@ export default function AdminCompaniesPage() {
 
   const fetchCompaniesWithListingCounts = async (token: string) => {
     try {
-      const [companiesResponse, countsResponse, datesResponse, statusCountsResponse, typeCountsResponse] = await Promise.all([
+      // Fetch companies and all listings in parallel
+      const [companiesResponse, datesResponse, listingsResponse] = await Promise.all([
         fetchWithAuth(`${API_URL}/api/companies`),
-        fetchWithAuth(`${API_URL}/api/companies/listing-counts`),
         fetchWithAuth(`${API_URL}/api/companies/latest-listing-dates`),
-        fetchWithAuth(`${API_URL}/api/companies/listing-status-counts`),
-        fetchWithAuth(`${API_URL}/api/companies/listing-type-counts`)
+        fetchWithAuth(`${API_URL}/api/listings?limit=10000`)
       ])
 
       if (!companiesResponse.ok) throw new Error('Failed to fetch companies')
 
       const companiesData = await companiesResponse.json()
-      const listingCounts = countsResponse.ok ? await countsResponse.json() : {}
       const latestDates = datesResponse.ok ? await datesResponse.json() : {}
-      const statusCounts = statusCountsResponse.ok ? await statusCountsResponse.json() : {}
-      const typeCounts = typeCountsResponse.ok ? await typeCountsResponse.json() : {}
+
+      // Get listings and aggregate counts by company
+      interface Listing {
+        listing_company_id?: string
+        status: string
+      }
+
+      const listings: Listing[] = listingsResponse.ok ? await listingsResponse.json() : []
+
+      // Build counts per company
+      const statusCounts: Record<string, { no_sale: number; sold: number; pending: number }> = {}
+      const typeCounts: Record<string, { listed: number; live: number }> = {}
+
+      listings.forEach((listing: Listing) => {
+        const companyId = listing.listing_company_id
+        if (!companyId) return
+
+        // Initialize if not exists
+        if (!statusCounts[companyId]) {
+          statusCounts[companyId] = { no_sale: 0, sold: 0, pending: 0 }
+        }
+        if (!typeCounts[companyId]) {
+          typeCounts[companyId] = { listed: 0, live: 0 }
+        }
+
+        // Count by status
+        const status = listing.status
+        if (status === 'no_sale') statusCounts[companyId].no_sale++
+        else if (status === 'sold') statusCounts[companyId].sold++
+        else if (status === 'pending') statusCounts[companyId].pending++
+        else if (status === 'listed') typeCounts[companyId].listed++
+        else if (status === 'live') typeCounts[companyId].live++
+      })
 
       const companiesWithCounts = companiesData.map((company: Company) => ({
         ...company,
-        listing_count: listingCounts[company.id] || 0,
+        listing_count: (statusCounts[company.id]?.no_sale || 0) +
+                       (statusCounts[company.id]?.sold || 0) +
+                       (statusCounts[company.id]?.pending || 0) +
+                       (typeCounts[company.id]?.listed || 0) +
+                       (typeCounts[company.id]?.live || 0),
         latest_listing_date: latestDates[company.id] || null,
         status_counts: statusCounts[company.id] || { no_sale: 0, sold: 0, pending: 0 },
         type_counts: typeCounts[company.id] || { listed: 0, live: 0 }
