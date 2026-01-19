@@ -17,6 +17,15 @@ interface Company {
   state: string
   listing_count?: number
   latest_listing_date?: string
+  status_counts?: {
+    no_sale: number
+    sold: number
+    pending: number
+  }
+  type_counts?: {
+    listed: number
+    live: number
+  }
 }
 
 const US_STATES = [
@@ -77,10 +86,12 @@ export default function AdminCompaniesPage() {
 
   const fetchCompaniesWithListingCounts = async (token: string) => {
     try {
-      const [companiesResponse, countsResponse, datesResponse] = await Promise.all([
+      const [companiesResponse, countsResponse, datesResponse, statusCountsResponse, typeCountsResponse] = await Promise.all([
         fetchWithAuth(`${API_URL}/api/companies`),
         fetchWithAuth(`${API_URL}/api/companies/listing-counts`),
-        fetchWithAuth(`${API_URL}/api/companies/latest-listing-dates`)
+        fetchWithAuth(`${API_URL}/api/companies/latest-listing-dates`),
+        fetchWithAuth(`${API_URL}/api/companies/listing-status-counts`),
+        fetchWithAuth(`${API_URL}/api/companies/listing-type-counts`)
       ])
 
       if (!companiesResponse.ok) throw new Error('Failed to fetch companies')
@@ -88,11 +99,15 @@ export default function AdminCompaniesPage() {
       const companiesData = await companiesResponse.json()
       const listingCounts = countsResponse.ok ? await countsResponse.json() : {}
       const latestDates = datesResponse.ok ? await datesResponse.json() : {}
+      const statusCounts = statusCountsResponse.ok ? await statusCountsResponse.json() : {}
+      const typeCounts = typeCountsResponse.ok ? await typeCountsResponse.json() : {}
 
       const companiesWithCounts = companiesData.map((company: Company) => ({
         ...company,
         listing_count: listingCounts[company.id] || 0,
-        latest_listing_date: latestDates[company.id] || null
+        latest_listing_date: latestDates[company.id] || null,
+        status_counts: statusCounts[company.id] || { no_sale: 0, sold: 0, pending: 0 },
+        type_counts: typeCounts[company.id] || { listed: 0, live: 0 }
       }))
 
       companiesWithCounts.sort((a: Company, b: Company) =>
@@ -381,9 +396,27 @@ export default function AdminCompaniesPage() {
                 )}
               </div>
 
-              {/* Listing Count */}
-              <div className="flex-shrink-0 px-3 py-1 bg-gg-pink/20 text-white rounded-full text-sm font-medium">
-                {company.listing_count || 0} listings
+              {/* Status Counts */}
+              <div className="hidden lg:flex items-center gap-2 flex-shrink-0">
+                <span className="px-2 py-0.5 bg-yellow-500/20 text-yellow-400 rounded text-xs" title="No Sale">
+                  {company.status_counts?.no_sale || 0} NS
+                </span>
+                <span className="px-2 py-0.5 bg-green-500/20 text-green-400 rounded text-xs" title="Sold">
+                  {company.status_counts?.sold || 0} S
+                </span>
+                <span className="px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded text-xs" title="Pending">
+                  {company.status_counts?.pending || 0} P
+                </span>
+              </div>
+
+              {/* Type Counts */}
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <span className="px-2 py-1 bg-gg-gray-700 text-gg-gray-300 rounded text-xs" title="Listed">
+                  {company.type_counts?.listed || 0} listed
+                </span>
+                <span className="px-2 py-1 bg-gg-pink/20 text-white rounded text-xs font-medium" title="Live">
+                  {company.type_counts?.live || 0} live
+                </span>
               </div>
 
               {/* Actions */}
