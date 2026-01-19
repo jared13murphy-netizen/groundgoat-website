@@ -86,11 +86,10 @@ export default function AdminCompaniesPage() {
 
   const fetchCompaniesWithListingCounts = async (token: string) => {
     try {
-      // Fetch companies and all listings in parallel
-      const [companiesResponse, datesResponse, listingsResponse] = await Promise.all([
+      // Fetch companies and latest dates first
+      const [companiesResponse, datesResponse] = await Promise.all([
         fetchWithAuth(`${API_URL}/api/companies`),
-        fetchWithAuth(`${API_URL}/api/companies/latest-listing-dates`),
-        fetchWithAuth(`${API_URL}/api/listings?limit=10000`)
+        fetchWithAuth(`${API_URL}/api/companies/latest-listing-dates`)
       ])
 
       if (!companiesResponse.ok) throw new Error('Failed to fetch companies')
@@ -98,20 +97,34 @@ export default function AdminCompaniesPage() {
       const companiesData = await companiesResponse.json()
       const latestDates = datesResponse.ok ? await datesResponse.json() : {}
 
-      // Get listings and aggregate counts by company
+      // Fetch all listings with pagination (like map page does)
       interface Listing {
         listing_company_id?: string
+        company?: { id: string; name: string }
         status: string
       }
 
-      const listings: Listing[] = listingsResponse.ok ? await listingsResponse.json() : []
+      const allListings: Listing[] = []
+      let offset = 0
+      const limit = 100
+
+      while (true) {
+        const response = await fetchWithAuth(`${API_URL}/api/listings?limit=${limit}&offset=${offset}`)
+        if (!response.ok) break
+        const batch = await response.json()
+        if (!batch || batch.length === 0) break
+        allListings.push(...batch)
+        if (batch.length < limit) break
+        offset += limit
+      }
 
       // Build counts per company
       const statusCounts: Record<string, { no_sale: number; sold: number; pending: number }> = {}
       const typeCounts: Record<string, { listed: number; live: number }> = {}
 
-      listings.forEach((listing: Listing) => {
-        const companyId = listing.listing_company_id
+      allListings.forEach((listing: Listing) => {
+        // Try listing_company_id first, then company.id
+        const companyId = listing.listing_company_id || listing.company?.id
         if (!companyId) return
 
         // Initialize if not exists
