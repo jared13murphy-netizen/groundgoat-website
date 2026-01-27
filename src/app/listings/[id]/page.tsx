@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, use } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import fetchWithAuth from '@/lib/fetchWithAuth'
@@ -70,8 +70,8 @@ const LAND_TYPE_COLORS: Record<string, string> = {
   'Development': 'bg-red-500',
 }
 
-export default function ListingDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params)
+export default function ListingDetailPage({ params }: { params: { id: string } }) {
+  const { id } = params
   const router = useRouter()
 
   const [user, setUser] = useState<User | null>(null)

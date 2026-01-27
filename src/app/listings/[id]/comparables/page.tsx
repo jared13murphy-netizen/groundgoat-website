@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, use } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import fetchWithAuth from '@/lib/fetchWithAuth'
@@ -56,8 +56,8 @@ interface User {
 
 const ALLOWED_ROLES = ['groundgoat_admin', 'groundgoat_sales', 'firm_admin', 'firm_user']
 
-export default function ComparablesPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params)
+export default function ComparablesPage({ params }: { params: { id: string } }) {
+  const { id } = params
   const router = useRouter()
   const searchParams = useSearchParams()
   const tractId = searchParams.get('tractId')

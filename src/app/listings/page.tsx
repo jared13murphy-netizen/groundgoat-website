@@ -25,6 +25,7 @@ interface Listing {
   status: string
   auction_datetime?: string
   auction_date?: string
+  auction_time?: string
   created_at?: string
   primary_image_url?: string
   asking_price?: number
@@ -145,14 +146,6 @@ function ListingsPageContent() {
 
         // Sort based on tab
         if (activeTab === 'auctions') {
-          // Filter out auctions that are more than 12 hours in the past
-          const twelveHoursAgo = Date.now() - (12 * 60 * 60 * 1000)
-          data = data.filter((listing: Listing) => {
-            const auctionDate = listing.auction_datetime || listing.auction_date
-            if (!auctionDate) return true // Keep listings without dates
-            return new Date(auctionDate).getTime() >= twelveHoursAgo
-          })
-
           // Sort by auction datetime (soonest first)
           data = data.sort((a: Listing, b: Listing) => {
             const dateA = a.auction_datetime || a.auction_date || ''
@@ -492,7 +485,7 @@ function ListingsPageContent() {
                         <Calendar size={14} className="text-gg-pink" />
                         <span className="text-gg-gray-300">
                           {formatDate(listing.auction_datetime || listing.auction_date)}
-                          {listing.auction_datetime && ` at ${formatTime(listing.auction_datetime)}`}
+                          {(listing.auction_datetime || listing.auction_time) && ` at ${formatTime(listing.auction_datetime || listing.auction_time)}`}
                         </span>
                       </div>
                     )}
