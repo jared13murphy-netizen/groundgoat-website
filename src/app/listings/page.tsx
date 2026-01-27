@@ -130,11 +130,11 @@ function ListingsPageContent() {
 
       // Add filters based on tab
       if (activeTab === 'auctions') {
-        url += '&listing_type=auction&status=listed,live'
+        url += '&listing_type=auction&status=listed,live&sort=auction_datetime&order=asc'
       } else if (activeTab === 'private_treaty') {
         url += '&listing_type=private_treaty&status=listed,live'
       } else if (activeTab === 'results') {
-        url += '&status=sold,pending,no_sale'
+        url += '&status=sold,pending,no_sale&sort=auction_datetime&order=desc'
         if (filterListingType) {
           url += `&listing_type=${filterListingType}`
         }
