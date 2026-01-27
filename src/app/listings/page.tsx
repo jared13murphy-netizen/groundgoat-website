@@ -65,6 +65,7 @@ function ListingsPageContent() {
   const [filterState, setFilterState] = useState('')
   const [filterCounty, setFilterCounty] = useState('')
   const [filterCompany, setFilterCompany] = useState('')
+  const [filterListingType, setFilterListingType] = useState('') // For Results tab only
   const [showFilters, setShowFilters] = useState(false)
 
   // Pagination
@@ -82,7 +83,7 @@ function ListingsPageContent() {
     if (user) {
       fetchListings()
     }
-  }, [user, activeTab, page, filterState, filterCounty, filterCompany])
+  }, [user, activeTab, page, filterState, filterCounty, filterCompany, filterListingType])
 
   const checkAuth = async () => {
     try {
@@ -134,6 +135,9 @@ function ListingsPageContent() {
         url += '&listing_type=private_treaty&status=listed,live'
       } else if (activeTab === 'results') {
         url += '&status=sold,pending,no_sale'
+        if (filterListingType) {
+          url += `&listing_type=${filterListingType}`
+        }
       }
 
       if (filterState) url += `&state=${encodeURIComponent(filterState)}`
@@ -208,10 +212,11 @@ function ListingsPageContent() {
     setFilterState('')
     setFilterCounty('')
     setFilterCompany('')
+    setFilterListingType('')
     setPage(1)
   }
 
-  const hasActiveFilters = filterState || filterCounty || filterCompany
+  const hasActiveFilters = filterState || filterCounty || filterCompany || (activeTab === 'results' && filterListingType)
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -387,6 +392,21 @@ function ListingsPageContent() {
                   {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </div>
+
+              {activeTab === 'results' && (
+                <div>
+                  <label className="block text-gg-gray-400 text-sm mb-1">Listing Type</label>
+                  <select
+                    value={filterListingType}
+                    onChange={(e) => { setFilterListingType(e.target.value); setPage(1) }}
+                    className="w-full bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-3 py-2 text-white text-sm"
+                  >
+                    <option value="">All Types</option>
+                    <option value="auction">Auctions Only</option>
+                    <option value="private_treaty">Private Treaty Only</option>
+                  </select>
+                </div>
+              )}
 
               {hasActiveFilters && (
                 <div className="flex items-end">
