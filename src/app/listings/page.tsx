@@ -130,7 +130,8 @@ function ListingsPageContent() {
 
       // Add filters based on tab
       if (activeTab === 'auctions') {
-        url += '&listing_type=auction&status=listed,live&sort=auction_datetime&order=asc'
+        const today = new Date().toISOString().split('T')[0]
+        url += `&listing_type=auction&status=listed,live&sort=auction_datetime&order=asc&min_auction_datetime=${today}`
       } else if (activeTab === 'private_treaty') {
         url += '&listing_type=private_treaty&status=listed,live'
       } else if (activeTab === 'results') {
