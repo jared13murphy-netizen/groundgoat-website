@@ -130,8 +130,7 @@ function ListingsPageContent() {
 
       // Add filters based on tab
       if (activeTab === 'auctions') {
-        const today = new Date().toISOString().split('T')[0]
-        url += `&listing_type=auction&status=listed,live&sort=auction_datetime&order=asc&min_auction_datetime=${today}`
+        url += '&listing_type=auction&status=listed,live&sort=auction_datetime&order=asc'
       } else if (activeTab === 'private_treaty') {
         url += '&listing_type=private_treaty&status=listed,live'
       } else if (activeTab === 'results') {
@@ -151,14 +150,6 @@ function ListingsPageContent() {
 
         // Sort based on tab
         if (activeTab === 'auctions') {
-          // Filter out past auctions (only show today and future)
-          const today = new Date().toISOString().split('T')[0] // YYYY-MM-DD
-          data = data.filter((listing: Listing) => {
-            const auctionDate = listing.auction_datetime || listing.auction_date
-            if (!auctionDate) return true // Keep listings without dates
-            const auctionDateStr = auctionDate.split('T')[0] // Get just YYYY-MM-DD
-            return auctionDateStr >= today
-          })
           // Sort by auction datetime (soonest first)
           data = data.sort((a: Listing, b: Listing) => {
             const dateA = a.auction_datetime || a.auction_date || ''
