@@ -151,6 +151,14 @@ function ListingsPageContent() {
 
         // Sort based on tab
         if (activeTab === 'auctions') {
+          // Filter out past auctions (only show today and future)
+          const now = new Date()
+          now.setHours(0, 0, 0, 0) // Start of today
+          data = data.filter((listing: Listing) => {
+            const auctionDate = listing.auction_datetime || listing.auction_date
+            if (!auctionDate) return false
+            return new Date(auctionDate) >= now
+          })
           // Sort by auction datetime (soonest first)
           data = data.sort((a: Listing, b: Listing) => {
             const dateA = a.auction_datetime || a.auction_date || ''
