@@ -125,13 +125,42 @@ function ListingsPageContent() {
   const fetchListings = async () => {
     setLoading(true)
     try {
+      let data: Listing[] = []
+
+      if (activeTab === 'auctions') {
+        // Use dedicated endpoint that filters out past auctions server-side
+        const response = await fetchWithAuth(`${API_URL}/api/listings/upcoming/auctions`)
+        if (response.ok) {
+          data = await response.json()
+
+          // Apply client-side filters
+          if (filterState) {
+            data = data.filter((l: Listing) => l.state === filterState)
+          }
+          if (filterCounty) {
+            data = data.filter((l: Listing) => l.county === filterCounty)
+          }
+          if (filterCompany) {
+            data = data.filter((l: Listing) => l.company?.id === filterCompany)
+          }
+
+          // Sort by auction datetime (soonest first), using '9999-12-31' for missing dates
+          data = data.sort((a: Listing, b: Listing) => {
+            const dateA = new Date(a.auction_datetime || a.auction_date || '9999-12-31')
+            const dateB = new Date(b.auction_datetime || b.auction_date || '9999-12-31')
+            return dateA.getTime() - dateB.getTime()
+          })
+        }
+        setListings(data)
+        setLoading(false)
+        return
+      }
+
+      // For other tabs, use the generic listings endpoint with pagination
       const offset = (page - 1) * itemsPerPage
       let url = `${API_URL}/api/listings?limit=${itemsPerPage}&offset=${offset}`
 
-      // Add filters based on tab
-      if (activeTab === 'auctions') {
-        url += '&listing_type=auction&status=listed,live&sort=auction_datetime&order=asc'
-      } else if (activeTab === 'private_treaty') {
+      if (activeTab === 'private_treaty') {
         url += '&listing_type=private_treaty&status=listed,live'
       } else if (activeTab === 'results') {
         url += '&status=sold,pending,no_sale&sort=auction_datetime&order=desc'
@@ -146,17 +175,10 @@ function ListingsPageContent() {
 
       const response = await fetchWithAuth(url)
       if (response.ok) {
-        let data = await response.json()
+        data = await response.json()
 
         // Sort based on tab
-        if (activeTab === 'auctions') {
-          // Sort by auction datetime (soonest first)
-          data = data.sort((a: Listing, b: Listing) => {
-            const dateA = a.auction_datetime || a.auction_date || ''
-            const dateB = b.auction_datetime || b.auction_date || ''
-            return new Date(dateA).getTime() - new Date(dateB).getTime()
-          })
-        } else if (activeTab === 'private_treaty') {
+        if (activeTab === 'private_treaty') {
           // Sort by distance from user's hometown if set, otherwise by date (newest first)
           if (user?.home_state && user?.home_county) {
             // Calculate distance for each listing
