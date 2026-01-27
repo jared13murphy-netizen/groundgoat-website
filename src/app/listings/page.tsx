@@ -191,11 +191,11 @@ function ListingsPageContent() {
             })
           }
         } else if (activeTab === 'results') {
-          // Sort by most recent sale first
+          // Sort by auction_datetime descending (newest auctions first)
           data = data.sort((a: Listing, b: Listing) => {
             const dateA = a.auction_datetime || a.auction_date || ''
             const dateB = b.auction_datetime || b.auction_date || ''
-            return new Date(dateB).getTime() - new Date(dateA).getTime()
+            return new Date(dateA).getTime() - new Date(dateB).getTime()
           })
         }
 
