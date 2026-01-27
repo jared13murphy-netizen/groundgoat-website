@@ -131,7 +131,7 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'listed': return 'bg-blue-500'
-      case 'live': return 'bg-green-500'
+      case 'live': return 'bg-red-500 animate-pulse'
       case 'pending': return 'bg-yellow-500'
       case 'sold': return 'bg-purple-500'
       case 'no_sale': return 'bg-red-500'
@@ -142,7 +142,7 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
   const getStatusLabel = (status: string) => {
     switch (status) {
       case 'listed': return 'Upcoming'
-      case 'live': return 'Live Now'
+      case 'live': return 'LIVE NOW'
       case 'pending': return 'Pending'
       case 'sold': return 'Sold'
       case 'no_sale': return 'No Sale'
