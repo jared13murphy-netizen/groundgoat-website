@@ -156,17 +156,37 @@ function ListingsPageContent() {
         return
       }
 
-      // For other tabs, use the generic listings endpoint with pagination
+      if (activeTab === 'results') {
+        // Use dedicated endpoint that returns results sorted by newest first
+        const response = await fetchWithAuth(`${API_URL}/api/listings/recent/results`)
+        if (response.ok) {
+          data = await response.json()
+
+          // Apply client-side filters
+          if (filterState) {
+            data = data.filter((l: Listing) => l.state === filterState)
+          }
+          if (filterCounty) {
+            data = data.filter((l: Listing) => l.county === filterCounty)
+          }
+          if (filterCompany) {
+            data = data.filter((l: Listing) => l.company?.id === filterCompany)
+          }
+          if (filterListingType) {
+            data = data.filter((l: Listing) => l.listing_type === filterListingType)
+          }
+        }
+        setListings(data)
+        setLoading(false)
+        return
+      }
+
+      // For private_treaty tab, use the generic listings endpoint with pagination
       const offset = (page - 1) * itemsPerPage
       let url = `${API_URL}/api/listings?limit=${itemsPerPage}&offset=${offset}`
 
       if (activeTab === 'private_treaty') {
         url += '&listing_type=private_treaty&status=listed,live'
-      } else if (activeTab === 'results') {
-        url += '&status=sold,pending,no_sale&sort=auction_datetime&order=desc'
-        if (filterListingType) {
-          url += `&listing_type=${filterListingType}`
-        }
       }
 
       if (filterState) url += `&state=${encodeURIComponent(filterState)}`
@@ -177,7 +197,7 @@ function ListingsPageContent() {
       if (response.ok) {
         data = await response.json()
 
-        // Sort based on tab
+        // Sort for private_treaty tab
         if (activeTab === 'private_treaty') {
           // Sort by distance from user's hometown if set, otherwise by date (newest first)
           if (user?.home_state && user?.home_county) {
@@ -212,13 +232,6 @@ function ListingsPageContent() {
               return new Date(dateB).getTime() - new Date(dateA).getTime()
             })
           }
-        } else if (activeTab === 'results') {
-          // Sort by auction_datetime descending (newest auctions first)
-          data = data.sort((a: Listing, b: Listing) => {
-            const dateA = a.auction_datetime || a.auction_date || ''
-            const dateB = b.auction_datetime || b.auction_date || ''
-            return new Date(dateA).getTime() - new Date(dateB).getTime()
-          })
         }
 
         setListings(data)
