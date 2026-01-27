@@ -441,10 +441,12 @@ function ListingsPageContent() {
                       <MapPin className="text-gg-gray-600" size={48} />
                     </div>
                   )}
-                  {/* Status Badge */}
-                  <div className={`absolute top-3 left-3 px-3 py-1 rounded-full text-xs font-semibold text-white ${getStatusColor(listing.status)}`}>
-                    {getStatusLabel(listing.status)}
-                  </div>
+                  {/* Status Badge - only show for Results tab or live auctions */}
+                  {(activeTab === 'results' || listing.status === 'live') && (
+                    <div className={`absolute top-3 left-3 px-3 py-1 rounded-full text-xs font-semibold text-white ${getStatusColor(listing.status)}`}>
+                      {getStatusLabel(listing.status)}
+                    </div>
+                  )}
                 </div>
 
                 {/* Content */}
