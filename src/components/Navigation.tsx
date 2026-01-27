@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import Image from 'next/image'
 import { useState, useEffect } from 'react'
-import { Menu, X, LogOut, User } from 'lucide-react'
+import { Menu, X, LogOut, User, List } from 'lucide-react'
 import { useRouter, usePathname } from 'next/navigation'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
@@ -85,6 +85,10 @@ export default function Navigation() {
   }
 
   const isAdmin = user?.account_type === 'groundgoat_admin' || user?.account_type === 'groundgoat_sales'
+  const canViewListings = user?.account_type === 'groundgoat_admin' ||
+    user?.account_type === 'groundgoat_sales' ||
+    user?.account_type === 'firm_admin' ||
+    user?.account_type === 'firm_user'
 
   return (
     <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
@@ -118,8 +122,16 @@ export default function Navigation() {
             
             {user ? (
               <>
-                <Link 
-                  href={isAdmin ? '/admin/dashboard' : '/account'} 
+                {canViewListings && (
+                  <Link
+                    href="/listings"
+                    className="text-gg-gray-300 hover:text-white transition-colors font-medium"
+                  >
+                    Listings
+                  </Link>
+                )}
+                <Link
+                  href={isAdmin ? '/admin/dashboard' : '/account'}
                   className="text-gg-gray-300 hover:text-white transition-colors font-medium"
                 >
                   {isAdmin ? 'Dashboard' : 'My Account'}
@@ -225,8 +237,18 @@ export default function Navigation() {
                       <p className="text-sm text-gg-gray-400">{user.email}</p>
                     </div>
                   </div>
-                  <Link 
-                    href={isAdmin ? '/admin/dashboard' : '/account'} 
+                  {canViewListings && (
+                    <Link
+                      href="/listings"
+                      className="text-white font-medium py-2 flex items-center gap-2"
+                      onClick={() => setIsMobileMenuOpen(false)}
+                    >
+                      <List size={18} />
+                      Listings
+                    </Link>
+                  )}
+                  <Link
+                    href={isAdmin ? '/admin/dashboard' : '/account'}
                     className="text-white font-medium py-2"
                     onClick={() => setIsMobileMenuOpen(false)}
                   >
