@@ -146,6 +146,14 @@ function ListingsPageContent() {
 
         // Sort based on tab
         if (activeTab === 'auctions') {
+          // Filter out auctions that ended more than 12 hours ago
+          const twelveHoursAgo = Date.now() - (12 * 60 * 60 * 1000)
+          data = data.filter((listing: Listing) => {
+            const auctionDate = listing.auction_datetime || listing.auction_date
+            if (!auctionDate) return true // Keep listings without dates
+            return new Date(auctionDate).getTime() >= twelveHoursAgo
+          })
+
           // Sort by auction datetime (soonest first)
           data = data.sort((a: Listing, b: Listing) => {
             const dateA = a.auction_datetime || a.auction_date || ''
