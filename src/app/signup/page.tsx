@@ -1,24 +1,15 @@
 'use client'
 
-import { useState, useEffect, Suspense } from 'react'
+import { useState, useEffect, Suspense, useRef } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import Image from 'next/image'
-import { Check, ArrowLeft, ArrowRight, Eye, EyeOff, MapPin, ChevronDown, X, Loader2 } from 'lucide-react'
+import { Check, ArrowLeft, ArrowRight, Eye, EyeOff, MapPin, ChevronDown, X, Loader2, Building2, Users, Plus, Mail } from 'lucide-react'
+import { US_STATES, getCountiesForState, getStateAbbreviation } from '@/data/counties'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
-// Valid US states to filter against - defined outside component to avoid reference issues
-const VALID_STATES = [
-  'Alabama', 'Alaska', 'Arizona', 'Arkansas', 'California', 'Colorado', 'Connecticut',
-  'Delaware', 'Florida', 'Georgia', 'Hawaii', 'Idaho', 'Illinois', 'Indiana', 'Iowa',
-  'Kansas', 'Kentucky', 'Louisiana', 'Maine', 'Maryland', 'Massachusetts', 'Michigan',
-  'Minnesota', 'Mississippi', 'Missouri', 'Montana', 'Nebraska', 'Nevada', 'New Hampshire',
-  'New Jersey', 'New Mexico', 'New York', 'North Carolina', 'North Dakota', 'Ohio',
-  'Oklahoma', 'Oregon', 'Pennsylvania', 'Rhode Island', 'South Carolina', 'South Dakota',
-  'Tennessee', 'Texas', 'Utah', 'Vermont', 'Virginia', 'Washington', 'West Virginia',
-  'Wisconsin', 'Wyoming'
-]
+
+// VALID_STATES now imported from @/data/counties as US_STATES
 
 const PLANS = {
   county: {
@@ -26,7 +17,7 @@ const PLANS = {
     basePrice: 7.99,
     additionalPrice: 3.99,
     description: 'Perfect for focused investors',
-    features: ['1 county included', 'Upcoming auction alerts', 'Sale results access', 'Mobile app access'],
+    features: ['1 county included', 'Upcoming land sale alerts', 'Sale results access', 'Mobile app access'],
   },
   state: {
     name: 'State',
@@ -37,7 +28,7 @@ const PLANS = {
   },
   firm: {
     name: 'Management Firm',
-    basePrice: 189.99,
+    basePrice: 199.99,
     additionalPrice: 39.99,
     description: 'For teams and professionals',
     features: ['Unlimited states & counties', 'Up to 3 team members', 'Comparable sales lookup', 'Priority support'],
@@ -49,21 +40,42 @@ interface SelectedArea {
   county?: string
 }
 
+interface TeamMember {
+  email: string
+  firstName: string
+  lastName: string
+  password: string
+}
+
+interface ReferrerInfo {
+  first_name: string
+  account_type: string
+}
+
 function SignUpContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const initialPlan = searchParams.get('plan') as keyof typeof PLANS || 'state'
   const initialStep = searchParams.get('step') ? parseInt(searchParams.get('step')!) : 1
   const cancelled = searchParams.get('cancelled') === 'true'
-  const referralCode = searchParams.get('ref')
-
+  const referralCode = searchParams.get('ref') || null  // Capture referral code from URL
+  
   const [step, setStep] = useState(initialStep)
   const [selectedPlan, setSelectedPlan] = useState(initialPlan)
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('monthly')
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(cancelled ? 'Payment was cancelled. Please try again.' : '')
-  const [isReturningUser, setIsReturningUser] = useState(false)
+  const [verificationToken, setVerificationToken] = useState<string | null>(null)
+  
+  // Referral state
+  const [referrerInfo, setReferrerInfo] = useState<ReferrerInfo | null>(null)
+  
+  // Verification code state
+  const [verificationCode, setVerificationCode] = useState(['', '', '', '', '', ''])
+  const [codeSent, setCodeSent] = useState(false)
+  const [resendCountdown, setResendCountdown] = useState(0)
+  const codeInputRefs = useRef<(HTMLInputElement | null)[]>([])
   
   // Territory selection state
   const [availableStates, setAvailableStates] = useState<string[]>([])
@@ -75,9 +87,37 @@ function SignUpContent() {
   const [selectedAreas, setSelectedAreas] = useState<SelectedArea[]>([])
   const [showStateDropdown, setShowStateDropdown] = useState(false)
   const [showCountyDropdown, setShowCountyDropdown] = useState(false)
+  
+  // Firm-specific state
+  const [firmData, setFirmData] = useState({
+    firmName: '',
+    firmWebsite: '',
+    firmPhone: '',
+  })
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
+  const [newMember, setNewMember] = useState<TeamMember>({
+    email: '',
+    firstName: '',
+    lastName: '',
+    password: '',
+  })
+  const [additionalSeats, setAdditionalSeats] = useState(0)
+  const [showAddMember, setShowAddMember] = useState(false)
+  
+  const [formData, setFormData] = useState({
+    firstName: '',
+    lastName: '',
+    email: '',
+    password: '',
+    confirmPassword: '',
+    homeState: '',
+    homeCounty: '',
+  })
 
-  // Referral state
-  const [referrerName, setReferrerName] = useState<string | null>(null)
+  // Home location dropdowns
+  const [homeCounties, setHomeCounties] = useState<string[]>([])
+  const [showHomeStateDropdown, setShowHomeStateDropdown] = useState(false)
+  const [showHomeCountyDropdown, setShowHomeCountyDropdown] = useState(false)
 
   // Validate referral code on mount
   useEffect(() => {
@@ -91,8 +131,8 @@ function SignUpContent() {
       const response = await fetch(`${API_URL}/api/referral/validate/${code}`)
       if (response.ok) {
         const data = await response.json()
-        if (data.valid && data.referrer?.first_name) {
-          setReferrerName(data.referrer.first_name)
+        if (data.valid && data.referrer) {
+          setReferrerInfo(data.referrer)
         }
       }
     } catch (err) {
@@ -100,95 +140,91 @@ function SignUpContent() {
     }
   }
 
-  // Check if user is already logged in (returning user without subscription)
+  // Resend countdown timer
   useEffect(() => {
-    const token = localStorage.getItem('auth_token')
-    const user = localStorage.getItem('user')
-    if (token && user && initialStep >= 2) {
-      setIsReturningUser(true)
-      // Pre-fill form data from stored user
-      const userData = JSON.parse(user)
-      setFormData(prev => ({
-        ...prev,
-        firstName: userData.first_name || '',
-        lastName: userData.last_name || '',
-        email: userData.email || '',
-      }))
+    if (resendCountdown > 0) {
+      const timer = setTimeout(() => setResendCountdown(resendCountdown - 1), 1000)
+      return () => clearTimeout(timer)
     }
-  }, [initialStep])
-  
-  const [formData, setFormData] = useState({
-    firstName: '',
-    lastName: '',
-    email: '',
-    password: '',
-    confirmPassword: '',
-  })
+  }, [resendCountdown])
 
-  // Fetch available states on component mount
   useEffect(() => {
     fetchAvailableStates()
   }, [])
 
-  // Fetch counties when state is selected
   useEffect(() => {
     if (selectedState && selectedPlan === 'county') {
       fetchAvailableCounties(selectedState)
     }
   }, [selectedState, selectedPlan])
 
-  const fetchAvailableStates = async () => {
-    setLoadingStates(true)
-    try {
-      const response = await fetch(`${API_URL}/api/subscriptions/available-states`)
-      if (response.ok) {
-        const data = await response.json()
-        // Handle array of {state, listing_count} objects and filter to valid states only
-        let states: string[] = []
-        if (Array.isArray(data)) {
-          states = data
-            .map((item: any) => typeof item === 'string' ? item : item.state)
-            .filter((s: string) => VALID_STATES.includes(s))
-            .sort()
-        }
-        setAvailableStates(states.length > 0 ? states : VALID_STATES.slice(0, 10))
-      }
-    } catch (err) {
-      console.error('Failed to fetch states:', err)
-      // Fallback to common states
-      setAvailableStates(['Illinois', 'Iowa', 'Missouri', 'Indiana', 'Wisconsin'])
-    } finally {
-      setLoadingStates(false)
+  // Load counties for home location when home state changes
+  useEffect(() => {
+    if (formData.homeState) {
+      setHomeCounties(getCountiesForState(formData.homeState))
+      setFormData(prev => ({ ...prev, homeCounty: '' }))
+    } else {
+      setHomeCounties([])
     }
+  }, [formData.homeState])
+
+  const fetchAvailableStates = () => {
+    setLoadingStates(true)
+    // Use local county data for consistency with listings
+    setAvailableStates(US_STATES)
+    setLoadingStates(false)
   }
 
-  const fetchAvailableCounties = async (state: string) => {
+  const fetchAvailableCounties = (state: string) => {
     setLoadingCounties(true)
     setAvailableCounties([])
-    try {
-      const response = await fetch(`${API_URL}/api/subscriptions/available-counties/${encodeURIComponent(state)}`)
-      if (response.ok) {
-        const data = await response.json()
-        // Handle array of {county, listing_count} objects and filter out townships/bad data
-        let counties: string[] = []
-        if (Array.isArray(data)) {
-          counties = data
-            .map((item: any) => typeof item === 'string' ? item : item.county)
-            .filter((c: string) => c && !c.includes('Township') && !c.includes('Precinct') && !c.match(/^\d/))
-            .sort()
-        }
-        setAvailableCounties(counties)
-      }
-    } catch (err) {
-      console.error('Failed to fetch counties:', err)
-    } finally {
-      setLoadingCounties(false)
-    }
+    // Use local county data for consistency with listings
+    setAvailableCounties(getCountiesForState(state))
+    setLoadingCounties(false)
   }
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value })
     setError('')
+  }
+
+  const handleFirmInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setFirmData({ ...firmData, [e.target.name]: e.target.value })
+    setError('')
+  }
+
+  const handleNewMemberChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setNewMember({ ...newMember, [e.target.name]: e.target.value })
+    setError('')
+  }
+
+  const handleCodeChange = (index: number, value: string) => {
+    if (value.length > 1) {
+      const digits = value.replace(/\D/g, '').slice(0, 6).split('')
+      const newCode = [...verificationCode]
+      digits.forEach((digit, i) => {
+        if (index + i < 6) {
+          newCode[index + i] = digit
+        }
+      })
+      setVerificationCode(newCode)
+      const nextIndex = Math.min(index + digits.length, 5)
+      codeInputRefs.current[nextIndex]?.focus()
+    } else {
+      const newCode = [...verificationCode]
+      newCode[index] = value.replace(/\D/g, '')
+      setVerificationCode(newCode)
+      if (value && index < 5) {
+        codeInputRefs.current[index + 1]?.focus()
+      }
+    }
+    setError('')
+  }
+
+  const handleCodeKeyDown = (index: number, e: React.KeyboardEvent) => {
+    if (e.key === 'Backspace' && !verificationCode[index] && index > 0) {
+      codeInputRefs.current[index - 1]?.focus()
+    }
   }
 
   const validateStep1 = () => {
@@ -198,11 +234,18 @@ function SignUpContent() {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) return 'Invalid email address'
     if (formData.password.length < 8) return 'Password must be at least 8 characters'
     if (formData.password !== formData.confirmPassword) return 'Passwords do not match'
+    if (!formData.homeState) return 'Please select your home state'
+    if (!formData.homeCounty) return 'Please select your home county'
+    return null
+  }
+
+  const validateFirmProfile = () => {
+    if (!firmData.firmName.trim()) return 'Company name is required'
     return null
   }
 
   const validateStep3 = () => {
-    if (selectedPlan === 'firm') return null // Firm gets unlimited access
+    if (selectedPlan === 'firm') return null
     if (selectedAreas.length === 0) return 'Please select at least one area'
     return null
   }
@@ -213,7 +256,6 @@ function SignUpContent() {
         setError('Please select both a state and county')
         return
       }
-      // Check for duplicates
       const exists = selectedAreas.some(a => a.state === selectedState && a.county === selectedCounty)
       if (exists) {
         setError('This county is already selected')
@@ -226,7 +268,6 @@ function SignUpContent() {
         setError('Please select a state')
         return
       }
-      // Check for duplicates
       const exists = selectedAreas.some(a => a.state === selectedState && !a.county)
       if (exists) {
         setError('This state is already selected')
@@ -241,46 +282,302 @@ function SignUpContent() {
     setSelectedAreas(selectedAreas.filter((_, i) => i !== index))
   }
 
+  const addTeamMember = async () => {
+    if (!newMember.email.trim()) {
+      setError('Email is required')
+      return
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newMember.email)) {
+      setError('Invalid email address')
+      return
+    }
+    if (!newMember.firstName.trim()) {
+      setError('First name is required')
+      return
+    }
+    if (!newMember.lastName.trim()) {
+      setError('Last name is required')
+      return
+    }
+    if (newMember.password.length < 8) {
+      setError('Password must be at least 8 characters')
+      return
+    }
+    
+    try {
+      const checkResponse = await fetch(`${API_URL}/api/auth/check-email?email=${encodeURIComponent(newMember.email)}`)
+      if (checkResponse.ok) {
+        const data = await checkResponse.json()
+        if (data.exists) {
+          setError('This email is already registered')
+          return
+        }
+      }
+    } catch (err) {
+      console.error('Email check failed:', err)
+    }
+    
+    if (teamMembers.some(m => m.email.toLowerCase() === newMember.email.toLowerCase())) {
+      setError('This team member is already added')
+      return
+    }
+    
+    const baseSeats = 3
+    const maxMembers = baseSeats - 1 + additionalSeats
+    if (teamMembers.length >= maxMembers) {
+      setError(`You've reached your seat limit. Add more seats to invite more members.`)
+      return
+    }
+    
+    setTeamMembers([...teamMembers, newMember])
+    setNewMember({ email: '', firstName: '', lastName: '', password: '' })
+    setShowAddMember(false)
+    setError('')
+  }
+
+  const removeTeamMember = (index: number) => {
+    setTeamMembers(teamMembers.filter((_, i) => i !== index))
+  }
+
   const calculatePrice = () => {
     const plan = PLANS[selectedPlan]
     let total = plan.basePrice
     
-    // Add price for additional areas
-    if (selectedAreas.length > 1) {
+    if (selectedPlan === 'firm') {
+      total += additionalSeats * plan.additionalPrice
+    } else if (selectedAreas.length > 1) {
       total += (selectedAreas.length - 1) * plan.additionalPrice
     }
     
     if (billingCycle === 'annual') {
-      total = total * 12 * 0.9 // 10% discount
+      total = total * 12 * 0.9
     }
     
     return total.toFixed(2)
   }
 
+  const getTotalSteps = () => {
+    if (selectedPlan === 'firm') {
+      return 5
+    }
+    return 4
+  }
+
+  const getStepLabel = (stepNum: number) => {
+    if (selectedPlan === 'firm') {
+      switch (stepNum) {
+        case 1: return 'Account'
+        case 2: return 'Plan'
+        case 3: return 'Company'
+        case 4: return 'Team'
+        case 5: return 'Payment'
+      }
+    }
+    switch (stepNum) {
+      case 1: return 'Account'
+      case 2: return 'Plan'
+      case 3: return 'Areas'
+      case 4: return 'Payment'
+    }
+    return ''
+  }
+
+  const sendVerificationCode = async () => {
+    setLoading(true)
+    setError('')
+    
+    try {
+      const response = await fetch(`${API_URL}/api/auth/send-code`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: formData.email,
+          first_name: formData.firstName,
+          last_name: formData.lastName,
+          password: formData.password,
+          referral_code: referralCode,  // Pass referral code
+        }),
+      })
+
+      if (response.ok) {
+        setCodeSent(true)
+        setResendCountdown(60)
+        setVerificationCode(['', '', '', '', '', ''])
+      } else {
+        const data = await response.json()
+        throw new Error(data.detail || 'Failed to send verification code')
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to send verification code')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const verifyCode = async () => {
+    const code = verificationCode.join('')
+    if (code.length !== 6) {
+      setError('Please enter the complete 6-digit code')
+      return
+    }
+
+    setLoading(true)
+    setError('')
+
+    try {
+      const response = await fetch(`${API_URL}/api/auth/verify-code`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: formData.email,
+          code: code,
+        }),
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        setVerificationToken(data.verification_token)
+        
+        // Check if Ground Goat employee - register immediately and skip subscription
+        if (formData.email.toLowerCase().endsWith('@groundgoat.com')) {
+          // Register the user directly
+          const registerResponse = await fetch(`${API_URL}/api/auth/register`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              first_name: formData.firstName,
+              last_name: formData.lastName,
+              email: formData.email,
+              password: formData.password,
+              home_state: getStateAbbreviation(formData.homeState),
+              home_county: formData.homeCounty,
+              referral_code: referralCode,  // Pass referral code
+              verification_token: data.verification_token,  // Pass verification token
+            }),
+          })
+
+          if (!registerResponse.ok) {
+            const regData = await registerResponse.json().catch(() => ({}))
+            throw new Error(regData.detail || 'Registration failed')
+          }
+
+          const authData = await registerResponse.json()
+          localStorage.setItem('auth_token', authData.access_token)
+          if (authData.refresh_token) {
+            localStorage.setItem('refresh_token', authData.refresh_token)
+          }
+
+          // Get user data
+          const userResponse = await fetch(`${API_URL}/api/auth/me`, {
+            headers: { 'Authorization': `Bearer ${authData.access_token}` }
+          })
+          if (userResponse.ok) {
+            const userData = await userResponse.json()
+            localStorage.setItem('user', JSON.stringify(userData))
+          }
+
+          router.push('/account?welcome=true')
+          return
+        }
+        
+        setStep(2)
+      } else {
+        const data = await response.json()
+        throw new Error(data.detail || 'Invalid verification code')
+      }
+    } catch (err: any) {
+      setError(err.message || 'Verification failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const handleContinue = async () => {
     if (step === 1) {
-      const validationError = validateStep1()
-      if (validationError) {
-        setError(validationError)
-        return
+      if (!codeSent) {
+        const validationError = validateStep1()
+        if (validationError) {
+          setError(validationError)
+          return
+        }
+        await sendVerificationCode()
+      } else {
+        await verifyCode()
       }
-      setStep(2)
     } else if (step === 2) {
       if (selectedPlan === 'firm') {
-        // Firm plan skips territory selection
-        setStep(4)
-        await handleRegistration()
+        setStep(3)
       } else {
         setStep(3)
       }
     } else if (step === 3) {
-      const validationError = validateStep3()
-      if (validationError) {
-        setError(validationError)
-        return
+      if (selectedPlan === 'firm') {
+        const validationError = validateFirmProfile()
+        if (validationError) {
+          setError(validationError)
+          return
+        }
+        setStep(4)
+      } else {
+        const validationError = validateStep3()
+        if (validationError) {
+          setError(validationError)
+          return
+        }
+        setStep(4)
+        await handleRegistration()
       }
+    } else if (step === 4) {
+      if (selectedPlan === 'firm') {
+        setStep(5)
+        await handleFirmRegistration()
+      }
+    }
+  }
+
+  const handleFirmRegistration = async () => {
+    setLoading(true)
+    setError('')
+    
+    try {
+      const response = await fetch(`${API_URL}/api/auth/firm-checkout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          admin_email: formData.email,
+          admin_password: formData.password,
+          admin_first_name: formData.firstName,
+          admin_last_name: formData.lastName,
+          firm_name: firmData.firmName,
+          firm_website: firmData.firmWebsite || null,
+          firm_phone: firmData.firmPhone || null,
+          team_members: teamMembers.map(m => ({
+            email: m.email,
+            first_name: m.firstName,
+            last_name: m.lastName,
+            password: m.password,
+          })),
+          billing_cycle: billingCycle,
+          additional_seats: additionalSeats,
+        }),
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        if (data.checkout_url) {
+          window.location.href = data.checkout_url
+          return
+        }
+      } else {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.detail || 'Failed to create checkout session')
+      }
+    } catch (err: any) {
+      console.error('Firm registration error:', err)
+      setError(err.message || 'Something went wrong. Please try again.')
       setStep(4)
-      await handleRegistration()
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -289,71 +586,50 @@ function SignUpContent() {
     setError('')
     
     try {
-      let authData;
-      let token = localStorage.getItem('auth_token')
-      
-      // If returning user with existing token, skip registration
-      if (isReturningUser && token) {
-        authData = { access_token: token }
-      } else {
-        // Step 1: Register the user
-        const registerResponse = await fetch(`${API_URL}/api/auth/register`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            first_name: formData.firstName,
-            last_name: formData.lastName,
-            email: formData.email,
-            password: formData.password,
-            account_type: selectedPlan === 'firm' ? 'firm_admin' : 'individual',
-            referral_code: referralCode,
-          }),
-        })
+      // Register the user with referral code and verification token
+      const registerResponse = await fetch(`${API_URL}/api/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          first_name: formData.firstName,
+          last_name: formData.lastName,
+          email: formData.email,
+          password: formData.password,
+          home_state: getStateAbbreviation(formData.homeState),
+          home_county: formData.homeCounty,
+          referral_code: referralCode,  // Pass referral code
+          verification_token: verificationToken,  // Pass verification token to mark user as verified
+        }),
+      })
 
-        if (!registerResponse.ok) {
-          const data = await registerResponse.json().catch(() => ({}))
-          // If user already exists, try to log them in instead
-          if (data.detail?.includes('already') || data.detail?.includes('exists')) {
-            const loginResponse = await fetch(`${API_URL}/api/auth/login`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                email: formData.email,
-                password: formData.password,
-              }),
-            })
-            
-            if (!loginResponse.ok) {
-              throw new Error('Account already exists. Please sign in instead.')
-            }
-            
-            authData = await loginResponse.json()
-          } else {
-            throw new Error(data.detail || 'Registration failed. Please try again.')
-          }
-        } else {
-          authData = await registerResponse.json()
-        }
+      if (!registerResponse.ok) {
+        const data = await registerResponse.json().catch(() => ({}))
+        throw new Error(data.detail || 'Registration failed. Please try again.')
+      }
+      
+      const authData = await registerResponse.json()
+      
+      localStorage.setItem('auth_token', authData.access_token)
+      if (authData.refresh_token) {
+        localStorage.setItem('refresh_token', authData.refresh_token)
+      }
+      
+      const userResponse = await fetch(`${API_URL}/api/auth/me`, {
+        headers: { 'Authorization': `Bearer ${authData.access_token}` }
+      })
+      
+      if (userResponse.ok) {
+        const userData = await userResponse.json()
+        localStorage.setItem('user', JSON.stringify(userData))
         
-        // Store tokens
-        localStorage.setItem('auth_token', authData.access_token)
-        if (authData.refresh_token) {
-          localStorage.setItem('refresh_token', authData.refresh_token)
-        }
-        
-        // Fetch user data
-        const userResponse = await fetch(`${API_URL}/api/auth/me`, {
-          headers: { 'Authorization': `Bearer ${authData.access_token}` }
-        })
-        
-        if (userResponse.ok) {
-          const userData = await userResponse.json()
-          localStorage.setItem('user', JSON.stringify(userData))
+        // Skip subscription for Ground Goat employees
+        if (userData.account_type === 'groundgoat_sales' || userData.account_type === 'groundgoat_admin') {
+          router.push('/account?welcome=true')
+          return
         }
       }
 
-      // Step 2: Create subscription checkout for each area
-      if (selectedPlan !== 'firm' && selectedAreas.length > 0) {
+      if (selectedAreas.length > 0) {
         const primaryArea = selectedAreas[0]
         const checkoutResponse = await fetch(`${API_URL}/api/subscriptions/checkout`, {
           method: 'POST',
@@ -363,15 +639,18 @@ function SignUpContent() {
           },
           body: JSON.stringify({
             subscription_type: selectedPlan,
-            state: primaryArea.state,
+            state: getStateAbbreviation(primaryArea.state),
             county: primaryArea.county || null,
             billing_cycle: billingCycle,
+            additional_areas: selectedAreas.slice(1).map(area => ({
+              state: getStateAbbreviation(area.state),
+              county: area.county || null,
+            })),
           }),
         })
 
         if (checkoutResponse.ok) {
           const checkoutData = await checkoutResponse.json()
-          // Redirect to Stripe checkout
           if (checkoutData.checkout_url) {
             window.location.href = checkoutData.checkout_url
             return
@@ -384,71 +663,65 @@ function SignUpContent() {
         }
       }
 
-      // If no checkout URL or firm plan, redirect to account
       router.push('/account?welcome=true')
       
     } catch (err: any) {
       console.error('Registration error:', err)
       setError(err.message || 'Something went wrong. Please try again.')
-      setStep(3) // Go back to territory selection on error
+      setStep(3)
     } finally {
       setLoading(false)
     }
   }
 
-  const plan = PLANS[selectedPlan]
-
   return (
     <div className="min-h-screen bg-gg-black pt-24 pb-12">
       <div className="max-w-4xl mx-auto px-6">
+        {/* Referral Banner */}
+        {referrerInfo && (
+          <div className="bg-gg-pink/10 border border-gg-pink/30 rounded-xl p-4 mb-8 text-center">
+            <p className="text-gg-pink">
+              🎉 You were referred by <span className="font-semibold">{referrerInfo.first_name}</span>!
+            </p>
+          </div>
+        )}
+
         {/* Header */}
         <div className="text-center mb-12">
-          <Link href="/" className="inline-block mb-8">
-            <Image src="/logo.png" alt="Ground Goat" width={150} height={50} className="h-12 w-auto" />
-          </Link>
           <h1 className="font-display text-4xl font-bold text-white mb-4">
             Create Your Account
           </h1>
           <p className="text-gg-gray-400">
-            {step === 1 && 'Enter your information to get started'}
+            {step === 1 && !codeSent && 'Enter your information to get started'}
+            {step === 1 && codeSent && 'Enter the verification code sent to your email'}
             {step === 2 && 'Choose your subscription plan'}
-            {step === 3 && 'Select your coverage areas'}
-            {step === 4 && 'Setting up your account...'}
+            {step === 3 && selectedPlan === 'firm' && 'Tell us about your company'}
+            {step === 3 && selectedPlan !== 'firm' && 'Select your coverage areas'}
+            {step === 4 && selectedPlan === 'firm' && 'Add your team members'}
+            {step === 4 && selectedPlan !== 'firm' && 'Setting up your account...'}
+            {step === 5 && 'Setting up your account...'}
           </p>
-          {referrerName && (
-            <div className="mt-4 inline-flex items-center gap-2 bg-gg-pink/10 border border-gg-pink/30 rounded-full px-4 py-2">
-              <span className="text-gg-pink text-sm">Referred by {referrerName}</span>
-            </div>
-          )}
         </div>
 
         {/* Progress Steps */}
         <div className="flex items-center justify-center gap-4 mb-12">
-          <div className={`flex items-center gap-2 ${step >= 1 ? 'text-gg-pink' : 'text-gg-gray-500'}`}>
-            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold ${step >= 1 ? 'bg-gg-pink text-black' : 'bg-gg-gray-700'}`}>1</div>
-            <span className="hidden sm:inline">Account</span>
-          </div>
-          <div className="w-12 h-px bg-gg-gray-700" />
-          <div className={`flex items-center gap-2 ${step >= 2 ? 'text-gg-pink' : 'text-gg-gray-500'}`}>
-            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold ${step >= 2 ? 'bg-gg-pink text-black' : 'bg-gg-gray-700'}`}>2</div>
-            <span className="hidden sm:inline">Plan</span>
-          </div>
-          <div className="w-12 h-px bg-gg-gray-700" />
-          <div className={`flex items-center gap-2 ${step >= 3 ? 'text-gg-pink' : 'text-gg-gray-500'}`}>
-            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold ${step >= 3 ? 'bg-gg-pink text-black' : 'bg-gg-gray-700'}`}>3</div>
-            <span className="hidden sm:inline">Areas</span>
-          </div>
-          <div className="w-12 h-px bg-gg-gray-700" />
-          <div className={`flex items-center gap-2 ${step >= 4 ? 'text-gg-pink' : 'text-gg-gray-500'}`}>
-            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold ${step >= 4 ? 'bg-gg-pink text-black' : 'bg-gg-gray-700'}`}>4</div>
-            <span className="hidden sm:inline">Payment</span>
-          </div>
+          {Array.from({ length: getTotalSteps() }, (_, i) => i + 1).map((stepNum) => (
+            <div key={stepNum} className="flex items-center">
+              <div className={`flex items-center gap-2 ${step >= stepNum ? 'text-gg-pink' : 'text-gg-gray-500'}`}>
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold ${step >= stepNum ? 'bg-gg-pink text-black' : 'bg-gg-gray-700'}`}>
+                  {stepNum}
+                </div>
+                <span className="hidden sm:inline">{getStepLabel(stepNum)}</span>
+              </div>
+              {stepNum < getTotalSteps() && <div className="w-12 h-px bg-gg-gray-700 mx-2" />}
+            </div>
+          ))}
         </div>
 
         {/* Step Content */}
         <div className="max-w-xl mx-auto">
           {/* Step 1: Account Info */}
-          {step === 1 && (
+          {step === 1 && !codeSent && (
             <div className="card">
               <div className="space-y-6">
                 <div className="grid grid-cols-2 gap-4">
@@ -521,16 +794,103 @@ function SignUpContent() {
                   />
                 </div>
 
+                {/* Home Location */}
+                <div className="pt-4 border-t border-gg-gray-700">
+                  <p className="text-sm text-gg-gray-400 mb-4">
+                    <MapPin size={14} className="inline mr-1" />
+                    Your home location helps us send you relevant notifications
+                  </p>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gg-gray-300 mb-2">Home State</label>
+                      <div className="relative">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowHomeStateDropdown(!showHomeStateDropdown)
+                            setShowHomeCountyDropdown(false)
+                          }}
+                          className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-left text-black flex items-center justify-between focus:border-gg-pink focus:outline-none"
+                        >
+                          <span className={formData.homeState ? 'text-black' : 'text-gray-500'}>
+                            {formData.homeState || 'Select...'}
+                          </span>
+                          <ChevronDown size={16} className={`text-gray-500 transition-transform ${showHomeStateDropdown ? 'rotate-180' : ''}`} />
+                        </button>
+
+                        {showHomeStateDropdown && (
+                          <div className="absolute z-20 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-xl max-h-48 overflow-y-auto">
+                            {US_STATES.map(state => (
+                              <button
+                                key={state}
+                                type="button"
+                                onClick={() => {
+                                  setFormData(prev => ({ ...prev, homeState: state, homeCounty: '' }))
+                                  setShowHomeStateDropdown(false)
+                                }}
+                                className="w-full px-4 py-2 text-left text-sm text-black hover:bg-gray-100 transition-colors"
+                              >
+                                {state}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gg-gray-300 mb-2">Home County</label>
+                      <div className="relative">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (formData.homeState) {
+                              setShowHomeCountyDropdown(!showHomeCountyDropdown)
+                              setShowHomeStateDropdown(false)
+                            }
+                          }}
+                          disabled={!formData.homeState}
+                          className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-left text-black flex items-center justify-between focus:border-gg-pink focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <span className={formData.homeCounty ? 'text-black' : 'text-gray-500'}>
+                            {formData.homeCounty || (formData.homeState ? 'Select...' : 'Select state first')}
+                          </span>
+                          <ChevronDown size={16} className={`text-gray-500 transition-transform ${showHomeCountyDropdown ? 'rotate-180' : ''}`} />
+                        </button>
+
+                        {showHomeCountyDropdown && homeCounties.length > 0 && (
+                          <div className="absolute z-20 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-xl max-h-48 overflow-y-auto">
+                            {homeCounties.map(county => (
+                              <button
+                                key={county}
+                                type="button"
+                                onClick={() => {
+                                  setFormData(prev => ({ ...prev, homeCounty: county }))
+                                  setShowHomeCountyDropdown(false)
+                                }}
+                                className="w-full px-4 py-2 text-left text-sm text-black hover:bg-gray-100 transition-colors"
+                              >
+                                {county}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
                 {error && (
                   <p className="text-red-400 text-sm">{error}</p>
                 )}
 
                 <button
                   onClick={handleContinue}
+                  disabled={loading}
                   className="btn-primary w-full flex items-center justify-center gap-2"
                 >
-                  Continue
-                  <ArrowRight size={20} />
+                  {loading ? <Loader2 size={20} className="animate-spin" /> : <>Send Verification Code <ArrowRight size={20} /></>}
                 </button>
 
                 <p className="text-center text-gg-gray-500 text-sm">
@@ -541,10 +901,78 @@ function SignUpContent() {
             </div>
           )}
 
+          {/* Step 1b: Verification Code Entry */}
+          {step === 1 && codeSent && (
+            <div className="card">
+              <div className="text-center mb-8">
+                <div className="w-16 h-16 bg-gg-pink/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Mail className="text-gg-pink" size={32} />
+                </div>
+                <h2 className="font-display text-2xl font-bold text-white mb-2">Check Your Email</h2>
+                <p className="text-gg-gray-400">
+                  We sent a 6-digit code to <span className="text-white">{formData.email}</span>
+                </p>
+              </div>
+
+              <div className="flex justify-center gap-3 mb-8">
+                {verificationCode.map((digit, index) => (
+                  <input
+                    key={index}
+                    ref={(el) => { codeInputRefs.current[index] = el }}
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={6}
+                    value={digit}
+                    onChange={(e) => handleCodeChange(index, e.target.value)}
+                    onKeyDown={(e) => handleCodeKeyDown(index, e)}
+                    className="w-12 h-14 bg-gg-gray-900 border border-gg-gray-700 rounded-lg text-center text-2xl font-bold text-white focus:border-gg-pink focus:outline-none"
+                  />
+                ))}
+              </div>
+
+              {error && (
+                <p className="text-red-400 text-sm text-center mb-4">{error}</p>
+              )}
+
+              <button
+                onClick={handleContinue}
+                disabled={loading}
+                className="btn-primary w-full flex items-center justify-center gap-2 mb-4"
+              >
+                {loading ? <Loader2 size={20} className="animate-spin" /> : <>Verify Code <ArrowRight size={20} /></>}
+              </button>
+
+              <div className="text-center">
+                <p className="text-gg-gray-500 text-sm mb-2">Didn't receive the code?</p>
+                {resendCountdown > 0 ? (
+                  <p className="text-gg-gray-400 text-sm">Resend in {resendCountdown}s</p>
+                ) : (
+                  <button
+                    onClick={sendVerificationCode}
+                    disabled={loading}
+                    className="text-gg-pink hover:underline text-sm"
+                  >
+                    Resend Code
+                  </button>
+                )}
+              </div>
+
+              <button
+                onClick={() => {
+                  setCodeSent(false)
+                  setVerificationCode(['', '', '', '', '', ''])
+                  setError('')
+                }}
+                className="w-full mt-6 text-center text-gg-gray-400 hover:text-white text-sm"
+              >
+                ← Change email address
+              </button>
+            </div>
+          )}
+
           {/* Step 2: Plan Selection */}
           {step === 2 && (
             <div className="space-y-6">
-              {/* Billing Toggle */}
               <div className="flex justify-center mb-8">
                 <div className="bg-gg-gray-800 rounded-full p-1 flex">
                   <button
@@ -562,7 +990,6 @@ function SignUpContent() {
                 </div>
               </div>
 
-              {/* Plan Selection */}
               <div className="space-y-4">
                 {Object.entries(PLANS).map(([key, p]) => (
                   <button
@@ -606,7 +1033,10 @@ function SignUpContent() {
 
               <div className="flex gap-4">
                 <button
-                  onClick={() => setStep(1)}
+                  onClick={() => {
+                    setStep(1)
+                    setCodeSent(false)
+                  }}
                   className="btn-secondary flex items-center justify-center gap-2"
                 >
                   <ArrowLeft size={20} />
@@ -616,15 +1046,91 @@ function SignUpContent() {
                   onClick={handleContinue}
                   className="btn-primary flex-1 flex items-center justify-center gap-2"
                 >
-                  {selectedPlan === 'firm' ? 'Continue to Payment' : 'Select Areas'}
+                  {selectedPlan === 'firm' ? 'Company Info' : 'Select Areas'}
                   <ArrowRight size={20} />
                 </button>
               </div>
             </div>
           )}
 
-          {/* Step 3: Territory Selection */}
-          {step === 3 && (
+          {/* Step 3: Firm Profile */}
+          {step === 3 && selectedPlan === 'firm' && (
+            <div className="space-y-6">
+              <div className="card">
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="w-12 h-12 rounded-full bg-gg-pink/20 flex items-center justify-center">
+                    <Building2 className="text-gg-pink" size={24} />
+                  </div>
+                  <div>
+                    <h3 className="font-display text-xl font-semibold text-white">Company Information</h3>
+                    <p className="text-gg-gray-400 text-sm">Tell us about your management firm</p>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gg-gray-300 mb-2">Company Name *</label>
+                    <input
+                      type="text"
+                      name="firmName"
+                      value={firmData.firmName}
+                      onChange={handleFirmInputChange}
+                      className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none"
+                      placeholder="Acme Land Management"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gg-gray-300 mb-2">Website (optional)</label>
+                    <input
+                      type="text"
+                      name="firmWebsite"
+                      value={firmData.firmWebsite}
+                      onChange={handleFirmInputChange}
+                      className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none"
+                      placeholder="https://example.com"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gg-gray-300 mb-2">Phone (optional)</label>
+                    <input
+                      type="tel"
+                      name="firmPhone"
+                      value={firmData.firmPhone}
+                      onChange={handleFirmInputChange}
+                      className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none"
+                      placeholder="(555) 123-4567"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {error && (
+                <p className="text-red-400 text-sm text-center">{error}</p>
+              )}
+
+              <div className="flex gap-4">
+                <button
+                  onClick={() => setStep(2)}
+                  className="btn-secondary flex items-center justify-center gap-2"
+                >
+                  <ArrowLeft size={20} />
+                  Back
+                </button>
+                <button
+                  onClick={handleContinue}
+                  className="btn-primary flex-1 flex items-center justify-center gap-2"
+                >
+                  Add Team Members
+                  <ArrowRight size={20} />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Step 3: Territory Selection (for non-firm plans) */}
+          {step === 3 && selectedPlan !== 'firm' && (
             <div className="space-y-6">
               <div className="card">
                 <h3 className="font-display text-xl font-semibold text-white mb-2">
@@ -632,12 +1138,11 @@ function SignUpContent() {
                 </h3>
                 <p className="text-gg-gray-400 text-sm mb-6">
                   {selectedPlan === 'county' 
-                    ? 'Choose the counties you want to monitor for land auctions and sales.'
+                    ? 'Choose the counties you want to monitor for land sales.'
                     : 'Choose the states you want full access to. All counties in selected states will be included.'
                   }
                 </p>
 
-                {/* State Selection */}
                 <div className="mb-4">
                   <label className="block text-sm font-medium text-gg-gray-300 mb-2">
                     {selectedPlan === 'county' ? 'State' : 'Select State'}
@@ -682,7 +1187,6 @@ function SignUpContent() {
                   </div>
                 </div>
 
-                {/* County Selection (only for county plan) */}
                 {selectedPlan === 'county' && selectedState && (
                   <div className="mb-4">
                     <label className="block text-sm font-medium text-gg-gray-300 mb-2">County</label>
@@ -726,7 +1230,6 @@ function SignUpContent() {
                   </div>
                 )}
 
-                {/* Add Area Button */}
                 <button
                   onClick={addArea}
                   className="btn-secondary w-full flex items-center justify-center gap-2"
@@ -736,7 +1239,6 @@ function SignUpContent() {
                 </button>
               </div>
 
-              {/* Selected Areas */}
               {selectedAreas.length > 0 && (
                 <div className="card">
                   <h4 className="font-medium text-white mb-4">Selected Areas</h4>
@@ -765,7 +1267,6 @@ function SignUpContent() {
                     ))}
                   </div>
                   
-                  {/* Price Summary */}
                   <div className="mt-4 pt-4 border-t border-gg-gray-700">
                     <div className="flex justify-between items-center">
                       <span className="text-gg-gray-400">
@@ -804,8 +1305,222 @@ function SignUpContent() {
             </div>
           )}
 
-          {/* Step 4: Processing */}
-          {step === 4 && (
+          {/* Step 4: Team Setup (for firm plans) */}
+          {step === 4 && selectedPlan === 'firm' && (
+            <div className="space-y-6">
+              <div className="card">
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="w-12 h-12 rounded-full bg-gg-pink/20 flex items-center justify-center">
+                    <Users className="text-gg-pink" size={24} />
+                  </div>
+                  <div>
+                    <h3 className="font-display text-xl font-semibold text-white">Add Team Members</h3>
+                    <p className="text-gg-gray-400 text-sm">
+                      Your plan includes 3 seats (1 admin + 2 team members)
+                    </p>
+                  </div>
+                </div>
+
+                <div className="bg-gg-gray-900 rounded-lg p-4 mb-6">
+                  <div className="flex justify-between items-center">
+                    <span className="text-gg-gray-300">Seats Used</span>
+                    <span className="text-white font-semibold">
+                      {1 + teamMembers.length} / {3 + additionalSeats}
+                    </span>
+                  </div>
+                  <div className="mt-2 h-2 bg-gg-gray-700 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-gg-pink transition-all"
+                      style={{ width: `${((1 + teamMembers.length) / (3 + additionalSeats)) * 100}%` }}
+                    />
+                  </div>
+                </div>
+
+                {teamMembers.length > 0 && (
+                  <div className="space-y-2 mb-6">
+                    {teamMembers.map((member, index) => (
+                      <div
+                        key={index}
+                        className="flex items-center justify-between bg-gg-gray-900 rounded-lg px-4 py-3"
+                      >
+                        <div>
+                          <p className="text-white">{member.firstName} {member.lastName}</p>
+                          <p className="text-gg-gray-400 text-sm">{member.email}</p>
+                        </div>
+                        <button
+                          onClick={() => removeTeamMember(index)}
+                          className="text-gg-gray-500 hover:text-red-400 transition-colors"
+                        >
+                          <X size={18} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {showAddMember ? (
+                  <div className="border border-gg-gray-700 rounded-lg p-4 space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gg-gray-300 mb-2">First Name</label>
+                        <input
+                          type="text"
+                          name="firstName"
+                          value={newMember.firstName}
+                          onChange={handleNewMemberChange}
+                          className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none"
+                          placeholder="Jane"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gg-gray-300 mb-2">Last Name</label>
+                        <input
+                          type="text"
+                          name="lastName"
+                          value={newMember.lastName}
+                          onChange={handleNewMemberChange}
+                          className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none"
+                          placeholder="Smith"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gg-gray-300 mb-2">Email</label>
+                      <input
+                        type="email"
+                        name="email"
+                        value={newMember.email}
+                        onChange={handleNewMemberChange}
+                        className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none"
+                        placeholder="jane@example.com"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gg-gray-300 mb-2">Temporary Password</label>
+                      <input
+                        type="password"
+                        name="password"
+                        value={newMember.password}
+                        onChange={handleNewMemberChange}
+                        className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none"
+                        placeholder="••••••••"
+                      />
+                      <p className="text-gg-gray-500 text-xs mt-1">They can change this after signing in</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => {
+                          setShowAddMember(false)
+                          setNewMember({ email: '', firstName: '', lastName: '', password: '' })
+                          setError('')
+                        }}
+                        className="btn-secondary flex-1"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={addTeamMember}
+                        className="btn-primary flex-1"
+                      >
+                        Add Member
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setShowAddMember(true)}
+                    disabled={teamMembers.length >= 2 + additionalSeats}
+                    className="btn-secondary w-full flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <Plus size={18} />
+                    Add Team Member
+                  </button>
+                )}
+
+                <div className="mt-6 pt-6 border-t border-gg-gray-700">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-white font-medium">Need more seats?</p>
+                      <p className="text-gg-gray-400 text-sm">${PLANS.firm.additionalPrice}/seat/month</p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => setAdditionalSeats(Math.max(0, additionalSeats - 1))}
+                        disabled={additionalSeats === 0}
+                        className="w-8 h-8 rounded-full bg-gg-gray-700 text-white flex items-center justify-center disabled:opacity-50"
+                      >
+                        -
+                      </button>
+                      <span className="text-white font-semibold w-8 text-center">{additionalSeats}</span>
+                      <button
+                        onClick={() => setAdditionalSeats(additionalSeats + 1)}
+                        className="w-8 h-8 rounded-full bg-gg-gray-700 text-white flex items-center justify-center"
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="card">
+                <h4 className="font-medium text-white mb-4">Order Summary</h4>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gg-gray-400">Management Firm Base Plan</span>
+                    <span className="text-white">${PLANS.firm.basePrice}/mo</span>
+                  </div>
+                  {additionalSeats > 0 && (
+                    <div className="flex justify-between">
+                      <span className="text-gg-gray-400">{additionalSeats} Additional Seat(s)</span>
+                      <span className="text-white">${(additionalSeats * PLANS.firm.additionalPrice).toFixed(2)}/mo</span>
+                    </div>
+                  )}
+                  {billingCycle === 'annual' && (
+                    <div className="flex justify-between text-green-400">
+                      <span>Annual Discount (10%)</span>
+                      <span>-${((PLANS.firm.basePrice + additionalSeats * PLANS.firm.additionalPrice) * 12 * 0.1).toFixed(2)}</span>
+                    </div>
+                  )}
+                  <div className="pt-2 border-t border-gg-gray-700 flex justify-between">
+                    <span className="text-white font-semibold">Total</span>
+                    <div className="text-right">
+                      <span className="text-2xl font-bold text-white">${calculatePrice()}</span>
+                      <span className="text-gg-gray-400 text-sm">/{billingCycle === 'annual' ? 'year' : 'mo'}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {error && (
+                <p className="text-red-400 text-sm text-center">{error}</p>
+              )}
+
+              <div className="flex gap-4">
+                <button
+                  onClick={() => setStep(3)}
+                  className="btn-secondary flex items-center justify-center gap-2"
+                >
+                  <ArrowLeft size={20} />
+                  Back
+                </button>
+                <button
+                  onClick={handleContinue}
+                  className="btn-primary flex-1 flex items-center justify-center gap-2"
+                >
+                  Continue to Payment
+                  <ArrowRight size={20} />
+                </button>
+              </div>
+
+              <p className="text-center text-gg-gray-500 text-sm">
+                You can add more team members later from your account settings
+              </p>
+            </div>
+          )}
+
+          {/* Step 4/5: Processing */}
+          {((step === 4 && selectedPlan !== 'firm') || step === 5) && (
             <div className="card text-center py-12">
               <Loader2 size={48} className="animate-spin text-gg-pink mx-auto mb-6" />
               <h3 className="font-display text-xl font-semibold text-white mb-2">
@@ -818,7 +1533,7 @@ function SignUpContent() {
                 <div className="mt-6">
                   <p className="text-red-400 text-sm mb-4">{error}</p>
                   <button
-                    onClick={() => setStep(3)}
+                    onClick={() => setStep(selectedPlan === 'firm' ? 4 : 3)}
                     className="btn-secondary"
                   >
                     Try Again
@@ -852,4 +1567,3 @@ export default function SignUpPage() {
     </Suspense>
   )
 }
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      
