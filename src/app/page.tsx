@@ -425,12 +425,14 @@ export default function Home() {
           <div className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
             {/* County Plan */}
             <div className="card relative">
+              <span className="inline-block text-gg-pink text-sm font-semibold mb-3">7-day free trial</span>
               <h3 className="font-display text-2xl font-bold text-white mb-2">County</h3>
               <p className="text-gg-gray-400 mb-6">Perfect for focused investors</p>
-              <div className="mb-6">
+              <div className="mb-1">
                 <span className="text-4xl font-bold text-white">$7.99</span>
                 <span className="text-gg-gray-400">/month</span>
               </div>
+              <p className="text-gg-gray-500 text-sm mb-6">then $7.99/mo after trial</p>
               <ul className="space-y-3 mb-8">
                 <li className="flex items-center gap-2 text-gg-gray-300">
                   <Check className="text-gg-pink" size={18} />
@@ -454,7 +456,7 @@ export default function Home() {
                 </li>
               </ul>
               <Link href="/signup?plan=county" className="btn-secondary w-full text-center block">
-                Get Started
+                Start 7-Day Free Trial
               </Link>
               <p className="text-center text-gg-gray-500 text-sm mt-4">
                 Save 10% with annual billing
@@ -466,12 +468,14 @@ export default function Home() {
               <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-gg-pink text-black text-sm font-semibold px-4 py-1 rounded-full">
                 Most Popular
               </div>
+              <span className="inline-block text-gg-pink text-sm font-semibold mb-3">7-day free trial</span>
               <h3 className="font-display text-2xl font-bold text-white mb-2">State</h3>
               <p className="text-gg-gray-400 mb-6">Best for active land investors</p>
-              <div className="mb-6">
+              <div className="mb-1">
                 <span className="text-4xl font-bold text-white">$19.99</span>
                 <span className="text-gg-gray-400">/month</span>
               </div>
+              <p className="text-gg-gray-500 text-sm mb-6">then $19.99/mo after trial</p>
               <ul className="space-y-3 mb-8">
                 <li className="flex items-center gap-2 text-gg-gray-300">
                   <Check className="text-gg-pink" size={18} />
@@ -495,7 +499,7 @@ export default function Home() {
                 </li>
               </ul>
               <Link href="/signup?plan=state" className="btn-primary w-full text-center block">
-                Get Started
+                Start 7-Day Free Trial
               </Link>
               <p className="text-center text-gg-gray-500 text-sm mt-4">
                 Save 10% with annual billing
@@ -504,12 +508,14 @@ export default function Home() {
 
             {/* Management Firm Plan */}
             <div className="card relative">
+              <span className="inline-block text-gg-pink text-sm font-semibold mb-3">14-day free trial</span>
               <h3 className="font-display text-2xl font-bold text-white mb-2">Management Firm</h3>
               <p className="text-gg-gray-400 mb-6">For teams and professionals</p>
-              <div className="mb-6">
+              <div className="mb-1">
                 <span className="text-4xl font-bold text-white">$199.99</span>
                 <span className="text-gg-gray-400">/month</span>
               </div>
+              <p className="text-gg-gray-500 text-sm mb-6">then $199.99/mo after trial</p>
               <ul className="space-y-3 mb-8">
                 <li className="flex items-center gap-2 text-gg-gray-300">
                   <Check className="text-gg-pink" size={18} />
@@ -533,7 +539,7 @@ export default function Home() {
                 </li>
               </ul>
               <Link href="/signup?plan=firm" className="btn-secondary w-full text-center block">
-                Get Started
+                Start 14-Day Free Trial
               </Link>
               <p className="text-center text-gg-gray-500 text-sm mt-4">
                 Save 10% with annual billing

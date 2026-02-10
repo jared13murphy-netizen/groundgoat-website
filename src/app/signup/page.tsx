@@ -18,6 +18,8 @@ const PLANS = {
     additionalPrice: 3.99,
     description: 'Perfect for focused investors',
     features: ['1 county included', 'Upcoming land sale alerts', 'Sale results access', 'Mobile app access'],
+    trialDays: 7,
+    trialLabel: '7-day free trial',
   },
   state: {
     name: 'State',
@@ -25,6 +27,8 @@ const PLANS = {
     additionalPrice: 12.99,
     description: 'Best for active land investors',
     features: ['1 state included (all counties)', 'Everything in County plan', 'Priority notifications', 'Historical data access'],
+    trialDays: 7,
+    trialLabel: '7-day free trial',
   },
   firm: {
     name: 'Management Firm',
@@ -32,6 +36,8 @@ const PLANS = {
     additionalPrice: 39.99,
     description: 'For teams and professionals',
     features: ['Unlimited states & counties', 'Up to 3 team members', 'Comparable sales lookup', 'Priority support'],
+    trialDays: 14,
+    trialLabel: '14-day free trial',
   },
 }
 
@@ -996,14 +1002,17 @@ function SignUpContent() {
                     key={key}
                     onClick={() => setSelectedPlan(key as keyof typeof PLANS)}
                     className={`w-full text-left bg-gg-gray-800 rounded-2xl p-6 transition-all duration-200 ${
-                      selectedPlan === key 
-                        ? 'border-2 border-white shadow-[0_0_25px_rgba(245,140,222,0.5)]' 
+                      selectedPlan === key
+                        ? 'border-2 border-white shadow-[0_0_25px_rgba(245,140,222,0.5)]'
                         : 'border border-gg-gray-700 hover:border-gg-gray-500'
                     }`}
                   >
                     <div className="flex justify-between items-start">
                       <div>
-                        <h3 className="font-display text-xl font-semibold text-white">{p.name}</h3>
+                        <div className="flex items-center gap-2 mb-1">
+                          <h3 className="font-display text-xl font-semibold text-white">{p.name}</h3>
+                          <span className="text-gg-pink text-xs font-semibold bg-gg-pink/10 px-2 py-0.5 rounded-full">{p.trialLabel}</span>
+                        </div>
                         <p className="text-gg-gray-400 text-sm">{p.description}</p>
                       </div>
                       <div className="text-right">
@@ -1015,7 +1024,8 @@ function SignUpContent() {
                         </span>
                       </div>
                     </div>
-                    <ul className="mt-4 space-y-2">
+                    <p className="text-gg-pink text-sm mt-2">Start with a {p.trialDays}-day free trial</p>
+                    <ul className="mt-3 space-y-2">
                       {p.features.slice(0, 2).map((feature, i) => (
                         <li key={i} className="flex items-center gap-2 text-sm text-gg-gray-300">
                           <Check className="text-gg-pink" size={16} />
@@ -1298,7 +1308,7 @@ function SignUpContent() {
                   disabled={selectedAreas.length === 0}
                   className="btn-primary flex-1 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Continue to Payment
+                  Start Free Trial
                   <ArrowRight size={20} />
                 </button>
               </div>
@@ -1508,7 +1518,7 @@ function SignUpContent() {
                   onClick={handleContinue}
                   className="btn-primary flex-1 flex items-center justify-center gap-2"
                 >
-                  Continue to Payment
+                  Start Free Trial
                   <ArrowRight size={20} />
                 </button>
               </div>
