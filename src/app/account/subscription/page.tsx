@@ -164,7 +164,7 @@ export default function SubscriptionPage() {
   const calculateTotalMonthly = () => {
     if (!subscriptionData?.areas) return 0
     return subscriptionData.areas
-      .filter(sub => sub.status === 'active')
+      .filter(sub => sub.status === 'active' || sub.status === 'trialing')
       .reduce((total, sub) => total + (sub.monthly_price || 0), 0)
   }
 
@@ -176,7 +176,7 @@ export default function SubscriptionPage() {
     )
   }
 
-  const activeSubscriptions = subscriptionData?.areas?.filter(sub => sub.status === 'active') || []
+  const activeSubscriptions = subscriptionData?.areas?.filter(sub => sub.status === 'active' || sub.status === 'trialing') || []
   const cancelledSubscriptions = subscriptionData?.areas?.filter(sub => sub.status === 'cancelled') || []
 
   return (

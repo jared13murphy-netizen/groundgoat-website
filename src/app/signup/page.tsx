@@ -563,6 +563,8 @@ function SignUpContent() {
             last_name: m.lastName,
             password: m.password,
           })),
+          home_state: getStateAbbreviation(formData.homeState),
+          home_county: formData.homeCounty,
           billing_cycle: billingCycle,
           additional_seats: additionalSeats,
         }),

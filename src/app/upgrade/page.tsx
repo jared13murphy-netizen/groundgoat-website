@@ -176,7 +176,7 @@ function UpgradePageContent() {
     setError('')
     try {
       const subscriptionType = selectedCounty ? 'county' : 'state'
-      const hasCountySubscription = areasData?.areas?.some(a => a.subscription_type === 'county' && a.status === 'active')
+      const hasCountySubscription = areasData?.areas?.some(a => a.subscription_type === 'county' && (a.status === 'active' || a.status === 'trialing'))
       const isUpgrade = subscriptionType === 'state' && hasCountySubscription
 
       const response = await fetch(`${API_URL}/api/subscriptions/checkout`, {

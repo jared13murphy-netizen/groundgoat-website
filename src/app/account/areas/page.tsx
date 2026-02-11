@@ -145,7 +145,7 @@ export default function MyAreasPage() {
     try {
       const subscriptionType = selectedCounty ? 'county' : 'state'
       // Check if this is an upgrade from county to state (county subscriber adding state)
-      const hasCountySubscription = areasData?.areas?.some(a => a.subscription_type === 'county' && a.status === 'active')
+      const hasCountySubscription = areasData?.areas?.some(a => a.subscription_type === 'county' && (a.status === 'active' || a.status === 'trialing'))
       const isUpgrade = subscriptionType === 'state' && hasCountySubscription
 
       const response = await fetch(`${API_URL}/api/subscriptions/checkout`, {
@@ -326,8 +326,8 @@ export default function MyAreasPage() {
               </div>
 
               {selectedState && (() => {
-                const hasStateSubscription = areasData?.areas?.some(a => a.subscription_type === 'state' && a.status === 'active')
-                const hasCountySubscription = areasData?.areas?.some(a => a.subscription_type === 'county' && a.status === 'active')
+                const hasStateSubscription = areasData?.areas?.some(a => a.subscription_type === 'state' && (a.status === 'active' || a.status === 'trialing'))
+                const hasCountySubscription = areasData?.areas?.some(a => a.subscription_type === 'county' && (a.status === 'active' || a.status === 'trialing'))
 
                 // If user already has a state subscription, they can only add more states
                 if (hasStateSubscription) {

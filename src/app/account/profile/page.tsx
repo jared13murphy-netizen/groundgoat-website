@@ -78,7 +78,7 @@ export default function ProfilePage() {
       const response = await fetchWithAuth(`${API_URL}/api/subscriptions/areas`)
       if (response.ok) {
         const subscriptions = await response.json()
-        const hasActive = subscriptions.some((sub: any) => sub.status === 'active')
+        const hasActive = subscriptions.some((sub: any) => sub.status === 'active' || sub.status === 'trialing')
         setHasActiveSubscription(hasActive)
       }
     } catch (err) {
