@@ -20,7 +20,8 @@ import {
   Moon,
   Tractor,
   ClipboardList,
-  Layers
+  Layers,
+  ClipboardCheck
 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import countyCentroids from '@/data/countyCentroids'
@@ -370,6 +371,12 @@ export default function AdminDashboard() {
                 description="Price & status changes from nightly monitoring"
                 href="/admin/nightly-updates"
                 icon={<Moon />}
+              />
+              <QuickActionCard
+                title="Listing Staging"
+                description="Review scraped listings before publishing"
+                href="/admin/staging"
+                icon={<ClipboardCheck />}
               />
               <QuickActionCard
                 title="Equipment Manager"
