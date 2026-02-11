@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { Loader2, MapPin, Calendar, DollarSign, Building2, Filter, X, ChevronLeft, ChevronRight } from 'lucide-react'
-import { getCountiesForState, US_STATES } from '@/data/counties'
+import { getCountiesForState, getStateAbbreviation, US_STATES } from '@/data/counties'
 import { getDistanceToCounty } from '@/data/countyCoordinates'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
@@ -135,7 +135,7 @@ function ListingsPageContent() {
 
           // Apply client-side filters
           if (filterState) {
-            data = data.filter((l: Listing) => l.state === filterState)
+            data = data.filter((l: Listing) => l.state === getStateAbbreviation(filterState))
           }
           if (filterCounty) {
             data = data.filter((l: Listing) => l.county === filterCounty)
@@ -164,7 +164,7 @@ function ListingsPageContent() {
 
           // Apply client-side filters
           if (filterState) {
-            data = data.filter((l: Listing) => l.state === filterState)
+            data = data.filter((l: Listing) => l.state === getStateAbbreviation(filterState))
           }
           if (filterCounty) {
             data = data.filter((l: Listing) => l.county === filterCounty)
@@ -189,7 +189,7 @@ function ListingsPageContent() {
         url += '&listing_type=private_treaty&status=listed,live'
       }
 
-      if (filterState) url += `&state=${encodeURIComponent(filterState)}`
+      if (filterState) url += `&state=${encodeURIComponent(getStateAbbreviation(filterState))}`
       if (filterCounty) url += `&county=${encodeURIComponent(filterCounty)}`
       if (filterCompany) url += `&company_id=${filterCompany}`
 
