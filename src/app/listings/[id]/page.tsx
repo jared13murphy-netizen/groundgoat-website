@@ -222,7 +222,6 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
     }
   }
 
-  const isAdmin = user?.account_type === 'groundgoat_admin'
   const isAuction = listing?.listing_type === 'auction'
 
   if (loading) {
@@ -458,25 +457,6 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
                       </div>
                     )}
                   </div>
-
-                  {/* Admin Estimate */}
-                  {isAdmin && tract.estimated_value_per_acre && (
-                    <div className="mt-3 p-3 bg-gg-pink/10 rounded-lg">
-                      <div className="flex items-center gap-2 text-sm">
-                        <BarChart3 size={14} className="text-gg-pink" />
-                        <span className="text-gg-gray-400">GG Estimate:</span>
-                        <span className="text-gg-pink font-semibold">{formatCurrency(tract.estimated_value_per_acre)}/ac</span>
-                        {tract.estimate_confidence && (
-                          <span className={`px-2 py-0.5 rounded-full text-xs font-semibold text-white ${
-                            tract.estimate_confidence >= 70 ? 'bg-green-500' :
-                            tract.estimate_confidence >= 40 ? 'bg-yellow-500' : 'bg-red-500'
-                          }`}>
-                            {Math.round(tract.estimate_confidence)}%
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  )}
 
                   {/* Find Comparables Button */}
                   <Link
