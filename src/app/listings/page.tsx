@@ -128,28 +128,14 @@ function ListingsPageContent() {
       let data: Listing[] = []
 
       if (activeTab === 'auctions') {
-        // Use dedicated endpoint that filters out past auctions server-side
-        const response = await fetchWithAuth(`${API_URL}/api/listings/upcoming/auctions`)
+        const params = new URLSearchParams()
+        if (filterState) params.set('state', getStateAbbreviation(filterState))
+        if (filterCounty) params.set('county', filterCounty)
+        if (filterCompany) params.set('company_id', filterCompany)
+        const qs = params.toString()
+        const response = await fetchWithAuth(`${API_URL}/api/listings/upcoming/auctions${qs ? `?${qs}` : ''}`)
         if (response.ok) {
           data = await response.json()
-
-          // Apply client-side filters
-          if (filterState) {
-            data = data.filter((l: Listing) => l.state === getStateAbbreviation(filterState))
-          }
-          if (filterCounty) {
-            data = data.filter((l: Listing) => l.county === filterCounty)
-          }
-          if (filterCompany) {
-            data = data.filter((l: Listing) => l.company?.id === filterCompany)
-          }
-
-          // Sort by auction datetime (soonest first), using '9999-12-31' for missing dates
-          data = data.sort((a: Listing, b: Listing) => {
-            const dateA = new Date(a.auction_datetime || a.auction_date || '9999-12-31')
-            const dateB = new Date(b.auction_datetime || b.auction_date || '9999-12-31')
-            return dateA.getTime() - dateB.getTime()
-          })
         }
         setListings(data)
         setLoading(false)
@@ -157,24 +143,15 @@ function ListingsPageContent() {
       }
 
       if (activeTab === 'results') {
-        // Use dedicated endpoint that returns results sorted by newest first
-        const response = await fetchWithAuth(`${API_URL}/api/listings/recent/results`)
+        const params = new URLSearchParams()
+        if (filterState) params.set('state', getStateAbbreviation(filterState))
+        if (filterCounty) params.set('county', filterCounty)
+        if (filterCompany) params.set('company_id', filterCompany)
+        if (filterListingType) params.set('listing_type', filterListingType)
+        const qs = params.toString()
+        const response = await fetchWithAuth(`${API_URL}/api/listings/recent/results${qs ? `?${qs}` : ''}`)
         if (response.ok) {
           data = await response.json()
-
-          // Apply client-side filters
-          if (filterState) {
-            data = data.filter((l: Listing) => l.state === getStateAbbreviation(filterState))
-          }
-          if (filterCounty) {
-            data = data.filter((l: Listing) => l.county === filterCounty)
-          }
-          if (filterCompany) {
-            data = data.filter((l: Listing) => l.company?.id === filterCompany)
-          }
-          if (filterListingType) {
-            data = data.filter((l: Listing) => l.listing_type === filterListingType)
-          }
         }
         setListings(data)
         setLoading(false)
