@@ -222,6 +222,36 @@ const handleResendVerification = async () => {
           </div>
         )}
 
+        {/* Download App CTA */}
+        <div className="mb-6 bg-gradient-to-r from-gg-pink/10 to-gg-pink-dark/10 border-2 border-gg-pink/40 rounded-xl p-6">
+          <div className="flex flex-col sm:flex-row items-center gap-5">
+            <div className="w-16 h-16 bg-gradient-to-br from-gg-pink to-gg-pink-dark rounded-2xl flex items-center justify-center flex-shrink-0">
+              <Image
+                src="/logo.png"
+                alt="Ground Goat"
+                width={48}
+                height={48}
+                className="h-10 w-auto"
+              />
+            </div>
+            <div className="flex-1 text-center sm:text-left">
+              <h3 className="font-display text-xl font-bold text-white mb-1">
+                Download the Ground Goat App
+              </h3>
+              <p className="text-gg-gray-300 text-sm">
+                Get real-time auction alerts, browse listings, and never miss a sale. The full Ground Goat experience, right in your pocket.
+              </p>
+            </div>
+            <a
+              href="https://apps.apple.com/us/app/ground-goat/id6753321116"
+              target="_blank"
+              className="btn-primary text-sm py-3 px-6 whitespace-nowrap font-semibold"
+            >
+              Download on the App Store
+            </a>
+          </div>
+        </div>
+
         {/* Header */}
         <div className="mb-8">
           <h1 className="font-display text-4xl font-bold text-white mb-2">Account</h1>
@@ -384,30 +414,6 @@ const handleResendVerification = async () => {
           </div>
         )}
 
-        {/* Download App CTA */}
-        <div className="mt-12 card bg-gradient-to-r from-gg-gray-800 to-gg-gray-900 border-gg-pink/30">
-          <div className="flex flex-col md:flex-row items-center gap-6">
-            <Image
-              src="/logo.png"
-              alt="Ground Goat"
-              width={80}
-              height={80}
-              className="h-16 w-auto"
-            />
-            <div className="flex-1 text-center md:text-left">
-              <h3 className="font-display text-xl font-semibold text-white mb-1">
-                Get the Mobile App
-              </h3>
-              <p className="text-gg-gray-400">
-                Browse auctions, get notifications, and access your watchlist on the go.
-              </p>
-            </div>
-            <div className="flex gap-3">
-              <a href="#" className="btn-secondary text-sm py-2">App Store</a>
-              <a href="#" className="btn-secondary text-sm py-2">Google Play</a>
-            </div>
-          </div>
-        </div>
       </div>
     </div>
   )
