@@ -103,6 +103,10 @@ export default function AdminStagingPage() {
   const [listings, setListings] = useState<StagingListing[]>([])
   const [expandedScreenshot, setExpandedScreenshot] = useState<number | null>(null)
 
+  // Action state
+  const [actionLoading, setActionLoading] = useState<number | null>(null)
+  const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+
   // Edit modal state
   const [editingListing, setEditingListing] = useState<StagingListing | null>(null)
   const [editForm, setEditForm] = useState<EditForm>({ acres_listed: '', sale_date: '', description: '', tracts: [] })
@@ -147,12 +151,51 @@ export default function AdminStagingPage() {
     }
   }
 
-  const handleVerify = (id: number) => {
-    console.log('Verify staging listing:', id)
+  const showToast = (type: 'success' | 'error', message: string) => {
+    setToast({ type, message })
+    setTimeout(() => setToast(null), 4000)
   }
 
-  const handleReject = (id: number) => {
-    console.log('Reject staging listing:', id)
+  const handleVerify = async (id: number) => {
+    setActionLoading(id)
+    try {
+      const response = await fetchWithAuth(`${API_URL}/api/admin/staging/${id}/verify`, {
+        method: 'POST',
+      })
+      if (response.ok) {
+        setListings((prev) => prev.filter((l) => l.id !== id))
+        showToast('success', 'Listing verified and created successfully')
+      } else {
+        const err = await response.json().catch(() => ({ detail: 'Unknown error' }))
+        showToast('error', err.detail || err.error || 'Failed to verify listing')
+      }
+    } catch (err) {
+      showToast('error', 'Network error — failed to verify listing')
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  const handleReject = async (id: number) => {
+    setActionLoading(id)
+    try {
+      const response = await fetchWithAuth(`${API_URL}/api/admin/staging/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'rejected' }),
+      })
+      if (response.ok) {
+        setListings((prev) => prev.filter((l) => l.id !== id))
+        showToast('success', 'Listing rejected')
+      } else {
+        const err = await response.json().catch(() => ({ detail: 'Unknown error' }))
+        showToast('error', err.detail || err.error || 'Failed to reject listing')
+      }
+    } catch (err) {
+      showToast('error', 'Network error — failed to reject listing')
+    } finally {
+      setActionLoading(null)
+    }
   }
 
   const openEditModal = (listing: StagingListing) => {
@@ -400,24 +443,27 @@ export default function AdminStagingPage() {
                     <div className="flex items-center gap-3">
                       <button
                         onClick={() => handleVerify(listing.id)}
-                        className="flex items-center gap-2 px-5 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-500 transition-colors font-medium"
+                        disabled={actionLoading === listing.id}
+                        className="flex items-center gap-2 px-5 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-500 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        <CheckCircle size={16} />
-                        Verify
+                        {actionLoading === listing.id ? <Loader2 className="animate-spin" size={16} /> : <CheckCircle size={16} />}
+                        {actionLoading === listing.id ? 'Verifying...' : 'Verify'}
                       </button>
                       <button
                         onClick={() => openEditModal(listing)}
-                        className="flex items-center gap-2 px-5 py-2.5 bg-gg-gray-700 text-white rounded-lg hover:bg-gg-gray-600 transition-colors font-medium"
+                        disabled={actionLoading === listing.id}
+                        className="flex items-center gap-2 px-5 py-2.5 bg-gg-gray-700 text-white rounded-lg hover:bg-gg-gray-600 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         <Pencil size={16} />
                         Edit
                       </button>
                       <button
                         onClick={() => handleReject(listing.id)}
-                        className="flex items-center gap-2 px-5 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-500 transition-colors font-medium"
+                        disabled={actionLoading === listing.id}
+                        className="flex items-center gap-2 px-5 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-500 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        <XCircle size={16} />
-                        Reject
+                        {actionLoading === listing.id ? <Loader2 className="animate-spin" size={16} /> : <XCircle size={16} />}
+                        {actionLoading === listing.id ? 'Rejecting...' : 'Reject'}
                       </button>
                     </div>
                   </div>
@@ -438,6 +484,19 @@ export default function AdminStagingPage() {
           })}
         </div>
       </div>
+
+      {/* Toast */}
+      {toast && (
+        <div className={`fixed bottom-6 right-6 z-50 flex items-center gap-3 px-5 py-3 rounded-lg shadow-lg text-white ${
+          toast.type === 'success' ? 'bg-green-600' : 'bg-red-600'
+        }`}>
+          {toast.type === 'success' ? <CheckCircle size={18} /> : <XCircle size={18} />}
+          <span className="font-medium">{toast.message}</span>
+          <button onClick={() => setToast(null)} className="ml-2 hover:opacity-70">
+            <X size={16} />
+          </button>
+        </div>
+      )}
 
       {/* Edit Modal */}
       {editingListing && (
