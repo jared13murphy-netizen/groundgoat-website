@@ -69,7 +69,7 @@ function AccountContent() {
       if (subsResponse.ok) {
         const subsData = await subsResponse.json()
         setSubscriptionData(subsData)
-        const hasActive = subsData.unlimited || (subsData.areas && subsData.areas.some((a: any) => a.status === 'active'))
+        const hasActive = subsData.unlimited || (subsData.areas && subsData.areas.some((a: any) => a.status === 'active' || a.status === 'trialing'))
         setHasSubscription(hasActive)
       } else {
         setHasSubscription(false)
