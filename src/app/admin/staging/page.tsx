@@ -34,6 +34,7 @@ interface StagingListing {
   auction_date: string | null
   status: string
   created_at: string
+  scrape_duration_ms: number | null
 }
 
 interface TractForm {
@@ -297,6 +298,12 @@ export default function AdminStagingPage() {
     }
   }
 
+  const formatDuration = (ms: number | null) => {
+    if (ms == null) return null
+    if (ms >= 1000) return `${(ms / 1000).toFixed(1)}s`
+    return `${ms}ms`
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gg-black flex items-center justify-center">
@@ -385,6 +392,12 @@ export default function AdminStagingPage() {
                           </span>
                           <span className="text-gg-gray-600">|</span>
                           <span>Staged {formatDate(listing.created_at)}</span>
+                          {listing.scrape_duration_ms != null && (
+                            <>
+                              <span className="text-gg-gray-600">|</span>
+                              <span className="text-gg-gray-500">Scraped in {formatDuration(listing.scrape_duration_ms)}</span>
+                            </>
+                          )}
                         </div>
                       </div>
                       <a
