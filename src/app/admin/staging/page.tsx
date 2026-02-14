@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -17,11 +17,16 @@ import {
   X,
   Plus,
   Trash2,
-  Save
+  Save,
+  AlertTriangle,
+  Filter,
+  ChevronDown,
+  Navigation
 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
+const SCRAPER_URL = 'https://ground-goat-scraper-production.up.railway.app'
 
 interface StagingListing {
   id: number
@@ -31,10 +36,24 @@ interface StagingListing {
   company_name: string | null
   scraped_data: any
   screenshot_base64: string | null
+  map_image_base64: string | null
   auction_date: string | null
   status: string
   created_at: string
   scrape_duration_ms: number | null
+}
+
+interface RunLogEntry {
+  id: number
+  run_started_at: string | null
+  run_completed_at: string | null
+  company_id: string | null
+  company_name: string | null
+  auction_list_url: string | null
+  status: string
+  error_message: string | null
+  cards_found: number
+  urls_scraped: number
 }
 
 interface TractForm {
@@ -102,7 +121,17 @@ export default function AdminStagingPage() {
   const router = useRouter()
   const [loading, setLoading] = useState(true)
   const [listings, setListings] = useState<StagingListing[]>([])
-  const [expandedScreenshot, setExpandedScreenshot] = useState<number | null>(null)
+  const [screenshotModal, setScreenshotModal] = useState<string | null>(null)
+
+  // Company filter
+  const [companyFilter, setCompanyFilter] = useState<string>('all')
+
+  // Tab state
+  const [activeTab, setActiveTab] = useState<'staging' | 'failures'>('staging')
+
+  // Run log
+  const [runLog, setRunLog] = useState<RunLogEntry[]>([])
+  const [runLogLoading, setRunLogLoading] = useState(false)
 
   // Action state
   const [actionLoading, setActionLoading] = useState<number | null>(null)
@@ -132,6 +161,7 @@ export default function AdminStagingPage() {
         return
       }
       fetchStagingListings()
+      fetchRunLog()
     } catch (err) {
       router.push('/signin')
     }
@@ -151,6 +181,41 @@ export default function AdminStagingPage() {
       setLoading(false)
     }
   }
+
+  const fetchRunLog = async () => {
+    setRunLogLoading(true)
+    try {
+      const response = await fetch(`${SCRAPER_URL}/api/scraper-run-log?limit=200`)
+      if (response.ok) {
+        const data = await response.json()
+        setRunLog(data)
+      }
+    } catch (err) {
+      console.error('Failed to fetch run log:', err)
+    } finally {
+      setRunLogLoading(false)
+    }
+  }
+
+  // Get unique company names from listings for the filter dropdown
+  const companyNames = useMemo(() => {
+    const names = new Set<string>()
+    listings.forEach((l) => {
+      if (l.company_name) names.add(l.company_name)
+    })
+    return Array.from(names).sort()
+  }, [listings])
+
+  // Filtered listings
+  const filteredListings = useMemo(() => {
+    if (companyFilter === 'all') return listings
+    return listings.filter((l) => l.company_name === companyFilter)
+  }, [listings, companyFilter])
+
+  // Failed/no_cards entries from the most recent run
+  const failedEntries = useMemo(() => {
+    return runLog.filter((r) => r.status === 'failed' || r.status === 'no_cards' || r.status === 'timeout')
+  }, [runLog])
 
   const showToast = (type: 'success' | 'error', message: string) => {
     setToast({ type, message })
@@ -272,7 +337,7 @@ export default function AdminStagingPage() {
   }
 
   const extractListingInfo = (scraped: any) => {
-    if (!scraped) return { acres: null, county: null, state: null, description: null, tractCount: 0 }
+    if (!scraped) return { acres: null, county: null, state: null, description: null, tractCount: 0, tracts: [] }
     const listing = scraped.listing || {}
     const tracts = scraped.tracts || []
     const firstTract = tracts[0] || {}
@@ -282,6 +347,7 @@ export default function AdminStagingPage() {
       state: listing.state_full || firstTract.state_full || null,
       description: listing.description || null,
       tractCount: tracts.length,
+      tracts: tracts,
     }
   }
 
@@ -304,6 +370,22 @@ export default function AdminStagingPage() {
     return `${ms}ms`
   }
 
+  const formatTimeAgo = (dateStr: string | null) => {
+    if (!dateStr) return ''
+    try {
+      const d = new Date(dateStr)
+      const diff = Date.now() - d.getTime()
+      const mins = Math.floor(diff / 60000)
+      if (mins < 60) return `${mins}m ago`
+      const hours = Math.floor(mins / 60)
+      if (hours < 24) return `${hours}h ago`
+      const days = Math.floor(hours / 24)
+      return `${days}d ago`
+    } catch {
+      return ''
+    }
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gg-black flex items-center justify-center">
@@ -316,187 +398,366 @@ export default function AdminStagingPage() {
     <div className="min-h-screen bg-gg-black pt-24 pb-12">
       <div className="max-w-7xl mx-auto px-6">
         {/* Header */}
-        <div className="flex items-center justify-between mb-8">
+        <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-4">
             <Link href="/admin/dashboard" className="text-gg-gray-400 hover:text-white transition-colors">
               <ArrowLeft size={24} />
             </Link>
             <div>
               <h1 className="font-display text-3xl font-bold text-white">Listing Staging</h1>
-              <p className="text-gg-gray-400">{listings.length} pending listings to review</p>
+              <p className="text-gg-gray-400">{filteredListings.length} pending listings to review</p>
             </div>
           </div>
           <button
-            onClick={fetchStagingListings}
+            onClick={() => { fetchStagingListings(); fetchRunLog() }}
             className="px-4 py-2 bg-gg-gray-800 text-white rounded-lg hover:bg-gg-gray-700 transition-colors text-sm"
           >
             Refresh
           </button>
         </div>
 
-        {/* Empty State */}
-        {listings.length === 0 && (
-          <div className="card text-center py-16">
-            <CheckCircle className="mx-auto mb-4 text-green-400" size={48} />
-            <h2 className="text-xl font-bold text-white mb-2">All caught up!</h2>
-            <p className="text-gg-gray-400">No pending listings to review.</p>
+        {/* Tabs */}
+        <div className="flex gap-1 mb-6 bg-gg-gray-900 rounded-lg p-1 w-fit">
+          <button
+            onClick={() => setActiveTab('staging')}
+            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+              activeTab === 'staging' ? 'bg-gg-gray-700 text-white' : 'text-gg-gray-400 hover:text-white'
+            }`}
+          >
+            Pending ({filteredListings.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('failures')}
+            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${
+              activeTab === 'failures' ? 'bg-gg-gray-700 text-white' : 'text-gg-gray-400 hover:text-white'
+            }`}
+          >
+            <AlertTriangle size={14} />
+            Failed ({failedEntries.length})
+          </button>
+        </div>
+
+        {/* Company Filter - only on staging tab */}
+        {activeTab === 'staging' && companyNames.length > 1 && (
+          <div className="mb-6 flex items-center gap-3">
+            <Filter size={16} className="text-gg-gray-400" />
+            <div className="relative">
+              <select
+                value={companyFilter}
+                onChange={(e) => setCompanyFilter(e.target.value)}
+                className="appearance-none bg-gg-gray-800 border border-gg-gray-700 text-white rounded-lg px-4 py-2 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-gg-pink"
+              >
+                <option value="all">All Companies ({listings.length})</option>
+                {companyNames.map((name) => (
+                  <option key={name} value={name}>
+                    {name} ({listings.filter((l) => l.company_name === name).length})
+                  </option>
+                ))}
+              </select>
+              <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gg-gray-400 pointer-events-none" />
+            </div>
           </div>
         )}
 
-        {/* Staging Cards */}
-        <div className="space-y-6">
-          {listings.map((listing) => {
-            const info = extractListingInfo(listing.scraped_data)
-            return (
-              <div
-                key={listing.id}
-                className="bg-gg-gray-900 border border-gg-gray-800 rounded-xl overflow-hidden"
-              >
-                <div className="flex flex-col lg:flex-row">
-                  {/* Screenshot */}
-                  <div className="lg:w-80 flex-shrink-0 bg-gg-gray-800">
-                    {listing.screenshot_base64 ? (
-                      <button
-                        onClick={() =>
-                          setExpandedScreenshot(
-                            expandedScreenshot === listing.id ? null : listing.id
-                          )
-                        }
-                        className="w-full"
-                      >
-                        <img
-                          src={`data:image/png;base64,${listing.screenshot_base64}`}
-                          alt="Page screenshot"
-                          className="w-full h-48 lg:h-full object-cover object-top cursor-pointer hover:opacity-80 transition-opacity"
-                        />
-                      </button>
-                    ) : (
-                      <div className="w-full h-48 lg:h-full flex items-center justify-center text-gg-gray-600">
-                        <ImageIcon size={48} />
-                      </div>
-                    )}
-                  </div>
+        {/* Staging Tab */}
+        {activeTab === 'staging' && (
+          <>
+            {/* Empty State */}
+            {filteredListings.length === 0 && (
+              <div className="card text-center py-16">
+                <CheckCircle className="mx-auto mb-4 text-green-400" size={48} />
+                <h2 className="text-xl font-bold text-white mb-2">All caught up!</h2>
+                <p className="text-gg-gray-400">No pending listings to review.</p>
+              </div>
+            )}
 
-                  {/* Content */}
-                  <div className="flex-1 p-6">
-                    {/* Company & Date Row */}
-                    <div className="flex items-start justify-between mb-4">
-                      <div>
-                        <h3 className="text-lg font-bold text-white">
-                          {listing.company_name || 'Unknown Company'}
-                        </h3>
-                        <div className="flex items-center gap-4 mt-1 text-sm text-gg-gray-400">
-                          <span className="flex items-center gap-1">
-                            <Calendar size={14} />
-                            {formatDate(listing.auction_date)}
-                          </span>
-                          <span className="text-gg-gray-600">|</span>
-                          <span>Staged {formatDate(listing.created_at)}</span>
-                          {listing.scrape_duration_ms != null && (
-                            <>
+            {/* Staging Cards */}
+            <div className="space-y-6">
+              {filteredListings.map((listing) => {
+                const info = extractListingInfo(listing.scraped_data)
+                return (
+                  <div
+                    key={listing.id}
+                    className="bg-gg-gray-900 border border-gg-gray-800 rounded-xl overflow-hidden"
+                  >
+                    <div className="flex flex-col lg:flex-row">
+                      {/* Thumbnail Screenshot — small, click to enlarge */}
+                      <div className="lg:w-52 flex-shrink-0 bg-gg-gray-800 p-3 flex flex-col gap-2">
+                        {listing.screenshot_base64 ? (
+                          <button
+                            onClick={() => setScreenshotModal(`data:image/png;base64,${listing.screenshot_base64}`)}
+                            className="block"
+                            title="Click to enlarge"
+                          >
+                            <img
+                              src={`data:image/png;base64,${listing.screenshot_base64}`}
+                              alt="Page screenshot"
+                              className="w-full max-w-[200px] rounded-lg object-cover object-top cursor-pointer hover:opacity-80 transition-opacity border border-gg-gray-700"
+                              style={{ maxHeight: '150px' }}
+                            />
+                            <span className="text-[10px] text-gg-gray-500 mt-1 block">Click to enlarge</span>
+                          </button>
+                        ) : (
+                          <div className="w-full h-24 flex items-center justify-center text-gg-gray-600 rounded-lg border border-gg-gray-700">
+                            <ImageIcon size={28} />
+                          </div>
+                        )}
+                        {/* Map image if available */}
+                        {listing.map_image_base64 && (
+                          <button
+                            onClick={() => setScreenshotModal(`data:image/png;base64,${listing.map_image_base64}`)}
+                            className="block"
+                            title="Click to enlarge map"
+                          >
+                            <img
+                              src={`data:image/png;base64,${listing.map_image_base64}`}
+                              alt="Tract map"
+                              className="w-full max-w-[200px] rounded-lg object-contain cursor-pointer hover:opacity-80 transition-opacity border border-gg-gray-700"
+                              style={{ maxHeight: '150px' }}
+                            />
+                            <span className="text-[10px] text-gg-gray-500 mt-1 block">Tract Map</span>
+                          </button>
+                        )}
+                        {/* Inline polygon mini-map from scraped_data if no map_image_base64 */}
+                        {!listing.map_image_base64 && info.tracts.some((t: any) => t.polygon_coordinates) && (
+                          <TractMiniMap tracts={info.tracts} />
+                        )}
+                      </div>
+
+                      {/* Content */}
+                      <div className="flex-1 p-6">
+                        {/* Company & Date Row */}
+                        <div className="flex items-start justify-between mb-4">
+                          <div>
+                            <h3 className="text-lg font-bold text-white">
+                              {listing.company_name || 'Unknown Company'}
+                            </h3>
+                            <div className="flex items-center gap-4 mt-1 text-sm text-gg-gray-400">
+                              <span className="flex items-center gap-1">
+                                <Calendar size={14} />
+                                {formatDate(listing.auction_date)}
+                              </span>
                               <span className="text-gg-gray-600">|</span>
-                              <span className="text-gg-gray-500">Scraped in {formatDuration(listing.scrape_duration_ms)}</span>
-                            </>
-                          )}
+                              <span>Staged {formatDate(listing.created_at)}</span>
+                              {listing.scrape_duration_ms != null && (
+                                <>
+                                  <span className="text-gg-gray-600">|</span>
+                                  <span className="text-gg-gray-500">Scraped in {formatDuration(listing.scrape_duration_ms)}</span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                          <a
+                            href={listing.source_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-1 px-3 py-1.5 text-sm text-gg-pink hover:text-white bg-gg-pink/10 hover:bg-gg-pink/20 rounded-lg transition-colors"
+                          >
+                            <ExternalLink size={14} />
+                            Source
+                          </a>
+                        </div>
+
+                        {/* Key Data */}
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                          <div className="bg-gg-gray-800 rounded-lg p-3">
+                            <p className="text-xs text-gg-gray-400 mb-1">Acres</p>
+                            <p className="text-white font-semibold">
+                              {info.acres ? `${info.acres}` : 'N/A'}
+                            </p>
+                          </div>
+                          <div className="bg-gg-gray-800 rounded-lg p-3">
+                            <p className="text-xs text-gg-gray-400 mb-1">Location</p>
+                            <p className="text-white font-semibold flex items-center gap-1">
+                              <MapPin size={12} className="text-gg-gray-500" />
+                              {info.county && info.state
+                                ? `${info.county}, ${info.state}`
+                                : 'N/A'}
+                            </p>
+                          </div>
+                          <div className="bg-gg-gray-800 rounded-lg p-3">
+                            <p className="text-xs text-gg-gray-400 mb-1">Tracts</p>
+                            <p className="text-white font-semibold flex items-center gap-1">
+                              <Layers size={12} className="text-gg-gray-500" />
+                              {info.tractCount}
+                            </p>
+                          </div>
+                          <div className="bg-gg-gray-800 rounded-lg p-3">
+                            <p className="text-xs text-gg-gray-400 mb-1">Auction Date</p>
+                            <p className="text-white font-semibold">
+                              {formatDate(listing.auction_date)}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Tract Details */}
+                        {info.tracts.length > 0 && (
+                          <div className="mb-4">
+                            <p className="text-xs text-gg-gray-400 mb-2 font-medium uppercase tracking-wider">Tract Details</p>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                              {info.tracts.map((tract: any, idx: number) => (
+                                <div key={idx} className="bg-gg-gray-800/60 rounded-lg px-3 py-2 text-sm">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-white font-medium">Tract {tract.tract_number ?? idx + 1}</span>
+                                    {tract.acres && <span className="text-gg-gray-300">{tract.acres} ac</span>}
+                                  </div>
+                                  <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1 text-xs text-gg-gray-400">
+                                    {tract.tillable_acres != null && (
+                                      <span>Tillable: {tract.tillable_acres} ac</span>
+                                    )}
+                                    {tract.pi != null && (
+                                      <span>PI: {tract.pi}</span>
+                                    )}
+                                    {tract.county?.county_name && (
+                                      <span>{tract.county.county_name}{tract.state_full ? `, ${tract.state_full}` : ''}</span>
+                                    )}
+                                    {tract.latitude && tract.longitude && (
+                                      <span className="flex items-center gap-0.5">
+                                        <Navigation size={10} />
+                                        {tract.latitude.toFixed(4)}, {tract.longitude.toFixed(4)}
+                                      </span>
+                                    )}
+                                    {tract.land_type && (
+                                      <span className="text-gg-pink">{tract.land_type}</span>
+                                    )}
+                                    {tract.has_house && <span className="text-blue-400">House</span>}
+                                    {tract.has_building && <span className="text-amber-400">Building</span>}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Description */}
+                        {info.description && (
+                          <p className="text-sm text-gg-gray-400 mb-4 line-clamp-2">
+                            {info.description.length > 200
+                              ? info.description.substring(0, 200) + '...'
+                              : info.description}
+                          </p>
+                        )}
+
+                        {/* Action Buttons */}
+                        <div className="flex items-center gap-3">
+                          <button
+                            onClick={() => handleVerify(listing.id)}
+                            disabled={actionLoading === listing.id}
+                            className="flex items-center gap-2 px-5 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-500 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {actionLoading === listing.id ? <Loader2 className="animate-spin" size={16} /> : <CheckCircle size={16} />}
+                            {actionLoading === listing.id ? 'Verifying...' : 'Verify'}
+                          </button>
+                          <button
+                            onClick={() => openEditModal(listing)}
+                            disabled={actionLoading === listing.id}
+                            className="flex items-center gap-2 px-5 py-2.5 bg-gg-gray-700 text-white rounded-lg hover:bg-gg-gray-600 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            <Pencil size={16} />
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => handleReject(listing.id)}
+                            disabled={actionLoading === listing.id}
+                            className="flex items-center gap-2 px-5 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-500 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {actionLoading === listing.id ? <Loader2 className="animate-spin" size={16} /> : <XCircle size={16} />}
+                            {actionLoading === listing.id ? 'Rejecting...' : 'Reject'}
+                          </button>
                         </div>
                       </div>
-                      <a
-                        href={listing.source_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-1 px-3 py-1.5 text-sm text-gg-pink hover:text-white bg-gg-pink/10 hover:bg-gg-pink/20 rounded-lg transition-colors"
-                      >
-                        <ExternalLink size={14} />
-                        Source
-                      </a>
-                    </div>
-
-                    {/* Key Data */}
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-                      <div className="bg-gg-gray-800 rounded-lg p-3">
-                        <p className="text-xs text-gg-gray-400 mb-1">Acres</p>
-                        <p className="text-white font-semibold">
-                          {info.acres ? `${info.acres}` : 'N/A'}
-                        </p>
-                      </div>
-                      <div className="bg-gg-gray-800 rounded-lg p-3">
-                        <p className="text-xs text-gg-gray-400 mb-1">Location</p>
-                        <p className="text-white font-semibold flex items-center gap-1">
-                          <MapPin size={12} className="text-gg-gray-500" />
-                          {info.county && info.state
-                            ? `${info.county}, ${info.state}`
-                            : 'N/A'}
-                        </p>
-                      </div>
-                      <div className="bg-gg-gray-800 rounded-lg p-3">
-                        <p className="text-xs text-gg-gray-400 mb-1">Tracts</p>
-                        <p className="text-white font-semibold flex items-center gap-1">
-                          <Layers size={12} className="text-gg-gray-500" />
-                          {info.tractCount}
-                        </p>
-                      </div>
-                      <div className="bg-gg-gray-800 rounded-lg p-3">
-                        <p className="text-xs text-gg-gray-400 mb-1">Auction Date</p>
-                        <p className="text-white font-semibold">
-                          {formatDate(listing.auction_date)}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Description */}
-                    {info.description && (
-                      <p className="text-sm text-gg-gray-400 mb-4 line-clamp-2">
-                        {info.description.length > 200
-                          ? info.description.substring(0, 200) + '...'
-                          : info.description}
-                      </p>
-                    )}
-
-                    {/* Action Buttons */}
-                    <div className="flex items-center gap-3">
-                      <button
-                        onClick={() => handleVerify(listing.id)}
-                        disabled={actionLoading === listing.id}
-                        className="flex items-center gap-2 px-5 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-500 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {actionLoading === listing.id ? <Loader2 className="animate-spin" size={16} /> : <CheckCircle size={16} />}
-                        {actionLoading === listing.id ? 'Verifying...' : 'Verify'}
-                      </button>
-                      <button
-                        onClick={() => openEditModal(listing)}
-                        disabled={actionLoading === listing.id}
-                        className="flex items-center gap-2 px-5 py-2.5 bg-gg-gray-700 text-white rounded-lg hover:bg-gg-gray-600 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        <Pencil size={16} />
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => handleReject(listing.id)}
-                        disabled={actionLoading === listing.id}
-                        className="flex items-center gap-2 px-5 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-500 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {actionLoading === listing.id ? <Loader2 className="animate-spin" size={16} /> : <XCircle size={16} />}
-                        {actionLoading === listing.id ? 'Rejecting...' : 'Reject'}
-                      </button>
                     </div>
                   </div>
-                </div>
+                )
+              })}
+            </div>
+          </>
+        )}
 
-                {/* Expanded Screenshot */}
-                {expandedScreenshot === listing.id && listing.screenshot_base64 && (
-                  <div className="border-t border-gg-gray-800 p-4 bg-gg-gray-800/50">
-                    <img
-                      src={`data:image/png;base64,${listing.screenshot_base64}`}
-                      alt="Full page screenshot"
-                      className="w-full rounded-lg"
-                    />
-                  </div>
-                )}
+        {/* Failures Tab */}
+        {activeTab === 'failures' && (
+          <div>
+            {runLogLoading ? (
+              <div className="flex items-center justify-center py-16">
+                <Loader2 className="animate-spin text-gg-pink" size={32} />
               </div>
-            )
-          })}
-        </div>
+            ) : failedEntries.length === 0 ? (
+              <div className="card text-center py-16">
+                <CheckCircle className="mx-auto mb-4 text-green-400" size={48} />
+                <h2 className="text-xl font-bold text-white mb-2">No failures</h2>
+                <p className="text-gg-gray-400">All companies discovered successfully in recent runs.</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {failedEntries.map((entry) => (
+                  <div
+                    key={entry.id}
+                    className="bg-gg-gray-900 border border-gg-gray-800 rounded-xl p-4 flex items-start gap-4"
+                  >
+                    <div className={`mt-0.5 flex-shrink-0 ${entry.status === 'failed' ? 'text-red-400' : entry.status === 'timeout' ? 'text-amber-400' : 'text-gg-gray-500'}`}>
+                      {entry.status === 'failed' ? <XCircle size={20} /> : entry.status === 'timeout' ? <AlertTriangle size={20} /> : <AlertTriangle size={20} />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-3">
+                        <h3 className="text-white font-semibold">{entry.company_name || 'Unknown'}</h3>
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${
+                          entry.status === 'failed' ? 'bg-red-500/20 text-red-400' :
+                          entry.status === 'timeout' ? 'bg-amber-500/20 text-amber-400' :
+                          'bg-gg-gray-700 text-gg-gray-400'
+                        }`}>
+                          {entry.status}
+                        </span>
+                        {entry.run_started_at && (
+                          <span className="text-xs text-gg-gray-500">{formatTimeAgo(entry.run_started_at)}</span>
+                        )}
+                      </div>
+                      {entry.auction_list_url && (
+                        <a
+                          href={entry.auction_list_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs text-gg-gray-500 hover:text-gg-pink truncate block mt-1"
+                        >
+                          {entry.auction_list_url}
+                        </a>
+                      )}
+                      {entry.error_message && (
+                        <p className="text-sm text-red-400/80 mt-1 font-mono text-xs">{entry.error_message}</p>
+                      )}
+                      <div className="flex gap-4 mt-1 text-xs text-gg-gray-500">
+                        <span>Cards: {entry.cards_found}</span>
+                        <span>URLs scraped: {entry.urls_scraped}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
+
+      {/* Screenshot/Map Modal */}
+      {screenshotModal && (
+        <div
+          className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 cursor-pointer"
+          onClick={() => setScreenshotModal(null)}
+        >
+          <div className="relative max-w-5xl max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+            <button
+              onClick={() => setScreenshotModal(null)}
+              className="absolute top-2 right-2 bg-black/60 text-white rounded-full p-1.5 hover:bg-black/80 z-10"
+            >
+              <X size={20} />
+            </button>
+            <img
+              src={screenshotModal}
+              alt="Full size"
+              className="w-full rounded-lg"
+            />
+          </div>
+        </div>
+      )}
 
       {/* Toast */}
       {toast && (
@@ -663,6 +924,74 @@ export default function AdminStagingPage() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+
+/**
+ * TractMiniMap renders a small SVG polygon map from tract polygon_coordinates
+ * that exist in scraped_data. Used as a fallback when no pre-generated
+ * map_image_base64 is available.
+ */
+function TractMiniMap({ tracts }: { tracts: any[] }) {
+  const tractsWithCoords = tracts.filter((t: any) => t.polygon_coordinates && t.polygon_coordinates.length >= 3)
+  if (tractsWithCoords.length === 0) return null
+
+  // Gather all points to compute bounds
+  let allLons: number[] = []
+  let allLats: number[] = []
+  tractsWithCoords.forEach((t: any) => {
+    t.polygon_coordinates.forEach((pt: number[]) => {
+      if (pt.length >= 2) {
+        allLons.push(pt[0])
+        allLats.push(pt[1])
+      }
+    })
+  })
+
+  if (allLons.length === 0) return null
+
+  const minLon = Math.min(...allLons)
+  const maxLon = Math.max(...allLons)
+  const minLat = Math.min(...allLats)
+  const maxLat = Math.max(...allLats)
+  const padLon = (maxLon - minLon) * 0.1 || 0.001
+  const padLat = (maxLat - minLat) * 0.1 || 0.001
+
+  const width = 180
+  const height = 140
+
+  const scaleX = width / (maxLon - minLon + 2 * padLon)
+  const scaleY = height / (maxLat - minLat + 2 * padLat)
+
+  const toSvgX = (lon: number) => (lon - minLon + padLon) * scaleX
+  // Flip Y because SVG y goes down, lat goes up
+  const toSvgY = (lat: number) => height - (lat - minLat + padLat) * scaleY
+
+  const colors = ['#4CAF50', '#2196F3', '#FF9800', '#9C27B0', '#F44336', '#00BCD4']
+
+  return (
+    <div className="bg-gg-gray-900 rounded-lg border border-gg-gray-700 p-1">
+      <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="w-full">
+        {tractsWithCoords.map((tract: any, i: number) => {
+          const points = tract.polygon_coordinates
+            .filter((pt: number[]) => pt.length >= 2)
+            .map((pt: number[]) => `${toSvgX(pt[0])},${toSvgY(pt[1])}`)
+            .join(' ')
+          return (
+            <polygon
+              key={i}
+              points={points}
+              fill={colors[i % colors.length]}
+              fillOpacity={0.35}
+              stroke={colors[i % colors.length]}
+              strokeWidth={2}
+            />
+          )
+        })}
+      </svg>
+      <p className="text-[9px] text-gg-gray-500 text-center mt-0.5">Tract Boundaries</p>
     </div>
   )
 }
