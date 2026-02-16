@@ -77,14 +77,17 @@ function buildEditForm(scraped: any): EditForm {
   const listing = scraped?.listing || {}
   const tracts = scraped?.tracts || []
 
-  // Extract time from auction_datetime if available
+  // Extract time from auction_time or auction_datetime
   let auctionTime = ''
-  if (listing.auction_datetime) {
+  const timeSource = listing.auction_time || listing.auction_datetime
+  if (timeSource) {
     try {
-      const dt = new Date(listing.auction_datetime)
-      const hours = String(dt.getHours()).padStart(2, '0')
-      const minutes = String(dt.getMinutes()).padStart(2, '0')
-      auctionTime = `${hours}:${minutes}`
+      const dt = new Date(timeSource)
+      if (!isNaN(dt.getTime())) {
+        const hours = String(dt.getHours()).padStart(2, '0')
+        const minutes = String(dt.getMinutes()).padStart(2, '0')
+        auctionTime = `${hours}:${minutes}`
+      }
     } catch {}
   }
 
@@ -112,12 +115,15 @@ function applyEditToScrapedData(original: any, form: EditForm): any {
   updated.listing.sale_date = form.sale_date || null
   updated.listing.description = form.description || null
 
-  // Store auction_datetime in scraped_data when date+time are provided
+  // Store auction_time in scraped_data when date+time are provided
   if (form.sale_date) {
     const timeStr = form.auction_time || '00:00'
     const localDateTime = new Date(`${form.sale_date}T${timeStr}:00`)
-    updated.listing.auction_datetime = localDateTime.toISOString()
+    const isoStr = localDateTime.toISOString()
+    updated.listing.auction_time = isoStr
+    updated.listing.auction_datetime = isoStr  // Keep for backward compat
   } else {
+    updated.listing.auction_time = null
     updated.listing.auction_datetime = null
   }
 
@@ -367,14 +373,20 @@ export default function AdminStagingPage() {
     const tracts = scraped.tracts || []
     const firstTract = tracts[0] || {}
 
-    // Extract time from auction_datetime
+    // Extract time from auction_time or auction_datetime
     let auctionTime: string | null = null
-    if (listing.auction_datetime) {
+    const timeSource = listing.auction_time || listing.auction_datetime
+    if (timeSource) {
       try {
-        const dt = new Date(listing.auction_datetime)
-        auctionTime = dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+        const dt = new Date(timeSource)
+        if (!isNaN(dt.getTime())) {
+          auctionTime = dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+        }
       } catch {}
     }
+
+    // Extract listing image URL
+    const imageUrl = listing.image || listing.primary_image_url || null
 
     return {
       acres: listing.acres_listed || null,
@@ -384,6 +396,7 @@ export default function AdminStagingPage() {
       tractCount: tracts.length,
       tracts: tracts,
       auctionTime,
+      imageUrl,
     }
   }
 
@@ -538,6 +551,23 @@ export default function AdminStagingPage() {
                           <div className="w-full h-24 flex items-center justify-center text-gg-gray-600 rounded-lg border border-gg-gray-700">
                             <ImageIcon size={28} />
                           </div>
+                        )}
+                        {/* Listing property image */}
+                        {info.imageUrl && (
+                          <button
+                            onClick={() => setScreenshotModal(info.imageUrl)}
+                            className="block"
+                            title="Click to enlarge property image"
+                          >
+                            <img
+                              src={info.imageUrl}
+                              alt="Property"
+                              className="w-full max-w-[200px] rounded-lg object-cover cursor-pointer hover:opacity-80 transition-opacity border border-gg-gray-700"
+                              style={{ maxHeight: '150px' }}
+                              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                            />
+                            <span className="text-[10px] text-gg-gray-500 mt-1 block">Property Photo</span>
+                          </button>
                         )}
                         {/* Map image if available */}
                         {mapImageBase64 && (
