@@ -511,6 +511,7 @@ export default function AdminStagingPage() {
             <div className="space-y-6">
               {filteredListings.map((listing) => {
                 const info = extractListingInfo(listing.scraped_data)
+                const mapImageBase64 = listing.scraped_data?.map_image_base64 || listing.map_image_base64 || null
                 return (
                   <div
                     key={listing.id}
@@ -539,14 +540,14 @@ export default function AdminStagingPage() {
                           </div>
                         )}
                         {/* Map image if available */}
-                        {listing.map_image_base64 && (
+                        {mapImageBase64 && (
                           <button
-                            onClick={() => setScreenshotModal(`data:image/png;base64,${listing.map_image_base64}`)}
+                            onClick={() => setScreenshotModal(`data:image/png;base64,${mapImageBase64}`)}
                             className="block"
                             title="Click to enlarge map"
                           >
                             <img
-                              src={`data:image/png;base64,${listing.map_image_base64}`}
+                              src={`data:image/png;base64,${mapImageBase64}`}
                               alt="Tract map"
                               className="w-full max-w-[200px] rounded-lg object-contain cursor-pointer hover:opacity-80 transition-opacity border border-gg-gray-700"
                               style={{ maxHeight: '150px' }}
@@ -555,7 +556,7 @@ export default function AdminStagingPage() {
                           </button>
                         )}
                         {/* Inline polygon mini-map from scraped_data if no map_image_base64 */}
-                        {!listing.map_image_base64 && info.tracts.some((t: any) => t.polygon_coordinates) && (
+                        {!mapImageBase64 && info.tracts.some((t: any) => t.polygon_coordinates) && (
                           <TractMiniMap tracts={info.tracts} />
                         )}
                       </div>
