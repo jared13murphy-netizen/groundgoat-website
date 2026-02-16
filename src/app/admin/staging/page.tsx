@@ -312,7 +312,9 @@ export default function AdminStagingPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           scraped_data: updatedScrapedData,
-          auction_date: editForm.sale_date || null,
+          auction_date: editForm.sale_date
+            ? new Date(`${editForm.sale_date}T${editForm.auction_time || '00:00'}:00`).toISOString()
+            : null,
         }),
       })
 
