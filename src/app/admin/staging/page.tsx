@@ -62,11 +62,13 @@ interface TractForm {
   tillable_acres: string
   county: string
   state: string
+  soil_rating: string
 }
 
 interface EditForm {
   acres_listed: string
   sale_date: string
+  auction_time: string
   description: string
   tracts: TractForm[]
 }
@@ -74,9 +76,22 @@ interface EditForm {
 function buildEditForm(scraped: any): EditForm {
   const listing = scraped?.listing || {}
   const tracts = scraped?.tracts || []
+
+  // Extract time from auction_datetime if available
+  let auctionTime = ''
+  if (listing.auction_datetime) {
+    try {
+      const dt = new Date(listing.auction_datetime)
+      const hours = String(dt.getHours()).padStart(2, '0')
+      const minutes = String(dt.getMinutes()).padStart(2, '0')
+      auctionTime = `${hours}:${minutes}`
+    } catch {}
+  }
+
   return {
     acres_listed: listing.acres_listed != null ? String(listing.acres_listed) : '',
     sale_date: listing.sale_date || '',
+    auction_time: auctionTime,
     description: listing.description || '',
     tracts: tracts.map((t: any, i: number) => ({
       tract_number: t.tract_number ?? i + 1,
@@ -84,6 +99,7 @@ function buildEditForm(scraped: any): EditForm {
       tillable_acres: t.tillable_acres != null ? String(t.tillable_acres) : '',
       county: t.county?.county_name || '',
       state: t.state_full || t.county?.state_full || '',
+      soil_rating: t.soil_rating != null ? String(t.soil_rating) : '',
     })),
   }
 }
@@ -95,6 +111,15 @@ function applyEditToScrapedData(original: any, form: EditForm): any {
   updated.listing.acres_listed = form.acres_listed ? parseFloat(form.acres_listed) : null
   updated.listing.sale_date = form.sale_date || null
   updated.listing.description = form.description || null
+
+  // Store auction_datetime in scraped_data when date+time are provided
+  if (form.sale_date) {
+    const timeStr = form.auction_time || '00:00'
+    const localDateTime = new Date(`${form.sale_date}T${timeStr}:00`)
+    updated.listing.auction_datetime = localDateTime.toISOString()
+  } else {
+    updated.listing.auction_datetime = null
+  }
 
   updated.tracts = form.tracts.map((t) => {
     const origTract = (original?.tracts || []).find(
@@ -111,6 +136,7 @@ function applyEditToScrapedData(original: any, form: EditForm): any {
         state_full: t.state,
       },
       state_full: t.state,
+      soil_rating: t.soil_rating ? parseFloat(t.soil_rating) : null,
     }
   })
 
@@ -139,7 +165,7 @@ export default function AdminStagingPage() {
 
   // Edit modal state
   const [editingListing, setEditingListing] = useState<StagingListing | null>(null)
-  const [editForm, setEditForm] = useState<EditForm>({ acres_listed: '', sale_date: '', description: '', tracts: [] })
+  const [editForm, setEditForm] = useState<EditForm>({ acres_listed: '', sale_date: '', auction_time: '', description: '', tracts: [] })
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
@@ -280,6 +306,14 @@ export default function AdminStagingPage() {
 
     const updatedScrapedData = applyEditToScrapedData(editingListing.scraped_data, editForm)
 
+    // Build auction_datetime from date + time
+    let auctionDatetime: string | null = null
+    if (editForm.sale_date) {
+      const timeStr = editForm.auction_time || '00:00'
+      const localDateTime = new Date(`${editForm.sale_date}T${timeStr}:00`)
+      auctionDatetime = localDateTime.toISOString()
+    }
+
     try {
       const response = await fetchWithAuth(`${API_URL}/api/admin/staging/${editingListing.id}`, {
         method: 'PATCH',
@@ -287,6 +321,7 @@ export default function AdminStagingPage() {
         body: JSON.stringify({
           scraped_data: updatedScrapedData,
           auction_date: editForm.sale_date || null,
+          auction_datetime: auctionDatetime,
         }),
       })
 
@@ -325,7 +360,7 @@ export default function AdminStagingPage() {
       : 1
     setEditForm((prev) => ({
       ...prev,
-      tracts: [...prev.tracts, { tract_number: nextNum, acres: '', tillable_acres: '', county: '', state: '' }],
+      tracts: [...prev.tracts, { tract_number: nextNum, acres: '', tillable_acres: '', county: '', state: '', soil_rating: '' }],
     }))
   }
 
@@ -337,10 +372,20 @@ export default function AdminStagingPage() {
   }
 
   const extractListingInfo = (scraped: any) => {
-    if (!scraped) return { acres: null, county: null, state: null, description: null, tractCount: 0, tracts: [] }
+    if (!scraped) return { acres: null, county: null, state: null, description: null, tractCount: 0, tracts: [], auctionTime: null }
     const listing = scraped.listing || {}
     const tracts = scraped.tracts || []
     const firstTract = tracts[0] || {}
+
+    // Extract time from auction_datetime
+    let auctionTime: string | null = null
+    if (listing.auction_datetime) {
+      try {
+        const dt = new Date(listing.auction_datetime)
+        auctionTime = dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+      } catch {}
+    }
+
     return {
       acres: listing.acres_listed || null,
       county: firstTract.county?.county_name || null,
@@ -348,6 +393,7 @@ export default function AdminStagingPage() {
       description: listing.description || null,
       tractCount: tracts.length,
       tracts: tracts,
+      auctionTime,
     }
   }
 
@@ -583,9 +629,12 @@ export default function AdminStagingPage() {
                             </p>
                           </div>
                           <div className="bg-gg-gray-800 rounded-lg p-3">
-                            <p className="text-xs text-gg-gray-400 mb-1">Auction Date</p>
+                            <p className="text-xs text-gg-gray-400 mb-1">Auction Date &amp; Time</p>
                             <p className="text-white font-semibold">
                               {formatDate(listing.auction_date)}
+                              {info.auctionTime && (
+                                <span className="text-gg-gray-300 font-normal ml-1">@ {info.auctionTime}</span>
+                              )}
                             </p>
                           </div>
                         </div>
@@ -604,6 +653,9 @@ export default function AdminStagingPage() {
                                   <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1 text-xs text-gg-gray-400">
                                     {tract.tillable_acres != null && (
                                       <span>Tillable: {tract.tillable_acres} ac</span>
+                                    )}
+                                    {tract.soil_rating != null && (
+                                      <span>Soil: {tract.soil_rating}</span>
                                     )}
                                     {tract.pi != null && (
                                       <span>PI: {tract.pi}</span>
@@ -798,14 +850,25 @@ export default function AdminStagingPage() {
                 />
               </div>
 
-              <div>
-                <label className="block text-sm text-gg-gray-400 mb-1">Auction Date</label>
-                <input
-                  type="date"
-                  value={editForm.sale_date}
-                  onChange={(e) => setEditForm((prev) => ({ ...prev, sale_date: e.target.value }))}
-                  className="w-full bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-4 py-2 text-white"
-                />
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm text-gg-gray-400 mb-1">Auction Date</label>
+                  <input
+                    type="date"
+                    value={editForm.sale_date}
+                    onChange={(e) => setEditForm((prev) => ({ ...prev, sale_date: e.target.value }))}
+                    className="w-full bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-4 py-2 text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-gg-gray-400 mb-1">Auction Time</label>
+                  <input
+                    type="time"
+                    value={editForm.auction_time}
+                    onChange={(e) => setEditForm((prev) => ({ ...prev, auction_time: e.target.value }))}
+                    className="w-full bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-4 py-2 text-white"
+                  />
+                </div>
               </div>
 
               <div>
@@ -876,6 +939,17 @@ export default function AdminStagingPage() {
                           />
                         </div>
                         <div>
+                          <label className="block text-xs text-gg-gray-400 mb-1">Soil Rating</label>
+                          <input
+                            type="number"
+                            step="0.1"
+                            placeholder="e.g. 120.5"
+                            value={tract.soil_rating}
+                            onChange={(e) => updateTract(idx, 'soil_rating', e.target.value)}
+                            className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-3 py-1.5 text-white text-sm"
+                          />
+                        </div>
+                        <div>
                           <label className="block text-xs text-gg-gray-400 mb-1">County</label>
                           <input
                             type="text"
@@ -884,7 +958,7 @@ export default function AdminStagingPage() {
                             className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-3 py-1.5 text-white text-sm"
                           />
                         </div>
-                        <div className="col-span-2">
+                        <div>
                           <label className="block text-xs text-gg-gray-400 mb-1">State</label>
                           <input
                             type="text"
