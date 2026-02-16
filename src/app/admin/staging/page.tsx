@@ -69,6 +69,7 @@ interface EditForm {
   acres_listed: string
   sale_date: string
   auction_time: string
+  image_url: string
   description: string
   tracts: TractForm[]
 }
@@ -95,6 +96,7 @@ function buildEditForm(scraped: any): EditForm {
     acres_listed: listing.acres_listed != null ? String(listing.acres_listed) : '',
     sale_date: listing.sale_date || '',
     auction_time: auctionTime,
+    image_url: listing.image || listing.primary_image_url || '',
     description: listing.description || '',
     tracts: tracts.map((t: any, i: number) => ({
       tract_number: t.tract_number ?? i + 1,
@@ -114,6 +116,8 @@ function applyEditToScrapedData(original: any, form: EditForm): any {
   updated.listing.acres_listed = form.acres_listed ? parseFloat(form.acres_listed) : null
   updated.listing.sale_date = form.sale_date || null
   updated.listing.description = form.description || null
+  updated.listing.image = form.image_url || null
+  updated.listing.primary_image_url = form.image_url || null
 
   // Store auction_time in scraped_data when date+time are provided
   if (form.sale_date) {
@@ -171,7 +175,7 @@ export default function AdminStagingPage() {
 
   // Edit modal state
   const [editingListing, setEditingListing] = useState<StagingListing | null>(null)
-  const [editForm, setEditForm] = useState<EditForm>({ acres_listed: '', sale_date: '', auction_time: '', description: '', tracts: [] })
+  const [editForm, setEditForm] = useState<EditForm>({ acres_listed: '', sale_date: '', auction_time: '', image_url: '', description: '', tracts: [] })
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
@@ -890,6 +894,25 @@ export default function AdminStagingPage() {
                     className="w-full bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-4 py-2 text-white"
                   />
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-sm text-gg-gray-400 mb-1">Listing Image URL</label>
+                <input
+                  type="url"
+                  placeholder="https://..."
+                  value={editForm.image_url}
+                  onChange={(e) => setEditForm((prev) => ({ ...prev, image_url: e.target.value }))}
+                  className="w-full bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-4 py-2 text-white"
+                />
+                {editForm.image_url && (
+                  <img
+                    src={editForm.image_url}
+                    alt="Preview"
+                    className="mt-2 max-h-24 rounded-lg border border-gg-gray-700 object-cover"
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                  />
+                )}
               </div>
 
               <div>
