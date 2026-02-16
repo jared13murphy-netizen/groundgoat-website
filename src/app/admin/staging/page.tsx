@@ -79,15 +79,22 @@ function buildEditForm(scraped: any): EditForm {
   const tracts = scraped?.tracts || []
 
   // Extract time from auction_time or auction_datetime
+  // Handles both naive ISO strings (2026-03-20T10:00:00) and UTC (2026-03-20T15:00:00Z)
   let auctionTime = ''
   const timeSource = listing.auction_time || listing.auction_datetime
   if (timeSource) {
     try {
-      const dt = new Date(timeSource)
-      if (!isNaN(dt.getTime())) {
-        const hours = String(dt.getHours()).padStart(2, '0')
-        const minutes = String(dt.getMinutes()).padStart(2, '0')
-        auctionTime = `${hours}:${minutes}`
+      // Try to extract time directly from the string first (for naive ISO without Z)
+      const timeMatch = String(timeSource).match(/T(\d{2}):(\d{2})/)
+      if (timeMatch && !String(timeSource).endsWith('Z')) {
+        auctionTime = `${timeMatch[1]}:${timeMatch[2]}`
+      } else {
+        const dt = new Date(timeSource)
+        if (!isNaN(dt.getTime())) {
+          const hours = String(dt.getHours()).padStart(2, '0')
+          const minutes = String(dt.getMinutes()).padStart(2, '0')
+          auctionTime = `${hours}:${minutes}`
+        }
       }
     } catch {}
   }
@@ -103,7 +110,7 @@ function buildEditForm(scraped: any): EditForm {
       acres: t.acres != null ? String(t.acres) : '',
       tillable_acres: t.tillable_acres != null ? String(t.tillable_acres) : '',
       county: t.county?.county_name || '',
-      state: t.state_full || t.county?.state_full || '',
+      state: t.state_full || t.county?.state_full || t.state || t.county?.state || '',
       soil_rating: t.soil_rating != null ? String(t.soil_rating) : '',
     })),
   }
@@ -119,13 +126,13 @@ function applyEditToScrapedData(original: any, form: EditForm): any {
   updated.listing.image = form.image_url || null
   updated.listing.primary_image_url = form.image_url || null
 
-  // Store auction_time in scraped_data when date+time are provided
+  // Store auction_datetime in scraped_data as a naive ISO string (no UTC conversion)
+  // The auction time is in the auction's local timezone based on county/state
   if (form.sale_date) {
     const timeStr = form.auction_time || '00:00'
-    const localDateTime = new Date(`${form.sale_date}T${timeStr}:00`)
-    const isoStr = localDateTime.toISOString()
-    updated.listing.auction_time = isoStr
-    updated.listing.auction_datetime = isoStr  // Keep for backward compat
+    const naiveIso = `${form.sale_date}T${timeStr}:00`
+    updated.listing.auction_time = naiveIso
+    updated.listing.auction_datetime = naiveIso
   } else {
     updated.listing.auction_time = null
     updated.listing.auction_datetime = null
@@ -378,13 +385,25 @@ export default function AdminStagingPage() {
     const firstTract = tracts[0] || {}
 
     // Extract time from auction_time or auction_datetime
+    // Handles both naive ISO strings (2026-03-20T10:00:00) and UTC (2026-03-20T15:00:00Z)
     let auctionTime: string | null = null
     const timeSource = listing.auction_time || listing.auction_datetime
     if (timeSource) {
       try {
-        const dt = new Date(timeSource)
-        if (!isNaN(dt.getTime())) {
-          auctionTime = dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+        const timeStr = String(timeSource)
+        const timeMatch = timeStr.match(/T(\d{2}):(\d{2})/)
+        if (timeMatch && !timeStr.endsWith('Z')) {
+          // Naive ISO string — parse hours/minutes directly to avoid timezone shift
+          const h = parseInt(timeMatch[1])
+          const m = timeMatch[2]
+          const ampm = h >= 12 ? 'PM' : 'AM'
+          const h12 = h % 12 || 12
+          auctionTime = `${h12}:${m} ${ampm}`
+        } else {
+          const dt = new Date(timeSource)
+          if (!isNaN(dt.getTime())) {
+            auctionTime = dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+          }
         }
       } catch {}
     }
@@ -395,7 +414,7 @@ export default function AdminStagingPage() {
     return {
       acres: listing.acres_listed || null,
       county: firstTract.county?.county_name || null,
-      state: listing.state_full || firstTract.state_full || null,
+      state: listing.state_full || firstTract.state_full || firstTract.state || listing.state || null,
       description: listing.description || null,
       tractCount: tracts.length,
       tracts: tracts,
@@ -686,7 +705,7 @@ export default function AdminStagingPage() {
                                       <span>PI: {tract.pi}</span>
                                     )}
                                     {tract.county?.county_name && (
-                                      <span>{tract.county.county_name}{tract.state_full ? `, ${tract.state_full}` : ''}</span>
+                                      <span>{tract.county.county_name}{(tract.state_full || tract.state) ? `, ${tract.state_full || tract.state}` : ''}</span>
                                     )}
                                     {tract.latitude && tract.longitude && (
                                       <span className="flex items-center gap-0.5">
