@@ -306,14 +306,6 @@ export default function AdminStagingPage() {
 
     const updatedScrapedData = applyEditToScrapedData(editingListing.scraped_data, editForm)
 
-    // Build auction_datetime from date + time
-    let auctionDatetime: string | null = null
-    if (editForm.sale_date) {
-      const timeStr = editForm.auction_time || '00:00'
-      const localDateTime = new Date(`${editForm.sale_date}T${timeStr}:00`)
-      auctionDatetime = localDateTime.toISOString()
-    }
-
     try {
       const response = await fetchWithAuth(`${API_URL}/api/admin/staging/${editingListing.id}`, {
         method: 'PATCH',
@@ -321,7 +313,6 @@ export default function AdminStagingPage() {
         body: JSON.stringify({
           scraped_data: updatedScrapedData,
           auction_date: editForm.sale_date || null,
-          auction_datetime: auctionDatetime,
         }),
       })
 
