@@ -185,6 +185,28 @@ export default function AdminStagingPage() {
   const [editForm, setEditForm] = useState<EditForm>({ acres_listed: '', sale_date: '', auction_time: '', image_url: '', description: '', tracts: [] })
   const [saving, setSaving] = useState(false)
 
+  // Scraper status
+  const [scraperStatus, setScraperStatus] = useState<{
+    running: boolean
+    started_at: string | null
+    completed_at: string | null
+    current_url: string | null
+    progress: string
+    total_scraped: number
+  } | null>(null)
+
+  useEffect(() => {
+    const fetchStatus = async () => {
+      try {
+        const res = await fetch(`${SCRAPER_URL}/api/scraper/status`)
+        if (res.ok) setScraperStatus(await res.json())
+      } catch {}
+    }
+    fetchStatus()
+    const interval = setInterval(fetchStatus, 5000)
+    return () => clearInterval(interval)
+  }, [])
+
   useEffect(() => {
     const token = localStorage.getItem('auth_token')
     if (!token) {
@@ -487,6 +509,36 @@ export default function AdminStagingPage() {
             Refresh
           </button>
         </div>
+
+        {/* Scraper Status Banner */}
+        {scraperStatus && (
+          <div className={`mb-6 rounded-lg px-4 py-3 flex items-center gap-3 text-sm ${
+            scraperStatus.running
+              ? 'bg-gg-pink/10 border border-gg-pink/30'
+              : 'bg-gg-gray-800 border border-gg-gray-700'
+          }`}>
+            {scraperStatus.running ? (
+              <>
+                <Loader2 className="animate-spin text-gg-pink shrink-0" size={16} />
+                <span className="text-white">
+                  <span className="font-semibold">Scraper Running:</span>{' '}
+                  {scraperStatus.progress} URLs
+                  {scraperStatus.current_url && (
+                    <span className="text-gg-gray-400"> — Currently scraping: {scraperStatus.current_url}</span>
+                  )}
+                </span>
+              </>
+            ) : scraperStatus.completed_at ? (
+              <>
+                <CheckCircle className="text-green-400 shrink-0" size={16} />
+                <span className="text-gg-gray-300">
+                  Last run: {new Date(scraperStatus.completed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} at {new Date(scraperStatus.completed_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
+                  {scraperStatus.total_scraped > 0 && ` — ${scraperStatus.total_scraped} listings scraped`}
+                </span>
+              </>
+            ) : null}
+          </div>
+        )}
 
         {/* Tabs */}
         <div className="flex gap-1 mb-6 bg-gg-gray-900 rounded-lg p-1 w-fit">
