@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -163,6 +163,7 @@ function applyEditToScrapedData(original: any, form: EditForm): any {
 export default function AdminStagingPage() {
   const router = useRouter()
   const [loading, setLoading] = useState(true)
+  const [fetchError, setFetchError] = useState<string | null>(null)
   const [listings, setListings] = useState<StagingListing[]>([])
   const [screenshotModal, setScreenshotModal] = useState<string | null>(null)
 
@@ -194,12 +195,22 @@ export default function AdminStagingPage() {
     progress: string
     total_scraped: number
   } | null>(null)
+  const prevScraperRunning = useRef<boolean | null>(null)
 
   useEffect(() => {
     const fetchStatus = async () => {
       try {
         const res = await fetch(`${SCRAPER_URL}/api/scraper/status`)
-        if (res.ok) setScraperStatus(await res.json())
+        if (res.ok) {
+          const data = await res.json()
+          setScraperStatus(data)
+          // Auto-refresh listings when scraper transitions from running → complete
+          if (prevScraperRunning.current === true && data?.running === false) {
+            fetchStagingListings()
+            fetchRunLog()
+          }
+          prevScraperRunning.current = data?.running ?? null
+        }
       } catch {}
     }
     fetchStatus()
@@ -234,14 +245,21 @@ export default function AdminStagingPage() {
 
   const fetchStagingListings = async () => {
     setLoading(true)
+    setFetchError(null)
     try {
       const response = await fetchWithAuth(`${API_URL}/api/admin/staging?status=pending`)
       if (response.ok) {
         const data = await response.json()
-        setListings(data)
+        setListings(Array.isArray(data) ? data : [])
+      } else {
+        const errBody = await response.json().catch(() => null)
+        setFetchError(errBody?.detail || errBody?.error || `Server returned ${response.status}`)
+        setListings([])
       }
     } catch (err) {
       console.error('Failed to fetch staging listings:', err)
+      setFetchError('Failed to connect to the server. Please try again.')
+      setListings([])
     } finally {
       setLoading(false)
     }
@@ -253,10 +271,11 @@ export default function AdminStagingPage() {
       const response = await fetch(`${SCRAPER_URL}/api/scraper-run-log?limit=200`)
       if (response.ok) {
         const data = await response.json()
-        setRunLog(data)
+        setRunLog(Array.isArray(data) ? data : [])
       }
     } catch (err) {
       console.error('Failed to fetch run log:', err)
+      setRunLog([])
     } finally {
       setRunLogLoading(false)
     }
@@ -483,7 +502,10 @@ export default function AdminStagingPage() {
   if (loading) {
     return (
       <div className="min-h-screen bg-gg-black flex items-center justify-center">
-        <Loader2 className="animate-spin text-gg-pink" size={32} />
+        <div className="text-center">
+          <Loader2 className="animate-spin text-gg-pink mx-auto mb-4" size={32} />
+          <p className="text-gg-gray-400 text-sm">Loading staging listings...</p>
+        </div>
       </div>
     )
   }
@@ -583,15 +605,42 @@ export default function AdminStagingPage() {
           </div>
         )}
 
+        {/* Error State */}
+        {fetchError && (
+          <div className="mb-6 rounded-lg px-4 py-3 flex items-center gap-3 text-sm bg-red-500/10 border border-red-500/30">
+            <XCircle className="text-red-400 shrink-0" size={16} />
+            <span className="text-red-300">{fetchError}</span>
+            <button
+              onClick={() => { setFetchError(null); fetchStagingListings(); fetchRunLog() }}
+              className="ml-auto px-3 py-1 bg-red-500/20 text-red-300 rounded hover:bg-red-500/30 transition-colors"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
         {/* Staging Tab */}
         {activeTab === 'staging' && (
           <>
             {/* Empty State */}
-            {filteredListings.length === 0 && (
+            {filteredListings.length === 0 && !fetchError && (
               <div className="card text-center py-16">
-                <CheckCircle className="mx-auto mb-4 text-green-400" size={48} />
-                <h2 className="text-xl font-bold text-white mb-2">All caught up!</h2>
-                <p className="text-gg-gray-400">No pending listings to review.</p>
+                {scraperStatus?.running ? (
+                  <>
+                    <Loader2 className="animate-spin mx-auto mb-4 text-gg-pink" size={48} />
+                    <h2 className="text-xl font-bold text-white mb-2">Scraper is running</h2>
+                    <p className="text-gg-gray-400 mb-1">
+                      {scraperStatus.progress} URLs processed so far.
+                    </p>
+                    <p className="text-gg-gray-500 text-sm">New listings will appear here once the scraper finishes. This page auto-refreshes.</p>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle className="mx-auto mb-4 text-green-400" size={48} />
+                    <h2 className="text-xl font-bold text-white mb-2">No listings in staging</h2>
+                    <p className="text-gg-gray-400">No pending listings to review. Run the nightly scraper to discover new listings.</p>
+                  </>
+                )}
               </div>
             )}
 
@@ -759,10 +808,10 @@ export default function AdminStagingPage() {
                                     {tract.county?.county_name && (
                                       <span>{tract.county.county_name}{(tract.state_full || tract.state) ? `, ${tract.state_full || tract.state}` : ''}</span>
                                     )}
-                                    {tract.latitude && tract.longitude && (
+                                    {tract.latitude != null && tract.longitude != null && (
                                       <span className="flex items-center gap-0.5">
                                         <Navigation size={10} />
-                                        {tract.latitude.toFixed(4)}, {tract.longitude.toFixed(4)}
+                                        {Number(tract.latitude).toFixed(4)}, {Number(tract.longitude).toFixed(4)}
                                       </span>
                                     )}
                                     {tract.land_type && (
