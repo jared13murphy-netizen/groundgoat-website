@@ -63,12 +63,15 @@ interface TractForm {
   county: string
   state: string
   soil_rating: string
+  latitude: string
+  longitude: string
 }
 
 interface EditForm {
   acres_listed: string
   sale_date: string
   auction_time: string
+  auction_url: string
   image_url: string
   description: string
   tracts: TractForm[]
@@ -103,6 +106,7 @@ function buildEditForm(scraped: any): EditForm {
     acres_listed: listing.acres_listed != null ? String(listing.acres_listed) : '',
     sale_date: listing.sale_date || '',
     auction_time: auctionTime,
+    auction_url: listing.auction_url || '',
     image_url: listing.image || listing.primary_image_url || '',
     description: listing.description || '',
     tracts: tracts.map((t: any, i: number) => ({
@@ -112,6 +116,8 @@ function buildEditForm(scraped: any): EditForm {
       county: t.county?.county_name || '',
       state: t.state_full || t.county?.state_full || t.state || t.county?.state || '',
       soil_rating: t.soil_rating != null ? String(t.soil_rating) : '',
+      latitude: t.latitude != null ? String(t.latitude) : '',
+      longitude: t.longitude != null ? String(t.longitude) : '',
     })),
   }
 }
@@ -123,6 +129,7 @@ function applyEditToScrapedData(original: any, form: EditForm): any {
   updated.listing.acres_listed = form.acres_listed ? parseFloat(form.acres_listed) : null
   updated.listing.sale_date = form.sale_date || null
   updated.listing.description = form.description || null
+  updated.listing.auction_url = form.auction_url || null
   updated.listing.image = form.image_url || null
   updated.listing.primary_image_url = form.image_url || null
 
@@ -154,6 +161,8 @@ function applyEditToScrapedData(original: any, form: EditForm): any {
       },
       state_full: t.state,
       soil_rating: t.soil_rating ? parseFloat(t.soil_rating) : null,
+      latitude: t.latitude ? parseFloat(t.latitude) : null,
+      longitude: t.longitude ? parseFloat(t.longitude) : null,
     }
   })
 
@@ -183,7 +192,7 @@ export default function AdminStagingPage() {
 
   // Edit modal state
   const [editingListing, setEditingListing] = useState<StagingListing | null>(null)
-  const [editForm, setEditForm] = useState<EditForm>({ acres_listed: '', sale_date: '', auction_time: '', image_url: '', description: '', tracts: [] })
+  const [editForm, setEditForm] = useState<EditForm>({ acres_listed: '', sale_date: '', auction_time: '', auction_url: '', image_url: '', description: '', tracts: [] })
   const [saving, setSaving] = useState(false)
 
   // Scraper status
@@ -408,7 +417,7 @@ export default function AdminStagingPage() {
       : 1
     setEditForm((prev) => ({
       ...prev,
-      tracts: [...prev.tracts, { tract_number: nextNum, acres: '', tillable_acres: '', county: '', state: '', soil_rating: '' }],
+      tracts: [...prev.tracts, { tract_number: nextNum, acres: '', tillable_acres: '', county: '', state: '', soil_rating: '', latitude: '', longitude: '' }],
     }))
   }
 
@@ -1017,6 +1026,17 @@ export default function AdminStagingPage() {
               </div>
 
               <div>
+                <label className="block text-sm text-gg-gray-400 mb-1">Auction / Bidding URL</label>
+                <input
+                  type="url"
+                  placeholder="https://bidwrangler.com/... or https://hibid.com/..."
+                  value={editForm.auction_url}
+                  onChange={(e) => setEditForm((prev) => ({ ...prev, auction_url: e.target.value }))}
+                  className="w-full bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-4 py-2 text-white"
+                />
+              </div>
+
+              <div>
                 <label className="block text-sm text-gg-gray-400 mb-1">Listing Image URL</label>
                 <input
                   type="url"
@@ -1128,6 +1148,28 @@ export default function AdminStagingPage() {
                             type="text"
                             value={tract.state}
                             onChange={(e) => updateTract(idx, 'state', e.target.value)}
+                            className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-3 py-1.5 text-white text-sm"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-gg-gray-400 mb-1">Latitude</label>
+                          <input
+                            type="number"
+                            step="0.000001"
+                            placeholder="e.g. 41.8781"
+                            value={tract.latitude}
+                            onChange={(e) => updateTract(idx, 'latitude', e.target.value)}
+                            className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-3 py-1.5 text-white text-sm"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-gg-gray-400 mb-1">Longitude</label>
+                          <input
+                            type="number"
+                            step="0.000001"
+                            placeholder="e.g. -87.6298"
+                            value={tract.longitude}
+                            onChange={(e) => updateTract(idx, 'longitude', e.target.value)}
                             className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-3 py-1.5 text-white text-sm"
                           />
                         </div>
