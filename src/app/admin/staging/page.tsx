@@ -23,7 +23,8 @@ import {
   ChevronDown,
   Navigation,
   BarChart3,
-  Clock
+  Clock,
+  Copy
 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 
@@ -194,6 +195,7 @@ export default function AdminStagingPage() {
   // Action state
   const [actionLoading, setActionLoading] = useState<number | null>(null)
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+  const [copiedId, setCopiedId] = useState<number | null>(null)
 
   // Edit modal state
   const [editingListing, setEditingListing] = useState<StagingListing | null>(null)
@@ -859,6 +861,17 @@ export default function AdminStagingPage() {
                             <ExternalLink size={14} />
                             Source
                           </a>
+                          <button
+                            onClick={() => {
+                              navigator.clipboard.writeText(listing.source_url)
+                              setCopiedId(listing.id)
+                              setTimeout(() => setCopiedId((prev) => prev === listing.id ? null : prev), 2000)
+                            }}
+                            className="flex items-center gap-1 px-3 py-1.5 text-sm text-gg-gray-400 hover:text-white bg-gg-gray-800 hover:bg-gg-gray-700 rounded-lg transition-colors"
+                          >
+                            {copiedId === listing.id ? <CheckCircle size={14} className="text-green-400" /> : <Copy size={14} />}
+                            {copiedId === listing.id ? 'Copied!' : 'Copy URL'}
+                          </button>
                         </div>
 
                         {/* Key Data */}
