@@ -464,6 +464,7 @@ export default function AdminStagingPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           scraped_data: updatedScrapedData,
+          auction_date: editForm.sale_date || null,
         }),
       })
 
@@ -471,7 +472,7 @@ export default function AdminStagingPage() {
         setListings((prev) =>
           prev.map((l) =>
             l.id === editingListing.id
-              ? { ...l, scraped_data: updatedScrapedData }
+              ? { ...l, scraped_data: updatedScrapedData, auction_date: editForm.sale_date || null }
               : l
           )
         )
@@ -561,6 +562,14 @@ export default function AdminStagingPage() {
   const formatDate = (dateStr: string | null) => {
     if (!dateStr) return 'N/A'
     try {
+      // For date-only strings like "2026-03-15", parse as local date
+      // to avoid timezone shift (new Date("2026-03-15") treats it as UTC midnight,
+      // which becomes the previous day in US timezones)
+      const dateOnly = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+      if (dateOnly) {
+        const d = new Date(parseInt(dateOnly[1]), parseInt(dateOnly[2]) - 1, parseInt(dateOnly[3]))
+        return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+      }
       return new Date(dateStr).toLocaleDateString('en-US', {
         month: 'short',
         day: 'numeric',
