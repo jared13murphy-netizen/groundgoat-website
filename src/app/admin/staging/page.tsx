@@ -21,7 +21,9 @@ import {
   AlertTriangle,
   Filter,
   ChevronDown,
-  Navigation
+  Navigation,
+  BarChart3,
+  Clock
 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 
@@ -45,15 +47,18 @@ interface StagingListing {
 
 interface RunLogEntry {
   id: number
-  run_started_at: string | null
-  run_completed_at: string | null
-  company_id: string | null
+  run_type: string
   company_name: string | null
+  company_id: string | null
   auction_list_url: string | null
   status: string
-  error_message: string | null
+  discovery_method: string | null
   cards_found: number
-  urls_scraped: number
+  cards_after_filter: number
+  new_urls: number
+  error_message: string | null
+  duration_ms: number | null
+  created_at: string | null
 }
 
 interface TractForm {
@@ -180,7 +185,7 @@ export default function AdminStagingPage() {
   const [companyFilter, setCompanyFilter] = useState<string>('all')
 
   // Tab state
-  const [activeTab, setActiveTab] = useState<'staging' | 'failures'>('staging')
+  const [activeTab, setActiveTab] = useState<'staging' | 'failures' | 'results'>('staging')
 
   // Run log
   const [runLog, setRunLog] = useState<RunLogEntry[]>([])
@@ -277,10 +282,12 @@ export default function AdminStagingPage() {
   const fetchRunLog = async () => {
     setRunLogLoading(true)
     try {
-      const response = await fetch(`${SCRAPER_URL}/api/scraper-run-log?limit=200`)
+      const response = await fetch(`${SCRAPER_URL}/api/scraper-run-log?limit=500`)
       if (response.ok) {
         const data = await response.json()
-        setRunLog(Array.isArray(data) ? data : [])
+        // API returns { success: true, entries: [...] }
+        const entries = data?.entries || (Array.isArray(data) ? data : [])
+        setRunLog(entries)
       }
     } catch (err) {
       console.error('Failed to fetch run log:', err)
@@ -308,6 +315,86 @@ export default function AdminStagingPage() {
   // Failed/no_cards entries from the most recent run
   const failedEntries = useMemo(() => {
     return runLog.filter((r) => r.status === 'failed' || r.status === 'no_cards' || r.status === 'timeout')
+  }, [runLog])
+
+  // Group latest run results by company for the Scraper Results tab
+  const latestRunResults = useMemo(() => {
+    if (runLog.length === 0) return { runs: [], runTime: null as string | null }
+
+    // Find the most recent created_at timestamp to identify the latest run batch
+    // All entries within 2 hours of the newest are considered part of the same run
+    const sorted = [...runLog].sort((a, b) => {
+      const ta = a.created_at ? new Date(a.created_at).getTime() : 0
+      const tb = b.created_at ? new Date(b.created_at).getTime() : 0
+      return tb - ta
+    })
+    const newestTime = sorted[0]?.created_at ? new Date(sorted[0].created_at).getTime() : 0
+    const twoHoursMs = 2 * 60 * 60 * 1000
+    const latestBatch = sorted.filter((r) => {
+      const t = r.created_at ? new Date(r.created_at).getTime() : 0
+      return newestTime - t < twoHoursMs
+    })
+
+    // Group by company, merging discovery + scrape entries
+    const companyMap = new Map<string, {
+      company_name: string
+      auction_list_url: string | null
+      discovery_method: string | null
+      cards_found: number
+      cards_after_filter: number
+      new_urls: number
+      urls_scraped: number
+      listings_staged: number
+      status: string
+      error_message: string | null
+      duration_ms: number
+    }>()
+
+    for (const entry of latestBatch) {
+      const name = entry.company_name || 'Unknown'
+      const existing = companyMap.get(name)
+      if (!existing) {
+        companyMap.set(name, {
+          company_name: name,
+          auction_list_url: entry.auction_list_url,
+          discovery_method: entry.discovery_method,
+          cards_found: entry.run_type === 'discovery' ? entry.cards_found : 0,
+          cards_after_filter: entry.run_type === 'discovery' ? entry.cards_after_filter : 0,
+          new_urls: entry.run_type === 'discovery' ? entry.new_urls : 0,
+          urls_scraped: entry.run_type === 'scrape' ? entry.cards_found : 0,
+          listings_staged: entry.run_type === 'scrape' ? entry.cards_after_filter : 0,
+          status: entry.status,
+          error_message: entry.error_message,
+          duration_ms: entry.duration_ms || 0,
+        })
+      } else {
+        // Merge discovery + scrape data for same company
+        if (entry.run_type === 'discovery') {
+          existing.cards_found = entry.cards_found
+          existing.cards_after_filter = entry.cards_after_filter
+          existing.new_urls = entry.new_urls
+          existing.discovery_method = entry.discovery_method
+          if (!existing.auction_list_url) existing.auction_list_url = entry.auction_list_url
+        } else if (entry.run_type === 'scrape') {
+          existing.urls_scraped = entry.cards_found
+          existing.listings_staged = entry.cards_after_filter
+        }
+        if (entry.status === 'failed') {
+          existing.status = 'failed'
+          existing.error_message = entry.error_message
+        }
+        existing.duration_ms += entry.duration_ms || 0
+      }
+    }
+
+    const runs = Array.from(companyMap.values()).sort((a, b) => {
+      // Failed first, then by cards_found desc
+      if (a.status === 'failed' && b.status !== 'failed') return -1
+      if (b.status === 'failed' && a.status !== 'failed') return 1
+      return b.cards_found - a.cards_found
+    })
+
+    return { runs, runTime: sorted[0]?.created_at || null }
   }, [runLog])
 
   const showToast = (type: 'success' | 'error', message: string) => {
@@ -339,9 +426,7 @@ export default function AdminStagingPage() {
     setActionLoading(id)
     try {
       const response = await fetchWithAuth(`${API_URL}/api/admin/staging/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'rejected' }),
+        method: 'DELETE',
       })
       if (response.ok) {
         setListings((prev) => prev.filter((l) => l.id !== id))
@@ -589,6 +674,15 @@ export default function AdminStagingPage() {
           >
             <AlertTriangle size={14} />
             Failed ({failedEntries.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('results')}
+            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${
+              activeTab === 'results' ? 'bg-gg-gray-700 text-white' : 'text-gg-gray-400 hover:text-white'
+            }`}
+          >
+            <BarChart3 size={14} />
+            Scraper Results
           </button>
         </div>
 
@@ -913,8 +1007,8 @@ export default function AdminStagingPage() {
                         }`}>
                           {entry.status}
                         </span>
-                        {entry.run_started_at && (
-                          <span className="text-xs text-gg-gray-500">{formatTimeAgo(entry.run_started_at)}</span>
+                        {entry.created_at && (
+                          <span className="text-xs text-gg-gray-500">{formatTimeAgo(entry.created_at)}</span>
                         )}
                       </div>
                       {entry.auction_list_url && (
@@ -932,12 +1026,143 @@ export default function AdminStagingPage() {
                       )}
                       <div className="flex gap-4 mt-1 text-xs text-gg-gray-500">
                         <span>Cards: {entry.cards_found}</span>
-                        <span>URLs scraped: {entry.urls_scraped}</span>
+                        <span>New URLs: {entry.new_urls}</span>
                       </div>
                     </div>
                   </div>
                 ))}
               </div>
+            )}
+          </div>
+        )}
+
+        {/* Scraper Results Tab */}
+        {activeTab === 'results' && (
+          <div>
+            {runLogLoading ? (
+              <div className="flex items-center justify-center py-16">
+                <Loader2 className="animate-spin text-gg-pink" size={32} />
+              </div>
+            ) : latestRunResults.runs.length === 0 ? (
+              <div className="card text-center py-16">
+                <BarChart3 className="mx-auto mb-4 text-gg-gray-500" size={48} />
+                <h2 className="text-xl font-bold text-white mb-2">No scraper results yet</h2>
+                <p className="text-gg-gray-400">Run the nightly scraper to see per-company discovery results.</p>
+              </div>
+            ) : (
+              <>
+                {/* Run timestamp */}
+                {latestRunResults.runTime && (
+                  <div className="flex items-center gap-2 mb-4 text-sm text-gg-gray-400">
+                    <Clock size={14} />
+                    <span>Latest run: {formatTimeAgo(latestRunResults.runTime)}</span>
+                    <span className="text-gg-gray-600">·</span>
+                    <span>{latestRunResults.runs.length} companies checked</span>
+                  </div>
+                )}
+
+                {/* Summary stats */}
+                <div className="grid grid-cols-4 gap-4 mb-6">
+                  <div className="bg-gg-gray-900 border border-gg-gray-800 rounded-xl p-4 text-center">
+                    <div className="text-2xl font-bold text-white">{latestRunResults.runs.length}</div>
+                    <div className="text-xs text-gg-gray-400 mt-1">Companies</div>
+                  </div>
+                  <div className="bg-gg-gray-900 border border-gg-gray-800 rounded-xl p-4 text-center">
+                    <div className="text-2xl font-bold text-white">{latestRunResults.runs.reduce((s, r) => s + r.cards_found, 0)}</div>
+                    <div className="text-xs text-gg-gray-400 mt-1">Cards Found</div>
+                  </div>
+                  <div className="bg-gg-gray-900 border border-gg-gray-800 rounded-xl p-4 text-center">
+                    <div className="text-2xl font-bold text-white">{latestRunResults.runs.reduce((s, r) => s + r.new_urls, 0)}</div>
+                    <div className="text-xs text-gg-gray-400 mt-1">New URLs</div>
+                  </div>
+                  <div className="bg-gg-gray-900 border border-gg-gray-800 rounded-xl p-4 text-center">
+                    <div className="text-2xl font-bold text-white">{latestRunResults.runs.reduce((s, r) => s + r.listings_staged, 0)}</div>
+                    <div className="text-xs text-gg-gray-400 mt-1">Listings Staged</div>
+                  </div>
+                </div>
+
+                {/* Per-company table */}
+                <div className="bg-gg-gray-900 border border-gg-gray-800 rounded-xl overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-gg-gray-800">
+                        <th className="text-left px-4 py-3 text-gg-gray-400 font-medium">Company</th>
+                        <th className="text-left px-4 py-3 text-gg-gray-400 font-medium">Method</th>
+                        <th className="text-right px-4 py-3 text-gg-gray-400 font-medium">Cards</th>
+                        <th className="text-right px-4 py-3 text-gg-gray-400 font-medium">Filtered</th>
+                        <th className="text-right px-4 py-3 text-gg-gray-400 font-medium">New</th>
+                        <th className="text-right px-4 py-3 text-gg-gray-400 font-medium">Scraped</th>
+                        <th className="text-right px-4 py-3 text-gg-gray-400 font-medium">Staged</th>
+                        <th className="text-center px-4 py-3 text-gg-gray-400 font-medium">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {latestRunResults.runs.map((run, idx) => (
+                        <tr
+                          key={idx}
+                          className={`border-b border-gg-gray-800/50 ${
+                            run.company_name === 'Whitetail Properties' ? 'bg-gg-pink/5' : ''
+                          }`}
+                        >
+                          <td className="px-4 py-3">
+                            <div className="text-white font-medium">{run.company_name}</div>
+                            {run.auction_list_url && (
+                              <a
+                                href={run.auction_list_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs text-gg-gray-500 hover:text-gg-pink truncate block max-w-[250px]"
+                              >
+                                {run.auction_list_url.replace(/^https?:\/\//, '').split('/')[0]}
+                              </a>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-gg-gray-400 text-xs">{run.discovery_method || '—'}</td>
+                          <td className="px-4 py-3 text-right text-white">{run.cards_found}</td>
+                          <td className="px-4 py-3 text-right text-gg-gray-400">{run.cards_after_filter}</td>
+                          <td className="px-4 py-3 text-right">
+                            <span className={run.new_urls > 0 ? 'text-green-400 font-medium' : 'text-gg-gray-500'}>
+                              {run.new_urls}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-right text-gg-gray-400">{run.urls_scraped || '—'}</td>
+                          <td className="px-4 py-3 text-right">
+                            <span className={run.listings_staged > 0 ? 'text-green-400 font-medium' : 'text-gg-gray-500'}>
+                              {run.listings_staged || '—'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <span className={`text-xs px-2 py-0.5 rounded-full ${
+                              run.status === 'success' ? 'bg-green-500/20 text-green-400' :
+                              run.status === 'failed' ? 'bg-red-500/20 text-red-400' :
+                              run.status === 'no_new_urls' ? 'bg-gg-gray-700 text-gg-gray-400' :
+                              run.status === 'no_cards_after_filter' ? 'bg-amber-500/20 text-amber-400' :
+                              'bg-gg-gray-700 text-gg-gray-400'
+                            }`}>
+                              {run.status === 'no_new_urls' ? 'no new' :
+                               run.status === 'no_cards_after_filter' ? 'filtered out' :
+                               run.status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Error details */}
+                {latestRunResults.runs.some((r) => r.error_message) && (
+                  <div className="mt-4 space-y-2">
+                    <h3 className="text-sm font-semibold text-white">Errors</h3>
+                    {latestRunResults.runs.filter((r) => r.error_message).map((run, idx) => (
+                      <div key={idx} className="bg-red-500/10 border border-red-500/20 rounded-lg p-3">
+                        <span className="text-sm text-red-400 font-medium">{run.company_name}:</span>
+                        <span className="text-sm text-red-400/80 ml-2 font-mono">{run.error_message}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}
