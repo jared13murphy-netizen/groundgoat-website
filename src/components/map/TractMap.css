@@ -1,0 +1,107 @@
+.tract-map-container {
+  width: 100%;
+  border-radius: 0.75rem;
+  overflow: hidden;
+}
+
+/* State card markers (Tier 1) */
+.state-card {
+  background: rgba(26, 26, 26, 0.92);
+  border: 1px solid rgba(245, 140, 222, 0.4);
+  border-radius: 12px;
+  padding: 10px 16px;
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.2s ease;
+  backdrop-filter: blur(4px);
+  pointer-events: auto;
+}
+.state-card:hover {
+  border-color: #f58cde;
+  transform: translateY(-2px);
+  box-shadow: 0 0 15px rgba(245, 140, 222, 0.2);
+}
+.state-card-name {
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 14px;
+  line-height: 1.2;
+}
+.state-card-count {
+  color: #f58cde;
+  font-size: 13px;
+  font-weight: 500;
+  margin-top: 2px;
+}
+
+/* Tract popup styling */
+.tract-popup .maplibregl-popup-content {
+  background: #1a1a1a;
+  border: 1px solid #3a3a3a;
+  border-radius: 12px;
+  padding: 16px;
+  color: #ffffff;
+  min-width: 220px;
+  max-width: 300px;
+}
+.tract-popup .maplibregl-popup-close-button {
+  color: #9ca3af;
+  font-size: 18px;
+  padding: 4px 8px;
+}
+.tract-popup .maplibregl-popup-close-button:hover {
+  color: #f58cde;
+  background: transparent;
+}
+.tract-popup .maplibregl-popup-tip {
+  border-top-color: #1a1a1a;
+}
+
+.tract-popup-title {
+  font-weight: 700;
+  font-size: 15px;
+  color: #ffffff;
+  margin-bottom: 2px;
+}
+.tract-popup-subtitle {
+  font-size: 13px;
+  color: #9ca3af;
+  margin-bottom: 8px;
+}
+.tract-popup-divider {
+  border-top: 1px solid #333;
+  margin: 8px 0;
+}
+.tract-popup-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+.tract-popup-label {
+  color: #9ca3af;
+}
+.tract-popup-value {
+  color: #ffffff;
+  font-weight: 500;
+}
+.tract-popup-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+.tract-popup-link {
+  display: block;
+  text-align: center;
+  margin-top: 10px;
+  color: #f58cde;
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+}
+.tract-popup-link:hover {
+  text-decoration: underline;
+}

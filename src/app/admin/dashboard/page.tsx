@@ -10,7 +10,6 @@ import {
   FileText,
   Building2,
   TrendingUp,
-  Clock,
   AlertCircle,
   ChevronRight,
   RefreshCw,
@@ -24,7 +23,7 @@ import {
   ClipboardCheck
 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
-import countyCentroids from '@/data/countyCentroids'
+import type { ApiListing } from '@/components/map/mapTypes'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -32,7 +31,7 @@ const API_URL = 'https://practical-serenity-production.up.railway.app'
 const SHOW_SOLD_ACRES_BUTTON = false
 
 // Dynamically import map to avoid SSR issues
-const MapComponent = dynamic(() => import('./MapComponent'), { 
+const TractMap = dynamic(() => import('@/components/map/TractMap'), {
   ssr: false,
   loading: () => (
     <div className="h-[500px] bg-gg-gray-800 rounded-xl flex items-center justify-center">
@@ -41,50 +40,12 @@ const MapComponent = dynamic(() => import('./MapComponent'), {
   )
 })
 
-interface Listing {
-  id: string
-  title: string
-  county: string
-  state: string
-  listing_type: string
-  status: string
-  company_name?: string
-  listing_company_id?: string
-  auction_date?: string
-  auction_time?: string
-  price_per_acre?: number
-  sale_price?: number
-  total_acres?: number
-  sold_acres?: number
-  tract_count?: number
-}
-
-interface MapListing {
-  id: string
-  title: string
-  county: string
-  state: string
-  lat: number
-  lng: number
-  pricePerAcre: number
-  totalPrice: number
-  listedAcres: number
-  soldAcres: number
-  tractCount: number
-  auctionDate: string
-  auctionTime: string
-  companyName: string
-  companyId: string
-  status: string
-  listingType: string
-}
-
 export default function AdminDashboard() {
   const router = useRouter()
   const [user, setUser] = useState<any>(null)
   const [stats, setStats] = useState<any>(null)
   const [loading, setLoading] = useState(true)
-  const [listings, setListings] = useState<Listing[]>([])
+  const [listings, setListings] = useState<ApiListing[]>([])
   const [companies, setCompanies] = useState<{ id: string; name: string }[]>([])
   const [selectedCompany, setSelectedCompany] = useState<string>('all')
   const [selectedStatus, setSelectedStatus] = useState<string>('all')
@@ -181,7 +142,7 @@ export default function AdminDashboard() {
 
   const fetchListings = async () => {
     try {
-      const allListings: Listing[] = []
+      const allListings: ApiListing[] = []
       let offset = 0
       const limit = 100
 
@@ -217,97 +178,13 @@ export default function AdminDashboard() {
     }
   }
 
-  // Convert listings to map format with coordinates
-  const mapListings = useMemo(() => {
-    const result: MapListing[] = []
-
-    listings.forEach(listing => {
-      const stateAbbr = getStateAbbr(listing.state)
-      const key = listing.county + ', ' + stateAbbr
-
-      const coords = countyCentroids[key]
-      if (!coords) return
-
-      // Apply filters
-      if (selectedCompany !== 'all' && listing.listing_company_id !== selectedCompany) {
-        return
-      }
-      if (selectedStatus !== 'all' && listing.status !== selectedStatus) {
-        return
-      }
-      if (selectedType !== 'all' && listing.listing_type !== selectedType) {
-        return
-      }
-
-      // Date filter - use auction_date for both types (private treaty gets date when sold)
-      if (dateFrom || dateTo) {
-        const listingDate = listing.auction_date ? new Date(listing.auction_date) : null
-        if (!listingDate) return // Skip listings without dates when date filter is active
-
-        if (dateFrom) {
-          const fromDate = new Date(dateFrom)
-          if (listingDate < fromDate) return
-        }
-        if (dateTo) {
-          const toDate = new Date(dateTo)
-          toDate.setHours(23, 59, 59, 999) // Include the entire "to" day
-          if (listingDate > toDate) return
-        }
-      }
-
-      // Use direct fields from API
-      const pricePerAcre = listing.price_per_acre || 0
-      const totalPrice = listing.sale_price || (pricePerAcre * (listing.total_acres || 0))
-      const listedAcres = listing.total_acres || 0
-      const soldAcres = listing.sold_acres || 0
-      const tractCount = listing.tract_count || 0
-
-      result.push({
-        id: listing.id,
-        title: listing.title || listing.county + ' County, ' + listing.state,
-        county: listing.county,
-        state: listing.state,
-        lat: coords[0],
-        lng: coords[1],
-        pricePerAcre,
-        totalPrice,
-        listedAcres,
-        soldAcres,
-        tractCount,
-        auctionDate: listing.auction_date || '',
-        auctionTime: listing.auction_time || '',
-        companyName: listing.company_name || 'Unknown',
-        companyId: listing.listing_company_id || '',
-        status: listing.status,
-        listingType: listing.listing_type
-      })
-    })
-
-    return result
-  }, [listings, selectedCompany, selectedStatus, selectedType, dateFrom, dateTo])
-
-  const priceRange = useMemo(() => {
-    const prices = mapListings.filter(l => l.pricePerAcre > 0).map(l => l.pricePerAcre)
-    if (prices.length === 0) return { min: 0, max: 20000 }
-    return {
-      min: Math.min(...prices),
-      max: Math.max(...prices)
-    }
-  }, [mapListings])
-
-  // Generate consistent colors for companies
-  const companyColors = useMemo(() => {
-    const colors: Record<string, string> = {}
-    const COMPANY_COLORS = [
-      '#f58cde', '#3b82f6', '#22c55e', '#f59e0b', '#8b5cf6',
-      '#ef4444', '#14b8a6', '#f97316', '#6366f1', '#ec4899',
-      '#84cc16', '#06b6d4'
-    ]
-    companies.forEach((c, i) => {
-      colors[c.id] = COMPANY_COLORS[i % COMPANY_COLORS.length]
-    })
-    return colors
-  }, [companies])
+  const mapFilters = useMemo(() => ({
+    company: selectedCompany,
+    status: selectedStatus,
+    type: selectedType,
+    dateFrom,
+    dateTo,
+  }), [selectedCompany, selectedStatus, selectedType, dateFrom, dateTo])
 
   if (loading) {
     return (
@@ -469,13 +346,13 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* Listings Map */}
+        {/* Tract Map */}
         <div className="card">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h2 className="text-xl font-bold text-white">Listings Map</h2>
+              <h2 className="text-xl font-bold text-white">Tract Map</h2>
               <p className="text-gg-gray-400 text-sm">
-                {mapListings.length} listings • Fill = company • Border = status • Size = price/acre
+                Tract-level view • Zoom in for polygon detail
               </p>
             </div>
           </div>
@@ -553,25 +430,21 @@ export default function AdminDashboard() {
 
           {/* Legend */}
           <div className="flex items-center gap-6 mb-4 text-sm flex-wrap">
-            <span className="text-gg-gray-400">Border:</span>
+            <span className="text-gg-gray-400">Status:</span>
             <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full border-2 border-black bg-gg-gray-600"></div>
-              <span className="text-gg-gray-300">Sold</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full border-2 border-gg-pink bg-gg-gray-600"></div>
+              <div className="w-3 h-3 rounded-full" style={{ background: '#2563EB' }}></div>
               <span className="text-gg-gray-300">Listed</span>
             </div>
             <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full border-2 border-blue-500 bg-gg-gray-600"></div>
+              <div className="w-3 h-3 rounded-full" style={{ background: '#16A34A' }}></div>
               <span className="text-gg-gray-300">Live</span>
             </div>
             <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full border-2 border-yellow-600 bg-gg-gray-600"></div>
-              <span className="text-gg-gray-300">Pending</span>
+              <div className="w-3 h-3 rounded-full" style={{ background: '#DC2626' }}></div>
+              <span className="text-gg-gray-300">Sold</span>
             </div>
             <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full border-2 border-red-500 bg-gg-gray-600"></div>
+              <div className="w-3 h-3 rounded-full" style={{ background: '#6B7280' }}></div>
               <span className="text-gg-gray-300">No Sale</span>
             </div>
           </div>
@@ -583,10 +456,10 @@ export default function AdminDashboard() {
             </div>
           ) : (
             <div className="rounded-xl overflow-hidden">
-              <MapComponent
-                listings={mapListings}
-                priceRange={priceRange}
-                companyColors={companyColors}
+              <TractMap
+                listings={listings}
+                height="500px"
+                filters={mapFilters}
               />
             </div>
           )}
@@ -615,18 +488,3 @@ function QuickActionCard({ title, description, href, icon, count }: { title: str
   )
 }
 
-function getStateAbbr(state: string): string {
-  const abbrs: Record<string, string> = {
-    'Illinois': 'IL',
-    'Iowa': 'IA',
-    'Missouri': 'MO',
-    'Minnesota': 'MN',
-    'Indiana': 'IN',
-    'Wisconsin': 'WI',
-    'Kansas': 'KS',
-    'Nebraska': 'NE',
-    'Ohio': 'OH',
-    'Michigan': 'MI',
-  }
-  return abbrs[state] || state
-}
