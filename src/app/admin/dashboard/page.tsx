@@ -34,7 +34,7 @@ const SHOW_SOLD_ACRES_BUTTON = false
 const TractMap = dynamic(() => import('@/components/map/TractMap'), {
   ssr: false,
   loading: () => (
-    <div className="h-[500px] bg-gg-gray-800 rounded-xl flex items-center justify-center">
+    <div className="h-[700px] bg-gg-gray-800 rounded-xl flex items-center justify-center">
       <Loader2 className="animate-spin text-gg-pink" size={32} />
     </div>
   )
@@ -451,14 +451,14 @@ export default function AdminDashboard() {
 
           {/* Map */}
           {mapLoading ? (
-            <div className="h-[500px] bg-gg-gray-800 rounded-xl flex items-center justify-center">
+            <div className="h-[700px] bg-gg-gray-800 rounded-xl flex items-center justify-center">
               <Loader2 className="animate-spin text-gg-pink" size={32} />
             </div>
           ) : (
             <div className="rounded-xl overflow-hidden">
               <TractMap
                 listings={listings}
-                height="500px"
+                height="700px"
                 filters={mapFilters}
               />
             </div>

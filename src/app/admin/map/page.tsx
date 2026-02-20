@@ -14,7 +14,7 @@ const API_URL = 'https://practical-serenity-production.up.railway.app'
 const TractMap = dynamic(() => import('@/components/map/TractMap'), {
   ssr: false,
   loading: () => (
-    <div className="h-[600px] bg-gg-gray-800 rounded-xl flex items-center justify-center">
+    <div className="h-[840px] bg-gg-gray-800 rounded-xl flex items-center justify-center">
       <Loader2 className="animate-spin text-gg-pink" size={32} />
     </div>
   )
@@ -144,7 +144,7 @@ export default function AdminMapPage() {
         <div className="card p-0 overflow-hidden">
           <TractMap
             listings={listings}
-            height="600px"
+            height="840px"
             filters={mapFilters}
           />
         </div>
