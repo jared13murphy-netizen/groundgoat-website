@@ -24,7 +24,8 @@ import {
   Navigation,
   BarChart3,
   Clock,
-  Copy
+  Copy,
+  StopCircle
 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 
@@ -205,12 +206,14 @@ export default function AdminStagingPage() {
   // Scraper status
   const [scraperStatus, setScraperStatus] = useState<{
     running: boolean
+    stopped: boolean
     started_at: string | null
     completed_at: string | null
     current_url: string | null
     progress: string
     total_scraped: number
   } | null>(null)
+  const [stoppingScraper, setStoppingScraper] = useState(false)
   const prevScraperRunning = useRef<boolean | null>(null)
 
   useEffect(() => {
@@ -233,6 +236,20 @@ export default function AdminStagingPage() {
     const interval = setInterval(fetchStatus, 5000)
     return () => clearInterval(interval)
   }, [])
+
+  const stopScraper = async () => {
+    setStoppingScraper(true)
+    try {
+      const res = await fetch(`${SCRAPER_URL}/api/scraper/stop`, { method: 'POST' })
+      if (res.ok) {
+        // Status will update via the polling interval
+      }
+    } catch (err) {
+      console.error('Failed to stop scraper:', err)
+    } finally {
+      setStoppingScraper(false)
+    }
+  }
 
   useEffect(() => {
     const token = localStorage.getItem('auth_token')
@@ -647,13 +664,21 @@ export default function AdminStagingPage() {
             {scraperStatus.running ? (
               <>
                 <Loader2 className="animate-spin text-gg-pink shrink-0" size={16} />
-                <span className="text-white">
+                <span className="text-white flex-1">
                   <span className="font-semibold">Scraper Running:</span>{' '}
                   {scraperStatus.progress} URLs
                   {scraperStatus.current_url && (
                     <span className="text-gg-gray-400"> — Currently scraping: {scraperStatus.current_url}</span>
                   )}
                 </span>
+                <button
+                  onClick={stopScraper}
+                  disabled={stoppingScraper || scraperStatus.stopped}
+                  className="ml-auto shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 disabled:bg-red-800 disabled:opacity-50 text-white text-xs font-medium rounded-md transition-colors"
+                >
+                  <StopCircle size={14} />
+                  {stoppingScraper ? 'Stopping...' : scraperStatus.stopped ? 'Stopping...' : 'Stop Scraper'}
+                </button>
               </>
             ) : scraperStatus.completed_at ? (
               <>
