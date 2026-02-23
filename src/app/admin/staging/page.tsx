@@ -256,13 +256,16 @@ export default function AdminStagingPage() {
   const runScraper = async () => {
     setStartingScraper(true)
     try {
-      // Fire-and-forget: the endpoint is synchronous and takes 30-45 min.
-      // We send the request but don't await the full response.
-      // The scraper status will update via the polling interval.
-      fetch(`${SCRAPER_URL}/api/nightly/scrape-and-stage`, { method: 'POST' })
-        .catch(() => {}) // Ignore connection errors from long-running request
-      // Give it a moment to start, then release the button
-      await new Promise(resolve => setTimeout(resolve, 2000))
+      const res = await fetch(`${SCRAPER_URL}/api/nightly/scrape-and-stage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ async: true }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        console.error('Failed to start scraper:', data.message || res.statusText)
+      }
+      // Status banner will update via the polling interval
     } catch (err) {
       console.error('Failed to start scraper:', err)
     } finally {
