@@ -17,9 +17,7 @@ import {
   Filter,
   Loader2,
   Moon,
-  Tractor,
   ClipboardList,
-  Layers,
   ClipboardCheck
 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
@@ -238,12 +236,6 @@ export default function AdminDashboard() {
                 icon={<RefreshCw />}
               />
               <QuickActionCard
-                title="Batch Discovery"
-                description="Discover & scrape multiple listings from one URL"
-                href="/admin/batch-scraper"
-                icon={<Layers />}
-              />
-              <QuickActionCard
                 title="Nightly Updates"
                 description="Price & status changes from nightly monitoring"
                 href="/admin/nightly-updates"
@@ -254,12 +246,6 @@ export default function AdminDashboard() {
                 description="Review scraped listings before publishing"
                 href="/admin/staging"
                 icon={<ClipboardCheck />}
-              />
-              <QuickActionCard
-                title="Equipment Manager"
-                description="View, filter, and edit equipment auction data"
-                href="/admin/equipment"
-                icon={<Tractor />}
               />
               <QuickActionCard
                 title="Manage Users"

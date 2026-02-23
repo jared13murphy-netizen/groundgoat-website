@@ -25,7 +25,8 @@ import {
   BarChart3,
   Clock,
   Copy,
-  StopCircle
+  StopCircle,
+  Play
 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 
@@ -214,6 +215,7 @@ export default function AdminStagingPage() {
     total_scraped: number
   } | null>(null)
   const [stoppingScraper, setStoppingScraper] = useState(false)
+  const [startingScraper, setStartingScraper] = useState(false)
   const prevScraperRunning = useRef<boolean | null>(null)
 
   useEffect(() => {
@@ -248,6 +250,23 @@ export default function AdminStagingPage() {
       console.error('Failed to stop scraper:', err)
     } finally {
       setStoppingScraper(false)
+    }
+  }
+
+  const runScraper = async () => {
+    setStartingScraper(true)
+    try {
+      // Fire-and-forget: the endpoint is synchronous and takes 30-45 min.
+      // We send the request but don't await the full response.
+      // The scraper status will update via the polling interval.
+      fetch(`${SCRAPER_URL}/api/nightly/scrape-and-stage`, { method: 'POST' })
+        .catch(() => {}) // Ignore connection errors from long-running request
+      // Give it a moment to start, then release the button
+      await new Promise(resolve => setTimeout(resolve, 2000))
+    } catch (err) {
+      console.error('Failed to start scraper:', err)
+    } finally {
+      setStartingScraper(false)
     }
   }
 
@@ -646,12 +665,31 @@ export default function AdminStagingPage() {
               <p className="text-gg-gray-400">{filteredListings.length} pending listings to review</p>
             </div>
           </div>
-          <button
-            onClick={() => { fetchStagingListings(); fetchRunLog() }}
-            className="px-4 py-2 bg-gg-gray-800 text-white rounded-lg hover:bg-gg-gray-700 transition-colors text-sm"
-          >
-            Refresh
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={runScraper}
+              disabled={startingScraper || scraperStatus?.running}
+              className="px-4 py-2 bg-gg-pink text-white rounded-lg hover:bg-gg-pink/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm flex items-center gap-2"
+            >
+              {startingScraper ? (
+                <>
+                  <Loader2 className="animate-spin" size={16} />
+                  Starting...
+                </>
+              ) : (
+                <>
+                  <Play size={16} />
+                  Run Scraper
+                </>
+              )}
+            </button>
+            <button
+              onClick={() => { fetchStagingListings(); fetchRunLog() }}
+              className="px-4 py-2 bg-gg-gray-800 text-white rounded-lg hover:bg-gg-gray-700 transition-colors text-sm"
+            >
+              Refresh
+            </button>
+          </div>
         </div>
 
         {/* Scraper Status Banner */}
