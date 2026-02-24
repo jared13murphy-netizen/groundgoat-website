@@ -70,6 +70,7 @@ function AdminListingsPageContent() {
   const [filterStatus, setFilterStatus] = useState('')
   const [filterVerified, setFilterVerified] = useState('')
   const [filterConfidence, setFilterConfidence] = useState('')
+  const [filterAuctionDate, setFilterAuctionDate] = useState('')
   const [showFilters, setShowFilters] = useState(false)
 
   // Add listing modal
@@ -97,7 +98,7 @@ function AdminListingsPageContent() {
 
   useEffect(() => {
     fetchListings()
-  }, [page, filterCompany, filterState, filterCounty, filterListingType, filterStatus, filterVerified, filterConfidence])
+  }, [page, filterCompany, filterState, filterCounty, filterListingType, filterStatus, filterVerified, filterConfidence, filterAuctionDate])
 
   const checkAuth = async () => {
     try {
@@ -137,6 +138,7 @@ function AdminListingsPageContent() {
       if (filterListingType) url += `&listing_type=${filterListingType}`
       if (filterCompany) url += `&company_id=${filterCompany}`
       if (filterStatus) url += `&status=${filterStatus}`
+      if (filterAuctionDate) url += `&auction_date=${filterAuctionDate}`
 
       const response = await fetchWithAuth(url)
       if (response.ok) {
@@ -281,6 +283,7 @@ function AdminListingsPageContent() {
     setFilterStatus('')
     setFilterVerified('')
     setFilterConfidence('')
+    setFilterAuctionDate('')
     setPage(1)
   }
 
@@ -317,7 +320,7 @@ function AdminListingsPageContent() {
             <button
               onClick={() => setShowFilters(!showFilters)}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
-                showFilters || filterCompany || filterState || filterCounty || filterListingType || filterStatus || filterVerified || filterConfidence
+                showFilters || filterCompany || filterState || filterCounty || filterListingType || filterStatus || filterVerified || filterConfidence || filterAuctionDate
                   ? 'bg-gg-pink text-white' : 'bg-gg-gray-800 text-white hover:bg-gg-gray-700'
               }`}
             >
@@ -570,7 +573,17 @@ function AdminListingsPageContent() {
                 </select>
               </div>
 
-              {(filterCompany || filterState || filterCounty || filterListingType || filterStatus || filterVerified || filterConfidence) && (
+              <div>
+                <label className="block text-gg-gray-400 text-sm mb-1">Auction Date</label>
+                <input
+                  type="date"
+                  value={filterAuctionDate}
+                  onChange={(e) => { setFilterAuctionDate(e.target.value); setPage(1) }}
+                  className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-3 py-2 text-white text-sm"
+                />
+              </div>
+
+              {(filterCompany || filterState || filterCounty || filterListingType || filterStatus || filterVerified || filterConfidence || filterAuctionDate) && (
                 <div className="flex items-end">
                   <button
                     onClick={clearFilters}
