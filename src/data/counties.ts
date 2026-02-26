@@ -56,11 +56,6 @@ export const COUNTIES_BY_STATE: Record<string, string[]> = {
 // Helper function to get all states
 export const US_STATES = Object.keys(COUNTIES_BY_STATE).sort()
 
-// Helper function to get counties for a state
-export function getCountiesForState(state: string): string[] {
-  return COUNTIES_BY_STATE[state] || []
-}
-
 // State name to abbreviation mapping
 export const STATE_ABBREVIATIONS: Record<string, string> = {
   "Alabama": "AL", "Alaska": "AK", "Arizona": "AZ", "Arkansas": "AR", "California": "CA",
@@ -73,6 +68,21 @@ export const STATE_ABBREVIATIONS: Record<string, string> = {
   "Oklahoma": "OK", "Oregon": "OR", "Pennsylvania": "PA", "Rhode Island": "RI", "South Carolina": "SC",
   "South Dakota": "SD", "Tennessee": "TN", "Texas": "TX", "Utah": "UT", "Vermont": "VT",
   "Virginia": "VA", "Washington": "WA", "West Virginia": "WV", "Wisconsin": "WI", "Wyoming": "WY"
+}
+
+// Reverse lookup: abbreviation to full name
+const ABBR_TO_FULL: Record<string, string> = Object.fromEntries(
+  Object.entries(STATE_ABBREVIATIONS).map(([full, abbr]) => [abbr, full])
+)
+
+// Helper function to get counties for a state (accepts both abbreviation and full name)
+export function getCountiesForState(state: string): string[] {
+  // Direct lookup first (full name like "Missouri")
+  if (COUNTIES_BY_STATE[state]) return COUNTIES_BY_STATE[state]
+  // Try abbreviation lookup (e.g. "MO" → "Missouri")
+  const fullName = ABBR_TO_FULL[state.toUpperCase()]
+  if (fullName && COUNTIES_BY_STATE[fullName]) return COUNTIES_BY_STATE[fullName]
+  return []
 }
 
 // Helper function to get state abbreviation
