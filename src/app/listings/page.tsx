@@ -9,6 +9,7 @@ import { getCountiesForState, getStateAbbreviation, US_STATES } from '@/data/cou
 import { getDistanceToCounty } from '@/data/countyCoordinates'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
+const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=600'
 
 interface Company {
   id: string
@@ -144,14 +145,18 @@ function ListingsPageContent() {
 
       if (activeTab === 'results') {
         const params = new URLSearchParams()
+        params.set('listing_type', 'auction') // Only show auction results
         if (filterState) params.set('state', getStateAbbreviation(filterState))
         if (filterCounty) params.set('county', filterCounty)
         if (filterCompany) params.set('company_id', filterCompany)
-        if (filterListingType) params.set('listing_type', filterListingType)
         const qs = params.toString()
         const response = await fetchWithAuth(`${API_URL}/api/listings/recent/results${qs ? `?${qs}` : ''}`)
         if (response.ok) {
-          data = await response.json()
+          const resultsData = await response.json()
+          // Filter to only show sold, no_sale, or pending auctions
+          data = (resultsData as Listing[]).filter((l: Listing) =>
+            ['sold', 'no_sale', 'pending'].includes(l.status)
+          )
         }
         setListings(data)
         setLoading(false)
@@ -405,21 +410,6 @@ function ListingsPageContent() {
                 </select>
               </div>
 
-              {activeTab === 'results' && (
-                <div>
-                  <label className="block text-gg-gray-400 text-sm mb-1">Listing Type</label>
-                  <select
-                    value={filterListingType}
-                    onChange={(e) => { setFilterListingType(e.target.value); setPage(1) }}
-                    className="w-full bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-3 py-2 text-white text-sm"
-                  >
-                    <option value="">All Types</option>
-                    <option value="auction">Auctions Only</option>
-                    <option value="private_treaty">Private Treaty Only</option>
-                  </select>
-                </div>
-              )}
-
               {hasActiveFilters && (
                 <div className="flex items-end">
                   <button
@@ -463,17 +453,12 @@ function ListingsPageContent() {
               >
                 {/* Image */}
                 <div className="relative h-48 bg-gg-gray-800">
-                  {listing.primary_image_url ? (
-                    <img
-                      src={listing.primary_image_url}
-                      alt=""
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center">
-                      <MapPin className="text-gg-gray-600" size={48} />
-                    </div>
-                  )}
+                  <img
+                    src={listing.primary_image_url || FALLBACK_IMAGE}
+                    alt=""
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                    onError={(e) => { (e.target as HTMLImageElement).src = FALLBACK_IMAGE }}
+                  />
                   {/* Status Badge - only show for Results tab or live auctions */}
                   {(activeTab === 'results' || listing.status === 'live') && (
                     <div className={`absolute top-3 left-3 px-3 py-1 rounded-full text-xs font-semibold text-white ${getStatusColor(listing.status)}`}>

@@ -7,6 +7,7 @@ import fetchWithAuth from '@/lib/fetchWithAuth'
 import { Loader2, ArrowLeft, MapPin, Mail, Check, BarChart3, Filter } from 'lucide-react'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
+const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=600'
 
 interface Company {
   id: string
@@ -366,17 +367,12 @@ export default function ComparablesPage({ params }: { params: { id: string } }) 
                 >
                   {/* Image */}
                   <div className="w-28 h-28 flex-shrink-0 bg-gg-gray-800">
-                    {comp.primary_image_url ? (
-                      <img
-                        src={comp.primary_image_url}
-                        alt=""
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center">
-                        <MapPin className="text-gg-gray-600" size={24} />
-                      </div>
-                    )}
+                    <img
+                      src={comp.primary_image_url || FALLBACK_IMAGE}
+                      alt=""
+                      className="w-full h-full object-cover"
+                      onError={(e) => { (e.target as HTMLImageElement).src = FALLBACK_IMAGE }}
+                    />
                   </div>
 
                   {/* Content */}

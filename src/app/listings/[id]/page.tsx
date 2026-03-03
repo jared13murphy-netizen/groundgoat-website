@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
+const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=600'
 
 interface Company {
   id: string
@@ -253,17 +254,12 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
       <div className="max-w-5xl mx-auto px-6 pb-12">
         {/* Hero Image */}
         <div className="relative h-72 md:h-96 bg-gg-gray-900 rounded-xl overflow-hidden mb-6">
-          {listing.primary_image_url ? (
-            <img
-              src={listing.primary_image_url}
-              alt=""
-              className="w-full h-full object-cover"
-            />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center">
-              <MapPin className="text-gg-gray-600" size={64} />
-            </div>
-          )}
+          <img
+            src={listing.primary_image_url || FALLBACK_IMAGE}
+            alt=""
+            className="w-full h-full object-cover"
+            onError={(e) => { (e.target as HTMLImageElement).src = FALLBACK_IMAGE }}
+          />
           <div className="absolute inset-0 bg-gradient-to-t from-gg-black/80 via-transparent to-transparent" />
 
           {/* Back Button */}
