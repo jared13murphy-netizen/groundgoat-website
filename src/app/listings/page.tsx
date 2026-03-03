@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, Suspense } from 'react'
+import { useState, useEffect, useMemo, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import fetchWithAuth from '@/lib/fetchWithAuth'
@@ -14,6 +14,16 @@ const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1500382017468-9049fed7
 interface Company {
   id: string
   name: string
+}
+
+interface Tract {
+  id: string
+  tract_number?: number
+  total_acres?: number
+  tillable_acres?: number
+  land_type?: string
+  soil_rating?: number
+  township?: string
 }
 
 interface Listing {
@@ -35,6 +45,7 @@ interface Listing {
   company?: Company
   company_name?: string
   tract_count?: number
+  tracts?: Tract[]
   _distance?: number // Calculated distance for sorting
 }
 
@@ -57,14 +68,15 @@ function ListingsPageContent() {
   const searchParams = useSearchParams()
 
   const [user, setUser] = useState<User | null>(null)
-  const [listings, setListings] = useState<Listing[]>([])
+  const [rawListings, setRawListings] = useState<Listing[]>([])
   const [companies, setCompanies] = useState<Company[]>([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<TabType>('auctions')
 
   // Filters
   const [filterState, setFilterState] = useState('')
-  const [filterCounty, setFilterCounty] = useState('')
+  const [filterCounties, setFilterCounties] = useState<Set<string>>(new Set())
+  const [filterTownships, setFilterTownships] = useState<Set<string>>(new Set())
   const [filterCompany, setFilterCompany] = useState('')
   const [filterListingType, setFilterListingType] = useState('') // For Results tab only
   const [showFilters, setShowFilters] = useState(false)
@@ -73,18 +85,52 @@ function ListingsPageContent() {
   const [page, setPage] = useState(1)
   const itemsPerPage = 50
 
-  // Get counties for selected state
-  const availableCounties = filterState ? getCountiesForState(filterState) : []
+  // Derive available counties from data
+  const dataCounties = useMemo(() => {
+    const counties = new Set<string>()
+    rawListings.forEach(l => {
+      if (l.county) counties.add(l.county)
+    })
+    return [...counties].sort()
+  }, [rawListings])
+
+  // Derive available townships from selected counties' tract data
+  // Only for auctions and private_treaty tabs (not results)
+  const availableTownships = useMemo(() => {
+    if (filterCounties.size === 0 || activeTab === 'results') return []
+    const townships = new Set<string>()
+    rawListings
+      .filter(l => filterCounties.has(l.county))
+      .forEach(l => {
+        l.tracts?.forEach(t => {
+          if (t.township) townships.add(t.township)
+        })
+      })
+    return [...townships].sort()
+  }, [rawListings, filterCounties, activeTab])
+
+  // Apply client-side county and township filters
+  const listings = useMemo(() => {
+    return rawListings.filter(l => {
+      if (filterCounties.size > 0 && !filterCounties.has(l.county)) return false
+      if (filterTownships.size > 0 && activeTab !== 'results') {
+        const hasMatchingTract = l.tracts?.some(t => filterTownships.has(t.township || ''))
+        if (!hasMatchingTract) return false
+      }
+      return true
+    })
+  }, [rawListings, filterCounties, filterTownships, activeTab])
 
   useEffect(() => {
     checkAuth()
   }, [])
 
+  // Fetch when tab, state, company change (NOT county/township - those are client-side)
   useEffect(() => {
     if (user) {
       fetchListings()
     }
-  }, [user, activeTab, page, filterState, filterCounty, filterCompany, filterListingType])
+  }, [user, activeTab, page, filterState, filterCompany, filterListingType])
 
   const checkAuth = async () => {
     try {
@@ -131,14 +177,13 @@ function ListingsPageContent() {
       if (activeTab === 'auctions') {
         const params = new URLSearchParams()
         if (filterState) params.set('state', getStateAbbreviation(filterState))
-        if (filterCounty) params.set('county', filterCounty)
         if (filterCompany) params.set('company_id', filterCompany)
         const qs = params.toString()
         const response = await fetchWithAuth(`${API_URL}/api/listings/upcoming/auctions${qs ? `?${qs}` : ''}`)
         if (response.ok) {
           data = await response.json()
         }
-        setListings(data)
+        setRawListings(data)
         setLoading(false)
         return
       }
@@ -147,7 +192,6 @@ function ListingsPageContent() {
         const params = new URLSearchParams()
         params.set('listing_type', 'auction') // Only show auction results
         if (filterState) params.set('state', getStateAbbreviation(filterState))
-        if (filterCounty) params.set('county', filterCounty)
         if (filterCompany) params.set('company_id', filterCompany)
         const qs = params.toString()
         const response = await fetchWithAuth(`${API_URL}/api/listings/recent/results${qs ? `?${qs}` : ''}`)
@@ -158,7 +202,7 @@ function ListingsPageContent() {
             ['sold', 'no_sale', 'pending'].includes(l.status)
           )
         }
-        setListings(data)
+        setRawListings(data)
         setLoading(false)
         return
       }
@@ -172,7 +216,6 @@ function ListingsPageContent() {
       }
 
       if (filterState) url += `&state=${encodeURIComponent(getStateAbbreviation(filterState))}`
-      if (filterCounty) url += `&county=${encodeURIComponent(filterCounty)}`
       if (filterCompany) url += `&company_id=${filterCompany}`
 
       const response = await fetchWithAuth(url)
@@ -216,7 +259,7 @@ function ListingsPageContent() {
           }
         }
 
-        setListings(data)
+        setRawListings(data)
       }
     } catch (err) {
       console.error('Failed to fetch listings:', err)
@@ -225,15 +268,51 @@ function ListingsPageContent() {
     }
   }
 
+  const handleCountyToggle = (county: string) => {
+    setFilterCounties(prev => {
+      const next = new Set(prev)
+      if (next.has(county)) {
+        next.delete(county)
+      } else {
+        next.add(county)
+      }
+      return next
+    })
+    // Clear townships when counties change
+    setFilterTownships(new Set())
+    setPage(1)
+  }
+
+  const handleTownshipToggle = (township: string) => {
+    setFilterTownships(prev => {
+      const next = new Set(prev)
+      if (next.has(township)) {
+        next.delete(township)
+      } else {
+        next.add(township)
+      }
+      return next
+    })
+    setPage(1)
+  }
+
   const clearFilters = () => {
     setFilterState('')
-    setFilterCounty('')
+    setFilterCounties(new Set())
+    setFilterTownships(new Set())
     setFilterCompany('')
     setFilterListingType('')
     setPage(1)
   }
 
-  const hasActiveFilters = filterState || filterCounty || filterCompany || (activeTab === 'results' && filterListingType)
+  const hasActiveFilters = filterState || filterCounties.size > 0 || filterTownships.size > 0 || filterCompany || (activeTab === 'results' && filterListingType)
+
+  const activeFilterCount = [
+    filterState ? 1 : 0,
+    filterCounties.size > 0 ? 1 : 0,
+    filterTownships.size > 0 ? 1 : 0,
+    filterCompany ? 1 : 0,
+  ].reduce((a, b) => a + b, 0)
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -258,17 +337,17 @@ function ListingsPageContent() {
   }
 
   const formatCurrency = (value: number | undefined) => {
-    if (!value) return '—'
+    if (!value) return '\u2014'
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(value)
   }
 
   const formatAcres = (acres: number | undefined) => {
-    if (!acres) return '—'
+    if (!acres) return '\u2014'
     return acres.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   }
 
   const formatDate = (dateString: string | undefined) => {
-    if (!dateString) return '—'
+    if (!dateString) return '\u2014'
     const date = new Date(dateString)
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
   }
@@ -282,7 +361,7 @@ function ListingsPageContent() {
   const getCompanyName = (listing: Listing) => {
     if (listing.company?.name) return listing.company.name
     if (listing.company_name) return listing.company_name
-    return '—'
+    return '\u2014'
   }
 
   const getPricePerAcre = (listing: Listing) => {
@@ -358,7 +437,7 @@ function ListingsPageContent() {
               Filters
               {hasActiveFilters && (
                 <span className="bg-white text-gg-pink text-xs font-bold px-2 py-0.5 rounded-full">
-                  {[filterState, filterCounty, filterCompany].filter(Boolean).length}
+                  {activeFilterCount}
                 </span>
               )}
             </button>
@@ -367,7 +446,8 @@ function ListingsPageContent() {
 
         {/* Filters */}
         {showFilters && (
-          <div className="bg-gg-gray-900 border border-gg-gray-800 rounded-lg p-4 mb-6">
+          <div className="bg-gg-gray-900 border border-gg-gray-800 rounded-lg p-4 mb-6 space-y-4">
+            {/* Row 1: State, Company, Clear */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div>
                 <label className="block text-gg-gray-400 text-sm mb-1">State</label>
@@ -375,26 +455,14 @@ function ListingsPageContent() {
                   value={filterState}
                   onChange={(e) => {
                     setFilterState(e.target.value)
-                    setFilterCounty('')
+                    setFilterCounties(new Set())
+                    setFilterTownships(new Set())
                     setPage(1)
                   }}
                   className="w-full bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-3 py-2 text-white text-sm"
                 >
                   <option value="">All States</option>
                   {US_STATES.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-gg-gray-400 text-sm mb-1">County</label>
-                <select
-                  value={filterCounty}
-                  onChange={(e) => { setFilterCounty(e.target.value); setPage(1) }}
-                  disabled={!filterState}
-                  className="w-full bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-3 py-2 text-white text-sm disabled:opacity-50"
-                >
-                  <option value="">{filterState ? 'All Counties' : 'Select State First'}</option>
-                  {availableCounties.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
               </div>
 
@@ -410,6 +478,8 @@ function ListingsPageContent() {
                 </select>
               </div>
 
+              <div />
+
               {hasActiveFilters && (
                 <div className="flex items-end">
                   <button
@@ -422,6 +492,91 @@ function ListingsPageContent() {
                 </div>
               )}
             </div>
+
+            {/* County multi-select chips */}
+            {dataCounties.length > 0 && (
+              <div>
+                <label className="block text-gg-gray-400 text-sm mb-2">
+                  Counties
+                  {filterCounties.size > 0 && (
+                    <span className="ml-2 text-gg-pink">({filterCounties.size} selected)</span>
+                  )}
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={() => { setFilterCounties(new Set()); setFilterTownships(new Set()); setPage(1) }}
+                    className={`px-3 py-1.5 rounded-full text-sm transition-colors ${
+                      filterCounties.size === 0
+                        ? 'bg-gg-pink text-white'
+                        : 'bg-gg-gray-700 text-gg-gray-300 hover:bg-gg-gray-600'
+                    }`}
+                  >
+                    All Counties
+                  </button>
+                  {dataCounties.map(county => (
+                    <button
+                      key={county}
+                      onClick={() => handleCountyToggle(county)}
+                      className={`px-3 py-1.5 rounded-full text-sm transition-colors ${
+                        filterCounties.has(county)
+                          ? 'bg-gg-pink text-white'
+                          : 'bg-gg-gray-700 text-gg-gray-300 hover:bg-gg-gray-600'
+                      }`}
+                    >
+                      {county}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Township multi-select chips (only for auctions and private_treaty) */}
+            {activeTab !== 'results' && filterCounties.size > 0 && availableTownships.length > 0 && (
+              <div>
+                <label className="block text-gg-gray-400 text-sm mb-2">
+                  Townships
+                  {filterTownships.size > 0 && (
+                    <span className="ml-2 text-gg-pink">({filterTownships.size} selected)</span>
+                  )}
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={() => { setFilterTownships(new Set()); setPage(1) }}
+                    className={`px-3 py-1.5 rounded-full text-sm transition-colors ${
+                      filterTownships.size === 0
+                        ? 'bg-gg-pink text-white'
+                        : 'bg-gg-gray-700 text-gg-gray-300 hover:bg-gg-gray-600'
+                    }`}
+                  >
+                    All Townships
+                  </button>
+                  {availableTownships.map(township => (
+                    <button
+                      key={township}
+                      onClick={() => handleTownshipToggle(township)}
+                      className={`px-3 py-1.5 rounded-full text-sm transition-colors ${
+                        filterTownships.has(township)
+                          ? 'bg-gg-pink text-white'
+                          : 'bg-gg-gray-700 text-gg-gray-300 hover:bg-gg-gray-600'
+                      }`}
+                    >
+                      {township}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Active filter summary */}
+            {hasActiveFilters && (
+              <div className="text-sm text-gg-gray-400">
+                Showing: {filterState || 'All States'}
+                {filterCounties.size > 0 && `, ${filterCounties.size} ${filterCounties.size === 1 ? 'county' : 'counties'}`}
+                {filterTownships.size > 0 && `, ${filterTownships.size} ${filterTownships.size === 1 ? 'township' : 'townships'}`}
+                {filterCompany && `, ${companies.find(c => c.id === filterCompany)?.name || 'Company'}`}
+                {` \u2014 ${listings.length} ${listings.length === 1 ? 'listing' : 'listings'}`}
+              </div>
+            )}
           </div>
         )}
 
@@ -484,12 +639,12 @@ function ListingsPageContent() {
                       <div className="text-gg-gray-500 text-xs">Acres</div>
                     </div>
                     <div>
-                      <div className="text-white font-medium">{listing.tract_count || '—'}</div>
+                      <div className="text-white font-medium">{listing.tract_count || '\u2014'}</div>
                       <div className="text-gg-gray-500 text-xs">Tracts</div>
                     </div>
                     <div>
                       <div className="text-white font-medium">
-                        {getPricePerAcre(listing) ? formatCurrency(getPricePerAcre(listing)!) : '—'}
+                        {getPricePerAcre(listing) ? formatCurrency(getPricePerAcre(listing)!) : '\u2014'}
                       </div>
                       <div className="text-gg-gray-500 text-xs">$/Acre</div>
                     </div>
@@ -519,7 +674,7 @@ function ListingsPageContent() {
                         <div className="flex items-center gap-2">
                           <DollarSign size={14} className="text-gg-pink" />
                           <span className="text-gg-gray-300">
-                            {listing.status === 'sold' ? formatCurrency(listing.sale_price) : '—'}
+                            {listing.status === 'sold' ? formatCurrency(listing.sale_price) : '\u2014'}
                           </span>
                         </div>
                         <span className="text-gg-gray-500 text-xs">
