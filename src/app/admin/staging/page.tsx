@@ -483,6 +483,27 @@ export default function AdminStagingPage() {
     }
   }
 
+  const handleClearAll = async () => {
+    if (!confirm(`Are you sure you want to clear all ${filteredListings.length} staging listings? This will NOT add them to rejected URLs.`)) {
+      return
+    }
+    try {
+      const response = await fetchWithAuth(`${API_URL}/api/admin/staging/clear-all`, {
+        method: 'DELETE',
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setListings([])
+        showToast('success', `Cleared ${data.deleted} staging listings`)
+      } else {
+        const err = await response.json().catch(() => ({ detail: 'Unknown error' }))
+        showToast('error', err.detail || err.error || 'Failed to clear staging')
+      }
+    } catch (err) {
+      showToast('error', 'Network error — failed to clear staging')
+    }
+  }
+
   const openEditModal = (listing: StagingListing) => {
     setEditingListing(listing)
     setEditForm(buildEditForm(listing.scraped_data))
@@ -686,6 +707,15 @@ export default function AdminStagingPage() {
                 </>
               )}
             </button>
+            {listings.length > 0 && (
+              <button
+                onClick={handleClearAll}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm flex items-center gap-2"
+              >
+                <Trash2 size={16} />
+                Clear All
+              </button>
+            )}
             <button
               onClick={() => { fetchStagingListings(); fetchRunLog() }}
               className="px-4 py-2 bg-gg-gray-800 text-white rounded-lg hover:bg-gg-gray-700 transition-colors text-sm"
