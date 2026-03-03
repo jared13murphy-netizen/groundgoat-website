@@ -17,7 +17,8 @@ import {
   TrendingDown,
   Ban,
   Play,
-  Pencil
+  Pencil,
+  Trash2
 } from 'lucide-react'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
@@ -158,6 +159,34 @@ export default function NightlyUpdatesPage() {
       console.error('Failed to run nightly monitor:', err)
       alert(`Failed to run nightly monitor: ${err?.message || 'Network error or timeout'}`)
       setRunning(false)
+    }
+  }
+
+  const deleteListing = async (listingId: string, county: string, state: string) => {
+    if (!confirm(`Are you sure you want to delete the listing for ${county} County, ${state}? This cannot be undone.`)) {
+      return
+    }
+
+    try {
+      const response = await fetchWithAuth(`${API_URL}/api/admin/delete-listing/${listingId}`, {
+        method: 'DELETE'
+      })
+
+      if (response.ok) {
+        // Remove the deleted listing from the selected report's updates
+        if (selectedReport) {
+          const updatedUpdates = selectedReport.updates.filter(u => u.listing_id !== listingId)
+          const updatedReport = { ...selectedReport, updates: updatedUpdates, total_updated: updatedUpdates.length }
+          setSelectedReport(updatedReport)
+          setReports(prev => prev.map(r => r.id === updatedReport.id ? updatedReport : r))
+        }
+      } else {
+        const error = await response.json()
+        alert(`Failed to delete listing: ${error.detail || 'Unknown error'}`)
+      }
+    } catch (err: any) {
+      console.error('Failed to delete listing:', err)
+      alert(`Failed to delete listing: ${err?.message || 'Network error'}`)
     }
   }
 
@@ -412,6 +441,13 @@ export default function NightlyUpdatesPage() {
                                 >
                                   <ExternalLink size={18} />
                                 </a>
+                                <button
+                                  onClick={() => deleteListing(item.listing_id, item.county, item.state)}
+                                  className="text-gg-gray-400 hover:text-red-400 transition-colors"
+                                  title="Delete Listing"
+                                >
+                                  <Trash2 size={18} />
+                                </button>
                               </div>
                             </div>
 
@@ -461,14 +497,23 @@ export default function NightlyUpdatesPage() {
                               </span>
                               <p className="text-red-400 text-xs mt-1">{item.error}</p>
                             </div>
-                            <a
-                              href={item.source_url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-gg-gray-400 hover:text-gg-pink"
-                            >
-                              <ExternalLink size={16} />
-                            </a>
+                            <div className="flex items-center gap-2">
+                              <a
+                                href={item.source_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-gg-gray-400 hover:text-gg-pink"
+                              >
+                                <ExternalLink size={16} />
+                              </a>
+                              <button
+                                onClick={() => deleteListing(item.listing_id, item.county, item.state)}
+                                className="text-gg-gray-400 hover:text-red-400 transition-colors"
+                                title="Delete Listing"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            </div>
                           </div>
                         ))}
                       </div>
