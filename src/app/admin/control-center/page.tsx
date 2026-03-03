@@ -809,7 +809,7 @@ export default function ControlCenterPage() {
                     {listing.tracts?.length === 0 && (
                       <p className="p-4 text-gg-gray-400 text-center">No tracts for this listing</p>
                     )}
-                    {listing.tracts?.map(tract => {
+                    {[...(listing.tracts || [])].sort((a, b) => (a.tract_number || 0) - (b.tract_number || 0)).map(tract => {
                       const state = tractStates[tract.id] || { pricePerAcre: 0, bidIncrement: 1000, status: 'Listed', saving: false, bidMode: 'per_acre' }
                       const totalPrice = getTotalPrice(tract.id, tract.total_acres)
                       const isPerAcre = state.bidMode === 'per_acre'
