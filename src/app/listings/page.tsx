@@ -91,7 +91,7 @@ function ListingsPageContent() {
     rawListings.forEach(l => {
       if (l.county) counties.add(l.county)
     })
-    return [...counties].sort()
+    return Array.from(counties).sort()
   }, [rawListings])
 
   // Derive available townships from selected counties' tract data
@@ -106,7 +106,7 @@ function ListingsPageContent() {
           if (t.township) townships.add(t.township)
         })
       })
-    return [...townships].sort()
+    return Array.from(townships).sort()
   }, [rawListings, filterCounties, activeTab])
 
   // Apply client-side county and township filters
