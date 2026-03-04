@@ -295,13 +295,21 @@ export default function AdminPrivateTreatyStagingPage() {
   const fetchRunLog = async () => {
     setRunLogLoading(true)
     try {
-      const response = await fetch(`${SCRAPER_URL}/api/scraper-run-log?limit=500`)
-      if (response.ok) {
-        const data = await response.json()
-        // API returns { success: true, entries: [...] }
-        const entries = data?.entries || (Array.isArray(data) ? data : [])
-        setRunLog(entries)
+      const [discRes, scrapeRes] = await Promise.all([
+        fetch(`${SCRAPER_URL}/api/scraper-run-log?limit=500&run_type=pt_discovery`),
+        fetch(`${SCRAPER_URL}/api/scraper-run-log?limit=500&run_type=pt_scrape`),
+      ])
+      const allEntries: RunLogEntry[] = []
+      for (const res of [discRes, scrapeRes]) {
+        if (res.ok) {
+          const data = await res.json()
+          const entries = data?.entries || (Array.isArray(data) ? data : [])
+          allEntries.push(...entries)
+        }
       }
+      // Sort by created_at descending
+      allEntries.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      setRunLog(allEntries)
     } catch (err) {
       console.error('Failed to fetch run log:', err)
       setRunLog([])
