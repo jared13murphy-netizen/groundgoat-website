@@ -75,8 +75,8 @@ function ListingsPageContent() {
 
   // Filters
   const [filterState, setFilterState] = useState('')
-  const [filterCounties, setFilterCounties] = useState<Set<string>>(new Set())
-  const [filterTownships, setFilterTownships] = useState<Set<string>>(new Set())
+  const [filterCounty, setFilterCounty] = useState('')
+  const [filterTownship, setFilterTownship] = useState('')
   const [filterCompany, setFilterCompany] = useState('')
   const [filterListingType, setFilterListingType] = useState('') // For Results tab only
   const [showFilters, setShowFilters] = useState(false)
@@ -94,32 +94,32 @@ function ListingsPageContent() {
     return Array.from(counties).sort()
   }, [rawListings])
 
-  // Derive available townships from selected counties' tract data
+  // Derive available townships from selected county's tract data
   // Only for auctions and private_treaty tabs (not results)
   const availableTownships = useMemo(() => {
-    if (filterCounties.size === 0 || activeTab === 'results') return []
+    if (!filterCounty || activeTab === 'results') return []
     const townships = new Set<string>()
     rawListings
-      .filter(l => filterCounties.has(l.county))
+      .filter(l => l.county === filterCounty)
       .forEach(l => {
         l.tracts?.forEach(t => {
           if (t.township) townships.add(t.township)
         })
       })
     return Array.from(townships).sort()
-  }, [rawListings, filterCounties, activeTab])
+  }, [rawListings, filterCounty, activeTab])
 
   // Apply client-side county and township filters
   const listings = useMemo(() => {
     return rawListings.filter(l => {
-      if (filterCounties.size > 0 && !filterCounties.has(l.county)) return false
-      if (filterTownships.size > 0 && activeTab !== 'results') {
-        const hasMatchingTract = l.tracts?.some(t => filterTownships.has(t.township || ''))
+      if (filterCounty && l.county !== filterCounty) return false
+      if (filterTownship && activeTab !== 'results') {
+        const hasMatchingTract = l.tracts?.some(t => t.township === filterTownship)
         if (!hasMatchingTract) return false
       }
       return true
     })
-  }, [rawListings, filterCounties, filterTownships, activeTab])
+  }, [rawListings, filterCounty, filterTownship, activeTab])
 
   useEffect(() => {
     checkAuth()
@@ -268,49 +268,21 @@ function ListingsPageContent() {
     }
   }
 
-  const handleCountyToggle = (county: string) => {
-    setFilterCounties(prev => {
-      const next = new Set(prev)
-      if (next.has(county)) {
-        next.delete(county)
-      } else {
-        next.add(county)
-      }
-      return next
-    })
-    // Clear townships when counties change
-    setFilterTownships(new Set())
-    setPage(1)
-  }
-
-  const handleTownshipToggle = (township: string) => {
-    setFilterTownships(prev => {
-      const next = new Set(prev)
-      if (next.has(township)) {
-        next.delete(township)
-      } else {
-        next.add(township)
-      }
-      return next
-    })
-    setPage(1)
-  }
-
   const clearFilters = () => {
     setFilterState('')
-    setFilterCounties(new Set())
-    setFilterTownships(new Set())
+    setFilterCounty('')
+    setFilterTownship('')
     setFilterCompany('')
     setFilterListingType('')
     setPage(1)
   }
 
-  const hasActiveFilters = filterState || filterCounties.size > 0 || filterTownships.size > 0 || filterCompany || (activeTab === 'results' && filterListingType)
+  const hasActiveFilters = filterState || filterCounty || filterTownship || filterCompany || (activeTab === 'results' && filterListingType)
 
   const activeFilterCount = [
     filterState ? 1 : 0,
-    filterCounties.size > 0 ? 1 : 0,
-    filterTownships.size > 0 ? 1 : 0,
+    filterCounty ? 1 : 0,
+    filterTownship ? 1 : 0,
     filterCompany ? 1 : 0,
   ].reduce((a, b) => a + b, 0)
 
@@ -447,16 +419,16 @@ function ListingsPageContent() {
         {/* Filters */}
         {showFilters && (
           <div className="bg-gg-gray-900 border border-gg-gray-800 rounded-lg p-4 mb-6 space-y-4">
-            {/* Row 1: State, Company, Clear */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            {/* Filters Row: State, County, Township, Company, Clear */}
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
               <div>
                 <label className="block text-gg-gray-400 text-sm mb-1">State</label>
                 <select
                   value={filterState}
                   onChange={(e) => {
                     setFilterState(e.target.value)
-                    setFilterCounties(new Set())
-                    setFilterTownships(new Set())
+                    setFilterCounty('')
+                    setFilterTownship('')
                     setPage(1)
                   }}
                   className="w-full bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-3 py-2 text-white text-sm"
@@ -465,6 +437,36 @@ function ListingsPageContent() {
                   {US_STATES.map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
               </div>
+
+              <div>
+                <label className="block text-gg-gray-400 text-sm mb-1">County</label>
+                <select
+                  value={filterCounty}
+                  onChange={(e) => {
+                    setFilterCounty(e.target.value)
+                    setFilterTownship('')
+                    setPage(1)
+                  }}
+                  className="w-full bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-3 py-2 text-white text-sm"
+                >
+                  <option value="">All Counties</option>
+                  {dataCounties.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+
+              {activeTab !== 'results' && filterCounty && availableTownships.length > 0 ? (
+                <div>
+                  <label className="block text-gg-gray-400 text-sm mb-1">Township</label>
+                  <select
+                    value={filterTownship}
+                    onChange={(e) => { setFilterTownship(e.target.value); setPage(1) }}
+                    className="w-full bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-3 py-2 text-white text-sm"
+                  >
+                    <option value="">All Townships</option>
+                    {availableTownships.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
+              ) : <div />}
 
               <div>
                 <label className="block text-gg-gray-400 text-sm mb-1">Company</label>
@@ -477,8 +479,6 @@ function ListingsPageContent() {
                   {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </div>
-
-              <div />
 
               {hasActiveFilters && (
                 <div className="flex items-end">
@@ -493,86 +493,12 @@ function ListingsPageContent() {
               )}
             </div>
 
-            {/* County multi-select chips */}
-            {dataCounties.length > 0 && (
-              <div>
-                <label className="block text-gg-gray-400 text-sm mb-2">
-                  Counties
-                  {filterCounties.size > 0 && (
-                    <span className="ml-2 text-gg-pink">({filterCounties.size} selected)</span>
-                  )}
-                </label>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    onClick={() => { setFilterCounties(new Set()); setFilterTownships(new Set()); setPage(1) }}
-                    className={`px-3 py-1.5 rounded-full text-sm transition-colors ${
-                      filterCounties.size === 0
-                        ? 'bg-gg-pink text-white'
-                        : 'bg-gg-gray-700 text-gg-gray-300 hover:bg-gg-gray-600'
-                    }`}
-                  >
-                    All Counties
-                  </button>
-                  {dataCounties.map(county => (
-                    <button
-                      key={county}
-                      onClick={() => handleCountyToggle(county)}
-                      className={`px-3 py-1.5 rounded-full text-sm transition-colors ${
-                        filterCounties.has(county)
-                          ? 'bg-gg-pink text-white'
-                          : 'bg-gg-gray-700 text-gg-gray-300 hover:bg-gg-gray-600'
-                      }`}
-                    >
-                      {county}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Township multi-select chips (only for auctions and private_treaty) */}
-            {activeTab !== 'results' && filterCounties.size > 0 && availableTownships.length > 0 && (
-              <div>
-                <label className="block text-gg-gray-400 text-sm mb-2">
-                  Townships
-                  {filterTownships.size > 0 && (
-                    <span className="ml-2 text-gg-pink">({filterTownships.size} selected)</span>
-                  )}
-                </label>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    onClick={() => { setFilterTownships(new Set()); setPage(1) }}
-                    className={`px-3 py-1.5 rounded-full text-sm transition-colors ${
-                      filterTownships.size === 0
-                        ? 'bg-gg-pink text-white'
-                        : 'bg-gg-gray-700 text-gg-gray-300 hover:bg-gg-gray-600'
-                    }`}
-                  >
-                    All Townships
-                  </button>
-                  {availableTownships.map(township => (
-                    <button
-                      key={township}
-                      onClick={() => handleTownshipToggle(township)}
-                      className={`px-3 py-1.5 rounded-full text-sm transition-colors ${
-                        filterTownships.has(township)
-                          ? 'bg-gg-pink text-white'
-                          : 'bg-gg-gray-700 text-gg-gray-300 hover:bg-gg-gray-600'
-                      }`}
-                    >
-                      {township}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
             {/* Active filter summary */}
             {hasActiveFilters && (
               <div className="text-sm text-gg-gray-400">
                 Showing: {filterState || 'All States'}
-                {filterCounties.size > 0 && `, ${filterCounties.size} ${filterCounties.size === 1 ? 'county' : 'counties'}`}
-                {filterTownships.size > 0 && `, ${filterTownships.size} ${filterTownships.size === 1 ? 'township' : 'townships'}`}
+                {filterCounty && `, ${filterCounty} County`}
+                {filterTownship && `, ${filterTownship} Twp`}
                 {filterCompany && `, ${companies.find(c => c.id === filterCompany)?.name || 'Company'}`}
                 {` \u2014 ${listings.length} ${listings.length === 1 ? 'listing' : 'listings'}`}
               </div>
