@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Save, Loader2, Trash2, ExternalLink } from 'lucide-react'
+import { ArrowLeft, Save, Loader2, Trash2, ExternalLink, Plus, X } from 'lucide-react'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -21,6 +21,14 @@ interface Company {
   logo_url: string
   auction_list_url: string
   private_treaty_list_url: string
+  created_at: string
+}
+
+interface PrivateTreatyUrl {
+  id: number
+  url: string
+  label: string | null
+  listing_company_id: string
   created_at: string
 }
 
@@ -48,6 +56,12 @@ export default function EditCompanyPage() {
     auction_list_url: '',
     private_treaty_list_url: '',
   })
+
+  // Private treaty URLs (multi-URL management)
+  const [ptUrls, setPtUrls] = useState<PrivateTreatyUrl[]>([])
+  const [newPtUrl, setNewPtUrl] = useState('')
+  const [newPtLabel, setNewPtLabel] = useState('')
+  const [addingPtUrl, setAddingPtUrl] = useState(false)
 
   useEffect(() => {
     const token = localStorage.getItem('auth_token')
@@ -88,7 +102,7 @@ export default function EditCompanyPage() {
       if (response.ok) {
         const data = await response.json()
         setCompany(data)
-        
+
         setFormData({
           name: data.name || '',
           website: data.website || '',
@@ -102,6 +116,9 @@ export default function EditCompanyPage() {
           auction_list_url: data.auction_list_url || '',
           private_treaty_list_url: data.private_treaty_list_url || '',
         })
+
+        // Fetch private treaty URLs
+        await fetchPtUrls(token)
       } else {
         setError('Company not found')
       }
@@ -109,6 +126,64 @@ export default function EditCompanyPage() {
       setError('Failed to fetch company')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const fetchPtUrls = async (token?: string) => {
+    const t = token || localStorage.getItem('auth_token')
+    try {
+      const response = await fetch(`${API_URL}/api/companies/${companyId}/private-treaty-urls`, {
+        headers: { 'Authorization': `Bearer ${t}` },
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setPtUrls(data)
+      }
+    } catch (err) {
+      console.error('Failed to fetch PT URLs:', err)
+    }
+  }
+
+  const handleAddPtUrl = async () => {
+    if (!newPtUrl.trim()) return
+    setAddingPtUrl(true)
+    const token = localStorage.getItem('auth_token')
+    try {
+      const response = await fetch(`${API_URL}/api/companies/${companyId}/private-treaty-urls`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ url: newPtUrl.trim(), label: newPtLabel.trim() || null }),
+      })
+      if (response.ok) {
+        setNewPtUrl('')
+        setNewPtLabel('')
+        await fetchPtUrls()
+      } else {
+        const data = await response.json()
+        setError(data.detail || 'Failed to add URL')
+      }
+    } catch (err) {
+      setError('Failed to add URL')
+    } finally {
+      setAddingPtUrl(false)
+    }
+  }
+
+  const handleDeletePtUrl = async (urlId: number) => {
+    const token = localStorage.getItem('auth_token')
+    try {
+      const response = await fetch(`${API_URL}/api/companies/${companyId}/private-treaty-urls/${urlId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` },
+      })
+      if (response.ok) {
+        await fetchPtUrls()
+      }
+    } catch (err) {
+      setError('Failed to delete URL')
     }
   }
 
@@ -391,18 +466,81 @@ export default function EditCompanyPage() {
                 />
                 <p className="text-gg-gray-500 text-xs mt-1">URL to the company's upcoming auctions page</p>
               </div>
-              <div>
-                <label className="block text-gg-gray-400 text-sm mb-1">Private Treaty Listings URL</label>
+            </div>
+          </div>
+
+          {/* Private Treaty URLs (Multi-URL) */}
+          <div className="card">
+            <h2 className="text-xl font-semibold text-white mb-4">Private Treaty Listing URLs</h2>
+            <p className="text-gg-gray-400 text-sm mb-4">
+              Add one or more URLs to the company&apos;s private treaty listing pages. Some companies separate listings by category.
+            </p>
+
+            {/* Existing URLs */}
+            {ptUrls.length > 0 && (
+              <div className="space-y-2 mb-4">
+                {ptUrls.map(ptUrl => (
+                  <div key={ptUrl.id} className="flex items-center gap-3 bg-gg-gray-800 rounded-lg px-4 py-3">
+                    <div className="flex-1 min-w-0">
+                      <a
+                        href={ptUrl.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-gg-pink hover:underline text-sm truncate block"
+                      >
+                        {ptUrl.url}
+                      </a>
+                      {ptUrl.label && (
+                        <span className="text-gg-gray-500 text-xs">{ptUrl.label}</span>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleDeletePtUrl(ptUrl.id)}
+                      className="text-red-400 hover:text-red-300 flex-shrink-0"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {ptUrls.length === 0 && (
+              <p className="text-gg-gray-500 text-sm mb-4">No private treaty URLs configured yet.</p>
+            )}
+
+            {/* Add new URL */}
+            <div className="flex items-end gap-3">
+              <div className="flex-1">
+                <label className="block text-gg-gray-400 text-xs mb-1">URL</label>
                 <input
                   type="url"
-                  name="private_treaty_list_url"
-                  value={formData.private_treaty_list_url}
-                  onChange={handleChange}
-                  placeholder="https://example.com/listings"
-                  className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white"
+                  value={newPtUrl}
+                  onChange={(e) => setNewPtUrl(e.target.value)}
+                  placeholder="https://example.com/private-treaty-listings"
+                  className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-3 py-2 text-white text-sm"
                 />
-                <p className="text-gg-gray-500 text-xs mt-1">URL to the company's private treaty listings page</p>
               </div>
+              <div className="w-40">
+                <label className="block text-gg-gray-400 text-xs mb-1">Label (optional)</label>
+                <input
+                  type="text"
+                  value={newPtLabel}
+                  onChange={(e) => setNewPtLabel(e.target.value)}
+                  placeholder="e.g. Farm Land"
+                  className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-3 py-2 text-white text-sm"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={handleAddPtUrl}
+                disabled={addingPtUrl || !newPtUrl.trim()}
+                className="flex items-center gap-1 px-4 py-2 bg-gg-pink text-white rounded-lg text-sm hover:bg-gg-pink/80 disabled:opacity-50"
+              >
+                {addingPtUrl ? <Loader2 className="animate-spin" size={14} /> : <Plus size={14} />}
+                Add
+              </button>
             </div>
           </div>
 

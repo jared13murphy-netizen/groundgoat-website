@@ -242,10 +242,16 @@ export default function AdminDashboard() {
                 icon={<Moon />}
               />
               <QuickActionCard
-                title="Listing Staging"
-                description="Review scraped listings before publishing"
+                title="Auction Staging"
+                description="Review scraped auction listings before publishing"
                 href="/admin/staging"
                 icon={<ClipboardCheck />}
+              />
+              <QuickActionCard
+                title="PT Staging"
+                description="Review scraped private treaty listings"
+                href="/admin/private-treaty-staging"
+                icon={<ClipboardList />}
               />
               <QuickActionCard
                 title="Manage Users"

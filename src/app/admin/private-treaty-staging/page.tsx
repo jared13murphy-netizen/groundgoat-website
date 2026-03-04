@@ -10,7 +10,7 @@ import {
   XCircle,
   ExternalLink,
   MapPin,
-  Calendar,
+  DollarSign,
   Layers,
   Image as ImageIcon,
   Pencil,
@@ -77,8 +77,7 @@ interface TractForm {
 
 interface EditForm {
   acres_listed: string
-  sale_date: string
-  auction_time: string
+  asking_price: string
   auction_url: string
   image_url: string
   description: string
@@ -89,32 +88,10 @@ function buildEditForm(scraped: any): EditForm {
   const listing = scraped?.listing || {}
   const tracts = scraped?.tracts || []
 
-  // Extract time from auction_time or auction_datetime
-  // Handles both naive ISO strings (2026-03-20T10:00:00) and UTC (2026-03-20T15:00:00Z)
-  let auctionTime = ''
-  const timeSource = listing.auction_time || listing.auction_datetime
-  if (timeSource) {
-    try {
-      // Try to extract time directly from the string first (for naive ISO without Z)
-      const timeMatch = String(timeSource).match(/T(\d{2}):(\d{2})/)
-      if (timeMatch && !String(timeSource).endsWith('Z')) {
-        auctionTime = `${timeMatch[1]}:${timeMatch[2]}`
-      } else {
-        const dt = new Date(timeSource)
-        if (!isNaN(dt.getTime())) {
-          const hours = String(dt.getHours()).padStart(2, '0')
-          const minutes = String(dt.getMinutes()).padStart(2, '0')
-          auctionTime = `${hours}:${minutes}`
-        }
-      }
-    } catch {}
-  }
-
   return {
     acres_listed: listing.acres_listed != null ? String(listing.acres_listed) : '',
-    sale_date: listing.sale_date || '',
-    auction_time: auctionTime,
-    auction_url: listing.auction_url || '',
+    asking_price: listing.sale_price != null ? String(listing.sale_price) : (listing.asking_price != null ? String(listing.asking_price) : ''),
+    auction_url: listing.auction_url || listing.listing_url || '',
     image_url: listing.image || listing.primary_image_url || '',
     description: listing.description || '',
     tracts: tracts.map((t: any, i: number) => ({
@@ -135,23 +112,18 @@ function applyEditToScrapedData(original: any, form: EditForm): any {
 
   if (!updated.listing) updated.listing = {}
   updated.listing.acres_listed = form.acres_listed ? parseFloat(form.acres_listed) : null
-  updated.listing.sale_date = form.sale_date || null
+  updated.listing.sale_price = form.asking_price ? parseFloat(form.asking_price) : null
+  updated.listing.asking_price = form.asking_price ? parseFloat(form.asking_price) : null
   updated.listing.description = form.description || null
   updated.listing.auction_url = form.auction_url || null
+  updated.listing.listing_url = form.auction_url || null
   updated.listing.image = form.image_url || null
   updated.listing.primary_image_url = form.image_url || null
 
-  // Store auction_datetime in scraped_data as a naive ISO string (no UTC conversion)
-  // The auction time is in the auction's local timezone based on county/state
-  if (form.sale_date) {
-    const timeStr = form.auction_time || '00:00'
-    const naiveIso = `${form.sale_date}T${timeStr}:00`
-    updated.listing.auction_time = naiveIso
-    updated.listing.auction_datetime = naiveIso
-  } else {
-    updated.listing.auction_time = null
-    updated.listing.auction_datetime = null
-  }
+  // No auction datetime for private treaty
+  updated.listing.auction_time = null
+  updated.listing.auction_datetime = null
+  updated.listing.listing_type = 'private_treaty'
 
   updated.tracts = form.tracts.map((t) => {
     const origTract = (original?.tracts || []).find(
@@ -177,7 +149,7 @@ function applyEditToScrapedData(original: any, form: EditForm): any {
   return updated
 }
 
-export default function AdminStagingPage() {
+export default function AdminPrivateTreatyStagingPage() {
   const router = useRouter()
   const [loading, setLoading] = useState(true)
   const [fetchError, setFetchError] = useState<string | null>(null)
@@ -201,7 +173,7 @@ export default function AdminStagingPage() {
 
   // Edit modal state
   const [editingListing, setEditingListing] = useState<StagingListing | null>(null)
-  const [editForm, setEditForm] = useState<EditForm>({ acres_listed: '', sale_date: '', auction_time: '', auction_url: '', image_url: '', description: '', tracts: [] })
+  const [editForm, setEditForm] = useState<EditForm>({ acres_listed: '', asking_price: '', auction_url: '', image_url: '', description: '', tracts: [] })
   const [saving, setSaving] = useState(false)
 
   // Scraper status
@@ -221,11 +193,11 @@ export default function AdminStagingPage() {
   useEffect(() => {
     const fetchStatus = async () => {
       try {
-        const res = await fetch(`${SCRAPER_URL}/api/scraper/status`)
+        const res = await fetch(`${SCRAPER_URL}/api/scraper/private-treaty/status`)
         if (res.ok) {
           const data = await res.json()
           setScraperStatus(data)
-          // Auto-refresh listings when scraper transitions from running → complete
+          // Auto-refresh listings when scraper transitions from running -> complete
           if (prevScraperRunning.current === true && data?.running === false) {
             fetchStagingListings()
             fetchRunLog()
@@ -242,7 +214,7 @@ export default function AdminStagingPage() {
   const stopScraper = async () => {
     setStoppingScraper(true)
     try {
-      const res = await fetch(`${SCRAPER_URL}/api/scraper/stop`, { method: 'POST' })
+      const res = await fetch(`${SCRAPER_URL}/api/scraper/private-treaty/stop`, { method: 'POST' })
       if (res.ok) {
         // Status will update via the polling interval
       }
@@ -256,18 +228,18 @@ export default function AdminStagingPage() {
   const runScraper = async () => {
     setStartingScraper(true)
     try {
-      const res = await fetch(`${SCRAPER_URL}/api/nightly/scrape-and-stage`, {
+      const res = await fetch(`${SCRAPER_URL}/api/nightly/scrape-private-treaty`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ async: true }),
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
-        console.error('Failed to start scraper:', data.message || res.statusText)
+        console.error('Failed to start PT scraper:', data.message || res.statusText)
       }
       // Status banner will update via the polling interval
     } catch (err) {
-      console.error('Failed to start scraper:', err)
+      console.error('Failed to start PT scraper:', err)
     } finally {
       setStartingScraper(false)
     }
@@ -302,7 +274,7 @@ export default function AdminStagingPage() {
     setLoading(true)
     setFetchError(null)
     try {
-      const response = await fetchWithAuth(`${API_URL}/api/admin/staging?status=pending&listing_type=auction`)
+      const response = await fetchWithAuth(`${API_URL}/api/admin/staging?status=pending&listing_type=private_treaty`)
       if (response.ok) {
         const data = await response.json()
         setListings(Array.isArray(data) ? data : [])
@@ -362,8 +334,6 @@ export default function AdminStagingPage() {
   const latestRunResults = useMemo(() => {
     if (runLog.length === 0) return { runs: [], runTime: null as string | null }
 
-    // Find the most recent created_at timestamp to identify the latest run batch
-    // All entries within 2 hours of the newest are considered part of the same run
     const sorted = [...runLog].sort((a, b) => {
       const ta = a.created_at ? new Date(a.created_at).getTime() : 0
       const tb = b.created_at ? new Date(b.created_at).getTime() : 0
@@ -409,7 +379,6 @@ export default function AdminStagingPage() {
           duration_ms: entry.duration_ms || 0,
         })
       } else {
-        // Merge discovery + scrape data for same company
         if (entry.run_type === 'discovery') {
           existing.cards_found = entry.cards_found
           existing.cards_after_filter = entry.cards_after_filter
@@ -429,7 +398,6 @@ export default function AdminStagingPage() {
     }
 
     const runs = Array.from(companyMap.values()).sort((a, b) => {
-      // Failed first, then by cards_found desc
       if (a.status === 'failed' && b.status !== 'failed') return -1
       if (b.status === 'failed' && a.status !== 'failed') return 1
       return b.cards_found - a.cards_found
@@ -526,7 +494,7 @@ export default function AdminStagingPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           scraped_data: updatedScrapedData,
-          auction_date: editForm.sale_date || null,
+          auction_date: null, // No auction date for private treaty
         }),
       })
 
@@ -534,7 +502,7 @@ export default function AdminStagingPage() {
         setListings((prev) =>
           prev.map((l) =>
             l.id === editingListing.id
-              ? { ...l, scraped_data: updatedScrapedData, auction_date: editForm.sale_date || null }
+              ? { ...l, scraped_data: updatedScrapedData, auction_date: null }
               : l
           )
         )
@@ -577,34 +545,13 @@ export default function AdminStagingPage() {
   }
 
   const extractListingInfo = (scraped: any) => {
-    if (!scraped) return { acres: null, county: null, state: null, description: null, tractCount: 0, tracts: [], auctionTime: null }
+    if (!scraped) return { acres: null, county: null, state: null, description: null, tractCount: 0, tracts: [], askingPrice: null, imageUrl: null }
     const listing = scraped.listing || {}
     const tracts = scraped.tracts || []
     const firstTract = tracts[0] || {}
 
-    // Extract time from auction_time or auction_datetime
-    // Handles both naive ISO strings (2026-03-20T10:00:00) and UTC (2026-03-20T15:00:00Z)
-    let auctionTime: string | null = null
-    const timeSource = listing.auction_time || listing.auction_datetime
-    if (timeSource) {
-      try {
-        const timeStr = String(timeSource)
-        const timeMatch = timeStr.match(/T(\d{2}):(\d{2})/)
-        if (timeMatch && !timeStr.endsWith('Z')) {
-          // Naive ISO string — parse hours/minutes directly to avoid timezone shift
-          const h = parseInt(timeMatch[1])
-          const m = timeMatch[2]
-          const ampm = h >= 12 ? 'PM' : 'AM'
-          const h12 = h % 12 || 12
-          auctionTime = `${h12}:${m} ${ampm}`
-        } else {
-          const dt = new Date(timeSource)
-          if (!isNaN(dt.getTime())) {
-            auctionTime = dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
-          }
-        }
-      } catch {}
-    }
+    // Extract asking price
+    const askingPrice = listing.sale_price || listing.asking_price || null
 
     // Extract listing image URL
     const imageUrl = listing.image || listing.primary_image_url || null
@@ -616,7 +563,7 @@ export default function AdminStagingPage() {
       description: listing.description || null,
       tractCount: tracts.length,
       tracts: tracts,
-      auctionTime,
+      askingPrice,
       imageUrl,
     }
   }
@@ -624,9 +571,6 @@ export default function AdminStagingPage() {
   const formatDate = (dateStr: string | null) => {
     if (!dateStr) return 'N/A'
     try {
-      // For date-only strings like "2026-03-15", parse as local date
-      // to avoid timezone shift (new Date("2026-03-15") treats it as UTC midnight,
-      // which becomes the previous day in US timezones)
       const dateOnly = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})$/)
       if (dateOnly) {
         const d = new Date(parseInt(dateOnly[1]), parseInt(dateOnly[2]) - 1, parseInt(dateOnly[3]))
@@ -640,6 +584,13 @@ export default function AdminStagingPage() {
     } catch {
       return dateStr
     }
+  }
+
+  const formatPrice = (price: number | string | null) => {
+    if (price == null) return 'N/A'
+    const num = typeof price === 'string' ? parseFloat(price) : price
+    if (isNaN(num)) return 'N/A'
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(num)
   }
 
   const formatDuration = (ms: number | null) => {
@@ -669,7 +620,7 @@ export default function AdminStagingPage() {
       <div className="min-h-screen bg-gg-black flex items-center justify-center">
         <div className="text-center">
           <Loader2 className="animate-spin text-gg-pink mx-auto mb-4" size={32} />
-          <p className="text-gg-gray-400 text-sm">Loading staging listings...</p>
+          <p className="text-gg-gray-400 text-sm">Loading private treaty staging...</p>
         </div>
       </div>
     )
@@ -685,7 +636,7 @@ export default function AdminStagingPage() {
               <ArrowLeft size={24} />
             </Link>
             <div>
-              <h1 className="font-display text-3xl font-bold text-white">Auction Staging</h1>
+              <h1 className="font-display text-3xl font-bold text-white">Private Treaty Staging</h1>
               <p className="text-gg-gray-400">{filteredListings.length} pending listings to review</p>
             </div>
           </div>
@@ -703,7 +654,7 @@ export default function AdminStagingPage() {
               ) : (
                 <>
                   <Play size={16} />
-                  Run Scraper
+                  Run PT Scraper
                 </>
               )}
             </button>
@@ -736,7 +687,7 @@ export default function AdminStagingPage() {
               <>
                 <Loader2 className="animate-spin text-gg-pink shrink-0" size={16} />
                 <span className="text-white flex-1">
-                  <span className="font-semibold">Scraper Running:</span>{' '}
+                  <span className="font-semibold">PT Scraper Running:</span>{' '}
                   {scraperStatus.progress} URLs
                   {scraperStatus.current_url && (
                     <span className="text-gg-gray-400"> — Currently scraping: {scraperStatus.current_url}</span>
@@ -838,7 +789,7 @@ export default function AdminStagingPage() {
                 {scraperStatus?.running ? (
                   <>
                     <Loader2 className="animate-spin mx-auto mb-4 text-gg-pink" size={48} />
-                    <h2 className="text-xl font-bold text-white mb-2">Scraper is running</h2>
+                    <h2 className="text-xl font-bold text-white mb-2">PT Scraper is running</h2>
                     <p className="text-gg-gray-400 mb-1">
                       {scraperStatus.progress} URLs processed so far.
                     </p>
@@ -848,7 +799,7 @@ export default function AdminStagingPage() {
                   <>
                     <CheckCircle className="mx-auto mb-4 text-green-400" size={48} />
                     <h2 className="text-xl font-bold text-white mb-2">No listings in staging</h2>
-                    <p className="text-gg-gray-400">No pending listings to review. Run the nightly scraper to discover new listings.</p>
+                    <p className="text-gg-gray-400">No pending private treaty listings to review. Run the PT scraper to discover new listings.</p>
                   </>
                 )}
               </div>
@@ -865,7 +816,7 @@ export default function AdminStagingPage() {
                     className="bg-gg-gray-900 border border-gg-gray-800 rounded-xl overflow-hidden"
                   >
                     <div className="flex flex-col lg:flex-row">
-                      {/* Thumbnail Screenshot — small, click to enlarge */}
+                      {/* Thumbnail Screenshot */}
                       <div className="lg:w-52 flex-shrink-0 bg-gg-gray-800 p-3 flex flex-col gap-2">
                         {listing.screenshot_base64 ? (
                           <button
@@ -927,18 +878,13 @@ export default function AdminStagingPage() {
 
                       {/* Content */}
                       <div className="flex-1 p-6">
-                        {/* Company & Date Row */}
+                        {/* Company & Info Row */}
                         <div className="flex items-start justify-between mb-4">
                           <div>
                             <h3 className="text-lg font-bold text-white">
                               {listing.company_name || 'Unknown Company'}
                             </h3>
                             <div className="flex items-center gap-4 mt-1 text-sm text-gg-gray-400">
-                              <span className="flex items-center gap-1">
-                                <Calendar size={14} />
-                                {formatDate(listing.auction_date)}
-                              </span>
-                              <span className="text-gg-gray-600">|</span>
                               <span>Staged {formatDate(listing.created_at)}</span>
                               {listing.scrape_duration_ms != null && (
                                 <>
@@ -995,12 +941,10 @@ export default function AdminStagingPage() {
                             </p>
                           </div>
                           <div className="bg-gg-gray-800 rounded-lg p-3">
-                            <p className="text-xs text-gg-gray-400 mb-1">Auction Date &amp; Time</p>
-                            <p className="text-white font-semibold">
-                              {formatDate(listing.auction_date)}
-                              {info.auctionTime && (
-                                <span className="text-gg-gray-300 font-normal ml-1">@ {info.auctionTime}</span>
-                              )}
+                            <p className="text-xs text-gg-gray-400 mb-1">Asking Price</p>
+                            <p className="text-white font-semibold flex items-center gap-1">
+                              <DollarSign size={12} className="text-green-400" />
+                              {formatPrice(info.askingPrice)}
                             </p>
                           </div>
                         </div>
@@ -1165,7 +1109,7 @@ export default function AdminStagingPage() {
               <div className="card text-center py-16">
                 <BarChart3 className="mx-auto mb-4 text-gg-gray-500" size={48} />
                 <h2 className="text-xl font-bold text-white mb-2">No scraper results yet</h2>
-                <p className="text-gg-gray-400">Run the nightly scraper to see per-company discovery results.</p>
+                <p className="text-gg-gray-400">Run the PT scraper to see per-company discovery results.</p>
               </div>
             ) : (
               <>
@@ -1216,12 +1160,7 @@ export default function AdminStagingPage() {
                     </thead>
                     <tbody>
                       {latestRunResults.runs.map((run, idx) => (
-                        <tr
-                          key={idx}
-                          className={`border-b border-gg-gray-800/50 ${
-                            run.company_name === 'Whitetail Properties' ? 'bg-gg-pink/5' : ''
-                          }`}
-                        >
+                        <tr key={idx} className="border-b border-gg-gray-800/50">
                           <td className="px-4 py-3">
                             <div className="text-white font-medium">{run.company_name}</div>
                             {run.auction_list_url && (
@@ -1235,7 +1174,7 @@ export default function AdminStagingPage() {
                               </a>
                             )}
                           </td>
-                          <td className="px-4 py-3 text-gg-gray-400 text-xs">{run.discovery_method || '—'}</td>
+                          <td className="px-4 py-3 text-gg-gray-400 text-xs">{run.discovery_method || '\u2014'}</td>
                           <td className="px-4 py-3 text-right text-white">{run.cards_found}</td>
                           <td className="px-4 py-3 text-right text-gg-gray-400">{run.cards_after_filter}</td>
                           <td className="px-4 py-3 text-right">
@@ -1243,10 +1182,10 @@ export default function AdminStagingPage() {
                               {run.new_urls}
                             </span>
                           </td>
-                          <td className="px-4 py-3 text-right text-gg-gray-400">{run.urls_scraped || '—'}</td>
+                          <td className="px-4 py-3 text-right text-gg-gray-400">{run.urls_scraped || '\u2014'}</td>
                           <td className="px-4 py-3 text-right">
                             <span className={run.listings_staged > 0 ? 'text-green-400 font-medium' : 'text-gg-gray-500'}>
-                              {run.listings_staged || '—'}
+                              {run.listings_staged || '\u2014'}
                             </span>
                           </td>
                           <td className="px-4 py-3 text-center">
@@ -1347,32 +1286,23 @@ export default function AdminStagingPage() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm text-gg-gray-400 mb-1">Auction Date</label>
-                  <input
-                    type="date"
-                    value={editForm.sale_date}
-                    onChange={(e) => setEditForm((prev) => ({ ...prev, sale_date: e.target.value }))}
-                    className="w-full bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-4 py-2 text-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm text-gg-gray-400 mb-1">Auction Time</label>
-                  <input
-                    type="time"
-                    value={editForm.auction_time}
-                    onChange={(e) => setEditForm((prev) => ({ ...prev, auction_time: e.target.value }))}
-                    className="w-full bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-4 py-2 text-white"
-                  />
-                </div>
+              <div>
+                <label className="block text-sm text-gg-gray-400 mb-1">Asking Price</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  placeholder="e.g. 500000"
+                  value={editForm.asking_price}
+                  onChange={(e) => setEditForm((prev) => ({ ...prev, asking_price: e.target.value }))}
+                  className="w-full bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-4 py-2 text-white"
+                />
               </div>
 
               <div>
-                <label className="block text-sm text-gg-gray-400 mb-1">Auction / Bidding URL</label>
+                <label className="block text-sm text-gg-gray-400 mb-1">Listing URL</label>
                 <input
                   type="url"
-                  placeholder="https://bidwrangler.com/... or https://hibid.com/..."
+                  placeholder="https://..."
                   value={editForm.auction_url}
                   onChange={(e) => setEditForm((prev) => ({ ...prev, auction_url: e.target.value }))}
                   className="w-full bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-4 py-2 text-white"
