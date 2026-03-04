@@ -21,13 +21,15 @@ import {
 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import type { ApiListing } from '@/components/map/mapTypes'
+import type { CountySalesData } from '@/components/map/CountySalesMap'
+import { COMPANY_COLORS } from '@/components/map/CountySalesMap'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
 // Temporary button for one-time scripts
 const SHOW_SOLD_ACRES_BUTTON = false
 
-// Dynamically import map to avoid SSR issues
+// Dynamically import maps to avoid SSR issues
 const TractMap = dynamic(() => import('@/components/map/TractMap'), {
   ssr: false,
   loading: () => (
@@ -35,6 +37,19 @@ const TractMap = dynamic(() => import('@/components/map/TractMap'), {
       <Loader2 className="animate-spin text-gg-pink" size={32} />
     </div>
   )
+})
+
+const CountySalesMap = dynamic(() => import('@/components/map/CountySalesMap'), {
+  ssr: false,
+  loading: () => (
+    <div className="h-[600px] bg-gg-gray-800 rounded-xl flex items-center justify-center">
+      <Loader2 className="animate-spin text-gg-pink" size={32} />
+    </div>
+  )
+})
+
+const CountyDetailPanel = dynamic(() => import('@/components/map/CountyDetailPanel'), {
+  ssr: false,
 })
 
 export default function AdminDashboard() {
@@ -52,6 +67,15 @@ export default function AdminDashboard() {
   const [mapLoading, setMapLoading] = useState(true)
   const [soldAcresRunning, setSoldAcresRunning] = useState(false)
   const [soldAcresResult, setSoldAcresResult] = useState<string | null>(null)
+
+  // County Sales Map state
+  const [countySalesData, setCountySalesData] = useState<CountySalesData | null>(null)
+  const [countySalesLoading, setCountySalesLoading] = useState(true)
+  const [selectedCountyDetail, setSelectedCountyDetail] = useState<{ county: string; state: string } | null>(null)
+  const [countyCompanyFilter, setCountyCompanyFilter] = useState<string>('all')
+  const [countyStateFilter, setCountyStateFilter] = useState<string>('all')
+  const [countyDateFrom, setCountyDateFrom] = useState<string>('')
+  const [countyDateTo, setCountyDateTo] = useState<string>('')
 
   const runSoldAcresUpdate = async () => {
     setSoldAcresRunning(true)
@@ -174,6 +198,36 @@ export default function AdminDashboard() {
       setMapLoading(false)
     }
   }
+
+  // Fetch county sales data
+  const fetchCountySalesData = async () => {
+    setCountySalesLoading(true)
+    try {
+      const params = new URLSearchParams()
+      if (countyCompanyFilter !== 'all') params.set('company_id', countyCompanyFilter)
+      if (countyStateFilter !== 'all') params.set('state', countyStateFilter)
+      if (countyDateFrom) params.set('date_from', countyDateFrom)
+      if (countyDateTo) params.set('date_to', countyDateTo)
+
+      const response = await fetchWithAuth(
+        `${API_URL}/api/admin/county-sales-summary?${params}`
+      )
+      if (response.ok) {
+        const data = await response.json()
+        setCountySalesData(data)
+      }
+    } catch (err) {
+      console.error('Failed to fetch county sales data:', err)
+    } finally {
+      setCountySalesLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (user) {
+      fetchCountySalesData()
+    }
+  }, [countyCompanyFilter, countyStateFilter, countyDateFrom, countyDateTo, user])
 
   const mapFilters = useMemo(() => ({
     company: selectedCompany,
@@ -449,6 +503,121 @@ export default function AdminDashboard() {
             </div>
           )}
         </div>
+
+        {/* County Sales Map */}
+        <div className="card mt-8">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-xl font-bold text-white">County Sales Map</h2>
+              <p className="text-gg-gray-400 text-sm">
+                County-level view of sold acres by listing company
+              </p>
+            </div>
+          </div>
+
+          {/* Filters */}
+          <div className="flex items-center gap-3 mb-4 flex-wrap">
+            <div className="flex items-center gap-2">
+              <Filter size={16} className="text-gg-gray-400" />
+              <span className="text-gg-gray-400 text-sm">Filters:</span>
+            </div>
+            <select
+              value={countyCompanyFilter}
+              onChange={(e) => setCountyCompanyFilter(e.target.value)}
+              className="bg-white border border-gg-gray-300 rounded-lg px-3 py-2 text-black text-sm"
+            >
+              <option value="all">All Companies</option>
+              {companies.map(c => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+            <select
+              value={countyStateFilter}
+              onChange={(e) => setCountyStateFilter(e.target.value)}
+              className="bg-white border border-gg-gray-300 rounded-lg px-3 py-2 text-black text-sm"
+            >
+              <option value="all">All States</option>
+              <option value="IL">Illinois</option>
+              <option value="IA">Iowa</option>
+              <option value="IN">Indiana</option>
+              <option value="KS">Kansas</option>
+              <option value="MI">Michigan</option>
+              <option value="MN">Minnesota</option>
+              <option value="MO">Missouri</option>
+              <option value="NE">Nebraska</option>
+              <option value="ND">North Dakota</option>
+              <option value="OH">Ohio</option>
+              <option value="SD">South Dakota</option>
+              <option value="WI">Wisconsin</option>
+            </select>
+            <div className="flex items-center gap-2">
+              <span className="text-gg-gray-400 text-sm">Date:</span>
+              <input
+                type="date"
+                value={countyDateFrom}
+                onChange={(e) => setCountyDateFrom(e.target.value)}
+                className="bg-white border border-gg-gray-300 rounded-lg px-3 py-2 text-black text-sm"
+              />
+              <span className="text-gg-gray-500">to</span>
+              <input
+                type="date"
+                value={countyDateTo}
+                onChange={(e) => setCountyDateTo(e.target.value)}
+                className="bg-white border border-gg-gray-300 rounded-lg px-3 py-2 text-black text-sm"
+              />
+            </div>
+            {(countyCompanyFilter !== 'all' || countyStateFilter !== 'all' || countyDateFrom || countyDateTo) && (
+              <button
+                onClick={() => {
+                  setCountyCompanyFilter('all')
+                  setCountyStateFilter('all')
+                  setCountyDateFrom('')
+                  setCountyDateTo('')
+                }}
+                className="text-gg-pink text-sm hover:underline"
+              >
+                Clear filters
+              </button>
+            )}
+          </div>
+
+          {/* Company Legend */}
+          {countySalesData?.companies && countySalesData.companies.length > 0 && (
+            <div className="flex items-center gap-4 mb-4 text-sm flex-wrap">
+              <span className="text-gg-gray-400">Companies:</span>
+              {countySalesData.companies.map((comp, i) => (
+                <div key={comp.id} className="flex items-center gap-2">
+                  <div
+                    className="w-3 h-3 rounded-full"
+                    style={{ background: COMPANY_COLORS[i % COMPANY_COLORS.length] }}
+                  />
+                  <span className="text-gg-gray-300">{comp.name}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Map */}
+          <div className="rounded-xl overflow-hidden">
+            <CountySalesMap
+              data={countySalesData}
+              loading={countySalesLoading}
+              onCountyClick={(county, state) => setSelectedCountyDetail({ county, state })}
+              height="600px"
+            />
+          </div>
+        </div>
+
+        {/* County Detail Panel */}
+        {selectedCountyDetail && (
+          <CountyDetailPanel
+            county={selectedCountyDetail.county}
+            state={selectedCountyDetail.state}
+            onClose={() => setSelectedCountyDetail(null)}
+            dateFrom={countyDateFrom}
+            dateTo={countyDateTo}
+          />
+        )}
       </div>
     </div>
   )
