@@ -308,7 +308,7 @@ export default function AdminPrivateTreatyStagingPage() {
         }
       }
       // Sort by created_at descending
-      allEntries.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      allEntries.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())
       setRunLog(allEntries)
     } catch (err) {
       console.error('Failed to fetch run log:', err)
