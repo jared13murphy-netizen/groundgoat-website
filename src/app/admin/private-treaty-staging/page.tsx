@@ -160,7 +160,7 @@ export default function AdminPrivateTreatyStagingPage() {
   const [companyFilter, setCompanyFilter] = useState<string>('all')
 
   // Tab state
-  const [activeTab, setActiveTab] = useState<'staging' | 'failures' | 'results'>('staging')
+  const [activeTab, setActiveTab] = useState<'staging' | 'results'>('staging')
 
   // Run log
   const [runLog, setRunLog] = useState<RunLogEntry[]>([])
@@ -337,11 +337,6 @@ export default function AdminPrivateTreatyStagingPage() {
     if (companyFilter === 'all') return listings
     return listings.filter((l) => l.company_name === companyFilter)
   }, [listings, companyFilter])
-
-  // Failed/no_cards entries from the most recent run
-  const failedEntries = useMemo(() => {
-    return runLog.filter((r) => r.status === 'failed' || r.status === 'no_cards' || r.status === 'timeout')
-  }, [runLog])
 
   // Group latest run results by company for the Scraper Results tab
   const latestRunResults = useMemo(() => {
@@ -765,15 +760,6 @@ export default function AdminPrivateTreatyStagingPage() {
             Pending ({filteredListings.length})
           </button>
           <button
-            onClick={() => setActiveTab('failures')}
-            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${
-              activeTab === 'failures' ? 'bg-gg-gray-700 text-white' : 'text-gg-gray-400 hover:text-white'
-            }`}
-          >
-            <AlertTriangle size={14} />
-            Failed ({failedEntries.length})
-          </button>
-          <button
             onClick={() => setActiveTab('results')}
             className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${
               activeTab === 'results' ? 'bg-gg-gray-700 text-white' : 'text-gg-gray-400 hover:text-white'
@@ -1093,68 +1079,6 @@ export default function AdminPrivateTreatyStagingPage() {
               })}
             </div>
           </>
-        )}
-
-        {/* Failures Tab */}
-        {activeTab === 'failures' && (
-          <div>
-            {runLogLoading ? (
-              <div className="flex items-center justify-center py-16">
-                <Loader2 className="animate-spin text-gg-pink" size={32} />
-              </div>
-            ) : failedEntries.length === 0 ? (
-              <div className="card text-center py-16">
-                <CheckCircle className="mx-auto mb-4 text-green-400" size={48} />
-                <h2 className="text-xl font-bold text-white mb-2">No failures</h2>
-                <p className="text-gg-gray-400">All companies discovered successfully in recent runs.</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {failedEntries.map((entry) => (
-                  <div
-                    key={entry.id}
-                    className="bg-gg-gray-900 border border-gg-gray-800 rounded-xl p-4 flex items-start gap-4"
-                  >
-                    <div className={`mt-0.5 flex-shrink-0 ${entry.status === 'failed' ? 'text-red-400' : entry.status === 'timeout' ? 'text-amber-400' : 'text-gg-gray-500'}`}>
-                      {entry.status === 'failed' ? <XCircle size={20} /> : entry.status === 'timeout' ? <AlertTriangle size={20} /> : <AlertTriangle size={20} />}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-3">
-                        <h3 className="text-white font-semibold">{entry.company_name || 'Unknown'}</h3>
-                        <span className={`text-xs px-2 py-0.5 rounded-full ${
-                          entry.status === 'failed' ? 'bg-red-500/20 text-red-400' :
-                          entry.status === 'timeout' ? 'bg-amber-500/20 text-amber-400' :
-                          'bg-gg-gray-700 text-gg-gray-400'
-                        }`}>
-                          {entry.status}
-                        </span>
-                        {entry.created_at && (
-                          <span className="text-xs text-gg-gray-500">{formatTimeAgo(entry.created_at)}</span>
-                        )}
-                      </div>
-                      {entry.auction_list_url && (
-                        <a
-                          href={entry.auction_list_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-xs text-gg-gray-500 hover:text-gg-pink truncate block mt-1"
-                        >
-                          {entry.auction_list_url}
-                        </a>
-                      )}
-                      {entry.error_message && (
-                        <p className="text-sm text-red-400/80 mt-1 font-mono text-xs">{entry.error_message}</p>
-                      )}
-                      <div className="flex gap-4 mt-1 text-xs text-gg-gray-500">
-                        <span>Cards: {entry.cards_found}</span>
-                        <span>New URLs: {entry.new_urls}</span>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
         )}
 
         {/* Scraper Results Tab */}
