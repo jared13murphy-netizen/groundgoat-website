@@ -9,7 +9,6 @@ import {
   Users,
   FileText,
   Building2,
-  TrendingUp,
   AlertCircle,
   ChevronRight,
   RefreshCw,
@@ -286,12 +285,6 @@ export default function AdminDashboard() {
           {/* Admin-only actions */}
           {user?.account_type === 'groundgoat_admin' && (
             <>
-              <QuickActionCard
-                title="Reports"
-                description="View analytics and reports"
-                href="/admin/reports"
-                icon={<TrendingUp />}
-              />
               <QuickActionCard
                 title="Settings"
                 description="Configure system settings"
