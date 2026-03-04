@@ -72,10 +72,14 @@ export default function AdminDashboard() {
   const [countySalesData, setCountySalesData] = useState<CountySalesData | null>(null)
   const [countySalesLoading, setCountySalesLoading] = useState(true)
   const [selectedCountyDetail, setSelectedCountyDetail] = useState<{ county: string; state: string } | null>(null)
-  const [countyCompanyFilter, setCountyCompanyFilter] = useState<string>('all')
+  const [countyCompanyFilter, setCountyCompanyFilter] = useState<Set<string>>(new Set())
   const [countyStateFilter, setCountyStateFilter] = useState<string>('all')
   const [countyDateFrom, setCountyDateFrom] = useState<string>('')
   const [countyDateTo, setCountyDateTo] = useState<string>('')
+  const [countyListingType, setCountyListingType] = useState<string>('auction')
+  const [countyStatuses, setCountyStatuses] = useState<Set<string>>(new Set(['sold']))
+  const [companyDropdownOpen, setCompanyDropdownOpen] = useState(false)
+  const [statusDropdownOpen, setStatusDropdownOpen] = useState(false)
 
   const runSoldAcresUpdate = async () => {
     setSoldAcresRunning(true)
@@ -204,10 +208,12 @@ export default function AdminDashboard() {
     setCountySalesLoading(true)
     try {
       const params = new URLSearchParams()
-      if (countyCompanyFilter !== 'all') params.set('company_id', countyCompanyFilter)
+      countyCompanyFilter.forEach(id => params.append('company_ids', id))
       if (countyStateFilter !== 'all') params.set('state', countyStateFilter)
       if (countyDateFrom) params.set('date_from', countyDateFrom)
       if (countyDateTo) params.set('date_to', countyDateTo)
+      if (countyListingType !== 'all') params.set('listing_type', countyListingType)
+      if (countyStatuses.size > 0) params.set('statuses', Array.from(countyStatuses).join(','))
 
       const response = await fetchWithAuth(
         `${API_URL}/api/admin/county-sales-summary?${params}`
@@ -223,11 +229,14 @@ export default function AdminDashboard() {
     }
   }
 
+  const countyCompanyFilterKey = Array.from(countyCompanyFilter).sort().join(',')
+  const countyStatusesKey = Array.from(countyStatuses).sort().join(',')
+
   useEffect(() => {
     if (user) {
       fetchCountySalesData()
     }
-  }, [countyCompanyFilter, countyStateFilter, countyDateFrom, countyDateTo, user])
+  }, [countyCompanyFilterKey, countyStateFilter, countyDateFrom, countyDateTo, countyListingType, countyStatusesKey, user])
 
   const mapFilters = useMemo(() => ({
     company: selectedCompany,
@@ -515,22 +524,155 @@ export default function AdminDashboard() {
             </div>
           </div>
 
-          {/* Filters */}
-          <div className="flex items-center gap-3 mb-4 flex-wrap">
+          {/* Filters Row 1 */}
+          <div className="flex items-center gap-3 mb-3 flex-wrap">
             <div className="flex items-center gap-2">
               <Filter size={16} className="text-gg-gray-400" />
               <span className="text-gg-gray-400 text-sm">Filters:</span>
             </div>
+
+            {/* Listing Type */}
             <select
-              value={countyCompanyFilter}
-              onChange={(e) => setCountyCompanyFilter(e.target.value)}
+              value={countyListingType}
+              onChange={(e) => setCountyListingType(e.target.value)}
               className="bg-white border border-gg-gray-300 rounded-lg px-3 py-2 text-black text-sm"
             >
-              <option value="all">All Companies</option>
-              {companies.map(c => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
+              <option value="auction">Auction</option>
+              <option value="private_treaty">Private Treaty</option>
+              <option value="all">All Types</option>
             </select>
+
+            {/* Listing Status - multi-select dropdown */}
+            <div className="relative">
+              <button
+                onClick={() => setStatusDropdownOpen(!statusDropdownOpen)}
+                className="bg-white border border-gg-gray-300 rounded-lg px-3 py-2 text-black text-sm flex items-center gap-2 min-w-[140px]"
+              >
+                <span>
+                  {countyStatuses.size === 0
+                    ? 'No Status'
+                    : countyStatuses.size === 5
+                    ? 'All Statuses'
+                    : Array.from(countyStatuses).map(s => s.charAt(0).toUpperCase() + s.slice(1).replace('_', ' ')).join(', ')}
+                </span>
+                <svg className="w-4 h-4 ml-auto flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+              {statusDropdownOpen && (
+                <div className="absolute top-full left-0 mt-1 bg-white border border-gg-gray-300 rounded-lg shadow-lg z-20 min-w-[180px]">
+                  <label className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 cursor-pointer border-b border-gray-100">
+                    <input
+                      type="checkbox"
+                      checked={countyStatuses.size === 5}
+                      onChange={() => {
+                        if (countyStatuses.size === 5) {
+                          setCountyStatuses(new Set())
+                        } else {
+                          setCountyStatuses(new Set(['listed', 'live', 'sold', 'pending', 'no_sale']))
+                        }
+                      }}
+                      className="accent-pink-500"
+                    />
+                    <span className="text-sm text-black font-medium">Select All</span>
+                  </label>
+                  {[
+                    { value: 'sold', label: 'Sold' },
+                    { value: 'pending', label: 'Pending' },
+                    { value: 'listed', label: 'Listed' },
+                    { value: 'live', label: 'Live' },
+                    { value: 'no_sale', label: 'No Sale' },
+                  ].map(opt => (
+                    <label key={opt.value} className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={countyStatuses.has(opt.value)}
+                        onChange={() => {
+                          const next = new Set(countyStatuses)
+                          if (next.has(opt.value)) {
+                            next.delete(opt.value)
+                          } else {
+                            next.add(opt.value)
+                          }
+                          setCountyStatuses(next)
+                        }}
+                        className="accent-pink-500"
+                      />
+                      <span className="text-sm text-black">{opt.label}</span>
+                    </label>
+                  ))}
+                  <div className="border-t border-gray-100 px-3 py-2">
+                    <button
+                      onClick={() => setStatusDropdownOpen(false)}
+                      className="text-sm text-gg-pink hover:underline w-full text-left"
+                    >
+                      Done
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Company Multi-Select */}
+            <div className="relative">
+              <button
+                onClick={() => setCompanyDropdownOpen(!companyDropdownOpen)}
+                className="bg-white border border-gg-gray-300 rounded-lg px-3 py-2 text-black text-sm flex items-center gap-2 min-w-[160px]"
+              >
+                <span className="truncate max-w-[200px]">
+                  {countyCompanyFilter.size === 0
+                    ? 'All Companies'
+                    : countyCompanyFilter.size === 1
+                    ? companies.find(c => countyCompanyFilter.has(c.id))?.name || '1 Company'
+                    : `${countyCompanyFilter.size} Companies`}
+                </span>
+                <svg className="w-4 h-4 ml-auto flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+              {companyDropdownOpen && (
+                <div className="absolute top-full left-0 mt-1 bg-white border border-gg-gray-300 rounded-lg shadow-lg z-20 min-w-[240px] max-h-[300px] overflow-y-auto">
+                  <label className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 cursor-pointer border-b border-gray-100">
+                    <input
+                      type="checkbox"
+                      checked={countyCompanyFilter.size === 0}
+                      onChange={() => setCountyCompanyFilter(new Set())}
+                      className="accent-pink-500"
+                    />
+                    <span className="text-sm text-black font-medium">All Companies</span>
+                  </label>
+                  {companies.map(c => (
+                    <label key={c.id} className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={countyCompanyFilter.has(c.id)}
+                        onChange={() => {
+                          const next = new Set(countyCompanyFilter)
+                          if (next.has(c.id)) {
+                            next.delete(c.id)
+                          } else {
+                            next.add(c.id)
+                          }
+                          setCountyCompanyFilter(next)
+                        }}
+                        className="accent-pink-500"
+                      />
+                      <span className="text-sm text-black">{c.name}</span>
+                    </label>
+                  ))}
+                  <div className="border-t border-gray-100 px-3 py-2 sticky bottom-0 bg-white">
+                    <button
+                      onClick={() => setCompanyDropdownOpen(false)}
+                      className="text-sm text-gg-pink hover:underline w-full text-left"
+                    >
+                      Done
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* State */}
             <select
               value={countyStateFilter}
               onChange={(e) => setCountyStateFilter(e.target.value)}
@@ -550,6 +692,8 @@ export default function AdminDashboard() {
               <option value="SD">South Dakota</option>
               <option value="WI">Wisconsin</option>
             </select>
+
+            {/* Date range */}
             <div className="flex items-center gap-2">
               <span className="text-gg-gray-400 text-sm">Date:</span>
               <input
@@ -566,36 +710,23 @@ export default function AdminDashboard() {
                 className="bg-white border border-gg-gray-300 rounded-lg px-3 py-2 text-black text-sm"
               />
             </div>
-            {(countyCompanyFilter !== 'all' || countyStateFilter !== 'all' || countyDateFrom || countyDateTo) && (
+
+            {(countyCompanyFilter.size > 0 || countyStateFilter !== 'all' || countyDateFrom || countyDateTo || countyListingType !== 'auction' || !countyStatuses.has('sold') || countyStatuses.size !== 1) && (
               <button
                 onClick={() => {
-                  setCountyCompanyFilter('all')
+                  setCountyCompanyFilter(new Set())
                   setCountyStateFilter('all')
                   setCountyDateFrom('')
                   setCountyDateTo('')
+                  setCountyListingType('auction')
+                  setCountyStatuses(new Set(['sold']))
                 }}
                 className="text-gg-pink text-sm hover:underline"
               >
-                Clear filters
+                Reset filters
               </button>
             )}
           </div>
-
-          {/* Company Legend */}
-          {countySalesData?.companies && countySalesData.companies.length > 0 && (
-            <div className="flex items-center gap-4 mb-4 text-sm flex-wrap">
-              <span className="text-gg-gray-400">Companies:</span>
-              {countySalesData.companies.map((comp, i) => (
-                <div key={comp.id} className="flex items-center gap-2">
-                  <div
-                    className="w-3 h-3 rounded-full"
-                    style={{ background: COMPANY_COLORS[i % COMPANY_COLORS.length] }}
-                  />
-                  <span className="text-gg-gray-300">{comp.name}</span>
-                </div>
-              ))}
-            </div>
-          )}
 
           {/* Map */}
           <div className="rounded-xl overflow-hidden">
@@ -616,6 +747,8 @@ export default function AdminDashboard() {
             onClose={() => setSelectedCountyDetail(null)}
             dateFrom={countyDateFrom}
             dateTo={countyDateTo}
+            listingType={countyListingType !== 'all' ? countyListingType : undefined}
+            statuses={countyStatuses.size > 0 ? Array.from(countyStatuses).join(',') : undefined}
           />
         )}
       </div>

@@ -39,6 +39,8 @@ interface CountyDetailPanelProps {
   onClose: () => void
   dateFrom?: string
   dateTo?: string
+  listingType?: string
+  statuses?: string
 }
 
 function formatCurrency(amount: number): string {
@@ -53,7 +55,7 @@ function formatAcres(acres: number): string {
 }
 
 export default function CountyDetailPanel({
-  county, state, onClose, dateFrom, dateTo
+  county, state, onClose, dateFrom, dateTo, listingType, statuses
 }: CountyDetailPanelProps) {
   const [data, setData] = useState<CountyDetailData | null>(null)
   const [loading, setLoading] = useState(false)
@@ -66,13 +68,15 @@ export default function CountyDetailPanel({
     const params = new URLSearchParams({ county, state })
     if (dateFrom) params.set('date_from', dateFrom)
     if (dateTo) params.set('date_to', dateTo)
+    if (listingType) params.set('listing_type', listingType)
+    if (statuses) params.set('statuses', statuses)
 
     fetchWithAuth(`${API_URL}/api/admin/county-sales-detail?${params}`)
       .then(r => r.json())
       .then(setData)
       .catch(console.error)
       .finally(() => setLoading(false))
-  }, [county, state, dateFrom, dateTo])
+  }, [county, state, dateFrom, dateTo, listingType, statuses])
 
   if (!county) return null
 
