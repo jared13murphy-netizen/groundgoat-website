@@ -493,7 +493,7 @@ export default function AdminStagingPage() {
       return
     }
     try {
-      const response = await fetchWithAuth(`${API_URL}/api/admin/staging/clear-all`, {
+      const response = await fetchWithAuth(`${API_URL}/api/admin/staging/clear-all?listing_type=auction`, {
         method: 'DELETE',
       })
       if (response.ok) {

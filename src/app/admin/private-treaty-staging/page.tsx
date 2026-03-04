@@ -469,7 +469,7 @@ export default function AdminPrivateTreatyStagingPage() {
       return
     }
     try {
-      const response = await fetchWithAuth(`${API_URL}/api/admin/staging/clear-all`, {
+      const response = await fetchWithAuth(`${API_URL}/api/admin/staging/clear-all?listing_type=private_treaty`, {
         method: 'DELETE',
       })
       if (response.ok) {
