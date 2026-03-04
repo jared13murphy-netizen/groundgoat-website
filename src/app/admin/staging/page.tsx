@@ -213,6 +213,11 @@ export default function AdminStagingPage() {
     current_url: string | null
     progress: string
     total_scraped: number
+    phase: string | null
+    phase_detail: string | null
+    companies_total: number
+    companies_checked: number
+    discovery_urls_found: number
   } | null>(null)
   const [stoppingScraper, setStoppingScraper] = useState(false)
   const [startingScraper, setStartingScraper] = useState(false)
@@ -735,13 +740,39 @@ export default function AdminStagingPage() {
             {scraperStatus.running ? (
               <>
                 <Loader2 className="animate-spin text-gg-pink shrink-0" size={16} />
-                <span className="text-white flex-1">
-                  <span className="font-semibold">Scraper Running:</span>{' '}
-                  {scraperStatus.progress} URLs
-                  {scraperStatus.current_url && (
-                    <span className="text-gg-gray-400"> — Currently scraping: {scraperStatus.current_url}</span>
+                <div className="text-white flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold">Scraper Running</span>
+                    {scraperStatus.phase === 'discovery' && (
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 font-medium">Discovery</span>
+                    )}
+                    {scraperStatus.phase === 'scraping' && (
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-gg-pink/20 text-gg-pink font-medium">Scraping</span>
+                    )}
+                  </div>
+                  {scraperStatus.phase === 'discovery' ? (
+                    <div className="text-sm text-gg-gray-300 mt-1">
+                      <span>Companies: {scraperStatus.companies_checked}/{scraperStatus.companies_total}</span>
+                      {scraperStatus.discovery_urls_found > 0 && (
+                        <span className="text-green-400 ml-3">{scraperStatus.discovery_urls_found} new URLs found</span>
+                      )}
+                      {scraperStatus.phase_detail && (
+                        <div className="text-gg-gray-400 text-xs mt-0.5 truncate">{scraperStatus.phase_detail}</div>
+                      )}
+                    </div>
+                  ) : scraperStatus.phase === 'scraping' ? (
+                    <div className="text-sm text-gg-gray-300 mt-1">
+                      <span>{scraperStatus.progress} URLs scraped</span>
+                      {scraperStatus.current_url && (
+                        <div className="text-gg-gray-400 text-xs mt-0.5 truncate">{scraperStatus.current_url}</div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="text-sm text-gg-gray-300 mt-1">
+                      {scraperStatus.progress} URLs
+                    </div>
                   )}
-                </span>
+                </div>
                 <button
                   onClick={stopScraper}
                   disabled={stoppingScraper || scraperStatus.stopped}
@@ -757,6 +788,7 @@ export default function AdminStagingPage() {
                 <span className="text-gg-gray-300">
                   Last run: {new Date(scraperStatus.completed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} at {new Date(scraperStatus.completed_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
                   {scraperStatus.total_scraped > 0 && ` — ${scraperStatus.total_scraped} listings scraped`}
+                  {scraperStatus.phase_detail && ` (${scraperStatus.phase_detail})`}
                 </span>
               </>
             ) : null}
@@ -838,11 +870,30 @@ export default function AdminStagingPage() {
                 {scraperStatus?.running ? (
                   <>
                     <Loader2 className="animate-spin mx-auto mb-4 text-gg-pink" size={48} />
-                    <h2 className="text-xl font-bold text-white mb-2">Scraper is running</h2>
-                    <p className="text-gg-gray-400 mb-1">
-                      {scraperStatus.progress} URLs processed so far.
-                    </p>
-                    <p className="text-gg-gray-500 text-sm">New listings will appear here once the scraper finishes. This page auto-refreshes.</p>
+                    <h2 className="text-xl font-bold text-white mb-2">
+                      {scraperStatus.phase === 'discovery' ? 'Discovering listings...' : scraperStatus.phase === 'scraping' ? 'Scraping listings...' : 'Scraper is running'}
+                    </h2>
+                    {scraperStatus.phase === 'discovery' ? (
+                      <div className="text-gg-gray-400 mb-1">
+                        <p>Checking companies for new auction listings ({scraperStatus.companies_checked}/{scraperStatus.companies_total})</p>
+                        {scraperStatus.discovery_urls_found > 0 && (
+                          <p className="text-green-400 mt-1">{scraperStatus.discovery_urls_found} new URLs found so far</p>
+                        )}
+                        {scraperStatus.phase_detail && (
+                          <p className="text-gg-gray-500 text-sm mt-2">{scraperStatus.phase_detail}</p>
+                        )}
+                      </div>
+                    ) : scraperStatus.phase === 'scraping' ? (
+                      <div className="text-gg-gray-400 mb-1">
+                        <p>{scraperStatus.progress} URLs scraped</p>
+                        {scraperStatus.current_url && (
+                          <p className="text-gg-gray-500 text-sm mt-1 truncate max-w-xl mx-auto">{scraperStatus.current_url}</p>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-gg-gray-400 mb-1">{scraperStatus.progress} URLs processed so far.</p>
+                    )}
+                    <p className="text-gg-gray-500 text-sm mt-2">New listings will appear here once the scraper finishes. This page auto-refreshes.</p>
                   </>
                 ) : (
                   <>
