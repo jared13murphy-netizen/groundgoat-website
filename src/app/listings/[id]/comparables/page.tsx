@@ -1,10 +1,13 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import dynamic from 'next/dynamic'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import fetchWithAuth from '@/lib/fetchWithAuth'
-import { Loader2, ArrowLeft, MapPin, Mail, Check, BarChart3, Filter, CheckCircle } from 'lucide-react'
+import { Loader2, ArrowLeft, MapPin, Mail, Check, BarChart3, Filter, CheckCircle, List, Map } from 'lucide-react'
+
+const ComparablesMap = dynamic(() => import('@/components/map/ComparablesMap'), { ssr: false })
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=600'
@@ -45,9 +48,18 @@ interface Comparable {
   auction_date?: string
   primary_image_url?: string
   is_same_county?: boolean
+  latitude?: number | null
+  longitude?: number | null
   company?: Company
   company_name?: string
   listing_company?: Company
+}
+
+interface SearchCriteria {
+  county?: string
+  state?: string
+  subject_latitude?: number | null
+  subject_longitude?: number | null
 }
 
 interface User {
@@ -72,6 +84,8 @@ export default function ComparablesPage({ params }: { params: { id: string } }) 
   const [loadingComparables, setLoadingComparables] = useState(true)
   const [sendingEmail, setSendingEmail] = useState(false)
   const [emailSent, setEmailSent] = useState(false)
+  const [viewMode, setViewMode] = useState<'list' | 'map'>('list')
+  const [searchCriteria, setSearchCriteria] = useState<SearchCriteria | null>(null)
 
   useEffect(() => {
     checkAuth()
@@ -140,6 +154,7 @@ export default function ComparablesPage({ params }: { params: { id: string } }) 
       if (response.ok) {
         const data = await response.json()
         setComparables(data?.comparables || [])
+        setSearchCriteria(data?.search_criteria || null)
       }
     } catch (err) {
       console.error('Failed to fetch comparables:', err)
@@ -344,131 +359,200 @@ export default function ComparablesPage({ params }: { params: { id: string } }) 
           )}
         </div>
 
-        {/* Selection Hint */}
-        <div className="bg-gg-pink/10 border border-gg-pink/20 rounded-lg px-4 py-3 mb-4 flex items-center gap-2">
-          <span className="text-gg-pink">👆</span>
-          <span className="text-gg-pink text-sm font-medium">
-            Click comparables to select them for email
-          </span>
+        {/* Map / List Toggle */}
+        <div className="flex gap-2 mb-4">
+          <button
+            onClick={() => setViewMode('list')}
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              viewMode === 'list'
+                ? 'bg-gg-pink text-white'
+                : 'bg-gg-gray-800 text-gg-gray-400 hover:text-white'
+            }`}
+          >
+            <List size={16} />
+            List
+          </button>
+          <button
+            onClick={() => setViewMode('map')}
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              viewMode === 'map'
+                ? 'bg-gg-pink text-white'
+                : 'bg-gg-gray-800 text-gg-gray-400 hover:text-white'
+            }`}
+          >
+            <Map size={16} />
+            Map
+          </button>
         </div>
 
-        {/* Filter Info */}
-        <div className="flex items-center gap-2 text-gg-gray-500 text-sm mb-4">
-          <Filter size={14} />
-          <span>Showing sold tracts in {listing.state}, ranked by similarity</span>
-        </div>
-
-        {/* Results Count */}
-        {!loadingComparables && comparables.length > 0 && (
-          <div className="text-gg-gray-400 text-sm mb-4 font-medium">
-            {comparables.length} comparable{comparables.length !== 1 ? 's' : ''} found
-            {selectedIds.size > 0 && ` • ${selectedIds.size} selected`}
-            {comparables.filter(c => c.is_same_county).length > 0 && (
-              <span> ({comparables.filter(c => c.is_same_county).length} in same county)</span>
-            )}
-          </div>
-        )}
-
-        {/* Comparables List */}
-        {loadingComparables ? (
-          <div className="flex flex-col items-center justify-center py-12">
-            <Loader2 className="animate-spin text-gg-pink mb-4" size={32} />
-            <span className="text-gg-gray-400">Finding comparable sales...</span>
-          </div>
-        ) : comparables.length === 0 ? (
-          <div className="text-center py-12">
-            <BarChart3 className="mx-auto text-gg-gray-600 mb-4" size={48} />
-            <h3 className="text-white text-lg font-semibold mb-2">No Comparables Found</h3>
-            <p className="text-gg-gray-400 max-w-md mx-auto">
-              We couldn't find any comparable sales matching your criteria in {listing.state}.
-              Try checking back later as more sales are added.
-            </p>
-          </div>
+        {viewMode === 'map' ? (
+          /* Map View */
+          loadingComparables ? (
+            <div className="flex flex-col items-center justify-center py-12">
+              <Loader2 className="animate-spin text-gg-pink mb-4" size={32} />
+              <span className="text-gg-gray-400">Finding comparable sales...</span>
+            </div>
+          ) : comparables.length === 0 ? (
+            <div className="text-center py-12">
+              <BarChart3 className="mx-auto text-gg-gray-600 mb-4" size={48} />
+              <h3 className="text-white text-lg font-semibold mb-2">No Comparables Found</h3>
+              <p className="text-gg-gray-400 max-w-md mx-auto">
+                We couldn't find any comparable sales matching your criteria in {listing.state}.
+              </p>
+            </div>
+          ) : (
+            <ComparablesMap
+              comparables={comparables.map(c => ({
+                id: c.tract_id || c.id,
+                county: c.county,
+                state: c.state,
+                latitude: c.latitude,
+                longitude: c.longitude,
+                price_per_acre: c.price_per_acre,
+                total_acres: c.total_acres,
+                tract_number: c.tract_number,
+                company_name: c.company?.name || c.company_name || c.listing_company?.name,
+                auction_date: c.auction_datetime || c.auction_date,
+                is_same_county: c.is_same_county,
+              }))}
+              subjectCounty={listing.county}
+              subjectState={listing.state}
+              subjectLatitude={searchCriteria?.subject_latitude}
+              subjectLongitude={searchCriteria?.subject_longitude}
+              subjectAcres={tract.total_acres}
+              height="550px"
+            />
+          )
         ) : (
-          <div className="space-y-3">
-            {comparables.map((comp) => {
-              const itemId = comp.tract_id || comp.id
-              const isSelected = selectedIds.has(itemId)
+          /* List View */
+          <>
+            {/* Selection Hint */}
+            <div className="bg-gg-pink/10 border border-gg-pink/20 rounded-lg px-4 py-3 mb-4 flex items-center gap-2">
+              <span className="text-gg-pink">👆</span>
+              <span className="text-gg-pink text-sm font-medium">
+                Click comparables to select them for email
+              </span>
+            </div>
 
-              return (
-                <button
-                  key={itemId}
-                  onClick={() => toggleSelection(comp)}
-                  className={`w-full flex items-stretch bg-gg-gray-900 rounded-lg overflow-hidden border-2 transition-all text-left ${
-                    isSelected
-                      ? 'border-gg-pink shadow-lg shadow-gg-pink/20'
-                      : comp.is_same_county
-                        ? 'border-gg-pink/30 hover:border-gg-pink/50'
-                        : 'border-transparent hover:border-gg-gray-700'
-                  }`}
-                >
-                  {/* Image */}
-                  <div className="w-28 h-28 flex-shrink-0 bg-gg-gray-800">
-                    <img
-                      src={comp.primary_image_url || FALLBACK_IMAGE}
-                      alt=""
-                      className="w-full h-full object-cover"
-                      onError={(e) => { (e.target as HTMLImageElement).src = FALLBACK_IMAGE }}
-                    />
-                  </div>
+            {/* Filter Info */}
+            <div className="flex items-center gap-2 text-gg-gray-500 text-sm mb-4">
+              <Filter size={14} />
+              <span>Showing sold tracts in {listing.state}, ranked by similarity</span>
+            </div>
 
-                  {/* Content */}
-                  <div className="flex-1 p-3 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-white font-semibold truncate">
-                        {comp.county} County, {comp.state}
-                      </span>
-                      {comp.is_same_county && (
-                        <span className="px-2 py-0.5 bg-gg-pink/20 text-gg-pink text-xs font-semibold rounded">
-                          Same County
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-gg-pink text-sm mb-1">
-                      {comp.tract_number ? `Tract ${comp.tract_number} • ` : ''}
-                      Sold {formatDate(comp.auction_datetime || comp.auction_date)}
-                    </div>
-                    {getCompanyName(comp) && (
-                      <div className="text-gg-gray-400 text-sm mb-2 truncate">
-                        {getCompanyName(comp)}
+            {/* Results Count */}
+            {!loadingComparables && comparables.length > 0 && (
+              <div className="text-gg-gray-400 text-sm mb-4 font-medium">
+                {comparables.length} comparable{comparables.length !== 1 ? 's' : ''} found
+                {selectedIds.size > 0 && ` • ${selectedIds.size} selected`}
+                {comparables.filter(c => c.is_same_county).length > 0 && (
+                  <span> ({comparables.filter(c => c.is_same_county).length} in same county)</span>
+                )}
+              </div>
+            )}
+
+            {/* Comparables List */}
+            {loadingComparables ? (
+              <div className="flex flex-col items-center justify-center py-12">
+                <Loader2 className="animate-spin text-gg-pink mb-4" size={32} />
+                <span className="text-gg-gray-400">Finding comparable sales...</span>
+              </div>
+            ) : comparables.length === 0 ? (
+              <div className="text-center py-12">
+                <BarChart3 className="mx-auto text-gg-gray-600 mb-4" size={48} />
+                <h3 className="text-white text-lg font-semibold mb-2">No Comparables Found</h3>
+                <p className="text-gg-gray-400 max-w-md mx-auto">
+                  We couldn't find any comparable sales matching your criteria in {listing.state}.
+                  Try checking back later as more sales are added.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {comparables.map((comp) => {
+                  const itemId = comp.tract_id || comp.id
+                  const isSelected = selectedIds.has(itemId)
+
+                  return (
+                    <button
+                      key={itemId}
+                      onClick={() => toggleSelection(comp)}
+                      className={`w-full flex items-stretch bg-gg-gray-900 rounded-lg overflow-hidden border-2 transition-all text-left ${
+                        isSelected
+                          ? 'border-gg-pink shadow-lg shadow-gg-pink/20'
+                          : comp.is_same_county
+                            ? 'border-gg-pink/30 hover:border-gg-pink/50'
+                            : 'border-transparent hover:border-gg-gray-700'
+                      }`}
+                    >
+                      {/* Image */}
+                      <div className="w-28 h-28 flex-shrink-0 bg-gg-gray-800">
+                        <img
+                          src={comp.primary_image_url || FALLBACK_IMAGE}
+                          alt=""
+                          className="w-full h-full object-cover"
+                          onError={(e) => { (e.target as HTMLImageElement).src = FALLBACK_IMAGE }}
+                        />
                       </div>
-                    )}
 
-                    {/* Stats */}
-                    <div className="grid grid-cols-4 gap-2 text-center">
-                      <div>
-                        <div className="text-white font-medium text-sm">{formatAcres(comp.total_acres)}</div>
-                        <div className="text-gg-gray-500 text-xs">Acres</div>
-                      </div>
-                      <div>
-                        <div className="text-white font-medium text-sm">
-                          {comp.price_per_acre ? formatCurrency(comp.price_per_acre) : '—'}
+                      {/* Content */}
+                      <div className="flex-1 p-3 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-white font-semibold truncate">
+                            {comp.county} County, {comp.state}
+                          </span>
+                          {comp.is_same_county && (
+                            <span className="px-2 py-0.5 bg-gg-pink/20 text-gg-pink text-xs font-semibold rounded">
+                              Same County
+                            </span>
+                          )}
                         </div>
-                        <div className="text-gg-gray-500 text-xs">$/Acre</div>
-                      </div>
-                      <div>
-                        <div className="text-white font-medium text-sm">{formatPctTillable(comp.pct_tillable)}</div>
-                        <div className="text-gg-gray-500 text-xs">Tillable</div>
-                      </div>
-                      <div>
-                        <div className="text-white font-medium text-sm">{comp.soil_rating || '—'}</div>
-                        <div className="text-gg-gray-500 text-xs">Soil Rating</div>
-                      </div>
-                    </div>
-                  </div>
+                        <div className="text-gg-pink text-sm mb-1">
+                          {comp.tract_number ? `Tract ${comp.tract_number} • ` : ''}
+                          Sold {formatDate(comp.auction_datetime || comp.auction_date)}
+                        </div>
+                        {getCompanyName(comp) && (
+                          <div className="text-gg-gray-400 text-sm mb-2 truncate">
+                            {getCompanyName(comp)}
+                          </div>
+                        )}
 
-                  {/* Selection Indicator */}
-                  {isSelected && (
-                    <div className="flex items-center justify-center px-3 bg-gg-pink/10">
-                      <div className="w-6 h-6 bg-gg-pink rounded-full flex items-center justify-center">
-                        <Check size={14} className="text-white" />
+                        {/* Stats */}
+                        <div className="grid grid-cols-4 gap-2 text-center">
+                          <div>
+                            <div className="text-white font-medium text-sm">{formatAcres(comp.total_acres)}</div>
+                            <div className="text-gg-gray-500 text-xs">Acres</div>
+                          </div>
+                          <div>
+                            <div className="text-white font-medium text-sm">
+                              {comp.price_per_acre ? formatCurrency(comp.price_per_acre) : '—'}
+                            </div>
+                            <div className="text-gg-gray-500 text-xs">$/Acre</div>
+                          </div>
+                          <div>
+                            <div className="text-white font-medium text-sm">{formatPctTillable(comp.pct_tillable)}</div>
+                            <div className="text-gg-gray-500 text-xs">Tillable</div>
+                          </div>
+                          <div>
+                            <div className="text-white font-medium text-sm">{comp.soil_rating || '—'}</div>
+                            <div className="text-gg-gray-500 text-xs">Soil Rating</div>
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  )}
-                </button>
-              )
-            })}
-          </div>
+
+                      {/* Selection Indicator */}
+                      {isSelected && (
+                        <div className="flex items-center justify-center px-3 bg-gg-pink/10">
+                          <div className="w-6 h-6 bg-gg-pink rounded-full flex items-center justify-center">
+                            <Check size={14} className="text-white" />
+                          </div>
+                        </div>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
