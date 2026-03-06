@@ -194,18 +194,7 @@ export default function ComparablesMap({
       // Collect all coordinates for bounds fitting
       const allCoords: [number, number][] = [[subjectLng, subjectLat]]
 
-      // Create subject marker
-      const subjectEl = createMarkerElement(
-        true,
-        null,
-        subjectAcres || null
-      )
-      const subjectMarker = new maplibregl.Marker({ element: subjectEl })
-        .setLngLat([subjectLng, subjectLat])
-        .addTo(map)
-      markersRef.current.push(subjectMarker)
-
-      // Create comparable markers
+      // Create comparable markers first (subject added last so it renders on top)
       for (const comp of comparables) {
         let lng: number
         let lat: number
@@ -255,6 +244,17 @@ export default function ComparablesMap({
 
         markersRef.current.push(marker)
       }
+
+      // Create subject marker last so it renders on top of comparable pins
+      const subjectEl = createMarkerElement(
+        true,
+        null,
+        subjectAcres || null
+      )
+      const subjectMarker = new maplibregl.Marker({ element: subjectEl })
+        .setLngLat([subjectLng, subjectLat])
+        .addTo(map)
+      markersRef.current.push(subjectMarker)
 
       // Fit to bounds if we have multiple points
       if (allCoords.length > 1) {

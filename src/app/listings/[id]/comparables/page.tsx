@@ -296,6 +296,7 @@ export default function ComparablesPage({ params }: { params: { id: string } }) 
 
   const subjectPctTillable = getSubjectPctTillable()
   const canEmail = selectedIds.size > 0
+  const hasSubjectCoords = !!(searchCriteria?.subject_latitude && searchCriteria?.subject_longitude)
 
   return (
     <div className="min-h-screen bg-gg-black pt-24 pb-12">
@@ -359,33 +360,35 @@ export default function ComparablesPage({ params }: { params: { id: string } }) 
           )}
         </div>
 
-        {/* Map / List Toggle */}
-        <div className="flex gap-2 mb-4">
-          <button
-            onClick={() => setViewMode('list')}
-            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              viewMode === 'list'
-                ? 'bg-gg-pink text-white'
-                : 'bg-gg-gray-800 text-gg-gray-400 hover:text-white'
-            }`}
-          >
-            <List size={16} />
-            List
-          </button>
-          <button
-            onClick={() => setViewMode('map')}
-            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              viewMode === 'map'
-                ? 'bg-gg-pink text-white'
-                : 'bg-gg-gray-800 text-gg-gray-400 hover:text-white'
-            }`}
-          >
-            <Map size={16} />
-            Map
-          </button>
-        </div>
+        {/* Map / List Toggle — only shown when subject tract has coordinates */}
+        {hasSubjectCoords && (
+          <div className="flex gap-2 mb-4">
+            <button
+              onClick={() => setViewMode('list')}
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                viewMode === 'list'
+                  ? 'bg-gg-pink text-white'
+                  : 'bg-gg-gray-800 text-gg-gray-400 hover:text-white'
+              }`}
+            >
+              <List size={16} />
+              List
+            </button>
+            <button
+              onClick={() => setViewMode('map')}
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                viewMode === 'map'
+                  ? 'bg-gg-pink text-white'
+                  : 'bg-gg-gray-800 text-gg-gray-400 hover:text-white'
+              }`}
+            >
+              <Map size={16} />
+              Map
+            </button>
+          </div>
+        )}
 
-        {viewMode === 'map' ? (
+        {(viewMode === 'map' && hasSubjectCoords) ? (
           /* Map View */
           loadingComparables ? (
             <div className="flex flex-col items-center justify-center py-12">
