@@ -44,7 +44,6 @@ interface SaleDetail {
   county: string
   state: string
   township?: string | null
-  isComparable: boolean
 }
 
 interface ComparablesMapProps {
@@ -61,25 +60,6 @@ interface ComparablesMapProps {
 function getCountyCentroid(county: string, state: string): [number, number] | null {
   const key = `${county}, ${state}`
   return countyCentroids[key] || null
-}
-
-function hashCode(str: string): number {
-  let hash = 0
-  for (let i = 0; i < str.length; i++) {
-    hash = ((hash << 5) - hash) + str.charCodeAt(i)
-    hash |= 0
-  }
-  return hash
-}
-
-function getOffsetForId(id: string): { latOffset: number; lngOffset: number } {
-  const h = hashCode(id)
-  const angle = (Math.abs(h) % 360) * (Math.PI / 180)
-  const distance = 0.01 + (Math.abs(h % 100) / 100) * 0.02
-  return {
-    latOffset: Math.cos(angle) * distance,
-    lngOffset: Math.sin(angle) * distance,
-  }
 }
 
 function formatCurrency(amount: number | null | undefined): string {
@@ -111,7 +91,6 @@ export default function ComparablesMap({
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const markersRef = useRef<maplibregl.Marker[]>([])
-  const popupRef = useRef<maplibregl.Popup | null>(null)
   const [selectedSale, setSelectedSale] = useState<SaleDetail | null>(null)
 
   useEffect(() => {
@@ -129,7 +108,6 @@ export default function ComparablesMap({
       if (centroid) {
         [subjectLat, subjectLng] = centroid
       } else {
-        // Fallback to midwest center
         subjectLat = 40.0
         subjectLng = -89.5
       }
@@ -220,28 +198,30 @@ export default function ComparablesMap({
         },
       })
 
-      // Collect all coordinates for bounds fitting
+      // Bounds: fit to comparable pins + subject (not all state sales)
+      const comparableIds = new Set(comparables.map(c => String(c.id)))
       const allCoords: [number, number][] = [[subjectLng, subjectLat]]
 
-      // Create state sales markers first (non-bold, rendered behind comparables)
-      const comparableIds = new Set(comparables.map(c => c.id))
+      // Create markers for ALL sold tracts — each at its real lat/lng
       for (const sale of stateSales) {
-        if (comparableIds.has(sale.id) || !sale.latitude || !sale.longitude) continue
+        if (!sale.latitude || !sale.longitude) continue
 
         const el = createMarkerElement(
-          false,
           sale.price_per_acre || null,
-          sale.total_acres || null,
-          false // non-bold
+          sale.total_acres || null
         )
 
         const marker = new maplibregl.Marker({ element: el })
           .setLngLat([sale.longitude, sale.latitude])
           .addTo(map)
 
+        // Track comparable coords for bounds fitting
+        if (comparableIds.has(String(sale.id))) {
+          allCoords.push([sale.longitude, sale.latitude])
+        }
+
         // Click to open modal
         el.addEventListener('click', () => {
-          if (popupRef.current) popupRef.current.remove()
           setSelectedSale({
             auctionDate: sale.auction_date,
             totalAcres: sale.total_acres,
@@ -251,71 +231,14 @@ export default function ComparablesMap({
             county: sale.county,
             state: sale.state,
             township: sale.township,
-            isComparable: false,
           })
         })
 
         markersRef.current.push(marker)
       }
 
-      // Create comparable markers (bold, rendered on top of state sales)
-      for (const comp of comparables) {
-        let lng: number
-        let lat: number
-
-        if (comp.latitude && comp.longitude) {
-          lat = comp.latitude
-          lng = comp.longitude
-        } else {
-          const centroid = getCountyCentroid(comp.county, comp.state)
-          if (centroid) {
-            const offset = getOffsetForId(comp.id)
-            lat = centroid[0] + offset.latOffset
-            lng = centroid[1] + offset.lngOffset
-          } else {
-            continue // Skip if no coordinates available
-          }
-        }
-
-        allCoords.push([lng, lat])
-
-        const el = createMarkerElement(
-          false,
-          comp.price_per_acre || null,
-          comp.total_acres || null,
-          true // bold
-        )
-
-        const marker = new maplibregl.Marker({ element: el })
-          .setLngLat([lng, lat])
-          .addTo(map)
-
-        // Click to open modal
-        el.addEventListener('click', () => {
-          if (popupRef.current) popupRef.current.remove()
-          setSelectedSale({
-            auctionDate: comp.auction_date,
-            totalAcres: comp.total_acres,
-            companyName: comp.company_name,
-            salePrice: null, // comparables don't have sale_price from scoring endpoint
-            pricePerAcre: comp.price_per_acre,
-            county: comp.county,
-            state: comp.state,
-            township: null,
-            isComparable: true,
-          })
-        })
-
-        markersRef.current.push(marker)
-      }
-
-      // Create subject marker last so it renders on top of comparable pins
-      const subjectEl = createMarkerElement(
-        true,
-        null,
-        subjectAcres || null,
-        true
-      )
+      // Create subject marker last so it renders on top
+      const subjectEl = createSubjectMarkerElement(subjectAcres || null)
       const subjectMarker = new maplibregl.Marker({ element: subjectEl })
         .setLngLat([subjectLng, subjectLat])
         .addTo(map)
@@ -334,7 +257,6 @@ export default function ComparablesMap({
     return () => {
       markersRef.current.forEach(m => m.remove())
       markersRef.current = []
-      if (popupRef.current) popupRef.current.remove()
       map.remove()
       mapRef.current = null
     }
@@ -349,9 +271,7 @@ export default function ComparablesMap({
         <div className="sale-modal-overlay" onClick={() => setSelectedSale(null)}>
           <div className="sale-modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="sale-modal-header">
-              <h3 className="sale-modal-title">
-                {selectedSale.isComparable ? 'Comparable Sale' : 'Tract Sale'}
-              </h3>
+              <h3 className="sale-modal-title">Tract Sale</h3>
               <button className="sale-modal-close" onClick={() => setSelectedSale(null)}>✕</button>
             </div>
             <div className="sale-modal-body">
@@ -400,52 +320,61 @@ export default function ComparablesMap({
 }
 
 function createMarkerElement(
-  isSubject: boolean,
   pricePerAcre: number | null,
-  acres: number | null,
-  bold: boolean = true
+  acres: number | null
 ): HTMLDivElement {
   const container = document.createElement('div')
   container.className = 'comp-marker'
 
-  // Label above pin
   const label = document.createElement('div')
-  label.className = `comp-marker-label${isSubject ? ' subject' : ''}`
+  label.className = 'comp-marker-label'
 
-  if (isSubject) {
+  if (pricePerAcre) {
     const priceEl = document.createElement('div')
     priceEl.className = 'comp-marker-price'
-    priceEl.style.color = '#F58CDE'
-    priceEl.textContent = 'Subject Tract'
+    priceEl.textContent = `${formatCurrency(pricePerAcre)}/ac`
     label.appendChild(priceEl)
-    if (acres) {
-      const acresEl = document.createElement('div')
-      acresEl.className = 'comp-marker-acres'
-      acresEl.textContent = `${formatAcres(acres)} ac`
-      label.appendChild(acresEl)
-    }
-  } else {
-    if (pricePerAcre) {
-      const priceEl = document.createElement('div')
-      priceEl.className = 'comp-marker-price'
-      if (!bold) priceEl.style.fontWeight = '400'
-      priceEl.textContent = `${formatCurrency(pricePerAcre)}/ac`
-      label.appendChild(priceEl)
-    }
-    if (acres) {
-      const acresEl = document.createElement('div')
-      acresEl.className = 'comp-marker-acres'
-      if (!bold) acresEl.style.fontWeight = '400'
-      acresEl.textContent = `${formatAcres(acres)} ac`
-      label.appendChild(acresEl)
-    }
+  }
+  if (acres) {
+    const acresEl = document.createElement('div')
+    acresEl.className = 'comp-marker-acres'
+    acresEl.textContent = `${formatAcres(acres)} ac`
+    label.appendChild(acresEl)
   }
 
   container.appendChild(label)
 
-  // Pin dot
   const pin = document.createElement('div')
-  pin.className = `comp-marker-pin ${isSubject ? 'subject' : 'comparable'}`
+  pin.className = 'comp-marker-pin comparable'
+  container.appendChild(pin)
+
+  return container
+}
+
+function createSubjectMarkerElement(acres: number | null): HTMLDivElement {
+  const container = document.createElement('div')
+  container.className = 'comp-marker'
+
+  const label = document.createElement('div')
+  label.className = 'comp-marker-label subject'
+
+  const priceEl = document.createElement('div')
+  priceEl.className = 'comp-marker-price'
+  priceEl.style.color = '#F58CDE'
+  priceEl.textContent = 'Subject Tract'
+  label.appendChild(priceEl)
+
+  if (acres) {
+    const acresEl = document.createElement('div')
+    acresEl.className = 'comp-marker-acres'
+    acresEl.textContent = `${formatAcres(acres)} ac`
+    label.appendChild(acresEl)
+  }
+
+  container.appendChild(label)
+
+  const pin = document.createElement('div')
+  pin.className = 'comp-marker-pin subject'
   container.appendChild(pin)
 
   return container
