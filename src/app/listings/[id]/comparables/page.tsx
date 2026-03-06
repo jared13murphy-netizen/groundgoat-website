@@ -86,6 +86,7 @@ export default function ComparablesPage({ params }: { params: { id: string } }) 
   const [emailSent, setEmailSent] = useState(false)
   const [viewMode, setViewMode] = useState<'list' | 'map'>('list')
   const [searchCriteria, setSearchCriteria] = useState<SearchCriteria | null>(null)
+  const [stateSales, setStateSales] = useState<any[]>([])
 
   useEffect(() => {
     checkAuth()
@@ -155,6 +156,21 @@ export default function ComparablesPage({ params }: { params: { id: string } }) 
         const data = await response.json()
         setComparables(data?.comparables || [])
         setSearchCriteria(data?.search_criteria || null)
+
+        // Fetch all sold tracts in state for map background pins
+        if (listing?.state) {
+          try {
+            const salesResponse = await fetchWithAuth(
+              `${API_URL}/api/comparables/state-sales/${encodeURIComponent(listing.state)}`
+            )
+            if (salesResponse.ok) {
+              const salesData = await salesResponse.json()
+              setStateSales(salesData?.tracts || [])
+            }
+          } catch (e) {
+            console.log('Error fetching state sales:', e)
+          }
+        }
       }
     } catch (err) {
       console.error('Failed to fetch comparables:', err)
@@ -418,6 +434,7 @@ export default function ComparablesPage({ params }: { params: { id: string } }) 
                 auction_date: c.auction_datetime || c.auction_date,
                 is_same_county: c.is_same_county,
               }))}
+              stateSales={stateSales}
               subjectCounty={listing.county}
               subjectState={listing.state}
               subjectLatitude={searchCriteria?.subject_latitude}

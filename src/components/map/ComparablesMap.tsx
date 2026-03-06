@@ -21,8 +21,19 @@ interface ComparablePin {
   is_same_county?: boolean
 }
 
+interface StateSale {
+  id: string
+  latitude: number | null
+  longitude: number | null
+  price_per_acre: number | null
+  total_acres: number | null
+  county: string
+  auction_date: string | null
+}
+
 interface ComparablesMapProps {
   comparables: ComparablePin[]
+  stateSales?: StateSale[]
   subjectCounty: string
   subjectState: string
   subjectLatitude?: number | null
@@ -73,6 +84,7 @@ function formatDate(dateStr: string | null | undefined): string {
 
 export default function ComparablesMap({
   comparables,
+  stateSales = [],
   subjectCounty,
   subjectState,
   subjectLatitude,
@@ -191,6 +203,89 @@ export default function ComparablesMap({
         },
       })
 
+      // Add state sales background dots (GeoJSON circle layer for performance)
+      const comparableIds = new Set(comparables.map(c => c.id))
+      const salesFeatures = stateSales
+        .filter(s => !comparableIds.has(s.id) && s.latitude && s.longitude)
+        .map(s => ({
+          type: 'Feature' as const,
+          geometry: {
+            type: 'Point' as const,
+            coordinates: [s.longitude!, s.latitude!],
+          },
+          properties: {
+            id: s.id,
+            price_per_acre: s.price_per_acre || 0,
+            total_acres: s.total_acres || 0,
+            county: s.county || '',
+            auction_date: s.auction_date || '',
+          },
+        }))
+
+      if (salesFeatures.length > 0) {
+        map.addSource('state-sales', {
+          type: 'geojson',
+          data: {
+            type: 'FeatureCollection',
+            features: salesFeatures,
+          },
+        })
+        map.addLayer({
+          id: 'state-sales-circles',
+          type: 'circle',
+          source: 'state-sales',
+          paint: {
+            'circle-radius': 4,
+            'circle-color': '#6B7280',
+            'circle-stroke-color': '#ffffff',
+            'circle-stroke-width': 1,
+            'circle-opacity': 0.7,
+          },
+        })
+
+        // Click handler for state sales dots
+        map.on('click', 'state-sales-circles', (e) => {
+          if (!e.features || e.features.length === 0) return
+          const f = e.features[0]
+          const props = f.properties
+          const coords = (f.geometry as any).coordinates.slice() as [number, number]
+
+          if (popupRef.current) popupRef.current.remove()
+
+          const price = props.price_per_acre ? formatCurrency(props.price_per_acre) : '—'
+          const acres = props.total_acres ? formatAcres(props.total_acres) : '—'
+          const county = props.county || ''
+          const date = props.auction_date ? formatDate(props.auction_date) : '—'
+
+          const html = [
+            `<div class="comp-popup-title">${county} County</div>`,
+            `<div class="comp-popup-stat"><span class="comp-popup-stat-label">$/Acre</span><span class="comp-popup-stat-value">${price}</span></div>`,
+            `<div class="comp-popup-stat"><span class="comp-popup-stat-label">Acres</span><span class="comp-popup-stat-value">${acres}</span></div>`,
+            `<div class="comp-popup-stat"><span class="comp-popup-stat-label">Sale Date</span><span class="comp-popup-stat-value">${date}</span></div>`,
+          ].join('')
+
+          const popup = new maplibregl.Popup({
+            offset: 10,
+            className: 'comp-popup',
+            closeButton: true,
+            maxWidth: '240px',
+          })
+            .setLngLat(coords)
+            .setHTML(html)
+            .addTo(map)
+
+          popupRef.current = popup
+        })
+
+        // Cursor change on hover
+        map.on('mouseenter', 'state-sales-circles', () => {
+          map.getCanvas().style.cursor = 'pointer'
+        })
+        map.on('mouseleave', 'state-sales-circles', () => {
+          map.getCanvas().style.cursor = ''
+        })
+      }
+
       // Collect all coordinates for bounds fitting
       const allCoords: [number, number][] = [[subjectLng, subjectLat]]
 
@@ -273,7 +368,7 @@ export default function ComparablesMap({
       map.remove()
       mapRef.current = null
     }
-  }, [comparables, subjectCounty, subjectState, subjectLatitude, subjectLongitude, subjectAcres])
+  }, [comparables, stateSales, subjectCounty, subjectState, subjectLatitude, subjectLongitude, subjectAcres])
 
   return (
     <div className="comparables-map-container" style={{ height }}>
