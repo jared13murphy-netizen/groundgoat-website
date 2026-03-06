@@ -138,6 +138,59 @@ export default function ComparablesMap({
     mapRef.current = map
 
     map.on('load', () => {
+      // Add county boundaries
+      map.addSource('counties', {
+        type: 'geojson',
+        data: '/data/us-counties.json',
+      })
+      map.addLayer({
+        id: 'county-borders',
+        type: 'line',
+        source: 'counties',
+        paint: {
+          'line-color': '#888888',
+          'line-width': ['interpolate', ['linear'], ['zoom'], 3, 0.1, 5, 0.3, 7, 0.6, 10, 1.0],
+          'line-opacity': 0.35,
+        },
+      })
+
+      // Add state boundaries (bolder than counties)
+      map.addSource('states', {
+        type: 'geojson',
+        data: '/data/us-states.json',
+      })
+      map.addLayer({
+        id: 'state-borders',
+        type: 'line',
+        source: 'states',
+        paint: {
+          'line-color': '#bbbbbb',
+          'line-width': ['interpolate', ['linear'], ['zoom'], 3, 0.8, 5, 1.5, 7, 2.0, 10, 2.5],
+          'line-opacity': 0.6,
+        },
+      })
+
+      // Add county name labels
+      map.addLayer({
+        id: 'county-labels',
+        type: 'symbol',
+        source: 'counties',
+        minzoom: 7,
+        layout: {
+          'text-field': ['get', 'NAME'],
+          'text-font': ['Open Sans Regular'],
+          'text-size': ['interpolate', ['linear'], ['zoom'], 7, 10, 10, 14],
+          'text-anchor': 'center',
+          'text-max-width': 8,
+        },
+        paint: {
+          'text-color': '#555555',
+          'text-halo-color': '#ffffff',
+          'text-halo-width': 1.5,
+          'text-opacity': 0.75,
+        },
+      })
+
       // Collect all coordinates for bounds fitting
       const allCoords: [number, number][] = [[subjectLng, subjectLat]]
 
