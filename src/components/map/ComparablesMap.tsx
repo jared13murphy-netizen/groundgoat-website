@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useEffect } from 'react'
+import { useRef, useEffect, useState } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import './ComparablesMap.css'
@@ -27,8 +27,24 @@ interface StateSale {
   longitude: number | null
   price_per_acre: number | null
   total_acres: number | null
+  sale_price: number | null
   county: string
+  state: string
+  township: string | null
   auction_date: string | null
+  company_name: string | null
+}
+
+interface SaleDetail {
+  auctionDate?: string | null
+  totalAcres?: number | null
+  companyName?: string | null
+  salePrice?: number | null
+  pricePerAcre?: number | null
+  county: string
+  state: string
+  township?: string | null
+  isComparable: boolean
 }
 
 interface ComparablesMapProps {
@@ -96,6 +112,7 @@ export default function ComparablesMap({
   const mapRef = useRef<maplibregl.Map | null>(null)
   const markersRef = useRef<maplibregl.Marker[]>([])
   const popupRef = useRef<maplibregl.Popup | null>(null)
+  const [selectedSale, setSelectedSale] = useState<SaleDetail | null>(null)
 
   useEffect(() => {
     if (!mapContainerRef.current) return
@@ -203,93 +220,45 @@ export default function ComparablesMap({
         },
       })
 
-      // Add state sales background dots (GeoJSON circle layer for performance)
-      const comparableIds = new Set(comparables.map(c => c.id))
-      const salesFeatures = stateSales
-        .filter(s => !comparableIds.has(s.id) && s.latitude && s.longitude)
-        .map(s => ({
-          type: 'Feature' as const,
-          geometry: {
-            type: 'Point' as const,
-            coordinates: [s.longitude!, s.latitude!],
-          },
-          properties: {
-            id: s.id,
-            price_per_acre: s.price_per_acre || 0,
-            total_acres: s.total_acres || 0,
-            county: s.county || '',
-            auction_date: s.auction_date || '',
-          },
-        }))
-
-      if (salesFeatures.length > 0) {
-        map.addSource('state-sales', {
-          type: 'geojson',
-          data: {
-            type: 'FeatureCollection',
-            features: salesFeatures,
-          },
-        })
-        map.addLayer({
-          id: 'state-sales-circles',
-          type: 'circle',
-          source: 'state-sales',
-          paint: {
-            'circle-radius': 4,
-            'circle-color': '#6B7280',
-            'circle-stroke-color': '#ffffff',
-            'circle-stroke-width': 1,
-            'circle-opacity': 0.7,
-          },
-        })
-
-        // Click handler for state sales dots
-        map.on('click', 'state-sales-circles', (e) => {
-          if (!e.features || e.features.length === 0) return
-          const f = e.features[0]
-          const props = f.properties
-          const coords = (f.geometry as any).coordinates.slice() as [number, number]
-
-          if (popupRef.current) popupRef.current.remove()
-
-          const price = props.price_per_acre ? formatCurrency(props.price_per_acre) : '—'
-          const acres = props.total_acres ? formatAcres(props.total_acres) : '—'
-          const county = props.county || ''
-          const date = props.auction_date ? formatDate(props.auction_date) : '—'
-
-          const html = [
-            `<div class="comp-popup-title">${county} County</div>`,
-            `<div class="comp-popup-stat"><span class="comp-popup-stat-label">$/Acre</span><span class="comp-popup-stat-value">${price}</span></div>`,
-            `<div class="comp-popup-stat"><span class="comp-popup-stat-label">Acres</span><span class="comp-popup-stat-value">${acres}</span></div>`,
-            `<div class="comp-popup-stat"><span class="comp-popup-stat-label">Sale Date</span><span class="comp-popup-stat-value">${date}</span></div>`,
-          ].join('')
-
-          const popup = new maplibregl.Popup({
-            offset: 10,
-            className: 'comp-popup',
-            closeButton: true,
-            maxWidth: '240px',
-          })
-            .setLngLat(coords)
-            .setHTML(html)
-            .addTo(map)
-
-          popupRef.current = popup
-        })
-
-        // Cursor change on hover
-        map.on('mouseenter', 'state-sales-circles', () => {
-          map.getCanvas().style.cursor = 'pointer'
-        })
-        map.on('mouseleave', 'state-sales-circles', () => {
-          map.getCanvas().style.cursor = ''
-        })
-      }
-
       // Collect all coordinates for bounds fitting
       const allCoords: [number, number][] = [[subjectLng, subjectLat]]
 
-      // Create comparable markers first (subject added last so it renders on top)
+      // Create state sales markers first (non-bold, rendered behind comparables)
+      const comparableIds = new Set(comparables.map(c => c.id))
+      for (const sale of stateSales) {
+        if (comparableIds.has(sale.id) || !sale.latitude || !sale.longitude) continue
+
+        const el = createMarkerElement(
+          false,
+          sale.price_per_acre || null,
+          sale.total_acres || null,
+          false // non-bold
+        )
+
+        const marker = new maplibregl.Marker({ element: el })
+          .setLngLat([sale.longitude, sale.latitude])
+          .addTo(map)
+
+        // Click to open modal
+        el.addEventListener('click', () => {
+          if (popupRef.current) popupRef.current.remove()
+          setSelectedSale({
+            auctionDate: sale.auction_date,
+            totalAcres: sale.total_acres,
+            companyName: sale.company_name,
+            salePrice: sale.sale_price,
+            pricePerAcre: sale.price_per_acre,
+            county: sale.county,
+            state: sale.state,
+            township: sale.township,
+            isComparable: false,
+          })
+        })
+
+        markersRef.current.push(marker)
+      }
+
+      // Create comparable markers (bold, rendered on top of state sales)
       for (const comp of comparables) {
         let lng: number
         let lat: number
@@ -313,28 +282,28 @@ export default function ComparablesMap({
         const el = createMarkerElement(
           false,
           comp.price_per_acre || null,
-          comp.total_acres || null
+          comp.total_acres || null,
+          true // bold
         )
 
         const marker = new maplibregl.Marker({ element: el })
           .setLngLat([lng, lat])
           .addTo(map)
 
-        // Click popup
+        // Click to open modal
         el.addEventListener('click', () => {
           if (popupRef.current) popupRef.current.remove()
-
-          const popup = new maplibregl.Popup({
-            offset: 25,
-            className: 'comp-popup',
-            closeButton: true,
-            maxWidth: '280px',
+          setSelectedSale({
+            auctionDate: comp.auction_date,
+            totalAcres: comp.total_acres,
+            companyName: comp.company_name,
+            salePrice: null, // comparables don't have sale_price from scoring endpoint
+            pricePerAcre: comp.price_per_acre,
+            county: comp.county,
+            state: comp.state,
+            township: null,
+            isComparable: true,
           })
-            .setLngLat([lng, lat])
-            .setHTML(buildPopupHTML(comp))
-            .addTo(map)
-
-          popupRef.current = popup
         })
 
         markersRef.current.push(marker)
@@ -344,7 +313,8 @@ export default function ComparablesMap({
       const subjectEl = createMarkerElement(
         true,
         null,
-        subjectAcres || null
+        subjectAcres || null,
+        true
       )
       const subjectMarker = new maplibregl.Marker({ element: subjectEl })
         .setLngLat([subjectLng, subjectLat])
@@ -373,6 +343,58 @@ export default function ComparablesMap({
   return (
     <div className="comparables-map-container" style={{ height }}>
       <div ref={mapContainerRef} style={{ width: '100%', height: '100%' }} />
+
+      {/* Sale Detail Modal */}
+      {selectedSale && (
+        <div className="sale-modal-overlay" onClick={() => setSelectedSale(null)}>
+          <div className="sale-modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="sale-modal-header">
+              <h3 className="sale-modal-title">
+                {selectedSale.isComparable ? 'Comparable Sale' : 'Tract Sale'}
+              </h3>
+              <button className="sale-modal-close" onClick={() => setSelectedSale(null)}>✕</button>
+            </div>
+            <div className="sale-modal-body">
+              <div className="sale-modal-row">
+                <span className="sale-modal-label">Date Sold</span>
+                <span className="sale-modal-value">{formatDate(selectedSale.auctionDate)}</span>
+              </div>
+              <div className="sale-modal-row">
+                <span className="sale-modal-label">Sold Acres</span>
+                <span className="sale-modal-value">
+                  {selectedSale.totalAcres ? formatAcres(selectedSale.totalAcres) + ' ac' : '—'}
+                </span>
+              </div>
+              <div className="sale-modal-row">
+                <span className="sale-modal-label">Listing Company</span>
+                <span className="sale-modal-value">{selectedSale.companyName || '—'}</span>
+              </div>
+              <div className="sale-modal-row">
+                <span className="sale-modal-label">Total Sale Price</span>
+                <span className="sale-modal-value">{formatCurrency(selectedSale.salePrice)}</span>
+              </div>
+              <div className="sale-modal-row">
+                <span className="sale-modal-label">Price/Acre</span>
+                <span className="sale-modal-value">
+                  {selectedSale.pricePerAcre ? formatCurrency(selectedSale.pricePerAcre) + '/ac' : '—'}
+                </span>
+              </div>
+              <div className="sale-modal-row">
+                <span className="sale-modal-label">County</span>
+                <span className="sale-modal-value">{selectedSale.county || '—'}</span>
+              </div>
+              <div className="sale-modal-row">
+                <span className="sale-modal-label">State</span>
+                <span className="sale-modal-value">{selectedSale.state || '—'}</span>
+              </div>
+              <div className="sale-modal-row" style={{ borderBottom: 'none' }}>
+                <span className="sale-modal-label">Township</span>
+                <span className="sale-modal-value">{selectedSale.township || '—'}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -380,7 +402,8 @@ export default function ComparablesMap({
 function createMarkerElement(
   isSubject: boolean,
   pricePerAcre: number | null,
-  acres: number | null
+  acres: number | null,
+  bold: boolean = true
 ): HTMLDivElement {
   const container = document.createElement('div')
   container.className = 'comp-marker'
@@ -405,12 +428,14 @@ function createMarkerElement(
     if (pricePerAcre) {
       const priceEl = document.createElement('div')
       priceEl.className = 'comp-marker-price'
+      if (!bold) priceEl.style.fontWeight = '400'
       priceEl.textContent = `${formatCurrency(pricePerAcre)}/ac`
       label.appendChild(priceEl)
     }
     if (acres) {
       const acresEl = document.createElement('div')
       acresEl.className = 'comp-marker-acres'
+      if (!bold) acresEl.style.fontWeight = '400'
       acresEl.textContent = `${formatAcres(acres)} ac`
       label.appendChild(acresEl)
     }
@@ -424,32 +449,4 @@ function createMarkerElement(
   container.appendChild(pin)
 
   return container
-}
-
-function buildPopupHTML(comp: ComparablePin): string {
-  const county = `${comp.county} County, ${comp.state}`
-  const lines: string[] = [
-    `<div class="comp-popup-title">${county}</div>`,
-  ]
-
-  if (comp.tract_number) {
-    lines.push(`<div class="comp-popup-stat"><span class="comp-popup-stat-label">Tract</span><span class="comp-popup-stat-value">${comp.tract_number}</span></div>`)
-  }
-  if (comp.total_acres) {
-    lines.push(`<div class="comp-popup-stat"><span class="comp-popup-stat-label">Acres</span><span class="comp-popup-stat-value">${formatAcres(comp.total_acres)}</span></div>`)
-  }
-  if (comp.price_per_acre) {
-    lines.push(`<div class="comp-popup-stat"><span class="comp-popup-stat-label">$/Acre</span><span class="comp-popup-stat-value">${formatCurrency(comp.price_per_acre)}</span></div>`)
-  }
-  if (comp.auction_date) {
-    lines.push(`<div class="comp-popup-stat"><span class="comp-popup-stat-label">Sale Date</span><span class="comp-popup-stat-value">${formatDate(comp.auction_date)}</span></div>`)
-  }
-  if (comp.company_name) {
-    lines.push(`<div class="comp-popup-stat"><span class="comp-popup-stat-label">Company</span><span class="comp-popup-stat-value">${comp.company_name}</span></div>`)
-  }
-  if (comp.is_same_county) {
-    lines.push(`<div style="margin-top: 6px; padding: 2px 8px; background: rgba(245,140,222,0.2); border-radius: 4px; text-align: center; font-size: 11px; color: #F58CDE; font-weight: 600;">Same County</div>`)
-  }
-
-  return lines.join('')
 }
