@@ -36,6 +36,7 @@ interface StateSale {
 }
 
 interface SaleDetail {
+  id: string
   auctionDate?: string | null
   totalAcres?: number | null
   companyName?: string | null
@@ -55,6 +56,8 @@ interface ComparablesMapProps {
   subjectLongitude?: number | null
   subjectAcres?: number | null
   height?: string
+  selectedIds?: Set<string>
+  toggleSelection?: (item: any) => void
 }
 
 function getCountyCentroid(county: string, state: string): [number, number] | null {
@@ -87,10 +90,13 @@ export default function ComparablesMap({
   subjectLongitude,
   subjectAcres,
   height = '500px',
+  selectedIds = new Set<string>(),
+  toggleSelection,
 }: ComparablesMapProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const markersRef = useRef<maplibregl.Marker[]>([])
+  const markerElementsRef = useRef<Map<string, HTMLDivElement>>(new Map())
   const [selectedSale, setSelectedSale] = useState<SaleDetail | null>(null)
 
   useEffect(() => {
@@ -203,13 +209,16 @@ export default function ComparablesMap({
       const allCoords: [number, number][] = [[subjectLng, subjectLat]]
 
       // Create markers for ALL sold tracts — each at its real lat/lng
+      markerElementsRef.current.clear()
       for (const sale of stateSales) {
         if (!sale.latitude || !sale.longitude) continue
 
         const el = createMarkerElement(
           sale.price_per_acre || null,
-          sale.total_acres || null
+          sale.total_acres || null,
+          selectedIds.has(String(sale.id))
         )
+        markerElementsRef.current.set(String(sale.id), el)
 
         const marker = new maplibregl.Marker({ element: el })
           .setLngLat([sale.longitude, sale.latitude])
@@ -223,6 +232,7 @@ export default function ComparablesMap({
         // Click to open modal
         el.addEventListener('click', () => {
           setSelectedSale({
+            id: sale.id,
             auctionDate: sale.auction_date,
             totalAcres: sale.total_acres,
             companyName: sale.company_name,
@@ -261,6 +271,22 @@ export default function ComparablesMap({
       mapRef.current = null
     }
   }, [comparables, stateSales, subjectCounty, subjectState, subjectLatitude, subjectLongitude, subjectAcres])
+
+  // Update marker styles when selectedIds changes (without recreating map)
+  useEffect(() => {
+    markerElementsRef.current.forEach((el, id) => {
+      const label = el.querySelector('.comp-marker-label') as HTMLElement
+      const pin = el.querySelector('.comp-marker-pin') as HTMLElement
+      if (!label || !pin) return
+      if (selectedIds.has(id)) {
+        label.classList.add('selected')
+        pin.classList.add('selected')
+      } else {
+        label.classList.remove('selected')
+        pin.classList.remove('selected')
+      }
+    })
+  }, [selectedIds])
 
   return (
     <div className="comparables-map-container" style={{ height }}>
@@ -312,6 +338,22 @@ export default function ComparablesMap({
                 <span className="sale-modal-value">{selectedSale.township || '—'}</span>
               </div>
             </div>
+
+            {/* Add / Remove from email list */}
+            {toggleSelection && (() => {
+              const isInList = selectedIds.has(selectedSale.id)
+              return (
+                <button
+                  className={`sale-modal-action-btn ${isInList ? 'remove' : ''}`}
+                  onClick={() => {
+                    toggleSelection({ id: selectedSale.id })
+                    setSelectedSale(null)
+                  }}
+                >
+                  {isInList ? '− Remove from Email List' : '+ Add to Email List'}
+                </button>
+              )
+            })()}
           </div>
         </div>
       )}
@@ -321,13 +363,14 @@ export default function ComparablesMap({
 
 function createMarkerElement(
   pricePerAcre: number | null,
-  acres: number | null
+  acres: number | null,
+  isSelected: boolean = false
 ): HTMLDivElement {
   const container = document.createElement('div')
   container.className = 'comp-marker'
 
   const label = document.createElement('div')
-  label.className = 'comp-marker-label'
+  label.className = `comp-marker-label${isSelected ? ' selected' : ''}`
 
   if (pricePerAcre) {
     const priceEl = document.createElement('div')
@@ -345,7 +388,7 @@ function createMarkerElement(
   container.appendChild(label)
 
   const pin = document.createElement('div')
-  pin.className = 'comp-marker-pin comparable'
+  pin.className = `comp-marker-pin comparable${isSelected ? ' selected' : ''}`
   container.appendChild(pin)
 
   return container

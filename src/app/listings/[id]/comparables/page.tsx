@@ -441,6 +441,8 @@ export default function ComparablesPage({ params }: { params: { id: string } }) 
               subjectLongitude={searchCriteria?.subject_longitude}
               subjectAcres={tract.total_acres}
               height="550px"
+              selectedIds={selectedIds}
+              toggleSelection={toggleSelection}
             />
           )
         ) : (
