@@ -201,6 +201,7 @@ export default function AdminStagingPage() {
 
   // Company filter
   const [companyFilter, setCompanyFilter] = useState<string>('all')
+  const [companyCounts, setCompanyCounts] = useState<Record<string, number>>({})
 
   // Tab state
   const [activeTab, setActiveTab] = useState<'staging' | 'results'>('staging')
@@ -331,6 +332,9 @@ export default function AdminStagingPage() {
         if (data && Array.isArray(data.items)) {
           setListings(data.items)
           setTotalCount(data.total || data.items.length)
+          if (data.company_counts) {
+            setCompanyCounts(data.company_counts)
+          }
         } else if (Array.isArray(data)) {
           setListings(data)
           setTotalCount(data.length)
@@ -411,14 +415,10 @@ export default function AdminStagingPage() {
     }
   }
 
-  // Get unique company names from listings for the filter dropdown
+  // Get unique company names from API-provided company_counts (across ALL pages)
   const companyNames = useMemo(() => {
-    const names = new Set<string>()
-    listings.forEach((l) => {
-      if (l.company_name) names.add(l.company_name)
-    })
-    return Array.from(names).sort()
-  }, [listings])
+    return Object.keys(companyCounts).sort()
+  }, [companyCounts])
 
   // Filtered listings
   const filteredListings = useMemo(() => {
@@ -893,10 +893,10 @@ export default function AdminStagingPage() {
                 onChange={(e) => setCompanyFilter(e.target.value)}
                 className="appearance-none bg-gg-gray-800 border border-gg-gray-700 text-white rounded-lg px-4 py-2 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-gg-pink"
               >
-                <option value="all">All Companies ({listings.length})</option>
+                <option value="all">All Companies ({totalCount})</option>
                 {companyNames.map((name) => (
                   <option key={name} value={name}>
-                    {name} ({listings.filter((l) => l.company_name === name).length})
+                    {name} ({companyCounts[name] || 0})
                   </option>
                 ))}
               </select>
