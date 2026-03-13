@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -21,6 +21,8 @@ import {
   AlertTriangle,
   Filter,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Navigation,
   BarChart3,
   Clock,
@@ -184,6 +186,19 @@ export default function AdminStagingPage() {
   const [listings, setListings] = useState<StagingListing[]>([])
   const [screenshotModal, setScreenshotModal] = useState<string | null>(null)
 
+  // Pagination
+  const PAGE_SIZE = 20
+  const [page, setPage] = useState(0)
+  const [totalCount, setTotalCount] = useState(0)
+
+  // Lazy-loaded screenshots cache: staging_id -> base64
+  const [screenshotCache, setScreenshotCache] = useState<Record<number, string | null>>({})
+  const [loadingScreenshot, setLoadingScreenshot] = useState<number | null>(null)
+
+  // Lazy-loaded tract images cache: "staging_id-tract_index" -> base64
+  const [tractImageCache, setTractImageCache] = useState<Record<string, string | null>>({})
+  const [loadingTractImage, setLoadingTractImage] = useState<string | null>(null)
+
   // Company filter
   const [companyFilter, setCompanyFilter] = useState<string>('all')
 
@@ -232,7 +247,8 @@ export default function AdminStagingPage() {
           setScraperStatus(data)
           // Auto-refresh listings when scraper transitions from running → complete
           if (prevScraperRunning.current === true && data?.running === false) {
-            fetchStagingListings()
+            setPage(0)
+            fetchStagingListings(0)
             fetchRunLog()
           }
           prevScraperRunning.current = data?.running ?? null
@@ -303,14 +319,25 @@ export default function AdminStagingPage() {
     }
   }
 
-  const fetchStagingListings = async () => {
+  const fetchStagingListings = useCallback(async (pageNum?: number) => {
     setLoading(true)
     setFetchError(null)
+    const offset = (pageNum ?? page) * PAGE_SIZE
     try {
-      const response = await fetchWithAuth(`${API_URL}/api/admin/staging?status=pending&listing_type=auction`)
+      const response = await fetchWithAuth(`${API_URL}/api/admin/staging?status=pending&listing_type=auction&limit=${PAGE_SIZE}&offset=${offset}`)
       if (response.ok) {
         const data = await response.json()
-        setListings(Array.isArray(data) ? data : [])
+        // Handle both paginated response {items, total} and legacy array response
+        if (data && Array.isArray(data.items)) {
+          setListings(data.items)
+          setTotalCount(data.total || data.items.length)
+        } else if (Array.isArray(data)) {
+          setListings(data)
+          setTotalCount(data.length)
+        } else {
+          setListings([])
+          setTotalCount(0)
+        }
       } else {
         const errBody = await response.json().catch(() => null)
         setFetchError(errBody?.detail || errBody?.error || `Server returned ${response.status}`)
@@ -323,6 +350,47 @@ export default function AdminStagingPage() {
     } finally {
       setLoading(false)
     }
+  }, [page])
+
+  const loadScreenshot = async (listingId: number) => {
+    if (screenshotCache[listingId] !== undefined) return // Already loaded or loading
+    setLoadingScreenshot(listingId)
+    try {
+      const response = await fetchWithAuth(`${API_URL}/api/admin/staging/${listingId}/screenshot`)
+      if (response.ok) {
+        const data = await response.json()
+        setScreenshotCache(prev => ({ ...prev, [listingId]: data.screenshot_base64 }))
+      }
+    } catch (err) {
+      console.error('Failed to load screenshot:', err)
+    } finally {
+      setLoadingScreenshot(null)
+    }
+  }
+
+  const loadTractImage = async (listingId: number, tractIndex: number) => {
+    const key = `${listingId}-${tractIndex}`
+    if (tractImageCache[key] !== undefined) return // Already loaded or loading
+    setLoadingTractImage(key)
+    try {
+      const response = await fetchWithAuth(`${API_URL}/api/admin/staging/${listingId}/tract-image/${tractIndex}`)
+      if (response.ok) {
+        const data = await response.json()
+        setTractImageCache(prev => ({ ...prev, [key]: data.tract_image_base64 }))
+      }
+    } catch (err) {
+      console.error('Failed to load tract image:', err)
+    } finally {
+      setLoadingTractImage(null)
+    }
+  }
+
+  const goToPage = (newPage: number) => {
+    setPage(newPage)
+    setScreenshotCache({})
+    setTractImageCache({})
+    fetchStagingListings(newPage)
+    window.scrollTo(0, 0)
   }
 
   const fetchRunLog = async () => {
@@ -451,6 +519,7 @@ export default function AdminStagingPage() {
       })
       if (response.ok) {
         setListings((prev) => prev.filter((l) => l.id !== id))
+        setTotalCount((prev) => Math.max(0, prev - 1))
         showToast('success', 'Listing verified and created successfully')
       } else {
         const err = await response.json().catch(() => ({ detail: 'Unknown error' }))
@@ -471,6 +540,7 @@ export default function AdminStagingPage() {
       })
       if (response.ok) {
         setListings((prev) => prev.filter((l) => l.id !== id))
+        setTotalCount((prev) => Math.max(0, prev - 1))
         showToast('success', 'Listing rejected')
       } else {
         const err = await response.json().catch(() => ({ detail: 'Unknown error' }))
@@ -494,6 +564,8 @@ export default function AdminStagingPage() {
       if (response.ok) {
         const data = await response.json()
         setListings([])
+        setTotalCount(0)
+        setPage(0)
         showToast('success', `Cleared ${data.deleted} staging listings`)
       } else {
         const err = await response.json().catch(() => ({ detail: 'Unknown error' }))
@@ -686,7 +758,7 @@ export default function AdminStagingPage() {
             </Link>
             <div>
               <h1 className="font-display text-3xl font-bold text-white">Auction Staging</h1>
-              <p className="text-gg-gray-400">{filteredListings.length} pending listings to review</p>
+              <p className="text-gg-gray-400">{totalCount} pending listings to review{totalCount > PAGE_SIZE && ` (page ${page + 1} of ${Math.ceil(totalCount / PAGE_SIZE)})`}</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -717,7 +789,7 @@ export default function AdminStagingPage() {
               </button>
             )}
             <button
-              onClick={() => { fetchStagingListings(); fetchRunLog() }}
+              onClick={() => { setPage(0); fetchStagingListings(0); fetchRunLog() }}
               className="px-4 py-2 bg-gg-gray-800 text-white rounded-lg hover:bg-gg-gray-700 transition-colors text-sm"
             >
               Refresh
@@ -902,16 +974,16 @@ export default function AdminStagingPage() {
                     className="bg-gg-gray-900 border border-gg-gray-800 rounded-xl overflow-hidden"
                   >
                     <div className="flex flex-col lg:flex-row">
-                      {/* Thumbnail Screenshot — small, click to enlarge */}
+                      {/* Thumbnail Screenshot — lazy-loaded, click to enlarge */}
                       <div className="lg:w-52 flex-shrink-0 bg-gg-gray-800 p-3 flex flex-col gap-2">
-                        {listing.screenshot_base64 ? (
+                        {screenshotCache[listing.id] ? (
                           <button
-                            onClick={() => setScreenshotModal(`data:image/png;base64,${listing.screenshot_base64}`)}
+                            onClick={() => setScreenshotModal(`data:image/png;base64,${screenshotCache[listing.id]}`)}
                             className="block"
                             title="Click to enlarge"
                           >
                             <img
-                              src={`data:image/png;base64,${listing.screenshot_base64}`}
+                              src={`data:image/png;base64,${screenshotCache[listing.id]}`}
                               alt="Page screenshot"
                               className="w-full max-w-[200px] rounded-lg object-cover object-top cursor-pointer hover:opacity-80 transition-opacity border border-gg-gray-700"
                               style={{ maxHeight: '150px' }}
@@ -919,9 +991,20 @@ export default function AdminStagingPage() {
                             <span className="text-[10px] text-gg-gray-500 mt-1 block">Click to enlarge</span>
                           </button>
                         ) : (
-                          <div className="w-full h-24 flex items-center justify-center text-gg-gray-600 rounded-lg border border-gg-gray-700">
-                            <ImageIcon size={28} />
-                          </div>
+                          <button
+                            onClick={() => loadScreenshot(listing.id)}
+                            disabled={loadingScreenshot === listing.id}
+                            className="w-full h-24 flex flex-col items-center justify-center text-gg-gray-500 rounded-lg border border-gg-gray-700 hover:border-gg-gray-600 hover:text-gg-gray-400 transition-colors cursor-pointer"
+                          >
+                            {loadingScreenshot === listing.id ? (
+                              <Loader2 className="animate-spin" size={20} />
+                            ) : (
+                              <>
+                                <ImageIcon size={28} />
+                                <span className="text-[10px] mt-1">Load screenshot</span>
+                              </>
+                            )}
+                          </button>
                         )}
                         {/* Listing property image */}
                         {info.imageUrl && (
@@ -1049,20 +1132,37 @@ export default function AdminStagingPage() {
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                               {info.tracts.map((tract: any, idx: number) => (
                                 <div key={idx} className="bg-gg-gray-800/60 rounded-lg px-3 py-2 text-sm flex gap-3">
-                                  {/* Tract satellite image thumbnail */}
-                                  {tract.tract_image_base64 && (
-                                    <button
-                                      onClick={() => setScreenshotModal(`data:image/png;base64,${tract.tract_image_base64}`)}
-                                      className="flex-shrink-0"
-                                      title="Click to enlarge tract image"
-                                    >
-                                      <img
-                                        src={`data:image/png;base64,${tract.tract_image_base64}`}
-                                        alt={`Tract ${tract.tract_number ?? idx + 1}`}
-                                        className="w-16 h-16 rounded object-cover cursor-pointer hover:opacity-80 transition-opacity border border-gg-gray-700"
-                                      />
-                                    </button>
-                                  )}
+                                  {/* Tract satellite image thumbnail — lazy-loaded */}
+                                  {(tract.tract_image_base64 || tract.has_tract_image) && (() => {
+                                    const cacheKey = `${listing.id}-${idx}`
+                                    const cachedImage = tract.tract_image_base64 || tractImageCache[cacheKey]
+                                    return cachedImage ? (
+                                      <button
+                                        onClick={() => setScreenshotModal(`data:image/png;base64,${cachedImage}`)}
+                                        className="flex-shrink-0"
+                                        title="Click to enlarge tract image"
+                                      >
+                                        <img
+                                          src={`data:image/png;base64,${cachedImage}`}
+                                          alt={`Tract ${tract.tract_number ?? idx + 1}`}
+                                          className="w-16 h-16 rounded object-cover cursor-pointer hover:opacity-80 transition-opacity border border-gg-gray-700"
+                                        />
+                                      </button>
+                                    ) : (
+                                      <button
+                                        onClick={() => loadTractImage(listing.id, idx)}
+                                        disabled={loadingTractImage === cacheKey}
+                                        className="flex-shrink-0 w-16 h-16 rounded flex items-center justify-center border border-gg-gray-700 hover:border-gg-gray-600 text-gg-gray-500 hover:text-gg-gray-400 transition-colors cursor-pointer"
+                                        title="Load tract image"
+                                      >
+                                        {loadingTractImage === cacheKey ? (
+                                          <Loader2 className="animate-spin" size={14} />
+                                        ) : (
+                                          <ImageIcon size={16} />
+                                        )}
+                                      </button>
+                                    )
+                                  })()}
                                   <div className="flex-1 min-w-0">
                                     <div className="flex items-center justify-between">
                                       <span className="text-white font-medium">Tract {tract.tract_number ?? idx + 1}</span>
@@ -1142,6 +1242,31 @@ export default function AdminStagingPage() {
                 )
               })}
             </div>
+
+            {/* Pagination Controls */}
+            {totalCount > PAGE_SIZE && (
+              <div className="flex items-center justify-center gap-4 mt-6 mb-2">
+                <button
+                  onClick={() => goToPage(page - 1)}
+                  disabled={page === 0}
+                  className="flex items-center gap-1 px-4 py-2 bg-gg-gray-800 text-white rounded-lg hover:bg-gg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-sm"
+                >
+                  <ChevronLeft size={16} />
+                  Previous
+                </button>
+                <span className="text-sm text-gg-gray-400">
+                  Page {page + 1} of {Math.ceil(totalCount / PAGE_SIZE)} ({totalCount} total)
+                </span>
+                <button
+                  onClick={() => goToPage(page + 1)}
+                  disabled={(page + 1) * PAGE_SIZE >= totalCount}
+                  className="flex items-center gap-1 px-4 py-2 bg-gg-gray-800 text-white rounded-lg hover:bg-gg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-sm"
+                >
+                  Next
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+            )}
           </>
         )}
 
