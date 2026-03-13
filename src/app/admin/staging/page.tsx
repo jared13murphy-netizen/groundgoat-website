@@ -1048,35 +1048,51 @@ export default function AdminStagingPage() {
                             <p className="text-xs text-gg-gray-400 mb-2 font-medium uppercase tracking-wider">Tract Details</p>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                               {info.tracts.map((tract: any, idx: number) => (
-                                <div key={idx} className="bg-gg-gray-800/60 rounded-lg px-3 py-2 text-sm">
-                                  <div className="flex items-center justify-between">
-                                    <span className="text-white font-medium">Tract {tract.tract_number ?? idx + 1}</span>
-                                    {tract.acres && <span className="text-gg-gray-300">{tract.acres} ac</span>}
-                                  </div>
-                                  <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1 text-xs text-gg-gray-400">
-                                    {tract.tillable_acres != null && (
-                                      <span>Tillable: {tract.tillable_acres} ac</span>
-                                    )}
-                                    {tract.soil_rating != null && (
-                                      <span>Soil: {tract.soil_rating}</span>
-                                    )}
-                                    {tract.pi != null && (
-                                      <span>PI: {tract.pi}</span>
-                                    )}
-                                    {tract.county?.county_name && (
-                                      <span>{tract.county.county_name}{(tract.state_full || tract.state) ? `, ${tract.state_full || tract.state}` : ''}</span>
-                                    )}
-                                    {tract.latitude != null && tract.longitude != null && (
-                                      <span className="flex items-center gap-0.5">
-                                        <Navigation size={10} />
-                                        {Number(tract.latitude).toFixed(4)}, {Number(tract.longitude).toFixed(4)}
-                                      </span>
-                                    )}
-                                    {tract.land_type && (
-                                      <span className="text-gg-pink">{tract.land_type}</span>
-                                    )}
-                                    {tract.has_house && <span className="text-blue-400">House</span>}
-                                    {tract.has_building && <span className="text-amber-400">Building</span>}
+                                <div key={idx} className="bg-gg-gray-800/60 rounded-lg px-3 py-2 text-sm flex gap-3">
+                                  {/* Tract satellite image thumbnail */}
+                                  {tract.tract_image_base64 && (
+                                    <button
+                                      onClick={() => setScreenshotModal(`data:image/png;base64,${tract.tract_image_base64}`)}
+                                      className="flex-shrink-0"
+                                      title="Click to enlarge tract image"
+                                    >
+                                      <img
+                                        src={`data:image/png;base64,${tract.tract_image_base64}`}
+                                        alt={`Tract ${tract.tract_number ?? idx + 1}`}
+                                        className="w-16 h-16 rounded object-cover cursor-pointer hover:opacity-80 transition-opacity border border-gg-gray-700"
+                                      />
+                                    </button>
+                                  )}
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-white font-medium">Tract {tract.tract_number ?? idx + 1}</span>
+                                      {tract.acres && <span className="text-gg-gray-300">{tract.acres} ac</span>}
+                                    </div>
+                                    <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1 text-xs text-gg-gray-400">
+                                      {tract.tillable_acres != null && (
+                                        <span>Tillable: {tract.tillable_acres} ac</span>
+                                      )}
+                                      {tract.soil_rating != null && (
+                                        <span>Soil: {tract.soil_rating}</span>
+                                      )}
+                                      {tract.pi != null && (
+                                        <span>PI: {tract.pi}</span>
+                                      )}
+                                      {tract.county?.county_name && (
+                                        <span>{tract.county.county_name}{(tract.state_full || tract.state) ? `, ${tract.state_full || tract.state}` : ''}</span>
+                                      )}
+                                      {tract.latitude != null && tract.longitude != null && (
+                                        <span className="flex items-center gap-0.5">
+                                          <Navigation size={10} />
+                                          {Number(tract.latitude).toFixed(4)}, {Number(tract.longitude).toFixed(4)}
+                                        </span>
+                                      )}
+                                      {tract.land_type && (
+                                        <span className="text-gg-pink">{tract.land_type}</span>
+                                      )}
+                                      {tract.has_house && <span className="text-blue-400">House</span>}
+                                      {tract.has_building && <span className="text-amber-400">Building</span>}
+                                    </div>
                                   </div>
                                 </div>
                               ))}
