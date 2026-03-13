@@ -683,8 +683,8 @@ export default function AdminStagingPage() {
 
     return {
       acres: listing.acres_listed || null,
-      county: firstTract.county?.county_name || null,
-      state: listing.state_full || firstTract.state_full || firstTract.state || listing.state || null,
+      county: firstTract.county?.county_name || firstTract.county_name || listing.county || null,
+      state: listing.state_full || firstTract.state_full || firstTract.state || firstTract.state_abbr || listing.state || null,
       description: listing.description || null,
       tractCount: tracts.length,
       tracts: tracts,
@@ -1178,8 +1178,8 @@ export default function AdminStagingPage() {
                                       {tract.pi != null && (
                                         <span>PI: {tract.pi}</span>
                                       )}
-                                      {tract.county?.county_name && (
-                                        <span>{tract.county.county_name}{(tract.state_full || tract.state) ? `, ${tract.state_full || tract.state}` : ''}</span>
+                                      {(tract.county?.county_name || tract.county_name) && (
+                                        <span>{tract.county?.county_name || tract.county_name}{(tract.state_full || tract.state || tract.state_abbr) ? `, ${tract.state_full || tract.state || tract.state_abbr}` : ''}</span>
                                       )}
                                       {tract.latitude != null && tract.longitude != null && (
                                         <span className="flex items-center gap-0.5">
