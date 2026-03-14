@@ -225,7 +225,7 @@ export default function AdminStagingPage() {
 
   // Edit modal state
   const [editingListing, setEditingListing] = useState<StagingListing | null>(null)
-  const [editForm, setEditForm] = useState<EditForm>({ acres_listed: '', sale_date: '', auction_time: '', auction_url: '', image_url: '', description: '', tracts: [] })
+  const [editForm, setEditForm] = useState<EditForm>({ acres_listed: '', sale_date: '', auction_time: '', auction_url: '', image_url: '', description: '', primary_image_source: 'auto', tracts: [] })
   const [saving, setSaving] = useState(false)
 
   // Scraper status
