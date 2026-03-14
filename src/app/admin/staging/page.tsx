@@ -84,6 +84,7 @@ interface EditForm {
   auction_url: string
   image_url: string
   description: string
+  primary_image_source: string  // "original", "tract:1", "tract:2", etc.
   tracts: TractForm[]
 }
 
@@ -112,6 +113,9 @@ function buildEditForm(scraped: any): EditForm {
     } catch {}
   }
 
+  // Determine primary_image_source: check if previously set in scraped_data
+  const primaryImageSource = scraped?.primary_image_source || 'auto'
+
   return {
     acres_listed: listing.acres_listed != null ? String(listing.acres_listed) : '',
     sale_date: listing.sale_date || (listing.auction_datetime ? String(listing.auction_datetime).split('T')[0] : ''),
@@ -119,6 +123,7 @@ function buildEditForm(scraped: any): EditForm {
     auction_url: listing.auction_url || '',
     image_url: listing.image || listing.primary_image_url || '',
     description: listing.description || '',
+    primary_image_source: primaryImageSource,
     tracts: tracts.map((t: any, i: number) => ({
       tract_number: t.tract_number ?? i + 1,
       acres: t.acres != null ? String(t.acres) : '',
@@ -142,6 +147,9 @@ function applyEditToScrapedData(original: any, form: EditForm): any {
   updated.listing.auction_url = form.auction_url || null
   updated.listing.image = form.image_url || null
   updated.listing.primary_image_url = form.image_url || null
+
+  // Store primary image source selection at top level of scraped_data
+  updated.primary_image_source = form.primary_image_source || 'auto'
 
   // Store auction_datetime in scraped_data as a naive ISO string (no UTC conversion)
   // The auction time is in the auction's local timezone based on county/state
@@ -600,6 +608,11 @@ export default function AdminStagingPage() {
   const openEditModal = (listing: StagingListing) => {
     setEditingListing(listing)
     setEditForm(buildEditForm(listing.scraped_data))
+    // Auto-load tract images for the primary image selector
+    const tracts = listing.scraped_data?.tracts || []
+    tracts.forEach((_: any, idx: number) => {
+      loadTractImage(listing.id, idx)
+    })
   }
 
   const closeEditModal = () => {
@@ -1524,24 +1537,102 @@ export default function AdminStagingPage() {
                 />
               </div>
 
+              {/* Primary Image Selector */}
               <div>
-                <label className="block text-sm text-gg-gray-400 mb-1">Listing Image URL</label>
-                <input
-                  type="url"
-                  placeholder="https://..."
-                  value={editForm.image_url}
-                  onChange={(e) => setEditForm((prev) => ({ ...prev, image_url: e.target.value }))}
-                  className="w-full bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-4 py-2 text-white"
-                />
-                {editForm.image_url && (
-                  <img
-                    src={editForm.image_url}
-                    alt="Preview"
-                    className="mt-2 max-h-24 rounded-lg border border-gg-gray-700 object-cover"
-                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
-                  />
-                )}
+                <label className="block text-sm font-semibold text-white mb-2">Primary Listing Image</label>
+                <div className="space-y-2">
+                  {/* Auto option (default to first tract image) */}
+                  <label className="flex items-center gap-3 p-2 rounded-lg bg-gg-gray-800 border border-gg-gray-700 cursor-pointer hover:border-gg-pink/50 transition-colors">
+                    <input
+                      type="radio"
+                      name="primary_image_source"
+                      value="auto"
+                      checked={editForm.primary_image_source === 'auto'}
+                      onChange={() => setEditForm((prev) => ({ ...prev, primary_image_source: 'auto' }))}
+                      className="accent-pink-500"
+                    />
+                    <span className="text-sm text-gg-gray-300">Auto (first tract image, fallback to original)</span>
+                  </label>
+
+                  {/* Original image option */}
+                  <label className="flex items-center gap-3 p-2 rounded-lg bg-gg-gray-800 border border-gg-gray-700 cursor-pointer hover:border-gg-pink/50 transition-colors">
+                    <input
+                      type="radio"
+                      name="primary_image_source"
+                      value="original"
+                      checked={editForm.primary_image_source === 'original'}
+                      onChange={() => setEditForm((prev) => ({ ...prev, primary_image_source: 'original' }))}
+                      className="accent-pink-500"
+                    />
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gg-gray-300">Original Image</span>
+                      {editForm.image_url && (
+                        <img
+                          src={editForm.image_url}
+                          alt="Original"
+                          className="h-12 w-16 rounded border border-gg-gray-600 object-cover"
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                        />
+                      )}
+                    </div>
+                  </label>
+
+                  {/* Tract image options */}
+                  {editingListing && editForm.tracts.map((tract) => {
+                    const key = `${editingListing.id}-${tract.tract_number - 1}`
+                    const cachedImage = tractImageCache[key]
+                    const tractValue = `tract:${tract.tract_number}`
+
+                    return (
+                      <label
+                        key={tract.tract_number}
+                        className="flex items-center gap-3 p-2 rounded-lg bg-gg-gray-800 border border-gg-gray-700 cursor-pointer hover:border-gg-pink/50 transition-colors"
+                      >
+                        <input
+                          type="radio"
+                          name="primary_image_source"
+                          value={tractValue}
+                          checked={editForm.primary_image_source === tractValue}
+                          onChange={() => setEditForm((prev) => ({ ...prev, primary_image_source: tractValue }))}
+                          className="accent-pink-500"
+                        />
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm text-gg-gray-300">Tract {tract.tract_number}</span>
+                          {cachedImage ? (
+                            <img
+                              src={`data:image/png;base64,${cachedImage}`}
+                              alt={`Tract ${tract.tract_number}`}
+                              className="h-12 w-16 rounded border border-gg-gray-600 object-cover"
+                            />
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={(e) => { e.preventDefault(); loadTractImage(editingListing.id, tract.tract_number - 1) }}
+                              className="text-xs text-gg-pink hover:text-gg-pink/80"
+                            >
+                              {loadingTractImage === key ? 'Loading...' : 'Load preview'}
+                            </button>
+                          )}
+                        </div>
+                      </label>
+                    )
+                  })}
+                </div>
               </div>
+
+              {/* Listing Image URL (hidden when tract image is selected) */}
+              {(editForm.primary_image_source === 'original' || editForm.primary_image_source === 'auto') && (
+                <div>
+                  <label className="block text-sm text-gg-gray-400 mb-1">Listing Image URL</label>
+                  <input
+                    type="url"
+                    placeholder="https://..."
+                    value={editForm.image_url}
+                    onChange={(e) => setEditForm((prev) => ({ ...prev, image_url: e.target.value }))}
+                    className="w-full bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-4 py-2 text-white"
+                  />
+                </div>
+              )}
 
               <div>
                 <label className="block text-sm text-gg-gray-400 mb-1">Description</label>
