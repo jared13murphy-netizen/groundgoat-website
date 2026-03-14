@@ -553,6 +553,27 @@ export default function AdminStagingPage() {
     }
   }
 
+  const handleIgnore = async (id: number) => {
+    setActionLoading(id)
+    try {
+      const response = await fetchWithAuth(`${API_URL}/api/admin/staging/${id}/ignore`, {
+        method: 'POST',
+      })
+      if (response.ok) {
+        setListings((prev) => prev.filter((l) => l.id !== id))
+        setTotalCount((prev) => Math.max(0, prev - 1))
+        showToast('success', 'Listing ignored — will be re-scraped next run')
+      } else {
+        const err = await response.json().catch(() => ({ detail: 'Unknown error' }))
+        showToast('error', err.detail || err.error || 'Failed to ignore listing')
+      }
+    } catch (err) {
+      showToast('error', 'Network error — failed to ignore listing')
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
   const handleClearAll = async () => {
     if (!confirm(`Are you sure you want to clear all ${filteredListings.length} staging listings? This will NOT add them to rejected URLs.`)) {
       return
@@ -1226,6 +1247,14 @@ export default function AdminStagingPage() {
                           >
                             <Pencil size={16} />
                             Edit
+                          </button>
+                          <button
+                            onClick={() => handleIgnore(listing.id)}
+                            disabled={actionLoading === listing.id}
+                            className="flex items-center gap-2 px-5 py-2.5 bg-yellow-600 text-white rounded-lg hover:bg-yellow-500 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {actionLoading === listing.id ? <Loader2 className="animate-spin" size={16} /> : <Clock size={16} />}
+                            {actionLoading === listing.id ? 'Ignoring...' : 'Ignore'}
                           </button>
                           <button
                             onClick={() => handleReject(listing.id)}
