@@ -114,7 +114,7 @@ function buildEditForm(scraped: any): EditForm {
 
   return {
     acres_listed: listing.acres_listed != null ? String(listing.acres_listed) : '',
-    sale_date: listing.sale_date || '',
+    sale_date: listing.sale_date || (listing.auction_datetime ? String(listing.auction_datetime).split('T')[0] : ''),
     auction_time: auctionTime,
     auction_url: listing.auction_url || '',
     image_url: listing.image || listing.primary_image_url || '',
