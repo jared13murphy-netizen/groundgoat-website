@@ -86,75 +86,29 @@ export default function AdminCompaniesPage() {
 
   const fetchCompaniesWithListingCounts = async (token: string) => {
     try {
-      // Fetch companies and latest dates first
-      const [companiesResponse, datesResponse] = await Promise.all([
+      // Fetch companies, listing counts (with status breakdown), and latest dates in parallel
+      const [companiesResponse, countsResponse, datesResponse] = await Promise.all([
         fetchWithAuth(`${API_URL}/api/companies`),
+        fetchWithAuth(`${API_URL}/api/companies/listing-counts`),
         fetchWithAuth(`${API_URL}/api/companies/latest-listing-dates`)
       ])
 
       if (!companiesResponse.ok) throw new Error('Failed to fetch companies')
 
       const companiesData = await companiesResponse.json()
+      const listingCounts = countsResponse.ok ? await countsResponse.json() : {}
       const latestDates = datesResponse.ok ? await datesResponse.json() : {}
 
-      // Fetch all listings with pagination (like map page does)
-      interface Listing {
-        listing_company_id?: string
-        company?: { id: string; name: string }
-        status: string
-      }
-
-      const allListings: Listing[] = []
-      let offset = 0
-      const limit = 100
-
-      while (true) {
-        const response = await fetchWithAuth(`${API_URL}/api/listings?limit=${limit}&offset=${offset}`)
-        if (!response.ok) break
-        const batch = await response.json()
-        if (!batch || batch.length === 0) break
-        allListings.push(...batch)
-        if (batch.length < limit) break
-        offset += limit
-      }
-
-      // Build counts per company
-      const statusCounts: Record<string, { no_sale: number; sold: number; pending: number }> = {}
-      const typeCounts: Record<string, { listed: number; live: number }> = {}
-
-      allListings.forEach((listing: Listing) => {
-        // Try listing_company_id first, then company.id
-        const companyId = listing.listing_company_id || listing.company?.id
-        if (!companyId) return
-
-        // Initialize if not exists
-        if (!statusCounts[companyId]) {
-          statusCounts[companyId] = { no_sale: 0, sold: 0, pending: 0 }
+      const companiesWithCounts = companiesData.map((company: Company) => {
+        const counts = listingCounts[company.id] || { total: 0, no_sale: 0, sold: 0, pending: 0, listed: 0, live: 0 }
+        return {
+          ...company,
+          listing_count: counts.total,
+          latest_listing_date: latestDates[company.id] || null,
+          status_counts: { no_sale: counts.no_sale, sold: counts.sold, pending: counts.pending },
+          type_counts: { listed: counts.listed, live: counts.live }
         }
-        if (!typeCounts[companyId]) {
-          typeCounts[companyId] = { listed: 0, live: 0 }
-        }
-
-        // Count by status
-        const status = listing.status
-        if (status === 'no_sale') statusCounts[companyId].no_sale++
-        else if (status === 'sold') statusCounts[companyId].sold++
-        else if (status === 'pending') statusCounts[companyId].pending++
-        else if (status === 'listed') typeCounts[companyId].listed++
-        else if (status === 'live') typeCounts[companyId].live++
       })
-
-      const companiesWithCounts = companiesData.map((company: Company) => ({
-        ...company,
-        listing_count: (statusCounts[company.id]?.no_sale || 0) +
-                       (statusCounts[company.id]?.sold || 0) +
-                       (statusCounts[company.id]?.pending || 0) +
-                       (typeCounts[company.id]?.listed || 0) +
-                       (typeCounts[company.id]?.live || 0),
-        latest_listing_date: latestDates[company.id] || null,
-        status_counts: statusCounts[company.id] || { no_sale: 0, sold: 0, pending: 0 },
-        type_counts: typeCounts[company.id] || { listed: 0, live: 0 }
-      }))
 
       companiesWithCounts.sort((a: Company, b: Company) =>
         a.name.localeCompare(b.name)
