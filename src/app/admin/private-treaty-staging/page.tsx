@@ -282,7 +282,14 @@ export default function AdminPrivateTreatyStagingPage() {
       const response = await fetchWithAuth(`${API_URL}/api/admin/staging?status=pending&listing_type=private_treaty`)
       if (response.ok) {
         const data = await response.json()
-        setListings(Array.isArray(data) ? data : [])
+        // Handle both paginated response {items, total} and legacy array response
+        if (data && Array.isArray(data.items)) {
+          setListings(data.items)
+        } else if (Array.isArray(data)) {
+          setListings(data)
+        } else {
+          setListings([])
+        }
       } else {
         const errBody = await response.json().catch(() => null)
         setFetchError(errBody?.detail || errBody?.error || `Server returned ${response.status}`)
