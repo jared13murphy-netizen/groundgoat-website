@@ -11,7 +11,6 @@ import {
   Building2,
   AlertCircle,
   ChevronRight,
-  RefreshCw,
   Radio,
   Filter,
   Loader2,
@@ -291,12 +290,6 @@ export default function AdminDashboard() {
           {/* Admin-only actions */}
           {user?.account_type === 'groundgoat_admin' && (
             <>
-              <QuickActionCard
-                title="Scraper"
-                description="Run the auction scraper to fetch new listings"
-                href="/admin/scraper"
-                icon={<RefreshCw />}
-              />
               <QuickActionCard
                 title="Nightly Updates"
                 description="Price & status changes from nightly monitoring"
