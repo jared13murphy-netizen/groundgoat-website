@@ -42,6 +42,7 @@ interface User {
   subscriptions: Subscription[]
   sales_rep_id: string | null
   sales_rep?: { id: string; first_name: string; last_name: string; email: string } | null
+  referred_by?: { id: string; first_name: string; last_name: string; email: string } | null
   payment_source: string | null
 }
 
@@ -318,6 +319,7 @@ export default function AdminUsersPage() {
                   <th className="text-left py-4 px-4 text-gg-gray-400 font-medium">Subscription</th>
                   <th className="text-left py-4 px-4 text-gg-gray-400 font-medium">Monthly</th>
                   <th className="text-left py-4 px-4 text-gg-gray-400 font-medium">Joined</th>
+                  <th className="text-left py-4 px-4 text-gg-gray-400 font-medium">Referred By</th>
                   <th className="text-left py-4 px-4 text-gg-gray-400 font-medium">Sales Rep</th>
                   {canEdit && <th className="text-left py-4 px-4 text-gg-gray-400 font-medium">Actions</th>}
                 </tr>
@@ -418,6 +420,15 @@ export default function AdminUsersPage() {
                           {formatDate(user.created_at)}
                         </td>
                         <td className="py-4 px-4">
+                          {user.referred_by ? (
+                            <span className="text-gg-gray-300 text-sm">
+                              {user.referred_by.first_name} {user.referred_by.last_name}
+                            </span>
+                          ) : (
+                            <span className="text-gg-gray-500 text-sm">–</span>
+                          )}
+                        </td>
+                        <td className="py-4 px-4">
                           {editingUser === user.id ? (
                             <select
                               value={editForm.sales_rep_id || ''}
@@ -473,7 +484,7 @@ export default function AdminUsersPage() {
                       {/* Expanded Subscription Details */}
                       {expandedUser === user.id && user.subscriptions && user.subscriptions.length > 0 && (
                         <tr key={`${user.id}-subs`} className="bg-gg-gray-800/30">
-                          <td colSpan={canEdit ? 9 : 8} className="py-3 px-8">
+                          <td colSpan={canEdit ? 10 : 9} className="py-3 px-8">
                             <div className="text-sm">
                               <p className="text-gg-gray-400 mb-2 font-medium">Subscriptions:</p>
                               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
