@@ -22,6 +22,8 @@ interface Subscription {
   status: string
   monthly_price: number | null
   billing_cycle: string
+  current_period_end: string | null
+  payment_method: string | null
 }
 
 interface User {
@@ -40,6 +42,7 @@ interface User {
   subscriptions: Subscription[]
   sales_rep_id: string | null
   sales_rep?: { id: string; first_name: string; last_name: string; email: string } | null
+  payment_source: string | null
 }
 
 export default function AdminUsersPage() {
@@ -204,10 +207,23 @@ export default function AdminUsersPage() {
     if (status === 'active') {
       return <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-500/20 text-green-400">Active</span>
     }
+    if (status === 'trialing') {
+      return <span className="px-2 py-1 rounded-full text-xs font-medium bg-yellow-500/20 text-yellow-400">trialing</span>
+    }
     if (status === 'cancelled') {
       return <span className="px-2 py-1 rounded-full text-xs font-medium bg-yellow-500/20 text-yellow-400">Cancelled</span>
     }
     return <span className="px-2 py-1 rounded-full text-xs font-medium bg-gray-500/20 text-gray-400">{status || 'Unknown'}</span>
+  }
+
+  const getPaymentSourceBadge = (source: string | null) => {
+    if (source === 'stripe') {
+      return <span className="px-2 py-1 rounded-full text-xs font-medium bg-purple-500/20 text-purple-400">Stripe</span>
+    }
+    if (source === 'apple') {
+      return <span className="px-2 py-1 rounded-full text-xs font-medium bg-gray-500/20 text-gray-300">Apple</span>
+    }
+    return <span className="text-gray-600">–</span>
   }
 
   const formatDate = (dateString: string) => {
@@ -298,6 +314,7 @@ export default function AdminUsersPage() {
                   <th className="text-left py-4 px-4 text-gg-gray-400 font-medium">User</th>
                   <th className="text-left py-4 px-4 text-gg-gray-400 font-medium">Type</th>
                   <th className="text-left py-4 px-4 text-gg-gray-400 font-medium">Status</th>
+                  <th className="text-left py-4 px-4 text-gg-gray-400 font-medium">Source</th>
                   <th className="text-left py-4 px-4 text-gg-gray-400 font-medium">Subscription</th>
                   <th className="text-left py-4 px-4 text-gg-gray-400 font-medium">Monthly</th>
                   <th className="text-left py-4 px-4 text-gg-gray-400 font-medium">Joined</th>
@@ -367,7 +384,10 @@ export default function AdminUsersPage() {
                           )}
                         </td>
                         <td className="py-4 px-4">
-                          <button 
+                          {getPaymentSourceBadge(user.payment_source)}
+                        </td>
+                        <td className="py-4 px-4">
+                          <button
                             onClick={() => toggleExpand(user.id)}
                             className="flex items-center gap-1"
                           >
@@ -385,8 +405,13 @@ export default function AdminUsersPage() {
                               <DollarSign size={14} />
                               {formatCurrency(user.total_monthly)}/mo
                             </span>
+                          ) : user.subscription_count > 0 ? (
+                            <span className="flex items-center gap-1 text-orange-400 text-sm">
+                              <DollarSign size={14} />
+                              $0
+                            </span>
                           ) : (
-                            <span className="text-gg-gray-500 text-sm">-</span>
+                            <span className="text-gg-gray-500 text-sm">–</span>
                           )}
                         </td>
                         <td className="py-4 px-4 text-gg-gray-400 text-sm">
@@ -448,24 +473,38 @@ export default function AdminUsersPage() {
                       {/* Expanded Subscription Details */}
                       {expandedUser === user.id && user.subscriptions && user.subscriptions.length > 0 && (
                         <tr key={`${user.id}-subs`} className="bg-gg-gray-800/30">
-                          <td colSpan={canEdit ? 8 : 7} className="py-3 px-8">
+                          <td colSpan={canEdit ? 9 : 8} className="py-3 px-8">
                             <div className="text-sm">
                               <p className="text-gg-gray-400 mb-2 font-medium">Subscriptions:</p>
                               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
                                 {user.subscriptions.map((sub, idx) => (
-                                  <div key={idx} className="flex items-center justify-between bg-gg-gray-800 rounded px-3 py-2">
-                                    <span className="text-white">
-                                      {sub.county ? `${sub.county} County, ${sub.state}` : sub.state}
-                                    </span>
-                                    <div className="flex items-center gap-2">
-                                      <span className={`px-2 py-0.5 rounded text-xs ${
-                                        sub.status === 'active' ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'
-                                      }`}>
-                                        {sub.status}
+                                  <div key={idx} className="bg-gg-gray-800 rounded px-3 py-2">
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-white">
+                                        {sub.county ? `${sub.county} County, ${sub.state}` : sub.state}
                                       </span>
-                                      {sub.monthly_price && (
-                                        <span className="text-gg-gray-400 text-xs">
-                                          {formatCurrency(sub.monthly_price)}/{sub.billing_cycle === 'annual' ? 'yr' : 'mo'}
+                                      <div className="flex items-center gap-2">
+                                        <span className={`px-2 py-0.5 rounded text-xs ${
+                                          sub.status === 'active' ? 'bg-green-500/20 text-green-400' :
+                                          sub.status === 'trialing' ? 'bg-yellow-500/20 text-yellow-400' :
+                                          'bg-gray-500/20 text-gray-400'
+                                        }`}>
+                                          {sub.status === 'trialing' ? 'trialing' : sub.status}
+                                        </span>
+                                        {sub.monthly_price && (
+                                          <span className="text-gg-gray-400 text-xs">
+                                            ${formatCurrency(sub.monthly_price)}/{sub.billing_cycle === 'annual' ? 'yr' : 'mo'}
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center gap-3 mt-1 text-xs text-gg-gray-500">
+                                      {sub.payment_method && (
+                                        <span>via {sub.payment_method === 'stripe' ? 'Stripe' : sub.payment_method === 'apple' ? 'Apple' : sub.payment_method}</span>
+                                      )}
+                                      {sub.current_period_end && (
+                                        <span>
+                                          {sub.status === 'cancelled' || sub.status === 'expired' ? 'Expires' : 'Renews'}: {formatDate(sub.current_period_end)}
                                         </span>
                                       )}
                                     </div>
