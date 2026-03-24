@@ -318,6 +318,8 @@ export default function AdminUsersPage() {
                   <th className="text-left py-4 px-4 text-gg-gray-400 font-medium">Source</th>
                   <th className="text-left py-4 px-4 text-gg-gray-400 font-medium">Subscription</th>
                   <th className="text-left py-4 px-4 text-gg-gray-400 font-medium">Monthly</th>
+                  <th className="text-left py-4 px-4 text-gg-gray-400 font-medium">Billing</th>
+                  <th className="text-left py-4 px-4 text-gg-gray-400 font-medium">Next Payment</th>
                   <th className="text-left py-4 px-4 text-gg-gray-400 font-medium">Joined</th>
                   <th className="text-left py-4 px-4 text-gg-gray-400 font-medium">Referred By</th>
                   <th className="text-left py-4 px-4 text-gg-gray-400 font-medium">Sales Rep</th>
@@ -327,7 +329,7 @@ export default function AdminUsersPage() {
               <tbody>
                 {filteredUsers.length === 0 ? (
                   <tr>
-                    <td colSpan={canEdit ? 8 : 7} className="text-center py-8 text-gg-gray-400">
+                    <td colSpan={canEdit ? 12 : 11} className="text-center py-8 text-gg-gray-400">
                       No users found
                     </td>
                   </tr>
@@ -416,6 +418,24 @@ export default function AdminUsersPage() {
                             <span className="text-gg-gray-500 text-sm">–</span>
                           )}
                         </td>
+                        <td className="py-4 px-4">
+                          {user.subscriptions.length > 0 ? (
+                            <span className={`text-sm ${user.subscriptions[0].billing_cycle === 'annual' ? 'text-purple-400' : 'text-blue-400'}`}>
+                              {user.subscriptions[0].billing_cycle === 'annual' ? 'Annual' : 'Monthly'}
+                            </span>
+                          ) : (
+                            <span className="text-gg-gray-500 text-sm">–</span>
+                          )}
+                        </td>
+                        <td className="py-4 px-4">
+                          {user.subscriptions.length > 0 && user.subscriptions[0].current_period_end ? (
+                            <span className={`text-sm ${new Date(user.subscriptions[0].current_period_end) < new Date() ? 'text-red-400' : 'text-gg-gray-300'}`}>
+                              {formatDate(user.subscriptions[0].current_period_end)}
+                            </span>
+                          ) : (
+                            <span className="text-gg-gray-500 text-sm">–</span>
+                          )}
+                        </td>
                         <td className="py-4 px-4 text-gg-gray-400 text-sm">
                           {formatDate(user.created_at)}
                         </td>
@@ -484,7 +504,7 @@ export default function AdminUsersPage() {
                       {/* Expanded Subscription Details */}
                       {expandedUser === user.id && user.subscriptions && user.subscriptions.length > 0 && (
                         <tr key={`${user.id}-subs`} className="bg-gg-gray-800/30">
-                          <td colSpan={canEdit ? 10 : 9} className="py-3 px-8">
+                          <td colSpan={canEdit ? 12 : 11} className="py-3 px-8">
                             <div className="text-sm">
                               <p className="text-gg-gray-400 mb-2 font-medium">Subscriptions:</p>
                               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
