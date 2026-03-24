@@ -407,7 +407,7 @@ export default function AdminUsersPage() {
                           {user.total_monthly > 0 ? (
                             <span className="flex items-center gap-1 text-green-400 text-sm">
                               <DollarSign size={14} />
-                              {formatCurrency(user.total_monthly)}/mo
+                              {formatCurrency(user.total_monthly)}/{user.subscriptions.length > 0 && user.subscriptions[0].billing_cycle === 'annual' ? 'yr' : 'mo'}
                             </span>
                           ) : user.subscription_count > 0 ? (
                             <span className="flex items-center gap-1 text-orange-400 text-sm">
