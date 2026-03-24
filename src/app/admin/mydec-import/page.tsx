@@ -36,6 +36,31 @@ interface StagingItem {
   source_type: string
 }
 
+function TractThumbnail({ stagingId, tractIndex }: { stagingId: number, tractIndex: number }) {
+  const [src, setSrc] = useState<string | null>(null)
+  const [loaded, setLoaded] = useState(false)
+
+  useEffect(() => {
+    fetchWithAuth(`${API_URL}/api/admin/staging/${stagingId}/tract-image/${tractIndex}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.tract_image_base64) {
+          setSrc(`data:image/png;base64,${data.tract_image_base64}`)
+        }
+        setLoaded(true)
+      })
+      .catch(() => setLoaded(true))
+  }, [stagingId, tractIndex])
+
+  if (!loaded) {
+    return <div className="w-16 h-16 rounded bg-gg-gray-800 animate-pulse shrink-0" />
+  }
+  if (!src) {
+    return <div className="w-16 h-16 rounded bg-gg-gray-800 shrink-0 flex items-center justify-center text-gg-gray-600"><MapPin size={16} /></div>
+  }
+  return <img src={src} alt="Tract" className="w-16 h-16 rounded object-cover shrink-0" />
+}
+
 export default function MyDecImportPage() {
   const router = useRouter()
 
@@ -366,6 +391,10 @@ export default function MyDecImportPage() {
                 return (
                   <div key={item.id} className="p-4 hover:bg-gg-gray-800/50 transition-colors">
                     <div className="flex items-start justify-between gap-4">
+                      {/* Tract image thumbnail */}
+                      {tract.has_tract_image && (
+                        <TractThumbnail stagingId={item.id} tractIndex={0} />
+                      )}
                       {/* Main info */}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
