@@ -16,9 +16,12 @@ import {
   Play,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   Wheat,
   DollarSign,
   TreePine,
+  Eye,
 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 
@@ -34,6 +37,161 @@ interface StagingItem {
   created_at: string
   listing_type: string
   source_type: string
+}
+
+// Expandable detail panel showing every field with its data source
+function TractDetail({ item }: { item: StagingItem }) {
+  const sd = item.scraped_data || {}
+  const tract = sd.tracts?.[0] || {}
+  const listing = sd.listing || {}
+  const sources = sd.enrichment_sources || {}
+  const cropBreakdown = sd.crop_breakdown || {}
+
+  const sourceLabel = (src: string | null) => {
+    if (!src) return <span className="text-red-400 font-medium">NOT AVAILABLE</span>
+    const labels: Record<string, { text: string; color: string }> = {
+      county_arcgis: { text: 'County ArcGIS (free)', color: 'text-green-400' },
+      regrid: { text: 'Regrid API', color: 'text-blue-400' },
+      county_centroid: { text: 'County centroid (inaccurate)', color: 'text-red-400' },
+      usda_sda: { text: 'USDA Soil Data Access', color: 'text-green-400' },
+      cropscape: { text: 'USDA CropScape CDL', color: 'text-green-400' },
+      census_geocoder: { text: 'US Census Geocoder', color: 'text-green-400' },
+      mydec: { text: 'IL MyDec PTAX-203', color: 'text-purple-400' },
+    }
+    const l = labels[src] || { text: src, color: 'text-gg-gray-300' }
+    return <span className={l.color}>{l.text}</span>
+  }
+
+  type FieldRow = { label: string; value: string | number | null | undefined; source: string | null; warn?: boolean }
+
+  const fields: FieldRow[] = [
+    { label: 'PIN', value: sd.mydec_pin, source: 'mydec' },
+    { label: 'Declaration ID', value: sd.mydec_declaration_id, source: 'mydec' },
+    { label: 'Date Recorded', value: sd.mydec_date_recorded, source: 'mydec' },
+    { label: 'Auction Sale', value: sd.mydec_auction_sale ? 'Yes' : 'No', source: 'mydec' },
+    { label: 'Acres', value: tract.acres, source: 'mydec' },
+    { label: 'Sale Price', value: tract.sale_price ? `$${Number(tract.sale_price).toLocaleString()}` : null, source: 'mydec' },
+    { label: 'Price/Acre', value: tract.price_per_acre ? `$${Math.round(tract.price_per_acre).toLocaleString()}/ac` : null, source: 'mydec' },
+    { label: '---', value: '', source: null },
+    { label: 'Latitude', value: tract.latitude, source: sources.boundary },
+    { label: 'Longitude', value: tract.longitude, source: sources.boundary },
+    { label: 'Boundary Points', value: tract.polygon_coordinates?.length || 0, source: sources.boundary, warn: !tract.polygon_coordinates },
+    { label: '---', value: '', source: null },
+    { label: 'State', value: `${tract.state_full} (${tract.state_abbr})`, source: 'census_geocoder' },
+    { label: 'County', value: tract.county_name, source: 'census_geocoder' },
+    { label: 'Township', value: tract.township, source: 'census_geocoder' },
+    { label: '---', value: '', source: null },
+    { label: 'NCCPI', value: tract.nccpi, source: sources.soil, warn: !tract.nccpi },
+    { label: '$/NCCPI', value: tract.price_per_nccpi ? `$${Math.round(tract.price_per_nccpi).toLocaleString()}` : null, source: sources.soil },
+    { label: 'Soil Rating (PI)', value: tract.soil_rating || 'N/A — PI not available from USDA', source: null },
+    { label: '---', value: '', source: null },
+    { label: 'Tillable Acres', value: tract.tillable_acres, source: sources.tillable, warn: !tract.tillable_acres },
+    { label: 'Price/Tillable Acre', value: tract.price_per_tillable_acre ? `$${Math.round(tract.price_per_tillable_acre).toLocaleString()}/ac` : null, source: sources.tillable },
+    { label: '---', value: '', source: null },
+    { label: 'Land Type', value: tract.land_type, source: 'mydec' },
+    { label: 'Seller', value: sd.mydec_seller || 'N/A', source: 'mydec' },
+    { label: 'Buyer', value: sd.mydec_buyer || 'N/A', source: 'mydec' },
+    { label: 'Legal Description', value: sd.mydec_legal_description || 'N/A', source: 'mydec' },
+  ]
+
+  // Add crop breakdown rows
+  if (Object.keys(cropBreakdown).length > 0) {
+    fields.push({ label: '---', value: '', source: null })
+    for (const [crop, pct] of Object.entries(cropBreakdown)) {
+      fields.push({ label: `Crop: ${crop}`, value: `${pct}%`, source: sources.tillable })
+    }
+  }
+
+  return (
+    <div className="mt-3 bg-gg-gray-800/60 rounded-lg p-4 border border-gg-gray-700">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8">
+        {/* Left: Data fields */}
+        <div>
+          <h3 className="text-sm font-semibold text-gg-pink mb-3">Field Verification</h3>
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-gg-gray-500">
+                <th className="text-left pb-2 w-[35%]">Field</th>
+                <th className="text-left pb-2 w-[30%]">Value</th>
+                <th className="text-left pb-2 w-[35%]">Source</th>
+              </tr>
+            </thead>
+            <tbody>
+              {fields.map((f, i) => {
+                if (f.label === '---') {
+                  return <tr key={i}><td colSpan={3} className="py-1"><hr className="border-gg-gray-700" /></td></tr>
+                }
+                return (
+                  <tr key={i} className={f.warn ? 'text-red-400' : ''}>
+                    <td className="py-0.5 text-gg-gray-400">{f.label}</td>
+                    <td className="py-0.5 font-mono text-white">
+                      {f.value !== null && f.value !== undefined ? String(f.value) : <span className="text-red-400">MISSING</span>}
+                    </td>
+                    <td className="py-0.5">{sourceLabel(f.source)}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Right: Map preview + tract image */}
+        <div className="mt-4 md:mt-0">
+          <h3 className="text-sm font-semibold text-gg-pink mb-3">Visual Verification</h3>
+          {tract.has_tract_image && (
+            <div className="mb-3">
+              <p className="text-xs text-gg-gray-500 mb-1">Satellite + Boundary Overlay (200×200)</p>
+              <TractThumbnailLarge stagingId={item.id} tractIndex={0} />
+            </div>
+          )}
+          {tract.latitude && tract.longitude && (
+            <div className="space-y-2">
+              <p className="text-xs text-gg-gray-500">Verify location on Google Maps:</p>
+              <a
+                href={`https://www.google.com/maps/@${tract.latitude},${tract.longitude},16z/data=!3m1!1e1`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-blue-400 hover:text-blue-300 underline"
+              >
+                Open in Google Maps (satellite) →
+              </a>
+              <p className="text-xs text-gg-gray-500 mt-2">Verify soil data:</p>
+              <a
+                href={`https://websoilsurvey.nrcs.usda.gov/app/WebSoilSurvey.aspx`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-blue-400 hover:text-blue-300 underline"
+              >
+                Open USDA Web Soil Survey →
+              </a>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Larger tract image for detail view
+function TractThumbnailLarge({ stagingId, tractIndex }: { stagingId: number, tractIndex: number }) {
+  const [src, setSrc] = useState<string | null>(null)
+  const [loaded, setLoaded] = useState(false)
+
+  useEffect(() => {
+    fetchWithAuth(`${API_URL}/api/admin/staging/${stagingId}/tract-image/${tractIndex}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.tract_image_base64) {
+          setSrc(`data:image/png;base64,${data.tract_image_base64}`)
+        }
+        setLoaded(true)
+      })
+      .catch(() => setLoaded(true))
+  }, [stagingId, tractIndex])
+
+  if (!loaded) return <div className="w-48 h-48 rounded bg-gg-gray-800 animate-pulse" />
+  if (!src) return <div className="w-48 h-48 rounded bg-gg-gray-800 flex items-center justify-center text-gg-gray-600"><MapPin size={24} /></div>
+  return <img src={src} alt="Tract satellite" className="w-48 h-48 rounded object-cover border border-gg-gray-700" />
 }
 
 function TractThumbnail({ stagingId, tractIndex }: { stagingId: number, tractIndex: number }) {
@@ -82,6 +240,17 @@ export default function MyDecImportPage() {
   const [loading, setLoading] = useState(false)
   const [processingIds, setProcessingIds] = useState<Set<number>>(new Set())
   const itemsPerPage = 20
+
+  // Expanded detail view
+  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set())
+  const toggleExpanded = (id: number) => {
+    setExpandedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
 
   // Rollback
   const [mydecCount, setMydecCount] = useState(0)
@@ -478,6 +647,18 @@ export default function MyDecImportPage() {
                             ))}
                           </div>
                         )}
+
+                        {/* Expand/Collapse details */}
+                        <button
+                          onClick={() => toggleExpanded(item.id)}
+                          className="mt-2 text-xs text-gg-gray-400 hover:text-white flex items-center gap-1"
+                        >
+                          {expandedIds.has(item.id) ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                          {expandedIds.has(item.id) ? 'Hide Details' : 'Show Details — Verify All Fields'}
+                        </button>
+
+                        {/* Expanded detail panel */}
+                        {expandedIds.has(item.id) && <TractDetail item={item} />}
                       </div>
 
                       {/* Actions */}
