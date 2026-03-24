@@ -64,7 +64,12 @@ function SignUpContent() {
   const initialPlan = searchParams.get('plan') as keyof typeof PLANS || 'state'
   const initialStep = searchParams.get('step') ? parseInt(searchParams.get('step')!) : 1
   const cancelled = searchParams.get('cancelled') === 'true'
-  const referralCode = searchParams.get('ref') || null  // Capture referral code from URL
+  // Capture referral code from URL, persist in localStorage so it survives page navigation
+  const urlRef = searchParams.get('ref')
+  if (urlRef && typeof window !== 'undefined') {
+    localStorage.setItem('groundgoat_referral_code', urlRef)
+  }
+  const referralCode = urlRef || (typeof window !== 'undefined' ? localStorage.getItem('groundgoat_referral_code') : null)
   
   const [step, setStep] = useState(initialStep)
   const [selectedPlan, setSelectedPlan] = useState(initialPlan)
@@ -621,7 +626,9 @@ function SignUpContent() {
       if (authData.refresh_token) {
         localStorage.setItem('refresh_token', authData.refresh_token)
       }
-      
+      // Clear referral code after successful registration
+      localStorage.removeItem('groundgoat_referral_code')
+
       const userResponse = await fetch(`${API_URL}/api/auth/me`, {
         headers: { 'Authorization': `Bearer ${authData.access_token}` }
       })
