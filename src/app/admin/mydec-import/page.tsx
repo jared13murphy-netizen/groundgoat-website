@@ -107,11 +107,14 @@ function TractDetail({ item }: { item: StagingItem }) {
     { label: 'Price/Tillable Acre', value: tract.price_per_tillable_acre ? `$${Math.round(tract.price_per_tillable_acre).toLocaleString()}/ac` : null, source: sources.tillable },
     { label: '---', value: '', source: null },
     { label: 'Land Type', value: tract.land_type, source: dataSource },
-    ...(!isIowa ? [
+    ...(isIowa ? [
+      { label: 'Buyer', value: tract.buyer || 'N/A', source: 'iowaassessors' },
+      { label: 'Seller', value: tract.seller || 'N/A', source: 'iowaassessors' },
+    ] : [
       { label: 'Seller', value: sd.mydec_seller || 'N/A', source: 'mydec' },
       { label: 'Buyer', value: sd.mydec_buyer || 'N/A', source: 'mydec' },
       { label: 'Legal Description', value: sd.mydec_legal_description || 'N/A', source: 'mydec' },
-    ] : []) as FieldRow[],
+    ]) as FieldRow[],
   ]
 
   // Add crop breakdown rows
