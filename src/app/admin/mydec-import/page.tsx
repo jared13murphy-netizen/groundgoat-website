@@ -252,6 +252,22 @@ export default function MyDecImportPage() {
     })
   }
 
+  // County tracker
+  const [countyTracker, setCountyTracker] = useState<any[]>([])
+  const [trackerLoading, setTrackerLoading] = useState(false)
+
+  const fetchCountyTracker = useCallback(async () => {
+    setTrackerLoading(true)
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/admin/mydec/county-tracker`)
+      const data = await res.json()
+      setCountyTracker(data.counties || [])
+    } catch (e) {
+      console.error('Failed to fetch county tracker:', e)
+    }
+    setTrackerLoading(false)
+  }, [])
+
   // Rollback
   const [mydecCount, setMydecCount] = useState(0)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
@@ -308,8 +324,9 @@ export default function MyDecImportPage() {
     if (isAdmin) {
       fetchItems()
       fetchMydecCount()
+      fetchCountyTracker()
     }
-  }, [isAdmin, fetchItems, fetchMydecCount])
+  }, [isAdmin, fetchItems, fetchMydecCount, fetchCountyTracker])
 
   // Run import
   const runImport = async () => {
@@ -327,9 +344,10 @@ export default function MyDecImportPage() {
       })
       const data = await res.json()
       setImportStats(data)
-      // Refresh the review list
+      // Refresh the review list and tracker
       setPage(0)
       fetchItems()
+      fetchCountyTracker()
     } catch (e: any) {
       setImportStats({ success: false, error: e.message })
     }
@@ -519,6 +537,44 @@ export default function MyDecImportPage() {
             </div>
           )}
         </div>
+
+        {/* County Tracker */}
+        {countyTracker.length > 0 && (
+          <div className="bg-gg-gray-900 rounded-lg border border-gg-gray-800 p-5">
+            <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
+              <MapPin size={18} className="text-gg-pink" />
+              County Import Tracker
+            </h2>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-gg-gray-400 border-b border-gg-gray-800">
+                    <th className="text-left py-2 pr-4">County</th>
+                    <th className="text-right py-2 px-3">In Production</th>
+                    <th className="text-right py-2 px-3">Pending</th>
+                    <th className="text-right py-2 px-3">Skipped</th>
+                    <th className="text-right py-2 px-3">Total Imported</th>
+                    <th className="text-right py-2 pl-3">Last Import</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {countyTracker.map((c: any) => (
+                    <tr key={c.county} className="border-b border-gg-gray-800/50 hover:bg-gg-gray-800/30">
+                      <td className="py-1.5 pr-4 font-medium">{c.county}</td>
+                      <td className="py-1.5 px-3 text-right text-green-400">{c.in_production || 0}</td>
+                      <td className="py-1.5 px-3 text-right text-yellow-400">{c.pending || 0}</td>
+                      <td className="py-1.5 px-3 text-right text-gg-gray-500">{c.ignored || 0}</td>
+                      <td className="py-1.5 px-3 text-right">{(c.verified || 0) + (c.pending || 0) + (c.ignored || 0)}</td>
+                      <td className="py-1.5 pl-3 text-right text-gg-gray-400">
+                        {c.last_import ? new Date(c.last_import).toLocaleDateString() : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
 
         {/* Review List */}
         <div className="bg-gg-gray-900 rounded-lg border border-gg-gray-800">
