@@ -57,6 +57,8 @@ function TractDetail({ item }: { item: StagingItem }) {
       cropscape: { text: 'USDA CropScape CDL', color: 'text-green-400' },
       census_geocoder: { text: 'US Census Geocoder', color: 'text-green-400' },
       mydec: { text: 'IL MyDec PTAX-203', color: 'text-purple-400' },
+      iowaassessors: { text: 'Iowa Assessors (Vanguard)', color: 'text-purple-400' },
+      iowaassessors_csr: { text: 'Iowa Assessors CSR2', color: 'text-green-400' },
     }
     const l = labels[src] || { text: src, color: 'text-gg-gray-300' }
     return <span className={l.color}>{l.text}</span>
@@ -64,14 +66,24 @@ function TractDetail({ item }: { item: StagingItem }) {
 
   type FieldRow = { label: string; value: string | number | null | undefined; source: string | null; warn?: boolean }
 
+  const isIowa = item.source_type === 'iowa' || !!sd.iowa_parcel_number
+  const dataSource = isIowa ? 'iowaassessors' : 'mydec'
+
   const fields: FieldRow[] = [
-    { label: 'PIN', value: sd.mydec_pin, source: 'mydec' },
-    { label: 'Declaration ID', value: sd.mydec_declaration_id, source: 'mydec' },
-    { label: 'Date Recorded', value: sd.mydec_date_recorded, source: 'mydec' },
-    { label: 'Auction Sale', value: sd.mydec_auction_sale ? 'Yes' : 'No', source: 'mydec' },
-    { label: 'Acres', value: tract.acres, source: 'mydec' },
-    { label: 'Sale Price', value: tract.sale_price ? `$${Number(tract.sale_price).toLocaleString()}` : null, source: 'mydec' },
-    { label: 'Price/Acre', value: tract.price_per_acre ? `$${Math.round(tract.price_per_acre).toLocaleString()}/ac` : null, source: 'mydec' },
+    // Source-specific ID fields
+    ...(isIowa ? [
+      { label: 'Parcel Number', value: sd.iowa_parcel_number, source: dataSource },
+      { label: 'Recording', value: sd.iowa_recording || 'N/A', source: dataSource },
+      { label: 'Sale Date', value: sd.iowa_sale_date, source: dataSource },
+    ] : [
+      { label: 'PIN', value: sd.mydec_pin, source: dataSource },
+      { label: 'Declaration ID', value: sd.mydec_declaration_id, source: dataSource },
+      { label: 'Date Recorded', value: sd.mydec_date_recorded, source: dataSource },
+      { label: 'Auction Sale', value: sd.mydec_auction_sale ? 'Yes' : 'No', source: dataSource },
+    ]) as FieldRow[],
+    { label: 'Acres', value: tract.acres, source: dataSource },
+    { label: 'Sale Price', value: tract.sale_price ? `$${Number(tract.sale_price).toLocaleString()}` : null, source: dataSource },
+    { label: 'Price/Acre', value: tract.price_per_acre ? `$${Math.round(tract.price_per_acre).toLocaleString()}/ac` : null, source: dataSource },
     { label: '---', value: '', source: null },
     { label: 'Latitude', value: tract.latitude, source: sources.boundary },
     { label: 'Longitude', value: tract.longitude, source: sources.boundary },
@@ -83,15 +95,23 @@ function TractDetail({ item }: { item: StagingItem }) {
     { label: '---', value: '', source: null },
     { label: 'NCCPI', value: tract.nccpi, source: sources.soil, warn: !tract.nccpi },
     { label: '$/NCCPI', value: tract.price_per_nccpi ? `$${Math.round(tract.price_per_nccpi).toLocaleString()}` : null, source: sources.soil },
-    { label: 'Soil Rating (PI)', value: tract.soil_rating || 'N/A — PI not available from USDA', source: null },
+    ...(isIowa ? [
+      { label: 'Soil Rating (CSR2)', value: tract.soil_rating ? `${tract.soil_rating}` : 'N/A', source: sources.soil_rating || null },
+      { label: '$/CSR', value: tract.price_per_soil_rating ? `$${Math.round(tract.price_per_soil_rating).toLocaleString()}` : null, source: sources.soil_rating || null },
+      { label: 'Total CSR', value: sd.iowa_total_csr, source: dataSource },
+    ] : [
+      { label: 'Soil Rating (PI)', value: tract.soil_rating || 'N/A — PI not available from USDA', source: null },
+    ]) as FieldRow[],
     { label: '---', value: '', source: null },
     { label: 'Tillable Acres', value: tract.tillable_acres, source: sources.tillable, warn: !tract.tillable_acres },
     { label: 'Price/Tillable Acre', value: tract.price_per_tillable_acre ? `$${Math.round(tract.price_per_tillable_acre).toLocaleString()}/ac` : null, source: sources.tillable },
     { label: '---', value: '', source: null },
-    { label: 'Land Type', value: tract.land_type, source: 'mydec' },
-    { label: 'Seller', value: sd.mydec_seller || 'N/A', source: 'mydec' },
-    { label: 'Buyer', value: sd.mydec_buyer || 'N/A', source: 'mydec' },
-    { label: 'Legal Description', value: sd.mydec_legal_description || 'N/A', source: 'mydec' },
+    { label: 'Land Type', value: tract.land_type, source: dataSource },
+    ...(!isIowa ? [
+      { label: 'Seller', value: sd.mydec_seller || 'N/A', source: 'mydec' },
+      { label: 'Buyer', value: sd.mydec_buyer || 'N/A', source: 'mydec' },
+      { label: 'Legal Description', value: sd.mydec_legal_description || 'N/A', source: 'mydec' },
+    ] : []) as FieldRow[],
   ]
 
   // Add crop breakdown rows
@@ -226,6 +246,9 @@ export default function MyDecImportPage() {
   const [isAdmin, setIsAdmin] = useState(false)
   const [authChecked, setAuthChecked] = useState(false)
 
+  // State selector
+  const [activeState, setActiveState] = useState<'IL' | 'IA'>('IL')
+
   // Import controls
   const [county, setCounty] = useState('LaSalle')
   const [monthsBack, setMonthsBack] = useState(12)
@@ -295,11 +318,12 @@ export default function MyDecImportPage() {
   }, [router])
 
   // Fetch staging items
+  const sourceType = activeState === 'IA' ? 'iowa' : 'mydec'
   const fetchItems = useCallback(async () => {
     setLoading(true)
     try {
       const res = await fetchWithAuth(
-        `${API_URL}/api/admin/staging?source_type=mydec&status=pending&limit=${itemsPerPage}&offset=${page * itemsPerPage}`
+        `${API_URL}/api/admin/staging?source_type=${sourceType}&status=pending&limit=${itemsPerPage}&offset=${page * itemsPerPage}`
       )
       const data = await res.json()
       setItems(data.items || [])
@@ -308,7 +332,7 @@ export default function MyDecImportPage() {
       console.error('Failed to fetch staging items:', e)
     }
     setLoading(false)
-  }, [page])
+  }, [page, sourceType])
 
   // Fetch MyDec production count for rollback
   const fetchMydecCount = useCallback(async () => {
@@ -333,8 +357,9 @@ export default function MyDecImportPage() {
   const runImport = async () => {
     setImporting(true)
     setImportStats(null)
+    const endpoint = activeState === 'IA' ? '/api/iowa/import' : '/api/mydec/import'
     try {
-      const res = await fetch(`${SCRAPER_URL}/api/mydec/import`, {
+      const res = await fetch(`${SCRAPER_URL}${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -452,9 +477,9 @@ export default function MyDecImportPage() {
               <ArrowLeft size={20} />
             </Link>
             <div>
-              <h1 className="text-xl font-bold">MyDec Farm Sale Import</h1>
+              <h1 className="text-xl font-bold">State Farm Sale Import</h1>
               <p className="text-sm text-gg-gray-400">
-                Illinois PTAX-203 transfer records &middot; {total} pending review
+                {activeState === 'IL' ? 'Illinois PTAX-203 transfer records' : 'Iowa Assessor ag sales'} &middot; {total} pending review
               </p>
             </div>
           </div>
@@ -469,6 +494,30 @@ export default function MyDecImportPage() {
       </div>
 
       <div className="max-w-7xl mx-auto px-6 py-6 space-y-6">
+        {/* State Tabs */}
+        <div className="flex gap-2">
+          <button
+            onClick={() => { setActiveState('IL'); setCounty('LaSalle'); setImportStats(null); setPage(0) }}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              activeState === 'IL'
+                ? 'bg-gg-pink text-white'
+                : 'bg-gg-gray-800 text-gg-gray-400 hover:text-white hover:bg-gg-gray-700'
+            }`}
+          >
+            🌽 Illinois (MyDec)
+          </button>
+          <button
+            onClick={() => { setActiveState('IA'); setCounty('Washington'); setImportStats(null); setPage(0) }}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              activeState === 'IA'
+                ? 'bg-gg-pink text-white'
+                : 'bg-gg-gray-800 text-gg-gray-400 hover:text-white hover:bg-gg-gray-700'
+            }`}
+          >
+            🌾 Iowa (Assessors)
+          </button>
+        </div>
+
         {/* Import Controls */}
         <div className="bg-gg-gray-900 rounded-lg border border-gg-gray-800 p-5">
           <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
@@ -482,7 +531,7 @@ export default function MyDecImportPage() {
                 type="text"
                 value={county}
                 onChange={e => setCounty(e.target.value)}
-                placeholder="e.g., LaSalle"
+                placeholder={activeState === 'IL' ? 'e.g., LaSalle' : 'e.g., Washington'}
                 className="bg-gg-gray-800 border border-gg-gray-700 rounded px-3 py-2 text-sm w-40"
               />
             </div>
@@ -606,7 +655,7 @@ export default function MyDecImportPage() {
             </div>
           ) : items.length === 0 ? (
             <div className="p-8 text-center text-gg-gray-500">
-              No MyDec items pending review. Run an import to get started.
+              No {activeState === 'IA' ? 'Iowa' : 'MyDec'} items pending review. Run an import to get started.
             </div>
           ) : (
             <div className="divide-y divide-gg-gray-800">
@@ -684,7 +733,8 @@ export default function MyDecImportPage() {
                         </div>
 
                         <div className="text-xs text-gg-gray-500 mt-1">
-                          PIN: {sd.mydec_pin || '?'}
+                          {sd.iowa_parcel_number ? `Parcel: ${sd.iowa_parcel_number}` : `PIN: ${sd.mydec_pin || '?'}`}
+                          {tract.soil_rating && tract.soil_rating_type === 'CSR2' && ` · CSR2: ${tract.soil_rating}`}
                           {Object.entries(cropBreakdown).map(([crop, acres]) => ` · ${crop}: ${acres}ac`).join('')}
                           {tract.polygon_coordinates && ` · ${tract.polygon_coordinates.length} boundary pts`}
                         </div>
