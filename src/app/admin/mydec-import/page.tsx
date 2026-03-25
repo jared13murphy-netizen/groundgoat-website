@@ -175,6 +175,19 @@ function TractDetail({ item }: { item: StagingItem }) {
               >
                 Open in Google Maps (satellite) →
               </a>
+              {isIowa && sd.iowa_parcel_number && (
+                <>
+                  <p className="text-xs text-gg-gray-500 mt-2">Verify on Iowa Assessor:</p>
+                  <a
+                    href={`https://${(sd as any).iowa_parcel_number ? (item.source_url?.split('.iowaassessors')[0]?.split('//')[1] || tract.county_name?.toLowerCase().replace(/ /g, '')) : ''}.iowaassessors.com/parcel.php?parcel=${sd.iowa_parcel_number.replace(/-/g, '')}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-blue-400 hover:text-blue-300 underline"
+                  >
+                    Open Iowa Assessor parcel page →
+                  </a>
+                </>
+              )}
               <p className="text-xs text-gg-gray-500 mt-2">Verify soil data:</p>
               <a
                 href={`https://websoilsurvey.nrcs.usda.gov/app/WebSoilSurvey.aspx`}
