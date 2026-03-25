@@ -622,6 +622,7 @@ export default function MyDecImportPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-gg-gray-400 border-b border-gg-gray-800">
+                    <th className="text-left py-2 pr-4">State</th>
                     <th className="text-left py-2 pr-4">County</th>
                     <th className="text-right py-2 px-3">In Production</th>
                     <th className="text-right py-2 px-3">Pending</th>
@@ -632,7 +633,8 @@ export default function MyDecImportPage() {
                 </thead>
                 <tbody>
                   {countyTracker.map((c: any) => (
-                    <tr key={c.county} className="border-b border-gg-gray-800/50 hover:bg-gg-gray-800/30">
+                    <tr key={`${c.state}-${c.county}`} className="border-b border-gg-gray-800/50 hover:bg-gg-gray-800/30">
+                      <td className="py-1.5 pr-4 text-gg-gray-400">{c.state === 'Illinois' ? 'IL' : c.state === 'Iowa' ? 'IA' : c.state || '—'}</td>
                       <td className="py-1.5 pr-4 font-medium">{c.county}</td>
                       <td className="py-1.5 px-3 text-right text-green-400">{c.in_production || 0}</td>
                       <td className="py-1.5 px-3 text-right text-yellow-400">{c.pending || 0}</td>
