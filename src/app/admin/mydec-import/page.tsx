@@ -554,7 +554,7 @@ export default function MyDecImportPage() {
                 const isDup = !!sd.potential_duplicate
                 const dup = sd.potential_duplicate || {}
                 const sources = sd.enrichment_sources || {}
-                const cropHistory = sd.crop_history || {}
+                const cropBreakdown = sd.crop_breakdown || {}
                 const isProcessing = processingIds.has(item.id)
 
                 return (
@@ -621,8 +621,7 @@ export default function MyDecImportPage() {
 
                         <div className="text-xs text-gg-gray-500 mt-1">
                           PIN: {sd.mydec_pin || '?'}
-                          {cropHistory[2024] && ` · 2024: ${cropHistory[2024]}`}
-                          {cropHistory[2023] && ` · 2023: ${cropHistory[2023]}`}
+                          {Object.entries(cropBreakdown).map(([crop, acres]) => ` · ${crop}: ${acres}ac`).join('')}
                           {tract.polygon_coordinates && ` · ${tract.polygon_coordinates.length} boundary pts`}
                         </div>
 
