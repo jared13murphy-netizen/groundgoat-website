@@ -255,6 +255,7 @@ export default function MyDecImportPage() {
   // County tracker
   const [countyTracker, setCountyTracker] = useState<any[]>([])
   const [trackerLoading, setTrackerLoading] = useState(false)
+  const [trackerExpanded, setTrackerExpanded] = useState(false)
 
   const fetchCountyTracker = useCallback(async () => {
     setTrackerLoading(true)
@@ -541,11 +542,18 @@ export default function MyDecImportPage() {
         {/* County Tracker */}
         {countyTracker.length > 0 && (
           <div className="bg-gg-gray-900 rounded-lg border border-gg-gray-800 p-5">
-            <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
-              <MapPin size={18} className="text-gg-pink" />
-              County Import Tracker
-            </h2>
-            <div className="overflow-x-auto">
+            <button
+              onClick={() => setTrackerExpanded(!trackerExpanded)}
+              className="w-full flex items-center justify-between"
+            >
+              <h2 className="text-lg font-semibold flex items-center gap-2">
+                <MapPin size={18} className="text-gg-pink" />
+                County Import Tracker
+                <span className="text-sm font-normal text-gg-gray-400">({countyTracker.length} counties)</span>
+              </h2>
+              {trackerExpanded ? <ChevronUp size={18} className="text-gg-gray-400" /> : <ChevronDown size={18} className="text-gg-gray-400" />}
+            </button>
+            {trackerExpanded && <div className="overflow-x-auto mt-3">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-gg-gray-400 border-b border-gg-gray-800">
@@ -572,7 +580,7 @@ export default function MyDecImportPage() {
                   ))}
                 </tbody>
               </table>
-            </div>
+            </div>}
           </div>
         )}
 
