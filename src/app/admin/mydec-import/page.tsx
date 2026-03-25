@@ -737,6 +737,7 @@ export default function MyDecImportPage() {
                           <div className="flex items-center gap-1">
                             <Wheat size={14} className="text-gg-gray-500" />
                             <span>
+                              {tract.soil_rating ? `${item.source_type === 'iowa' ? 'CSR2' : 'PI'}: ${tract.soil_rating} · ` : ''}
                               NCCPI: {tract.nccpi || '?'}
                               {tract.tillable_acres ? ` · ${tract.tillable_acres} tillable` : ''}
                             </span>
