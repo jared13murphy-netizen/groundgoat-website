@@ -116,8 +116,8 @@ export default function SubscriptionPage() {
   }
 
   const handleManageBilling = () => {
-    // Open Stripe billing portal via subscribe.groundgoat.com
-    window.open('https://subscribe.groundgoat.com/p/login/6oEbKA1FWdiQe4wfYY', '_blank')
+    // Open Stripe billing portal
+    window.open('https://billing.stripe.com/p/login/6oEbKA1FWdiQe4wfYY', '_blank')
   }
 
   const getStatusBadge = (status: string) => {
