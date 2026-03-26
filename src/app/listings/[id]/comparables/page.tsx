@@ -159,7 +159,7 @@ export default function ComparablesPage({ params }: { params: { id: string } }) 
     // Fetch map sales IMMEDIATELY (don't wait for comparables scoring)
     if (listing?.state && listing?.county) {
       fetchWithAuth(
-        `${API_URL}/api/comparables/state-sales/${encodeURIComponent(listing.state)}?county=${encodeURIComponent(listing.county)}`
+        `${API_URL}/api/comparables/state-sales/${encodeURIComponent(listing.state)}?county=${encodeURIComponent(listing.county)}&limit=500`
       ).then(res => res.ok ? res.json() : null).then(data => {
         if (data?.tracts) setStateSales(data.tracts)
       }).catch(e => console.log('Error fetching state sales:', e))
@@ -286,7 +286,7 @@ export default function ComparablesPage({ params }: { params: { id: string } }) 
     setLoadingMore(true)
     try {
       const salesResponse = await fetchWithAuth(
-        `${API_URL}/api/comparables/state-sales/${encodeURIComponent(listing.state)}?county=${encodeURIComponent(listing.county)}&neighbor_depth=2`
+        `${API_URL}/api/comparables/state-sales/${encodeURIComponent(listing.state)}?county=${encodeURIComponent(listing.county)}&neighbor_depth=2&limit=500`
       )
       if (salesResponse.ok) {
         const salesData = await salesResponse.json()
