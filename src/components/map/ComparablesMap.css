@@ -127,14 +127,14 @@
 }
 
 .sale-modal-content {
-  background: #1a1a2e;
+  background: #ffffff;
   border-radius: 16px;
   width: 380px;
   max-width: 90vw;
   max-height: 80vh;
   overflow: hidden;
-  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.3);
+  border: 1px solid #e0e0e0;
 }
 
 .sale-modal-header {
@@ -142,11 +142,11 @@
   justify-content: space-between;
   align-items: center;
   padding: 16px 20px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid #e0e0e0;
 }
 
 .sale-modal-title {
-  color: #fff;
+  color: #1a1a1a;
   font-size: 18px;
   font-weight: 700;
   margin: 0;
@@ -155,7 +155,7 @@
 .sale-modal-close {
   background: none;
   border: none;
-  color: rgba(255, 255, 255, 0.6);
+  color: #999;
   font-size: 20px;
   cursor: pointer;
   padding: 0 0 0 16px;
@@ -163,7 +163,7 @@
 }
 
 .sale-modal-close:hover {
-  color: #fff;
+  color: #333;
 }
 
 .sale-modal-body {
@@ -175,17 +175,17 @@
   justify-content: space-between;
   align-items: center;
   padding: 14px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid #eee;
 }
 
 .sale-modal-label {
-  color: rgba(255, 255, 255, 0.6);
+  color: #666;
   font-size: 14px;
   font-weight: 500;
 }
 
 .sale-modal-value {
-  color: #fff;
+  color: #1a1a1a;
   font-size: 14px;
   font-weight: 600;
   text-align: right;

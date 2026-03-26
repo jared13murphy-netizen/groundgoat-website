@@ -430,7 +430,7 @@ export default function ComparablesMap({
                     setSelectedSale(null)
                   }}
                 >
-                  {isInList ? '− Remove from Email List' : '+ Add to Email List'}
+                  {isInList ? '− Remove from Report' : '+ Add to Report'}
                 </button>
               )
             })()}
