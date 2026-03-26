@@ -106,22 +106,29 @@ export default function ComparablesReportPage({ params }: { params: { id: string
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          tract_id: subject?.id,
-          subject_county: subject?.county,
-          subject_state: subject?.state,
-          subject_tract_number: subject?.tract_number,
-          subject_acres: subject?.total_acres,
+          listing_id: params.id,
+          tract_id: subject?.id || '',
+          subject_county: subject?.county || '',
+          subject_state: subject?.state || '',
+          subject_tract_number: String(subject?.tract_number || '—'),
+          subject_acres: subject?.total_acres ? String(subject.total_acres) : '—',
           subject_tillable_pct: subject?.tillable_acres && subject?.total_acres
-            ? Math.round((subject.tillable_acres / subject.total_acres) * 100)
+            ? String(Math.round((subject.tillable_acres / subject.total_acres) * 100)) + '%'
             : null,
-          subject_soil_rating: subject?.soil_rating,
+          subject_soil_rating: subject?.soil_rating ? String(subject.soil_rating) : null,
+          subject_auction_date: subject?.auction_datetime || null,
+          subject_company: subject?.company_name || null,
           comparables: comparables.map(c => ({
-            county: c.county,
-            state: c.state,
+            county: c.county || '',
+            state: c.state || '',
             total_acres: c.total_acres,
             pct_tillable: c.tillable_acres && c.total_acres ? Math.round((c.tillable_acres / c.total_acres) * 100) : null,
             soil_rating: c.soil_rating,
             price_per_acre: c.price_per_acre,
+            price_per_tillable_acre: c.tillable_acres && c.total_acres && c.price_per_acre && c.tillable_acres > 0
+              ? (c.price_per_acre * c.total_acres) / c.tillable_acres : null,
+            price_per_soil_rating: c.soil_rating && c.price_per_acre && c.soil_rating > 0
+              ? c.price_per_acre / c.soil_rating : null,
             sale_price: c.sale_price,
             auction_date: c.auction_date,
             company_name: c.company_name,
