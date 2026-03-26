@@ -285,6 +285,24 @@ export default function ComparablesPage({ params }: { params: { id: string } }) 
     return null
   }
 
+  const handleLoadMore = async () => {
+    if (!listing?.state || loadedFullState) return
+    setLoadingMore(true)
+    try {
+      const salesResponse = await fetchWithAuth(
+        `${API_URL}/api/comparables/state-sales/${encodeURIComponent(listing.state)}`
+      )
+      if (salesResponse.ok) {
+        const salesData = await salesResponse.json()
+        setStateSales(salesData?.tracts || [])
+        setLoadedFullState(true)
+      }
+    } catch (e) {
+      console.log('Error loading more sales:', e)
+    }
+    setLoadingMore(false)
+  }
+
   const getSubjectPctTillable = () => {
     if (!tract?.total_acres || !tract?.tillable_acres) return null
     const total = tract.total_acres
@@ -331,25 +349,6 @@ export default function ComparablesPage({ params }: { params: { id: string } }) 
     searchCriteria?.subject_latitude, searchCriteria?.subject_longitude,
     listing?.county
   )
-
-  // Load more handler — fetch full state
-  const handleLoadMore = async () => {
-    if (!listing?.state || loadedFullState) return
-    setLoadingMore(true)
-    try {
-      const salesResponse = await fetchWithAuth(
-        `${API_URL}/api/comparables/state-sales/${encodeURIComponent(listing.state)}`
-      )
-      if (salesResponse.ok) {
-        const salesData = await salesResponse.json()
-        setStateSales(salesData?.tracts || [])
-        setLoadedFullState(true)
-      }
-    } catch (e) {
-      console.log('Error loading more sales:', e)
-    }
-    setLoadingMore(false)
-  }
 
   return (
     <div className="min-h-screen bg-gg-black pt-24 pb-12">
@@ -482,41 +481,43 @@ export default function ComparablesPage({ params }: { params: { id: string } }) 
               </p>
             </div>
           ) : (
-            <ComparablesMap
-              comparables={filteredComparables.map(c => ({
-                id: c.tract_id || c.id,
-                county: c.county,
-                state: c.state,
-                latitude: c.latitude,
-                longitude: c.longitude,
-                price_per_acre: c.price_per_acre,
-                total_acres: c.total_acres,
-                tract_number: c.tract_number,
-                company_name: c.company?.name || c.company_name || c.listing_company?.name,
-                auction_date: c.auction_datetime || c.auction_date,
-                is_same_county: c.is_same_county,
-              }))}
-              stateSales={filteredStateSales}
-              subjectCounty={listing.county}
-              subjectState={listing.state}
-              subjectLatitude={searchCriteria?.subject_latitude}
-              subjectLongitude={searchCriteria?.subject_longitude}
-              subjectAcres={tract.total_acres}
-              height="550px"
-              selectedIds={selectedIds}
-              toggleSelection={toggleSelection}
-            />
-            {!loadedFullState && (
-              <div className="flex justify-center mt-4">
-                <button
-                  onClick={handleLoadMore}
-                  disabled={loadingMore}
-                  className="px-6 py-2 rounded-lg bg-gg-pink/20 text-gg-pink border border-gg-pink hover:bg-gg-pink/30 text-sm font-medium disabled:opacity-50"
-                >
-                  {loadingMore ? 'Loading...' : 'Load More'}
-                </button>
-              </div>
-            )}
+            <>
+              <ComparablesMap
+                comparables={filteredComparables.map(c => ({
+                  id: c.tract_id || c.id,
+                  county: c.county,
+                  state: c.state,
+                  latitude: c.latitude,
+                  longitude: c.longitude,
+                  price_per_acre: c.price_per_acre,
+                  total_acres: c.total_acres,
+                  tract_number: c.tract_number,
+                  company_name: c.company?.name || c.company_name || c.listing_company?.name,
+                  auction_date: c.auction_datetime || c.auction_date,
+                  is_same_county: c.is_same_county,
+                }))}
+                stateSales={filteredStateSales}
+                subjectCounty={listing.county}
+                subjectState={listing.state}
+                subjectLatitude={searchCriteria?.subject_latitude}
+                subjectLongitude={searchCriteria?.subject_longitude}
+                subjectAcres={tract.total_acres}
+                height="550px"
+                selectedIds={selectedIds}
+                toggleSelection={toggleSelection}
+              />
+              {!loadedFullState && (
+                <div className="flex justify-center mt-4">
+                  <button
+                    onClick={handleLoadMore}
+                    disabled={loadingMore}
+                    className="px-6 py-2 rounded-lg bg-gg-pink/20 text-gg-pink border border-gg-pink hover:bg-gg-pink/30 text-sm font-medium disabled:opacity-50"
+                  >
+                    {loadingMore ? 'Loading...' : 'Load More'}
+                  </button>
+                </div>
+              )}
+            </>
           )
         ) : (
           /* List View */
