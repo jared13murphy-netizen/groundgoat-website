@@ -456,7 +456,7 @@ export default function AdminUsersPage() {
                             const periodEnd = user.subscriptions[0].current_period_end
                             if (!periodEnd) return <span className="text-gg-gray-500 text-sm">–</span>
                             const daysLeft = Math.ceil((new Date(periodEnd).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
-                            if (daysLeft <= 0) return <span className="text-red-400 text-sm font-medium">Expired</span>
+                            if (daysLeft <= 0) return <span className="text-red-400 text-sm font-medium">Trial Ended</span>
                             const color = daysLeft <= 7 ? 'text-red-400' : daysLeft <= 14 ? 'text-yellow-400' : 'text-green-400'
                             return <span className={`text-sm font-medium ${color}`}>{daysLeft}d</span>
                           })()}
