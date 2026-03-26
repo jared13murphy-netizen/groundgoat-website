@@ -85,9 +85,11 @@ export default function ComparablesPage({ params }: { params: { id: string } }) 
   const [loadingComparables, setLoadingComparables] = useState(true)
   const [sendingEmail, setSendingEmail] = useState(false)
   const [emailSent, setEmailSent] = useState(false)
-  const [viewMode, setViewMode] = useState<'list' | 'map'>('list')
+  const [viewMode, setViewMode] = useState<'list' | 'map'>('map')
   const [searchCriteria, setSearchCriteria] = useState<SearchCriteria | null>(null)
   const [stateSales, setStateSales] = useState<any[]>([])
+  const [filters, setFilters] = useState<FilterState>({ ...DEFAULT_FILTERS })
+  const [filterVisible, setFilterVisible] = useState(false)
 
   useEffect(() => {
     checkAuth()
@@ -158,11 +160,11 @@ export default function ComparablesPage({ params }: { params: { id: string } }) 
         setComparables(data?.comparables || [])
         setSearchCriteria(data?.search_criteria || null)
 
-        // Fetch all sold tracts in state for map background pins
-        if (listing?.state) {
+        // Fetch sold tracts for map — start with county + neighbors for faster load
+        if (listing?.state && listing?.county) {
           try {
             const salesResponse = await fetchWithAuth(
-              `${API_URL}/api/comparables/state-sales/${encodeURIComponent(listing.state)}`
+              `${API_URL}/api/comparables/state-sales/${encodeURIComponent(listing.state)}?county=${encodeURIComponent(listing.county)}`
             )
             if (salesResponse.ok) {
               const salesData = await salesResponse.json()
@@ -314,6 +316,40 @@ export default function ComparablesPage({ params }: { params: { id: string } }) 
   const subjectPctTillable = getSubjectPctTillable()
   const canEmail = selectedIds.size > 0
   const hasSubjectCoords = !!(searchCriteria?.subject_latitude && searchCriteria?.subject_longitude)
+  const activeFilterCount = countActiveFilters(filters)
+
+  // Apply filters to comparables and state sales
+  const filteredComparables = applyFilters(
+    comparables, filters,
+    searchCriteria?.subject_latitude, searchCriteria?.subject_longitude,
+    listing?.county
+  )
+  const filteredStateSales = applyFilters(
+    stateSales, filters,
+    searchCriteria?.subject_latitude, searchCriteria?.subject_longitude,
+    listing?.county
+  )
+
+  // Load more handler — fetch full state
+  const [loadedFullState, setLoadedFullState] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const handleLoadMore = async () => {
+    if (!listing?.state || loadedFullState) return
+    setLoadingMore(true)
+    try {
+      const salesResponse = await fetchWithAuth(
+        `${API_URL}/api/comparables/state-sales/${encodeURIComponent(listing.state)}`
+      )
+      if (salesResponse.ok) {
+        const salesData = await salesResponse.json()
+        setStateSales(salesData?.tracts || [])
+        setLoadedFullState(true)
+      }
+    } catch (e) {
+      console.log('Error loading more sales:', e)
+    }
+    setLoadingMore(false)
+  }
 
   return (
     <div className="min-h-screen bg-gg-black pt-24 pb-12">
@@ -377,32 +413,57 @@ export default function ComparablesPage({ params }: { params: { id: string } }) 
           )}
         </div>
 
-        {/* Map / List Toggle — only shown when subject tract has coordinates */}
-        {hasSubjectCoords && (
-          <div className="flex gap-2 mb-4">
-            <button
-              onClick={() => setViewMode('list')}
-              className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                viewMode === 'list'
-                  ? 'bg-gg-pink text-white'
-                  : 'bg-gg-gray-800 text-gg-gray-400 hover:text-white'
-              }`}
-            >
-              <List size={16} />
-              List
-            </button>
-            <button
-              onClick={() => setViewMode('map')}
-              className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                viewMode === 'map'
-                  ? 'bg-gg-pink text-white'
-                  : 'bg-gg-gray-800 text-gg-gray-400 hover:text-white'
-              }`}
-            >
-              <Map size={16} />
-              Map
-            </button>
-          </div>
+        {/* Map / List Toggle + Filter button */}
+        <div className="flex items-center gap-2 mb-4">
+          {hasSubjectCoords && (
+            <>
+              <button
+                onClick={() => setViewMode('list')}
+                className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  viewMode === 'list'
+                    ? 'bg-gg-pink text-white'
+                    : 'bg-gg-gray-800 text-gg-gray-400 hover:text-white'
+                }`}
+              >
+                <List size={16} />
+                List
+              </button>
+              <button
+                onClick={() => setViewMode('map')}
+                className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  viewMode === 'map'
+                    ? 'bg-gg-pink text-white'
+                    : 'bg-gg-gray-800 text-gg-gray-400 hover:text-white'
+                }`}
+              >
+                <Map size={16} />
+                Map
+              </button>
+            </>
+          )}
+          <button
+            onClick={() => setFilterVisible(true)}
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors ml-auto relative ${
+              activeFilterCount > 0
+                ? 'bg-gg-pink/20 text-gg-pink border border-gg-pink'
+                : 'bg-gg-gray-800 text-gg-gray-400 hover:text-white'
+            }`}
+          >
+            <SlidersHorizontal size={16} />
+            Filters
+            {activeFilterCount > 0 && (
+              <span className="absolute -top-2 -right-2 bg-gg-pink text-white text-xs w-5 h-5 rounded-full flex items-center justify-center">
+                {activeFilterCount}
+              </span>
+            )}
+          </button>
+        </div>
+
+        {/* Active filter count */}
+        {activeFilterCount > 0 && (
+          <p className="text-sm text-gg-gray-400 mb-4">
+            Showing {filteredComparables.length} of {comparables.length} comparables (filtered)
+          </p>
         )}
 
         {(viewMode === 'map' && hasSubjectCoords) ? (
@@ -422,7 +483,7 @@ export default function ComparablesPage({ params }: { params: { id: string } }) 
             </div>
           ) : (
             <ComparablesMap
-              comparables={comparables.map(c => ({
+              comparables={filteredComparables.map(c => ({
                 id: c.tract_id || c.id,
                 county: c.county,
                 state: c.state,
@@ -435,7 +496,7 @@ export default function ComparablesPage({ params }: { params: { id: string } }) 
                 auction_date: c.auction_datetime || c.auction_date,
                 is_same_county: c.is_same_county,
               }))}
-              stateSales={stateSales}
+              stateSales={filteredStateSales}
               subjectCounty={listing.county}
               subjectState={listing.state}
               subjectLatitude={searchCriteria?.subject_latitude}
@@ -445,6 +506,17 @@ export default function ComparablesPage({ params }: { params: { id: string } }) 
               selectedIds={selectedIds}
               toggleSelection={toggleSelection}
             />
+            {!loadedFullState && (
+              <div className="flex justify-center mt-4">
+                <button
+                  onClick={handleLoadMore}
+                  disabled={loadingMore}
+                  className="px-6 py-2 rounded-lg bg-gg-pink/20 text-gg-pink border border-gg-pink hover:bg-gg-pink/30 text-sm font-medium disabled:opacity-50"
+                >
+                  {loadingMore ? 'Loading...' : 'Load More'}
+                </button>
+              </div>
+            )}
           )
         ) : (
           /* List View */
@@ -491,7 +563,7 @@ export default function ComparablesPage({ params }: { params: { id: string } }) 
               </div>
             ) : (
               <div className="space-y-3">
-                {comparables.map((comp) => {
+                {filteredComparables.map((comp) => {
                   const itemId = comp.tract_id || comp.id
                   const isSelected = selectedIds.has(itemId)
 
@@ -507,13 +579,13 @@ export default function ComparablesPage({ params }: { params: { id: string } }) 
                             : 'border-transparent hover:border-gg-gray-700'
                       }`}
                     >
-                      {/* Image */}
+                      {/* Image — prefer tract image, fall back to listing image */}
                       <div className="w-28 h-28 flex-shrink-0 bg-gg-gray-800">
                         <img
-                          src={comp.primary_image_url || FALLBACK_IMAGE}
+                          src={`${API_URL}/api/tracts/${comp.tract_id || comp.id}/image`}
                           alt=""
                           className="w-full h-full object-cover"
-                          onError={(e) => { (e.target as HTMLImageElement).src = FALLBACK_IMAGE }}
+                          onError={(e) => { (e.target as HTMLImageElement).src = comp.primary_image_url || FALLBACK_IMAGE }}
                         />
                       </div>
 
@@ -578,6 +650,15 @@ export default function ComparablesPage({ params }: { params: { id: string } }) 
           </>
         )}
       </div>
+
+      {/* Filter Panel */}
+      {filterVisible && (
+        <ComparablesFilterPanel
+          filters={filters}
+          onApply={(newFilters) => setFilters(newFilters)}
+          onClose={() => setFilterVisible(false)}
+        />
+      )}
     </div>
   )
 }
