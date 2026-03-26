@@ -380,32 +380,25 @@ export default function ComparablesPage({ params }: { params: { id: string } }) 
             <h1 className="font-display text-2xl font-bold text-white">Comparables</h1>
           </div>
           <button
-            onClick={handleEmailComparables}
-            disabled={!canEmail || sendingEmail}
+            onClick={() => {
+              if (selectedIds.size === 0) return
+              const selectedComps = filteredStateSales.filter((s: any) => selectedIds.has(s.id))
+              const reportData = {
+                subject: { listing, tract, searchCriteria },
+                comparables: selectedComps,
+              }
+              sessionStorage.setItem('comparablesReport', JSON.stringify(reportData))
+              router.push(`/listings/${listing.id}/comparables/report?tractId=${tract.id}`)
+            }}
+            disabled={selectedIds.size === 0}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
-              emailSent
-                ? 'bg-green-600 text-white'
-                : canEmail && !sendingEmail
-                  ? 'bg-gg-pink text-white hover:bg-gg-pink/80'
-                  : 'bg-gg-gray-800 text-gg-gray-500 cursor-not-allowed'
+              selectedIds.size > 0
+                ? 'bg-gg-pink text-white hover:bg-gg-pink/80'
+                : 'bg-gg-gray-800 text-gg-gray-500 cursor-not-allowed'
             }`}
           >
-            {sendingEmail ? (
-              <>
-                <Loader2 size={18} className="animate-spin" />
-                Sending...
-              </>
-            ) : emailSent ? (
-              <>
-                <CheckCircle size={18} />
-                Sent!
-              </>
-            ) : (
-              <>
-                <Mail size={18} />
-                Email Selected ({selectedIds.size})
-              </>
-            )}
+            <BarChart3 size={18} />
+            Create Report ({selectedIds.size})
           </button>
         </div>
 
