@@ -6,7 +6,7 @@ export default function TermsPage() {
       <div className="max-w-4xl mx-auto px-6">
         <div className="mb-12">
           <h1 className="font-display text-4xl md:text-5xl font-bold text-white mb-4">Terms of Service</h1>
-          <p className="text-gg-gray-400">Last Updated: December 28, 2025</p>
+          <p className="text-gg-gray-400">Last Updated: March 26, 2026</p>
         </div>
 
         <div className="space-y-8 text-gg-gray-300">
@@ -43,7 +43,7 @@ export default function TermsPage() {
 
           <section>
             <h2 className="font-display text-2xl font-bold text-white mb-4">6. Information Accuracy</h2>
-            <p>While we strive to provide accurate information, we do not warrant the accuracy, completeness, or reliability of any information provided. Users should verify all information independently before making decisions.</p>
+            <p>While we make reasonable efforts to provide accurate and up-to-date information, Ground Goat does not guarantee the accuracy, completeness, or reliability of any data provided through our service. Information may contain errors or omissions that are beyond our control. Users should independently verify all information before making any financial or purchasing decisions. Ground Goat is not responsible for decisions made based on information provided through our service.</p>
           </section>
 
           <section>
