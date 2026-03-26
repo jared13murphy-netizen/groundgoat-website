@@ -155,27 +155,23 @@ export default function ComparablesPage({ params }: { params: { id: string } }) 
 
   const fetchComparables = async (tractIdToFetch: string) => {
     setLoadingComparables(true)
+
+    // Fetch map sales IMMEDIATELY (don't wait for comparables scoring)
+    if (listing?.state && listing?.county) {
+      fetchWithAuth(
+        `${API_URL}/api/comparables/state-sales/${encodeURIComponent(listing.state)}?county=${encodeURIComponent(listing.county)}`
+      ).then(res => res.ok ? res.json() : null).then(data => {
+        if (data?.tracts) setStateSales(data.tracts)
+      }).catch(e => console.log('Error fetching state sales:', e))
+    }
+
+    // Fetch scored comparables (slower — runs scoring algorithm)
     try {
       const response = await fetchWithAuth(`${API_URL}/api/comparables/tract/${tractIdToFetch}`)
       if (response.ok) {
         const data = await response.json()
         setComparables(data?.comparables || [])
         setSearchCriteria(data?.search_criteria || null)
-
-        // Fetch sold tracts for map — start with county + neighbors for faster load
-        if (listing?.state && listing?.county) {
-          try {
-            const salesResponse = await fetchWithAuth(
-              `${API_URL}/api/comparables/state-sales/${encodeURIComponent(listing.state)}?county=${encodeURIComponent(listing.county)}`
-            )
-            if (salesResponse.ok) {
-              const salesData = await salesResponse.json()
-              setStateSales(salesData?.tracts || [])
-            }
-          } catch (e) {
-            console.log('Error fetching state sales:', e)
-          }
-        }
       }
     } catch (err) {
       console.error('Failed to fetch comparables:', err)
@@ -286,11 +282,11 @@ export default function ComparablesPage({ params }: { params: { id: string } }) 
   }
 
   const handleLoadMore = async () => {
-    if (!listing?.state || loadedFullState) return
+    if (!listing?.state || !listing?.county || loadedFullState) return
     setLoadingMore(true)
     try {
       const salesResponse = await fetchWithAuth(
-        `${API_URL}/api/comparables/state-sales/${encodeURIComponent(listing.state)}`
+        `${API_URL}/api/comparables/state-sales/${encodeURIComponent(listing.state)}?county=${encodeURIComponent(listing.county)}&neighbor_depth=2`
       )
       if (salesResponse.ok) {
         const salesData = await salesResponse.json()
@@ -466,13 +462,13 @@ export default function ComparablesPage({ params }: { params: { id: string } }) 
         )}
 
         {(viewMode === 'map' && hasSubjectCoords) ? (
-          /* Map View */
-          loadingComparables ? (
+          /* Map View — show immediately, tracts appear as they load */
+          (filteredStateSales.length === 0 && loadingComparables) ? (
             <div className="flex flex-col items-center justify-center py-12">
               <Loader2 className="animate-spin text-gg-pink mb-4" size={32} />
-              <span className="text-gg-gray-400">Finding comparable sales...</span>
+              <span className="text-gg-gray-400">Loading map data...</span>
             </div>
-          ) : comparables.length === 0 ? (
+          ) : filteredStateSales.length === 0 && !loadingComparables ? (
             <div className="text-center py-12">
               <BarChart3 className="mx-auto text-gg-gray-600 mb-4" size={48} />
               <h3 className="text-white text-lg font-semibold mb-2">No Comparables Found</h3>
