@@ -115,9 +115,23 @@ export default function SubscriptionPage() {
     }
   }
 
-  const handleManageBilling = () => {
-    // Open Stripe billing portal
-    window.open('https://billing.stripe.com/p/login/6oEbKA1FWdiQe4wfYY', '_blank')
+  const handleManageBilling = async () => {
+    const token = localStorage.getItem('auth_token')
+    if (!token) { router.push('/signin'); return }
+    try {
+      const response = await fetch(`${API_URL}/api/subscriptions/billing-portal`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+      })
+      if (response.ok) {
+        const data = await response.json()
+        window.location.href = data.url
+      } else {
+        setError('Unable to open billing portal')
+      }
+    } catch {
+      setError('Unable to open billing portal')
+    }
   }
 
   const getStatusBadge = (status: string) => {
