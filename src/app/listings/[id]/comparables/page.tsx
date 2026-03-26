@@ -156,29 +156,43 @@ export default function ComparablesPage({ params }: { params: { id: string } }) 
   const fetchComparables = async (tractIdToFetch: string) => {
     setLoadingComparables(true)
 
-    // Fetch map sales IMMEDIATELY (don't wait for comparables scoring)
+    // Set search criteria from tract coords immediately (don't wait for API)
+    const foundTract = listing?.tracts?.find(t => t.id === tractIdToFetch)
+    if (foundTract) {
+      setSearchCriteria({
+        county: listing?.county,
+        state: listing?.state,
+        subject_latitude: (foundTract as any).latitude,
+        subject_longitude: (foundTract as any).longitude,
+      })
+    }
+
+    // Fetch map sales IMMEDIATELY — no limit, progressive rendering
     if (listing?.state && listing?.county) {
       fetchWithAuth(
-        `${API_URL}/api/comparables/state-sales/${encodeURIComponent(listing.state)}?county=${encodeURIComponent(listing.county)}&limit=500`
+        `${API_URL}/api/comparables/state-sales/${encodeURIComponent(listing.state)}?county=${encodeURIComponent(listing.county)}`
       ).then(res => res.ok ? res.json() : null).then(data => {
-        if (data?.tracts) setStateSales(data.tracts)
+        if (data?.tracts) {
+          // Load all tracts at once — MapLibre handles rendering efficiently
+          setStateSales(data.tracts)
+        }
       }).catch(e => console.log('Error fetching state sales:', e))
     }
 
-    // Fetch scored comparables (slower — runs scoring algorithm)
-    try {
-      const response = await fetchWithAuth(`${API_URL}/api/comparables/tract/${tractIdToFetch}`)
-      if (response.ok) {
-        const data = await response.json()
-        setComparables(data?.comparables || [])
-        setSearchCriteria(data?.search_criteria || null)
-      }
-    } catch (err) {
-      console.error('Failed to fetch comparables:', err)
-      setComparables([])
-    } finally {
-      setLoadingComparables(false)
-    }
+    // Fetch scored comparables in background (slower — runs scoring algorithm)
+    fetchWithAuth(`${API_URL}/api/comparables/tract/${tractIdToFetch}`)
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data) {
+          setComparables(data.comparables || [])
+          if (data.search_criteria) setSearchCriteria(data.search_criteria)
+        }
+      })
+      .catch(err => {
+        console.error('Failed to fetch comparables:', err)
+        setComparables([])
+      })
+      .finally(() => setLoadingComparables(false))
   }
 
   const toggleSelection = (comp: Comparable) => {
@@ -286,7 +300,7 @@ export default function ComparablesPage({ params }: { params: { id: string } }) 
     setLoadingMore(true)
     try {
       const salesResponse = await fetchWithAuth(
-        `${API_URL}/api/comparables/state-sales/${encodeURIComponent(listing.state)}?county=${encodeURIComponent(listing.county)}&neighbor_depth=2&limit=500`
+        `${API_URL}/api/comparables/state-sales/${encodeURIComponent(listing.state)}?county=${encodeURIComponent(listing.county)}&neighbor_depth=2`
       )
       if (salesResponse.ok) {
         const salesData = await salesResponse.json()
