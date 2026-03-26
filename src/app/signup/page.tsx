@@ -114,6 +114,11 @@ function SignUpContent() {
   })
   const [additionalSeats, setAdditionalSeats] = useState(0)
   const [showAddMember, setShowAddMember] = useState(false)
+  const [promoCode, setPromoCode] = useState('')
+  const [promoValidation, setPromoValidation] = useState<{
+    valid: boolean; discount_type?: string; discount_value?: number; description?: string; error?: string
+  } | null>(null)
+  const [validatingPromo, setValidatingPromo] = useState(false)
   
   const [formData, setFormData] = useState({
     firstName: '',
@@ -546,6 +551,25 @@ function SignUpContent() {
     }
   }
 
+  const validatePromoCode = async () => {
+    if (!promoCode.trim()) return
+    setValidatingPromo(true)
+    setPromoValidation(null)
+    try {
+      const res = await fetch(`${API_URL}/api/promo-codes/validate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: promoCode.trim(), subscription_type: 'firm' }),
+      })
+      const data = await res.json()
+      setPromoValidation(data)
+    } catch {
+      setPromoValidation({ valid: false, error: 'Failed to validate promo code' })
+    } finally {
+      setValidatingPromo(false)
+    }
+  }
+
   const handleFirmRegistration = async () => {
     setLoading(true)
     setError('')
@@ -572,6 +596,7 @@ function SignUpContent() {
           home_county: formData.homeCounty,
           billing_cycle: billingCycle,
           additional_seats: additionalSeats,
+          promo_code: promoValidation?.valid ? promoCode.trim().toUpperCase() : null,
         }),
       })
 
@@ -1123,6 +1148,42 @@ function SignUpContent() {
                     />
                   </div>
                 </div>
+              </div>
+
+              {/* Promo Code */}
+              <div className="card">
+                <h3 className="text-lg font-semibold text-white mb-4">Promo Code</h3>
+                <div className="flex gap-3">
+                  <input
+                    type="text"
+                    value={promoCode}
+                    onChange={(e) => { setPromoCode(e.target.value.toUpperCase()); setPromoValidation(null) }}
+                    className="flex-1 bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none uppercase"
+                    placeholder="Enter promo code"
+                  />
+                  <button
+                    onClick={validatePromoCode}
+                    disabled={validatingPromo || !promoCode.trim()}
+                    className="btn-secondary px-6 disabled:opacity-50"
+                  >
+                    {validatingPromo ? 'Checking...' : 'Apply'}
+                  </button>
+                </div>
+                {promoValidation?.valid && (
+                  <div className="mt-3 flex items-center gap-2 text-green-400 text-sm">
+                    <span>✓</span>
+                    <span>
+                      {promoValidation.description || (
+                        promoValidation.discount_type === 'percent_off'
+                          ? `${promoValidation.discount_value}% off applied!`
+                          : `$${promoValidation.discount_value} off applied!`
+                      )}
+                    </span>
+                  </div>
+                )}
+                {promoValidation && !promoValidation.valid && (
+                  <p className="mt-3 text-red-400 text-sm">{promoValidation.error || 'Invalid promo code'}</p>
+                )}
               </div>
 
               {error && (
