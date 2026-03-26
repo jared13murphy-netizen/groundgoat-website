@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react'
 import { ArrowLeft, Mail } from 'lucide-react'
 import { fetchWithAuth } from '@/lib/fetchWithAuth'
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
 interface Comparable {
   id: string
@@ -102,10 +102,11 @@ export default function ComparablesReportPage({ params }: { params: { id: string
   const handleEmail = async () => {
     setSending(true)
     try {
-      await fetchWithAuth(`${API_URL}/api/comparables/email`, {
+      const res = await fetchWithAuth(`${API_URL}/api/comparables/email`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          tract_id: subject?.id,
           subject_county: subject?.county,
           subject_state: subject?.state,
           subject_tract_number: subject?.tract_number,
@@ -127,9 +128,16 @@ export default function ComparablesReportPage({ params }: { params: { id: string
           })),
         }),
       })
-      alert('Report sent to your email!')
+      if (!res.ok) {
+        const errText = await res.text()
+        console.error('Email API error:', res.status, errText)
+        alert(`Failed to send email: ${res.status}`)
+      } else {
+        alert('Report sent to your email!')
+      }
     } catch (e) {
-      alert('Failed to send email')
+      console.error('Email error:', e)
+      alert('Failed to send email: ' + (e instanceof Error ? e.message : 'unknown error'))
     }
     setSending(false)
   }
