@@ -25,6 +25,9 @@ interface Tract {
   tillable_acres?: number
   soil_rating?: number
   land_type?: string
+  latitude?: number | null
+  longitude?: number | null
+  polygon_coordinates?: number[][] | null
 }
 
 interface Listing {
@@ -345,7 +348,9 @@ export default function ComparablesPage({ params }: { params: { id: string } }) 
 
   const subjectPctTillable = getSubjectPctTillable()
   const canEmail = selectedIds.size > 0
-  const hasSubjectCoords = !!(searchCriteria?.subject_latitude && searchCriteria?.subject_longitude)
+  const subjectLat = tract?.latitude || searchCriteria?.subject_latitude
+  const subjectLng = tract?.longitude || searchCriteria?.subject_longitude
+  const hasSubjectCoords = !!(subjectLat && subjectLng)
   const activeFilterCount = countActiveFilters(filters)
 
   // Apply filters to comparables and state sales
@@ -509,8 +514,9 @@ export default function ComparablesPage({ params }: { params: { id: string } }) 
                 stateSales={filteredStateSales}
                 subjectCounty={listing.county}
                 subjectState={listing.state}
-                subjectLatitude={searchCriteria?.subject_latitude}
-                subjectLongitude={searchCriteria?.subject_longitude}
+                subjectLatitude={subjectLat}
+                subjectLongitude={subjectLng}
+                subjectPolygon={tract.polygon_coordinates}
                 subjectAcres={tract.total_acres}
                 height="550px"
                 selectedIds={selectedIds}
