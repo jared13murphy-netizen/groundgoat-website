@@ -90,6 +90,8 @@ export default function ComparablesPage({ params }: { params: { id: string } }) 
   const [stateSales, setStateSales] = useState<any[]>([])
   const [filters, setFilters] = useState<FilterState>({ ...DEFAULT_FILTERS })
   const [filterVisible, setFilterVisible] = useState(false)
+  const [loadedFullState, setLoadedFullState] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
 
   useEffect(() => {
     checkAuth()
@@ -331,8 +333,6 @@ export default function ComparablesPage({ params }: { params: { id: string } }) 
   )
 
   // Load more handler — fetch full state
-  const [loadedFullState, setLoadedFullState] = useState(false)
-  const [loadingMore, setLoadingMore] = useState(false)
   const handleLoadMore = async () => {
     if (!listing?.state || loadedFullState) return
     setLoadingMore(true)
