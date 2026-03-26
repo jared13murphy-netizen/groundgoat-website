@@ -33,6 +33,9 @@ interface StateSale {
   township: string | null
   auction_date: string | null
   company_name: string | null
+  polygon_coordinates?: number[][] | null
+  tillable_acres?: number | null
+  soil_rating?: number | null
 }
 
 interface SaleDetail {
@@ -45,6 +48,8 @@ interface SaleDetail {
   county: string
   state: string
   township?: string | null
+  tillableAcres?: number | null
+  soilRating?: number | null
 }
 
 interface ComparablesMapProps {
@@ -55,6 +60,7 @@ interface ComparablesMapProps {
   subjectLatitude?: number | null
   subjectLongitude?: number | null
   subjectAcres?: number | null
+  subjectPolygon?: number[][] | null
   height?: string
   selectedIds?: Set<string>
   toggleSelection?: (item: any) => void
@@ -89,6 +95,7 @@ export default function ComparablesMap({
   subjectLatitude,
   subjectLongitude,
   subjectAcres,
+  subjectPolygon,
   height = '500px',
   selectedIds = new Set<string>(),
   toggleSelection,
@@ -204,6 +211,59 @@ export default function ComparablesMap({
         },
       })
 
+      // Add tract polygon boundaries
+      const polygonFeatures: any[] = []
+      for (const sale of stateSales) {
+        if (sale.polygon_coordinates && sale.polygon_coordinates.length > 2) {
+          polygonFeatures.push({
+            type: 'Feature',
+            properties: { id: sale.id },
+            geometry: {
+              type: 'Polygon',
+              coordinates: [sale.polygon_coordinates],
+            },
+          })
+        }
+      }
+
+      // Add subject tract polygon
+      if (subjectPolygon && subjectPolygon.length > 2) {
+        polygonFeatures.push({
+          type: 'Feature',
+          properties: { id: 'subject', isSubject: true },
+          geometry: {
+            type: 'Polygon',
+            coordinates: [subjectPolygon],
+          },
+        })
+      }
+
+      if (polygonFeatures.length > 0) {
+        map.addSource('tract-polygons', {
+          type: 'geojson',
+          data: { type: 'FeatureCollection', features: polygonFeatures },
+        })
+        map.addLayer({
+          id: 'tract-polygon-fill',
+          type: 'fill',
+          source: 'tract-polygons',
+          paint: {
+            'fill-color': '#E91E8C',
+            'fill-opacity': 0.08,
+          },
+        })
+        map.addLayer({
+          id: 'tract-polygon-line',
+          type: 'line',
+          source: 'tract-polygons',
+          paint: {
+            'line-color': '#E91E8C',
+            'line-width': ['case', ['==', ['get', 'isSubject'], true], 3, 2],
+            'line-opacity': 0.8,
+          },
+        })
+      }
+
       // Bounds: fit to comparable pins + subject (not all state sales)
       const comparableIds = new Set(comparables.map(c => String(c.id)))
       const allCoords: [number, number][] = [[subjectLng, subjectLat]]
@@ -241,6 +301,8 @@ export default function ComparablesMap({
             county: sale.county,
             state: sale.state,
             township: sale.township,
+            tillableAcres: sale.tillable_acres,
+            soilRating: sale.soil_rating,
           })
         })
 
@@ -270,7 +332,7 @@ export default function ComparablesMap({
       map.remove()
       mapRef.current = null
     }
-  }, [comparables, stateSales, subjectCounty, subjectState, subjectLatitude, subjectLongitude, subjectAcres])
+  }, [comparables, stateSales, subjectCounty, subjectState, subjectLatitude, subjectLongitude, subjectAcres, subjectPolygon])
 
   // Update marker styles when selectedIds changes (without recreating map)
   useEffect(() => {
@@ -333,10 +395,28 @@ export default function ComparablesMap({
                 <span className="sale-modal-label">State</span>
                 <span className="sale-modal-value">{selectedSale.state || '—'}</span>
               </div>
-              <div className="sale-modal-row" style={{ borderBottom: 'none' }}>
+              <div className="sale-modal-row">
                 <span className="sale-modal-label">Township</span>
                 <span className="sale-modal-value">{selectedSale.township || '—'}</span>
               </div>
+              {selectedSale.tillableAcres && (
+                <div className="sale-modal-row">
+                  <span className="sale-modal-label">Tillable Acres</span>
+                  <span className="sale-modal-value">{formatAcres(selectedSale.tillableAcres)} ac</span>
+                </div>
+              )}
+              {selectedSale.tillableAcres && selectedSale.pricePerAcre && selectedSale.totalAcres && (
+                <div className="sale-modal-row">
+                  <span className="sale-modal-label">$/Tillable Acre</span>
+                  <span className="sale-modal-value">{formatCurrency((selectedSale.pricePerAcre * selectedSale.totalAcres) / selectedSale.tillableAcres)}/ac</span>
+                </div>
+              )}
+              {selectedSale.soilRating && selectedSale.pricePerAcre && (
+                <div className="sale-modal-row" style={{ borderBottom: 'none' }}>
+                  <span className="sale-modal-label">$/Soil Rating</span>
+                  <span className="sale-modal-value">{formatCurrency(selectedSale.pricePerAcre / selectedSale.soilRating)}</span>
+                </div>
+              )}
             </div>
 
             {/* Add / Remove from email list */}

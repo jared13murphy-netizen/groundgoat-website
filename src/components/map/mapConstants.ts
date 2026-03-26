@@ -4,8 +4,8 @@ export const ZOOM_TIER_3_MIN = 11
 export const MAP_CENTER: [number, number] = [-91.5, 41.0] // [lng, lat] for MapLibre
 export const MAP_INITIAL_ZOOM = 6
 
-export const TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
-export const TILE_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+export const TILE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+export const TILE_ATTRIBUTION = '&copy; Esri, Maxar, Earthstar Geographics'
 export const GLYPH_URL = 'https://fonts.openmaptiles.org/{fontstack}/{range}.pbf'
 
 export const STATUS_COLORS: Record<string, { fill: string; border: string; opacity: number }> = {

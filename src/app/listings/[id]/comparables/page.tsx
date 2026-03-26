@@ -5,7 +5,8 @@ import dynamic from 'next/dynamic'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import fetchWithAuth from '@/lib/fetchWithAuth'
-import { Loader2, ArrowLeft, MapPin, Mail, Check, BarChart3, Filter, CheckCircle, List, Map } from 'lucide-react'
+import { Loader2, ArrowLeft, MapPin, Mail, Check, BarChart3, Filter, CheckCircle, List, Map, SlidersHorizontal } from 'lucide-react'
+import ComparablesFilterPanel, { FilterState, DEFAULT_FILTERS, applyFilters, countActiveFilters } from '@/components/ComparablesFilterPanel'
 
 const ComparablesMap = dynamic(() => import('@/components/map/ComparablesMap'), { ssr: false })
 

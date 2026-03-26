@@ -341,7 +341,7 @@ export default function ControlCenterPage() {
       const listing = listings.find(l => l.id === listingId)
       const totalPrice = state.totalAcres ? state.pricePerAcre * state.totalAcres : 0
       const tractPPTA = state.tillableAcres > 0 ? totalPrice / state.tillableAcres : null
-      const tractPPSR = state.soilRating && state.soilRating > 0 ? state.pricePerAcre / state.soilRating : null
+      const tractPPSR = state.soilRating && state.soilRating > 0 && totalPrice ? totalPrice / state.soilRating : null
 
       // Update tract
       const response = await fetch(`${API_URL}/api/tracts/${tractId}`, {
@@ -396,7 +396,7 @@ export default function ControlCenterPage() {
         const listingPricePerAcre = newListingTotalAcres > 0 ? totalSalePrice / newListingTotalAcres : null
         const listingPPTA = totalTillableAcres > 0 ? totalSalePrice / totalTillableAcres : null
         const weightedAvgSoilRating = soilRatingAcresSum > 0 ? weightedSoilRatingSum / soilRatingAcresSum : null
-        const listingPPSR = listingPricePerAcre && weightedAvgSoilRating ? listingPricePerAcre / weightedAvgSoilRating : null
+        const listingPPSR = totalSalePrice && weightedAvgSoilRating ? totalSalePrice / weightedAvgSoilRating : null
 
         await fetch(`${API_URL}/api/listings/${listingId}`, {
           method: 'PATCH',
@@ -465,7 +465,7 @@ export default function ControlCenterPage() {
         if (tState) {
           const totalPrice = tState.totalAcres ? tState.pricePerAcre * tState.totalAcres : 0
           const tractPPTA = tState.tillableAcres > 0 ? totalPrice / tState.tillableAcres : null
-          const tractPPSR = tState.soilRating && tState.soilRating > 0 ? tState.pricePerAcre / tState.soilRating : null
+          const tractPPSR = tState.soilRating && tState.soilRating > 0 && totalPrice ? totalPrice / tState.soilRating : null
           await fetch(`${API_URL}/api/tracts/${tract.id}`, {
             method: 'PATCH',
             headers: {
@@ -512,7 +512,7 @@ export default function ControlCenterPage() {
       const listingPricePerAcre = newListingTotalAcres > 0 ? totalSalePrice / newListingTotalAcres : null
       const listingPPTA = totalTillableAcres > 0 ? totalSalePrice / totalTillableAcres : null
       const weightedAvgSoilRating = soilRatingAcresSum > 0 ? weightedSoilRatingSum / soilRatingAcresSum : null
-      const listingPPSR = listingPricePerAcre && weightedAvgSoilRating ? listingPricePerAcre / weightedAvgSoilRating : null
+      const listingPPSR = totalSalePrice && weightedAvgSoilRating ? totalSalePrice / weightedAvgSoilRating : null
 
       // Update listing
       await fetch(`${API_URL}/api/listings/${listingId}`, {
@@ -589,7 +589,7 @@ export default function ControlCenterPage() {
         if (tState) {
           const totalPrice = tState.totalAcres ? tState.pricePerAcre * tState.totalAcres : 0
           const tractPPTA = tState.tillableAcres > 0 ? totalPrice / tState.tillableAcres : null
-          const tractPPSR = tState.soilRating && tState.soilRating > 0 ? tState.pricePerAcre / tState.soilRating : null
+          const tractPPSR = tState.soilRating && tState.soilRating > 0 && totalPrice ? totalPrice / tState.soilRating : null
           await fetch(`${API_URL}/api/tracts/${tract.id}`, {
             method: 'PATCH',
             headers: {
@@ -636,7 +636,7 @@ export default function ControlCenterPage() {
       const listingPricePerAcre = newListingTotalAcres > 0 ? totalSalePrice / newListingTotalAcres : null
       const listingPPTA = totalTillableAcres > 0 ? totalSalePrice / totalTillableAcres : null
       const weightedAvgSoilRating = soilRatingAcresSum > 0 ? weightedSoilRatingSum / soilRatingAcresSum : null
-      const listingPPSR = listingPricePerAcre && weightedAvgSoilRating ? listingPricePerAcre / weightedAvgSoilRating : null
+      const listingPPSR = totalSalePrice && weightedAvgSoilRating ? totalSalePrice / weightedAvgSoilRating : null
 
       // Update listing
       await fetch(`${API_URL}/api/listings/${listingId}`, {
