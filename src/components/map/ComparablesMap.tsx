@@ -268,10 +268,31 @@ export default function ComparablesMap({
       const comparableIds = new Set(comparables.map(c => String(c.id)))
       const allCoords: [number, number][] = [[subjectLng, subjectLat]]
 
-      // Create markers for ALL sold tracts — each at its real lat/lng
+      // Helper: calculate polygon centroid
+      const getPolygonCentroid = (coords: number[][]): [number, number] | null => {
+        if (!coords || coords.length < 3) return null
+        let sumLng = 0, sumLat = 0
+        for (const [lng, lat] of coords) {
+          sumLng += lng
+          sumLat += lat
+        }
+        return [sumLng / coords.length, sumLat / coords.length]
+      }
+
+      // Create markers for ALL sold tracts — use polygon centroid when available
       markerElementsRef.current.clear()
       for (const sale of stateSales) {
-        if (!sale.latitude || !sale.longitude) continue
+        // Use polygon centroid if available, otherwise stored lat/lng
+        let markerLng = sale.longitude
+        let markerLat = sale.latitude
+        if (sale.polygon_coordinates && sale.polygon_coordinates.length > 2) {
+          const centroid = getPolygonCentroid(sale.polygon_coordinates)
+          if (centroid) {
+            markerLng = centroid[0]
+            markerLat = centroid[1]
+          }
+        }
+        if (!markerLat || !markerLng) continue
 
         const el = createMarkerElement(
           sale.price_per_acre || null,
@@ -281,12 +302,12 @@ export default function ComparablesMap({
         markerElementsRef.current.set(String(sale.id), el)
 
         const marker = new maplibregl.Marker({ element: el })
-          .setLngLat([sale.longitude, sale.latitude])
+          .setLngLat([markerLng, markerLat])
           .addTo(map)
 
         // Track comparable coords for bounds fitting
         if (comparableIds.has(String(sale.id))) {
-          allCoords.push([sale.longitude, sale.latitude])
+          allCoords.push([markerLng, markerLat])
         }
 
         // Click to open modal

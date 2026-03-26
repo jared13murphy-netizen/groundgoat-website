@@ -348,8 +348,18 @@ export default function ComparablesPage({ params }: { params: { id: string } }) 
 
   const subjectPctTillable = getSubjectPctTillable()
   const canEmail = selectedIds.size > 0
-  const subjectLat = tract?.latitude || searchCriteria?.subject_latitude
-  const subjectLng = tract?.longitude || searchCriteria?.subject_longitude
+  // Use polygon centroid for subject tract if available (more accurate than stored lat/lng)
+  let subjectLat = tract?.latitude || searchCriteria?.subject_latitude
+  let subjectLng = tract?.longitude || searchCriteria?.subject_longitude
+  if (tract?.polygon_coordinates && tract.polygon_coordinates.length > 2) {
+    let sumLng = 0, sumLat = 0
+    for (const [lng, lat] of tract.polygon_coordinates) {
+      sumLng += lng
+      sumLat += lat
+    }
+    subjectLng = sumLng / tract.polygon_coordinates.length
+    subjectLat = sumLat / tract.polygon_coordinates.length
+  }
   const hasSubjectCoords = !!(subjectLat && subjectLng)
   const activeFilterCount = countActiveFilters(filters)
 
