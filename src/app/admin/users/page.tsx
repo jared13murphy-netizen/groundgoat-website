@@ -24,6 +24,7 @@ interface Subscription {
   billing_cycle: string
   current_period_end: string | null
   payment_method: string | null
+  promo_code: string | null
 }
 
 interface User {
@@ -320,6 +321,8 @@ export default function AdminUsersPage() {
                   <th className="text-left py-4 px-4 text-gg-gray-400 font-medium">Monthly</th>
                   <th className="text-left py-4 px-4 text-gg-gray-400 font-medium">Billing</th>
                   <th className="text-left py-4 px-4 text-gg-gray-400 font-medium">Next Payment</th>
+                  <th className="text-left py-4 px-4 text-gg-gray-400 font-medium">Promo</th>
+                  <th className="text-left py-4 px-4 text-gg-gray-400 font-medium">Trial Left</th>
                   <th className="text-left py-4 px-4 text-gg-gray-400 font-medium">Joined</th>
                   <th className="text-left py-4 px-4 text-gg-gray-400 font-medium">Referred By</th>
                   <th className="text-left py-4 px-4 text-gg-gray-400 font-medium">Sales Rep</th>
@@ -329,7 +332,7 @@ export default function AdminUsersPage() {
               <tbody>
                 {filteredUsers.length === 0 ? (
                   <tr>
-                    <td colSpan={canEdit ? 12 : 11} className="text-center py-8 text-gg-gray-400">
+                    <td colSpan={canEdit ? 14 : 13} className="text-center py-8 text-gg-gray-400">
                       No users found
                     </td>
                   </tr>
@@ -436,6 +439,28 @@ export default function AdminUsersPage() {
                             <span className="text-gg-gray-500 text-sm">–</span>
                           )}
                         </td>
+                        <td className="py-4 px-4">
+                          {user.subscriptions.length > 0 && user.subscriptions[0].promo_code ? (
+                            <span className="px-2 py-1 rounded-full text-xs font-medium bg-pink-500/20 text-pink-400">
+                              {user.subscriptions[0].promo_code}
+                            </span>
+                          ) : (
+                            <span className="text-gg-gray-500 text-sm">–</span>
+                          )}
+                        </td>
+                        <td className="py-4 px-4">
+                          {(() => {
+                            if (user.subscription_status !== 'trialing' || user.subscriptions.length === 0) {
+                              return <span className="text-gg-gray-500 text-sm">–</span>
+                            }
+                            const periodEnd = user.subscriptions[0].current_period_end
+                            if (!periodEnd) return <span className="text-gg-gray-500 text-sm">–</span>
+                            const daysLeft = Math.ceil((new Date(periodEnd).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+                            if (daysLeft <= 0) return <span className="text-red-400 text-sm font-medium">Expired</span>
+                            const color = daysLeft <= 7 ? 'text-red-400' : daysLeft <= 14 ? 'text-yellow-400' : 'text-green-400'
+                            return <span className={`text-sm font-medium ${color}`}>{daysLeft}d</span>
+                          })()}
+                        </td>
                         <td className="py-4 px-4 text-gg-gray-400 text-sm">
                           {formatDate(user.created_at)}
                         </td>
@@ -504,7 +529,7 @@ export default function AdminUsersPage() {
                       {/* Expanded Subscription Details */}
                       {expandedUser === user.id && user.subscriptions && user.subscriptions.length > 0 && (
                         <tr key={`${user.id}-subs`} className="bg-gg-gray-800/30">
-                          <td colSpan={canEdit ? 12 : 11} className="py-3 px-8">
+                          <td colSpan={canEdit ? 14 : 13} className="py-3 px-8">
                             <div className="text-sm">
                               <p className="text-gg-gray-400 mb-2 font-medium">Subscriptions:</p>
                               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
