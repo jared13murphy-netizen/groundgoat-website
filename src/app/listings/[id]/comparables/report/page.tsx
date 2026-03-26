@@ -44,24 +44,39 @@ export default function ComparablesReportPage({ params }: { params: { id: string
   const [sending, setSending] = useState(false)
 
   useEffect(() => {
-    const ids = searchParams.get('ids')?.split(',') || []
-    const tractId = searchParams.get('tractId')
-    if (!ids.length || !tractId) return
+    // Read from sessionStorage (set by comparables page)
+    const stored = sessionStorage.getItem('comparablesReport')
+    if (stored) {
+      try {
+        const data = JSON.parse(stored)
+        if (data.subject) {
+          const s = data.subject
+          setSubject({
+            ...s.tract,
+            county: s.listing?.county,
+            state: s.listing?.state,
+            company_name: s.listing?.company_name,
+            auction_datetime: s.listing?.auction_datetime,
+          })
+        }
+        if (data.comparables) {
+          setComparables(data.comparables)
+        }
+      } catch (e) {
+        console.error('Failed to parse report data:', e)
+      }
+      return
+    }
 
-    // Fetch subject tract
+    // Fallback: fetch from API if no sessionStorage data
+    const tractId = searchParams.get('tractId')
+    if (!tractId) return
+
     fetchWithAuth(`${API_URL}/api/listings/${params.id}`).then(res => res.json()).then(data => {
       const tract = data.tracts?.find((t: any) => t.id === tractId)
       if (tract) {
         setSubject({ ...tract, county: data.county, state: data.state, company_name: data.company_name, auction_datetime: data.auction_datetime })
       }
-    })
-
-    // Fetch comparables - use state-sales and filter by IDs
-    const state = searchParams.get('state') || 'IL'
-    fetchWithAuth(`${API_URL}/api/comparables/state-sales/${state}`).then(res => res.json()).then(data => {
-      const idSet = new Set(ids)
-      const filtered = (data.tracts || []).filter((t: any) => idSet.has(t.id))
-      setComparables(filtered)
     })
   }, [params.id, searchParams])
 
@@ -120,8 +135,8 @@ export default function ComparablesReportPage({ params }: { params: { id: string
   }
 
   return (
-    <div className="min-h-screen bg-gg-black text-white">
-      <div className="max-w-3xl mx-auto px-4 py-6">
+    <div className="min-h-screen bg-gg-black text-white pt-28">
+      <div className="max-w-3xl mx-auto px-4 pb-12">
         {/* Header */}
         <div className="flex items-center gap-4 mb-6">
           <button onClick={() => router.back()} className="text-gray-400 hover:text-white">
