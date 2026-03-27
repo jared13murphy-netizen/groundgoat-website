@@ -762,7 +762,7 @@ export default function MyDecImportPage() {
                           </div>
                           <div className="flex items-center gap-1">
                             <Calendar size={14} className="text-gg-gray-500" />
-                            <span>{sd.mydec_date_recorded || sd.iowa_sale_date || '?'}</span>
+                            <span>{sd.mydec_date_recorded || sd.iowa_sale_date || sd.indiana_conveyance_date || sd.indiana_sale_date || '?'}</span>
                             {sd.mydec_auction_sale && (
                               <span className="text-gg-pink text-xs">(auction)</span>
                             )}
