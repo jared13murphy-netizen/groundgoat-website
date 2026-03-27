@@ -57,6 +57,7 @@ function TractDetail({ item }: { item: StagingItem }) {
       cropscape: { text: 'USDA CropScape CDL', color: 'text-green-400' },
       census_geocoder: { text: 'US Census Geocoder', color: 'text-green-400' },
       mydec: { text: 'IL MyDec PTAX-203', color: 'text-purple-400' },
+      indiana_sdf: { text: 'IN Sales Disclosure Form', color: 'text-yellow-400' },
       iowaassessors: { text: 'Iowa Assessors (Vanguard)', color: 'text-purple-400' },
       iowaassessors_csr: { text: 'Iowa Assessors CSR2', color: 'text-green-400' },
     }
@@ -67,11 +68,18 @@ function TractDetail({ item }: { item: StagingItem }) {
   type FieldRow = { label: string; value: string | number | null | undefined; source: string | null; warn?: boolean }
 
   const isIowa = item.source_type === 'iowa' || !!sd.iowa_parcel_number
-  const dataSource = isIowa ? 'iowaassessors' : 'mydec'
+  const isIndiana = item.source_type === 'indiana_sdf' || !!sd.indiana_sdf_id
+  const dataSource = isIowa ? 'iowaassessors' : isIndiana ? 'indiana_sdf' : 'mydec'
 
   const fields: FieldRow[] = [
     // Source-specific ID fields
-    ...(isIowa ? [
+    ...(isIndiana ? [
+      { label: 'Parcel Number', value: sd.indiana_parcel_number || tract.parcel_number, source: dataSource },
+      { label: 'SDF ID', value: sd.indiana_sdf_id, source: dataSource },
+      { label: 'Conveyance Date', value: sd.indiana_conveyance_date || listing.auction_date, source: dataSource },
+      { label: 'Buyer', value: tract.buyer, source: dataSource },
+      { label: 'Seller', value: tract.seller, source: dataSource },
+    ] : isIowa ? [
       { label: 'Parcel Number', value: sd.iowa_parcel_number, source: dataSource },
       { label: 'Recording', value: sd.iowa_recording || 'N/A', source: dataSource },
       { label: 'Sale Date', value: sd.iowa_sale_date, source: dataSource },
@@ -263,7 +271,7 @@ export default function MyDecImportPage() {
   const [authChecked, setAuthChecked] = useState(false)
 
   // State selector
-  const [activeState, setActiveState] = useState<'IL' | 'IA'>('IL')
+  const [activeState, setActiveState] = useState<'IL' | 'IA' | 'IN'>('IL')
 
   // Import controls
   const [county, setCounty] = useState('LaSalle')
@@ -334,7 +342,7 @@ export default function MyDecImportPage() {
   }, [router])
 
   // Fetch staging items
-  const sourceType = activeState === 'IA' ? 'iowa' : 'mydec'
+  const sourceType = activeState === 'IA' ? 'iowa' : activeState === 'IN' ? 'indiana_sdf' : 'mydec'
   const fetchItems = useCallback(async () => {
     setLoading(true)
     try {
@@ -373,7 +381,7 @@ export default function MyDecImportPage() {
   const runImport = async () => {
     setImporting(true)
     setImportStats(null)
-    const endpoint = activeState === 'IA' ? '/api/iowa/import' : '/api/mydec/import'
+    const endpoint = activeState === 'IA' ? '/api/iowa/import' : activeState === 'IN' ? '/api/indiana/import' : '/api/mydec/import'
     try {
       const res = await fetch(`${SCRAPER_URL}${endpoint}`, {
         method: 'POST',
@@ -495,7 +503,7 @@ export default function MyDecImportPage() {
             <div>
               <h1 className="text-xl font-bold">State Farm Sale Import</h1>
               <p className="text-sm text-gg-gray-400">
-                {activeState === 'IL' ? 'Illinois PTAX-203 transfer records' : 'Iowa Assessor ag sales'} &middot; {total} pending review
+                {activeState === 'IL' ? 'Illinois PTAX-203 transfer records' : activeState === 'IN' ? 'Indiana Sales Disclosure Forms' : 'Iowa Assessor ag sales'} &middot; {total} pending review
               </p>
             </div>
           </div>
@@ -532,6 +540,16 @@ export default function MyDecImportPage() {
           >
             🌾 Iowa (Assessors)
           </button>
+          <button
+            onClick={() => { setActiveState('IN'); setCounty('Huntington'); setImportStats(null); setPage(0) }}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              activeState === 'IN'
+                ? 'bg-gg-pink text-white'
+                : 'bg-gg-gray-800 text-gg-gray-400 hover:text-white hover:bg-gg-gray-700'
+            }`}
+          >
+            🏁 Indiana (SDF)
+          </button>
         </div>
 
         {/* Import Controls */}
@@ -547,7 +565,7 @@ export default function MyDecImportPage() {
                 type="text"
                 value={county}
                 onChange={e => setCounty(e.target.value)}
-                placeholder={activeState === 'IL' ? 'e.g., LaSalle' : 'e.g., Washington'}
+                placeholder={activeState === 'IL' ? 'e.g., LaSalle' : activeState === 'IN' ? 'e.g., Huntington' : 'e.g., Washington'}
                 className="bg-gg-gray-800 border border-gg-gray-700 rounded px-3 py-2 text-sm w-40"
               />
             </div>
@@ -634,7 +652,7 @@ export default function MyDecImportPage() {
                 <tbody>
                   {countyTracker.map((c: any) => (
                     <tr key={`${c.state}-${c.county}`} className="border-b border-gg-gray-800/50 hover:bg-gg-gray-800/30">
-                      <td className="py-1.5 pr-4 text-gg-gray-400">{c.state === 'Illinois' ? 'IL' : c.state === 'Iowa' ? 'IA' : c.state || '—'}</td>
+                      <td className="py-1.5 pr-4 text-gg-gray-400">{c.state === 'Illinois' ? 'IL' : c.state === 'Iowa' ? 'IA' : c.state === 'Indiana' ? 'IN' : c.state || '—'}</td>
                       <td className="py-1.5 pr-4 font-medium">{c.county}</td>
                       <td className="py-1.5 px-3 text-right text-green-400">{c.in_production || 0}</td>
                       <td className="py-1.5 px-3 text-right text-yellow-400">{c.pending || 0}</td>
@@ -737,7 +755,7 @@ export default function MyDecImportPage() {
                           <div className="flex items-center gap-1">
                             <Wheat size={14} className="text-gg-gray-500" />
                             <span>
-                              {tract.soil_rating ? `${item.source_type === 'iowa' ? 'CSR2' : 'PI'}: ${tract.soil_rating} · ` : ''}
+                              {tract.soil_rating ? `${item.source_type === 'iowa' ? 'CSR2' : 'PI'}: ${tract.soil_rating} · ` : tract.nccpi ? `NCCPI: ${tract.nccpi} · ` : ''}
                               NCCPI: {tract.nccpi || '?'}
                               {tract.tillable_acres ? ` · ${tract.tillable_acres} tillable` : ''}
                             </span>
