@@ -377,7 +377,7 @@ export default function MyDecImportPage() {
     }
   }, [isAdmin, fetchItems, fetchMydecCount, fetchCountyTracker])
 
-  // Run import
+  // Run import (Railway server)
   const runImport = async () => {
     setImporting(true)
     setImportStats(null)
@@ -400,6 +400,31 @@ export default function MyDecImportPage() {
       fetchCountyTracker()
     } catch (e: any) {
       setImportStats({ success: false, error: e.message })
+    }
+    setImporting(false)
+  }
+
+  // Run import locally (for Iowa — Beacon requires residential IP)
+  const runLocalImport = async () => {
+    setImporting(true)
+    setImportStats(null)
+    try {
+      const res = await fetch('http://localhost:5050/api/iowa/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          county: county || null,
+          months_back: monthsBack,
+          limit: importLimit,
+        }),
+      })
+      const data = await res.json()
+      setImportStats(data)
+      setPage(0)
+      fetchItems()
+      fetchCountyTracker()
+    } catch (e: any) {
+      setImportStats({ success: false, error: 'Local scraper not running. Start it with: python3 run_iowa_local.py --serve' })
     }
     setImporting(false)
   }
@@ -595,6 +620,17 @@ export default function MyDecImportPage() {
               {importing ? <Loader2 size={16} className="animate-spin" /> : <Play size={16} />}
               {importing ? 'Importing...' : 'Run Import'}
             </button>
+            {activeState === 'IA' && (
+              <button
+                onClick={runLocalImport}
+                disabled={importing}
+                className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white px-5 py-2 rounded text-sm font-medium flex items-center gap-2"
+                title="Run from your local machine (required for Iowa — Beacon blocks datacenter IPs)"
+              >
+                {importing ? <Loader2 size={16} className="animate-spin" /> : <Play size={16} />}
+                {importing ? 'Importing...' : 'Run Locally'}
+              </button>
+            )}
           </div>
 
           {/* Import stats */}
