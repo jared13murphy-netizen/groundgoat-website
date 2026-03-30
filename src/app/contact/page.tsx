@@ -35,12 +35,17 @@ export default function ContactPage() {
     setError('')
 
     try {
-      const body = `Name: ${formData.name}\nEmail: ${formData.email}\n\n${formData.message}`
-      const mailtoUrl = `mailto:jmurphy@groundgoat.com?subject=${encodeURIComponent(formData.subject)}&body=${encodeURIComponent(body)}`
-      window.location.href = mailtoUrl
+      const response = await fetch(`${API_URL}/api/contact`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formData),
+      })
+      if (!response.ok) {
+        throw new Error('Failed to send message')
+      }
       setSubmitted(true)
     } catch (err: any) {
-      setError('Unable to open email client. Please email us directly at jmurphy@groundgoat.com')
+      setError('Failed to send message. Please try again or email us directly at jmurphy@groundgoat.com')
     } finally {
       setLoading(false)
     }
