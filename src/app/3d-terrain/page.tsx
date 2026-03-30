@@ -3,14 +3,13 @@
 import { useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app';
-
 function Terrain3DContent() {
   const searchParams = useSearchParams();
   const tractId = searchParams.get('tractId') || '';
   const token = searchParams.get('token') || '';
   
-  const iframeSrc = `/3d-viewer.html?tractId=${tractId}&token=${token}&apiUrl=${encodeURIComponent(API_URL)}`;
+  // Serve through authenticated API route
+  const iframeSrc = `/api/3d-viewer?tractId=${tractId}&token=${token}`;
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: '#1a1a1a', zIndex: 99999, display: 'flex', flexDirection: 'column' }}>
