@@ -34,7 +34,13 @@ export async function GET(request: NextRequest) {
     }
     
     let html = await viewerResponse.text();
-    
+
+    // Inject apiUrl so the viewer fetches tract data from the backend, not groundgoat.com
+    html = html.replace(
+      "const apiUrl = params.get('apiUrl') || '';",
+      `const apiUrl = '${API_URL}';`
+    );
+
     return new NextResponse(html, {
       headers: {
         'Content-Type': 'text/html',
