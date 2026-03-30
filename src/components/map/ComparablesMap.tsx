@@ -6,6 +6,7 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import './ComparablesMap.css'
 import { TILE_URL, TILE_ATTRIBUTION, GLYPH_URL } from './mapConstants'
 import { countyCentroids } from '@/data/countyCentroids'
+import Tract3DModal from '@/components/Tract3DModal'
 
 interface ComparablePin {
   id: string
@@ -40,6 +41,7 @@ interface StateSale {
 
 interface SaleDetail {
   id: string
+  tractId?: string | null
   auctionDate?: string | null
   totalAcres?: number | null
   companyName?: string | null
@@ -50,6 +52,7 @@ interface SaleDetail {
   township?: string | null
   tillableAcres?: number | null
   soilRating?: number | null
+  polygonCoordinates?: number[][] | null
 }
 
 interface ComparablesMapProps {
@@ -105,6 +108,7 @@ export default function ComparablesMap({
   const markersRef = useRef<maplibregl.Marker[]>([])
   const markerElementsRef = useRef<Map<string, HTMLDivElement>>(new Map())
   const [selectedSale, setSelectedSale] = useState<SaleDetail | null>(null)
+  const [show3DViewer, setShow3DViewer] = useState(false)
 
   useEffect(() => {
     if (!mapContainerRef.current) return
@@ -440,6 +444,17 @@ export default function ComparablesMap({
               )}
             </div>
 
+            {/* View 3D Terrain */}
+            {selectedSale.polygonCoordinates && selectedSale.polygonCoordinates.length > 2 && (
+              <button
+                className="sale-modal-action-btn"
+                style={{ backgroundColor: '#E91E8C', color: '#fff', marginBottom: '8px' }}
+                onClick={() => setShow3DViewer(true)}
+              >
+                🏔 View 3D Terrain
+              </button>
+            )}
+
             {/* Add / Remove from email list */}
             {toggleSelection && (() => {
               const isInList = selectedIds.has(selectedSale.id)
@@ -458,6 +473,14 @@ export default function ComparablesMap({
           </div>
         </div>
       )}
+
+      {/* 3D Terrain Viewer */}
+      <Tract3DModal
+        tractId={selectedSale?.tractId || selectedSale?.id || ''}
+        tractName={`${selectedSale?.county || ''}, ${selectedSale?.state || ''}`}
+        isOpen={show3DViewer}
+        onClose={() => setShow3DViewer(false)}
+      />
     </div>
   )
 }
