@@ -24,6 +24,7 @@ interface ComparablePin {
 
 interface StateSale {
   id: string
+  tract_id?: string | null
   latitude: number | null
   longitude: number | null
   price_per_acre: number | null
@@ -318,6 +319,7 @@ export default function ComparablesMap({
         el.addEventListener('click', () => {
           setSelectedSale({
             id: sale.id,
+            tractId: sale.tract_id || sale.id,
             auctionDate: sale.auction_date,
             totalAcres: sale.total_acres,
             companyName: sale.company_name,
@@ -328,6 +330,7 @@ export default function ComparablesMap({
             township: sale.township,
             tillableAcres: sale.tillable_acres,
             soilRating: sale.soil_rating,
+            polygonCoordinates: sale.polygon_coordinates,
           })
         })
 
