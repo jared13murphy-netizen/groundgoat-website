@@ -6,7 +6,6 @@ import dynamic from 'next/dynamic'
 import { AnimatePresence } from 'framer-motion'
 import { Loader2, BarChart3 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
-import { getStateAbbreviation } from '@/data/counties'
 import { getDistanceToCounty } from '@/data/countyCoordinates'
 import PortalNavBar from '@/components/portal/PortalNavBar'
 import PortalKPICards from '@/components/portal/PortalKPICards'
@@ -66,25 +65,21 @@ export default function AccessPortalPage() {
   const [activeTab, setActiveTab] = useState<TabType>('map')
   const [showListPanel, setShowListPanel] = useState(false)
   const [showAnalyticsPanel, setShowAnalyticsPanel] = useState(false)
+  const [filterOpen, setFilterOpen] = useState(false)
   const [listings, setListings] = useState<Listing[]>([])
   const [listingsLoading, setListingsLoading] = useState(false)
   const [analyticsData, setAnalyticsData] = useState<AnalyticsData | null>(null)
   const [analyticsLoading, setAnalyticsLoading] = useState(false)
-  const [listingCounts, setListingCounts] = useState({ auctions: 0, private_treaty: 0, results: 0 })
 
   // Auth check
   useEffect(() => {
     checkAuth()
   }, [])
 
-  // Fetch initial counts for nav badges
+  // Fetch analytics for home county on load
   useEffect(() => {
-    if (user) {
-      fetchListingCounts()
-      // Fetch analytics for home county
-      if (user.home_county && user.home_state) {
-        fetchAnalytics(user.home_county, user.home_state)
-      }
+    if (user?.home_county && user?.home_state) {
+      fetchAnalytics(user.home_county, user.home_state)
     }
   }, [user])
 
@@ -114,31 +109,6 @@ export default function AccessPortalPage() {
     }
   }
 
-  const fetchListingCounts = async () => {
-    try {
-      const [auctionsRes, privateTreatyRes, resultsRes] = await Promise.all([
-        fetchWithAuth(`${API_URL}/api/listings/upcoming/auctions`),
-        fetchWithAuth(`${API_URL}/api/listings?listing_type=private_treaty&status=listed,live&limit=1&offset=0`),
-        fetchWithAuth(`${API_URL}/api/listings/recent/results?listing_type=auction`),
-      ])
-
-      const auctions = auctionsRes.ok ? await auctionsRes.json() : []
-      // For private treaty, we just need the count — the endpoint returns the array
-      const privateTreaty = privateTreatyRes.ok ? await privateTreatyRes.json() : []
-      const results = resultsRes.ok ? (await resultsRes.json()).filter((l: Listing) =>
-        ['sold', 'no_sale', 'pending'].includes(l.status)
-      ) : []
-
-      setListingCounts({
-        auctions: Array.isArray(auctions) ? auctions.length : 0,
-        private_treaty: Array.isArray(privateTreaty) ? privateTreaty.length : 0,
-        results: Array.isArray(results) ? results.length : 0,
-      })
-    } catch {
-      // Silent fail — counts are non-critical
-    }
-  }
-
   const fetchListings = async (tab: TabType) => {
     if (tab === 'map') return
     setListingsLoading(true)
@@ -160,7 +130,6 @@ export default function AccessPortalPage() {
         const response = await fetchWithAuth(`${API_URL}/api/listings?listing_type=private_treaty&status=listed,live&limit=100&offset=0`)
         if (response.ok) {
           data = await response.json()
-          // Sort by distance if user has home location
           if (user?.home_state && user?.home_county) {
             data = data.map(listing => ({
               ...listing,
@@ -204,6 +173,10 @@ export default function AccessPortalPage() {
     }
   }
 
+  const handleFilterToggle = () => {
+    setFilterOpen(!filterOpen)
+  }
+
   const handleAnalyticsDataLoad = (data: AnalyticsData | null) => {
     if (data) setAnalyticsData(data)
   }
@@ -230,6 +203,9 @@ export default function AccessPortalPage() {
           height="100vh"
           homeState={user.home_state}
           homeCounty={user.home_county}
+          portalMode={true}
+          externalFilterOpen={filterOpen}
+          onFilterOpenChange={setFilterOpen}
         />
       </div>
 
@@ -237,8 +213,9 @@ export default function AccessPortalPage() {
       <PortalNavBar
         activeTab={activeTab}
         onTabChange={handleTabChange}
+        onFilterToggle={handleFilterToggle}
+        filterOpen={filterOpen}
         user={user}
-        listingCounts={listingCounts}
       />
 
       {/* Floating KPI Cards */}
@@ -280,8 +257,8 @@ export default function AccessPortalPage() {
       <AnimatePresence>
         {showAnalyticsPanel && (
           <PortalAnalyticsPanel
-            county={user.home_county || ''}
-            state={user.home_state || ''}
+            county=""
+            state=""
             onClose={() => setShowAnalyticsPanel(false)}
             onDataLoad={handleAnalyticsDataLoad}
           />

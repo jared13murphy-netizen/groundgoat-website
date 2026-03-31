@@ -2,6 +2,7 @@
 
 import { motion } from 'framer-motion'
 import Link from 'next/link'
+import Image from 'next/image'
 import { X, Calendar, Building2, DollarSign, Loader2, MapPin } from 'lucide-react'
 
 type TabType = 'auctions' | 'private_treaty' | 'results'
@@ -73,6 +74,101 @@ function formatPrice(price?: number): string {
   return '$' + Math.round(price).toLocaleString()
 }
 
+function ListingCard({ listing, activeTab }: { listing: Listing; activeTab: TabType }) {
+  const hasCompany = !!(listing.company?.name || listing.company_name)
+  const imgSrc = listing.primary_image_url || FALLBACK_IMAGE
+
+  const cardContent = (
+    <div className={`bg-white/[0.03] rounded-xl overflow-hidden border border-transparent transition ${
+      hasCompany ? 'hover:bg-white/[0.06] hover:border-gg-pink/20 cursor-pointer group' : 'opacity-80'
+    }`}>
+      {/* Image */}
+      <div className="relative h-32 w-full bg-gg-gray-800">
+        <Image
+          src={imgSrc}
+          alt={`${listing.county}, ${listing.state}`}
+          fill
+          className="object-cover"
+          sizes="400px"
+        />
+        {(activeTab === 'results' || listing.status === 'live') && (
+          <span className={`absolute top-2 right-2 text-[10px] px-2 py-0.5 rounded-full font-medium uppercase ${
+            STATUS_COLORS[listing.status] || 'bg-gray-500/20 text-gray-400'
+          }`}>
+            {listing.status === 'no_sale' ? 'No Sale' : listing.status}
+          </span>
+        )}
+      </div>
+
+      <div className="p-4">
+        {/* Title */}
+        <div className={`text-sm font-semibold ${hasCompany ? 'group-hover:text-gg-pink' : ''} transition`}>
+          {listing.total_acres ? Math.round(listing.total_acres) : '—'} ac — {listing.county}
+        </div>
+        <div className="text-xs text-gg-gray-400 mt-0.5 flex items-center gap-1">
+          <MapPin size={11} />
+          {listing.county}, {listing.state}
+        </div>
+
+        {/* Company */}
+        {hasCompany && (
+          <div className="text-xs text-gg-gray-400 flex items-center gap-1 mt-2">
+            <Building2 size={11} />
+            {listing.company?.name || listing.company_name}
+          </div>
+        )}
+
+        {/* Stats row */}
+        <div className="grid grid-cols-3 gap-2 pt-3 mt-3 border-t border-white/5">
+          <div>
+            <div className="text-[10px] text-gg-gray-500">Acres</div>
+            <div className="text-sm font-medium">{listing.total_acres ? Math.round(listing.total_acres).toLocaleString() : '—'}</div>
+          </div>
+          <div>
+            <div className="text-[10px] text-gg-gray-500">Tracts</div>
+            <div className="text-sm font-medium">{listing.tract_count || '—'}</div>
+          </div>
+          <div>
+            <div className="text-[10px] text-gg-gray-500">
+              {activeTab === 'private_treaty' ? 'Asking' : activeTab === 'results' ? 'Sold' : '$/Acre'}
+            </div>
+            <div className="text-sm font-medium">
+              {activeTab === 'private_treaty'
+                ? formatPrice(listing.asking_price)
+                : activeTab === 'results'
+                  ? formatPrice(listing.sale_price)
+                  : formatPrice(listing.price_per_acre)
+              }
+            </div>
+          </div>
+        </div>
+
+        {/* Date info */}
+        {activeTab === 'auctions' && (
+          <div className="flex items-center gap-1.5 text-xs text-gg-gray-400 mt-3 pt-2 border-t border-white/5">
+            <Calendar size={12} />
+            <span>{formatDate(listing)}</span>
+            {formatTime(listing) && <span className="text-gg-gray-500">· {formatTime(listing)}</span>}
+          </div>
+        )}
+        {activeTab === 'results' && listing.price_per_acre && (
+          <div className="flex items-center gap-1.5 text-xs mt-3 pt-2 border-t border-white/5">
+            <DollarSign size={12} className="text-gg-gray-400" />
+            <span className="text-gg-pink font-medium">{formatPrice(listing.price_per_acre)}/ac</span>
+            <span className="text-gg-gray-500">· {formatDate(listing)}</span>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+
+  if (hasCompany) {
+    return <Link href={`/listings/${listing.id}`}>{cardContent}</Link>
+  }
+
+  return cardContent
+}
+
 export default function PortalListPanel({ listings, loading, activeTab, onClose }: PortalListPanelProps) {
   return (
     <motion.div
@@ -110,80 +206,7 @@ export default function PortalListPanel({ listings, loading, activeTab, onClose 
           </div>
         ) : (
           listings.map(listing => (
-            <Link
-              key={listing.id}
-              href={`/listings/${listing.id}`}
-              className="block bg-white/[0.03] rounded-xl p-4 hover:bg-white/[0.06] transition border border-transparent hover:border-gg-pink/20 group"
-            >
-              {/* Top row: Title + Status */}
-              <div className="flex items-start justify-between gap-2 mb-2">
-                <div>
-                  <div className="text-sm font-semibold group-hover:text-gg-pink transition">
-                    {listing.total_acres ? Math.round(listing.total_acres) : '—'} ac — {listing.county}
-                  </div>
-                  <div className="text-xs text-gg-gray-400 mt-0.5 flex items-center gap-1">
-                    <MapPin size={11} />
-                    {listing.county}, {listing.state}
-                  </div>
-                </div>
-                {(activeTab === 'results' || listing.status === 'live') && (
-                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium uppercase shrink-0 ${
-                    STATUS_COLORS[listing.status] || 'bg-gray-500/20 text-gray-400'
-                  }`}>
-                    {listing.status === 'no_sale' ? 'No Sale' : listing.status}
-                  </span>
-                )}
-              </div>
-
-              {/* Company */}
-              {(listing.company?.name || listing.company_name) && (
-                <div className="text-xs text-gg-gray-400 flex items-center gap-1 mb-3">
-                  <Building2 size={11} />
-                  {listing.company?.name || listing.company_name}
-                </div>
-              )}
-
-              {/* Stats row */}
-              <div className="grid grid-cols-3 gap-2 pt-3 border-t border-white/5">
-                <div>
-                  <div className="text-[10px] text-gg-gray-500">Acres</div>
-                  <div className="text-sm font-medium">{listing.total_acres ? Math.round(listing.total_acres).toLocaleString() : '—'}</div>
-                </div>
-                <div>
-                  <div className="text-[10px] text-gg-gray-500">Tracts</div>
-                  <div className="text-sm font-medium">{listing.tract_count || '—'}</div>
-                </div>
-                <div>
-                  <div className="text-[10px] text-gg-gray-500">
-                    {activeTab === 'private_treaty' ? 'Asking' : activeTab === 'results' ? 'Sold' : '$/Acre'}
-                  </div>
-                  <div className="text-sm font-medium">
-                    {activeTab === 'private_treaty'
-                      ? formatPrice(listing.asking_price)
-                      : activeTab === 'results'
-                        ? formatPrice(listing.sale_price)
-                        : formatPrice(listing.price_per_acre)
-                    }
-                  </div>
-                </div>
-              </div>
-
-              {/* Bottom: Date/Price info */}
-              {activeTab === 'auctions' && (
-                <div className="flex items-center gap-1.5 text-xs text-gg-gray-400 mt-3 pt-2 border-t border-white/5">
-                  <Calendar size={12} />
-                  <span>{formatDate(listing)}</span>
-                  {formatTime(listing) && <span className="text-gg-gray-500">· {formatTime(listing)}</span>}
-                </div>
-              )}
-              {activeTab === 'results' && listing.price_per_acre && (
-                <div className="flex items-center gap-1.5 text-xs mt-3 pt-2 border-t border-white/5">
-                  <DollarSign size={12} className="text-gg-gray-400" />
-                  <span className="text-gg-pink font-medium">{formatPrice(listing.price_per_acre)}/ac</span>
-                  <span className="text-gg-gray-500">· {formatDate(listing)}</span>
-                </div>
-              )}
-            </Link>
+            <ListingCard key={listing.id} listing={listing} activeTab={activeTab} />
           ))
         )}
       </div>

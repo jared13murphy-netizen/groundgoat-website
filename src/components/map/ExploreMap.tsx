@@ -136,9 +136,12 @@ interface ExploreMapProps {
   height?: string
   homeState?: string
   homeCounty?: string
+  portalMode?: boolean
+  externalFilterOpen?: boolean
+  onFilterOpenChange?: (open: boolean) => void
 }
 
-export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty }: ExploreMapProps) {
+export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange }: ExploreMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const stateMarkersRef = useRef<maplibregl.Marker[]>([])
@@ -159,8 +162,20 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
   // Filter state
   const [filters, setFilters] = useState<FilterState>(INITIAL_FILTERS)
-  const [filterOpen, setFilterOpen] = useState(false)
+  const [filterOpen, setFilterOpenInternal] = useState(false)
   const filtersRef = useRef<FilterState>(INITIAL_FILTERS)
+
+  // Sync external filter open state (portal mode)
+  useEffect(() => {
+    if (externalFilterOpen !== undefined) {
+      setFilterOpenInternal(externalFilterOpen)
+    }
+  }, [externalFilterOpen])
+
+  const setFilterOpen = (open: boolean) => {
+    setFilterOpenInternal(open)
+    onFilterOpenChange?.(open)
+  }
 
   // Selection / report state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -676,7 +691,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         onClick={() => setFilterOpen(!filterOpen)}
         style={{
           position: 'absolute',
-          top: 120,
+          top: portalMode ? 70 : 120,
           right: 10,
           zIndex: 10,
           width: 36,
@@ -687,7 +702,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           color: '#fff',
           fontSize: 18,
           cursor: 'pointer',
-          display: 'flex',
+          display: portalMode ? 'none' : 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
@@ -702,13 +717,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       {/* Filter Panel */}
       {filterOpen && (
         <div style={{
-          position: 'absolute',
+          position: portalMode ? 'fixed' : 'absolute',
           top: 0,
           right: 0,
-          width: 320,
+          width: portalMode ? 380 : 320,
           height: '100%',
           backgroundColor: '#111',
-          zIndex: 100,
+          zIndex: portalMode ? 450 : 100,
           overflowY: 'auto',
           boxShadow: '-4px 0 20px rgba(0,0,0,0.5)',
           display: 'flex',

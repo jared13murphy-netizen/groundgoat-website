@@ -2,20 +2,12 @@
 
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
-import { X, Loader2, ChevronDown } from 'lucide-react'
+import { X, Loader2 } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { getCountiesForState, US_STATES } from '@/data/counties'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
-
-interface CompanyDetail {
-  company_id: string
-  acres_sold: number
-  sale_amount: number
-  listing_count: number
-  avg_price_per_acre: number
-}
 
 interface TownshipDetail {
   total_acres: number
@@ -27,17 +19,12 @@ interface TownshipDetail {
 interface CountyDetailData {
   county: string
   state: string
-  companies: Record<string, CompanyDetail>
+  companies: Record<string, any>
   townships: Record<string, TownshipDetail>
   total_listings: number
   total_acres_sold: number
   total_sale_amount: number
 }
-
-const COMPANY_COLORS = [
-  '#f58cde', '#3b82f6', '#22c55e', '#f59e0b', '#8b5cf6',
-  '#ef4444', '#06b6d4', '#ec4899', '#14b8a6', '#f97316',
-]
 
 interface PortalAnalyticsPanelProps {
   county: string
@@ -95,11 +82,6 @@ export default function PortalAnalyticsPanel({ county, state, onClose, onDataLoa
         .sort((a, b) => b.avgPricePerAcre - a.avgPricePerAcre)
     : []
 
-  const companyRows = data
-    ? Object.entries(data.companies)
-        .sort((a, b) => b[1].acres_sold - a[1].acres_sold)
-    : []
-
   const counties = selectedState ? getCountiesForState(selectedState) : []
 
   return (
@@ -135,7 +117,7 @@ export default function PortalAnalyticsPanel({ county, state, onClose, onDataLoa
             }}
             className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-gg-gray-300 focus:border-gg-pink outline-none"
           >
-            <option value="">State</option>
+            <option value="">Select State</option>
             {US_STATES.map(s => (
               <option key={s} value={s}>{s}</option>
             ))}
@@ -144,8 +126,9 @@ export default function PortalAnalyticsPanel({ county, state, onClose, onDataLoa
             value={selectedCounty}
             onChange={e => setSelectedCounty(e.target.value)}
             className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-gg-gray-300 focus:border-gg-pink outline-none"
+            disabled={!selectedState}
           >
-            <option value="">County</option>
+            <option value="">Select County</option>
             {counties.map(c => (
               <option key={c} value={c}>{c}</option>
             ))}
@@ -159,9 +142,13 @@ export default function PortalAnalyticsPanel({ county, state, onClose, onDataLoa
           <div className="flex items-center justify-center h-40">
             <Loader2 className="animate-spin text-gg-pink" size={28} />
           </div>
+        ) : !selectedCounty || !selectedState ? (
+          <div className="text-center text-gg-gray-500 py-12">
+            <p className="text-sm">Select a state and county to view analytics</p>
+          </div>
         ) : !data ? (
           <div className="text-center text-gg-gray-500 py-12">
-            <p className="text-sm">Select a county to view analytics</p>
+            <p className="text-sm">No data available for this county</p>
           </div>
         ) : (
           <>
@@ -184,33 +171,6 @@ export default function PortalAnalyticsPanel({ county, state, onClose, onDataLoa
                 <div className="text-xs text-gg-gray-400 mt-1">Avg $/Acre</div>
               </div>
             </div>
-
-            {/* Company Breakdown */}
-            {companyRows.length > 0 && (
-              <div>
-                <h4 className="text-sm font-semibold mb-3">Sales by Company</h4>
-                <div className="space-y-2">
-                  {companyRows.map(([name, comp], i) => (
-                    <div key={name} className="bg-white/[0.03] rounded-lg p-3 flex items-center gap-3 border border-white/5">
-                      <div
-                        className="w-2.5 h-2.5 rounded-full shrink-0"
-                        style={{ background: COMPANY_COLORS[i % COMPANY_COLORS.length] }}
-                      />
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium truncate">{name}</div>
-                        <div className="text-xs text-gg-gray-400">
-                          {comp.listing_count} sale{comp.listing_count !== 1 ? 's' : ''} &middot; {comp.avg_price_per_acre > 0 ? formatCurrency(comp.avg_price_per_acre) + '/ac' : '—'}
-                        </div>
-                      </div>
-                      <div className="text-right shrink-0">
-                        <div className="text-sm font-medium">{formatAcres(comp.acres_sold)} ac</div>
-                        <div className="text-xs text-gg-gray-400">{formatCurrency(comp.sale_amount)}</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
 
             {/* Township Bar Chart */}
             {townshipChartData.length > 0 && (

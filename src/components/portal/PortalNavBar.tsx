@@ -4,26 +4,23 @@ import { useState, useRef, useEffect } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Map, Calendar, Building2, BarChart3, LogOut, User, Settings } from 'lucide-react'
+import { Map, Calendar, Building2, BarChart3, LogOut, User, Settings, Filter } from 'lucide-react'
 
 type TabType = 'map' | 'auctions' | 'private_treaty' | 'results'
 
 interface PortalNavBarProps {
   activeTab: TabType
   onTabChange: (tab: TabType) => void
+  onFilterToggle: () => void
+  filterOpen: boolean
   user: {
     first_name: string
     last_name: string
     account_type: string
   }
-  listingCounts?: {
-    auctions: number
-    private_treaty: number
-    results: number
-  }
 }
 
-export default function PortalNavBar({ activeTab, onTabChange, user, listingCounts }: PortalNavBarProps) {
+export default function PortalNavBar({ activeTab, onTabChange, onFilterToggle, filterOpen, user }: PortalNavBarProps) {
   const router = useRouter()
   const [showUserMenu, setShowUserMenu] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -48,25 +45,22 @@ export default function PortalNavBar({ activeTab, onTabChange, user, listingCoun
     router.push('/signin')
   }
 
-  const tabs: { key: TabType; label: string; icon: React.ReactNode; count?: number }[] = [
+  const tabs: { key: TabType; label: string; icon: React.ReactNode }[] = [
     { key: 'map', label: 'Map', icon: <Map size={15} /> },
-    { key: 'auctions', label: 'Auctions', icon: <Calendar size={15} />, count: listingCounts?.auctions },
-    { key: 'private_treaty', label: 'Private Treaty', icon: <Building2 size={15} />, count: listingCounts?.private_treaty },
-    { key: 'results', label: 'Results', icon: <BarChart3 size={15} />, count: listingCounts?.results },
+    { key: 'auctions', label: 'Auctions', icon: <Calendar size={15} /> },
+    { key: 'private_treaty', label: 'Private Treaty', icon: <Building2 size={15} /> },
+    { key: 'results', label: 'Results', icon: <BarChart3 size={15} /> },
   ]
 
   return (
     <div className="fixed top-4 left-4 right-4 z-[500] flex items-center justify-between gap-3">
-      {/* Logo + Tabs */}
-      <div className="bg-black/50 backdrop-blur-xl rounded-2xl px-4 py-2.5 flex items-center gap-4 border border-white/10">
-        <Link href="/access" className="flex items-center gap-2.5 shrink-0">
-          <Image src="/logo.png" alt="Ground Goat" width={28} height={28} className="rounded-lg" />
-          <span className="text-sm font-bold bg-gradient-to-r from-gg-pink to-gg-pink-dark bg-clip-text text-transparent hidden sm:inline">
-            GROUND GOAT
-          </span>
+      {/* Logo + Tabs + Filter */}
+      <div className="bg-black/50 backdrop-blur-xl rounded-2xl px-3 py-2 flex items-center gap-3 border border-white/10">
+        <Link href="/access" className="shrink-0">
+          <Image src="/logo.png" alt="Ground Goat" width={40} height={40} className="rounded-lg" />
         </Link>
 
-        <div className="h-5 w-px bg-white/10" />
+        <div className="h-6 w-px bg-white/10" />
 
         <nav className="flex items-center gap-1">
           {tabs.map(tab => (
@@ -81,11 +75,22 @@ export default function PortalNavBar({ activeTab, onTabChange, user, listingCoun
             >
               {tab.icon}
               <span className="hidden md:inline">{tab.label}</span>
-              {tab.count !== undefined && tab.count > 0 && (
-                <span className="text-[10px] opacity-60 ml-0.5">{tab.count}</span>
-              )}
             </button>
           ))}
+
+          {/* Filter button */}
+          <div className="h-5 w-px bg-white/10 mx-1" />
+          <button
+            onClick={onFilterToggle}
+            className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-all flex items-center gap-1.5 ${
+              filterOpen
+                ? 'bg-gg-pink/15 text-gg-pink border-gg-pink/30'
+                : 'border-transparent text-white/60 hover:text-white hover:bg-white/5'
+            }`}
+          >
+            <Filter size={15} />
+            <span className="hidden md:inline">Filters</span>
+          </button>
         </nav>
       </div>
 
