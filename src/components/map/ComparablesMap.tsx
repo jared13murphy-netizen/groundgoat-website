@@ -448,7 +448,7 @@ export default function ComparablesMap({
             </div>
 
             {/* View 3D Terrain */}
-            {selectedSale.polygonCoordinates && selectedSale.polygonCoordinates.length > 2 && (
+            {selectedSale.polygonCoordinates && selectedSale.polygonCoordinates.length > 2 ? (
               <button
                 className="sale-modal-action-btn"
                 style={{ backgroundColor: '#E91E8C', color: '#fff', marginBottom: '8px' }}
@@ -456,6 +456,10 @@ export default function ComparablesMap({
               >
                 🏔 View 3D Terrain
               </button>
+            ) : (
+              <div style={{ textAlign: 'center', padding: '12px 20px', color: '#999', fontSize: 13, fontStyle: 'italic' }}>
+                No map boundaries available
+              </div>
             )}
 
             {/* Add / Remove from email list */}

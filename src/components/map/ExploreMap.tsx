@@ -686,7 +686,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             </div>
 
             {/* View 3D Terrain */}
-            {selectedSale.polygonCoordinates && selectedSale.polygonCoordinates.length > 2 && (
+            {selectedSale.polygonCoordinates && selectedSale.polygonCoordinates.length > 2 ? (
               <button
                 className="sale-modal-action-btn"
                 style={{ backgroundColor: '#E91E8C', color: '#fff', marginBottom: '8px' }}
@@ -694,6 +694,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               >
                 🏔 View 3D Terrain
               </button>
+            ) : (
+              <div style={{ textAlign: 'center', padding: '12px 20px', color: '#999', fontSize: 13, fontStyle: 'italic' }}>
+                No map boundaries available
+              </div>
             )}
 
             {/* View Listing */}
