@@ -14,8 +14,8 @@ export default function Tract3DModal({ tractId, tractName, isOpen, onClose }: Tr
   const url = `/3d-terrain?tractId=${tractId}&token=${token}`;
 
   return (
-    <div className="fixed inset-0 z-[9999] flex flex-col" style={{ background: 'linear-gradient(145deg, #0a0a14 0%, #12121f 30%, #0d0d1a 60%, #0a0a12 100%)' }}>
-      <div className="flex justify-between items-center px-6 py-4" style={{ borderBottom: '1px solid rgba(233,30,140,0.12)', background: 'rgba(14,14,24,0.85)', backdropFilter: 'blur(20px)' }}>
+    <div className="fixed inset-0 z-[9999] flex flex-col" style={{ background: 'linear-gradient(145deg, #0a0a0a 0%, #141414 30%, #0d0d0d 60%, #0a0a0a 100%)' }}>
+      <div className="flex justify-between items-center px-6 py-4" style={{ borderBottom: '1px solid rgba(233,30,140,0.12)', background: 'rgba(14,14,14,0.85)', backdropFilter: 'blur(20px)' }}>
         <h2 className="text-white text-lg font-semibold">{tractName || '3D Terrain Viewer'}</h2>
         <button
           onClick={onClose}
