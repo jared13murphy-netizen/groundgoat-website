@@ -435,7 +435,7 @@ function ListingsPageContent() {
 
         {/* Map View */}
         {activeTab === 'map' && (
-          <ExploreMap />
+          <ExploreMap homeState={user?.home_state} homeCounty={user?.home_county} />
         )}
 
         {/* Filters */}
