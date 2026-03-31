@@ -1183,14 +1183,30 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             {selectedIds.size} Selected
           </span>
           <button
-            onClick={handleEmailReport}
-            disabled={sendingEmail}
+            onClick={() => {
+              const reportData = {
+                comparables: selectedTracts.map(t => ({
+                  id: t.id,
+                  county: t.county,
+                  state: t.state,
+                  total_acres: t.totalAcres,
+                  tillable_acres: t.tillableAcres,
+                  soil_rating: t.soilRating,
+                  price_per_acre: t.pricePerAcre,
+                  sale_price: t.salePrice,
+                  auction_date: t.auctionDate,
+                  company_name: t.companyName,
+                })),
+              }
+              sessionStorage.setItem('exploreReport', JSON.stringify(reportData))
+              window.location.href = '/listings/report'
+            }}
             style={{
               background: 'rgba(255,255,255,0.2)', border: 'none', borderRadius: 20,
               padding: '8px 16px', color: '#fff', fontWeight: 600, cursor: 'pointer',
             }}
           >
-            {emailSent ? '✓ Sent!' : sendingEmail ? 'Sending...' : 'Email Report'}
+            Create Report
           </button>
           <button
             onClick={() => { setSelectedIds(new Set()); setSelectedTracts([]) }}
