@@ -3,10 +3,13 @@
 import { useState, useEffect, useMemo, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
+import dynamic from 'next/dynamic'
 import fetchWithAuth from '@/lib/fetchWithAuth'
-import { Loader2, MapPin, Calendar, DollarSign, Building2, Filter, X, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Loader2, MapPin, Calendar, DollarSign, Building2, Filter, X, ChevronLeft, ChevronRight, Map } from 'lucide-react'
 import { getCountiesForState, getStateAbbreviation, US_STATES } from '@/data/counties'
 import { getDistanceToCounty } from '@/data/countyCoordinates'
+
+const ExploreMap = dynamic(() => import('@/components/map/ExploreMap'), { ssr: false })
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=600'
@@ -59,7 +62,7 @@ interface User {
   home_state?: string
 }
 
-type TabType = 'auctions' | 'private_treaty' | 'results'
+type TabType = 'auctions' | 'private_treaty' | 'results' | 'map'
 
 const ALLOWED_ROLES = ['groundgoat_admin', 'groundgoat_sales', 'firm_admin', 'firm_user']
 
@@ -126,8 +129,9 @@ function ListingsPageContent() {
   }, [])
 
   // Fetch when tab, state, company change (NOT county/township - those are client-side)
+  // Map tab handles its own data loading via viewport-based API calls
   useEffect(() => {
-    if (user) {
+    if (user && activeTab !== 'map') {
       fetchListings()
     }
   }, [user, activeTab, page, filterState, filterCompany, filterListingType])
@@ -394,8 +398,20 @@ function ListingsPageContent() {
           >
             Results
           </button>
+          <button
+            onClick={() => { setActiveTab('map'); setPage(1) }}
+            className={`flex items-center gap-2 px-6 py-3 rounded-lg font-medium transition-colors ${
+              activeTab === 'map'
+                ? 'bg-gg-pink text-white'
+                : 'bg-gg-gray-800 text-gg-gray-300 hover:bg-gg-gray-700'
+            }`}
+          >
+            <Map size={18} />
+            Map
+          </button>
 
-          {/* Filter Toggle */}
+          {/* Filter Toggle — hidden on map tab */}
+          {activeTab !== 'map' && (
           <div className="ml-auto">
             <button
               onClick={() => setShowFilters(!showFilters)}
@@ -414,10 +430,16 @@ function ListingsPageContent() {
               )}
             </button>
           </div>
+          )}
         </div>
 
+        {/* Map View */}
+        {activeTab === 'map' && (
+          <ExploreMap />
+        )}
+
         {/* Filters */}
-        {showFilters && (
+        {activeTab !== 'map' && showFilters && (
           <div className="bg-gg-gray-900 border border-gg-gray-800 rounded-lg p-4 mb-6 space-y-4">
             {/* Filters Row: State, County, Township, Company, Clear */}
             <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
@@ -507,7 +529,7 @@ function ListingsPageContent() {
         )}
 
         {/* Listings */}
-        {loading ? (
+        {activeTab !== 'map' && (loading ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="animate-spin text-gg-pink" size={32} />
           </div>
@@ -613,10 +635,10 @@ function ListingsPageContent() {
               </Link>
             ))}
           </div>
-        )}
+        ))}
 
         {/* Pagination */}
-        {listings.length > 0 && (
+        {activeTab !== 'map' && listings.length > 0 && (
           <div className="flex items-center justify-center gap-4 mt-8">
             <button
               onClick={() => setPage(p => Math.max(1, p - 1))}

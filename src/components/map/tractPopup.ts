@@ -75,3 +75,71 @@ export function buildTractPopupHTML(props: Record<string, unknown>): string {
     <a class="tract-popup-link" href="/admin/listings/${listingId}">View Listing →</a>
   `
 }
+
+export function buildExplorePopupHTML(props: Record<string, unknown>): string {
+  const totalAcres = props.totalAcres as number
+  const companyName = props.companyName as string
+  const auctionDate = props.auctionDate as string
+  const status = props.status as string
+  const pricePerAcre = props.pricePerAcre as number
+  const salePrice = props.salePrice as number
+  const county = props.county as string
+  const state = props.state as string
+  const township = props.township as string
+  const listingId = props.listingId as string
+  const soilRating = props.soilRating as number
+  const pctTillable = props.pctTillable as number
+
+  const displayStatus = (status || 'listed').replace('_', ' ')
+
+  return `
+    <div class="tract-popup-title">
+      ${totalAcres > 0 ? totalAcres.toFixed(1) + ' acres' : county + ' County, ' + state}
+    </div>
+    <div class="tract-popup-subtitle">${county} County, ${state}</div>
+    <div class="tract-popup-divider"></div>
+    <div class="tract-popup-row">
+      <span class="tract-popup-label">Company</span>
+      <span class="tract-popup-value">${companyName}</span>
+    </div>
+    ${totalAcres > 0 ? `
+    <div class="tract-popup-row">
+      <span class="tract-popup-label">Acres</span>
+      <span class="tract-popup-value">${totalAcres.toFixed(1)}</span>
+    </div>` : ''}
+    ${pctTillable ? `
+    <div class="tract-popup-row">
+      <span class="tract-popup-label">Tillable</span>
+      <span class="tract-popup-value">${pctTillable}%</span>
+    </div>` : ''}
+    ${pricePerAcre > 0 ? `
+    <div class="tract-popup-row">
+      <span class="tract-popup-label">Price/Acre</span>
+      <span class="tract-popup-value">${formatCurrency(pricePerAcre)}</span>
+    </div>` : ''}
+    ${salePrice > 0 ? `
+    <div class="tract-popup-row">
+      <span class="tract-popup-label">Sale Price</span>
+      <span class="tract-popup-value">${formatCurrency(salePrice)}</span>
+    </div>` : ''}
+    ${soilRating ? `
+    <div class="tract-popup-row">
+      <span class="tract-popup-label">Soil Rating</span>
+      <span class="tract-popup-value">${soilRating}</span>
+    </div>` : ''}
+    ${township ? `
+    <div class="tract-popup-row">
+      <span class="tract-popup-label">Township</span>
+      <span class="tract-popup-value">${township}</span>
+    </div>` : ''}
+    <div class="tract-popup-row">
+      <span class="tract-popup-label">Auction</span>
+      <span class="tract-popup-value">${formatDate(auctionDate)}</span>
+    </div>
+    <div class="tract-popup-row">
+      <span class="tract-popup-label">Status</span>
+      <span class="tract-popup-badge" style="${getStatusBadgeStyle(status)}">${displayStatus}</span>
+    </div>
+    ${listingId ? `<a class="tract-popup-link" href="/listings/${listingId}">View Listing →</a>` : ''}
+  `
+}
