@@ -98,6 +98,38 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const [loading, setLoading] = useState(false)
   const [selectedSale, setSelectedSale] = useState<SaleDetail | null>(null)
   const [show3DViewer, setShow3DViewer] = useState(false)
+  const [soilData, setSoilData] = useState<{ map_units: any[]; avg_slope?: number } | null>(null)
+  const [elevationData, setElevationData] = useState<{ min_ft: number; max_ft: number; relief_ft: number; avg_slope_pct: number } | null>(null)
+  const [soilLoading, setSoilLoading] = useState(false)
+
+  // Fetch soil & elevation data when a tract is selected
+  useEffect(() => {
+    if (!selectedSale?.tractId) return
+    setSoilData(null)
+    setElevationData(null)
+    setSoilLoading(true)
+
+    Promise.all([
+      fetchWithAuth(`${API_URL}/api/tracts/${selectedSale.tractId}/soil-data`).then(r => r.ok ? r.json() : null).catch(() => null),
+      fetchWithAuth(`${API_URL}/api/tracts/${selectedSale.tractId}/elevation`).then(r => r.ok ? r.json() : null).catch(() => null),
+    ]).then(([soil, elevation]) => {
+      if (soil) {
+        setSoilData({
+          map_units: soil.soil_map_units || [],
+          avg_slope: soil.elevation_stats?.avg_slope_pct,
+        })
+      }
+      if (elevation?.elevation_stats) {
+        setElevationData({
+          min_ft: elevation.elevation_stats.min_ft,
+          max_ft: elevation.elevation_stats.max_ft,
+          relief_ft: elevation.elevation_stats.relief_ft,
+          avg_slope_pct: elevation.elevation_stats.avg_slope_pct,
+        })
+      }
+      setSoilLoading(false)
+    })
+  }, [selectedSale?.tractId])
 
   const polygonGeoJSON = useMemo(() => buildExplorePolygonGeoJSON(tracts), [tracts])
   const stateAggregates = useMemo(() => buildExploreStateAggregates(tracts), [tracts])
@@ -333,6 +365,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       return [sumLng / coords.length, sumLat / coords.length]
     }
 
+    // Track co-located tracts for offset spacing
+    const coordCounts: Record<string, number> = {}
+
     for (const tract of tracts) {
       // Get marker position
       let markerLng = tract.longitude
@@ -345,6 +380,17 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         }
       }
       if (!markerLat || !markerLng) continue
+
+      // Offset co-located tracts so they don't stack
+      const coordKey = `${markerLat.toFixed(4)},${markerLng.toFixed(4)}`
+      const index = coordCounts[coordKey] || 0
+      coordCounts[coordKey] = index + 1
+      if (index > 0) {
+        const offset = 0.003
+        const angle = index * (2 * Math.PI / 6)
+        markerLng += offset * Math.cos(angle)
+        markerLat += offset * Math.sin(angle)
+      }
 
       const el = createMarkerElement(
         tract.price_per_acre,
@@ -585,11 +631,58 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                 </div>
               ) : null}
               {selectedSale.soilRating && selectedSale.pricePerAcre ? (
-                <div className="sale-modal-row" style={{ borderBottom: 'none' }}>
+                <div className="sale-modal-row">
                   <span className="sale-modal-label">$/Soil Rating</span>
                   <span className="sale-modal-value">{formatCurrency(selectedSale.pricePerAcre / selectedSale.soilRating)}</span>
                 </div>
               ) : null}
+
+              {/* Soil & Land Data Section */}
+              {soilLoading && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '16px 0' }}>
+                  <div style={{
+                    width: 16, height: 16,
+                    border: '2px solid #e0e0e0', borderTopColor: '#E91E8C',
+                    borderRadius: '50%', animation: 'spin 1s linear infinite',
+                  }} />
+                  <span style={{ color: '#999', fontSize: 13 }}>Loading soil & land data...</span>
+                </div>
+              )}
+              {!soilLoading && (soilData || elevationData) && (
+                <div style={{ marginTop: 8 }}>
+                  <div style={{ color: '#1a1a1a', fontSize: 16, fontWeight: 700, marginBottom: 8, paddingTop: 8, borderTop: '1px solid #eee' }}>
+                    Soil & Land Data
+                  </div>
+                  {elevationData && elevationData.min_ft != null && (
+                    <div className="sale-modal-row">
+                      <span className="sale-modal-label">Elevation</span>
+                      <span className="sale-modal-value">
+                        {Math.round(elevationData.min_ft)} - {Math.round(elevationData.max_ft)} ft
+                        {elevationData.relief_ft > 0 ? ` (${Math.round(elevationData.relief_ft)} ft relief)` : ''}
+                      </span>
+                    </div>
+                  )}
+                  {elevationData?.avg_slope_pct != null && (
+                    <div className="sale-modal-row">
+                      <span className="sale-modal-label">Avg Slope</span>
+                      <span className="sale-modal-value">{elevationData.avg_slope_pct}%</span>
+                    </div>
+                  )}
+                  {soilData?.map_units && soilData.map_units.length > 0 && (
+                    soilData.map_units.map((unit: any, idx: number) => (
+                      <div key={idx} style={{ padding: '10px 0', borderBottom: '1px solid #eee' }}>
+                        <div style={{ color: '#1a1a1a', fontSize: 13, fontWeight: 600, marginBottom: 2 }}>
+                          {unit.name || unit.musym || 'Unknown'}
+                        </div>
+                        <div style={{ display: 'flex', gap: 12 }}>
+                          {unit.nccpi != null && <span style={{ color: '#999', fontSize: 12 }}>NCCPI: {unit.nccpi}</span>}
+                          {unit.drainage_class && <span style={{ color: '#999', fontSize: 12 }}>{unit.drainage_class}</span>}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
             </div>
 
             {/* View 3D Terrain */}

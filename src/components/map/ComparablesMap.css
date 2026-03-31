@@ -126,13 +126,18 @@
   to { opacity: 1; }
 }
 
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 .sale-modal-content {
   background: #ffffff;
   border-radius: 16px;
   width: 380px;
   max-width: 90vw;
   max-height: 80vh;
-  overflow: hidden;
+  overflow-y: auto;
   box-shadow: 0 8px 40px rgba(0, 0, 0, 0.3);
   border: 1px solid #e0e0e0;
 }
