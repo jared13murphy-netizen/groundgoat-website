@@ -590,10 +590,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                   {selectedSale.totalAcres ? formatAcres(selectedSale.totalAcres) + ' ac' : '—'}
                 </span>
               </div>
-              <div className="sale-modal-row">
-                <span className="sale-modal-label">Listing Company</span>
-                <span className="sale-modal-value">{selectedSale.companyName || '—'}</span>
-              </div>
+              {selectedSale.companyName && (
+                <div className="sale-modal-row">
+                  <span className="sale-modal-label">Listing Company</span>
+                  <span className="sale-modal-value">{selectedSale.companyName}</span>
+                </div>
+              )}
               {selectedSale.salePrice ? (
                 <div className="sale-modal-row">
                   <span className="sale-modal-label">Total Sale Price</span>
