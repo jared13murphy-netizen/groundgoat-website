@@ -83,6 +83,7 @@ interface SaleDetail {
 interface FilterState {
   dateRange: string
   stateFilter: string
+  countyFilters: string[]
   soilRatingMin: string
   soilRatingMax: string
   acreageMin: string
@@ -96,6 +97,7 @@ interface FilterState {
 const INITIAL_FILTERS: FilterState = {
   dateRange: 'all',
   stateFilter: '',
+  countyFilters: [],
   soilRatingMin: '',
   soilRatingMax: '',
   acreageMin: '',
@@ -108,6 +110,8 @@ const INITIAL_FILTERS: FilterState = {
 
 const STATE_CHIPS = ['IL', 'IA', 'MO', 'MN', 'NE', 'IN', 'SD', 'ND']
 
+const COUNTIES_BY_STATE: Record<string, string[]> = {"IL":["Adams","Alexander","Bond","Boone","Brown","Bureau","Calhoun","Carroll","Cass","Champaign","Christian","Clark","Clay","Clinton","Coles","Cook","Crawford","Cumberland","DeKalb","DeWitt","Douglas","DuPage","Edgar","Edwards","Effingham","Fayette","Ford","Franklin","Fulton","Gallatin","Greene","Grundy","Hamilton","Hancock","Hardin","Henderson","Henry","Iroquois","Jackson","Jasper","Jefferson","Jersey","Jo Daviess","Johnson","Kane","Kankakee","Kendall","Knox","La Salle","LaSalle","Lake","Lawrence","Lee","Livingston","Logan","Macon","Macoupin","Madison","Marion","Marshall","Mason","Massac","McDonough","McHenry","McLean","Menard","Mercer","Monroe","Montgomery","Morgan","Moultrie","Ogle","Peoria","Perry","Piatt","Pike","Pope","Pulaski","Putnam","Randolph","Richland","Rock Island","Saline","Sangamon","Schuyler","Scott","Shelby","St. Clair","Stark","Stephenson","Tazewell","Union","Vermilion","Wabash","Warren","Washington","Wayne","White","Whiteside","Will","Williamson","Winnebago","Woodford"],"IA":["Adair","Adams","Allamakee","Appanoose","Audubon","Benton","Black Hawk","Boone","Bremer","Buchanan","Buena Vista","Butler","Calhoun","Carroll","Cass","Cedar","Cerro Gordo","Cherokee","Chickasaw","Clarke","Clay","Clayton","Clinton","Crawford","Dallas","Davis","Decatur","Delaware","Des Moines","Dickinson","Dubuque","Emmet","Fayette","Floyd","Franklin","Fremont","Greene","Grundy","Guthrie","Hamilton","Hancock","Hardin","Harrison","Henry","Howard","Humboldt","Ida","Iowa","Jackson","Jasper","Jefferson","Johnson","Jones","Keokuk","Kossuth","Lee","Linn","Louisa","Lucas","Lyon","Madison","Mahaska","Marion","Marshall","Mills","Mitchell","Monona","Monroe","Montgomery","Muscatine","O'Brien","Osceola","Page","Palo Alto","Plymouth","Pocahontas","Polk","Pottawattamie","Poweshiek","Ringgold","Sac","Scott","Shelby","Sioux","Story","Tama","Taylor","Union","Van Buren","Wapello","Warren","Washington","Wayne","Webster","Winnebago","Winneshiek","Woodbury","Worth","Wright"],"MO":["Adair","Andrew","Atchison","Audrain","Barry","Barton","Bates","Benton","Bollinger","Boone","Buchanan","Butler","Caldwell","Callaway","Camden","Cape Girardeau","Carroll","Carter","Cass","Cedar","Chariton","Christian","Clark","Clay","Clinton","Cole","Cooper","Crawford","Dade","Dallas","Daviess","DeKalb","Dent","Douglas","Dunklin","Franklin","Gasconade","Gentry","Greene","Grundy","Harrison","Henry","Hickory","Holt","Howard","Howell","Iron","Jackson","Jasper","Jefferson","Johnson","Knox","Laclede","Lafayette","Lawrence","Lewis","Lincoln","Linn","Livingston","Macon","Madison","Maries","Marion","McDonald","Mercer","Miller","Mississippi","Moniteau","Monroe","Montgomery","Morgan","New Madrid","Newton","Nodaway","Oregon","Osage","Ozark","Pemiscot","Perry","Pettis","Phelps","Pike","Platte","Polk","Pulaski","Putnam","Ralls","Randolph","Ray","Reynolds","Ripley","Saline","Schuyler","Scotland","Scott","Shannon","Shelby","St. Charles","St. Clair","St. Francois","St. Louis","St. Louis City","Ste. Genevieve","Stoddard","Stone","Sullivan","Taney","Texas","Vernon","Warren","Washington","Wayne","Webster","Worth","Wright"],"MN":["Aitkin","Anoka","Becker","Beltrami","Benton","Big Stone","Blue Earth","Brown","Carlton","Carver","Cass","Chippewa","Chisago","Clay","Clearwater","Cook","Cottonwood","Crow Wing","Dakota","Dodge","Douglas","Faribault","Fillmore","Freeborn","Goodhue","Grant","Hennepin","Houston","Hubbard","Isanti","Itasca","Jackson","Kanabec","Kandiyohi","Kittson","Koochiching","Lac qui Parle","Lake","Lake of the Woods","Le Sueur","Lincoln","Lyon","Mahnomen","Marshall","Martin","McLeod","Meeker","Mille Lacs","Morrison","Mower","Murray","Nicollet","Nobles","Norman","Olmsted","Otter Tail","Pennington","Pine","Pipestone","Polk","Pope","Ramsey","Red Lake","Redwood","Renville","Rice","Rock","Roseau","Scott","Sherburne","Sibley","St. Louis","Stearns","Steele","Stevens","Swift","Todd","Traverse","Wabasha","Wadena","Waseca","Washington","Watonwan","Wilkin","Winona","Wright","Yellow Medicine"],"NE":["Adams","Antelope","Arthur","Banner","Blaine","Boone","Box Butte","Boyd","Brown","Buffalo","Burt","Butler","Cass","Cedar","Chase","Cherry","Cheyenne","Clay","Colfax","Cuming","Custer","Dakota","Dawes","Dawson","Deuel","Dixon","Dodge","Douglas","Dundy","Fillmore","Franklin","Frontier","Furnas","Gage","Garden","Garfield","Gosper","Grant","Greeley","Hall","Hamilton","Harlan","Hayes","Hitchcock","Holt","Hooker","Howard","Jefferson","Johnson","Kearney","Keith","Keya Paha","Kimball","Knox","Lancaster","Lincoln","Logan","Loup","Madison","McPherson","Merrick","Morrill","Nance","Nemaha","Nuckolls","Otoe","Pawnee","Perkins","Phelps","Pierce","Platte","Polk","Red Willow","Richardson","Rock","Saline","Sarpy","Saunders","Scotts Bluff","Seward","Sheridan","Sherman","Sioux","Stanton","Thayer","Thomas","Thurston","Valley","Washington","Wayne","Webster","Wheeler","York"],"IN":["Adams","Allen","Bartholomew","Benton","Blackford","Boone","Brown","Carroll","Cass","Clark","Clay","Clinton","Crawford","Daviess","DeKalb","Dearborn","Decatur","Delaware","Dubois","Elkhart","Fayette","Floyd","Fountain","Franklin","Fulton","Gibson","Grant","Greene","Hamilton","Hancock","Harrison","Hendricks","Henry","Howard","Huntington","Jackson","Jasper","Jay","Jefferson","Jennings","Johnson","Knox","Kosciusko","LaGrange","LaPorte","Lake","Lawrence","Logansport","Madison","Marion","Marshall","Martin","Miami","Monroe","Montgomery","Morgan","Newton","Noble","Ohio","Orange","Owen","Parke","Perry","Pike","Porter","Posey","Pulaski","Putnam","Randolph","Ripley","Rush","Scott","Shelby","Spencer","St. Joseph","Starke","Steuben","Sullivan","Switzerland","Tippecanoe","Tipton","Union","Vanderburgh","Vermillion","Vigo","Wabash","Warren","Warrick","Washington","Wayne","Wells","White","Whitley"],"SD":["Beadle","Brookings","Brown","Clark","Clay","Codington","Davison","Day","Deuel","Grant","Hamlin","Hanson","Hughes","Hutchinson","Kingsbury","Lake","Lincoln","McCook","Miner","Minnehaha","Moody","Roberts","Sanborn","Spink","Turner","Union","Yankton"],"ND":["Barnes","Cass","Grand Forks","Richland","Stutsman","Traill","Walsh"]}
+
 function buildFilterParams(filters: FilterState) {
   const params: Record<string, string> = {}
   if (filters.dateRange !== 'all') {
@@ -117,6 +121,7 @@ function buildFilterParams(filters: FilterState) {
     params.date_from = cutoff.toISOString().split('T')[0]
   }
   if (filters.stateFilter) params.state_abbr = filters.stateFilter
+  if (filters.countyFilters?.length > 0) params.county_name = filters.countyFilters.join(',')
   if (filters.soilRatingMin) params.soil_rating_min = filters.soilRatingMin
   if (filters.soilRatingMax) params.soil_rating_max = filters.soilRatingMax
   if (filters.acreageMin) params.acreage_min = filters.acreageMin
@@ -730,7 +735,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           <div style={{ padding: '16px 20px', flex: 1, overflowY: 'auto' }}>
             {/* Date Range */}
             <div style={{ marginBottom: 24 }}>
-              <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>Date Range</div>
+              <div style={{ color: '#CCCCCC', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>Date Range</div>
               {[
                 { label: 'Last 6 months', value: '6months' },
                 { label: 'Last 1 year', value: '1year' },
@@ -754,14 +759,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                       <div style={{ width: 10, height: 10, borderRadius: '50%', backgroundColor: '#E91E8C' }} />
                     )}
                   </div>
-                  <span style={{ color: '#fff', fontSize: 14 }}>{opt.label}</span>
+                  <span style={{ color: '#BBBBBB', fontSize: 14 }}>{opt.label}</span>
                 </div>
               ))}
             </div>
 
             {/* State Filter */}
             <div style={{ marginBottom: 24 }}>
-              <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>State</div>
+              <div style={{ color: '#CCCCCC', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>State</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                 {STATE_CHIPS.map(st => {
                   const activeStates = filters.stateFilter ? filters.stateFilter.split(',') : []
@@ -773,7 +778,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                         setFilters(f => {
                           const current = f.stateFilter ? f.stateFilter.split(',') : []
                           const next = isActive ? current.filter(s => s !== st) : [...current, st]
-                          return { ...f, stateFilter: next.join(',') }
+                          return { ...f, stateFilter: next.join(','), countyFilters: [] }
                         })
                       }}
                       style={{
@@ -781,7 +786,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                         borderRadius: 20,
                         border: `1px solid ${isActive ? '#E91E8C' : 'rgba(255,255,255,0.2)'}`,
                         backgroundColor: isActive ? 'rgba(233,30,140,0.2)' : 'transparent',
-                        color: isActive ? '#E91E8C' : 'rgba(255,255,255,0.7)',
+                        color: isActive ? '#E91E8C' : '#BBBBBB',
                         fontSize: 13,
                         fontWeight: 600,
                         cursor: 'pointer',
@@ -794,6 +799,53 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               </div>
             </div>
 
+            {/* County Filter (when state selected) */}
+            {filters.stateFilter && (() => {
+              const activeStates = filters.stateFilter.split(',').filter(Boolean)
+              if (activeStates.length !== 1) return null
+              const counties = COUNTIES_BY_STATE[activeStates[0]] || []
+              if (counties.length === 0) return null
+              return (
+                <div style={{ marginBottom: 24 }}>
+                  <div style={{ color: '#CCCCCC', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>
+                    County{filters.countyFilters.length > 0 ? ` (${filters.countyFilters.length} selected)` : ''}
+                  </div>
+                  <div style={{ maxHeight: 160, overflowY: 'auto', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: 8 }}>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      {counties.map(county => {
+                        const isActive = filters.countyFilters.includes(county)
+                        return (
+                          <button
+                            key={county}
+                            onClick={() => {
+                              setFilters(f => ({
+                                ...f,
+                                countyFilters: isActive
+                                  ? f.countyFilters.filter(c => c !== county)
+                                  : [...f.countyFilters, county]
+                              }))
+                            }}
+                            style={{
+                              padding: '4px 10px',
+                              borderRadius: 14,
+                              border: `1px solid ${isActive ? '#E91E8C' : 'rgba(255,255,255,0.15)'}`,
+                              backgroundColor: isActive ? 'rgba(233,30,140,0.2)' : 'transparent',
+                              color: isActive ? '#E91E8C' : '#BBBBBB',
+                              fontSize: 12,
+                              fontWeight: 500,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            {county}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )
+            })()}
+
             {/* Range filters */}
             {[
               { label: 'Soil Rating', minKey: 'soilRatingMin' as keyof FilterState, maxKey: 'soilRatingMax' as keyof FilterState },
@@ -802,7 +854,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               { label: 'NCCPI', minKey: 'nccpiMin' as keyof FilterState, maxKey: 'nccpiMax' as keyof FilterState },
             ].map(({ label, minKey, maxKey }) => (
               <div key={label} style={{ marginBottom: 20 }}>
-                <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>{label}</div>
+                <div style={{ color: '#CCCCCC', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>{label}</div>
                 <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                   <input
                     type="number"
@@ -816,7 +868,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                       color: '#fff', fontSize: 14, outline: 'none',
                     }}
                   />
-                  <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 13 }}>to</span>
+                  <span style={{ color: '#999999', fontSize: 13 }}>to</span>
                   <input
                     type="number"
                     placeholder="Max"
@@ -847,7 +899,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                 flex: 1, padding: '12px 0', borderRadius: 10,
                 border: '1px solid rgba(255,255,255,0.2)',
                 backgroundColor: 'transparent',
-                color: 'rgba(255,255,255,0.7)',
+                color: '#BBBBBB',
                 fontSize: 14, fontWeight: 600, cursor: 'pointer',
               }}
             >
