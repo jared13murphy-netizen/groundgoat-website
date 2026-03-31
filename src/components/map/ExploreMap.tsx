@@ -120,7 +120,7 @@ function buildFilterParams(filters: FilterState) {
     cutoff.setMonth(cutoff.getMonth() - months)
     params.date_from = cutoff.toISOString().split('T')[0]
   }
-  if (filters.statuses?.length > 0) params.sale_status = filters.statuses.join(',')
+  if (filters.statuses?.length > 0) params.sale_status = filters.statuses.flatMap(s => s.split(',')).join(',')
   if (filters.stateFilter) params.state_abbr = filters.stateFilter
   if (filters.countyFilters?.length > 0) params.county_name = filters.countyFilters.join(',')
   if (filters.soilRatingMin) params.soil_rating_min = filters.soilRatingMin
@@ -737,8 +737,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               <div style={{ color: '#CCCCCC', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>Status</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 24 }}>
                 {[
-                  { label: 'Listed', value: 'listed' },
-                  { label: 'Live', value: 'pending' },
+                  { label: 'Listed', value: 'active' },
+                  { label: 'Live', value: 'live,pending' },
                   { label: 'Sold', value: 'sold' },
                 ].map(opt => {
                   const isActive = filters.statuses.includes(opt.value)
@@ -1155,9 +1155,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             <button
               className="sale-modal-action-btn"
               style={{
-                backgroundColor: selectedIds.has(selectedSale.id) ? 'transparent' : 'rgba(255,255,255,0.1)',
-                color: selectedIds.has(selectedSale.id) ? '#E91E8C' : '#fff',
-                border: selectedIds.has(selectedSale.id) ? '1px solid #E91E8C' : '1px solid rgba(255,255,255,0.2)',
+                backgroundColor: selectedIds.has(selectedSale.id) ? 'rgba(233,30,140,0.08)' : 'rgba(0,0,0,0.05)',
+                color: selectedIds.has(selectedSale.id) ? '#E91E8C' : '#333',
+                border: selectedIds.has(selectedSale.id) ? '1px solid #E91E8C' : '1px solid rgba(0,0,0,0.15)',
                 marginBottom: '16px',
               }}
               onClick={() => {

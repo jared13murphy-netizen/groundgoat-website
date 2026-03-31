@@ -61,7 +61,8 @@ export function applyFilters(
     // Status filter
     if (filters.statuses?.length > 0) {
       const status = (item.sale_status || '').toLowerCase()
-      if (!filters.statuses.includes(status)) return false
+      const allStatuses = filters.statuses.flatMap((s: string) => s.split(','))
+      if (!allStatuses.includes(status)) return false
     }
 
     // Date range
@@ -213,8 +214,8 @@ export default function ComparablesFilterPanel({ filters, onApply, onClose }: Fi
             <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Status</div>
             <div className="flex flex-wrap gap-2">
               {[
-                { label: 'Listed', value: 'listed' },
-                { label: 'Live', value: 'pending' },
+                { label: 'Listed', value: 'active' },
+                { label: 'Live', value: 'live,pending' },
                 { label: 'Sold', value: 'sold' },
               ].map(opt => {
                 const isActive = (local.statuses || []).includes(opt.value)
