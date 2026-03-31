@@ -1,7 +1,6 @@
 import type { Metadata } from 'next'
 import './globals.css'
-import Navigation from '@/components/Navigation'
-import Footer from '@/components/Footer'
+import ConditionalShell from '@/components/ConditionalShell'
 
 export const metadata: Metadata = {
   title: 'Ground Goat | Land Auction Intelligence',
@@ -27,11 +26,9 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="min-h-screen flex flex-col">
-        <Navigation />
-        <main className="flex-grow">
+        <ConditionalShell>
           {children}
-        </main>
-        <Footer />
+        </ConditionalShell>
       </body>
     </html>
   )

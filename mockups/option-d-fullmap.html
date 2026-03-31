@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ground Goat Portal - Option D: Full-Screen Map with Floating Panels</title>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            'gg-pink': { DEFAULT: '#f58cde', light: '#f8daf1', dark: '#c563ad' },
+            'gg-black': '#0a0a0a',
+            'gg-gray': { 900: '#111111', 800: '#1a1a1a', 700: '#2a2a2a', 600: '#444444', 500: '#666666', 400: '#888888', 300: '#aaaaaa' }
+          },
+          fontFamily: { display: ['Playfair Display', 'serif'], body: ['DM Sans', 'sans-serif'] }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { font-family: 'DM Sans', sans-serif; }
+    .font-display { font-family: 'Playfair Display', serif; }
+    .glass { background: rgba(17,17,17,0.88); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }
+    .glass-light { background: rgba(17,17,17,0.75); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #444; border-radius: 3px; }
+    .panel-slide { transition: transform 0.3s ease, opacity 0.3s ease; }
+    .tab-pill.active { background: rgba(245,140,222,0.15); color: #f58cde; border-color: rgba(245,140,222,0.3); }
+  </style>
+</head>
+<body class="bg-gg-black text-white h-screen overflow-hidden relative">
+
+  <!-- Full-Screen Map Background -->
+  <div class="absolute inset-0 bg-gg-gray-800">
+    <div class="absolute inset-0 opacity-40" style="background: linear-gradient(135deg, #1a1a2e 0%, #16213e 30%, #0f3460 60%, #1a1a2e 100%)"></div>
+    <div class="absolute inset-0 opacity-10" style="background-image: url('data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect fill=%22none%22 stroke=%22%23333%22 stroke-width=%220.5%22 width=%2210%22 height=%2210%22 x=%220%22 y=%220%22/></svg>'); background-size: 40px 40px;"></div>
+    <!-- Simulated map pins -->
+    <div class="absolute" style="top:35%;left:42%">
+      <div class="w-4 h-4 bg-green-500 rounded-full border-2 border-white shadow-lg shadow-green-500/30"></div>
+    </div>
+    <div class="absolute" style="top:40%;left:48%">
+      <div class="w-4 h-4 bg-blue-500 rounded-full border-2 border-white shadow-lg shadow-blue-500/30"></div>
+    </div>
+    <div class="absolute" style="top:30%;left:55%">
+      <div class="w-4 h-4 bg-green-500 rounded-full border-2 border-white shadow-lg shadow-green-500/30"></div>
+    </div>
+    <div class="absolute" style="top:50%;left:38%">
+      <div class="w-4 h-4 bg-yellow-500 rounded-full border-2 border-white shadow-lg shadow-yellow-500/30 animate-pulse"></div>
+    </div>
+    <div class="absolute" style="top:45%;left:60%">
+      <div class="w-5 h-5 bg-blue-500 rounded-full border-2 border-white shadow-lg shadow-blue-500/30"></div>
+    </div>
+    <div class="absolute" style="top:55%;left:52%">
+      <div class="w-3.5 h-3.5 bg-green-500 rounded-full border-2 border-white shadow-lg shadow-green-500/30"></div>
+    </div>
+  </div>
+
+  <!-- Floating Top Bar -->
+  <div class="absolute top-4 left-4 right-4 z-20 flex items-center justify-between">
+    <!-- Logo + Nav -->
+    <div class="glass rounded-2xl px-4 py-2.5 flex items-center gap-4 border border-white/5">
+      <div class="flex items-center gap-2.5">
+        <div class="w-8 h-8 bg-gradient-to-br from-gg-pink to-gg-pink-dark rounded-lg flex items-center justify-center">
+          <svg class="w-5 h-5 text-black" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+        </div>
+        <span class="text-sm font-bold bg-gradient-to-r from-gg-pink to-gg-pink-dark bg-clip-text text-transparent">GROUND GOAT</span>
+      </div>
+      <div class="h-5 w-px bg-white/10"></div>
+      <nav class="flex items-center gap-1">
+        <button class="tab-pill active px-3 py-1.5 text-xs font-medium rounded-lg border border-transparent transition">Map</button>
+        <button onclick="toggleListPanel('auctions')" class="tab-pill px-3 py-1.5 text-xs font-medium rounded-lg border border-transparent text-gg-gray-400 hover:text-white transition">Auctions <span class="text-[10px] ml-1 opacity-60">24</span></button>
+        <button onclick="toggleListPanel('private')" class="tab-pill px-3 py-1.5 text-xs font-medium rounded-lg border border-transparent text-gg-gray-400 hover:text-white transition">Private Treaty <span class="text-[10px] ml-1 opacity-60">18</span></button>
+        <button onclick="toggleListPanel('results')" class="tab-pill px-3 py-1.5 text-xs font-medium rounded-lg border border-transparent text-gg-gray-400 hover:text-white transition">Results <span class="text-[10px] ml-1 opacity-60">156</span></button>
+      </nav>
+    </div>
+
+    <!-- Filters + User -->
+    <div class="flex items-center gap-3">
+      <div class="glass rounded-2xl px-3 py-2 flex items-center gap-2 border border-white/5">
+        <svg class="w-4 h-4 text-gg-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"/></svg>
+        <select class="bg-transparent text-sm text-gg-gray-300 outline-none cursor-pointer">
+          <option>Illinois</option>
+        </select>
+        <select class="bg-transparent text-sm text-gg-gray-300 outline-none cursor-pointer">
+          <option>Hancock County</option>
+        </select>
+        <span class="text-gg-pink text-xs cursor-pointer hover:underline">× Clear</span>
+      </div>
+      <div class="glass rounded-2xl p-1.5 border border-white/5">
+        <div class="w-8 h-8 rounded-xl bg-gradient-to-br from-gg-pink to-gg-pink-dark flex items-center justify-center text-xs font-bold text-black cursor-pointer">JM</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Floating KPI Strip (bottom-left) -->
+  <div class="absolute bottom-4 left-4 z-20 flex gap-2">
+    <div class="glass rounded-xl px-4 py-3 border border-white/5 min-w-[120px]">
+      <div class="text-[10px] uppercase text-gg-gray-400 tracking-wider">Avg $/Acre</div>
+      <div class="text-lg font-bold mt-0.5">$12,450</div>
+      <div class="text-[10px] text-green-400 flex items-center gap-0.5">
+        <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 10l7-7m0 0l7 7m-7-7v18"/></svg>
+        +8.2% YoY
+      </div>
+    </div>
+    <div class="glass rounded-xl px-4 py-3 border border-white/5 min-w-[100px]">
+      <div class="text-[10px] uppercase text-gg-gray-400 tracking-wider">Sales</div>
+      <div class="text-lg font-bold mt-0.5">47</div>
+      <div class="text-[10px] text-gg-gray-500">Last 12 mo</div>
+    </div>
+    <div class="glass rounded-xl px-4 py-3 border border-white/5 min-w-[100px]">
+      <div class="text-[10px] uppercase text-gg-gray-400 tracking-wider">NCCPI</div>
+      <div class="text-lg font-bold mt-0.5">92.4</div>
+      <div class="text-[10px] text-gg-pink">Top 15%</div>
+    </div>
+    <div class="glass rounded-xl px-4 py-3 border border-white/5 min-w-[100px]">
+      <div class="text-[10px] uppercase text-gg-gray-400 tracking-wider">Acres</div>
+      <div class="text-lg font-bold mt-0.5">3,240</div>
+      <div class="text-[10px] text-gg-gray-500">Traded</div>
+    </div>
+    <!-- Mini sparkline card -->
+    <div class="glass rounded-xl px-4 py-3 border border-white/5 min-w-[160px]">
+      <div class="text-[10px] uppercase text-gg-gray-400 tracking-wider mb-1">Price Trend</div>
+      <canvas id="miniSparkline" height="30" width="130"></canvas>
+    </div>
+  </div>
+
+  <!-- Floating Analytics Toggle (bottom-right) -->
+  <button onclick="toggleAnalytics()" class="absolute bottom-4 right-4 z-20 glass rounded-xl px-4 py-3 border border-white/5 flex items-center gap-2 hover:border-gg-pink/30 transition group cursor-pointer">
+    <svg class="w-5 h-5 text-gg-pink" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+    <span class="text-sm font-medium group-hover:text-gg-pink transition">Analytics</span>
+  </button>
+
+  <!-- Slide-in Analytics Panel (right side) -->
+  <div id="analyticsPanel" class="absolute top-20 right-4 bottom-16 w-[380px] z-20 panel-slide translate-x-[400px] opacity-0 pointer-events-none">
+    <div class="glass rounded-2xl border border-white/5 h-full overflow-y-auto">
+      <div class="p-5">
+        <div class="flex items-center justify-between mb-5">
+          <div>
+            <h2 class="text-lg font-display font-semibold">Hancock County, IL</h2>
+            <p class="text-xs text-gg-gray-400 mt-0.5">Market Analytics</p>
+          </div>
+          <button onclick="toggleAnalytics()" class="w-8 h-8 rounded-lg bg-gg-gray-800 flex items-center justify-center hover:bg-gg-gray-700 transition">
+            <svg class="w-4 h-4 text-gg-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+        </div>
+
+        <!-- Price Trend -->
+        <div class="bg-white/5 rounded-xl p-4 mb-4">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-sm font-semibold">Price Trend ($/Acre)</h3>
+            <span class="text-[10px] text-gg-gray-400">3-Year</span>
+          </div>
+          <canvas id="priceTrendChart" height="140"></canvas>
+        </div>
+
+        <!-- Volume -->
+        <div class="bg-white/5 rounded-xl p-4 mb-4">
+          <h3 class="text-sm font-semibold mb-3">Quarterly Volume</h3>
+          <canvas id="volumeChart" height="120"></canvas>
+        </div>
+
+        <!-- Township Bars -->
+        <div class="bg-white/5 rounded-xl p-4 mb-4">
+          <h3 class="text-sm font-semibold mb-3">Price by Township</h3>
+          <div class="space-y-2.5">
+            <div>
+              <div class="flex justify-between text-xs mb-1"><span class="text-gg-gray-300">Carthage</span><span>$13,200</span></div>
+              <div class="h-1.5 bg-white/5 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-gg-pink to-gg-pink-dark rounded-full" style="width:92%"></div></div>
+            </div>
+            <div>
+              <div class="flex justify-between text-xs mb-1"><span class="text-gg-gray-300">St. Mary</span><span>$12,800</span></div>
+              <div class="h-1.5 bg-white/5 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-gg-pink to-gg-pink-dark rounded-full" style="width:88%"></div></div>
+            </div>
+            <div>
+              <div class="flex justify-between text-xs mb-1"><span class="text-gg-gray-300">Prairie</span><span>$12,100</span></div>
+              <div class="h-1.5 bg-white/5 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-gg-pink to-gg-pink-dark rounded-full" style="width:84%"></div></div>
+            </div>
+            <div>
+              <div class="flex justify-between text-xs mb-1"><span class="text-gg-gray-300">Appanoose</span><span>$11,500</span></div>
+              <div class="h-1.5 bg-white/5 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-gg-pink to-gg-pink-dark rounded-full" style="width:78%"></div></div>
+            </div>
+            <div>
+              <div class="flex justify-between text-xs mb-1"><span class="text-gg-gray-300">Pilot Grove</span><span>$11,200</span></div>
+              <div class="h-1.5 bg-white/5 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-gg-pink to-gg-pink-dark rounded-full" style="width:75%"></div></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- YoY Table -->
+        <div class="bg-white/5 rounded-xl p-4">
+          <h3 class="text-sm font-semibold mb-3">Year-over-Year</h3>
+          <table class="w-full text-xs">
+            <thead><tr class="text-gg-gray-500"><th class="text-left pb-2">Metric</th><th class="text-right pb-2">2025</th><th class="text-right pb-2">2024</th><th class="text-right pb-2">Δ</th></tr></thead>
+            <tbody class="text-gg-gray-300">
+              <tr class="border-t border-white/5"><td class="py-2">Avg $/Ac</td><td class="text-right">$12,450</td><td class="text-right">$11,510</td><td class="text-right text-green-400">+8.2%</td></tr>
+              <tr class="border-t border-white/5"><td class="py-2">Med $/Ac</td><td class="text-right">$12,100</td><td class="text-right">$11,200</td><td class="text-right text-green-400">+8.0%</td></tr>
+              <tr class="border-t border-white/5"><td class="py-2">Sales</td><td class="text-right">47</td><td class="text-right">52</td><td class="text-right text-red-400">-9.6%</td></tr>
+              <tr class="border-t border-white/5"><td class="py-2">Acres</td><td class="text-right">3,240</td><td class="text-right">3,680</td><td class="text-right text-red-400">-12.0%</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Slide-in List Panel (left side, for Auctions/Private/Results) -->
+  <div id="listPanel" class="absolute top-20 left-4 bottom-16 w-[360px] z-20 panel-slide -translate-x-[380px] opacity-0 pointer-events-none">
+    <div class="glass rounded-2xl border border-white/5 h-full overflow-y-auto">
+      <div class="p-5">
+        <div class="flex items-center justify-between mb-4">
+          <h2 id="listPanelTitle" class="text-lg font-display font-semibold">Upcoming Auctions</h2>
+          <button onclick="closeListPanel()" class="w-8 h-8 rounded-lg bg-gg-gray-800 flex items-center justify-center hover:bg-gg-gray-700 transition">
+            <svg class="w-4 h-4 text-gg-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+        </div>
+
+        <!-- Listing Cards -->
+        <div class="space-y-3" id="listPanelContent">
+          <!-- Card 1 -->
+          <div class="bg-white/5 rounded-xl p-4 hover:bg-white/8 transition cursor-pointer border border-transparent hover:border-gg-pink/20">
+            <div class="flex items-start justify-between mb-2">
+              <div>
+                <div class="text-sm font-semibold">240 ac — St. Mary Twp</div>
+                <div class="text-xs text-gg-gray-400 mt-0.5">Hancock County, IL</div>
+              </div>
+              <span class="text-[10px] bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded-full font-medium">UPCOMING</span>
+            </div>
+            <div class="flex items-center gap-4 text-xs text-gg-gray-300 mt-3">
+              <span class="flex items-center gap-1">
+                <svg class="w-3.5 h-3.5 text-gg-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5"/></svg>
+                Western IL Land Co.
+              </span>
+              <span class="flex items-center gap-1">
+                <svg class="w-3.5 h-3.5 text-gg-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                Apr 5, 2026
+              </span>
+            </div>
+            <div class="grid grid-cols-3 gap-2 mt-3 pt-3 border-t border-white/5">
+              <div><div class="text-[10px] text-gg-gray-500">Acres</div><div class="text-sm font-medium">240</div></div>
+              <div><div class="text-[10px] text-gg-gray-500">Tracts</div><div class="text-sm font-medium">3</div></div>
+              <div><div class="text-[10px] text-gg-gray-500">NCCPI</div><div class="text-sm font-medium">93.1</div></div>
+            </div>
+          </div>
+
+          <!-- Card 2 -->
+          <div class="bg-white/5 rounded-xl p-4 hover:bg-white/8 transition cursor-pointer border border-transparent hover:border-gg-pink/20">
+            <div class="flex items-start justify-between mb-2">
+              <div>
+                <div class="text-sm font-semibold">160 ac — Carthage Twp</div>
+                <div class="text-xs text-gg-gray-400 mt-0.5">Hancock County, IL</div>
+              </div>
+              <span class="text-[10px] bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded-full font-medium">UPCOMING</span>
+            </div>
+            <div class="flex items-center gap-4 text-xs text-gg-gray-300 mt-3">
+              <span class="flex items-center gap-1">
+                <svg class="w-3.5 h-3.5 text-gg-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5"/></svg>
+                Midwest Ag Realty
+              </span>
+              <span class="flex items-center gap-1">
+                <svg class="w-3.5 h-3.5 text-gg-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                Apr 12, 2026
+              </span>
+            </div>
+            <div class="grid grid-cols-3 gap-2 mt-3 pt-3 border-t border-white/5">
+              <div><div class="text-[10px] text-gg-gray-500">Acres</div><div class="text-sm font-medium">160</div></div>
+              <div><div class="text-[10px] text-gg-gray-500">Tracts</div><div class="text-sm font-medium">2</div></div>
+              <div><div class="text-[10px] text-gg-gray-500">NCCPI</div><div class="text-sm font-medium">91.7</div></div>
+            </div>
+          </div>
+
+          <!-- Card 3 -->
+          <div class="bg-white/5 rounded-xl p-4 hover:bg-white/8 transition cursor-pointer border border-transparent hover:border-gg-pink/20">
+            <div class="flex items-start justify-between mb-2">
+              <div>
+                <div class="text-sm font-semibold">80 ac — Prairie Twp</div>
+                <div class="text-xs text-gg-gray-400 mt-0.5">Hancock County, IL</div>
+              </div>
+              <span class="text-[10px] bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded-full font-medium">UPCOMING</span>
+            </div>
+            <div class="flex items-center gap-4 text-xs text-gg-gray-300 mt-3">
+              <span class="flex items-center gap-1">
+                <svg class="w-3.5 h-3.5 text-gg-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5"/></svg>
+                Hancock Realty Group
+              </span>
+              <span class="flex items-center gap-1">
+                <svg class="w-3.5 h-3.5 text-gg-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                Apr 20, 2026
+              </span>
+            </div>
+            <div class="grid grid-cols-3 gap-2 mt-3 pt-3 border-t border-white/5">
+              <div><div class="text-[10px] text-gg-gray-500">Acres</div><div class="text-sm font-medium">80</div></div>
+              <div><div class="text-[10px] text-gg-gray-500">Tracts</div><div class="text-sm font-medium">1</div></div>
+              <div><div class="text-[10px] text-gg-gray-500">NCCPI</div><div class="text-sm font-medium">89.4</div></div>
+            </div>
+          </div>
+
+          <!-- Card 4 -->
+          <div class="bg-white/5 rounded-xl p-4 hover:bg-white/8 transition cursor-pointer border border-transparent hover:border-gg-pink/20">
+            <div class="flex items-start justify-between mb-2">
+              <div>
+                <div class="text-sm font-semibold">320 ac — Pilot Grove Twp</div>
+                <div class="text-xs text-gg-gray-400 mt-0.5">Hancock County, IL</div>
+              </div>
+              <span class="text-[10px] bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded-full font-medium">UPCOMING</span>
+            </div>
+            <div class="flex items-center gap-4 text-xs text-gg-gray-300 mt-3">
+              <span class="flex items-center gap-1">
+                <svg class="w-3.5 h-3.5 text-gg-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5"/></svg>
+                Prairie Land Auctions
+              </span>
+              <span class="flex items-center gap-1">
+                <svg class="w-3.5 h-3.5 text-gg-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                May 1, 2026
+              </span>
+            </div>
+            <div class="grid grid-cols-3 gap-2 mt-3 pt-3 border-t border-white/5">
+              <div><div class="text-[10px] text-gg-gray-500">Acres</div><div class="text-sm font-medium">320</div></div>
+              <div><div class="text-[10px] text-gg-gray-500">Tracts</div><div class="text-sm font-medium">4</div></div>
+              <div><div class="text-[10px] text-gg-gray-500">NCCPI</div><div class="text-sm font-medium">90.2</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const cc = { pink: '#f58cde', pinkA: 'rgba(245,140,222,0.15)', pinkA6: 'rgba(245,140,222,0.6)', grid: 'rgba(255,255,255,0.05)', txt: '#888' };
+
+    // Mini sparkline
+    new Chart(document.getElementById('miniSparkline'), {
+      type: 'line',
+      data: {
+        labels: ['','','','','','','','','','','',''],
+        datasets: [{ data: [10.2,10.5,10.8,11.0,11.2,11.5,11.4,11.8,12.0,12.2,12.1,12.45], borderColor: cc.pink, borderWidth: 1.5, pointRadius: 0, tension: 0.4, fill: false }]
+      },
+      options: { responsive: false, plugins: { legend: { display: false } }, scales: { x: { display: false }, y: { display: false } } }
+    });
+
+    // Price Trend
+    new Chart(document.getElementById('priceTrendChart'), {
+      type: 'line',
+      data: {
+        labels: ['Q1 23','Q2 23','Q3 23','Q4 23','Q1 24','Q2 24','Q3 24','Q4 24','Q1 25','Q2 25','Q3 25','Q4 25'],
+        datasets: [{ data: [10200,10500,10800,11000,11200,11500,11400,11800,12000,12200,12100,12450], borderColor: cc.pink, backgroundColor: cc.pinkA, fill: true, tension: 0.4, pointRadius: 2, borderWidth: 2 }]
+      },
+      options: { responsive: true, plugins: { legend: { display: false } }, scales: {
+        x: { ticks: { color: cc.txt, font: { size: 9 } }, grid: { color: cc.grid } },
+        y: { ticks: { color: cc.txt, font: { size: 9 }, callback: v => '$'+(v/1000).toFixed(1)+'k' }, grid: { color: cc.grid } }
+      }}
+    });
+
+    // Volume
+    new Chart(document.getElementById('volumeChart'), {
+      type: 'bar',
+      data: {
+        labels: ['Q1 24','Q2 24','Q3 24','Q4 24','Q1 25','Q2 25','Q3 25','Q4 25'],
+        datasets: [{ data: [420,680,510,340,560,720,480,530], backgroundColor: cc.pinkA6, borderColor: cc.pink, borderWidth: 1, borderRadius: 4 }]
+      },
+      options: { responsive: true, plugins: { legend: { display: false } }, scales: {
+        x: { ticks: { color: cc.txt, font: { size: 9 } }, grid: { display: false } },
+        y: { ticks: { color: cc.txt, font: { size: 9 } }, grid: { color: cc.grid } }
+      }}
+    });
+
+    // Panel toggles
+    let analyticsOpen = false;
+    function toggleAnalytics() {
+      analyticsOpen = !analyticsOpen;
+      const panel = document.getElementById('analyticsPanel');
+      if (analyticsOpen) {
+        panel.classList.remove('translate-x-[400px]','opacity-0','pointer-events-none');
+        panel.classList.add('translate-x-0','opacity-100','pointer-events-auto');
+      } else {
+        panel.classList.add('translate-x-[400px]','opacity-0','pointer-events-none');
+        panel.classList.remove('translate-x-0','opacity-100','pointer-events-auto');
+      }
+    }
+
+    let listOpen = false;
+    function toggleListPanel(type) {
+      const panel = document.getElementById('listPanel');
+      const title = document.getElementById('listPanelTitle');
+      const titles = { auctions: 'Upcoming Auctions', private: 'Private Treaty', results: 'Recent Results' };
+      title.textContent = titles[type] || 'Listings';
+      listOpen = !listOpen;
+      if (listOpen) {
+        panel.classList.remove('-translate-x-[380px]','opacity-0','pointer-events-none');
+        panel.classList.add('translate-x-0','opacity-100','pointer-events-auto');
+      } else {
+        panel.classList.add('-translate-x-[380px]','opacity-0','pointer-events-none');
+        panel.classList.remove('translate-x-0','opacity-100','pointer-events-auto');
+      }
+    }
+    function closeListPanel() {
+      listOpen = false;
+      const panel = document.getElementById('listPanel');
+      panel.classList.add('-translate-x-[380px]','opacity-0','pointer-events-none');
+      panel.classList.remove('translate-x-0','opacity-100','pointer-events-auto');
+    }
+  </script>
+</body>
+</html>
