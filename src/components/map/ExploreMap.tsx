@@ -75,6 +75,57 @@ interface SaleDetail {
   polygonCoordinates?: [number, number][] | null
   saleStatus?: string | null
   listingType?: string | null
+  pctTillable?: number | null
+  pricePerTillableAcre?: number | null
+  pricePerSoilRating?: number | null
+}
+
+interface FilterState {
+  dateRange: string
+  stateFilter: string
+  soilRatingMin: string
+  soilRatingMax: string
+  acreageMin: string
+  acreageMax: string
+  pctTillableMin: string
+  pctTillableMax: string
+  nccpiMin: string
+  nccpiMax: string
+}
+
+const INITIAL_FILTERS: FilterState = {
+  dateRange: 'all',
+  stateFilter: '',
+  soilRatingMin: '',
+  soilRatingMax: '',
+  acreageMin: '',
+  acreageMax: '',
+  pctTillableMin: '',
+  pctTillableMax: '',
+  nccpiMin: '',
+  nccpiMax: '',
+}
+
+const STATE_CHIPS = ['IL', 'IA', 'MO', 'MN', 'NE', 'IN', 'SD', 'ND']
+
+function buildFilterParams(filters: FilterState) {
+  const params: Record<string, string> = {}
+  if (filters.dateRange !== 'all') {
+    const months = filters.dateRange === '6months' ? 6 : filters.dateRange === '1year' ? 12 : 24
+    const cutoff = new Date()
+    cutoff.setMonth(cutoff.getMonth() - months)
+    params.date_from = cutoff.toISOString().split('T')[0]
+  }
+  if (filters.stateFilter) params.state_abbr = filters.stateFilter
+  if (filters.soilRatingMin) params.soil_rating_min = filters.soilRatingMin
+  if (filters.soilRatingMax) params.soil_rating_max = filters.soilRatingMax
+  if (filters.acreageMin) params.acreage_min = filters.acreageMin
+  if (filters.acreageMax) params.acreage_max = filters.acreageMax
+  if (filters.pctTillableMin) params.pct_tillable_min = filters.pctTillableMin
+  if (filters.pctTillableMax) params.pct_tillable_max = filters.pctTillableMax
+  if (filters.nccpiMin) params.nccpi_min = filters.nccpiMin
+  if (filters.nccpiMax) params.nccpi_max = filters.nccpiMax
+  return params
 }
 
 interface ExploreMapProps {
@@ -101,6 +152,17 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const [soilData, setSoilData] = useState<{ map_units: any[]; avg_slope?: number } | null>(null)
   const [elevationData, setElevationData] = useState<{ min_ft: number; max_ft: number; relief_ft: number; avg_slope_pct: number } | null>(null)
   const [soilLoading, setSoilLoading] = useState(false)
+
+  // Filter state
+  const [filters, setFilters] = useState<FilterState>(INITIAL_FILTERS)
+  const [filterOpen, setFilterOpen] = useState(false)
+  const filtersRef = useRef<FilterState>(INITIAL_FILTERS)
+
+  // Selection / report state
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [selectedTracts, setSelectedTracts] = useState<SaleDetail[]>([])
+  const [sendingEmail, setSendingEmail] = useState(false)
+  const [emailSent, setEmailSent] = useState(false)
 
   // Fetch soil & elevation data when a tract is selected
   useEffect(() => {
@@ -131,6 +193,89 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     })
   }, [selectedSale?.tractId])
 
+  const toggleSelection = (tract: SaleDetail) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(tract.id)) {
+        next.delete(tract.id)
+        setSelectedTracts(prev => prev.filter(t => t.id !== tract.id))
+      } else {
+        next.add(tract.id)
+        setSelectedTracts(prev => [...prev, tract])
+      }
+      return next
+    })
+  }
+
+  const handleEmailReport = async () => {
+    setSendingEmail(true)
+    try {
+      const comparables = selectedTracts.map(t => ({
+        county: t.county,
+        state: t.state,
+        tract_number: '—',
+        total_acres: t.totalAcres?.toString() || '—',
+        tillable_acres: t.tillableAcres?.toString() || null,
+        pct_tillable: t.pctTillable?.toString() || null,
+        soil_rating: t.soilRating?.toString() || null,
+        price_per_acre: t.pricePerAcre?.toString() || null,
+        price_per_tillable_acre: t.pricePerTillableAcre?.toString() || null,
+        price_per_soil_rating: t.pricePerSoilRating?.toString() || null,
+        sale_price: t.salePrice?.toString() || null,
+        auction_datetime: t.auctionDate || null,
+        company_name: t.companyName || null,
+      }))
+      const resp = await fetchWithAuth(`${API_URL}/api/comparables/email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ comparables }),
+      })
+      if (resp.ok) {
+        setEmailSent(true)
+        setTimeout(() => setEmailSent(false), 3000)
+      }
+    } catch (err) {
+      console.error('Failed to email report:', err)
+    } finally {
+      setSendingEmail(false)
+    }
+  }
+
+  const applyFilters = () => {
+    filtersRef.current = filters
+    // Clear cached data so it refetches with new filters
+    loadedCellsRef.current = new Set()
+    tractMapRef.current = new Map()
+    setTracts([])
+    // Remove existing markers
+    tractMarkersRef.current.forEach(m => m.remove())
+    tractMarkersRef.current = []
+    stateMarkersRef.current.forEach(m => m.remove())
+    stateMarkersRef.current = []
+    // Refetch current viewport
+    const map = mapRef.current
+    if (map) {
+      const bounds = map.getBounds()
+      loadTractsForBounds({
+        min_lat: bounds.getSouth(),
+        max_lat: bounds.getNorth(),
+        min_lng: bounds.getWest(),
+        max_lng: bounds.getEast(),
+      })
+    }
+    setFilterOpen(false)
+  }
+
+  const resetFilters = () => {
+    setFilters(INITIAL_FILTERS)
+  }
+
+  const hasActiveFilters = filters.dateRange !== 'all' || filters.stateFilter !== '' ||
+    filters.soilRatingMin !== '' || filters.soilRatingMax !== '' ||
+    filters.acreageMin !== '' || filters.acreageMax !== '' ||
+    filters.pctTillableMin !== '' || filters.pctTillableMax !== '' ||
+    filters.nccpiMin !== '' || filters.nccpiMax !== ''
+
   const polygonGeoJSON = useMemo(() => buildExplorePolygonGeoJSON(tracts), [tracts])
   const stateAggregates = useMemo(() => buildExploreStateAggregates(tracts), [tracts])
 
@@ -146,7 +291,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
     try {
       setLoading(true)
-      const url = `${API_URL}/api/map/tracts?min_lat=${min_lat}&max_lat=${max_lat}&min_lng=${min_lng}&max_lng=${max_lng}&limit=500`
+      const filterParams = buildFilterParams(filtersRef.current)
+      const extraParams = Object.entries(filterParams).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&')
+      const url = `${API_URL}/api/map/tracts?min_lat=${min_lat}&max_lat=${max_lat}&min_lng=${min_lng}&max_lng=${max_lng}&limit=500${extraParams ? '&' + extraParams : ''}`
       const response = await fetchWithAuth(url)
       if (response.ok) {
         const data: MapTractsResponse = await response.json()
@@ -417,6 +564,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           polygonCoordinates: tract.polygon_coordinates,
           saleStatus: tract.sale_status,
           listingType: tract.listing_type,
+          pctTillable: tract.pct_tillable,
+          pricePerTillableAcre: tract.price_per_tillable_acre,
+          pricePerSoilRating: tract.price_per_soil_rating,
         })
       })
 
@@ -514,6 +664,208 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             animation: 'spin 1s linear infinite',
           }} />
           Loading tracts...
+        </div>
+      )}
+
+      {/* Filter Button */}
+      <button
+        onClick={() => setFilterOpen(!filterOpen)}
+        style={{
+          position: 'absolute',
+          top: 120,
+          right: 10,
+          zIndex: 10,
+          width: 36,
+          height: 36,
+          borderRadius: 6,
+          border: 'none',
+          backgroundColor: hasActiveFilters ? '#E91E8C' : 'rgba(0,0,0,0.75)',
+          color: '#fff',
+          fontSize: 18,
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
+        }}
+        title="Filters"
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+        </svg>
+      </button>
+
+      {/* Filter Panel */}
+      {filterOpen && (
+        <div style={{
+          position: 'absolute',
+          top: 0,
+          right: 0,
+          width: 320,
+          height: '100%',
+          backgroundColor: '#111',
+          zIndex: 100,
+          overflowY: 'auto',
+          boxShadow: '-4px 0 20px rgba(0,0,0,0.5)',
+          display: 'flex',
+          flexDirection: 'column',
+        }}>
+          {/* Header */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '16px 20px',
+            borderBottom: '1px solid rgba(255,255,255,0.1)',
+          }}>
+            <span style={{ color: '#fff', fontSize: 18, fontWeight: 700 }}>Filters</span>
+            <button
+              onClick={() => setFilterOpen(false)}
+              style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.6)', fontSize: 22, cursor: 'pointer' }}
+            >
+              ✕
+            </button>
+          </div>
+
+          <div style={{ padding: '16px 20px', flex: 1, overflowY: 'auto' }}>
+            {/* Date Range */}
+            <div style={{ marginBottom: 24 }}>
+              <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>Date Range</div>
+              {[
+                { label: 'Last 6 months', value: '6months' },
+                { label: 'Last 1 year', value: '1year' },
+                { label: 'Last 2 years', value: '2years' },
+                { label: 'All time', value: 'all' },
+              ].map(opt => (
+                <div
+                  key={opt.value}
+                  onClick={() => setFilters(f => ({ ...f, dateRange: opt.value }))}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', cursor: 'pointer',
+                  }}
+                >
+                  <div style={{
+                    width: 18, height: 18, borderRadius: '50%',
+                    border: `2px solid ${filters.dateRange === opt.value ? '#E91E8C' : 'rgba(255,255,255,0.3)'}`,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    flexShrink: 0,
+                  }}>
+                    {filters.dateRange === opt.value && (
+                      <div style={{ width: 10, height: 10, borderRadius: '50%', backgroundColor: '#E91E8C' }} />
+                    )}
+                  </div>
+                  <span style={{ color: '#fff', fontSize: 14 }}>{opt.label}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* State Filter */}
+            <div style={{ marginBottom: 24 }}>
+              <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>State</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                {STATE_CHIPS.map(st => {
+                  const activeStates = filters.stateFilter ? filters.stateFilter.split(',') : []
+                  const isActive = activeStates.includes(st)
+                  return (
+                    <button
+                      key={st}
+                      onClick={() => {
+                        setFilters(f => {
+                          const current = f.stateFilter ? f.stateFilter.split(',') : []
+                          const next = isActive ? current.filter(s => s !== st) : [...current, st]
+                          return { ...f, stateFilter: next.join(',') }
+                        })
+                      }}
+                      style={{
+                        padding: '6px 14px',
+                        borderRadius: 20,
+                        border: `1px solid ${isActive ? '#E91E8C' : 'rgba(255,255,255,0.2)'}`,
+                        backgroundColor: isActive ? 'rgba(233,30,140,0.2)' : 'transparent',
+                        color: isActive ? '#E91E8C' : 'rgba(255,255,255,0.7)',
+                        fontSize: 13,
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {st}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Range filters */}
+            {[
+              { label: 'Soil Rating', minKey: 'soilRatingMin' as keyof FilterState, maxKey: 'soilRatingMax' as keyof FilterState },
+              { label: 'Acreage', minKey: 'acreageMin' as keyof FilterState, maxKey: 'acreageMax' as keyof FilterState },
+              { label: '% Tillable', minKey: 'pctTillableMin' as keyof FilterState, maxKey: 'pctTillableMax' as keyof FilterState },
+              { label: 'NCCPI', minKey: 'nccpiMin' as keyof FilterState, maxKey: 'nccpiMax' as keyof FilterState },
+            ].map(({ label, minKey, maxKey }) => (
+              <div key={label} style={{ marginBottom: 20 }}>
+                <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>{label}</div>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                  <input
+                    type="number"
+                    placeholder="Min"
+                    value={filters[minKey]}
+                    onChange={e => setFilters(f => ({ ...f, [minKey]: e.target.value }))}
+                    style={{
+                      flex: 1, padding: '8px 12px', borderRadius: 8,
+                      border: '1px solid rgba(255,255,255,0.15)',
+                      backgroundColor: 'rgba(255,255,255,0.05)',
+                      color: '#fff', fontSize: 14, outline: 'none',
+                    }}
+                  />
+                  <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 13 }}>to</span>
+                  <input
+                    type="number"
+                    placeholder="Max"
+                    value={filters[maxKey]}
+                    onChange={e => setFilters(f => ({ ...f, [maxKey]: e.target.value }))}
+                    style={{
+                      flex: 1, padding: '8px 12px', borderRadius: 8,
+                      border: '1px solid rgba(255,255,255,0.15)',
+                      backgroundColor: 'rgba(255,255,255,0.05)',
+                      color: '#fff', fontSize: 14, outline: 'none',
+                    }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Action buttons */}
+          <div style={{
+            padding: '16px 20px',
+            borderTop: '1px solid rgba(255,255,255,0.1)',
+            display: 'flex',
+            gap: 10,
+          }}>
+            <button
+              onClick={resetFilters}
+              style={{
+                flex: 1, padding: '12px 0', borderRadius: 10,
+                border: '1px solid rgba(255,255,255,0.2)',
+                backgroundColor: 'transparent',
+                color: 'rgba(255,255,255,0.7)',
+                fontSize: 14, fontWeight: 600, cursor: 'pointer',
+              }}
+            >
+              Reset
+            </button>
+            <button
+              onClick={applyFilters}
+              style={{
+                flex: 1, padding: '12px 0', borderRadius: 10,
+                border: 'none',
+                backgroundColor: '#E91E8C',
+                color: '#fff',
+                fontSize: 14, fontWeight: 700, cursor: 'pointer',
+              }}
+            >
+              Apply
+            </button>
+          </div>
         </div>
       )}
 
@@ -707,12 +1059,62 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               <a
                 href={`/listings/${selectedSale.listingId}`}
                 className="sale-modal-action-btn"
-                style={{ textDecoration: 'none', marginBottom: '16px' }}
+                style={{ textDecoration: 'none', marginBottom: '8px' }}
               >
                 View Listing →
               </a>
             )}
+
+            {/* Add to Report */}
+            <button
+              className="sale-modal-action-btn"
+              style={{
+                backgroundColor: selectedIds.has(selectedSale.id) ? 'transparent' : 'rgba(255,255,255,0.1)',
+                color: selectedIds.has(selectedSale.id) ? '#E91E8C' : '#fff',
+                border: selectedIds.has(selectedSale.id) ? '1px solid #E91E8C' : '1px solid rgba(255,255,255,0.2)',
+                marginBottom: '16px',
+              }}
+              onClick={() => {
+                toggleSelection(selectedSale)
+                setSelectedSale(null)
+              }}
+            >
+              {selectedIds.has(selectedSale.id) ? '− Remove from Report' : '+ Add to Report'}
+            </button>
           </div>
+        </div>
+      )}
+
+      {/* Floating Report Bar */}
+      {selectedIds.size > 0 && (
+        <div style={{
+          position: 'absolute', bottom: 20, left: '50%', transform: 'translateX(-50%)',
+          display: 'flex', alignItems: 'center', gap: 12,
+          backgroundColor: '#E91E8C', borderRadius: 30, padding: '12px 24px',
+          boxShadow: '0 4px 20px rgba(0,0,0,0.4)', zIndex: 200, cursor: 'pointer',
+        }}>
+          <span style={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>
+            {selectedIds.size} Selected
+          </span>
+          <button
+            onClick={handleEmailReport}
+            disabled={sendingEmail}
+            style={{
+              background: 'rgba(255,255,255,0.2)', border: 'none', borderRadius: 20,
+              padding: '8px 16px', color: '#fff', fontWeight: 600, cursor: 'pointer',
+            }}
+          >
+            {emailSent ? '✓ Sent!' : sendingEmail ? 'Sending...' : 'Email Report'}
+          </button>
+          <button
+            onClick={() => { setSelectedIds(new Set()); setSelectedTracts([]) }}
+            style={{
+              background: 'none', border: 'none', color: 'rgba(255,255,255,0.7)',
+              cursor: 'pointer', fontSize: 18,
+            }}
+          >
+            ✕
+          </button>
         </div>
       )}
 
