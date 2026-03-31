@@ -90,8 +90,7 @@ interface FilterState {
   acreageMax: string
   pctTillableMin: string
   pctTillableMax: string
-  nccpiMin: string
-  nccpiMax: string
+  statuses: string[]
 }
 
 const INITIAL_FILTERS: FilterState = {
@@ -104,8 +103,7 @@ const INITIAL_FILTERS: FilterState = {
   acreageMax: '',
   pctTillableMin: '',
   pctTillableMax: '',
-  nccpiMin: '',
-  nccpiMax: '',
+  statuses: [],
 }
 
 const STATE_CHIPS = ['IL', 'IA', 'MO', 'MN', 'NE', 'IN', 'SD', 'ND']
@@ -114,12 +112,15 @@ const COUNTIES_BY_STATE: Record<string, string[]> = {"IL":["Adams","Alexander","
 
 function buildFilterParams(filters: FilterState) {
   const params: Record<string, string> = {}
-  if (filters.dateRange !== 'all') {
+  if (filters.dateRange === 'upcoming') {
+    params.date_from = new Date().toISOString().split('T')[0]
+  } else if (filters.dateRange !== 'all') {
     const months = filters.dateRange === '6months' ? 6 : filters.dateRange === '1year' ? 12 : 24
     const cutoff = new Date()
     cutoff.setMonth(cutoff.getMonth() - months)
     params.date_from = cutoff.toISOString().split('T')[0]
   }
+  if (filters.statuses?.length > 0) params.sale_status = filters.statuses.join(',')
   if (filters.stateFilter) params.state_abbr = filters.stateFilter
   if (filters.countyFilters?.length > 0) params.county_name = filters.countyFilters.join(',')
   if (filters.soilRatingMin) params.soil_rating_min = filters.soilRatingMin
@@ -128,8 +129,6 @@ function buildFilterParams(filters: FilterState) {
   if (filters.acreageMax) params.acreage_max = filters.acreageMax
   if (filters.pctTillableMin) params.pct_tillable_min = filters.pctTillableMin
   if (filters.pctTillableMax) params.pct_tillable_max = filters.pctTillableMax
-  if (filters.nccpiMin) params.nccpi_min = filters.nccpiMin
-  if (filters.nccpiMax) params.nccpi_max = filters.nccpiMax
   return params
 }
 
@@ -279,7 +278,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     filters.soilRatingMin !== '' || filters.soilRatingMax !== '' ||
     filters.acreageMin !== '' || filters.acreageMax !== '' ||
     filters.pctTillableMin !== '' || filters.pctTillableMax !== '' ||
-    filters.nccpiMin !== '' || filters.nccpiMax !== ''
+    filters.statuses.length > 0
 
   const polygonGeoJSON = useMemo(() => buildExplorePolygonGeoJSON(tracts), [tracts])
   const stateAggregates = useMemo(() => buildExploreStateAggregates(tracts), [tracts])
@@ -735,8 +734,44 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           <div style={{ padding: '16px 20px', flex: 1, overflowY: 'auto' }}>
             {/* Date Range */}
             <div style={{ marginBottom: 24 }}>
+              <div style={{ color: '#CCCCCC', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>Status</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 24 }}>
+                {[
+                  { label: 'Listed', value: 'listed' },
+                  { label: 'Live', value: 'pending' },
+                  { label: 'Sold', value: 'sold' },
+                ].map(opt => {
+                  const isActive = filters.statuses.includes(opt.value)
+                  return (
+                    <button
+                      key={opt.value}
+                      onClick={() => {
+                        setFilters(f => ({
+                          ...f,
+                          statuses: isActive
+                            ? f.statuses.filter(s => s !== opt.value)
+                            : [...f.statuses, opt.value]
+                        }))
+                      }}
+                      style={{
+                        padding: '6px 14px',
+                        borderRadius: 20,
+                        border: `1px solid ${isActive ? '#E91E8C' : 'rgba(255,255,255,0.2)'}`,
+                        backgroundColor: isActive ? 'rgba(233,30,140,0.2)' : 'transparent',
+                        color: isActive ? '#E91E8C' : '#BBBBBB',
+                        fontSize: 13,
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {opt.label}
+                    </button>
+                  )
+                })}
+              </div>
               <div style={{ color: '#CCCCCC', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>Date Range</div>
               {[
+                { label: 'Upcoming', value: 'upcoming' },
                 { label: 'Last 6 months', value: '6months' },
                 { label: 'Last 1 year', value: '1year' },
                 { label: 'Last 2 years', value: '2years' },
@@ -851,7 +886,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               { label: 'Soil Rating', minKey: 'soilRatingMin' as keyof FilterState, maxKey: 'soilRatingMax' as keyof FilterState },
               { label: 'Acreage', minKey: 'acreageMin' as keyof FilterState, maxKey: 'acreageMax' as keyof FilterState },
               { label: '% Tillable', minKey: 'pctTillableMin' as keyof FilterState, maxKey: 'pctTillableMax' as keyof FilterState },
-              { label: 'NCCPI', minKey: 'nccpiMin' as keyof FilterState, maxKey: 'nccpiMax' as keyof FilterState },
             ].map(({ label, minKey, maxKey }) => (
               <div key={label} style={{ marginBottom: 20 }}>
                 <div style={{ color: '#CCCCCC', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>{label}</div>

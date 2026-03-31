@@ -4,7 +4,8 @@ import { useState } from 'react'
 import { X, SlidersHorizontal } from 'lucide-react'
 
 export interface FilterState {
-  dateRange: 'all' | '6months' | '1year' | '2years'
+  dateRange: 'all' | 'upcoming' | '6months' | '1year' | '2years'
+  statuses: string[]
   countyScope: 'same' | 'neighbors' | 'state'
   distance: 'any' | '10' | '25' | '50' | '100'
   soilRatingMin: string
@@ -13,12 +14,11 @@ export interface FilterState {
   acreageMax: string
   tillableMin: string
   tillableMax: string
-  nccpiMin: string
-  nccpiMax: string
 }
 
 export const DEFAULT_FILTERS: FilterState = {
   dateRange: 'all',
+  statuses: [],
   countyScope: 'neighbors',
   distance: 'any',
   soilRatingMin: '',
@@ -27,8 +27,6 @@ export const DEFAULT_FILTERS: FilterState = {
   acreageMax: '',
   tillableMin: '',
   tillableMax: '',
-  nccpiMin: '',
-  nccpiMax: '',
 }
 
 export function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -42,12 +40,12 @@ export function haversineDistance(lat1: number, lng1: number, lat2: number, lng2
 export function countActiveFilters(filters: FilterState): number {
   let count = 0
   if (filters.dateRange !== 'all') count++
+  if (filters.statuses?.length > 0) count++
   if (filters.countyScope !== 'neighbors') count++
   if (filters.distance !== 'any') count++
   if (filters.soilRatingMin || filters.soilRatingMax) count++
   if (filters.acreageMin || filters.acreageMax) count++
   if (filters.tillableMin || filters.tillableMax) count++
-  if (filters.nccpiMin || filters.nccpiMax) count++
   return count
 }
 
@@ -60,8 +58,20 @@ export function applyFilters(
   subjectState?: string,
 ): any[] {
   return items.filter(item => {
+    // Status filter
+    if (filters.statuses?.length > 0) {
+      const status = (item.sale_status || '').toLowerCase()
+      if (!filters.statuses.includes(status)) return false
+    }
+
     // Date range
-    if (filters.dateRange !== 'all') {
+    if (filters.dateRange === 'upcoming') {
+      const saleDate = item.auction_date || item.auction_datetime
+      if (saleDate) {
+        const d = new Date(saleDate)
+        if (d <= new Date()) return false
+      }
+    } else if (filters.dateRange !== 'all') {
       const saleDate = item.auction_date || item.auction_datetime
       if (saleDate) {
         const d = new Date(saleDate)
@@ -109,11 +119,6 @@ export function applyFilters(
     const pctTillable = acres && tillable ? (tillable / acres) * 100 : 0
     if (filters.tillableMin && pctTillable && pctTillable < parseFloat(filters.tillableMin)) return false
     if (filters.tillableMax && pctTillable && pctTillable > parseFloat(filters.tillableMax)) return false
-
-    // NCCPI range
-    const nccpi = parseFloat(item.nccpi || 0)
-    if (filters.nccpiMin && nccpi && nccpi < parseFloat(filters.nccpiMin)) return false
-    if (filters.nccpiMax && nccpi && nccpi > parseFloat(filters.nccpiMax)) return false
 
     return true
   })
@@ -203,9 +208,41 @@ export default function ComparablesFilterPanel({ filters, onApply, onClose }: Fi
         </div>
 
         <div className="p-4">
+          {/* Status */}
+          <div className="mb-5">
+            <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Status</div>
+            <div className="flex flex-wrap gap-2">
+              {[
+                { label: 'Listed', value: 'listed' },
+                { label: 'Live', value: 'pending' },
+                { label: 'Sold', value: 'sold' },
+              ].map(opt => {
+                const isActive = (local.statuses || []).includes(opt.value)
+                return (
+                  <button
+                    key={opt.value}
+                    onClick={() => {
+                      const current = local.statuses || []
+                      const next = isActive ? current.filter(s => s !== opt.value) : [...current, opt.value]
+                      setLocal({ ...local, statuses: next })
+                    }}
+                    className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-colors ${
+                      isActive
+                        ? 'border-pink-500 bg-pink-500/20 text-pink-400'
+                        : 'border-gray-600 text-gray-400 hover:border-gray-500'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
           <ChipGroup
             label="Date Range"
             options={[
+              { value: 'upcoming', label: 'Upcoming' },
               { value: '6months', label: 'Last 6 mo' },
               { value: '1year', label: 'Last 1 yr' },
               { value: '2years', label: 'Last 2 yr' },
@@ -263,13 +300,6 @@ export default function ComparablesFilterPanel({ filters, onApply, onClose }: Fi
             onMaxChange={v => setLocal({ ...local, tillableMax: v })}
           />
 
-          <RangeInput
-            label="NCCPI"
-            minValue={local.nccpiMin}
-            maxValue={local.nccpiMax}
-            onMinChange={v => setLocal({ ...local, nccpiMin: v })}
-            onMaxChange={v => setLocal({ ...local, nccpiMax: v })}
-          />
         </div>
 
         <div className="sticky bottom-0 p-4 bg-gg-gray-900 border-t border-gg-gray-700 flex gap-3">
