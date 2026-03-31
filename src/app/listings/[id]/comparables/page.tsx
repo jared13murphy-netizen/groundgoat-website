@@ -367,12 +367,12 @@ export default function ComparablesPage({ params }: { params: { id: string } }) 
   const filteredComparables = applyFilters(
     comparables, filters,
     searchCriteria?.subject_latitude, searchCriteria?.subject_longitude,
-    listing?.county
+    listing?.county, listing?.state
   )
   const filteredStateSales = applyFilters(
     stateSales, filters,
     searchCriteria?.subject_latitude, searchCriteria?.subject_longitude,
-    listing?.county
+    listing?.county, listing?.state
   )
 
   return (

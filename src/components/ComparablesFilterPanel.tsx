@@ -57,6 +57,7 @@ export function applyFilters(
   subjectLat?: number | null,
   subjectLng?: number | null,
   subjectCounty?: string,
+  subjectState?: string,
 ): any[] {
   return items.filter(item => {
     // Date range
@@ -75,6 +76,12 @@ export function applyFilters(
     if (filters.countyScope === 'same' && subjectCounty) {
       const itemCounty = item.county || item.county_name || ''
       if (itemCounty.toLowerCase() !== subjectCounty.toLowerCase()) return false
+    }
+
+    // State scope: filter out tracts from other states
+    if (filters.countyScope === 'state' && subjectState) {
+      const itemState = (item.state || '').toLowerCase()
+      if (itemState !== subjectState.toLowerCase()) return false
     }
 
     // Distance
