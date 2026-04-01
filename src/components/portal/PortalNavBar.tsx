@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Map, Calendar, Building2, BarChart3, LogOut, User, Settings, Filter } from 'lucide-react'
+import { Map, Calendar, Building2, BarChart3, LogOut, User, Users, Settings, Filter } from 'lucide-react'
 
 type TabType = 'map' | 'auctions' | 'private_treaty' | 'results'
 
@@ -27,6 +27,7 @@ export default function PortalNavBar({ activeTab, onTabChange, onFilterToggle, f
   const menuRef = useRef<HTMLDivElement>(null)
 
   const isAdmin = user.account_type === 'groundgoat_admin' || user.account_type === 'groundgoat_sales'
+  const isFirmAdmin = user.account_type === 'firm_admin'
   const initials = (user.first_name?.[0] || '') + (user.last_name?.[0] || '')
 
   useEffect(() => {
@@ -134,6 +135,16 @@ export default function PortalNavBar({ activeTab, onTabChange, onFilterToggle, f
                 <User size={14} />
                 Profile
               </Link>
+              {isFirmAdmin && (
+                <Link
+                  href="/account/team"
+                  className="flex items-center gap-2.5 px-4 py-2 text-sm text-gg-gray-300 hover:bg-white/5 hover:text-white transition"
+                  onClick={() => setShowUserMenu(false)}
+                >
+                  <Users size={14} />
+                  Manage Team
+                </Link>
+              )}
               {isAdmin && (
                 <Link
                   href="/admin/dashboard"
