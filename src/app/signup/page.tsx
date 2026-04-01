@@ -325,12 +325,13 @@ function SignUpContent() {
   }
 
   const calculatePrice = () => {
-    const plan = PLANS[selectedPlan]
     let total = 0
 
     if (selectedPlan === 'firm') {
-      total = plan.basePrice + additionalSeats * plan.additionalUserPrice
+      const firm = PLANS.firm
+      total = firm.basePrice + additionalSeats * firm.additionalUserPrice
     } else {
+      const plan = PLANS[selectedPlan as 'basic_state' | 'premium_state']
       total = Math.max(selectedAreas.length, 1) * plan.pricePerState
     }
 
@@ -1021,8 +1022,8 @@ function SignUpContent() {
                       <div className="text-right">
                         <span className="text-2xl font-bold text-white">
                           ${key === 'firm'
-                            ? (billingCycle === 'annual' ? (p.basePrice * 12 * 0.9).toFixed(2) : p.basePrice.toFixed(2))
-                            : (billingCycle === 'annual' ? (p.pricePerState * 12 * 0.9).toFixed(2) : p.pricePerState.toFixed(2))
+                            ? (billingCycle === 'annual' ? ((p as typeof PLANS.firm).basePrice * 12 * 0.9).toFixed(2) : (p as typeof PLANS.firm).basePrice.toFixed(2))
+                            : (billingCycle === 'annual' ? ((p as typeof PLANS.basic_state).pricePerState * 12 * 0.9).toFixed(2) : (p as typeof PLANS.basic_state).pricePerState.toFixed(2))
                           }
                         </span>
                         <span className="text-gg-gray-400 text-sm">
