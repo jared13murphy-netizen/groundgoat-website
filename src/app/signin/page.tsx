@@ -5,6 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
 import { Eye, EyeOff, ArrowRight, CheckCircle } from 'lucide-react'
+import { parseApiError } from '@/lib/parseApiError'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -46,7 +47,7 @@ function SignInContent() {
 
       if (!response.ok) {
         const data = await response.json()
-        throw new Error(data.detail || 'Invalid email or password')
+        throw new Error(parseApiError(data, 'Invalid email or password'))
       }
 
       const data = await response.json()

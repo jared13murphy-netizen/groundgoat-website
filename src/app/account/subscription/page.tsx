@@ -5,6 +5,7 @@ import fetchWithAuth from '@/lib/fetchWithAuth'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Loader2, CreditCard, Calendar, AlertTriangle, CheckCircle, Crown, MapPin, Plus, ExternalLink, Building2 } from 'lucide-react'
+import { parseApiError } from '@/lib/parseApiError'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -103,7 +104,7 @@ export default function SubscriptionPage() {
 
       if (!response.ok) {
         const data = await response.json().catch(() => ({}))
-        throw new Error(data.detail || 'Failed to cancel subscription')
+        throw new Error(parseApiError(data, 'Failed to cancel subscription'))
       }
 
       // Refresh subscriptions

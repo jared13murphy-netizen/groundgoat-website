@@ -5,6 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Check, ArrowLeft, ArrowRight, Eye, EyeOff, MapPin, ChevronDown, X, Loader2, Building2, Users, Plus, Mail } from 'lucide-react'
 import { US_STATES, getCountiesForState, getStateAbbreviation } from '@/data/counties'
+import { parseApiError } from '@/lib/parseApiError'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -391,7 +392,7 @@ function SignUpContent() {
         setVerificationCode(['', '', '', '', '', ''])
       } else {
         const data = await response.json()
-        throw new Error(data.detail || 'Failed to send verification code')
+        throw new Error(parseApiError(data, 'Failed to send verification code'))
       }
     } catch (err: any) {
       setError(err.message || 'Failed to send verification code')
@@ -469,7 +470,7 @@ function SignUpContent() {
         setStep(2)
       } else {
         const data = await response.json()
-        throw new Error(data.detail || 'Invalid verification code')
+        throw new Error(parseApiError(data, 'Invalid verification code'))
       }
     } catch (err: any) {
       setError(err.message || 'Verification failed')
@@ -578,7 +579,7 @@ function SignUpContent() {
         }
       } else {
         const errorData = await response.json().catch(() => ({}))
-        throw new Error(errorData.detail || 'Failed to create checkout session')
+        throw new Error(parseApiError(errorData, 'Failed to create checkout session'))
       }
     } catch (err: any) {
       console.error('Firm registration error:', err)
@@ -612,7 +613,7 @@ function SignUpContent() {
 
       if (!registerResponse.ok) {
         const data = await registerResponse.json().catch(() => ({}))
-        throw new Error(data.detail || 'Registration failed. Please try again.')
+        throw new Error(parseApiError(data, 'Registration failed. Please try again.'))
       }
       
       const authData = await registerResponse.json()
@@ -669,7 +670,7 @@ function SignUpContent() {
           }
         } else {
           const errorData = await checkoutResponse.json().catch(() => ({}))
-          throw new Error(errorData.detail || 'Payment setup failed. Please try again.')
+          throw new Error(parseApiError(errorData, 'Payment setup failed. Please try again.'))
         }
       }
 

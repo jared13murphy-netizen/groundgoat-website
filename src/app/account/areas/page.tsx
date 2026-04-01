@@ -5,6 +5,7 @@ import fetchWithAuth from '@/lib/fetchWithAuth'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { MapPin, ArrowLeft, Plus, Loader2, Crown, X, ChevronDown } from 'lucide-react'
+import { parseApiError } from '@/lib/parseApiError'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -163,7 +164,7 @@ export default function MyAreasPage() {
       })
       if (!response.ok) {
         const data = await response.json()
-        throw new Error(data.detail || 'Failed to add area')
+        throw new Error(parseApiError(data, 'Failed to add area'))
       }
       const data = await response.json()
       if (data.checkout_url) {
