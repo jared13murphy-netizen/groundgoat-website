@@ -8,7 +8,7 @@ import Link from 'next/link'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Loader2, BarChart3 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
-import { getDistanceToCounty } from '@/data/countyCoordinates'
+import { getDistanceToCounty, getCountyCoordinates } from '@/data/countyCoordinates'
 import PortalNavBar from '@/components/portal/PortalNavBar'
 import PortalKPICards from '@/components/portal/PortalKPICards'
 import PortalListPanel from '@/components/portal/PortalListPanel'
@@ -82,6 +82,8 @@ export default function AccessPortalPage() {
   // Report state
   const [reportIds, setReportIds] = useState<Set<string>>(new Set())
   const [reportTracts, setReportTracts] = useState<TractSaleData[]>([])
+  // Map zoom state
+  const [zoomToLocation, setZoomToLocation] = useState<{ lat: number; lng: number; zoom: number } | null>(null)
   // 3D viewer state
   const [show3DViewer, setShow3DViewer] = useState(false)
   const [viewer3DTractId, setViewer3DTractId] = useState('')
@@ -255,6 +257,20 @@ export default function AccessPortalPage() {
     setFilterOpen(!filterOpen)
   }
 
+  const handleFindComparables = (county: string, state: string) => {
+    const coords = getCountyCoordinates(state, county)
+    if (coords) {
+      // Close any open panels and zoom to county
+      setMapListingId(null)
+      setSelectedTract(null)
+      setShowListPanel(false)
+      setActiveTab('map')
+      setZoomToLocation({ lat: coords.latitude, lng: coords.longitude, zoom: 10 })
+      // Reset zoom trigger after a moment so it can be reused
+      setTimeout(() => setZoomToLocation(null), 2000)
+    }
+  }
+
   const handleFiltersApplied = (filters: { stateFilter: string; countyFilters: string[] }) => {
     setActiveFilters(filters)
     // Re-fetch listings if list panel is open
@@ -302,6 +318,7 @@ export default function AccessPortalPage() {
           isInReport={(id) => reportIds.has(id)}
           reportIds={reportIds}
           onFiltersApplied={handleFiltersApplied}
+          zoomToLocation={zoomToLocation}
         />
       </div>
 
@@ -349,6 +366,7 @@ export default function AccessPortalPage() {
               setActiveTab('map')
             }}
             onTractSelected={setSelectedTract}
+            onFindComparables={handleFindComparables}
           />
         )}
       </AnimatePresence>
@@ -389,6 +407,7 @@ export default function AccessPortalPage() {
                 listingId={mapListingId}
                 onBack={() => setMapListingId(null)}
                 onTractSelected={setSelectedTract}
+                onFindComparables={handleFindComparables}
               />
             </div>
           </motion.div>

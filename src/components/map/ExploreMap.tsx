@@ -146,9 +146,10 @@ interface ExploreMapProps {
   isInReport?: (tractId: string) => boolean
   reportIds?: Set<string>
   onFiltersApplied?: (filters: { stateFilter: string; countyFilters: string[] }) => void
+  zoomToLocation?: { lat: number; lng: number; zoom: number } | null
 }
 
-export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied }: ExploreMapProps) {
+export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation }: ExploreMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const stateMarkersRef = useRef<maplibregl.Marker[]>([])
@@ -179,6 +180,17 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       setFilterOpenInternal(externalFilterOpen)
     }
   }, [externalFilterOpen])
+
+  // Zoom to location from parent (portal mode)
+  useEffect(() => {
+    if (zoomToLocation && mapRef.current) {
+      mapRef.current.flyTo({
+        center: [zoomToLocation.lng, zoomToLocation.lat],
+        zoom: zoomToLocation.zoom,
+        duration: 1500,
+      })
+    }
+  }, [zoomToLocation])
 
   const setFilterOpen = (open: boolean) => {
     setFilterOpenInternal(open)

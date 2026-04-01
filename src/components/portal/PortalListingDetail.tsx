@@ -66,6 +66,7 @@ interface PortalListingDetailProps {
   listingId: string
   onBack: () => void
   onTractSelected?: (tract: any) => void
+  onFindComparables?: (county: string, state: string) => void
 }
 
 const LAND_TYPE_COLORS: Record<string, string> = {
@@ -126,7 +127,7 @@ function formatTime(listing: Listing): string {
   return ''
 }
 
-export default function PortalListingDetail({ listingId, onBack, onTractSelected }: PortalListingDetailProps) {
+export default function PortalListingDetail({ listingId, onBack, onTractSelected, onFindComparables }: PortalListingDetailProps) {
   const [listing, setListing] = useState<Listing | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -450,14 +451,21 @@ export default function PortalListingDetail({ listingId, onBack, onTractSelected
                     </div>
 
                     {/* Find Comparables */}
-                    <Link
-                      href={`/listings/${listing.id}/comparables?tractId=${tract.id}`}
-                      onClick={(e) => e.stopPropagation()}
-                      className="mt-3 flex items-center justify-center gap-2 w-full py-2 bg-gg-pink/10 text-gg-pink border border-gg-pink/30 rounded-lg hover:bg-gg-pink/20 transition text-xs font-medium"
-                    >
-                      <BarChart3 size={14} />
-                      Find Comparables
-                    </Link>
+                    {onFindComparables && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onFindComparables(
+                            tract.county_name || listing.county,
+                            tract.state_abbr || listing.state
+                          )
+                        }}
+                        className="mt-3 flex items-center justify-center gap-2 w-full py-2 bg-gg-pink/10 text-gg-pink border border-gg-pink/30 rounded-lg hover:bg-gg-pink/20 transition text-xs font-medium"
+                      >
+                        <BarChart3 size={14} />
+                        Find Comparables
+                      </button>
+                    )}
                   </div>
                 </div>
               )
