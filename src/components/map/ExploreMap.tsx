@@ -364,7 +364,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   }) => {
     const { min_lat, max_lat, min_lng, max_lng } = bounds
 
-    const gridKey = `${Math.floor(min_lat * 10)},${Math.floor(min_lng * 10)},${Math.floor(max_lat * 10)},${Math.floor(max_lng * 10)}`
+    const gridKey = `${Math.floor(min_lat)},${Math.floor(min_lng)},${Math.ceil(max_lat)},${Math.ceil(max_lng)}`
     if (loadedCellsRef.current.has(gridKey)) return
     loadedCellsRef.current.add(gridKey)
 
@@ -400,19 +400,30 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
   }, [])
 
-  // Handle map move — debounced viewport loading
+  // Handle map move — debounced viewport loading with sub-cell splitting
   const handleMoveEnd = useCallback(() => {
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current)
     debounceTimerRef.current = setTimeout(() => {
       const map = mapRef.current
       if (!map) return
       const bounds = map.getBounds()
-      loadTractsForBounds({
-        min_lat: bounds.getSouth(),
-        max_lat: bounds.getNorth(),
-        min_lng: bounds.getWest(),
-        max_lng: bounds.getEast(),
-      })
+      const south = bounds.getSouth()
+      const north = bounds.getNorth()
+      const west = bounds.getWest()
+      const east = bounds.getEast()
+
+      // Split viewport into ~1 degree cells and load each
+      const cellSize = 1.0 // ~70 miles per cell
+      for (let lat = Math.floor(south); lat < north; lat += cellSize) {
+        for (let lng = Math.floor(west); lng < east; lng += cellSize) {
+          loadTractsForBounds({
+            min_lat: Math.max(lat, south),
+            max_lat: Math.min(lat + cellSize, north),
+            min_lng: Math.max(lng, west),
+            max_lng: Math.min(lng + cellSize, east),
+          })
+        }
+      }
     }, 500)
   }, [loadTractsForBounds])
 
