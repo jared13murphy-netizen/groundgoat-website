@@ -54,7 +54,7 @@ function AccountContent() {
       localStorage.setItem('user', JSON.stringify(userData))
 
       // Skip subscription check for admins and firm users (firm users inherit firm access)
-      if (userData.account_type === 'groundgoat_admin' || 
+      if (userData.account_type === 'groundgoat_admin' ||
           userData.account_type === 'groundgoat_sales' ||
           userData.account_type === 'firm_admin' ||
           userData.account_type === 'firm_user') {
@@ -64,15 +64,26 @@ function AccountContent() {
       }
 
       // Check subscription status for individual users
-      const subsResponse = await fetchWithAuth(`${API_URL}/api/subscriptions/areas`)
+      // If returning from Stripe checkout, poll for up to 10 seconds in case webhook hasn't fired yet
+      const maxAttempts = subscriptionSuccess ? 5 : 1
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        const subsResponse = await fetchWithAuth(`${API_URL}/api/subscriptions/areas`)
 
-      if (subsResponse.ok) {
-        const subsData = await subsResponse.json()
-        setSubscriptionData(subsData)
-        const hasActive = subsData.unlimited || (subsData.areas && subsData.areas.some((a: any) => a.status === 'active' || a.status === 'trialing'))
-        setHasSubscription(hasActive)
-      } else {
-        setHasSubscription(false)
+        if (subsResponse.ok) {
+          const subsData = await subsResponse.json()
+          setSubscriptionData(subsData)
+          const hasActive = subsData.unlimited || (subsData.areas && subsData.areas.some((a: any) => a.status === 'active' || a.status === 'trialing'))
+          setHasSubscription(hasActive)
+          if (hasActive || !subscriptionSuccess) break
+        } else {
+          setHasSubscription(false)
+          if (!subscriptionSuccess) break
+        }
+
+        // Wait 2 seconds before retrying (only if polling after checkout)
+        if (attempt < maxAttempts - 1) {
+          await new Promise(resolve => setTimeout(resolve, 2000))
+        }
       }
     } catch (err) {
       localStorage.removeItem('auth_token')

@@ -18,6 +18,7 @@ interface Subscription {
   monthly_price: number
   billing_cycle: string
   current_period_end: string | null
+  cancelled_at: string | null
   stripe_subscription_id: string | null
 }
 
@@ -326,7 +327,7 @@ export default function SubscriptionPage() {
                           {sub.current_period_end && (
                             <span className="flex items-center gap-1">
                               <Calendar size={14} />
-                              Renews {formatDate(sub.current_period_end)}
+                              {sub.cancelled_at ? `Cancels ${formatDate(sub.current_period_end)}` : `Renews ${formatDate(sub.current_period_end)}`}
                             </span>
                           )}
                         </div>
@@ -353,7 +354,7 @@ export default function SubscriptionPage() {
                           </button>
                         </div>
                       ) : (
-                        canManageSubscription() && (
+                        canManageSubscription() && !sub.cancelled_at && (
                           <button
                             onClick={() => setShowCancelConfirm(sub.id)}
                             className="text-sm text-gg-gray-500 hover:text-red-400"

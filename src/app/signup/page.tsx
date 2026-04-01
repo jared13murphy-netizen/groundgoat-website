@@ -12,30 +12,28 @@ const API_URL = 'https://practical-serenity-production.up.railway.app'
 // VALID_STATES now imported from @/data/counties as US_STATES
 
 const PLANS = {
-  county: {
-    name: 'County',
-    basePrice: 7.99,
-    additionalPrice: 3.99,
-    description: 'Perfect for focused investors',
-    features: ['1 county included', 'Upcoming land sale alerts', 'Sale results access', 'Mobile app access'],
+  basic_state: {
+    name: 'Basic State',
+    pricePerState: 24.99,
+    description: 'For active land investors',
+    features: ['Full state coverage (all counties)', 'Upcoming land sale alerts', 'Sale results access', 'Historical data access', 'Priority notifications', 'Mobile app access'],
     trialDays: 7,
     trialLabel: '7-day free trial',
   },
-  state: {
-    name: 'State',
-    basePrice: 19.99,
-    additionalPrice: 12.99,
-    description: 'Best for active land investors',
-    features: ['1 state included (all counties)', 'Everything in County plan', 'Priority notifications', 'Historical data access'],
+  premium_state: {
+    name: 'Premium State',
+    pricePerState: 74.99,
+    description: 'For data-driven land professionals',
+    features: ['Everything in Basic State', 'Interactive map with soil & elevation data', 'Comparable sales reports', 'Advanced land analytics'],
     trialDays: 7,
     trialLabel: '7-day free trial',
   },
   firm: {
     name: 'Management Firm',
     basePrice: 199.99,
-    additionalPrice: 39.99,
+    additionalUserPrice: 9.99,
     description: 'For teams and professionals',
-    features: ['Unlimited states & counties', 'Up to 3 team members', 'Comparable sales lookup', 'Priority support'],
+    features: ['Unlimited states & counties', 'Up to 3 team members included', 'Desktop access with advanced maps', 'County & township analytics', 'Comparable sales reports', 'Priority support'],
     trialDays: 14,
     trialLabel: '14-day free trial',
   },
@@ -43,7 +41,6 @@ const PLANS = {
 
 interface SelectedArea {
   state: string
-  county?: string
 }
 
 interface TeamMember {
@@ -61,7 +58,7 @@ interface ReferrerInfo {
 function SignUpContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
-  const initialPlan = searchParams.get('plan') as keyof typeof PLANS || 'state'
+  const initialPlan = searchParams.get('plan') as keyof typeof PLANS || 'basic_state'
   const initialStep = searchParams.get('step') ? parseInt(searchParams.get('step')!) : 1
   const cancelled = searchParams.get('cancelled') === 'true'
   // Capture referral code from URL, persist in localStorage so it survives page navigation
@@ -90,14 +87,10 @@ function SignUpContent() {
   
   // Territory selection state
   const [availableStates, setAvailableStates] = useState<string[]>([])
-  const [availableCounties, setAvailableCounties] = useState<string[]>([])
   const [loadingStates, setLoadingStates] = useState(false)
-  const [loadingCounties, setLoadingCounties] = useState(false)
   const [selectedState, setSelectedState] = useState('')
-  const [selectedCounty, setSelectedCounty] = useState('')
   const [selectedAreas, setSelectedAreas] = useState<SelectedArea[]>([])
   const [showStateDropdown, setShowStateDropdown] = useState(false)
-  const [showCountyDropdown, setShowCountyDropdown] = useState(false)
   
   // Firm-specific state
   const [firmData, setFirmData] = useState({
@@ -168,12 +161,6 @@ function SignUpContent() {
     fetchAvailableStates()
   }, [])
 
-  useEffect(() => {
-    if (selectedState && selectedPlan === 'county') {
-      fetchAvailableCounties(selectedState)
-    }
-  }, [selectedState, selectedPlan])
-
   // Load counties for home location when home state changes
   useEffect(() => {
     if (formData.homeState) {
@@ -189,14 +176,6 @@ function SignUpContent() {
     // Use local county data for consistency with listings
     setAvailableStates(US_STATES)
     setLoadingStates(false)
-  }
-
-  const fetchAvailableCounties = (state: string) => {
-    setLoadingCounties(true)
-    setAvailableCounties([])
-    // Use local county data for consistency with listings
-    setAvailableCounties(getCountiesForState(state))
-    setLoadingCounties(false)
   }
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -262,35 +241,25 @@ function SignUpContent() {
 
   const validateStep3 = () => {
     if (selectedPlan === 'firm') return null
-    if (selectedAreas.length === 0) return 'Please select at least one area'
+    if (selectedAreas.length === 0) return 'Please select at least one state'
     return null
   }
 
   const addArea = () => {
-    if (selectedPlan === 'county') {
-      if (!selectedState || !selectedCounty) {
-        setError('Please select both a state and county')
-        return
-      }
-      const exists = selectedAreas.some(a => a.state === selectedState && a.county === selectedCounty)
-      if (exists) {
-        setError('This county is already selected')
-        return
-      }
-      setSelectedAreas([...selectedAreas, { state: selectedState, county: selectedCounty }])
-      setSelectedCounty('')
-    } else {
-      if (!selectedState) {
-        setError('Please select a state')
-        return
-      }
-      const exists = selectedAreas.some(a => a.state === selectedState && !a.county)
-      if (exists) {
-        setError('This state is already selected')
-        return
-      }
-      setSelectedAreas([...selectedAreas, { state: selectedState }])
+    if (!selectedState) {
+      setError('Please select a state')
+      return
     }
+    if (selectedAreas.length >= 5) {
+      setError('Maximum of 5 states allowed')
+      return
+    }
+    const exists = selectedAreas.some(a => a.state === selectedState)
+    if (exists) {
+      setError('This state is already selected')
+      return
+    }
+    setSelectedAreas([...selectedAreas, { state: selectedState }])
     setError('')
   }
 
@@ -357,18 +326,18 @@ function SignUpContent() {
 
   const calculatePrice = () => {
     const plan = PLANS[selectedPlan]
-    let total = plan.basePrice
-    
+    let total = 0
+
     if (selectedPlan === 'firm') {
-      total += additionalSeats * plan.additionalPrice
-    } else if (selectedAreas.length > 1) {
-      total += (selectedAreas.length - 1) * plan.additionalPrice
+      total = plan.basePrice + additionalSeats * plan.additionalUserPrice
+    } else {
+      total = Math.max(selectedAreas.length, 1) * plan.pricePerState
     }
-    
+
     if (billingCycle === 'annual') {
       total = total * 12 * 0.9
     }
-    
+
     return total.toFixed(2)
   }
 
@@ -392,7 +361,7 @@ function SignUpContent() {
     switch (stepNum) {
       case 1: return 'Account'
       case 2: return 'Plan'
-      case 3: return 'Areas'
+      case 3: return 'States'
       case 4: return 'Payment'
     }
     return ''
@@ -673,18 +642,18 @@ function SignUpContent() {
         const primaryArea = selectedAreas[0]
         const checkoutResponse = await fetch(`${API_URL}/api/subscriptions/checkout`, {
           method: 'POST',
-          headers: { 
+          headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${authData.access_token}`
           },
           body: JSON.stringify({
             subscription_type: selectedPlan,
             state: getStateAbbreviation(primaryArea.state),
-            county: primaryArea.county || null,
+            county: null,
             billing_cycle: billingCycle,
             additional_areas: selectedAreas.slice(1).map(area => ({
               state: getStateAbbreviation(area.state),
-              county: area.county || null,
+              county: null,
             })),
           }),
         })
@@ -736,7 +705,7 @@ function SignUpContent() {
             {step === 1 && codeSent && 'Enter the verification code sent to your email'}
             {step === 2 && 'Choose your subscription plan'}
             {step === 3 && selectedPlan === 'firm' && 'Tell us about your company'}
-            {step === 3 && selectedPlan !== 'firm' && 'Select your coverage areas'}
+            {step === 3 && selectedPlan !== 'firm' && 'Select your states'}
             {step === 4 && selectedPlan === 'firm' && 'Add your team members'}
             {step === 4 && selectedPlan !== 'firm' && 'Setting up your account...'}
             {step === 5 && 'Setting up your account...'}
@@ -1051,10 +1020,16 @@ function SignUpContent() {
                       </div>
                       <div className="text-right">
                         <span className="text-2xl font-bold text-white">
-                          ${billingCycle === 'annual' ? (p.basePrice * 12 * 0.9).toFixed(2) : p.basePrice.toFixed(2)}
+                          ${key === 'firm'
+                            ? (billingCycle === 'annual' ? (p.basePrice * 12 * 0.9).toFixed(2) : p.basePrice.toFixed(2))
+                            : (billingCycle === 'annual' ? (p.pricePerState * 12 * 0.9).toFixed(2) : p.pricePerState.toFixed(2))
+                          }
                         </span>
                         <span className="text-gg-gray-400 text-sm">
-                          /{billingCycle === 'annual' ? 'year' : 'mo'}
+                          {key === 'firm'
+                            ? `/${billingCycle === 'annual' ? 'year' : 'mo'}`
+                            : `/state/${billingCycle === 'annual' ? 'year' : 'mo'}`
+                          }
                         </span>
                       </div>
                     </div>
@@ -1090,7 +1065,7 @@ function SignUpContent() {
                   onClick={handleContinue}
                   className="btn-primary flex-1 flex items-center justify-center gap-2"
                 >
-                  {selectedPlan === 'firm' ? 'Company Info' : 'Select Areas'}
+                  {selectedPlan === 'firm' ? 'Company Info' : 'Select States'}
                   <ArrowRight size={20} />
                 </button>
               </div>
@@ -1214,18 +1189,15 @@ function SignUpContent() {
             <div className="space-y-6">
               <div className="card">
                 <h3 className="font-display text-xl font-semibold text-white mb-2">
-                  Select Your {selectedPlan === 'county' ? 'Counties' : 'States'}
+                  Select Your States
                 </h3>
                 <p className="text-gg-gray-400 text-sm mb-6">
-                  {selectedPlan === 'county' 
-                    ? 'Choose the counties you want to monitor for land sales.'
-                    : 'Choose the states you want full access to. All counties in selected states will be included.'
-                  }
+                  Choose the states you want full access to. All counties in selected states will be included. Up to 5 states.
                 </p>
 
                 <div className="mb-4">
                   <label className="block text-sm font-medium text-gg-gray-300 mb-2">
-                    {selectedPlan === 'county' ? 'State' : 'Select State'}
+                    Select State
                   </label>
                   <div className="relative">
                     <button
@@ -1253,7 +1225,6 @@ function SignUpContent() {
                               key={state}
                               onClick={() => {
                                 setSelectedState(state)
-                                setSelectedCounty('')
                                 setShowStateDropdown(false)
                               }}
                               className="w-full px-4 py-3 text-left text-gg-gray-300 hover:bg-gg-gray-700 hover:text-white transition-colors"
@@ -1267,55 +1238,13 @@ function SignUpContent() {
                   </div>
                 </div>
 
-                {selectedPlan === 'county' && selectedState && (
-                  <div className="mb-4">
-                    <label className="block text-sm font-medium text-gg-gray-300 mb-2">County</label>
-                    <div className="relative">
-                      <button
-                        onClick={() => setShowCountyDropdown(!showCountyDropdown)}
-                        className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-left text-white flex items-center justify-between focus:border-gg-pink focus:outline-none"
-                      >
-                        <span className={selectedCounty ? 'text-white' : 'text-gg-gray-500'}>
-                          {selectedCounty || 'Select a county...'}
-                        </span>
-                        <ChevronDown size={20} className={`text-gg-gray-500 transition-transform ${showCountyDropdown ? 'rotate-180' : ''}`} />
-                      </button>
-                      
-                      {showCountyDropdown && (
-                        <div className="absolute z-10 w-full mt-1 bg-gg-gray-800 border border-gg-gray-700 rounded-lg shadow-xl max-h-60 overflow-y-auto">
-                          {loadingCounties ? (
-                            <div className="px-4 py-3 text-gg-gray-400 flex items-center gap-2">
-                              <Loader2 size={16} className="animate-spin" />
-                              Loading counties...
-                            </div>
-                          ) : availableCounties.length === 0 ? (
-                            <div className="px-4 py-3 text-gg-gray-400">No counties available for {selectedState}</div>
-                          ) : (
-                            availableCounties.map(county => (
-                              <button
-                                key={county}
-                                onClick={() => {
-                                  setSelectedCounty(county)
-                                  setShowCountyDropdown(false)
-                                }}
-                                className="w-full px-4 py-3 text-left text-gg-gray-300 hover:bg-gg-gray-700 hover:text-white transition-colors"
-                              >
-                                {county}
-                              </button>
-                            ))
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
                 <button
                   onClick={addArea}
-                  className="btn-secondary w-full flex items-center justify-center gap-2"
+                  disabled={selectedAreas.length >= 5}
+                  className="btn-secondary w-full flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <MapPin size={18} />
-                  Add {selectedPlan === 'county' ? 'County' : 'State'}
+                  Add State
                 </button>
               </div>
 
@@ -1330,12 +1259,7 @@ function SignUpContent() {
                       >
                         <div className="flex items-center gap-3">
                           <MapPin size={18} className="text-gg-pink" />
-                          <span className="text-white">
-                            {area.county ? `${area.county}, ${area.state}` : area.state}
-                          </span>
-                          {index === 0 && (
-                            <span className="text-xs bg-gg-pink/20 text-gg-pink px-2 py-0.5 rounded">Primary</span>
-                          )}
+                          <span className="text-white">{area.state}</span>
                         </div>
                         <button
                           onClick={() => removeArea(index)}
@@ -1350,7 +1274,7 @@ function SignUpContent() {
                   <div className="mt-4 pt-4 border-t border-gg-gray-700">
                     <div className="flex justify-between items-center">
                       <span className="text-gg-gray-400">
-                        {selectedAreas.length} {selectedPlan === 'county' ? 'counties' : 'states'} selected
+                        {selectedAreas.length} {selectedAreas.length === 1 ? 'state' : 'states'} selected
                       </span>
                       <div className="text-right">
                         <span className="text-2xl font-bold text-white">${calculatePrice()}</span>
@@ -1521,7 +1445,7 @@ function SignUpContent() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-white font-medium">Need more seats?</p>
-                      <p className="text-gg-gray-400 text-sm">${PLANS.firm.additionalPrice}/seat/month</p>
+                      <p className="text-gg-gray-400 text-sm">${PLANS.firm.additionalUserPrice}/seat/month</p>
                     </div>
                     <div className="flex items-center gap-3">
                       <button
@@ -1553,13 +1477,13 @@ function SignUpContent() {
                   {additionalSeats > 0 && (
                     <div className="flex justify-between">
                       <span className="text-gg-gray-400">{additionalSeats} Additional Seat(s)</span>
-                      <span className="text-white">${(additionalSeats * PLANS.firm.additionalPrice).toFixed(2)}/mo</span>
+                      <span className="text-white">${(additionalSeats * PLANS.firm.additionalUserPrice).toFixed(2)}/mo</span>
                     </div>
                   )}
                   {billingCycle === 'annual' && (
                     <div className="flex justify-between text-green-400">
                       <span>Annual Discount (10%)</span>
-                      <span>-${((PLANS.firm.basePrice + additionalSeats * PLANS.firm.additionalPrice) * 12 * 0.1).toFixed(2)}</span>
+                      <span>-${((PLANS.firm.basePrice + additionalSeats * PLANS.firm.additionalUserPrice) * 12 * 0.1).toFixed(2)}</span>
                     </div>
                   )}
                   <div className="pt-2 border-t border-gg-gray-700 flex justify-between">
