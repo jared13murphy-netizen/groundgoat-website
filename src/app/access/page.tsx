@@ -18,6 +18,7 @@ import PortalTractDetail from '@/components/portal/PortalTractDetail'
 import type { TractSaleData } from '@/components/portal/PortalTractDetail'
 
 const ExploreMap = dynamic(() => import('@/components/map/ExploreMap'), { ssr: false })
+const Tract3DModal = dynamic(() => import('@/components/Tract3DModal'), { ssr: false })
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -77,6 +78,13 @@ export default function AccessPortalPage() {
   const [analyticsLoading, setAnalyticsLoading] = useState(false)
   const [mapListingId, setMapListingId] = useState<string | null>(null)
   const [selectedTract, setSelectedTract] = useState<TractSaleData | null>(null)
+  // Report state
+  const [reportIds, setReportIds] = useState<Set<string>>(new Set())
+  const [reportTracts, setReportTracts] = useState<TractSaleData[]>([])
+  // 3D viewer state
+  const [show3DViewer, setShow3DViewer] = useState(false)
+  const [viewer3DTractId, setViewer3DTractId] = useState('')
+  const [viewer3DTractName, setViewer3DTractName] = useState('')
 
   // Auth check
   useEffect(() => {
@@ -170,6 +178,45 @@ export default function AccessPortalPage() {
     }
   }
 
+  const handleToggleReport = (tract: TractSaleData) => {
+    setReportIds(prev => {
+      const next = new Set(prev)
+      if (next.has(tract.id)) {
+        next.delete(tract.id)
+        setReportTracts(prev => prev.filter(t => t.id !== tract.id))
+      } else {
+        next.add(tract.id)
+        setReportTracts(prev => [...prev, tract])
+      }
+      return next
+    })
+  }
+
+  const handleView3DTerrain = (tractId: string, tractName: string) => {
+    setViewer3DTractId(tractId)
+    setViewer3DTractName(tractName)
+    setShow3DViewer(true)
+  }
+
+  const handleCreateReport = () => {
+    const reportData = {
+      comparables: reportTracts.map(t => ({
+        id: t.id,
+        county: t.county,
+        state: t.state,
+        total_acres: t.totalAcres,
+        tillable_acres: t.tillableAcres,
+        soil_rating: t.soilRating,
+        price_per_acre: t.pricePerAcre,
+        sale_price: t.salePrice,
+        auction_date: t.auctionDate,
+        company_name: t.companyName,
+      })),
+    }
+    sessionStorage.setItem('exploreReport', JSON.stringify(reportData))
+    window.location.href = '/listings/report'
+  }
+
   const handleViewListingFromMap = (listingId: string) => {
     setSelectedTract(null)
     setMapListingId(listingId)
@@ -231,6 +278,9 @@ export default function AccessPortalPage() {
           onFilterOpenChange={setFilterOpen}
           onViewListing={handleViewListingFromMap}
           onTractSelected={handleTractSelected}
+          onToggleReport={(tract) => handleToggleReport(tract as unknown as TractSaleData)}
+          onView3DTerrain={handleView3DTerrain}
+          isInReport={(id) => reportIds.has(id)}
         />
       </div>
 
@@ -356,11 +406,43 @@ export default function AccessPortalPage() {
                   setSelectedTract(null)
                   setMapListingId(listingId)
                 }}
+                onView3DTerrain={handleView3DTerrain}
+                onToggleReport={handleToggleReport}
+                isInReport={reportIds.has(selectedTract.id)}
               />
             </div>
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Floating Report Bar */}
+      {reportIds.size > 0 && (
+        <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[500] flex items-center gap-3 bg-gg-pink rounded-full px-6 py-3 shadow-2xl">
+          <span className="text-white font-bold text-sm">
+            {reportIds.size} Selected
+          </span>
+          <button
+            onClick={handleCreateReport}
+            className="bg-white/20 text-white font-semibold text-sm px-4 py-2 rounded-full hover:bg-white/30 transition"
+          >
+            Create Report
+          </button>
+          <button
+            onClick={() => { setReportIds(new Set()); setReportTracts([]) }}
+            className="text-white/70 hover:text-white text-lg"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {/* 3D Terrain Viewer */}
+      <Tract3DModal
+        tractId={viewer3DTractId}
+        tractName={viewer3DTractName}
+        isOpen={show3DViewer}
+        onClose={() => setShow3DViewer(false)}
+      />
     </div>
   )
 }

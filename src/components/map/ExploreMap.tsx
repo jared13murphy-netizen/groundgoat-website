@@ -141,9 +141,12 @@ interface ExploreMapProps {
   onFilterOpenChange?: (open: boolean) => void
   onViewListing?: (listingId: string) => void
   onTractSelected?: (tract: SaleDetail) => void
+  onToggleReport?: (tract: SaleDetail) => void
+  onView3DTerrain?: (tractId: string, tractName: string) => void
+  isInReport?: (tractId: string) => boolean
 }
 
-export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected }: ExploreMapProps) {
+export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onToggleReport, onView3DTerrain, isInReport }: ExploreMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const stateMarkersRef = useRef<maplibregl.Marker[]>([])

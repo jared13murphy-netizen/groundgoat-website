@@ -45,7 +45,9 @@ interface PortalTractDetailProps {
   tract: TractSaleData
   onBack: () => void
   onViewListing?: (listingId: string) => void
-  onView3DTerrain?: (polygonCoordinates: [number, number][]) => void
+  onView3DTerrain?: (tractId: string, tractName: string) => void
+  onToggleReport?: (tract: TractSaleData) => void
+  isInReport?: boolean
 }
 
 function formatCurrency(value?: number | null): string {
@@ -83,7 +85,7 @@ const STATUS_COLORS: Record<string, string> = {
   no_sale: 'bg-gray-500/15 text-gray-400 border-gray-500/30',
 }
 
-export default function PortalTractDetail({ tract, onBack, onViewListing, onView3DTerrain }: PortalTractDetailProps) {
+export default function PortalTractDetail({ tract, onBack, onViewListing, onView3DTerrain, onToggleReport, isInReport }: PortalTractDetailProps) {
   const [soilData, setSoilData] = useState<SoilData | null>(null)
   const [elevationData, setElevationData] = useState<ElevationData | null>(null)
   const [soilLoading, setSoilLoading] = useState(false)
@@ -244,17 +246,37 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
 
       {/* Action Buttons */}
       <div className="space-y-2 pt-2">
-        {tract.polygonCoordinates && tract.polygonCoordinates.length > 2 && onView3DTerrain && (
+        {/* 3D Map */}
+        {tract.tractId && onView3DTerrain ? (
           <button
-            onClick={() => onView3DTerrain(tract.polygonCoordinates!)}
+            onClick={() => onView3DTerrain(tract.tractId!, `${tract.county}, ${tract.state}`)}
             className="flex items-center justify-center gap-2 w-full py-3 bg-gg-pink text-white font-semibold rounded-xl hover:bg-gg-pink/80 transition text-sm"
           >
             <Mountain size={16} />
-            View 3D Terrain
+            3D Map
+          </button>
+        ) : (
+          <div className="text-center text-xs text-gg-gray-500 italic py-2">
+            No map boundaries available
+          </div>
+        )}
+
+        {/* Add to Report */}
+        {onToggleReport && (
+          <button
+            onClick={() => onToggleReport(tract)}
+            className={`flex items-center justify-center gap-2 w-full py-3 rounded-xl font-medium transition text-sm border ${
+              isInReport
+                ? 'bg-gg-pink/10 text-gg-pink border-gg-pink/30'
+                : 'bg-white/5 text-white border-white/10 hover:bg-white/10'
+            }`}
+          >
+            {isInReport ? '− Remove from Report' : '+ Add to Report'}
           </button>
         )}
 
-        {tract.listingId && onViewListing && (
+        {/* View Listing (only if has listing company) */}
+        {tract.listingId && tract.companyName && onViewListing && (
           <button
             onClick={() => onViewListing(tract.listingId!)}
             className="flex items-center justify-center gap-2 w-full py-3 bg-white/5 border border-white/10 text-white font-medium rounded-xl hover:bg-white/10 transition text-sm"
