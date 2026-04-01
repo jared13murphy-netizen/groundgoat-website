@@ -33,7 +33,7 @@ interface PortalListPanelProps {
   activeTab: TabType
   onClose: () => void
   onTractSelected?: (tract: any) => void
-  onFindComparables?: (county: string, state: string) => void
+  onFindComparables?: (tractId: string, county: string, state: string) => void
 }
 
 const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=600'

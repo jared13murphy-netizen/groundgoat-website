@@ -147,9 +147,11 @@ interface ExploreMapProps {
   reportIds?: Set<string>
   onFiltersApplied?: (filters: { stateFilter: string; countyFilters: string[] }) => void
   zoomToLocation?: { lat: number; lng: number; zoom: number } | null
+  subjectTractId?: string | null
+  comparableMarkers?: { id: string; lat: number; lng: number; label: string; acres: number; pricePerAcre: number; similarityScore: number }[]
 }
 
-export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation }: ExploreMapProps) {
+export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, subjectTractId, comparableMarkers }: ExploreMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const stateMarkersRef = useRef<maplibregl.Marker[]>([])
@@ -666,6 +668,51 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       }
     })
   }, [portalMode, reportIds])
+
+  // Highlight subject tract in comparables mode
+  useEffect(() => {
+    if (!portalMode || !subjectTractId) return
+    tractMarkerElementsRef.current.forEach((el, tractId) => {
+      const pin = el.querySelector('.comp-marker-pin') as HTMLDivElement | null
+      if (!pin) return
+      if (tractId === subjectTractId) {
+        el.style.zIndex = '20'
+        pin.style.backgroundColor = '#F58CDE'
+        pin.style.width = '18px'
+        pin.style.height = '18px'
+        pin.style.boxShadow = '0 0 0 4px rgba(245,140,222,0.4), 0 0 20px 4px rgba(245,140,222,0.6)'
+        pin.style.border = '3px solid #fff'
+        // Update label style
+        const label = el.querySelector('.comp-marker-label') as HTMLDivElement | null
+        if (label) {
+          label.style.background = 'rgba(245,140,222,0.15)'
+          label.style.border = '1px solid rgba(245,140,222,0.5)'
+          label.style.color = '#F58CDE'
+        }
+      }
+    })
+    // Cleanup when subject tract changes
+    return () => {
+      tractMarkerElementsRef.current.forEach((el, tractId) => {
+        if (tractId === subjectTractId) {
+          const pin = el.querySelector('.comp-marker-pin') as HTMLDivElement | null
+          if (pin) {
+            pin.style.width = ''
+            pin.style.height = ''
+            pin.style.boxShadow = ''
+            pin.style.border = ''
+          }
+          el.style.zIndex = ''
+          const label = el.querySelector('.comp-marker-label') as HTMLDivElement | null
+          if (label) {
+            label.style.background = ''
+            label.style.border = ''
+            label.style.color = ''
+          }
+        }
+      })
+    }
+  }, [portalMode, subjectTractId])
 
   // Manage state card markers
   useEffect(() => {

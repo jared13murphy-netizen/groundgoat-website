@@ -66,7 +66,7 @@ interface PortalListingDetailProps {
   listingId: string
   onBack: () => void
   onTractSelected?: (tract: any) => void
-  onFindComparables?: (county: string, state: string) => void
+  onFindComparables?: (tractId: string, county: string, state: string) => void
 }
 
 const LAND_TYPE_COLORS: Record<string, string> = {
@@ -456,6 +456,7 @@ export default function PortalListingDetail({ listingId, onBack, onTractSelected
                         onClick={(e) => {
                           e.stopPropagation()
                           onFindComparables(
+                            tract.id,
                             tract.county_name || listing.county,
                             tract.state_abbr || listing.state
                           )

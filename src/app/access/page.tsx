@@ -15,6 +15,7 @@ import PortalListPanel from '@/components/portal/PortalListPanel'
 import PortalAnalyticsPanel from '@/components/portal/PortalAnalyticsPanel'
 import PortalListingDetail from '@/components/portal/PortalListingDetail'
 import PortalTractDetail from '@/components/portal/PortalTractDetail'
+import PortalComparablesPanel from '@/components/portal/PortalComparablesPanel'
 import type { TractSaleData } from '@/components/portal/PortalTractDetail'
 
 const ExploreMap = dynamic(() => import('@/components/map/ExploreMap'), { ssr: false })
@@ -84,6 +85,10 @@ export default function AccessPortalPage() {
   const [reportTracts, setReportTracts] = useState<TractSaleData[]>([])
   // Map zoom state
   const [zoomToLocation, setZoomToLocation] = useState<{ lat: number; lng: number; zoom: number } | null>(null)
+  // Comparables mode
+  const [subjectTractId, setSubjectTractId] = useState<string | null>(null)
+  const [comparablesData, setComparablesData] = useState<any>(null)
+  const [showComparablesPanel, setShowComparablesPanel] = useState(false)
   // 3D viewer state
   const [show3DViewer, setShow3DViewer] = useState(false)
   const [viewer3DTractId, setViewer3DTractId] = useState('')
@@ -257,18 +262,45 @@ export default function AccessPortalPage() {
     setFilterOpen(!filterOpen)
   }
 
-  const handleFindComparables = (county: string, state: string) => {
-    const coords = getCountyCoordinates(state, county)
-    if (coords) {
-      // Close any open panels and zoom to county
-      setMapListingId(null)
-      setSelectedTract(null)
-      setShowListPanel(false)
-      setActiveTab('map')
-      setZoomToLocation({ lat: coords.latitude, lng: coords.longitude, zoom: 10 })
-      // Reset zoom trigger after a moment so it can be reused
-      setTimeout(() => setZoomToLocation(null), 2000)
+  const handleFindComparables = async (tractId: string, county: string, state: string) => {
+    // Close panels, switch to map
+    setMapListingId(null)
+    setSelectedTract(null)
+    setShowListPanel(false)
+    setActiveTab('map')
+    setSubjectTractId(tractId)
+
+    try {
+      // Fetch comparables from API
+      const response = await fetchWithAuth(`${API_URL}/api/comparables/tract/${tractId}?months_back=24&include_neighboring=true&limit=50`)
+      if (response.ok) {
+        const data = await response.json()
+        setComparablesData(data)
+        setShowComparablesPanel(true)
+
+        // Zoom to subject tract location (from search_criteria or county fallback)
+        const subjectLat = data.search_criteria?.subject_latitude
+        const subjectLng = data.search_criteria?.subject_longitude
+        if (subjectLat && subjectLng) {
+          setZoomToLocation({ lat: subjectLat, lng: subjectLng, zoom: 10 })
+          setTimeout(() => setZoomToLocation(null), 2000)
+        } else {
+          const coords = getCountyCoordinates(state, county)
+          if (coords) {
+            setZoomToLocation({ lat: coords.latitude, lng: coords.longitude, zoom: 10 })
+            setTimeout(() => setZoomToLocation(null), 2000)
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Failed to fetch comparables:', err)
     }
+  }
+
+  const handleCloseComparables = () => {
+    setSubjectTractId(null)
+    setComparablesData(null)
+    setShowComparablesPanel(false)
   }
 
   const handleFiltersApplied = (filters: { stateFilter: string; countyFilters: string[] }) => {
@@ -319,6 +351,7 @@ export default function AccessPortalPage() {
           reportIds={reportIds}
           onFiltersApplied={handleFiltersApplied}
           zoomToLocation={zoomToLocation}
+          subjectTractId={subjectTractId}
         />
       </div>
 
@@ -447,6 +480,16 @@ export default function AccessPortalPage() {
               />
             </div>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Comparables Panel */}
+      <AnimatePresence>
+        {showComparablesPanel && (
+          <PortalComparablesPanel
+            data={comparablesData}
+            onClose={handleCloseComparables}
+          />
         )}
       </AnimatePresence>
 
