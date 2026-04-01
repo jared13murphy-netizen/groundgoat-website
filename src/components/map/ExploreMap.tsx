@@ -364,7 +364,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   }) => {
     const { min_lat, max_lat, min_lng, max_lng } = bounds
 
-    const gridKey = `${Math.floor(min_lat)},${Math.floor(min_lng)},${Math.ceil(max_lat)},${Math.ceil(max_lng)}`
+    // Use precise bounds rounded to 0.5 degrees for cache keys
+    const r = (v: number) => Math.round(v * 2) / 2
+    const gridKey = `${r(min_lat)},${r(min_lng)},${r(max_lat)},${r(max_lng)}`
     if (loadedCellsRef.current.has(gridKey)) return
     loadedCellsRef.current.add(gridKey)
 
@@ -372,7 +374,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       setLoading(true)
       const filterParams = buildFilterParams(filtersRef.current)
       const extraParams = Object.entries(filterParams).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&')
-      const url = `${API_URL}/api/map/tracts?min_lat=${min_lat}&max_lat=${max_lat}&min_lng=${min_lng}&max_lng=${max_lng}&limit=500${extraParams ? '&' + extraParams : ''}`
+      const url = `${API_URL}/api/map/tracts?min_lat=${min_lat}&max_lat=${max_lat}&min_lng=${min_lng}&max_lng=${max_lng}&limit=1000${extraParams ? '&' + extraParams : ''}`
       const response = await fetchWithAuth(url)
       if (response.ok) {
         const data: MapTractsResponse = await response.json()
@@ -412,10 +414,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       const west = bounds.getWest()
       const east = bounds.getEast()
 
-      // Split viewport into ~1 degree cells and load each
-      const cellSize = 1.0 // ~70 miles per cell
-      for (let lat = Math.floor(south); lat < north; lat += cellSize) {
-        for (let lng = Math.floor(west); lng < east; lng += cellSize) {
+      // Split viewport into 0.5 degree cells (~35 miles) and load each
+      const cellSize = 0.5
+      const startLat = Math.floor(south * 2) / 2
+      const startLng = Math.floor(west * 2) / 2
+      for (let lat = startLat; lat < north; lat += cellSize) {
+        for (let lng = startLng; lng < east; lng += cellSize) {
           loadTractsForBounds({
             min_lat: Math.max(lat, south),
             max_lat: Math.min(lat + cellSize, north),
