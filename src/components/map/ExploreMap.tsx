@@ -149,9 +149,10 @@ interface ExploreMapProps {
   zoomToLocation?: { lat: number; lng: number; zoom: number } | null
   subjectTractId?: string | null
   subjectTractLocation?: { lat: number; lng: number } | null
+  resetFiltersSignal?: number
 }
 
-export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, subjectTractId, subjectTractLocation }: ExploreMapProps) {
+export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, subjectTractId, subjectTractLocation, resetFiltersSignal }: ExploreMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const stateMarkersRef = useRef<maplibregl.Marker[]>([])
@@ -182,6 +183,21 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       setFilterOpenInternal(externalFilterOpen)
     }
   }, [externalFilterOpen])
+
+  // Reset filters from parent (e.g. when launching Find Comparables)
+  useEffect(() => {
+    if (resetFiltersSignal && resetFiltersSignal > 0) {
+      setFilters(INITIAL_FILTERS)
+      filtersRef.current = INITIAL_FILTERS
+      loadedCellsRef.current = new Set()
+      tractMapRef.current = new Map()
+      setTracts([])
+      tractMarkersRef.current.forEach(m => m.remove())
+      tractMarkersRef.current = []
+      stateMarkersRef.current.forEach(m => m.remove())
+      stateMarkersRef.current = []
+    }
+  }, [resetFiltersSignal])
 
   // Zoom to location from parent (portal mode)
   useEffect(() => {

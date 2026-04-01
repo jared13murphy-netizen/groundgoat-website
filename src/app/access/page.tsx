@@ -86,6 +86,7 @@ export default function AccessPortalPage() {
   // Map zoom state
   const [zoomToLocation, setZoomToLocation] = useState<{ lat: number; lng: number; zoom: number } | null>(null)
   // Comparables mode
+  const [resetFiltersSignal, setResetFiltersSignal] = useState(0)
   const [subjectTractId, setSubjectTractId] = useState<string | null>(null)
   const [subjectTractLocation, setSubjectTractLocation] = useState<{ lat: number; lng: number } | null>(null)
   const [comparablesData, setComparablesData] = useState<any>(null)
@@ -267,13 +268,15 @@ export default function AccessPortalPage() {
   const [comparablesLoading, setComparablesLoading] = useState(false)
 
   const handleFindComparables = async (tractId: string, county: string, state: string) => {
-    // Show loading state, close panels, switch to map
+    // Show loading state, close panels, switch to map, clear filters
     setComparablesLoading(true)
     setMapListingId(null)
     setSelectedTract(null)
     setShowListPanel(false)
     setActiveTab('map')
     setSubjectTractId(tractId)
+    setActiveFilters({ stateFilter: '', countyFilters: [] })
+    setResetFiltersSignal(prev => prev + 1)
 
     try {
       // Fetch comparables from API
@@ -374,6 +377,7 @@ export default function AccessPortalPage() {
           zoomToLocation={zoomToLocation}
           subjectTractId={subjectTractId}
           subjectTractLocation={subjectTractLocation}
+          resetFiltersSignal={resetFiltersSignal}
         />
       </div>
 
