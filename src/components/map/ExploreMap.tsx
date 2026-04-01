@@ -294,6 +294,26 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
   const resetFilters = () => {
     setFilters(INITIAL_FILTERS)
+    filtersRef.current = INITIAL_FILTERS
+    // Clear cached data so it refetches without filters
+    loadedCellsRef.current = new Set()
+    tractMapRef.current = new Map()
+    setTracts([])
+    tractMarkersRef.current.forEach(m => m.remove())
+    tractMarkersRef.current = []
+    stateMarkersRef.current.forEach(m => m.remove())
+    stateMarkersRef.current = []
+    const map = mapRef.current
+    if (map) {
+      const bounds = map.getBounds()
+      loadTractsForBounds({
+        min_lat: bounds.getSouth(),
+        max_lat: bounds.getNorth(),
+        min_lng: bounds.getWest(),
+        max_lng: bounds.getEast(),
+      })
+    }
+    setFilterOpen(false)
   }
 
   const hasActiveFilters = filters.dateRange !== 'all' || filters.stateFilter !== '' ||
