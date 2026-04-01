@@ -325,7 +325,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         const data: MapTractsResponse = await response.json()
         if (data.tracts) {
           data.tracts.forEach(t => {
-            tractMapRef.current.set(t.id, t)
+            if (t.sale_status) tractMapRef.current.set(t.id, t)
           })
           setTracts(Array.from(tractMapRef.current.values()))
         }
