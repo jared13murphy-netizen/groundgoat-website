@@ -84,6 +84,7 @@ interface FilterState {
   dateRange: string
   stateFilter: string
   countyFilters: string[]
+  townshipFilter: string
   soilRatingMin: string
   soilRatingMax: string
   acreageMin: string
@@ -97,6 +98,7 @@ const INITIAL_FILTERS: FilterState = {
   dateRange: 'all',
   stateFilter: '',
   countyFilters: [],
+  townshipFilter: '',
   soilRatingMin: '',
   soilRatingMax: '',
   acreageMin: '',
@@ -123,6 +125,7 @@ function buildFilterParams(filters: FilterState) {
   if (filters.statuses?.length > 0) params.sale_status = filters.statuses.flatMap(s => s.split(',')).join(',')
   if (filters.stateFilter) params.state_abbr = filters.stateFilter
   if (filters.countyFilters?.length > 0) params.county_name = filters.countyFilters.join(',')
+  if (filters.townshipFilter) params.township = filters.townshipFilter
   if (filters.soilRatingMin) params.soil_rating_min = filters.soilRatingMin
   if (filters.soilRatingMax) params.soil_rating_max = filters.soilRatingMax
   if (filters.acreageMin) params.acreage_min = filters.acreageMin
@@ -376,6 +379,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   }
 
   const hasActiveFilters = filters.dateRange !== 'all' || filters.stateFilter !== '' ||
+    filters.townshipFilter !== '' ||
     filters.soilRatingMin !== '' || filters.soilRatingMax !== '' ||
     filters.acreageMin !== '' || filters.acreageMax !== '' ||
     filters.pctTillableMin !== '' || filters.pctTillableMax !== '' ||
@@ -1147,6 +1151,27 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                 </div>
               )
             })()}
+
+            {/* Township */}
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ color: '#CCCCCC', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>Township</div>
+              <input
+                type="text"
+                placeholder="e.g. Rockford, Bath"
+                value={filters.townshipFilter}
+                onChange={e => setFilters(f => ({ ...f, townshipFilter: e.target.value }))}
+                style={{
+                  width: '100%',
+                  padding: '8px 12px',
+                  borderRadius: 8,
+                  border: '1px solid rgba(255,255,255,0.15)',
+                  backgroundColor: 'rgba(255,255,255,0.05)',
+                  color: '#fff',
+                  fontSize: 13,
+                  outline: 'none',
+                }}
+              />
+            </div>
 
             {/* Range filters */}
             {[
