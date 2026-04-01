@@ -139,9 +139,10 @@ interface ExploreMapProps {
   portalMode?: boolean
   externalFilterOpen?: boolean
   onFilterOpenChange?: (open: boolean) => void
+  onViewListing?: (listingId: string) => void
 }
 
-export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange }: ExploreMapProps) {
+export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing }: ExploreMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const stateMarkersRef = useRef<maplibregl.Marker[]>([])
@@ -1157,13 +1158,26 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
             {/* View Listing */}
             {selectedSale.listingId && (
-              <a
-                href={`/listings/${selectedSale.listingId}`}
-                className="sale-modal-action-btn"
-                style={{ textDecoration: 'none', marginBottom: '8px' }}
-              >
-                View Listing →
-              </a>
+              portalMode && onViewListing ? (
+                <button
+                  className="sale-modal-action-btn"
+                  style={{ marginBottom: '8px' }}
+                  onClick={() => {
+                    onViewListing(selectedSale.listingId!)
+                    setSelectedSale(null)
+                  }}
+                >
+                  View Listing →
+                </button>
+              ) : (
+                <a
+                  href={`/listings/${selectedSale.listingId}`}
+                  className="sale-modal-action-btn"
+                  style={{ textDecoration: 'none', marginBottom: '8px' }}
+                >
+                  View Listing →
+                </a>
+              )
             )}
 
             {/* Add to Report */}

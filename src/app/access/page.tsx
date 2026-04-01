@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
-import { AnimatePresence } from 'framer-motion'
+import { AnimatePresence, motion } from 'framer-motion'
 import { Loader2, BarChart3 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { getDistanceToCounty } from '@/data/countyCoordinates'
@@ -11,6 +11,7 @@ import PortalNavBar from '@/components/portal/PortalNavBar'
 import PortalKPICards from '@/components/portal/PortalKPICards'
 import PortalListPanel from '@/components/portal/PortalListPanel'
 import PortalAnalyticsPanel from '@/components/portal/PortalAnalyticsPanel'
+import PortalListingDetail from '@/components/portal/PortalListingDetail'
 
 const ExploreMap = dynamic(() => import('@/components/map/ExploreMap'), { ssr: false })
 
@@ -70,6 +71,7 @@ export default function AccessPortalPage() {
   const [listingsLoading, setListingsLoading] = useState(false)
   const [analyticsData, setAnalyticsData] = useState<AnalyticsData | null>(null)
   const [analyticsLoading, setAnalyticsLoading] = useState(false)
+  const [mapListingId, setMapListingId] = useState<string | null>(null)
 
   // Auth check
   useEffect(() => {
@@ -163,8 +165,13 @@ export default function AccessPortalPage() {
     }
   }
 
+  const handleViewListingFromMap = (listingId: string) => {
+    setMapListingId(listingId)
+  }
+
   const handleTabChange = (tab: TabType) => {
     setActiveTab(tab)
+    setMapListingId(null) // Clear map listing detail when switching tabs
     if (tab === 'map') {
       setShowListPanel(false)
     } else {
@@ -206,6 +213,7 @@ export default function AccessPortalPage() {
           portalMode={true}
           externalFilterOpen={filterOpen}
           onFilterOpenChange={setFilterOpen}
+          onViewListing={handleViewListingFromMap}
         />
       </div>
 
@@ -262,6 +270,35 @@ export default function AccessPortalPage() {
             onClose={() => setShowAnalyticsPanel(false)}
             onDataLoad={handleAnalyticsDataLoad}
           />
+        )}
+      </AnimatePresence>
+
+      {/* Map Listing Detail Panel (from clicking "View Listing" on a map tract) */}
+      <AnimatePresence>
+        {mapListingId && !showListPanel && (
+          <motion.div
+            initial={{ x: -500 }}
+            animate={{ x: 0 }}
+            exit={{ x: -500 }}
+            transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+            className="fixed top-0 left-0 bottom-0 w-[480px] z-[400] bg-gg-gray-900/95 backdrop-blur-xl border-r border-white/10 shadow-2xl flex flex-col"
+          >
+            <div className="pt-20 px-5 pb-4 border-b border-white/5 flex items-center justify-between shrink-0">
+              <h2 className="text-lg font-semibold">Listing Detail</h2>
+              <button
+                onClick={() => setMapListingId(null)}
+                className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center hover:bg-white/10 transition"
+              >
+                <span className="text-gg-gray-400 text-sm">✕</span>
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-5 py-4">
+              <PortalListingDetail
+                listingId={mapListingId}
+                onBack={() => setMapListingId(null)}
+              />
+            </div>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>

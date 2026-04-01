@@ -57,7 +57,7 @@ export default function PortalNavBar({ activeTab, onTabChange, onFilterToggle, f
       {/* Logo + Tabs + Filter */}
       <div className="bg-black/50 backdrop-blur-xl rounded-2xl px-3 py-2 flex items-center gap-3 border border-white/10">
         <Link href="/access" className="shrink-0">
-          <Image src="/logo.png" alt="Ground Goat" width={40} height={40} className="rounded-lg" />
+          <Image src="/logo.png" alt="Ground Goat" width={52} height={52} className="rounded-lg" />
         </Link>
 
         <div className="h-6 w-px bg-white/10" />

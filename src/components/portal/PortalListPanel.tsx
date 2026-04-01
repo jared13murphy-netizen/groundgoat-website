@@ -1,9 +1,10 @@
 'use client'
 
+import { useState } from 'react'
 import { motion } from 'framer-motion'
-import Link from 'next/link'
 import Image from 'next/image'
 import { X, Calendar, Building2, DollarSign, Loader2, MapPin } from 'lucide-react'
+import PortalListingDetail from './PortalListingDetail'
 
 type TabType = 'auctions' | 'private_treaty' | 'results'
 
@@ -74,22 +75,25 @@ function formatPrice(price?: number): string {
   return '$' + Math.round(price).toLocaleString()
 }
 
-function ListingCard({ listing, activeTab }: { listing: Listing; activeTab: TabType }) {
+function ListingCard({ listing, activeTab, onClick }: { listing: Listing; activeTab: TabType; onClick: () => void }) {
   const hasCompany = !!(listing.company?.name || listing.company_name)
   const imgSrc = listing.primary_image_url || FALLBACK_IMAGE
 
-  const cardContent = (
-    <div className={`bg-white/[0.03] rounded-xl overflow-hidden border border-transparent transition ${
-      hasCompany ? 'hover:bg-white/[0.06] hover:border-gg-pink/20 cursor-pointer group' : 'opacity-80'
-    }`}>
+  return (
+    <div
+      onClick={hasCompany ? onClick : undefined}
+      className={`bg-white/[0.03] rounded-xl overflow-hidden border border-transparent transition ${
+        hasCompany ? 'hover:bg-white/[0.06] hover:border-gg-pink/20 cursor-pointer group' : 'opacity-80'
+      }`}
+    >
       {/* Image */}
-      <div className="relative h-32 w-full bg-gg-gray-800">
+      <div className="relative h-36 w-full bg-gg-gray-800">
         <Image
           src={imgSrc}
           alt={`${listing.county}, ${listing.state}`}
           fill
           className="object-cover"
-          sizes="400px"
+          sizes="500px"
         />
         {(activeTab === 'results' || listing.status === 'live') && (
           <span className={`absolute top-2 right-2 text-[10px] px-2 py-0.5 rounded-full font-medium uppercase ${
@@ -161,42 +165,53 @@ function ListingCard({ listing, activeTab }: { listing: Listing; activeTab: TabT
       </div>
     </div>
   )
-
-  if (hasCompany) {
-    return <Link href={`/listings/${listing.id}`}>{cardContent}</Link>
-  }
-
-  return cardContent
 }
 
 export default function PortalListPanel({ listings, loading, activeTab, onClose }: PortalListPanelProps) {
+  const [selectedListingId, setSelectedListingId] = useState<string | null>(null)
+
   return (
     <motion.div
-      initial={{ x: -420 }}
+      initial={{ x: -500 }}
       animate={{ x: 0 }}
-      exit={{ x: -420 }}
+      exit={{ x: -500 }}
       transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-      className="fixed top-0 left-0 bottom-0 w-[400px] z-[400] bg-gg-gray-900/95 backdrop-blur-xl border-r border-white/10 shadow-2xl flex flex-col"
+      className="fixed top-0 left-0 bottom-0 w-[480px] z-[400] bg-gg-gray-900/95 backdrop-blur-xl border-r border-white/10 shadow-2xl flex flex-col"
     >
       {/* Header */}
       <div className="pt-20 px-5 pb-4 border-b border-white/5 flex items-center justify-between shrink-0">
         <div>
-          <h2 className="text-lg font-semibold">{TAB_TITLES[activeTab]}</h2>
-          <p className="text-xs text-gg-gray-400 mt-0.5">
-            {loading ? 'Loading...' : `${listings.length} listing${listings.length !== 1 ? 's' : ''}`}
-          </p>
+          <h2 className="text-lg font-semibold">
+            {selectedListingId ? 'Listing Detail' : TAB_TITLES[activeTab]}
+          </h2>
+          {!selectedListingId && (
+            <p className="text-xs text-gg-gray-400 mt-0.5">
+              {loading ? 'Loading...' : `${listings.length} listing${listings.length !== 1 ? 's' : ''}`}
+            </p>
+          )}
         </div>
         <button
-          onClick={onClose}
+          onClick={() => {
+            if (selectedListingId) {
+              setSelectedListingId(null)
+            } else {
+              onClose()
+            }
+          }}
           className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center hover:bg-white/10 transition"
         >
           <X size={16} className="text-gg-gray-400" />
         </button>
       </div>
 
-      {/* Listing Cards */}
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
-        {loading ? (
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto px-5 py-4">
+        {selectedListingId ? (
+          <PortalListingDetail
+            listingId={selectedListingId}
+            onBack={() => setSelectedListingId(null)}
+          />
+        ) : loading ? (
           <div className="flex items-center justify-center h-40">
             <Loader2 className="animate-spin text-gg-pink" size={28} />
           </div>
@@ -205,9 +220,16 @@ export default function PortalListPanel({ listings, loading, activeTab, onClose 
             <p className="text-sm">No listings found</p>
           </div>
         ) : (
-          listings.map(listing => (
-            <ListingCard key={listing.id} listing={listing} activeTab={activeTab} />
-          ))
+          <div className="space-y-4">
+            {listings.map(listing => (
+              <ListingCard
+                key={listing.id}
+                listing={listing}
+                activeTab={activeTab}
+                onClick={() => setSelectedListingId(listing.id)}
+              />
+            ))}
+          </div>
         )}
       </div>
     </motion.div>
