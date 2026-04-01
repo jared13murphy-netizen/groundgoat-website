@@ -25,6 +25,7 @@ interface Listing {
   company?: { id: string; name: string }
   company_name?: string
   tract_count?: number
+  tracts?: { id: string; tillable_acres?: number; soil_rating?: number; csr2?: number; total_acres?: number }[]
 }
 
 interface PortalListPanelProps {
@@ -77,6 +78,31 @@ function formatPrice(price?: number): string {
   return '$' + Math.round(price).toLocaleString()
 }
 
+const STATE_SOIL_LABELS: Record<string, string> = {
+  IL: 'PI', IA: 'CSR2', IN: 'WAPI', MO: 'NCCPI', MN: 'CPI',
+  NE: 'NCCPI', SD: 'PI', ND: 'PI', KS: 'NCCPI', OH: 'NCCPI',
+  MI: 'NCCPI', WI: 'PI', KY: 'NCCPI', TN: 'NCCPI', WV: 'NCCPI', VA: 'NCCPI',
+}
+
+function getSoilLabel(state?: string): string {
+  if (state) return STATE_SOIL_LABELS[state.toUpperCase()] || 'Soil'
+  return 'Soil'
+}
+
+function getListingTillableAcres(listing: Listing): number | null {
+  if (!listing.tracts?.length) return null
+  const total = listing.tracts.reduce((sum, t) => sum + (t.tillable_acres || 0), 0)
+  return total > 0 ? total : null
+}
+
+function getListingSoilRating(listing: Listing): number | null {
+  if (!listing.tracts?.length) return null
+  const withRating = listing.tracts.filter(t => t.soil_rating || t.csr2)
+  if (withRating.length === 0) return null
+  const avg = withRating.reduce((sum, t) => sum + (Number(t.soil_rating) || Number(t.csr2) || 0), 0) / withRating.length
+  return Math.round(avg * 10) / 10
+}
+
 function ListingCard({ listing, activeTab, onClick }: { listing: Listing; activeTab: TabType; onClick: () => void }) {
   const hasCompany = !!(listing.company?.name || listing.company_name)
   const imgSrc = listing.primary_image_url || FALLBACK_IMAGE
@@ -124,8 +150,17 @@ function ListingCard({ listing, activeTab, onClick }: { listing: Listing; active
           </div>
         )}
 
+        {/* Auction date/time - prominent for auctions */}
+        {activeTab === 'auctions' && (
+          <div className="flex items-center gap-2 mt-3 pt-3 border-t border-white/5 bg-gg-pink/5 rounded-lg px-3 py-2 -mx-1">
+            <Calendar size={14} className="text-gg-pink shrink-0" />
+            <span className="text-sm font-bold text-white">{formatDate(listing)}</span>
+            {formatTime(listing) && <span className="text-sm font-semibold text-gg-pink">· {formatTime(listing)}</span>}
+          </div>
+        )}
+
         {/* Stats row */}
-        <div className="grid grid-cols-3 gap-2 pt-3 mt-3 border-t border-white/5">
+        <div className={`grid ${activeTab === 'auctions' ? 'grid-cols-4' : 'grid-cols-3'} gap-2 pt-3 mt-3 border-t border-white/5`}>
           <div>
             <div className="text-[10px] text-gg-gray-500">Acres</div>
             <div className="text-sm font-medium">{listing.total_acres ? Math.round(listing.total_acres).toLocaleString() : '—'}</div>
@@ -134,29 +169,33 @@ function ListingCard({ listing, activeTab, onClick }: { listing: Listing; active
             <div className="text-[10px] text-gg-gray-500">Tracts</div>
             <div className="text-sm font-medium">{listing.tract_count || '—'}</div>
           </div>
-          <div>
-            <div className="text-[10px] text-gg-gray-500">
-              {activeTab === 'private_treaty' ? 'Asking' : activeTab === 'results' ? 'Sold' : '$/Acre'}
+          {activeTab === 'auctions' ? (
+            <>
+              <div>
+                <div className="text-[10px] text-gg-gray-500">Tillable</div>
+                <div className="text-sm font-medium">{getListingTillableAcres(listing) ? Math.round(getListingTillableAcres(listing)!) + ' ac' : '—'}</div>
+              </div>
+              <div>
+                <div className="text-[10px] text-gg-gray-500">{getSoilLabel(listing.state)}</div>
+                <div className="text-sm font-medium">{getListingSoilRating(listing) ?? '—'}</div>
+              </div>
+            </>
+          ) : (
+            <div>
+              <div className="text-[10px] text-gg-gray-500">
+                {activeTab === 'private_treaty' ? 'Asking' : 'Sold'}
+              </div>
+              <div className="text-sm font-medium">
+                {activeTab === 'private_treaty'
+                  ? formatPrice(listing.asking_price)
+                  : formatPrice(listing.sale_price)
+                }
+              </div>
             </div>
-            <div className="text-sm font-medium">
-              {activeTab === 'private_treaty'
-                ? formatPrice(listing.asking_price)
-                : activeTab === 'results'
-                  ? formatPrice(listing.sale_price)
-                  : formatPrice(listing.price_per_acre)
-              }
-            </div>
-          </div>
+          )}
         </div>
 
-        {/* Date info */}
-        {activeTab === 'auctions' && (
-          <div className="flex items-center gap-1.5 text-xs text-gg-gray-400 mt-3 pt-2 border-t border-white/5">
-            <Calendar size={12} />
-            <span>{formatDate(listing)}</span>
-            {formatTime(listing) && <span className="text-gg-gray-500">· {formatTime(listing)}</span>}
-          </div>
-        )}
+        {/* Results: price per acre + date */}
         {activeTab === 'results' && listing.price_per_acre && (
           <div className="flex items-center gap-1.5 text-xs mt-3 pt-2 border-t border-white/5">
             <DollarSign size={12} className="text-gg-gray-400" />
