@@ -102,7 +102,8 @@ function SignInContent() {
       }
       
     } catch (err: any) {
-      setError(err.message || 'Something went wrong')
+      // Never show technical errors to users — always show a friendly login error
+      setError('Incorrect email or password')
     } finally {
       setLoading(false)
     }
