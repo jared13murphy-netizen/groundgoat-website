@@ -211,8 +211,10 @@ export default function PortalAnalyticsPanel({ county, state, onClose, onDataLoa
                           color: '#fff',
                           fontSize: '12px',
                         }}
+                        itemStyle={{ color: '#fff' }}
                         formatter={(value) => ['$' + Number(value).toLocaleString(), 'Avg $/Acre']}
                         labelStyle={{ color: '#d1d5db', fontWeight: 600 }}
+                        cursor={{ fill: 'rgba(255,255,255,0.05)' }}
                       />
                       <Bar dataKey="avgPricePerAcre" radius={[0, 4, 4, 0]}>
                         {townshipChartData.map((_, i) => (
