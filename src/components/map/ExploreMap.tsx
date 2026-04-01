@@ -144,13 +144,15 @@ interface ExploreMapProps {
   onToggleReport?: (tract: SaleDetail) => void
   onView3DTerrain?: (tractId: string, tractName: string) => void
   isInReport?: (tractId: string) => boolean
+  reportIds?: Set<string>
 }
 
-export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onToggleReport, onView3DTerrain, isInReport }: ExploreMapProps) {
+export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onToggleReport, onView3DTerrain, isInReport, reportIds }: ExploreMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const stateMarkersRef = useRef<maplibregl.Marker[]>([])
   const tractMarkersRef = useRef<maplibregl.Marker[]>([])
+  const tractMarkerElementsRef = useRef<Map<string, HTMLDivElement>>(new Map())
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const loadedCellsRef = useRef<Set<string>>(new Set())
   const tractMapRef = useRef<Map<string, ApiMapTract>>(new Map())
@@ -524,6 +526,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // Remove old tract markers
     tractMarkersRef.current.forEach(m => m.remove())
     tractMarkersRef.current = []
+    tractMarkerElementsRef.current.clear()
 
     // Helper: polygon centroid
     const getPolygonCentroid = (coords: [number, number][]): [number, number] | null => {
@@ -599,6 +602,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         }
       })
 
+      // Store element ref for highlight updates
+      el.dataset.tractId = tract.id
+      tractMarkerElementsRef.current.set(tract.id, el)
+
       const marker = new maplibregl.Marker({ element: el })
         .setLngLat([markerLng, markerLat])
         .addTo(map)
@@ -606,6 +613,24 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       tractMarkersRef.current.push(marker)
     }
   }, [mapLoaded, tracts])
+
+  // Highlight report-selected markers in portal mode
+  useEffect(() => {
+    if (!portalMode || !reportIds) return
+    tractMarkerElementsRef.current.forEach((el, tractId) => {
+      const pin = el.querySelector('.comp-marker-pin') as HTMLDivElement | null
+      if (!pin) return
+      if (reportIds.has(tractId)) {
+        el.style.zIndex = '10'
+        pin.style.boxShadow = '0 0 0 3px #E91E8C, 0 0 12px 2px rgba(233,30,140,0.6)'
+        pin.style.border = '2px solid #E91E8C'
+      } else {
+        el.style.zIndex = ''
+        pin.style.boxShadow = ''
+        pin.style.border = ''
+      }
+    })
+  }, [portalMode, reportIds])
 
   // Manage state card markers
   useEffect(() => {
