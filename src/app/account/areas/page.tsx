@@ -14,6 +14,7 @@ interface SubscribedArea {
   county: string | null
   subscription_type: string
   status: string
+  billing_cycle: string
 }
 
 interface AreasResponse {
@@ -143,10 +144,9 @@ export default function MyAreasPage() {
     setAddingArea(true)
     setError('')
     try {
-      const subscriptionType = selectedCounty ? 'county' : 'state'
-      // Check if this is an upgrade from county to state (county subscriber adding state)
-      const hasCountySubscription = areasData?.areas?.some(a => a.subscription_type === 'county' && (a.status === 'active' || a.status === 'trialing'))
-      const isUpgrade = subscriptionType === 'state' && hasCountySubscription
+      // Determine subscription type from existing subscriptions
+      const existingSub = areasData?.areas?.find(a => a.status === 'active' || a.status === 'trialing')
+      const subscriptionType = existingSub?.subscription_type || 'basic_state'
 
       const response = await fetch(`${API_URL}/api/subscriptions/checkout`, {
         method: 'POST',
@@ -157,9 +157,8 @@ export default function MyAreasPage() {
         body: JSON.stringify({
           subscription_type: subscriptionType,
           state: selectedState,
-          county: selectedCounty || null,
-          billing_cycle: 'monthly',
-          is_upgrade: isUpgrade
+          county: null,
+          billing_cycle: existingSub?.billing_cycle || 'monthly',
         })
       })
       if (!response.ok) {
@@ -212,7 +211,7 @@ export default function MyAreasPage() {
           </Link>
           <div className="flex-1">
             <h1 className="font-display text-3xl font-bold text-white">My Areas</h1>
-            <p className="text-gg-gray-400">Manage your subscribed counties and states</p>
+            <p className="text-gg-gray-400">Manage your subscribed states</p>
           </div>
           {!areasData?.unlimited && (
             <button onClick={handleOpenAddModal} className="btn-primary flex items-center gap-2">
@@ -255,7 +254,7 @@ export default function MyAreasPage() {
                       {area.county ? `${area.county}, ${area.state}` : area.state}
                     </h3>
                     <p className="text-sm text-gg-gray-400">
-                      {area.subscription_type === 'county' ? 'County' : 'State'} subscription
+                      {area.subscription_type === 'county' ? 'County' : area.subscription_type === 'premium_state' ? 'Premium State' : area.subscription_type === 'basic_state' ? 'Basic State' : 'State'} subscription
                     </p>
                   </div>
                 </div>
@@ -325,109 +324,16 @@ export default function MyAreasPage() {
                 </div>
               </div>
 
-              {selectedState && (() => {
-                const hasStateSubscription = areasData?.areas?.some(a => a.subscription_type === 'state' && (a.status === 'active' || a.status === 'trialing'))
-                const hasCountySubscription = areasData?.areas?.some(a => a.subscription_type === 'county' && (a.status === 'active' || a.status === 'trialing'))
-
-                // If user already has a state subscription, they can only add more states
-                if (hasStateSubscription) {
-                  return (
-                    <div className="mb-6">
-                      <div className="bg-gg-gray-800 rounded-lg p-4 border border-gg-gray-700">
-                        <p className="text-white font-medium">Add {selectedState} state subscription</p>
-                        <p className="text-gg-pink text-lg font-semibold mt-1">$12.99/mo</p>
-                        <p className="text-xs text-gg-gray-400 mt-2">
-                          Access to all counties in {selectedState}
-                        </p>
-                      </div>
-                    </div>
-                  )
-                }
-
-                // If user has county subscription(s), show both options
-                return (
-                  <div className="mb-6">
-                    <label className="block text-sm font-medium text-gg-gray-300 mb-2">Subscription Type</label>
-                    <div className="space-y-3">
-                      {/* County option */}
-                      <button
-                        onClick={() => setShowCountyDropdown(!showCountyDropdown)}
-                        className={`w-full bg-gg-gray-800 border rounded-lg px-4 py-3 text-left transition-colors ${
-                          selectedCounty ? 'border-gg-pink' : 'border-gg-gray-700 hover:border-gg-gray-600'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="text-white font-medium">
-                              {selectedCounty ? `${selectedCounty} County` : 'Select a county'}
-                            </p>
-                            <p className="text-gg-pink text-sm">$3.99/mo per county</p>
-                          </div>
-                          <ChevronDown size={20} className="text-gg-gray-500" />
-                        </div>
-                      </button>
-                      {showCountyDropdown && (
-                        <div className="bg-gg-gray-800 border border-gg-gray-700 rounded-lg shadow-xl max-h-48 overflow-y-auto">
-                          {loadingCounties ? (
-                            <div className="px-4 py-3 text-gg-gray-400 flex items-center gap-2">
-                              <Loader2 size={16} className="animate-spin" />
-                              Loading counties...
-                            </div>
-                          ) : availableCounties.map(county => (
-                            <button
-                              key={county}
-                              onClick={() => {
-                                setSelectedCounty(county)
-                                setShowCountyDropdown(false)
-                              }}
-                              className="w-full px-4 py-3 text-left text-gg-gray-300 hover:bg-gg-gray-700 hover:text-white"
-                            >
-                              {county}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-
-                      {/* Divider */}
-                      <div className="flex items-center gap-3 py-2">
-                        <div className="flex-1 border-t border-gg-gray-700"></div>
-                        <span className="text-xs text-gg-gray-500 uppercase">or</span>
-                        <div className="flex-1 border-t border-gg-gray-700"></div>
-                      </div>
-
-                      {/* State option */}
-                      <button
-                        onClick={() => {
-                          setSelectedCounty('')
-                          setShowCountyDropdown(false)
-                        }}
-                        className={`w-full bg-gg-gray-800 border rounded-lg px-4 py-3 text-left transition-colors ${
-                          !selectedCounty && selectedState ? 'border-gg-pink' : 'border-gg-gray-700 hover:border-gg-gray-600'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="text-white font-medium">Entire {selectedState} state</p>
-                            <p className="text-gg-pink text-sm">$19.99/mo (all counties included)</p>
-                          </div>
-                          {!selectedCounty && selectedState && (
-                            <div className="w-5 h-5 bg-gg-pink rounded-full flex items-center justify-center">
-                              <svg className="w-3 h-3 text-black" fill="currentColor" viewBox="0 0 20 20">
-                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                              </svg>
-                            </div>
-                          )}
-                        </div>
-                        {hasCountySubscription && !selectedCounty && (
-                          <p className="text-xs text-yellow-400 mt-2">
-                            Note: This will replace your existing county subscription(s)
-                          </p>
-                        )}
-                      </button>
-                    </div>
+              {selectedState && (
+                <div className="mb-6">
+                  <div className="bg-gg-gray-800 rounded-lg p-4 border border-gg-gray-700">
+                    <p className="text-white font-medium">Add {selectedState}</p>
+                    <p className="text-gg-gray-400 text-sm mt-1">
+                      Full state coverage — all counties included
+                    </p>
                   </div>
-                )
-              })()}
+                </div>
+              )}
 
               {error && showAddModal && (
                 <p className="text-red-400 text-sm mb-4">{error}</p>

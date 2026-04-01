@@ -13,6 +13,7 @@ interface SubscribedArea {
   county: string | null
   subscription_type: string
   status: string
+  billing_cycle: string
 }
 
 interface AreasResponse {
@@ -175,9 +176,9 @@ function UpgradePageContent() {
     setAddingArea(true)
     setError('')
     try {
-      const subscriptionType = selectedCounty ? 'county' : 'state'
-      const hasCountySubscription = areasData?.areas?.some(a => a.subscription_type === 'county' && (a.status === 'active' || a.status === 'trialing'))
-      const isUpgrade = subscriptionType === 'state' && hasCountySubscription
+      // Determine subscription type from existing subscriptions or default to basic_state
+      const existingSub = areasData?.areas?.find(a => a.status === 'active' || a.status === 'trialing')
+      const subscriptionType = existingSub?.subscription_type || 'basic_state'
 
       const response = await fetch(`${API_URL}/api/subscriptions/checkout`, {
         method: 'POST',
@@ -188,9 +189,8 @@ function UpgradePageContent() {
         body: JSON.stringify({
           subscription_type: subscriptionType,
           state: selectedState,
-          county: selectedCounty || null,
-          billing_cycle: 'monthly',
-          is_upgrade: isUpgrade
+          county: null,
+          billing_cycle: existingSub?.billing_cycle || 'monthly',
         })
       })
       if (!response.ok) {
