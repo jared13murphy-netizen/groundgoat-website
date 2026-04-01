@@ -454,7 +454,7 @@ export default function PortalComparablesPanel({ data, loading, onClose, onSelec
                         className={`w-full py-2.5 text-xs font-bold border-t transition ${
                           inReport
                             ? 'bg-white/10 text-gg-pink border-gg-pink/30'
-                            : 'bg-gg-pink text-black border-gg-pink hover:bg-gg-pink/80'
+                            : 'bg-gg-pink text-white border-gg-pink hover:bg-gg-pink/80'
                         }`}
                       >
                         {inReport ? '✓ In Report' : '+ Add to Report'}
