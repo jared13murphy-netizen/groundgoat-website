@@ -126,7 +126,13 @@ function ListingCard({ listing, activeTab, onClick }: { listing: Listing; active
           sizes="500px"
           onError={handleImgError}
         />
-        {(activeTab === 'results' || listing.status === 'live') && (
+        {listing.status === 'live' && (
+          <span className="absolute top-2 right-2 text-[10px] px-2 py-1 rounded-full font-bold uppercase bg-red-500 text-white flex items-center gap-1.5 animate-pulse shadow-lg shadow-red-500/40">
+            <span className="w-2 h-2 rounded-full bg-white animate-ping" />
+            Live Now
+          </span>
+        )}
+        {activeTab === 'results' && listing.status !== 'live' && (
           <span className={`absolute top-2 right-2 text-[10px] px-2 py-0.5 rounded-full font-medium uppercase ${
             STATUS_COLORS[listing.status] || 'bg-gray-500/20 text-gray-400'
           }`}>

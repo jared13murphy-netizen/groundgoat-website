@@ -20,6 +20,7 @@ export interface ApiMapTract {
   state: string
   auction_date: string | null
   company_name: string | null
+  listing_status: string | null
 }
 
 export interface MapTractsResponse {

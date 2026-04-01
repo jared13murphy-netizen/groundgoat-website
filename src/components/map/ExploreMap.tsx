@@ -643,7 +643,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       const el = createMarkerElement(
         tract.price_per_acre,
         tract.total_acres,
-        tract.sale_status
+        tract.sale_status,
+        tract.listing_status
       )
 
       // Click to open modal or slide-out (portal mode)
@@ -1477,9 +1478,11 @@ function createMarkerElement(
   pricePerAcre: number | null,
   acres: number | null,
   status: string | null,
+  listingStatus?: string | null,
 ): HTMLDivElement {
   const container = document.createElement('div')
   container.className = 'comp-marker'
+  const isLive = listingStatus === 'live'
 
   const label = document.createElement('div')
   label.className = 'comp-marker-label'
@@ -1499,9 +1502,40 @@ function createMarkerElement(
 
   container.appendChild(label)
 
+  // Pulsing ring for live auctions
+  if (isLive) {
+    const pulseRing = document.createElement('div')
+    pulseRing.style.cssText = `
+      position: absolute;
+      bottom: -6px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      border: 2px solid #EF4444;
+      animation: livePulse 1.5s ease-out infinite;
+    `
+    container.appendChild(pulseRing)
+    container.style.position = 'relative'
+
+    // Add CSS animation if not already present
+    if (!document.getElementById('live-pulse-style')) {
+      const style = document.createElement('style')
+      style.id = 'live-pulse-style'
+      style.textContent = `
+        @keyframes livePulse {
+          0% { transform: translateX(-50%) scale(1); opacity: 0.8; }
+          100% { transform: translateX(-50%) scale(2.5); opacity: 0; }
+        }
+      `
+      document.head.appendChild(style)
+    }
+  }
+
   const pin = document.createElement('div')
   pin.className = 'comp-marker-pin comparable'
-  pin.style.backgroundColor = getStatusPinColor(status)
+  pin.style.backgroundColor = isLive ? '#EF4444' : getStatusPinColor(status)
   container.appendChild(pin)
 
   return container
