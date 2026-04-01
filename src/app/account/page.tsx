@@ -236,13 +236,13 @@ const handleResendVerification = async () => {
         {/* Download App CTA */}
         <div className="mb-6 bg-gradient-to-r from-gg-pink/10 to-gg-pink-dark/10 border-2 border-gg-pink/40 rounded-xl p-6">
           <div className="flex flex-col sm:flex-row items-center gap-5">
-            <div className="w-16 h-16 bg-gradient-to-br from-gg-pink to-gg-pink-dark rounded-2xl flex items-center justify-center flex-shrink-0">
+            <div className="w-16 h-16 rounded-2xl flex-shrink-0 overflow-hidden">
               <Image
-                src="/logo.png"
-                alt="Ground Goat"
-                width={48}
-                height={48}
-                className="h-10 w-auto"
+                src="/apple-touch-icon.png"
+                alt="Ground Goat App"
+                width={64}
+                height={64}
+                className="w-full h-full object-cover"
               />
             </div>
             <div className="flex-1 text-center sm:text-left">
