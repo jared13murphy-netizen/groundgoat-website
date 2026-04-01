@@ -54,7 +54,7 @@ export default function PortalNavBar({ activeTab, onTabChange, onFilterToggle, f
   return (
     <div className="fixed top-4 left-4 right-4 z-[500] flex items-center justify-between gap-3">
       {/* Logo + Tabs + Filter */}
-      <div className="bg-black/50 backdrop-blur-xl rounded-2xl px-3 py-2 flex items-center gap-3 border border-white/10 ml-[88px]">
+      <div className="bg-black/50 backdrop-blur-xl rounded-2xl px-3 py-2 flex items-center gap-3 border border-white/10 ml-[116px]">
         <nav className="flex items-center gap-1">
           {tabs.map(tab => (
             <button
