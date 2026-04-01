@@ -145,9 +145,10 @@ interface ExploreMapProps {
   onView3DTerrain?: (tractId: string, tractName: string) => void
   isInReport?: (tractId: string) => boolean
   reportIds?: Set<string>
+  onFiltersApplied?: (filters: { stateFilter: string; countyFilters: string[] }) => void
 }
 
-export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onToggleReport, onView3DTerrain, isInReport, reportIds }: ExploreMapProps) {
+export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied }: ExploreMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const stateMarkersRef = useRef<maplibregl.Marker[]>([])
@@ -290,6 +291,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       })
     }
     setFilterOpen(false)
+    onFiltersApplied?.({ stateFilter: filters.stateFilter, countyFilters: filters.countyFilters })
   }
 
   const resetFilters = () => {
@@ -314,6 +316,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       })
     }
     setFilterOpen(false)
+    onFiltersApplied?.({ stateFilter: '', countyFilters: [] })
   }
 
   const hasActiveFilters = filters.dateRange !== 'all' || filters.stateFilter !== '' ||

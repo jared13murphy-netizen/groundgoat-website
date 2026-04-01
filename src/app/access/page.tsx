@@ -72,6 +72,7 @@ export default function AccessPortalPage() {
   const [showListPanel, setShowListPanel] = useState(false)
   const [showAnalyticsPanel, setShowAnalyticsPanel] = useState(false)
   const [filterOpen, setFilterOpen] = useState(false)
+  const [activeFilters, setActiveFilters] = useState<{ stateFilter: string; countyFilters: string[] }>({ stateFilter: '', countyFilters: [] })
   const [listings, setListings] = useState<Listing[]>([])
   const [listingsLoading, setListingsLoading] = useState(false)
   const [analyticsData, setAnalyticsData] = useState<AnalyticsData | null>(null)
@@ -152,6 +153,16 @@ export default function AccessPortalPage() {
             })).sort((a, b) => (a._distance ?? 999999) - (b._distance ?? 999999))
           }
         }
+      }
+
+      // Apply active filters (state/county) client-side
+      if (activeFilters.stateFilter) {
+        const states = activeFilters.stateFilter.split(',').map(s => s.trim().toUpperCase())
+        data = data.filter(l => states.includes(l.state?.toUpperCase()))
+      }
+      if (activeFilters.countyFilters.length > 0) {
+        const counties = activeFilters.countyFilters.map(c => c.toLowerCase())
+        data = data.filter(l => counties.includes(l.county?.toLowerCase()))
       }
 
       setListings(data)
@@ -244,6 +255,14 @@ export default function AccessPortalPage() {
     setFilterOpen(!filterOpen)
   }
 
+  const handleFiltersApplied = (filters: { stateFilter: string; countyFilters: string[] }) => {
+    setActiveFilters(filters)
+    // Re-fetch listings if list panel is open
+    if (showListPanel && activeTab !== 'map') {
+      fetchListings(activeTab)
+    }
+  }
+
   const handleAnalyticsDataLoad = (data: AnalyticsData | null) => {
     if (data) setAnalyticsData(data)
   }
@@ -282,6 +301,7 @@ export default function AccessPortalPage() {
           onView3DTerrain={handleView3DTerrain}
           isInReport={(id) => reportIds.has(id)}
           reportIds={reportIds}
+          onFiltersApplied={handleFiltersApplied}
         />
       </div>
 
