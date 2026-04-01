@@ -107,7 +107,7 @@ export default function PortalNavBar({ activeTab, onTabChange, onFilterToggle, f
       </div>
 
       {/* User Menu — absolute right */}
-      <div className="absolute right-4" ref={menuRef}>
+      <div className="absolute right-14" ref={menuRef}>
         <button
           onClick={() => setShowUserMenu(!showUserMenu)}
           className="flex items-center gap-2 bg-black/50 backdrop-blur-xl rounded-full pl-1.5 pr-3 py-1.5 border border-white/10 hover:border-gg-pink/30 transition"

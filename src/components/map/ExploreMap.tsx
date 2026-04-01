@@ -1172,20 +1172,22 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       )}
 
       {/* Tract count */}
-      <div style={{
-        position: 'absolute',
-        bottom: 16,
-        right: 16,
-        zIndex: 10,
-        background: 'rgba(0,0,0,0.8)',
-        backdropFilter: 'blur(4px)',
-        color: 'rgba(255,255,255,0.7)',
-        fontSize: 12,
-        padding: '6px 12px',
-        borderRadius: 9999,
-      }}>
-        {tracts.length.toLocaleString()} tracts
-      </div>
+      {!portalMode && (
+        <div style={{
+          position: 'absolute',
+          bottom: 16,
+          right: 16,
+          zIndex: 10,
+          background: 'rgba(0,0,0,0.8)',
+          backdropFilter: 'blur(4px)',
+          color: 'rgba(255,255,255,0.7)',
+          fontSize: 12,
+          padding: '6px 12px',
+          borderRadius: 9999,
+        }}>
+          {tracts.length.toLocaleString()} tracts
+        </div>
+      )}
 
       {/* Legend */}
       <div style={{
