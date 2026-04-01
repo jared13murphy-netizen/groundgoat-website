@@ -76,16 +76,16 @@ export default function PortalNavBar({ activeTab, onTabChange, onFilterToggle, f
 
           <div className="h-5 w-px bg-white/10 mx-1" />
 
-          {/* Filter button — stands out */}
+          {/* Filter button — subtle glow, bright white */}
           <button
             onClick={onFilterToggle}
             className={`px-3 py-1.5 text-xs font-semibold rounded-lg border transition-all flex items-center gap-1.5 ${
               filterOpen
-                ? 'bg-gg-pink text-white border-gg-pink'
-                : 'bg-gg-pink/10 text-gg-pink border-gg-pink/30 hover:bg-gg-pink/20'
+                ? 'bg-gg-pink/15 text-gg-pink border-gg-pink/30 shadow-[0_0_12px_rgba(233,30,140,0.4)]'
+                : 'border-transparent text-white font-bold hover:bg-white/5 shadow-[0_0_8px_rgba(233,30,140,0.25)]'
             }`}
           >
-            <Filter size={14} />
+            <Filter size={14} className="text-gg-pink" />
             <span className="hidden md:inline">Filters</span>
           </button>
 
