@@ -12,6 +12,8 @@ interface PortalNavBarProps {
   onTabChange: (tab: TabType) => void
   onFilterToggle: () => void
   filterOpen: boolean
+  onAnalyticsToggle?: () => void
+  analyticsOpen?: boolean
   user: {
     first_name: string
     last_name: string
@@ -19,7 +21,7 @@ interface PortalNavBarProps {
   }
 }
 
-export default function PortalNavBar({ activeTab, onTabChange, onFilterToggle, filterOpen, user }: PortalNavBarProps) {
+export default function PortalNavBar({ activeTab, onTabChange, onFilterToggle, filterOpen, onAnalyticsToggle, analyticsOpen, user }: PortalNavBarProps) {
   const router = useRouter()
   const [showUserMenu, setShowUserMenu] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -52,9 +54,9 @@ export default function PortalNavBar({ activeTab, onTabChange, onFilterToggle, f
   ]
 
   return (
-    <div className="fixed top-4 left-4 right-4 z-[500] flex items-center justify-between gap-3">
-      {/* Logo + Tabs + Filter */}
-      <div className="bg-black/50 backdrop-blur-xl rounded-2xl px-3 py-2 flex items-center gap-3 border border-white/10 ml-[156px]">
+    <div className="fixed top-4 left-0 right-0 z-[500] flex items-center justify-center">
+      {/* Centered Nav Bar */}
+      <div className="bg-black/50 backdrop-blur-xl rounded-2xl px-3 py-2 flex items-center gap-1 border border-white/10">
         <nav className="flex items-center gap-1">
           {tabs.map(tab => (
             <button
@@ -71,31 +73,48 @@ export default function PortalNavBar({ activeTab, onTabChange, onFilterToggle, f
             </button>
           ))}
 
-          {/* Filter button */}
           <div className="h-5 w-px bg-white/10 mx-1" />
+
+          {/* Filter button — stands out */}
           <button
             onClick={onFilterToggle}
-            className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-all flex items-center gap-1.5 ${
+            className={`px-3 py-1.5 text-xs font-semibold rounded-lg border transition-all flex items-center gap-1.5 ${
               filterOpen
-                ? 'bg-gg-pink/15 text-gg-pink border-gg-pink/30'
-                : 'border-transparent text-white/60 hover:text-white hover:bg-white/5'
+                ? 'bg-gg-pink text-white border-gg-pink'
+                : 'bg-gg-pink/10 text-gg-pink border-gg-pink/30 hover:bg-gg-pink/20'
             }`}
           >
-            <Filter size={15} />
+            <Filter size={14} />
             <span className="hidden md:inline">Filters</span>
           </button>
+
+          {/* Analytics button */}
+          {onAnalyticsToggle && (
+            <button
+              onClick={onAnalyticsToggle}
+              className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-all flex items-center gap-1.5 ${
+                analyticsOpen
+                  ? 'bg-gg-pink/15 text-gg-pink border-gg-pink/30'
+                  : 'border-transparent text-white/60 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <BarChart3 size={14} />
+              <span className="hidden md:inline">Analytics</span>
+            </button>
+          )}
         </nav>
       </div>
 
-      {/* User Menu */}
-      <div className="relative" ref={menuRef}>
+      {/* User Menu — absolute right */}
+      <div className="absolute right-4" ref={menuRef}>
         <button
           onClick={() => setShowUserMenu(!showUserMenu)}
-          className="bg-black/50 backdrop-blur-xl rounded-2xl p-1.5 border border-white/10 hover:border-gg-pink/30 transition"
+          className="flex items-center gap-2 bg-black/50 backdrop-blur-xl rounded-full pl-1.5 pr-3 py-1.5 border border-white/10 hover:border-gg-pink/30 transition"
         >
-          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-gg-pink to-gg-pink-dark flex items-center justify-center text-xs font-bold text-black">
+          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-gg-pink to-gg-pink-dark flex items-center justify-center text-xs font-bold text-black">
             {initials}
           </div>
+          <span className="text-xs text-white/70">Hi, {user.first_name}</span>
         </button>
 
         {showUserMenu && (

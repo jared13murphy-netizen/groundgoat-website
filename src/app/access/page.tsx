@@ -279,20 +279,44 @@ export default function AccessPortalPage() {
     setResetFiltersSignal(prev => prev + 1)
 
     try {
-      // Fetch comparables from API
-      const response = await fetchWithAuth(`${API_URL}/api/comparables/tract/${tractId}?months_back=24&include_neighboring=true&limit=50`)
-      if (!response.ok) {
-        console.error('Comparables API error:', response.status, await response.text().catch(() => ''))
-      }
-      const data = response.ok ? await response.json() : { comparables: [], summary: { count: 0, avg_price_per_acre: 0, median_price_per_acre: 0, min_price_per_acre: 0, max_price_per_acre: 0, avg_acres: 0 }, search_criteria: { county, state } }
-      setComparablesData(data)
-      setShowComparablesPanel(true)
-      if (response.ok) {
+      // Fetch scored comparables AND all state sales in parallel
+      const [compResponse, salesResponse] = await Promise.all([
+        fetchWithAuth(`${API_URL}/api/comparables/tract/${tractId}?months_back=24&include_neighboring=true&limit=50`),
+        fetchWithAuth(`${API_URL}/api/comparables/state-sales/${state}?county=${encodeURIComponent(county)}&months_back=24&neighbor_depth=2&limit=2000`),
+      ])
 
-        // Zoom to subject tract location — use a small delay so the map has settled
-        const subjectLat = data.search_criteria?.subject_latitude
-        const subjectLng = data.search_criteria?.subject_longitude
-        // Store subject location for the marker
+      if (!compResponse.ok) {
+        console.error('Comparables API error:', compResponse.status, await compResponse.text().catch(() => ''))
+      }
+
+      const compData = compResponse.ok ? await compResponse.json() : { comparables: [], summary: { count: 0, avg_price_per_acre: 0, median_price_per_acre: 0, min_price_per_acre: 0, max_price_per_acre: 0, avg_acres: 0 }, search_criteria: { county, state } }
+      const salesData = salesResponse.ok ? await salesResponse.json() : { tracts: [] }
+
+      // Merge: attach similarity scores from scored comps to the full sales dataset
+      const scoreMap = new Map<string, number>()
+      for (const c of compData.comparables) {
+        scoreMap.set(String(c.id), c.similarity_score ?? 0)
+      }
+
+      // Build all_tracts from state-sales, enriched with similarity scores
+      const allTracts = (salesData.tracts || []).map((t: any) => ({
+        ...t,
+        similarity_score: scoreMap.get(String(t.id)) ?? null,
+      }))
+
+      // Store both datasets — panel will use allTracts for sorting/filtering
+      const mergedData = {
+        ...compData,
+        all_tracts: allTracts,
+      }
+
+      setComparablesData(mergedData)
+      setShowComparablesPanel(true)
+
+      if (compResponse.ok) {
+        // Zoom to subject tract location
+        const subjectLat = compData.search_criteria?.subject_latitude
+        const subjectLng = compData.search_criteria?.subject_longitude
         if (subjectLat && subjectLng) {
           setSubjectTractLocation({ lat: subjectLat, lng: subjectLng })
         }
@@ -305,7 +329,6 @@ export default function AccessPortalPage() {
             })()
 
         if (zoomTarget) {
-          // Clear first then set after brief delay to ensure React triggers the effect
           setZoomToLocation(null)
           setTimeout(() => {
             setZoomToLocation(zoomTarget)
@@ -395,23 +418,10 @@ export default function AccessPortalPage() {
         onTabChange={handleTabChange}
         onFilterToggle={handleFilterToggle}
         filterOpen={filterOpen}
+        onAnalyticsToggle={() => setShowAnalyticsPanel(!showAnalyticsPanel)}
+        analyticsOpen={showAnalyticsPanel}
         user={user}
       />
-
-      {/* KPI cards removed — analytics panel covers this */}
-
-      {/* Analytics Toggle Button */}
-      <button
-        onClick={() => setShowAnalyticsPanel(!showAnalyticsPanel)}
-        className={`fixed bottom-4 right-4 z-[300] backdrop-blur-xl rounded-xl px-4 py-3 border flex items-center gap-2 transition group cursor-pointer ${
-          showAnalyticsPanel
-            ? 'bg-gg-pink/20 border-gg-pink/30 text-gg-pink'
-            : 'bg-black/50 border-white/10 hover:border-gg-pink/30'
-        }`}
-      >
-        <BarChart3 size={18} className="text-gg-pink" />
-        <span className="text-sm font-medium group-hover:text-gg-pink transition">Analytics</span>
-      </button>
 
       {/* Left Panel: Listing List */}
       <AnimatePresence>

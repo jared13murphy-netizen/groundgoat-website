@@ -54,6 +54,7 @@ interface SearchCriteria {
 interface PortalComparablesPanelProps {
   data: {
     comparables: Comparable[]
+    all_tracts?: Comparable[]
     summary: ComparablesSummary
     search_criteria: SearchCriteria
   } | null
@@ -128,16 +129,23 @@ export default function PortalComparablesPanel({ data, loading, onClose, onSelec
   const subjectLat = data?.search_criteria?.subject_latitude
   const subjectLng = data?.search_criteria?.subject_longitude
 
+  // Use scored comparables for similarity, all_tracts for other sorts
+  const sourceData = useMemo(() => {
+    if (!data) return []
+    if (sortBy === 'similarity') return data.comparables || []
+    // For other sorts, use the full dataset if available
+    return data.all_tracts && data.all_tracts.length > 0 ? data.all_tracts : data.comparables || []
+  }, [data, sortBy])
+
   // Compute distances
   const comparablesWithDistance = useMemo(() => {
-    if (!data?.comparables) return []
-    return data.comparables.map(c => ({
+    return sourceData.map(c => ({
       ...c,
       _distance: (subjectLat && subjectLng && c.latitude && c.longitude)
         ? haversineDistance(subjectLat, subjectLng, c.latitude, c.longitude)
         : null,
     }))
-  }, [data?.comparables, subjectLat, subjectLng])
+  }, [sourceData, subjectLat, subjectLng])
 
   // Get unique counties for filter
   const counties = useMemo(() => {
@@ -169,7 +177,7 @@ export default function PortalComparablesPanel({ data, loading, onClose, onSelec
       case 'acres': arr.sort((a, b) => b.total_acres - a.total_acres); break
       case 'date': arr.sort((a, b) => (a.days_ago ?? 999) - (b.days_ago ?? 999)); break
     }
-    return arr
+    return arr.slice(0, 50)
   }, [filtered, sortBy])
 
   if (!data && !loading) return null
