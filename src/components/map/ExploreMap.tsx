@@ -373,6 +373,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     try {
       setLoading(true)
       const filterParams = buildFilterParams(filtersRef.current)
+      // In comparables mode, only show sold tracts
+      if (subjectTractId && !filterParams.sale_status) {
+        filterParams.sale_status = 'sold'
+      }
       const extraParams = Object.entries(filterParams).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&')
       const url = `${API_URL}/api/map/tracts?min_lat=${min_lat}&max_lat=${max_lat}&min_lng=${min_lng}&max_lng=${max_lng}&limit=1000${extraParams ? '&' + extraParams : ''}`
       const response = await fetchWithAuth(url)

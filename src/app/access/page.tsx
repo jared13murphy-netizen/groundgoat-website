@@ -542,6 +542,26 @@ export default function AccessPortalPage() {
           <PortalComparablesPanel
             data={comparablesData}
             onClose={handleCloseComparables}
+            onToggleReport={(comp) => {
+              // Convert comparable to TractSaleData format for report
+              const tractData = {
+                id: comp.id,
+                county: comp.county,
+                state: comp.state,
+                totalAcres: comp.total_acres,
+                tillableAcres: comp.tillable_acres,
+                pricePerAcre: comp.price_per_acre,
+                salePrice: comp.sale_price,
+                soilRating: comp.soil_rating || comp.csr2,
+                auctionDate: comp.auction_date,
+                companyName: comp.company_name,
+                township: comp.township,
+              } as TractSaleData
+              handleToggleReport(tractData)
+            }}
+            isInReport={(id) => reportIds.has(id)}
+            reportCount={reportIds.size}
+            onViewReport={handleCreateReport}
           />
         )}
       </AnimatePresence>

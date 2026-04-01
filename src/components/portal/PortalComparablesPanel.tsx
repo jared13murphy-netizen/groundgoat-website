@@ -61,6 +61,10 @@ interface PortalComparablesPanelProps {
   loading?: boolean
   onClose: () => void
   onSelectComparable?: (comp: Comparable) => void
+  onToggleReport?: (comp: Comparable) => void
+  isInReport?: (id: string) => boolean
+  reportCount?: number
+  onViewReport?: () => void
 }
 
 type SortOption = 'similarity' | 'distance' | 'price_asc' | 'price_desc' | 'acres' | 'soil_rating' | 'date'
@@ -116,7 +120,9 @@ const SORT_OPTIONS: { value: SortOption; label: string }[] = [
   { value: 'date', label: 'Most Recent' },
 ]
 
-export default function PortalComparablesPanel({ data, loading, onClose, onSelectComparable }: PortalComparablesPanelProps) {
+const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=400'
+
+export default function PortalComparablesPanel({ data, loading, onClose, onSelectComparable, onToggleReport, isInReport, reportCount, onViewReport }: PortalComparablesPanelProps) {
   const [sortBy, setSortBy] = useState<SortOption>('similarity')
   const [showFilters, setShowFilters] = useState(false)
   const [filterCounty, setFilterCounty] = useState<string>('')
@@ -328,72 +334,135 @@ export default function PortalComparablesPanel({ data, loading, onClose, onSelec
 
             {/* Comparable List */}
             <div className="space-y-3">
-              {sorted.map(comp => (
-                <button
-                  key={comp.id}
-                  onClick={() => onSelectComparable?.(comp)}
-                  className="w-full text-left bg-white/[0.03] rounded-xl p-4 border border-white/5 hover:bg-white/[0.06] hover:border-gg-pink/20 transition group"
-                >
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <div className="text-sm font-semibold group-hover:text-gg-pink transition">
-                        {Math.round(comp.total_acres)} ac — {comp.county}
-                      </div>
-                      <div className="text-xs text-gg-gray-400 mt-0.5 flex items-center gap-1">
-                        <MapPin size={10} />
-                        {comp.county}, {comp.state}
-                        {comp.township && <span>· {comp.township}</span>}
-                        {comp._distance != null && (
-                          <span className="text-gg-gray-500">· {Math.round(comp._distance)} mi</span>
+              {sorted.map(comp => {
+                const inReport = isInReport?.(comp.id) ?? false
+                return (
+                  <div
+                    key={comp.id}
+                    className={`bg-white/[0.03] rounded-xl overflow-hidden border transition ${
+                      inReport ? 'border-gg-pink/40' : 'border-white/5 hover:border-gg-pink/20'
+                    }`}
+                  >
+                    {/* Image */}
+                    {comp.primary_image_url && (
+                      <div className="relative h-28 w-full bg-gg-gray-800">
+                        <img
+                          src={comp.primary_image_url}
+                          alt={`${comp.county}, ${comp.state}`}
+                          className="w-full h-full object-cover"
+                          onError={(e) => { (e.target as HTMLImageElement).src = FALLBACK_IMAGE }}
+                        />
+                        {comp.similarity_score != null && (
+                          <span className={`absolute top-2 right-2 text-[10px] px-2 py-0.5 rounded-full font-semibold ${
+                            comp.similarity_score >= 70 ? 'bg-green-500/15 text-green-400 backdrop-blur-sm' :
+                            comp.similarity_score >= 40 ? 'bg-yellow-500/15 text-yellow-400 backdrop-blur-sm' :
+                            'bg-gray-500/15 text-gray-400 backdrop-blur-sm'
+                          }`}>
+                            {Math.round(comp.similarity_score)}% match
+                          </span>
                         )}
                       </div>
+                    )}
+
+                    <div className="p-4 cursor-pointer" onClick={() => onSelectComparable?.(comp)}>
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <div className="text-sm font-semibold hover:text-gg-pink transition">
+                            {Math.round(comp.total_acres)} ac — {comp.county}
+                          </div>
+                          <div className="text-xs text-gg-gray-400 mt-0.5 flex items-center gap-1">
+                            <MapPin size={10} />
+                            {comp.county}, {comp.state}
+                            {comp.township && <span>· {comp.township}</span>}
+                            {comp._distance != null && (
+                              <span className="text-gg-gray-500">· {Math.round(comp._distance)} mi</span>
+                            )}
+                          </div>
+                        </div>
+                        {!comp.primary_image_url && comp.similarity_score != null && (
+                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold shrink-0 ${
+                            comp.similarity_score >= 70 ? 'bg-green-500/15 text-green-400' :
+                            comp.similarity_score >= 40 ? 'bg-yellow-500/15 text-yellow-400' :
+                            'bg-gray-500/15 text-gray-400'
+                          }`}>
+                            {Math.round(comp.similarity_score)}%
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Land Stats */}
+                      <div className="grid grid-cols-4 gap-2 mt-3 pt-3 border-t border-white/5">
+                        <div>
+                          <div className="text-[10px] text-gg-gray-500">Acres</div>
+                          <div className="text-sm font-medium">{Math.round(comp.total_acres)}</div>
+                        </div>
+                        <div>
+                          <div className="text-[10px] text-gg-gray-500">Tillable</div>
+                          <div className="text-sm font-medium">{comp.pct_tillable ? Math.round(comp.pct_tillable) + '%' : '—'}</div>
+                        </div>
+                        <div>
+                          <div className="text-[10px] text-gg-gray-500">{getSoilLabel(comp.soil_rating_type, comp.state)}</div>
+                          <div className="text-sm font-medium">{getSoilValue(comp) ?? '—'}</div>
+                        </div>
+                        <div>
+                          <div className="text-[10px] text-gg-gray-500">$/Acre</div>
+                          <div className="text-sm font-bold text-gg-pink">{formatCurrency(comp.price_per_acre)}</div>
+                        </div>
+                      </div>
+
+                      {/* Sale Pricing */}
+                      {comp.sale_price && (
+                        <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 pt-2 border-t border-white/5">
+                          <div className="text-[10px]">
+                            <span className="text-gg-gray-500">Sale: </span>
+                            <span className="text-white font-medium">{formatCurrency(comp.sale_price)}</span>
+                          </div>
+                          {comp.price_per_tillable_acre && (
+                            <div className="text-[10px]">
+                              <span className="text-gg-gray-500">$/Till Ac: </span>
+                              <span className="text-white font-medium">{formatCurrency(comp.price_per_tillable_acre)}</span>
+                            </div>
+                          )}
+                          {getSoilValue(comp) && comp.price_per_acre ? (
+                            <div className="text-[10px]">
+                              <span className="text-gg-gray-500">$/{getSoilLabel(comp.soil_rating_type, comp.state)}: </span>
+                              <span className="text-white font-medium">{formatCurrency(comp.price_per_acre / getSoilValue(comp)!)}</span>
+                            </div>
+                          ) : null}
+                        </div>
+                      )}
+
+                      {/* Footer */}
+                      <div className="flex items-center gap-3 mt-2 pt-2 border-t border-white/5 text-[10px] text-gg-gray-400">
+                        {comp.company_name && (
+                          <span className="flex items-center gap-1 truncate">
+                            <Building2 size={10} />
+                            {comp.company_name}
+                          </span>
+                        )}
+                        <span className="flex items-center gap-1 shrink-0">
+                          <Calendar size={10} />
+                          {formatDate(comp.auction_date)}
+                        </span>
+                      </div>
                     </div>
-                    {comp.similarity_score != null && (
-                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold shrink-0 ${
-                        comp.similarity_score >= 70 ? 'bg-green-500/15 text-green-400' :
-                        comp.similarity_score >= 40 ? 'bg-yellow-500/15 text-yellow-400' :
-                        'bg-gray-500/15 text-gray-400'
-                      }`}>
-                        {Math.round(comp.similarity_score)}%
-                      </span>
+
+                    {/* Add to Report button */}
+                    {onToggleReport && (
+                      <button
+                        onClick={() => onToggleReport(comp)}
+                        className={`w-full py-2.5 text-xs font-medium border-t transition ${
+                          inReport
+                            ? 'bg-gg-pink/10 text-gg-pink border-gg-pink/20'
+                            : 'bg-white/[0.02] text-gg-gray-400 border-white/5 hover:text-white hover:bg-white/[0.05]'
+                        }`}
+                      >
+                        {inReport ? '− Remove from Report' : '+ Add to Report'}
+                      </button>
                     )}
                   </div>
-
-                  {/* Stats */}
-                  <div className="grid grid-cols-4 gap-2 mt-3 pt-3 border-t border-white/5">
-                    <div>
-                      <div className="text-[10px] text-gg-gray-500">$/Acre</div>
-                      <div className="text-sm font-medium text-gg-pink">{formatCurrency(comp.price_per_acre)}</div>
-                    </div>
-                    <div>
-                      <div className="text-[10px] text-gg-gray-500">Acres</div>
-                      <div className="text-sm font-medium">{Math.round(comp.total_acres)}</div>
-                    </div>
-                    <div>
-                      <div className="text-[10px] text-gg-gray-500">Tillable</div>
-                      <div className="text-sm font-medium">{comp.pct_tillable ? Math.round(comp.pct_tillable) + '%' : '—'}</div>
-                    </div>
-                    <div>
-                      <div className="text-[10px] text-gg-gray-500">{getSoilLabel(comp.soil_rating_type, comp.state)}</div>
-                      <div className="text-sm font-medium">{getSoilValue(comp) ?? '—'}</div>
-                    </div>
-                  </div>
-
-                  {/* Footer */}
-                  <div className="flex items-center gap-3 mt-2 pt-2 border-t border-white/5 text-[10px] text-gg-gray-400">
-                    {comp.company_name && (
-                      <span className="flex items-center gap-1 truncate">
-                        <Building2 size={10} />
-                        {comp.company_name}
-                      </span>
-                    )}
-                    <span className="flex items-center gap-1 shrink-0">
-                      <Calendar size={10} />
-                      {formatDate(comp.auction_date)}
-                    </span>
-                  </div>
-                </button>
-              ))}
+                )
+              })}
 
               {sorted.length === 0 && (
                 <div className="text-center text-gg-gray-500 py-8">
