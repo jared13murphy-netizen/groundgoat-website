@@ -263,8 +263,11 @@ export default function AccessPortalPage() {
     setFilterOpen(!filterOpen)
   }
 
+  const [comparablesLoading, setComparablesLoading] = useState(false)
+
   const handleFindComparables = async (tractId: string, county: string, state: string) => {
-    // Close panels, switch to map
+    // Show loading state, close panels, switch to map
+    setComparablesLoading(true)
     setMapListingId(null)
     setSelectedTract(null)
     setShowListPanel(false)
@@ -279,22 +282,29 @@ export default function AccessPortalPage() {
         setComparablesData(data)
         setShowComparablesPanel(true)
 
-        // Zoom to subject tract location (from search_criteria or county fallback)
+        // Zoom to subject tract location — use a small delay so the map has settled
         const subjectLat = data.search_criteria?.subject_latitude
         const subjectLng = data.search_criteria?.subject_longitude
-        if (subjectLat && subjectLng) {
-          setZoomToLocation({ lat: subjectLat, lng: subjectLng, zoom: 10 })
-          setTimeout(() => setZoomToLocation(null), 2000)
-        } else {
-          const coords = getCountyCoordinates(state, county)
-          if (coords) {
-            setZoomToLocation({ lat: coords.latitude, lng: coords.longitude, zoom: 10 })
-            setTimeout(() => setZoomToLocation(null), 2000)
-          }
+        const zoomTarget = subjectLat && subjectLng
+          ? { lat: subjectLat, lng: subjectLng, zoom: 11 }
+          : (() => {
+              const coords = getCountyCoordinates(state, county)
+              return coords ? { lat: coords.latitude, lng: coords.longitude, zoom: 10 } : null
+            })()
+
+        if (zoomTarget) {
+          // Clear first then set after brief delay to ensure React triggers the effect
+          setZoomToLocation(null)
+          setTimeout(() => {
+            setZoomToLocation(zoomTarget)
+            setTimeout(() => setZoomToLocation(null), 3000)
+          }, 100)
         }
       }
     } catch (err) {
       console.error('Failed to fetch comparables:', err)
+    } finally {
+      setComparablesLoading(false)
     }
   }
 
@@ -483,6 +493,17 @@ export default function AccessPortalPage() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Comparables Loading Overlay */}
+      {comparablesLoading && (
+        <div className="fixed inset-0 z-[600] bg-black/60 backdrop-blur-sm flex items-center justify-center">
+          <div className="bg-gg-gray-900 rounded-2xl p-8 border border-white/10 text-center shadow-2xl">
+            <Loader2 className="animate-spin text-gg-pink mx-auto mb-3" size={36} />
+            <p className="text-sm font-medium">Finding Comparables...</p>
+            <p className="text-xs text-gg-gray-400 mt-1">Analyzing similar sales in the area</p>
+          </div>
+        </div>
+      )}
 
       {/* Comparables Panel */}
       <AnimatePresence>
