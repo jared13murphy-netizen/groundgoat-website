@@ -114,8 +114,6 @@ function buildFilterParams(filters: FilterState) {
   const params: Record<string, string> = {}
   if (filters.dateRange === 'upcoming') {
     params.date_from = new Date().toISOString().split('T')[0]
-    // Also filter to active/listed statuses for upcoming
-    if (!params.sale_status) params.sale_status = 'active,listed,live'
   } else if (filters.dateRange !== 'all') {
     const months = filters.dateRange === '6months' ? 6 : filters.dateRange === '1year' ? 12 : 24
     const cutoff = new Date()
