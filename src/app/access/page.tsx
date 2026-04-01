@@ -288,9 +288,9 @@ export default function AccessPortalPage() {
       {/* Floating Logo (separate from nav bar) */}
       <Link
         href="/access"
-        className="fixed top-3 left-4 z-[510]"
+        className="fixed top-3 left-4 z-[390]"
       >
-        <img src="/logo.png" alt="Ground Goat" style={{ width: 100, height: 100 }} className="rounded-xl shadow-lg" />
+        <img src="/logo.png" alt="Ground Goat" style={{ width: 140, height: 'auto' }} className="rounded-xl shadow-lg" />
       </Link>
 
       {/* Floating Nav Bar (shifted right to make room for logo) */}
