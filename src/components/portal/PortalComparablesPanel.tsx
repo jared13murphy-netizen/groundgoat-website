@@ -13,6 +13,7 @@ interface Comparable {
   pct_tillable?: number
   soil_rating?: number
   csr2?: number
+  soil_rating_type?: string | null
   price_per_acre: number
   price_per_tillable_acre?: number
   sale_price?: number
@@ -44,6 +45,7 @@ interface SearchCriteria {
   subject_tillable_acres?: number
   subject_pct_tillable?: number
   subject_soil_rating?: number
+  subject_soil_rating_type?: string | null
   subject_township?: string
   subject_tract_number?: number
   subject_land_type?: string
@@ -61,6 +63,25 @@ interface PortalComparablesPanelProps {
 }
 
 type SortOption = 'similarity' | 'distance' | 'price_asc' | 'price_desc' | 'acres' | 'soil_rating' | 'date'
+
+// State-based soil rating label defaults
+const STATE_SOIL_LABELS: Record<string, string> = {
+  IL: 'PI', IA: 'CSR2', IN: 'PI', MO: 'PI', MN: 'CSR2',
+  NE: 'CSR2', SD: 'CSR2', ND: 'CSR2',
+}
+
+function getSoilLabel(soilRatingType?: string | null, state?: string): string {
+  if (soilRatingType) return soilRatingType.toUpperCase()
+  if (state) return STATE_SOIL_LABELS[state.toUpperCase()] || 'Soil'
+  return 'Soil'
+}
+
+function getSoilValue(comp: { soil_rating?: number; csr2?: number; soil_rating_type?: string | null; state?: string }): number | null {
+  // Use the appropriate field based on type
+  if (comp.soil_rating != null) return Number(comp.soil_rating)
+  if (comp.csr2 != null) return Number(comp.csr2)
+  return null
+}
 
 function formatCurrency(value?: number | null): string {
   if (!value) return '—'
@@ -208,7 +229,7 @@ export default function PortalComparablesPanel({ data, loading, onClose, onSelec
                     <div className="text-sm font-bold">{sc.subject_pct_tillable ? Math.round(sc.subject_pct_tillable) + '%' : '—'}</div>
                   </div>
                   <div>
-                    <div className="text-[10px] text-gg-gray-400 uppercase">CSR2</div>
+                    <div className="text-[10px] text-gg-gray-400 uppercase">{getSoilLabel(sc.subject_soil_rating_type, sc.state)}</div>
                     <div className="text-sm font-bold">{sc.subject_soil_rating ? Math.round(sc.subject_soil_rating * 10) / 10 : '—'}</div>
                   </div>
                   <div>
@@ -344,8 +365,8 @@ export default function PortalComparablesPanel({ data, loading, onClose, onSelec
                       <div className="text-sm font-medium">{comp.pct_tillable ? Math.round(comp.pct_tillable) + '%' : '—'}</div>
                     </div>
                     <div>
-                      <div className="text-[10px] text-gg-gray-500">CSR2</div>
-                      <div className="text-sm font-medium">{comp.soil_rating ?? comp.csr2 ?? '—'}</div>
+                      <div className="text-[10px] text-gg-gray-500">{getSoilLabel(comp.soil_rating_type, comp.state)}</div>
+                      <div className="text-sm font-medium">{getSoilValue(comp) ?? '—'}</div>
                     </div>
                   </div>
 
