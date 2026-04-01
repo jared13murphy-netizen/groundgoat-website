@@ -253,6 +253,10 @@ export default function AccessPortalPage() {
     setActiveTab(tab)
     setMapListingId(null)
     setSelectedTract(null)
+    // Close comparables mode if active
+    if (showComparablesPanel) {
+      handleCloseComparables()
+    }
     if (tab === 'map') {
       setShowListPanel(false)
     } else {
@@ -348,6 +352,8 @@ export default function AccessPortalPage() {
     setSubjectTractLocation(null)
     setComparablesData(null)
     setShowComparablesPanel(false)
+    // Reset map cache so regular tracts reload
+    setResetFiltersSignal(prev => prev + 1)
   }
 
   const handleFiltersApplied = (filters: { stateFilter: string; countyFilters: string[] }) => {
