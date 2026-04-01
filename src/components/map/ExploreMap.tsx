@@ -114,6 +114,8 @@ function buildFilterParams(filters: FilterState) {
   const params: Record<string, string> = {}
   if (filters.dateRange === 'upcoming') {
     params.date_from = new Date().toISOString().split('T')[0]
+    // Also filter to active/listed statuses for upcoming
+    if (!params.sale_status) params.sale_status = 'active,listed,live'
   } else if (filters.dateRange !== 'all') {
     const months = filters.dateRange === '6months' ? 6 : filters.dateRange === '1year' ? 12 : 24
     const cutoff = new Date()
@@ -377,8 +379,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       if (response.ok) {
         const data: MapTractsResponse = await response.json()
         if (data.tracts) {
+          const now = new Date()
           data.tracts.forEach(t => {
-            if (t.sale_status) tractMapRef.current.set(t.id, t)
+            // Show tracts with a status, or upcoming tracts (null status but have a future auction date)
+            const hasStatus = !!t.sale_status
+            const isUpcoming = !t.sale_status && t.auction_date && new Date(t.auction_date) >= now
+            if (hasStatus || isUpcoming) {
+              tractMapRef.current.set(t.id, t)
+            }
           })
           setTracts(Array.from(tractMapRef.current.values()))
         }
