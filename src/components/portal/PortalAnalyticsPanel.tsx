@@ -55,7 +55,12 @@ export default function PortalAnalyticsPanel({ county, state, onClose, onDataLoa
     setLoading(true)
     setData(null)
 
-    const params = new URLSearchParams({ county: selectedCounty, state: selectedState })
+    // Default to last 12 months
+    const twelveMonthsAgo = new Date()
+    twelveMonthsAgo.setFullYear(twelveMonthsAgo.getFullYear() - 1)
+    const dateFrom = twelveMonthsAgo.toISOString().split('T')[0]
+
+    const params = new URLSearchParams({ county: selectedCounty, state: selectedState, date_from: dateFrom })
 
     fetchWithAuth(`${API_URL}/api/admin/county-sales-detail?${params}`)
       .then(r => r.json())
@@ -97,7 +102,7 @@ export default function PortalAnalyticsPanel({ county, state, onClose, onDataLoa
         <div className="flex items-center justify-between mb-3">
           <div>
             <h2 className="text-lg font-semibold">Market Analytics</h2>
-            <p className="text-xs text-gg-gray-400 mt-0.5">County-level sales data</p>
+            <p className="text-xs text-gg-gray-400 mt-0.5">Based on the last 12 months of sales</p>
           </div>
           <button
             onClick={onClose}

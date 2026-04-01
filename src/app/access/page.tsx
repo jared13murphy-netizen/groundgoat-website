@@ -302,12 +302,7 @@ export default function AccessPortalPage() {
         user={user}
       />
 
-      {/* Floating KPI Cards */}
-      <PortalKPICards
-        data={analyticsData}
-        loading={analyticsLoading}
-        countyLabel={user.home_county && user.home_state ? `${user.home_county}, ${user.home_state}` : undefined}
-      />
+      {/* KPI cards removed — analytics panel covers this */}
 
       {/* Analytics Toggle Button */}
       <button
