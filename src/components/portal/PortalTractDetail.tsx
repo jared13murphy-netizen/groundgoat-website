@@ -90,8 +90,10 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
   const [elevationData, setElevationData] = useState<ElevationData | null>(null)
   const [soilLoading, setSoilLoading] = useState(false)
 
+  const hasBoundaries = !!(tract.polygonCoordinates && tract.polygonCoordinates.length > 0)
+
   useEffect(() => {
-    if (!tract.tractId) return
+    if (!tract.tractId || !hasBoundaries) return
     setSoilData(null)
     setElevationData(null)
     setSoilLoading(true)
@@ -201,15 +203,15 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
         ) : null}
       </div>
 
-      {/* Soil & Elevation Data */}
-      {soilLoading && (
+      {/* Soil & Elevation Data (only if tract has boundaries) */}
+      {hasBoundaries && soilLoading && (
         <div className="flex items-center gap-2 text-sm text-gg-gray-400 py-2">
           <Loader2 className="animate-spin" size={14} />
           Loading soil & land data...
         </div>
       )}
 
-      {!soilLoading && (soilData || elevationData) && (
+      {hasBoundaries && !soilLoading && (soilData || elevationData) && (
         <div className="space-y-3">
           <h3 className="text-sm font-semibold text-gg-gray-300 uppercase tracking-wider">Soil & Land Data</h3>
 
@@ -246,8 +248,8 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
 
       {/* Action Buttons — horizontal row */}
       <div className="flex gap-2 pt-2">
-        {/* 3D Map */}
-        {tract.tractId && onView3DTerrain && (
+        {/* 3D Map (only if tract has boundaries) */}
+        {hasBoundaries && tract.tractId && onView3DTerrain && (
           <button
             onClick={() => onView3DTerrain(tract.tractId!, `${tract.county}, ${tract.state}`)}
             className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-gg-pink text-white font-semibold rounded-xl hover:bg-gg-pink/80 transition text-xs"
