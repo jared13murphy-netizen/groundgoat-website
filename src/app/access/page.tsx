@@ -278,10 +278,13 @@ export default function AccessPortalPage() {
     try {
       // Fetch comparables from API
       const response = await fetchWithAuth(`${API_URL}/api/comparables/tract/${tractId}?months_back=24&include_neighboring=true&limit=50`)
+      if (!response.ok) {
+        console.error('Comparables API error:', response.status, await response.text().catch(() => ''))
+      }
+      const data = response.ok ? await response.json() : { comparables: [], summary: { count: 0, avg_price_per_acre: 0, median_price_per_acre: 0, min_price_per_acre: 0, max_price_per_acre: 0, avg_acres: 0 }, search_criteria: { county, state } }
+      setComparablesData(data)
+      setShowComparablesPanel(true)
       if (response.ok) {
-        const data = await response.json()
-        setComparablesData(data)
-        setShowComparablesPanel(true)
 
         // Zoom to subject tract location — use a small delay so the map has settled
         const subjectLat = data.search_criteria?.subject_latitude
