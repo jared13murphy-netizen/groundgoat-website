@@ -66,8 +66,9 @@ type SortOption = 'similarity' | 'distance' | 'price_asc' | 'price_desc' | 'acre
 
 // State-based soil rating label defaults
 const STATE_SOIL_LABELS: Record<string, string> = {
-  IL: 'PI', IA: 'CSR2', IN: 'PI', MO: 'PI', MN: 'CSR2',
-  NE: 'CSR2', SD: 'CSR2', ND: 'CSR2',
+  IL: 'PI', IA: 'CSR2', IN: 'WAPI', MO: 'NCCPI', MN: 'CPI',
+  NE: 'NCCPI', SD: 'PI', ND: 'PI', KS: 'NCCPI', OH: 'NCCPI',
+  MI: 'NCCPI', WI: 'PI', KY: 'NCCPI', TN: 'NCCPI', WV: 'NCCPI', VA: 'NCCPI',
 }
 
 function getSoilLabel(soilRatingType?: string | null, state?: string): string {
