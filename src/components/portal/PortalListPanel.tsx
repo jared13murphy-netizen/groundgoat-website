@@ -36,6 +36,7 @@ interface PortalListPanelProps {
   onTractSelected?: (tract: any) => void
   onFindComparables?: (tractId: string, county: string, state: string) => void
   activeFilters?: { stateFilter: string; countyFilters: string[] }
+  userAccountType?: string
 }
 
 const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=600'
@@ -218,7 +219,7 @@ function ListingCard({ listing, activeTab, onClick }: { listing: Listing; active
   )
 }
 
-export default function PortalListPanel({ listings, loading, activeTab, onClose, onTractSelected, onFindComparables, activeFilters }: PortalListPanelProps) {
+export default function PortalListPanel({ listings, loading, activeTab, onClose, onTractSelected, onFindComparables, activeFilters, userAccountType }: PortalListPanelProps) {
   const [selectedListingId, setSelectedListingId] = useState<string | null>(null)
 
   return (
@@ -264,6 +265,7 @@ export default function PortalListPanel({ listings, loading, activeTab, onClose,
             onBack={() => setSelectedListingId(null)}
             onTractSelected={onTractSelected}
             onFindComparables={onFindComparables}
+            userAccountType={userAccountType}
           />
         ) : loading ? (
           <div className="flex items-center justify-center h-40">

@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { motion } from 'framer-motion'
 import {
   ArrowLeft, MapPin, Calendar, Clock, Building2,
-  DollarSign, ExternalLink, Share2, BarChart3, Loader2
+  DollarSign, ExternalLink, Share2, BarChart3, Loader2, RefreshCw
 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 
@@ -67,6 +67,7 @@ interface PortalListingDetailProps {
   onBack: () => void
   onTractSelected?: (tract: any) => void
   onFindComparables?: (tractId: string, county: string, state: string) => void
+  userAccountType?: string
 }
 
 const LAND_TYPE_COLORS: Record<string, string> = {
@@ -127,10 +128,12 @@ function formatTime(listing: Listing): string {
   return ''
 }
 
-export default function PortalListingDetail({ listingId, onBack, onTractSelected, onFindComparables }: PortalListingDetailProps) {
+export default function PortalListingDetail({ listingId, onBack, onTractSelected, onFindComparables, userAccountType }: PortalListingDetailProps) {
   const [listing, setListing] = useState<Listing | null>(null)
   const [loading, setLoading] = useState(true)
   const [heroImgError, setHeroImgError] = useState(false)
+  const [rescraping, setRescraping] = useState(false)
+  const [rescrapeResult, setRescrapeResult] = useState<{ success: boolean; message: string } | null>(null)
 
   useEffect(() => {
     fetchListing()
@@ -355,6 +358,45 @@ export default function PortalListingDetail({ listingId, onBack, onTractSelected
           <ExternalLink size={16} />
           {listing.bidding_url ? 'View Auction' : 'View Details'}
         </a>
+      )}
+
+      {/* Rescrape Button — GG Admin only */}
+      {userAccountType === 'groundgoat_admin' && listing.source_url && (
+        <div>
+          {rescrapeResult ? (
+            <div className={`px-4 py-3 rounded-xl text-xs font-medium ${
+              rescrapeResult.success ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'
+            }`}>
+              {rescrapeResult.message}
+            </div>
+          ) : (
+            <button
+              onClick={async () => {
+                setRescraping(true)
+                setRescrapeResult(null)
+                try {
+                  const res = await fetchWithAuth(`${API_URL}/api/admin/listings/${listingId}/rescrape`, { method: 'POST' })
+                  const data = await res.json()
+                  setRescrapeResult({
+                    success: data.success,
+                    message: data.success ? 'Sent to staging for review' : (data.message || data.detail || 'Rescrape failed'),
+                  })
+                } catch (err) {
+                  setRescrapeResult({ success: false, message: 'Failed to contact server' })
+                }
+                setRescraping(false)
+              }}
+              disabled={rescraping}
+              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-orange-500/30 bg-orange-500/10 text-orange-400 text-xs font-semibold hover:bg-orange-500/20 transition disabled:opacity-50"
+            >
+              {rescraping ? (
+                <><Loader2 size={14} className="animate-spin" /> Rescraping...</>
+              ) : (
+                <><RefreshCw size={14} /> Rescrape Listing</>
+              )}
+            </button>
+          )}
+        </div>
       )}
 
       {/* Tracts */}

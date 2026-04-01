@@ -441,6 +441,7 @@ export default function AccessPortalPage() {
             onTractSelected={setSelectedTract}
             onFindComparables={handleFindComparables}
             activeFilters={activeFilters}
+            userAccountType={user?.account_type}
           />
         )}
       </AnimatePresence>
@@ -482,6 +483,7 @@ export default function AccessPortalPage() {
                 onBack={() => setMapListingId(null)}
                 onTractSelected={setSelectedTract}
                 onFindComparables={handleFindComparables}
+                userAccountType={user?.account_type}
               />
             </div>
           </motion.div>
