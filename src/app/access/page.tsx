@@ -132,9 +132,10 @@ export default function AccessPortalPage() {
     }
   }
 
-  const fetchListings = async (tab: TabType) => {
+  const fetchListings = async (tab: TabType, filtersOverride?: { stateFilter: string; countyFilters: string[] }) => {
     if (tab === 'map') return
     setListingsLoading(true)
+    const filters = filtersOverride || activeFilters
     try {
       let data: Listing[] = []
 
@@ -162,13 +163,13 @@ export default function AccessPortalPage() {
         }
       }
 
-      // Apply active filters (state/county) client-side
-      if (activeFilters.stateFilter) {
-        const states = activeFilters.stateFilter.split(',').map(s => s.trim().toUpperCase())
+      // Apply filters (state/county) client-side
+      if (filters.stateFilter) {
+        const states = filters.stateFilter.split(',').map(s => s.trim().toUpperCase())
         data = data.filter(l => states.includes(l.state?.toUpperCase()))
       }
-      if (activeFilters.countyFilters.length > 0) {
-        const counties = activeFilters.countyFilters.map(c => c.toLowerCase())
+      if (filters.countyFilters.length > 0) {
+        const counties = filters.countyFilters.map(c => c.toLowerCase())
         data = data.filter(l => counties.includes(l.county?.toLowerCase()))
       }
 
@@ -305,9 +306,9 @@ export default function AccessPortalPage() {
 
   const handleFiltersApplied = (filters: { stateFilter: string; countyFilters: string[] }) => {
     setActiveFilters(filters)
-    // Re-fetch listings if list panel is open
+    // Re-fetch listings with new filters if list panel is open
     if (showListPanel && activeTab !== 'map') {
-      fetchListings(activeTab)
+      fetchListings(activeTab, filters)
     }
   }
 
