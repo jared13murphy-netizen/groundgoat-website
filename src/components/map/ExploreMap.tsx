@@ -161,6 +161,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const loadedCellsRef = useRef<Set<string>>(new Set())
   const tractMapRef = useRef<Map<string, ApiMapTract>>(new Map())
+  const subjectTractIdRef = useRef<string | null>(null)
+  subjectTractIdRef.current = subjectTractId || null
 
   const [tracts, setTracts] = useState<ApiMapTract[]>([])
   const [currentZoom, setCurrentZoom] = useState(MAP_INITIAL_ZOOM)
@@ -398,7 +400,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       setLoading(true)
       const filterParams = buildFilterParams(filtersRef.current)
       // In comparables mode, only show sold tracts
-      if (subjectTractId && !filterParams.sale_status) {
+      if (subjectTractIdRef.current && !filterParams.sale_status) {
         filterParams.sale_status = 'sold'
       }
       const extraParams = Object.entries(filterParams).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&')
@@ -408,16 +410,21 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         const data: MapTractsResponse = await response.json()
         if (data.tracts) {
           const isUpcomingFilter = filtersRef.current.dateRange === 'upcoming'
+          const now = new Date()
           data.tracts.forEach(t => {
             if (isUpcomingFilter) {
-              // Upcoming: show all tracts that are NOT sold, pending, or no_sale
+              // Upcoming: show tracts that are NOT sold, pending, or no_sale
               const postSaleStatuses = ['sold', 'pending', 'no_sale']
               if (!t.sale_status || !postSaleStatuses.includes(t.sale_status)) {
                 tractMapRef.current.set(t.id, t)
               }
             } else {
-              // All other filters: only show tracts with a sale_status
-              if (t.sale_status) tractMapRef.current.set(t.id, t)
+              // Show tracts with a sale_status, OR listed/live auctions (null sale_status but have listing_status or future date)
+              const isListed = t.listing_status === 'listed' || t.listing_status === 'live'
+              const hasFutureAuction = t.auction_date && new Date(t.auction_date) >= now
+              if (t.sale_status || isListed || hasFutureAuction) {
+                tractMapRef.current.set(t.id, t)
+              }
             }
           })
           setTracts(Array.from(tractMapRef.current.values()))
