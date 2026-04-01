@@ -16,6 +16,7 @@ import PortalAnalyticsPanel from '@/components/portal/PortalAnalyticsPanel'
 import PortalListingDetail from '@/components/portal/PortalListingDetail'
 import PortalTractDetail from '@/components/portal/PortalTractDetail'
 import PortalComparablesPanel from '@/components/portal/PortalComparablesPanel'
+import PortalReportPanel from '@/components/portal/PortalReportPanel'
 import type { TractSaleData } from '@/components/portal/PortalTractDetail'
 
 const ExploreMap = dynamic(() => import('@/components/map/ExploreMap'), { ssr: false })
@@ -92,6 +93,7 @@ export default function AccessPortalPage() {
   const [comparablesData, setComparablesData] = useState<any>(null)
   const [showComparablesPanel, setShowComparablesPanel] = useState(false)
   // 3D viewer state
+  const [showReportPanel, setShowReportPanel] = useState(false)
   const [show3DViewer, setShow3DViewer] = useState(false)
   const [viewer3DTractId, setViewer3DTractId] = useState('')
   const [viewer3DTractName, setViewer3DTractName] = useState('')
@@ -220,22 +222,16 @@ export default function AccessPortalPage() {
   }
 
   const handleCreateReport = () => {
-    const reportData = {
-      comparables: reportTracts.map(t => ({
-        id: t.id,
-        county: t.county,
-        state: t.state,
-        total_acres: t.totalAcres,
-        tillable_acres: t.tillableAcres,
-        soil_rating: t.soilRating,
-        price_per_acre: t.pricePerAcre,
-        sale_price: t.salePrice,
-        auction_date: t.auctionDate,
-        company_name: t.companyName,
-      })),
-    }
-    sessionStorage.setItem('exploreReport', JSON.stringify(reportData))
-    window.location.href = '/listings/report'
+    setShowReportPanel(true)
+  }
+
+  const handleRemoveFromReport = (tractId: string) => {
+    setReportIds(prev => {
+      const next = new Set(prev)
+      next.delete(tractId)
+      return next
+    })
+    setReportTracts(prev => prev.filter(t => t.id !== tractId))
   }
 
   const handleViewListingFromMap = (listingId: string) => {
@@ -565,6 +561,17 @@ export default function AccessPortalPage() {
             isInReport={(id) => reportIds.has(id)}
             reportCount={reportIds.size}
             onViewReport={handleCreateReport}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Report Panel */}
+      <AnimatePresence>
+        {showReportPanel && (
+          <PortalReportPanel
+            tracts={reportTracts}
+            onClose={() => setShowReportPanel(false)}
+            onRemoveTract={handleRemoveFromReport}
           />
         )}
       </AnimatePresence>
