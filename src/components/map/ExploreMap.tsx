@@ -31,11 +31,11 @@ const PIN_COLORS: Record<string, string> = {
   sold: '#22c55e',
   listed: '#3b82f6',
   active: '#3b82f6',
-  live: '#16a34a',
+  live: '#f59e0b',
   pending: '#f59e0b',
   no_sale: '#6b7280',
 }
-const DEFAULT_PIN_COLOR = '#DC2626'
+const DEFAULT_PIN_COLOR = '#3b82f6' // Blue for NULL/unknown status (= listed)
 
 function getStatusPinColor(status: string | null): string {
   if (!status) return DEFAULT_PIN_COLOR
@@ -1204,7 +1204,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         {[
           { label: 'Sold', color: '#22c55e' },
           { label: 'Listed', color: '#3b82f6' },
-          { label: 'Pending', color: '#f59e0b' },
+          { label: 'Live', color: '#f59e0b' },
           { label: 'No Sale', color: '#6b7280' },
         ].map(({ label, color }) => (
           <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
