@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
 import { 
@@ -81,10 +82,29 @@ const FALLBACK_LISTINGS: Listing[] = [
   },
 ]
 
+const ACCESS_ROLES = ['groundgoat_admin', 'groundgoat_sales', 'firm_admin', 'firm_user']
+
 export default function Home() {
+  const router = useRouter()
   const [listings, setListings] = useState<Listing[]>(FALLBACK_LISTINGS)
   const [currentSlide, setCurrentSlide] = useState(0)
   const [userLocation, setUserLocation] = useState<string | null>(null)
+
+  // Redirect logged-in management/admin users to /access
+  useEffect(() => {
+    const token = localStorage.getItem('auth_token')
+    if (!token) return
+    fetch(`${API_URL}/api/auth/me`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(user => {
+        if (user && ACCESS_ROLES.includes(user.account_type)) {
+          router.push('/access')
+        }
+      })
+      .catch(() => {})
+  }, [router])
 
   // Get user's location via IP geolocation
   useEffect(() => {
@@ -423,28 +443,24 @@ export default function Home() {
 
           {/* Pricing Cards */}
           <div className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
-            {/* County Plan */}
-            <div className="card relative">
+            {/* Basic State Plan */}
+            <div className="card relative flex flex-col">
               <span className="inline-block text-gg-pink text-sm font-semibold mb-3">7-day free trial</span>
-              <h3 className="font-display text-2xl font-bold text-white mb-2">County</h3>
-              <p className="text-gg-gray-400 mb-6">Perfect for focused investors</p>
+              <h3 className="font-display text-2xl font-bold text-white mb-2">Basic State</h3>
+              <p className="text-gg-gray-400 mb-6">For active land investors</p>
               <div className="mb-1">
-                <span className="text-4xl font-bold text-white">$7.99</span>
-                <span className="text-gg-gray-400">/month</span>
+                <span className="text-4xl font-bold text-white">$24.99</span>
+                <span className="text-gg-gray-400">/state/month</span>
               </div>
-              <p className="text-gg-gray-500 text-sm mb-6">then $7.99/mo after trial</p>
-              <ul className="space-y-3 mb-8">
+              <p className="text-gg-gray-500 text-sm mb-6">per state, up to 5 states</p>
+              <ul className="space-y-3 mb-8 flex-grow">
                 <li className="flex items-center gap-2 text-gg-gray-300">
                   <Check className="text-gg-pink" size={18} />
-                  1 county included
+                  Full state coverage (all counties)
                 </li>
                 <li className="flex items-center gap-2 text-gg-gray-300">
                   <Check className="text-gg-pink" size={18} />
-                  +$3.99/mo per additional county
-                </li>
-                <li className="flex items-center gap-2 text-gg-gray-300">
-                  <Check className="text-gg-pink" size={18} />
-                  Upcoming auction alerts
+                  Upcoming land sale alerts
                 </li>
                 <li className="flex items-center gap-2 text-gg-gray-300">
                   <Check className="text-gg-pink" size={18} />
@@ -452,42 +468,7 @@ export default function Home() {
                 </li>
                 <li className="flex items-center gap-2 text-gg-gray-300">
                   <Check className="text-gg-pink" size={18} />
-                  Mobile app access
-                </li>
-              </ul>
-              <Link href="/signup?plan=county" className="btn-secondary w-full text-center block">
-                Start 7-Day Free Trial
-              </Link>
-              <p className="text-center text-gg-gray-500 text-sm mt-4">
-                Save 10% with annual billing
-              </p>
-            </div>
-
-            {/* State Plan - Featured */}
-            <div className="card relative border-gg-pink glow-pink-sm">
-              <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-gg-pink text-black text-sm font-semibold px-4 py-1 rounded-full">
-                Most Popular
-              </div>
-              <span className="inline-block text-gg-pink text-sm font-semibold mb-3">7-day free trial</span>
-              <h3 className="font-display text-2xl font-bold text-white mb-2">State</h3>
-              <p className="text-gg-gray-400 mb-6">Best for active land investors</p>
-              <div className="mb-1">
-                <span className="text-4xl font-bold text-white">$19.99</span>
-                <span className="text-gg-gray-400">/month</span>
-              </div>
-              <p className="text-gg-gray-500 text-sm mb-6">then $19.99/mo after trial</p>
-              <ul className="space-y-3 mb-8">
-                <li className="flex items-center gap-2 text-gg-gray-300">
-                  <Check className="text-gg-pink" size={18} />
-                  1 state included (all counties)
-                </li>
-                <li className="flex items-center gap-2 text-gg-gray-300">
-                  <Check className="text-gg-pink" size={18} />
-                  +$12.99/mo per additional state
-                </li>
-                <li className="flex items-center gap-2 text-gg-gray-300">
-                  <Check className="text-gg-pink" size={18} />
-                  Everything in County plan
+                  Historical data access
                 </li>
                 <li className="flex items-center gap-2 text-gg-gray-300">
                   <Check className="text-gg-pink" size={18} />
@@ -495,19 +476,58 @@ export default function Home() {
                 </li>
                 <li className="flex items-center gap-2 text-gg-gray-300">
                   <Check className="text-gg-pink" size={18} />
-                  Historical data access
+                  Mobile app access
                 </li>
               </ul>
-              <Link href="/signup?plan=state" className="btn-primary w-full text-center block">
+              <Link href="/signup?plan=basic_state" className="btn-secondary w-full text-center block">
                 Start 7-Day Free Trial
               </Link>
               <p className="text-center text-gg-gray-500 text-sm mt-4">
-                Save 10% with annual billing
+                Save ~10% with annual billing
+              </p>
+            </div>
+
+            {/* Premium State Plan - Featured */}
+            <div className="card relative border-gg-pink glow-pink-sm flex flex-col">
+              <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-gg-pink text-black text-sm font-semibold px-4 py-1 rounded-full">
+                Most Popular
+              </div>
+              <span className="inline-block text-gg-pink text-sm font-semibold mb-3">7-day free trial</span>
+              <h3 className="font-display text-2xl font-bold text-white mb-2">Premium State</h3>
+              <p className="text-gg-gray-400 mb-6">For data-driven land professionals</p>
+              <div className="mb-1">
+                <span className="text-4xl font-bold text-white">$74.99</span>
+                <span className="text-gg-gray-400">/state/month</span>
+              </div>
+              <p className="text-gg-gray-500 text-sm mb-6">per state, up to 5 states</p>
+              <ul className="space-y-3 mb-8 flex-grow">
+                <li className="flex items-center gap-2 text-gg-gray-300">
+                  <Check className="text-gg-pink" size={18} />
+                  Everything in Basic State
+                </li>
+                <li className="flex items-center gap-2 text-gg-gray-300">
+                  <Check className="text-gg-pink" size={18} />
+                  Interactive map with soil & elevation data
+                </li>
+                <li className="flex items-center gap-2 text-gg-gray-300">
+                  <Check className="text-gg-pink" size={18} />
+                  Comparable sales reports
+                </li>
+                <li className="flex items-center gap-2 text-gg-gray-300">
+                  <Check className="text-gg-pink" size={18} />
+                  Advanced land analytics
+                </li>
+              </ul>
+              <Link href="/signup?plan=premium_state" className="btn-primary w-full text-center block">
+                Start 7-Day Free Trial
+              </Link>
+              <p className="text-center text-gg-gray-500 text-sm mt-4">
+                Save ~10% with annual billing
               </p>
             </div>
 
             {/* Management Firm Plan */}
-            <div className="card relative">
+            <div className="card relative flex flex-col">
               <span className="inline-block text-gg-pink text-sm font-semibold mb-3">14-day free trial</span>
               <h3 className="font-display text-2xl font-bold text-white mb-2">Management Firm</h3>
               <p className="text-gg-gray-400 mb-6">For teams and professionals</p>
@@ -515,23 +535,27 @@ export default function Home() {
                 <span className="text-4xl font-bold text-white">$199.99</span>
                 <span className="text-gg-gray-400">/month</span>
               </div>
-              <p className="text-gg-gray-500 text-sm mb-6">then $199.99/mo after trial</p>
-              <ul className="space-y-3 mb-8">
+              <p className="text-gg-gray-500 text-sm mb-6">+$9.99/mo per user after 3</p>
+              <ul className="space-y-3 mb-8 flex-grow">
                 <li className="flex items-center gap-2 text-gg-gray-300">
                   <Check className="text-gg-pink" size={18} />
                   Unlimited states & counties
                 </li>
                 <li className="flex items-center gap-2 text-gg-gray-300">
                   <Check className="text-gg-pink" size={18} />
-                  Up to 3 team members
+                  Up to 3 team members included
                 </li>
                 <li className="flex items-center gap-2 text-gg-gray-300">
                   <Check className="text-gg-pink" size={18} />
-                  +$39.99/mo per additional user
+                  Desktop access with advanced maps
                 </li>
                 <li className="flex items-center gap-2 text-gg-gray-300">
                   <Check className="text-gg-pink" size={18} />
-                  Comparable sales lookup
+                  County & township analytics
+                </li>
+                <li className="flex items-center gap-2 text-gg-gray-300">
+                  <Check className="text-gg-pink" size={18} />
+                  Comparable sales reports
                 </li>
                 <li className="flex items-center gap-2 text-gg-gray-300">
                   <Check className="text-gg-pink" size={18} />
@@ -542,7 +566,7 @@ export default function Home() {
                 Start 14-Day Free Trial
               </Link>
               <p className="text-center text-gg-gray-500 text-sm mt-4">
-                Save 10% with annual billing
+                Save ~10% with annual billing
               </p>
             </div>
           </div>
