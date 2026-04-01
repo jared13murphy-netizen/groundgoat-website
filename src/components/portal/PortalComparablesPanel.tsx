@@ -451,13 +451,13 @@ export default function PortalComparablesPanel({ data, loading, onClose, onSelec
                     {onToggleReport && (
                       <button
                         onClick={() => onToggleReport(comp)}
-                        className={`w-full py-2.5 text-xs font-medium border-t transition ${
+                        className={`w-full py-2.5 text-xs font-semibold border-t transition ${
                           inReport
-                            ? 'bg-gg-pink/10 text-gg-pink border-gg-pink/20'
-                            : 'bg-white/[0.02] text-gg-gray-400 border-white/5 hover:text-white hover:bg-white/[0.05]'
+                            ? 'bg-gg-pink/15 text-gg-pink border-gg-pink/30 shadow-[inset_0_0_12px_rgba(233,30,140,0.15)]'
+                            : 'bg-gg-pink/5 text-gg-pink border-white/5 hover:bg-gg-pink/10 shadow-[0_0_8px_rgba(233,30,140,0.15)]'
                         }`}
                       >
-                        {inReport ? '− Remove from Report' : '+ Add to Report'}
+                        {inReport ? '✓ In Report' : '+ Add to Report'}
                       </button>
                     )}
                   </div>

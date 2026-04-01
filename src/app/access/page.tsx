@@ -284,16 +284,20 @@ export default function AccessPortalPage() {
 
     try {
       // Fetch scored comparables AND all state sales in parallel
-      const [compResponse, salesResponse] = await Promise.all([
-        fetchWithAuth(`${API_URL}/api/comparables/tract/${tractId}?months_back=24&include_neighboring=true&limit=50`),
-        fetchWithAuth(`${API_URL}/api/comparables/state-sales/${state}?county=${encodeURIComponent(county)}&months_back=24&neighbor_depth=2&limit=2000`),
-      ])
+      // First fetch scored comparables to get subject tract coordinates
+      const compResponse = await fetchWithAuth(`${API_URL}/api/comparables/tract/${tractId}?months_back=24&include_neighboring=true&limit=50`)
+      const compData = compResponse.ok ? await compResponse.json() : { comparables: [], summary: { count: 0, avg_price_per_acre: 0, median_price_per_acre: 0, min_price_per_acre: 0, max_price_per_acre: 0, avg_acres: 0 }, search_criteria: { county, state } }
+
+      // Use subject coordinates for distance-sorted state sales
+      const subLat = compData.search_criteria?.subject_latitude
+      const subLng = compData.search_criteria?.subject_longitude
+      const latLngParams = subLat && subLng ? `&lat=${subLat}&lng=${subLng}` : ''
+      const salesResponse = await fetchWithAuth(`${API_URL}/api/comparables/state-sales/${state}?county=${encodeURIComponent(county)}&months_back=24&neighbor_depth=2&limit=2000${latLngParams}`)
 
       if (!compResponse.ok) {
-        console.error('Comparables API error:', compResponse.status, await compResponse.text().catch(() => ''))
+        console.error('Comparables API error:', compResponse.status)
       }
 
-      const compData = compResponse.ok ? await compResponse.json() : { comparables: [], summary: { count: 0, avg_price_per_acre: 0, median_price_per_acre: 0, min_price_per_acre: 0, max_price_per_acre: 0, avg_acres: 0 }, search_criteria: { county, state } }
       const salesData = salesResponse.ok ? await salesResponse.json() : { tracts: [] }
 
       // Merge: attach similarity scores from scored comps to the full sales dataset
@@ -319,14 +323,12 @@ export default function AccessPortalPage() {
 
       if (compResponse.ok) {
         // Zoom to subject tract location
-        const subjectLat = compData.search_criteria?.subject_latitude
-        const subjectLng = compData.search_criteria?.subject_longitude
-        if (subjectLat && subjectLng) {
-          setSubjectTractLocation({ lat: subjectLat, lng: subjectLng })
+        if (subLat && subLng) {
+          setSubjectTractLocation({ lat: subLat, lng: subLng })
         }
 
-        const zoomTarget = subjectLat && subjectLng
-          ? { lat: subjectLat, lng: subjectLng, zoom: 11 }
+        const zoomTarget = subLat && subLng
+          ? { lat: subLat, lng: subLng, zoom: 11 }
           : (() => {
               const coords = getCountyCoordinates(state, county)
               return coords ? { lat: coords.latitude, lng: coords.longitude, zoom: 10 } : null
