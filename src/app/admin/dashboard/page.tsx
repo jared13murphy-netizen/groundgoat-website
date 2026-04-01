@@ -16,7 +16,8 @@ import {
   Loader2,
   Moon,
   ClipboardList,
-  ClipboardCheck
+  ClipboardCheck,
+  MapPin
 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import type { ApiListing } from '@/components/map/mapTypes'
@@ -307,6 +308,12 @@ export default function AdminDashboard() {
                 description="Review scraped private treaty listings"
                 href="/admin/private-treaty-staging"
                 icon={<ClipboardList />}
+              />
+              <QuickActionCard
+                title="Rescrape Listings"
+                description="Fix tracts missing boundary lines"
+                href="/admin/rescrape"
+                icon={<MapPin />}
               />
               <QuickActionCard
                 title="Manage Users"

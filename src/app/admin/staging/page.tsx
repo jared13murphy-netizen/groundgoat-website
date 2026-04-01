@@ -563,14 +563,20 @@ export default function AdminStagingPage() {
 
   const handleVerify = async (id: number) => {
     setActionLoading(id)
+    // Check if this is a rescrape item
+    const item = listings.find(l => l.id === id)
+    const isRescrape = item?.scraped_data?.rescrape_listing_id
+    const verifyUrl = isRescrape
+      ? `${API_URL}/api/admin/staging/${id}/verify-rescrape`
+      : `${API_URL}/api/admin/staging/${id}/verify`
     try {
-      const response = await fetchWithAuth(`${API_URL}/api/admin/staging/${id}/verify`, {
+      const response = await fetchWithAuth(verifyUrl, {
         method: 'POST',
       })
       if (response.ok) {
         setListings((prev) => prev.filter((l) => l.id !== id))
         setTotalCount((prev) => Math.max(0, prev - 1))
-        showToast('success', 'Listing verified and created successfully')
+        showToast('success', isRescrape ? 'Tracts updated with new boundary data' : 'Listing verified and created successfully')
       } else if (response.status === 409) {
         // Duplicate detected — check if we have listing ID for comparison
         const err = await response.json().catch(() => ({ detail: 'Duplicate listing' }))
@@ -1240,8 +1246,11 @@ export default function AdminStagingPage() {
                         {/* Company & Date Row */}
                         <div className="flex items-start justify-between mb-4">
                           <div>
-                            <h3 className="text-lg font-bold text-white">
+                            <h3 className="text-lg font-bold text-white flex items-center gap-2">
                               {listing.company_name || 'Unknown Company'}
+                              {listing.scraped_data?.rescrape_listing_id && (
+                                <span className="px-2 py-0.5 bg-orange-500/20 text-orange-400 text-xs font-medium rounded-full">RESCRAPE</span>
+                              )}
                             </h3>
                             <div className="flex items-center gap-4 mt-1 text-sm text-gg-gray-400">
                               <span className="flex items-center gap-1">
@@ -1407,7 +1416,7 @@ export default function AdminStagingPage() {
                             className="flex items-center gap-2 px-5 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-500 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             {actionLoading === listing.id ? <Loader2 className="animate-spin" size={16} /> : <CheckCircle size={16} />}
-                            {actionLoading === listing.id ? 'Verifying...' : 'Verify'}
+                            {actionLoading === listing.id ? 'Verifying...' : listing.scraped_data?.rescrape_listing_id ? 'Update Tracts' : 'Verify'}
                           </button>
                           <button
                             onClick={() => openEditModal(listing)}
