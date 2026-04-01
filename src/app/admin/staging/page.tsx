@@ -224,6 +224,16 @@ export default function AdminStagingPage() {
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
   const [copiedId, setCopiedId] = useState<number | null>(null)
 
+  // Duplicate comparison modal state
+  const [duplicateModal, setDuplicateModal] = useState<{
+    stagingId: number
+    existingListingId: string
+    matchType: string
+    message: string
+    existingListing: any | null
+    loading: boolean
+  } | null>(null)
+
   // Edit modal state
   const [editingListing, setEditingListing] = useState<StagingListing | null>(null)
   const [editForm, setEditForm] = useState<EditForm>({ acres_listed: '', sale_date: '', auction_time: '', auction_url: '', image_url: '', description: '', primary_image_source: 'auto', tracts: [] })
@@ -561,15 +571,86 @@ export default function AdminStagingPage() {
         setListings((prev) => prev.filter((l) => l.id !== id))
         setTotalCount((prev) => Math.max(0, prev - 1))
         showToast('success', 'Listing verified and created successfully')
+      } else if (response.status === 409) {
+        // Duplicate detected — check if we have listing ID for comparison
+        const err = await response.json().catch(() => ({ detail: 'Duplicate listing' }))
+        const detail = err.detail
+        if (typeof detail === 'object' && detail.existing_listing_id) {
+          // Show comparison modal
+          setDuplicateModal({
+            stagingId: id,
+            existingListingId: detail.existing_listing_id,
+            matchType: detail.match_type || 'unknown',
+            message: detail.message || 'A duplicate listing exists',
+            existingListing: null,
+            loading: true,
+          })
+          // Fetch the existing listing details
+          try {
+            const listingRes = await fetchWithAuth(`${API_URL}/api/listings/${detail.existing_listing_id}`)
+            if (listingRes.ok) {
+              const listingData = await listingRes.json()
+              setDuplicateModal(prev => prev ? { ...prev, existingListing: listingData, loading: false } : null)
+            } else {
+              setDuplicateModal(prev => prev ? { ...prev, loading: false } : null)
+            }
+          } catch {
+            setDuplicateModal(prev => prev ? { ...prev, loading: false } : null)
+          }
+        } else {
+          showToast('error', (typeof detail === 'string' ? detail : detail?.message) || 'Duplicate listing exists')
+        }
       } else {
         const err = await response.json().catch(() => ({ detail: 'Unknown error' }))
-        showToast('error', err.detail || err.error || 'Failed to verify listing')
+        const detail = err.detail
+        showToast('error', (typeof detail === 'string' ? detail : detail?.message) || err.error || 'Failed to verify listing')
       }
     } catch (err) {
       showToast('error', 'Network error — failed to verify listing')
     } finally {
       setActionLoading(null)
     }
+  }
+
+  const handleVerifyReplace = async () => {
+    if (!duplicateModal) return
+    setDuplicateModal(prev => prev ? { ...prev, loading: true } : null)
+    try {
+      const response = await fetchWithAuth(`${API_URL}/api/admin/staging/${duplicateModal.stagingId}/verify-replace`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ replace_listing_id: duplicateModal.existingListingId }),
+      })
+      if (response.ok) {
+        setListings((prev) => prev.filter((l) => l.id !== duplicateModal.stagingId))
+        setTotalCount((prev) => Math.max(0, prev - 1))
+        setDuplicateModal(null)
+        showToast('success', 'Old listing replaced with new data successfully')
+      } else {
+        const err = await response.json().catch(() => ({ detail: 'Replace failed' }))
+        showToast('error', err.detail || 'Failed to replace listing')
+        setDuplicateModal(null)
+      }
+    } catch {
+      showToast('error', 'Network error — failed to replace listing')
+      setDuplicateModal(null)
+    }
+  }
+
+  const handleKeepOriginal = async () => {
+    if (!duplicateModal) return
+    // Reject the staging record
+    try {
+      await fetchWithAuth(`${API_URL}/api/admin/staging/${duplicateModal.stagingId}`, {
+        method: 'DELETE',
+      })
+      setListings((prev) => prev.filter((l) => l.id !== duplicateModal.stagingId))
+      setTotalCount((prev) => Math.max(0, prev - 1))
+      showToast('success', 'Kept original listing, staging record removed')
+    } catch {
+      showToast('error', 'Failed to remove staging record')
+    }
+    setDuplicateModal(null)
   }
 
   const handleReject = async (id: number) => {
@@ -1542,6 +1623,118 @@ export default function AdminStagingPage() {
       )}
 
       {/* Toast */}
+      {/* Duplicate Comparison Modal */}
+      {duplicateModal && (
+        <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-gg-gray-900 border border-white/10 rounded-2xl shadow-2xl max-w-4xl w-full max-h-[85vh] overflow-hidden flex flex-col">
+            {/* Modal Header */}
+            <div className="px-6 py-4 border-b border-white/10 flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-bold text-white">Duplicate Listing Detected</h2>
+                <p className="text-xs text-gg-gray-400 mt-0.5">{duplicateModal.message}</p>
+              </div>
+              <button onClick={() => setDuplicateModal(null)} className="text-gg-gray-400 hover:text-white text-xl">✕</button>
+            </div>
+
+            {/* Comparison Content */}
+            <div className="flex-1 overflow-y-auto p-6">
+              {duplicateModal.loading ? (
+                <div className="flex items-center justify-center h-40">
+                  <Loader2 className="animate-spin text-gg-pink" size={28} />
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-6">
+                  {/* Existing Listing */}
+                  <div className="bg-red-500/5 border border-red-500/20 rounded-xl p-4">
+                    <div className="text-xs font-bold text-red-400 uppercase tracking-wider mb-3">Existing Listing</div>
+                    {duplicateModal.existingListing ? (() => {
+                      const ex = duplicateModal.existingListing
+                      return (
+                        <div className="space-y-2 text-sm">
+                          <div><span className="text-gg-gray-400">Company:</span> <span className="text-white font-medium">{ex.company_name || ex.company?.name || '—'}</span></div>
+                          <div><span className="text-gg-gray-400">Location:</span> <span className="text-white">{ex.county}, {ex.state}</span></div>
+                          <div><span className="text-gg-gray-400">Acres:</span> <span className="text-white">{ex.total_acres || '—'}</span></div>
+                          <div><span className="text-gg-gray-400">Tracts:</span> <span className="text-white">{ex.tracts?.length || ex.tract_count || '—'}</span></div>
+                          <div><span className="text-gg-gray-400">Auction:</span> <span className="text-white">{ex.auction_datetime ? new Date(ex.auction_datetime).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}</span></div>
+                          <div><span className="text-gg-gray-400">Status:</span> <span className="text-white">{ex.status || '—'}</span></div>
+                          {ex.tracts && ex.tracts.length > 0 && (
+                            <div className="mt-3 pt-3 border-t border-white/5">
+                              <div className="text-xs font-semibold text-gg-gray-400 mb-2">Tracts:</div>
+                              {ex.tracts.map((t: any, i: number) => (
+                                <div key={i} className="text-xs text-gg-gray-300 flex gap-2">
+                                  <span>Tract {t.tract_number || i + 1}</span>
+                                  <span>{t.total_acres ? `${t.total_acres} ac` : '—'}</span>
+                                  <span>{t.polygon_coordinates ? '✓ Boundaries' : '✗ No boundaries'}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })() : <p className="text-gg-gray-500 text-sm">Could not load existing listing details</p>}
+                  </div>
+
+                  {/* New Staging Data */}
+                  <div className="bg-green-500/5 border border-green-500/20 rounded-xl p-4">
+                    <div className="text-xs font-bold text-green-400 uppercase tracking-wider mb-3">New Staging Data</div>
+                    {(() => {
+                      const staging = listings.find(l => l.id === duplicateModal.stagingId)
+                      if (!staging) return <p className="text-gg-gray-500 text-sm">Staging data not found</p>
+                      const info = extractListingInfo(staging.scraped_data)
+                      const tracts = info.tracts || []
+                      return (
+                        <div className="space-y-2 text-sm">
+                          <div><span className="text-gg-gray-400">Company:</span> <span className="text-white font-medium">{staging.company_name || '—'}</span></div>
+                          <div><span className="text-gg-gray-400">Location:</span> <span className="text-white">{info.county || '—'}, {info.state || '—'}</span></div>
+                          <div><span className="text-gg-gray-400">Acres:</span> <span className="text-white">{info.acres || '—'}</span></div>
+                          <div><span className="text-gg-gray-400">Tracts:</span> <span className="text-white">{info.tractCount || '—'}</span></div>
+                          <div><span className="text-gg-gray-400">Auction:</span> <span className="text-white">{staging.auction_date ? new Date(staging.auction_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}</span></div>
+                          <div><span className="text-gg-gray-400">Scraped:</span> <span className="text-white">{staging.created_at ? new Date(staging.created_at).toLocaleDateString() : '—'}</span></div>
+                          {tracts.length > 0 && (
+                            <div className="mt-3 pt-3 border-t border-white/5">
+                              <div className="text-xs font-semibold text-gg-gray-400 mb-2">Tracts:</div>
+                              {tracts.map((t: any, i: number) => (
+                                <div key={i} className="text-xs text-gg-gray-300 flex gap-2">
+                                  <span>Tract {t.tract_number || i + 1}</span>
+                                  <span>{t.acres ? `${t.acres} ac` : '—'}</span>
+                                  <span>{t.polygon_coordinates ? '✓ Boundaries' : '✗ No boundaries'}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })()}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 border-t border-white/10 flex items-center justify-end gap-3">
+              <button
+                onClick={() => setDuplicateModal(null)}
+                className="px-4 py-2 text-sm text-gg-gray-400 hover:text-white transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleKeepOriginal}
+                className="px-4 py-2 text-sm bg-white/5 border border-white/10 text-white rounded-lg hover:bg-white/10 transition"
+              >
+                Keep Original
+              </button>
+              <button
+                onClick={handleVerifyReplace}
+                className="px-4 py-2 text-sm bg-gg-pink text-white font-semibold rounded-lg hover:bg-gg-pink/80 transition"
+              >
+                Replace with New
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {toast && (
         <div className={`fixed bottom-6 right-6 z-50 flex items-center gap-3 px-5 py-3 rounded-lg shadow-lg text-white ${
           toast.type === 'success' ? 'bg-green-600' : 'bg-red-600'
