@@ -148,10 +148,10 @@ interface ExploreMapProps {
   onFiltersApplied?: (filters: { stateFilter: string; countyFilters: string[] }) => void
   zoomToLocation?: { lat: number; lng: number; zoom: number } | null
   subjectTractId?: string | null
-  comparableMarkers?: { id: string; lat: number; lng: number; label: string; acres: number; pricePerAcre: number; similarityScore: number }[]
+  subjectTractLocation?: { lat: number; lng: number } | null
 }
 
-export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, subjectTractId, comparableMarkers }: ExploreMapProps) {
+export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, subjectTractId, subjectTractLocation }: ExploreMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const stateMarkersRef = useRef<maplibregl.Marker[]>([])
@@ -669,50 +669,108 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     })
   }, [portalMode, reportIds])
 
-  // Highlight subject tract in comparables mode
+  // Create dedicated subject tract marker in comparables mode
+  const subjectMarkerRef = useRef<maplibregl.Marker | null>(null)
   useEffect(() => {
-    if (!portalMode || !subjectTractId) return
-    tractMarkerElementsRef.current.forEach((el, tractId) => {
-      const pin = el.querySelector('.comp-marker-pin') as HTMLDivElement | null
-      if (!pin) return
-      if (tractId === subjectTractId) {
-        el.style.zIndex = '20'
-        pin.style.backgroundColor = '#F58CDE'
-        pin.style.width = '18px'
-        pin.style.height = '18px'
-        pin.style.boxShadow = '0 0 0 4px rgba(245,140,222,0.4), 0 0 20px 4px rgba(245,140,222,0.6)'
-        pin.style.border = '3px solid #fff'
-        // Update label style
-        const label = el.querySelector('.comp-marker-label') as HTMLDivElement | null
-        if (label) {
-          label.style.background = 'rgba(245,140,222,0.15)'
-          label.style.border = '1px solid rgba(245,140,222,0.5)'
-          label.style.color = '#F58CDE'
-        }
-      }
-    })
-    // Cleanup when subject tract changes
-    return () => {
-      tractMarkerElementsRef.current.forEach((el, tractId) => {
-        if (tractId === subjectTractId) {
-          const pin = el.querySelector('.comp-marker-pin') as HTMLDivElement | null
-          if (pin) {
-            pin.style.width = ''
-            pin.style.height = ''
-            pin.style.boxShadow = ''
-            pin.style.border = ''
-          }
-          el.style.zIndex = ''
-          const label = el.querySelector('.comp-marker-label') as HTMLDivElement | null
-          if (label) {
-            label.style.background = ''
-            label.style.border = ''
-            label.style.color = ''
-          }
-        }
-      })
+    const map = mapRef.current
+    // Remove previous subject marker
+    if (subjectMarkerRef.current) {
+      subjectMarkerRef.current.remove()
+      subjectMarkerRef.current = null
     }
-  }, [portalMode, subjectTractId])
+    if (!portalMode || !subjectTractLocation || !map) return
+
+    // Create a prominent subject tract marker
+    const el = document.createElement('div')
+    el.style.display = 'flex'
+    el.style.flexDirection = 'column'
+    el.style.alignItems = 'center'
+    el.style.zIndex = '50'
+
+    // Label
+    const label = document.createElement('div')
+    label.textContent = 'SUBJECT TRACT'
+    label.style.cssText = `
+      background: rgba(245,140,222,0.2);
+      border: 2px solid #F58CDE;
+      color: #F58CDE;
+      font-size: 11px;
+      font-weight: 800;
+      padding: 3px 10px;
+      border-radius: 6px;
+      margin-bottom: 4px;
+      white-space: nowrap;
+      letter-spacing: 0.5px;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.5);
+      backdrop-filter: blur(4px);
+    `
+    el.appendChild(label)
+
+    // Pin with pulsing ring
+    const pinContainer = document.createElement('div')
+    pinContainer.style.cssText = 'position: relative; width: 24px; height: 24px;'
+
+    // Pulsing ring
+    const ring = document.createElement('div')
+    ring.style.cssText = `
+      position: absolute;
+      inset: -8px;
+      border-radius: 50%;
+      border: 2px solid #F58CDE;
+      animation: subjectPulse 2s ease-out infinite;
+    `
+    pinContainer.appendChild(ring)
+
+    // Second ring (delayed)
+    const ring2 = document.createElement('div')
+    ring2.style.cssText = `
+      position: absolute;
+      inset: -8px;
+      border-radius: 50%;
+      border: 2px solid #F58CDE;
+      animation: subjectPulse 2s ease-out 1s infinite;
+    `
+    pinContainer.appendChild(ring2)
+
+    // Main pin
+    const pin = document.createElement('div')
+    pin.style.cssText = `
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: #F58CDE;
+      border: 3px solid #fff;
+      box-shadow: 0 0 0 4px rgba(245,140,222,0.4), 0 0 20px 6px rgba(245,140,222,0.5);
+      position: relative;
+      z-index: 1;
+    `
+    pinContainer.appendChild(pin)
+    el.appendChild(pinContainer)
+
+    // Add CSS animation if not already present
+    if (!document.getElementById('subject-pulse-style')) {
+      const style = document.createElement('style')
+      style.id = 'subject-pulse-style'
+      style.textContent = `
+        @keyframes subjectPulse {
+          0% { transform: scale(1); opacity: 0.8; }
+          100% { transform: scale(2.5); opacity: 0; }
+        }
+      `
+      document.head.appendChild(style)
+    }
+
+    const marker = new maplibregl.Marker({ element: el, anchor: 'bottom' })
+      .setLngLat([subjectTractLocation.lng, subjectTractLocation.lat])
+      .addTo(map)
+
+    subjectMarkerRef.current = marker
+
+    return () => {
+      marker.remove()
+      subjectMarkerRef.current = null
+    }
+  }, [portalMode, subjectTractLocation])
 
   // Manage state card markers
   useEffect(() => {

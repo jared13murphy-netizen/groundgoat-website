@@ -87,6 +87,7 @@ export default function AccessPortalPage() {
   const [zoomToLocation, setZoomToLocation] = useState<{ lat: number; lng: number; zoom: number } | null>(null)
   // Comparables mode
   const [subjectTractId, setSubjectTractId] = useState<string | null>(null)
+  const [subjectTractLocation, setSubjectTractLocation] = useState<{ lat: number; lng: number } | null>(null)
   const [comparablesData, setComparablesData] = useState<any>(null)
   const [showComparablesPanel, setShowComparablesPanel] = useState(false)
   // 3D viewer state
@@ -285,6 +286,11 @@ export default function AccessPortalPage() {
         // Zoom to subject tract location — use a small delay so the map has settled
         const subjectLat = data.search_criteria?.subject_latitude
         const subjectLng = data.search_criteria?.subject_longitude
+        // Store subject location for the marker
+        if (subjectLat && subjectLng) {
+          setSubjectTractLocation({ lat: subjectLat, lng: subjectLng })
+        }
+
         const zoomTarget = subjectLat && subjectLng
           ? { lat: subjectLat, lng: subjectLng, zoom: 11 }
           : (() => {
@@ -310,6 +316,7 @@ export default function AccessPortalPage() {
 
   const handleCloseComparables = () => {
     setSubjectTractId(null)
+    setSubjectTractLocation(null)
     setComparablesData(null)
     setShowComparablesPanel(false)
   }
@@ -363,6 +370,7 @@ export default function AccessPortalPage() {
           onFiltersApplied={handleFiltersApplied}
           zoomToLocation={zoomToLocation}
           subjectTractId={subjectTractId}
+          subjectTractLocation={subjectTractLocation}
         />
       </div>
 
