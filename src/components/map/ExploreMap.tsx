@@ -196,6 +196,30 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       tractMarkersRef.current = []
       stateMarkersRef.current.forEach(m => m.remove())
       stateMarkersRef.current = []
+      // Refetch tracts for current viewport
+      const map = mapRef.current
+      if (map) {
+        setTimeout(() => {
+          const bounds = map.getBounds()
+          const south = bounds.getSouth()
+          const north = bounds.getNorth()
+          const west = bounds.getWest()
+          const east = bounds.getEast()
+          const cellSize = 0.5
+          const startLat = Math.floor(south * 2) / 2
+          const startLng = Math.floor(west * 2) / 2
+          for (let lat = startLat; lat < north; lat += cellSize) {
+            for (let lng = startLng; lng < east; lng += cellSize) {
+              loadTractsForBounds({
+                min_lat: Math.max(lat, south),
+                max_lat: Math.min(lat + cellSize, north),
+                min_lng: Math.max(lng, west),
+                max_lng: Math.min(lng + cellSize, east),
+              })
+            }
+          }
+        }, 100)
+      }
     }
   }, [resetFiltersSignal])
 
