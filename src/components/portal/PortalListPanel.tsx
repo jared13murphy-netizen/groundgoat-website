@@ -32,6 +32,7 @@ interface PortalListPanelProps {
   loading: boolean
   activeTab: TabType
   onClose: () => void
+  onTractSelected?: (tract: any) => void
 }
 
 const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=600'
@@ -167,7 +168,7 @@ function ListingCard({ listing, activeTab, onClick }: { listing: Listing; active
   )
 }
 
-export default function PortalListPanel({ listings, loading, activeTab, onClose }: PortalListPanelProps) {
+export default function PortalListPanel({ listings, loading, activeTab, onClose, onTractSelected }: PortalListPanelProps) {
   const [selectedListingId, setSelectedListingId] = useState<string | null>(null)
 
   return (
@@ -210,6 +211,7 @@ export default function PortalListPanel({ listings, loading, activeTab, onClose 
           <PortalListingDetail
             listingId={selectedListingId}
             onBack={() => setSelectedListingId(null)}
+            onTractSelected={onTractSelected}
           />
         ) : loading ? (
           <div className="flex items-center justify-center h-40">

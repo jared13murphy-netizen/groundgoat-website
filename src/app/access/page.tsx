@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
+import Image from 'next/image'
+import Link from 'next/link'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Loader2, BarChart3 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
@@ -12,6 +14,8 @@ import PortalKPICards from '@/components/portal/PortalKPICards'
 import PortalListPanel from '@/components/portal/PortalListPanel'
 import PortalAnalyticsPanel from '@/components/portal/PortalAnalyticsPanel'
 import PortalListingDetail from '@/components/portal/PortalListingDetail'
+import PortalTractDetail from '@/components/portal/PortalTractDetail'
+import type { TractSaleData } from '@/components/portal/PortalTractDetail'
 
 const ExploreMap = dynamic(() => import('@/components/map/ExploreMap'), { ssr: false })
 
@@ -72,6 +76,7 @@ export default function AccessPortalPage() {
   const [analyticsData, setAnalyticsData] = useState<AnalyticsData | null>(null)
   const [analyticsLoading, setAnalyticsLoading] = useState(false)
   const [mapListingId, setMapListingId] = useState<string | null>(null)
+  const [selectedTract, setSelectedTract] = useState<TractSaleData | null>(null)
 
   // Auth check
   useEffect(() => {
@@ -166,12 +171,20 @@ export default function AccessPortalPage() {
   }
 
   const handleViewListingFromMap = (listingId: string) => {
+    setSelectedTract(null)
     setMapListingId(listingId)
+  }
+
+  const handleTractSelected = (tract: any) => {
+    // Convert SaleDetail from ExploreMap to TractSaleData
+    setMapListingId(null)
+    setSelectedTract(tract as TractSaleData)
   }
 
   const handleTabChange = (tab: TabType) => {
     setActiveTab(tab)
-    setMapListingId(null) // Clear map listing detail when switching tabs
+    setMapListingId(null)
+    setSelectedTract(null)
     if (tab === 'map') {
       setShowListPanel(false)
     } else {
@@ -202,6 +215,9 @@ export default function AccessPortalPage() {
 
   if (!user) return null
 
+  // Whether any left panel is showing
+  const hasLeftPanel = showListPanel || !!mapListingId || !!selectedTract
+
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-gg-black">
       {/* Full-screen Map */}
@@ -214,10 +230,19 @@ export default function AccessPortalPage() {
           externalFilterOpen={filterOpen}
           onFilterOpenChange={setFilterOpen}
           onViewListing={handleViewListingFromMap}
+          onTractSelected={handleTractSelected}
         />
       </div>
 
-      {/* Floating Nav Bar */}
+      {/* Floating Logo (separate from nav bar) */}
+      <Link
+        href="/access"
+        className="fixed top-3 left-4 z-[510]"
+      >
+        <Image src="/logo.png" alt="Ground Goat" width={56} height={56} className="rounded-xl shadow-lg" />
+      </Link>
+
+      {/* Floating Nav Bar (shifted right to make room for logo) */}
       <PortalNavBar
         activeTab={activeTab}
         onTabChange={handleTabChange}
@@ -246,7 +271,7 @@ export default function AccessPortalPage() {
         <span className="text-sm font-medium group-hover:text-gg-pink transition">Analytics</span>
       </button>
 
-      {/* Left Panel: Listings */}
+      {/* Left Panel: Listing List */}
       <AnimatePresence>
         {showListPanel && activeTab !== 'map' && (
           <PortalListPanel
@@ -257,6 +282,7 @@ export default function AccessPortalPage() {
               setShowListPanel(false)
               setActiveTab('map')
             }}
+            onTractSelected={setSelectedTract}
           />
         )}
       </AnimatePresence>
@@ -296,6 +322,40 @@ export default function AccessPortalPage() {
               <PortalListingDetail
                 listingId={mapListingId}
                 onBack={() => setMapListingId(null)}
+                onTractSelected={setSelectedTract}
+              />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Tract Detail Slide-out (from clicking map tract or tract in listing detail) */}
+      <AnimatePresence>
+        {selectedTract && (
+          <motion.div
+            initial={{ x: -500 }}
+            animate={{ x: 0 }}
+            exit={{ x: -500 }}
+            transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+            className="fixed top-0 left-0 bottom-0 w-[480px] z-[410] bg-gg-gray-900/95 backdrop-blur-xl border-r border-white/10 shadow-2xl flex flex-col"
+          >
+            <div className="pt-20 px-5 pb-4 border-b border-white/5 flex items-center justify-between shrink-0">
+              <h2 className="text-lg font-semibold">Tract Detail</h2>
+              <button
+                onClick={() => setSelectedTract(null)}
+                className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center hover:bg-white/10 transition"
+              >
+                <span className="text-gg-gray-400 text-sm">✕</span>
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-5 py-4">
+              <PortalTractDetail
+                tract={selectedTract}
+                onBack={() => setSelectedTract(null)}
+                onViewListing={(listingId) => {
+                  setSelectedTract(null)
+                  setMapListingId(listingId)
+                }}
               />
             </div>
           </motion.div>

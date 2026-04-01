@@ -58,7 +58,7 @@ function formatDate(dateStr: string | null | undefined): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
-interface SaleDetail {
+export interface SaleDetail {
   id: string
   listingId?: string | null
   tractId?: string | null
@@ -140,9 +140,10 @@ interface ExploreMapProps {
   externalFilterOpen?: boolean
   onFilterOpenChange?: (open: boolean) => void
   onViewListing?: (listingId: string) => void
+  onTractSelected?: (tract: SaleDetail) => void
 }
 
-export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing }: ExploreMapProps) {
+export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected }: ExploreMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const stateMarkersRef = useRef<maplibregl.Marker[]>([])
@@ -565,9 +566,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         tract.sale_status
       )
 
-      // Click to open modal
+      // Click to open modal or slide-out (portal mode)
       el.addEventListener('click', () => {
-        setSelectedSale({
+        const saleData: SaleDetail = {
           id: tract.id,
           listingId: tract.listing_id,
           tractId: tract.id,
@@ -587,7 +588,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           pctTillable: tract.pct_tillable,
           pricePerTillableAcre: tract.price_per_tillable_acre,
           pricePerSoilRating: tract.price_per_soil_rating,
-        })
+        }
+        if (portalMode && onTractSelected) {
+          onTractSelected(saleData)
+        } else {
+          setSelectedSale(saleData)
+        }
       })
 
       const marker = new maplibregl.Marker({ element: el })

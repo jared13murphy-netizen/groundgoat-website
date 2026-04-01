@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import Image from 'next/image'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Map, Calendar, Building2, BarChart3, LogOut, User, Settings, Filter } from 'lucide-react'
@@ -55,13 +54,7 @@ export default function PortalNavBar({ activeTab, onTabChange, onFilterToggle, f
   return (
     <div className="fixed top-4 left-4 right-4 z-[500] flex items-center justify-between gap-3">
       {/* Logo + Tabs + Filter */}
-      <div className="bg-black/50 backdrop-blur-xl rounded-2xl px-3 py-2 flex items-center gap-3 border border-white/10">
-        <Link href="/access" className="shrink-0">
-          <Image src="/logo.png" alt="Ground Goat" width={52} height={52} className="rounded-lg" />
-        </Link>
-
-        <div className="h-6 w-px bg-white/10" />
-
+      <div className="bg-black/50 backdrop-blur-xl rounded-2xl px-3 py-2 flex items-center gap-3 border border-white/10 ml-16">
         <nav className="flex items-center gap-1">
           {tabs.map(tab => (
             <button

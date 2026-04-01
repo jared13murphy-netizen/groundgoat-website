@@ -27,8 +27,13 @@ interface Tract {
   land_type?: string
   sale_status?: string
   sale_price?: number
+  price_per_acre?: number
   estimated_value_per_acre?: number
   estimate_confidence?: number
+  image_url?: string
+  township?: string
+  county_name?: string
+  state_abbr?: string
 }
 
 interface Listing {
@@ -60,6 +65,7 @@ interface Listing {
 interface PortalListingDetailProps {
   listingId: string
   onBack: () => void
+  onTractSelected?: (tract: any) => void
 }
 
 const LAND_TYPE_COLORS: Record<string, string> = {
@@ -120,7 +126,7 @@ function formatTime(listing: Listing): string {
   return ''
 }
 
-export default function PortalListingDetail({ listingId, onBack }: PortalListingDetailProps) {
+export default function PortalListingDetail({ listingId, onBack, onTractSelected }: PortalListingDetailProps) {
   const [listing, setListing] = useState<Listing | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -355,63 +361,107 @@ export default function PortalListingDetail({ listingId, onBack }: PortalListing
             Tracts ({listing.tracts.length})
           </h3>
           <div className="space-y-3">
-            {listing.tracts.map((tract, index) => (
-              <div key={tract.id || index} className="bg-white/[0.03] rounded-xl p-4 border border-white/5">
-                {/* Tract Header */}
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-sm font-semibold">
-                    Tract {tract.tract_number || index + 1}
-                  </span>
-                  <div className="flex items-center gap-2">
-                    {tract.land_type && (
-                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold text-white ${LAND_TYPE_COLORS[tract.land_type] || 'bg-gg-pink'}`}>
-                        {tract.land_type}
-                      </span>
-                    )}
-                    {tract.sale_status && ['sold', 'no_sale', 'pending'].includes(tract.sale_status.toLowerCase()) && (
-                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold text-white ${STATUS_COLORS[tract.sale_status.toLowerCase()] || 'bg-gray-500'}`}>
-                        {STATUS_LABELS[tract.sale_status.toLowerCase()] || tract.sale_status}
-                      </span>
-                    )}
-                  </div>
-                </div>
+            {listing.tracts.map((tract, index) => {
+              const handleTractClick = () => {
+                if (onTractSelected) {
+                  onTractSelected({
+                    id: tract.id,
+                    listingId: listing.id,
+                    tractId: tract.id,
+                    auctionDate: listing.auction_datetime || listing.auction_date,
+                    totalAcres: tract.total_acres,
+                    tillableAcres: tract.tillable_acres,
+                    companyName: getCompanyName(),
+                    salePrice: tract.sale_price,
+                    pricePerAcre: tract.sale_price && tract.total_acres ? tract.sale_price / tract.total_acres : tract.price_per_acre,
+                    county: listing.county,
+                    state: listing.state,
+                    township: tract.township,
+                    soilRating: tract.soil_rating,
+                    saleStatus: tract.sale_status || listing.status,
+                    listingType: listing.listing_type,
+                  })
+                }
+              }
 
-                {/* Tract Stats */}
-                <div className="grid grid-cols-4 gap-2 text-center">
-                  <div>
-                    <div className="text-sm font-medium">{formatAcres(tract.total_acres)}</div>
-                    <div className="text-[10px] text-gg-gray-500">Acres</div>
-                  </div>
-                  {tract.tillable_acres ? (
-                    <div>
-                      <div className="text-sm font-medium">{formatAcres(tract.tillable_acres)}</div>
-                      <div className="text-[10px] text-gg-gray-500">Tillable</div>
-                    </div>
-                  ) : null}
-                  {tract.soil_rating ? (
-                    <div>
-                      <div className="text-sm font-medium">{tract.soil_rating}</div>
-                      <div className="text-[10px] text-gg-gray-500">Soil Rating</div>
-                    </div>
-                  ) : null}
-                  {tract.sale_price && tract.total_acres ? (
-                    <div>
-                      <div className="text-sm font-medium text-gg-pink">{formatCurrency(tract.sale_price / tract.total_acres)}</div>
-                      <div className="text-[10px] text-gg-gray-500">$/Acre</div>
-                    </div>
-                  ) : null}
-                </div>
-
-                {/* Find Comparables */}
-                <Link
-                  href={`/listings/${listing.id}/comparables?tractId=${tract.id}`}
-                  className="mt-3 flex items-center justify-center gap-2 w-full py-2 bg-gg-pink/10 text-gg-pink border border-gg-pink/30 rounded-lg hover:bg-gg-pink/20 transition text-xs font-medium"
+              return (
+                <div
+                  key={tract.id || index}
+                  className={`bg-white/[0.03] rounded-xl overflow-hidden border border-white/5 ${onTractSelected ? 'hover:border-gg-pink/20 hover:bg-white/[0.06] cursor-pointer group' : ''} transition`}
+                  onClick={onTractSelected ? handleTractClick : undefined}
                 >
-                  <BarChart3 size={14} />
-                  Find Comparables
-                </Link>
-              </div>
-            ))}
+                  {/* Tract Image */}
+                  {tract.image_url && (
+                    <div className="relative h-32 w-full bg-gg-gray-800">
+                      <Image
+                        src={tract.image_url}
+                        alt={`Tract ${tract.tract_number || index + 1}`}
+                        fill
+                        className="object-cover"
+                        sizes="500px"
+                      />
+                    </div>
+                  )}
+
+                  <div className="p-4">
+                    {/* Tract Header */}
+                    <div className="flex items-center justify-between mb-3">
+                      <span className={`text-sm font-semibold ${onTractSelected ? 'group-hover:text-gg-pink' : ''} transition`}>
+                        Tract {tract.tract_number || index + 1}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        {tract.land_type && (
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold text-white ${LAND_TYPE_COLORS[tract.land_type] || 'bg-gg-pink'}`}>
+                            {tract.land_type}
+                          </span>
+                        )}
+                        {tract.sale_status && ['sold', 'no_sale', 'pending'].includes(tract.sale_status.toLowerCase()) && (
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold text-white ${STATUS_COLORS[tract.sale_status.toLowerCase()] || 'bg-gray-500'}`}>
+                            {STATUS_LABELS[tract.sale_status.toLowerCase()] || tract.sale_status}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Tract Stats */}
+                    <div className="grid grid-cols-4 gap-2 text-center">
+                      <div>
+                        <div className="text-sm font-medium">{formatAcres(tract.total_acres)}</div>
+                        <div className="text-[10px] text-gg-gray-500">Acres</div>
+                      </div>
+                      {tract.tillable_acres ? (
+                        <div>
+                          <div className="text-sm font-medium">{formatAcres(tract.tillable_acres)}</div>
+                          <div className="text-[10px] text-gg-gray-500">Tillable</div>
+                        </div>
+                      ) : null}
+                      {tract.soil_rating ? (
+                        <div>
+                          <div className="text-sm font-medium">{tract.soil_rating}</div>
+                          <div className="text-[10px] text-gg-gray-500">Soil Rating</div>
+                        </div>
+                      ) : null}
+                      {tract.sale_price && tract.total_acres ? (
+                        <div>
+                          <div className="text-sm font-medium text-gg-pink">{formatCurrency(tract.sale_price / tract.total_acres)}</div>
+                          <div className="text-[10px] text-gg-gray-500">$/Acre</div>
+                        </div>
+                      ) : null}
+                    </div>
+
+                    {/* Find Comparables */}
+                    <Link
+                      href={`/listings/${listing.id}/comparables?tractId=${tract.id}`}
+                      onClick={(e) => e.stopPropagation()}
+                      className="mt-3 flex items-center justify-center gap-2 w-full py-2 bg-gg-pink/10 text-gg-pink border border-gg-pink/30 rounded-lg hover:bg-gg-pink/20 transition text-xs font-medium"
+                    >
+                      <BarChart3 size={14} />
+                      Find Comparables
+                    </Link>
+                  </div>
+                </div>
+              )
+            })}
           </div>
         </div>
       )}
