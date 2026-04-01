@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import { motion } from 'framer-motion'
@@ -130,6 +130,7 @@ function formatTime(listing: Listing): string {
 export default function PortalListingDetail({ listingId, onBack, onTractSelected, onFindComparables }: PortalListingDetailProps) {
   const [listing, setListing] = useState<Listing | null>(null)
   const [loading, setLoading] = useState(true)
+  const [heroImgError, setHeroImgError] = useState(false)
 
   useEffect(() => {
     fetchListing()
@@ -227,11 +228,12 @@ export default function PortalListingDetail({ listingId, onBack, onTractSelected
       {/* Hero Image */}
       <div className="relative h-48 bg-gg-gray-800 rounded-xl overflow-hidden mb-4">
         <Image
-          src={listing.primary_image_url || FALLBACK_IMAGE}
+          src={(!heroImgError && listing.primary_image_url) ? listing.primary_image_url : FALLBACK_IMAGE}
           alt={`${listing.county}, ${listing.state}`}
           fill
           className="object-cover"
           sizes="500px"
+          onError={() => setHeroImgError(true)}
         />
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
 
@@ -394,12 +396,11 @@ export default function PortalListingDetail({ listingId, onBack, onTractSelected
                   {/* Tract Image */}
                   {tract.image_url && (
                     <div className="relative h-32 w-full bg-gg-gray-800">
-                      <Image
+                      <img
                         src={tract.image_url}
                         alt={`Tract ${tract.tract_number || index + 1}`}
-                        fill
-                        className="object-cover"
-                        sizes="500px"
+                        className="w-full h-full object-cover"
+                        onError={(e) => { (e.target as HTMLImageElement).src = FALLBACK_IMAGE }}
                       />
                     </div>
                   )}

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import Image from 'next/image'
 import { X, Calendar, Building2, DollarSign, Loader2, MapPin } from 'lucide-react'
@@ -105,7 +105,9 @@ function getListingSoilRating(listing: Listing): number | null {
 
 function ListingCard({ listing, activeTab, onClick }: { listing: Listing; activeTab: TabType; onClick: () => void }) {
   const hasCompany = !!(listing.company?.name || listing.company_name)
-  const imgSrc = listing.primary_image_url || FALLBACK_IMAGE
+  const [imgError, setImgError] = useState(false)
+  const imgSrc = (!imgError && listing.primary_image_url) ? listing.primary_image_url : FALLBACK_IMAGE
+  const handleImgError = useCallback(() => setImgError(true), [])
 
   return (
     <div
@@ -122,6 +124,7 @@ function ListingCard({ listing, activeTab, onClick }: { listing: Listing; active
           fill
           className="object-cover"
           sizes="500px"
+          onError={handleImgError}
         />
         {(activeTab === 'results' || listing.status === 'live') && (
           <span className={`absolute top-2 right-2 text-[10px] px-2 py-0.5 rounded-full font-medium uppercase ${
