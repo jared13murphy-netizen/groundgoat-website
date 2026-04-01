@@ -377,13 +377,17 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       if (response.ok) {
         const data: MapTractsResponse = await response.json()
         if (data.tracts) {
-          const now = new Date()
+          const isUpcomingFilter = filtersRef.current.dateRange === 'upcoming'
           data.tracts.forEach(t => {
-            // Show tracts with a status, or upcoming tracts (null status but have a future auction date)
-            const hasStatus = !!t.sale_status
-            const isUpcoming = !t.sale_status && t.auction_date && new Date(t.auction_date) >= now
-            if (hasStatus || isUpcoming) {
-              tractMapRef.current.set(t.id, t)
+            if (isUpcomingFilter) {
+              // Upcoming: show all tracts that are NOT sold, pending, or no_sale
+              const postSaleStatuses = ['sold', 'pending', 'no_sale']
+              if (!t.sale_status || !postSaleStatuses.includes(t.sale_status)) {
+                tractMapRef.current.set(t.id, t)
+              }
+            } else {
+              // All other filters: only show tracts with a sale_status
+              if (t.sale_status) tractMapRef.current.set(t.id, t)
             }
           })
           setTracts(Array.from(tractMapRef.current.values()))
