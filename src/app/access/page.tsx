@@ -290,7 +290,7 @@ export default function AccessPortalPage() {
         href="/access"
         className="fixed top-3 left-4 z-[390]"
       >
-        <img src="/logo.png" alt="Ground Goat" style={{ width: 140, height: 'auto', mixBlendMode: 'screen' }} />
+        <img src="/logo-transparent.png" alt="Ground Goat" style={{ width: 140, height: 'auto' }} />
       </Link>
 
       {/* Floating Nav Bar (shifted right to make room for logo) */}
