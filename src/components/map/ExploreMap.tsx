@@ -84,7 +84,7 @@ interface FilterState {
   dateRange: string
   stateFilter: string
   countyFilters: string[]
-  townshipFilter: string
+  townshipFilters: string[]
   soilRatingMin: string
   soilRatingMax: string
   acreageMin: string
@@ -98,7 +98,7 @@ const INITIAL_FILTERS: FilterState = {
   dateRange: 'all',
   stateFilter: '',
   countyFilters: [],
-  townshipFilter: '',
+  townshipFilters: [],
   soilRatingMin: '',
   soilRatingMax: '',
   acreageMin: '',
@@ -125,7 +125,7 @@ function buildFilterParams(filters: FilterState) {
   if (filters.statuses?.length > 0) params.sale_status = filters.statuses.flatMap(s => s.split(',')).join(',')
   if (filters.stateFilter) params.state_abbr = filters.stateFilter
   if (filters.countyFilters?.length > 0) params.county_name = filters.countyFilters.join(',')
-  if (filters.townshipFilter) params.township = filters.townshipFilter
+  if (filters.townshipFilters?.length > 0) params.township = filters.townshipFilters.join(',')
   if (filters.soilRatingMin) params.soil_rating_min = filters.soilRatingMin
   if (filters.soilRatingMax) params.soil_rating_max = filters.soilRatingMax
   if (filters.acreageMin) params.acreage_min = filters.acreageMin
@@ -379,7 +379,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   }
 
   const hasActiveFilters = filters.dateRange !== 'all' || filters.stateFilter !== '' ||
-    filters.townshipFilter !== '' ||
+    filters.townshipFilters.length > 0 ||
     filters.soilRatingMin !== '' || filters.soilRatingMax !== '' ||
     filters.acreageMin !== '' || filters.acreageMax !== '' ||
     filters.pctTillableMin !== '' || filters.pctTillableMax !== '' ||
@@ -1152,26 +1152,70 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               )
             })()}
 
-            {/* Township */}
-            <div style={{ marginBottom: 20 }}>
-              <div style={{ color: '#CCCCCC', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>Township</div>
-              <input
-                type="text"
-                placeholder="e.g. Rockford, Bath"
-                value={filters.townshipFilter}
-                onChange={e => setFilters(f => ({ ...f, townshipFilter: e.target.value }))}
-                style={{
-                  width: '100%',
-                  padding: '8px 12px',
-                  borderRadius: 8,
-                  border: '1px solid rgba(255,255,255,0.15)',
-                  backgroundColor: 'rgba(255,255,255,0.05)',
-                  color: '#fff',
-                  fontSize: 13,
-                  outline: 'none',
-                }}
-              />
-            </div>
+            {/* Township — buttons from loaded tracts */}
+            {(() => {
+              // Get unique townships from loaded tracts, filtered by selected state/county
+              const townshipSet = new Set<string>()
+              tracts.forEach(t => {
+                if (!t.township) return
+                // Filter to selected states if any
+                if (filters.stateFilter) {
+                  const states = filters.stateFilter.split(',').map(s => s.trim().toUpperCase())
+                  if (!states.includes(t.state?.toUpperCase())) return
+                }
+                // Filter to selected counties if any
+                if (filters.countyFilters.length > 0) {
+                  if (!filters.countyFilters.some(c => c.toLowerCase() === t.county?.toLowerCase())) return
+                }
+                // Normalize: strip " Township" suffix, title case
+                let twp = t.township.trim()
+                for (const suffix of [' Township', ' township', ' TOWNSHIP', ' Twp', ' twp']) {
+                  if (twp.endsWith(suffix)) { twp = twp.slice(0, -suffix.length); break }
+                }
+                if (twp) townshipSet.add(twp)
+              })
+              const townships = Array.from(townshipSet).sort()
+
+              if (townships.length === 0) return null
+
+              return (
+                <div style={{ marginBottom: 20 }}>
+                  <div style={{ color: '#CCCCCC', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>
+                    Township{filters.townshipFilters.length > 0 ? ` (${filters.townshipFilters.length} selected)` : ''}
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, maxHeight: 160, overflowY: 'auto' }}>
+                    {townships.map(twp => {
+                      const isActive = filters.townshipFilters.includes(twp)
+                      return (
+                        <button
+                          key={twp}
+                          onClick={() => {
+                            setFilters(f => ({
+                              ...f,
+                              townshipFilters: isActive
+                                ? f.townshipFilters.filter(t => t !== twp)
+                                : [...f.townshipFilters, twp]
+                            }))
+                          }}
+                          style={{
+                            padding: '4px 10px',
+                            borderRadius: 14,
+                            border: `1px solid ${isActive ? '#E91E8C' : 'rgba(255,255,255,0.15)'}`,
+                            backgroundColor: isActive ? 'rgba(233,30,140,0.2)' : 'transparent',
+                            color: isActive ? '#E91E8C' : '#BBBBBB',
+                            fontSize: 12,
+                            fontWeight: 500,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {twp}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            })()}
 
             {/* Range filters */}
             {[
