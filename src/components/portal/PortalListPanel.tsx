@@ -35,6 +35,7 @@ interface PortalListPanelProps {
   onClose: () => void
   onTractSelected?: (tract: any) => void
   onFindComparables?: (tractId: string, county: string, state: string) => void
+  activeFilters?: { stateFilter: string; countyFilters: string[] }
 }
 
 const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=600'
@@ -217,7 +218,7 @@ function ListingCard({ listing, activeTab, onClick }: { listing: Listing; active
   )
 }
 
-export default function PortalListPanel({ listings, loading, activeTab, onClose, onTractSelected, onFindComparables }: PortalListPanelProps) {
+export default function PortalListPanel({ listings, loading, activeTab, onClose, onTractSelected, onFindComparables, activeFilters }: PortalListPanelProps) {
   const [selectedListingId, setSelectedListingId] = useState<string | null>(null)
 
   return (
@@ -229,29 +230,30 @@ export default function PortalListPanel({ listings, loading, activeTab, onClose,
       className="fixed top-0 left-0 bottom-0 w-[480px] z-[400] bg-gg-gray-900/95 backdrop-blur-xl border-r border-white/10 shadow-2xl flex flex-col"
     >
       {/* Header */}
-      <div className="pt-20 px-5 pb-4 border-b border-white/5 flex items-center justify-between shrink-0">
-        <div>
+      <div className="pt-20 px-5 pb-4 border-b border-white/5 shrink-0">
+        <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">
             {selectedListingId ? 'Listing Detail' : TAB_TITLES[activeTab]}
           </h2>
-          {!selectedListingId && (
-            <p className="text-xs text-gg-gray-400 mt-0.5">
-              {loading ? 'Loading...' : `${listings.length} listing${listings.length !== 1 ? 's' : ''}`}
-            </p>
-          )}
+          <button
+            onClick={() => {
+              if (selectedListingId) {
+                setSelectedListingId(null)
+              } else {
+                onClose()
+              }
+            }}
+            className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center hover:bg-white/10 transition"
+          >
+            <X size={16} className="text-gg-gray-400" />
+          </button>
         </div>
-        <button
-          onClick={() => {
-            if (selectedListingId) {
-              setSelectedListingId(null)
-            } else {
-              onClose()
-            }
-          }}
-          className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center hover:bg-white/10 transition"
-        >
-          <X size={16} className="text-gg-gray-400" />
-        </button>
+        {/* Active filters display */}
+        {!selectedListingId && activeFilters && (activeFilters.stateFilter || activeFilters.countyFilters.length > 0) && (
+          <p className="text-xs text-gg-gray-400 mt-2">
+            Showing{activeFilters.stateFilter ? ` ${activeFilters.stateFilter}` : ''}{activeFilters.countyFilters.length > 0 ? ` · ${activeFilters.countyFilters.join(', ')}` : ''}
+          </p>
+        )}
       </div>
 
       {/* Content */}

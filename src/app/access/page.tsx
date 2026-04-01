@@ -444,6 +444,7 @@ export default function AccessPortalPage() {
             }}
             onTractSelected={setSelectedTract}
             onFindComparables={handleFindComparables}
+            activeFilters={activeFilters}
           />
         )}
       </AnimatePresence>
