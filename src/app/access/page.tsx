@@ -289,7 +289,7 @@ export default function AccessPortalPage() {
         href="/access"
         className="fixed top-3 left-4 z-[510]"
       >
-        <Image src="/logo.png" alt="Ground Goat" width={56} height={56} className="rounded-xl shadow-lg" />
+        <Image src="/logo.png" alt="Ground Goat" width={80} height={80} className="rounded-xl shadow-lg" />
       </Link>
 
       {/* Floating Nav Bar (shifted right to make room for logo) */}

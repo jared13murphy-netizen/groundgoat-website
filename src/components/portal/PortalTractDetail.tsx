@@ -150,24 +150,24 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
       {/* Key Metrics */}
       <div className="grid grid-cols-2 gap-3">
         <div className="bg-white/[0.03] rounded-xl p-4 border border-white/5">
-          <div className="text-[10px] text-gg-gray-500 uppercase tracking-wider">Acres</div>
+          <div className="text-[10px] text-gg-gray-300 uppercase tracking-wider">Acres</div>
           <div className="text-lg font-bold mt-1">{formatAcres(tract.totalAcres)}</div>
         </div>
         {tract.salePrice ? (
           <div className="bg-white/[0.03] rounded-xl p-4 border border-white/5">
-            <div className="text-[10px] text-gg-gray-500 uppercase tracking-wider">Sale Price</div>
+            <div className="text-[10px] text-gg-gray-300 uppercase tracking-wider">Sale Price</div>
             <div className="text-lg font-bold mt-1">{formatCurrency(tract.salePrice)}</div>
           </div>
         ) : null}
         {tract.pricePerAcre ? (
           <div className="bg-white/[0.03] rounded-xl p-4 border border-white/5">
-            <div className="text-[10px] text-gg-gray-500 uppercase tracking-wider">Price/Acre</div>
+            <div className="text-[10px] text-gg-gray-300 uppercase tracking-wider">Price/Acre</div>
             <div className="text-lg font-bold text-gg-pink mt-1">{formatCurrency(tract.pricePerAcre)}/ac</div>
           </div>
         ) : null}
         {tract.tillableAcres ? (
           <div className="bg-white/[0.03] rounded-xl p-4 border border-white/5">
-            <div className="text-[10px] text-gg-gray-500 uppercase tracking-wider">Tillable</div>
+            <div className="text-[10px] text-gg-gray-300 uppercase tracking-wider">Tillable</div>
             <div className="text-lg font-bold mt-1">{formatAcres(tract.tillableAcres)}</div>
           </div>
         ) : null}
@@ -234,8 +234,8 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
                 <div key={idx} className={`px-4 py-3 ${idx > 0 ? 'border-t border-white/5' : ''}`}>
                   <div className="text-sm font-medium">{unit.name || unit.musym || 'Unknown'}</div>
                   <div className="flex gap-3 mt-1">
-                    {unit.nccpi != null && <span className="text-xs text-gg-gray-500">NCCPI: {unit.nccpi}</span>}
-                    {unit.drainage_class && <span className="text-xs text-gg-gray-500">{unit.drainage_class}</span>}
+                    {unit.nccpi != null && <span className="text-xs text-gg-gray-300">NCCPI: {unit.nccpi}</span>}
+                    {unit.drainage_class && <span className="text-xs text-gg-gray-300">{unit.drainage_class}</span>}
                   </div>
                 </div>
               ))}
@@ -244,34 +244,30 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
         </div>
       )}
 
-      {/* Action Buttons */}
-      <div className="space-y-2 pt-2">
+      {/* Action Buttons — horizontal row */}
+      <div className="flex gap-2 pt-2">
         {/* 3D Map */}
-        {tract.tractId && onView3DTerrain ? (
+        {tract.tractId && onView3DTerrain && (
           <button
             onClick={() => onView3DTerrain(tract.tractId!, `${tract.county}, ${tract.state}`)}
-            className="flex items-center justify-center gap-2 w-full py-3 bg-gg-pink text-white font-semibold rounded-xl hover:bg-gg-pink/80 transition text-sm"
+            className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-gg-pink text-white font-semibold rounded-xl hover:bg-gg-pink/80 transition text-xs"
           >
-            <Mountain size={16} />
+            <Mountain size={14} />
             3D Map
           </button>
-        ) : (
-          <div className="text-center text-xs text-gg-gray-500 italic py-2">
-            No map boundaries available
-          </div>
         )}
 
         {/* Add to Report */}
         {onToggleReport && (
           <button
             onClick={() => onToggleReport(tract)}
-            className={`flex items-center justify-center gap-2 w-full py-3 rounded-xl font-medium transition text-sm border ${
+            className={`flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl font-medium transition text-xs border ${
               isInReport
                 ? 'bg-gg-pink/10 text-gg-pink border-gg-pink/30'
                 : 'bg-white/5 text-white border-white/10 hover:bg-white/10'
             }`}
           >
-            {isInReport ? '− Remove from Report' : '+ Add to Report'}
+            {isInReport ? '− Report' : '+ Report'}
           </button>
         )}
 
@@ -279,9 +275,9 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
         {tract.listingId && tract.companyName && onViewListing && (
           <button
             onClick={() => onViewListing(tract.listingId!)}
-            className="flex items-center justify-center gap-2 w-full py-3 bg-white/5 border border-white/10 text-white font-medium rounded-xl hover:bg-white/10 transition text-sm"
+            className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-white/5 border border-white/10 text-white font-medium rounded-xl hover:bg-white/10 transition text-xs"
           >
-            View Listing →
+            View Listing
           </button>
         )}
       </div>
@@ -292,7 +288,7 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
 function DetailRow({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
   return (
     <div className="flex items-center justify-between px-4 py-3">
-      <span className="text-xs text-gg-gray-500">{label}</span>
+      <span className="text-xs text-gg-gray-300">{label}</span>
       <span className={`text-sm font-medium ${highlight ? 'text-gg-pink' : ''}`}>{value}</span>
     </div>
   )
