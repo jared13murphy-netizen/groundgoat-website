@@ -238,7 +238,7 @@ const handleResendVerification = async () => {
           <div className="flex flex-col sm:flex-row items-center gap-5">
             <div className="w-16 h-16 rounded-2xl flex-shrink-0 overflow-hidden">
               <Image
-                src="/apple-touch-icon.png"
+                src="/app-icon.png"
                 alt="Ground Goat App"
                 width={64}
                 height={64}
