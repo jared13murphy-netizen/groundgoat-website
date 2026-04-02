@@ -357,7 +357,8 @@ export default function AccessPortalPage() {
   const [comparablesLoading, setComparablesLoading] = useState(false)
 
   const handleFindComparables = async (tractId: string, county: string, state: string) => {
-    // Close other panels, switch to map
+    // Show loading, close other panels, switch to map
+    setComparablesLoading(true)
     setMapListingId(null)
     setSelectedTract(null)
     setShowListPanel(false)
@@ -404,6 +405,7 @@ export default function AccessPortalPage() {
     setReportIds(new Set())
     setReportTracts([])
     setShowComparablesReportPanel(true)
+    setComparablesLoading(false)
   }
 
   const handleCloseComparables = () => {
@@ -577,7 +579,11 @@ export default function AccessPortalPage() {
                   setMapListingId(listingId)
                 }}
                 onView3DTerrain={handleView3DTerrain}
-                onToggleReport={handleToggleReport}
+                onToggleReport={(tract) => {
+                  handleToggleReport(tract)
+                  // Close tract detail panel after adding/removing from report
+                  setSelectedTract(null)
+                }}
                 isInReport={reportIds.has(selectedTract.id)}
               />
             </div>
@@ -590,8 +596,8 @@ export default function AccessPortalPage() {
         <div className="fixed inset-0 z-[600] bg-black/60 backdrop-blur-sm flex items-center justify-center">
           <div className="bg-gg-gray-900 rounded-2xl p-8 border border-white/10 text-center shadow-2xl">
             <Loader2 className="animate-spin text-gg-pink mx-auto mb-3" size={36} />
-            <p className="text-sm font-medium">Finding Comparables...</p>
-            <p className="text-xs text-gg-gray-400 mt-1">Analyzing similar sales in the area</p>
+            <p className="text-sm font-medium">Loading Subject Tract...</p>
+            <p className="text-xs text-gg-gray-400 mt-1">Preparing comparable sales view</p>
           </div>
         </div>
       )}

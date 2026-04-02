@@ -14,9 +14,17 @@ const STATE_SOIL_LABELS: Record<string, string> = {
   MI: 'NCCPI', WI: 'PI', KY: 'NCCPI', TN: 'NCCPI', WV: 'NCCPI', VA: 'NCCPI',
 }
 
+const STATE_NAME_TO_ABBR: Record<string, string> = {
+  'ILLINOIS': 'IL', 'IOWA': 'IA', 'INDIANA': 'IN', 'MISSOURI': 'MO', 'MINNESOTA': 'MN',
+  'NEBRASKA': 'NE', 'SOUTH DAKOTA': 'SD', 'NORTH DAKOTA': 'ND', 'KANSAS': 'KS', 'OHIO': 'OH',
+  'MICHIGAN': 'MI', 'WISCONSIN': 'WI', 'KENTUCKY': 'KY', 'TENNESSEE': 'TN', 'WEST VIRGINIA': 'WV', 'VIRGINIA': 'VA',
+}
+
 function getSoilLabel(state?: string): string {
-  if (state) return STATE_SOIL_LABELS[state.toUpperCase()] || 'Soil'
-  return 'Soil'
+  if (!state) return 'Soil'
+  const upper = state.toUpperCase()
+  const abbr = STATE_NAME_TO_ABBR[upper] || upper
+  return STATE_SOIL_LABELS[abbr] || 'Soil'
 }
 
 function fmt(val?: number | null): string {
@@ -144,8 +152,8 @@ export default function PortalComparablesReportPanel({ subjectInfo, reportTracts
             </p>
           </div>
           <button
-            onClick={onClose}
-            className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center hover:bg-white/10 transition"
+            onClick={(e) => { e.stopPropagation(); onClose() }}
+            className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center hover:bg-white/10 transition relative z-10"
           >
             <X size={16} className="text-gg-gray-400" />
           </button>
