@@ -416,6 +416,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           const isUpcomingFilter = filtersRef.current.dateRange === 'upcoming'
           const now = new Date()
           data.tracts.forEach(t => {
+            // Only show tracts that have boundary data
+            if (!t.polygon_coordinates || !Array.isArray(t.polygon_coordinates) || t.polygon_coordinates.length < 3) return
+
             if (isUpcomingFilter) {
               // Upcoming: show tracts that are NOT sold, pending, or no_sale
               const postSaleStatuses = ['sold', 'pending', 'no_sale']
