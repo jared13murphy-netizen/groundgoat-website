@@ -301,9 +301,6 @@ export default function PortalListPanel({ listings, loading, activeTab, onClose,
             listingId={selectedListingId}
             onBack={() => setSelectedListingId(null)}
             onTractSelected={(tract) => {
-              // Pass the current listing ID along so the parent knows where we came from
-              tract._fromListingId = selectedListingId
-              setSelectedListingId(null)
               onTractSelected?.(tract)
             }}
             onFindComparables={onFindComparables}
