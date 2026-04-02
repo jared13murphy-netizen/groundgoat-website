@@ -167,13 +167,12 @@ function ListingCard({ listing, activeTab, onClick }: { listing: Listing; active
               <span className="text-[9px] font-bold text-gg-pink uppercase leading-none">
                 {(() => { const d = new Date(listing.auction_datetime || listing.auction_date || ''); return d.toLocaleDateString('en-US', { month: 'short' }).toUpperCase() })()}
               </span>
-              <span className="text-base font-black text-white leading-tight">
-                {(() => { const d = new Date(listing.auction_datetime || listing.auction_date || ''); return d.getUTCDate() })()}
+              <span className="text-sm font-black text-white leading-tight">
+                {(() => { const d = new Date(listing.auction_datetime || listing.auction_date || ''); return ['SUN','MON','TUE','WED','THU','FRI','SAT'][d.getUTCDay()] })()}
               </span>
             </div>
             <div className="flex flex-col">
-              <span className="text-sm font-bold text-white">{formatDate(listing)}</span>
-              {formatTime(listing) && <span className="text-xs font-semibold text-gg-pink">{formatTime(listing)}</span>}
+              <span className="text-sm font-bold text-white">{formatDate(listing)}{formatTime(listing) ? ` at ${formatTime(listing)}` : ''}</span>
             </div>
           </div>
         )}
