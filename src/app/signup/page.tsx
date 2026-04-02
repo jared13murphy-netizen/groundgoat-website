@@ -568,6 +568,7 @@ function SignUpContent() {
           billing_cycle: billingCycle,
           additional_seats: additionalSeats,
           promo_code: promoValidation?.valid ? promoCode.trim().toUpperCase() : null,
+          referral_code: referralCode,
         }),
       })
 
