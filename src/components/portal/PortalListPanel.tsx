@@ -24,7 +24,7 @@ interface Listing {
   company?: { id: string; name: string }
   company_name?: string
   tract_count?: number
-  tracts?: { id: string; tillable_acres?: number; soil_rating?: number; csr2?: number; total_acres?: number }[]
+  tracts?: { id: string; tillable_acres?: number; soil_rating?: number; csr2?: number; total_acres?: number; price_per_acre?: number }[]
 }
 
 interface PortalListPanelProps {
@@ -97,6 +97,19 @@ function getListingTillableAcres(listing: Listing): number | null {
   if (!listing.tracts?.length) return null
   const total = listing.tracts.reduce((sum, t) => sum + (t.tillable_acres || 0), 0)
   return total > 0 ? total : null
+}
+
+function getListingAvgPricePerAcre(listing: Listing): { avg: number | null; isAverage: boolean } {
+  // Use listing-level price_per_acre if available
+  if (listing.price_per_acre) {
+    return { avg: listing.price_per_acre, isAverage: (listing.tract_count || 1) > 1 }
+  }
+  // Compute from tracts
+  if (!listing.tracts?.length) return { avg: null, isAverage: false }
+  const withPrice = listing.tracts.filter(t => t.price_per_acre)
+  if (withPrice.length === 0) return { avg: null, isAverage: false }
+  const avg = withPrice.reduce((sum, t) => sum + (t.price_per_acre || 0), 0) / withPrice.length
+  return { avg: Math.round(avg), isAverage: withPrice.length > 1 }
 }
 
 function getListingSoilRating(listing: Listing): number | null {
@@ -223,13 +236,21 @@ function ListingCard({ listing, activeTab, onClick, isWatchlisted, onToggleWatch
         </div>
 
         {/* Results: price per acre + date */}
-        {activeTab === 'results' && listing.price_per_acre && (
-          <div className="flex items-center gap-1.5 text-xs mt-3 pt-2 border-t border-white/5">
-            <DollarSign size={12} className="text-gg-gray-400" />
-            <span className="text-gg-pink font-medium">{formatPrice(listing.price_per_acre)}/ac</span>
-            <span className="text-gg-gray-500">· {formatDate(listing)}</span>
-          </div>
-        )}
+        {activeTab === 'results' && (() => {
+          const ppa = getListingAvgPricePerAcre(listing)
+          return ppa.avg ? (
+            <div className="mt-3 pt-2 border-t border-white/5">
+              <div className="flex items-center gap-1.5 text-xs">
+                <DollarSign size={12} className="text-gg-gray-400" />
+                <span className="text-gg-pink font-bold text-sm">{formatPrice(ppa.avg)}/ac</span>
+                <span className="text-gg-gray-500">· {formatDate(listing)}</span>
+              </div>
+              {ppa.isAverage && (
+                <div className="text-[10px] text-gg-gray-500 mt-1 italic">Avg of {listing.tract_count || listing.tracts?.length} tracts</div>
+              )}
+            </div>
+          ) : null
+        })()}
       </div>
     </div>
   )
