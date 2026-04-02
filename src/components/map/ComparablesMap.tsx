@@ -284,18 +284,19 @@ export default function ComparablesMap({
         return [sumLng / coords.length, sumLat / coords.length]
       }
 
-      // Create markers for ALL sold tracts — use polygon centroid when available
+      // Create markers for sold tracts with boundaries only
       markerElementsRef.current.clear()
       for (const sale of stateSales) {
-        // Use polygon centroid if available, otherwise stored lat/lng
+        // Skip tracts without boundary data
+        if (!sale.polygon_coordinates || !Array.isArray(sale.polygon_coordinates) || sale.polygon_coordinates.length < 3) continue
+
+        // Use polygon centroid for marker placement
         let markerLng = sale.longitude
         let markerLat = sale.latitude
-        if (sale.polygon_coordinates && sale.polygon_coordinates.length > 2) {
-          const centroid = getPolygonCentroid(sale.polygon_coordinates)
-          if (centroid) {
-            markerLng = centroid[0]
-            markerLat = centroid[1]
-          }
+        const centroid = getPolygonCentroid(sale.polygon_coordinates)
+        if (centroid) {
+          markerLng = centroid[0]
+          markerLat = centroid[1]
         }
         if (!markerLat || !markerLng) continue
 

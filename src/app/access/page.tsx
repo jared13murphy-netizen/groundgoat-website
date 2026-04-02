@@ -302,11 +302,13 @@ export default function AccessPortalPage() {
         scoreMap.set(String(c.id), c.similarity_score ?? 0)
       }
 
-      // Build all_tracts from state-sales, enriched with similarity scores
-      const allTracts = (salesData.tracts || []).map((t: any) => ({
-        ...t,
-        similarity_score: scoreMap.get(String(t.id)) ?? null,
-      }))
+      // Build all_tracts from state-sales, enriched with similarity scores — only tracts with boundaries
+      const allTracts = (salesData.tracts || [])
+        .filter((t: any) => t.polygon_coordinates && Array.isArray(t.polygon_coordinates) && t.polygon_coordinates.length >= 3)
+        .map((t: any) => ({
+          ...t,
+          similarity_score: scoreMap.get(String(t.id)) ?? null,
+        }))
 
       // Store both datasets — panel will use allTracts for sorting/filtering
       const mergedData = {
