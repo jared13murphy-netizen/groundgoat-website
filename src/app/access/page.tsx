@@ -114,7 +114,7 @@ export default function AccessPortalPage() {
     try {
       const token = localStorage.getItem('auth_token')
       if (!token) {
-        router.push('/signin')
+        router.replace('/')
         return
       }
 
@@ -124,13 +124,13 @@ export default function AccessPortalPage() {
       const userData = await response.json()
 
       if (!ALLOWED_ROLES.includes(userData.account_type)) {
-        router.push('/account')
+        router.replace('/')
         return
       }
 
       setUser(userData)
     } catch {
-      router.push('/signin')
+      router.replace('/')
     } finally {
       setAuthLoading(false)
     }

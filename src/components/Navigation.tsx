@@ -124,10 +124,10 @@ export default function Navigation() {
               <>
                 {canViewListings && (
                   <Link
-                    href="/listings"
+                    href="/access"
                     className="text-gg-gray-300 hover:text-white transition-colors font-medium"
                   >
-                    Listings
+                    Map
                   </Link>
                 )}
                 {isAdmin && (
