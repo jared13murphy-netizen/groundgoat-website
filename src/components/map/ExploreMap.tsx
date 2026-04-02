@@ -1222,7 +1222,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
             {/* Range filters */}
             {[
-              { label: 'Soil Rating', minKey: 'soilRatingMin' as keyof FilterState, maxKey: 'soilRatingMax' as keyof FilterState },
+              ...(filters.stateFilter ? [{
+                label: filters.stateFilter === 'IL' ? 'PI Rating' :
+                       filters.stateFilter === 'IN' ? 'WAPI' :
+                       filters.stateFilter === 'IA' ? 'CSR2' : 'Soil Rating',
+                minKey: 'soilRatingMin' as keyof FilterState,
+                maxKey: 'soilRatingMax' as keyof FilterState
+              }] : []),
               { label: 'Acreage', minKey: 'acreageMin' as keyof FilterState, maxKey: 'acreageMax' as keyof FilterState },
               { label: '% Tillable', minKey: 'pctTillableMin' as keyof FilterState, maxKey: 'pctTillableMax' as keyof FilterState },
             ].map(({ label, minKey, maxKey }) => (
