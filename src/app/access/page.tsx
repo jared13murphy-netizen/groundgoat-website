@@ -339,9 +339,15 @@ export default function AccessPortalPage() {
   }
 
   const handleTractSelected = (tract: any) => {
-    // If we're currently viewing a listing, remember it so Back returns there
+    // Remember which listing we came from so Back returns there
     const fromListing = mapListingId || tract._fromListingId || null
-    closeAllLeftPanels()
+    // Close panels but DON'T clear tractOpenedFromListing
+    setShowListPanel(false)
+    setMapListingId(null)
+    setShowWatchlistPanel(false)
+    setShowComparablesPanel(false)
+    setShowReportPanel(false)
+    // Set the breadcrumb and open tract detail
     setTractOpenedFromListing(fromListing)
     setSelectedTract(tract as TractSaleData)
   }
