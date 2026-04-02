@@ -270,8 +270,8 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
         </div>
       )}
 
-      {/* Action Buttons — horizontal row */}
-      <div className="flex gap-2 pt-2">
+      {/* Action Buttons — sticky at bottom */}
+      <div className="flex gap-2 pt-3 pb-2 sticky bottom-0 bg-gg-gray-900/95 backdrop-blur-sm border-t border-white/5 -mx-5 px-5 mt-4">
         {/* 3D Map (only if tract has boundaries) */}
         {hasBoundaries && tract.tractId && onView3DTerrain && (
           <button
