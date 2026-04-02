@@ -59,15 +59,15 @@ function formatDate(listing: Listing): string {
   if (!raw) return ''
   const d = new Date(raw)
   const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-  return `${months[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}`
+  return `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`
 }
 
 function formatTime(listing: Listing): string {
   const raw = listing.auction_datetime
   if (!raw) return ''
   const d = new Date(raw)
-  const hours = d.getUTCHours()
-  const mins = d.getUTCMinutes()
+  const hours = d.getHours()
+  const mins = d.getMinutes()
   // Skip midnight (00:00) — means no time was set
   if (hours === 0 && mins === 0) return ''
   const ampm = hours >= 12 ? 'PM' : 'AM'
@@ -166,7 +166,7 @@ function ListingCard({ listing, activeTab, onClick }: { listing: Listing; active
           <div className="flex items-center gap-3 mt-3 bg-gg-pink/10 rounded-lg px-3 py-2.5 -mx-1 border border-gg-pink/20">
             <div className="flex items-center justify-center bg-gg-pink/20 rounded-lg w-11 h-11 shrink-0">
               <span className="text-sm font-black text-white">
-                {(() => { const d = new Date(listing.auction_datetime || listing.auction_date || ''); return ['SUN','MON','TUE','WED','THU','FRI','SAT'][d.getUTCDay()] })()}
+                {(() => { const d = new Date(listing.auction_datetime || listing.auction_date || ''); return ['SUN','MON','TUE','WED','THU','FRI','SAT'][d.getDay()] })()}
               </span>
             </div>
             <div className="flex flex-col">
