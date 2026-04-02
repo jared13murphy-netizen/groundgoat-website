@@ -571,14 +571,8 @@ export default function AccessPortalPage() {
             transition={{ type: 'spring', damping: 28, stiffness: 300 }}
             className="fixed top-0 left-0 bottom-0 w-[480px] z-[515] bg-gg-gray-900/95 backdrop-blur-xl border-r border-white/10 shadow-2xl flex flex-col"
           >
-            <div className="pt-8 px-5 pb-4 border-b border-white/5 flex items-center justify-between shrink-0">
+            <div className="pt-8 px-5 pb-4 border-b border-white/5 shrink-0">
               <h2 className="text-lg font-semibold">Listing Detail</h2>
-              <button
-                onClick={() => setMapListingId(null)}
-                className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center hover:bg-white/10 transition"
-              >
-                <span className="text-gg-gray-400 text-sm">✕</span>
-              </button>
             </div>
             <div className="flex-1 overflow-y-auto px-5 py-4">
               <PortalListingDetail
@@ -605,20 +599,8 @@ export default function AccessPortalPage() {
             transition={{ type: 'spring', damping: 28, stiffness: 300 }}
             className="fixed top-0 left-0 bottom-0 w-[480px] z-[515] bg-gg-gray-900/95 backdrop-blur-xl border-r border-white/10 shadow-2xl flex flex-col"
           >
-            <div className="pt-8 px-5 pb-4 border-b border-white/5 flex items-center justify-between shrink-0">
+            <div className="pt-8 px-5 pb-4 border-b border-white/5 shrink-0">
               <h2 className="text-lg font-semibold">Tract Detail</h2>
-              <button
-                onClick={() => {
-                  setSelectedTract(null)
-                  if (tractOpenedFromListing) {
-                    setMapListingId(tractOpenedFromListing)
-                    setTractOpenedFromListing(null)
-                  }
-                }}
-                className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center hover:bg-white/10 transition"
-              >
-                <span className="text-gg-gray-400 text-sm">✕</span>
-              </button>
             </div>
             <div className="flex-1 overflow-y-auto px-5 py-4">
               <PortalTractDetail
