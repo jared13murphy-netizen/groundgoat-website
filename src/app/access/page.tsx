@@ -245,9 +245,14 @@ export default function AccessPortalPage() {
           body: JSON.stringify({ listing_id: listingId }),
         })
         if (!res.ok) {
+          // Ignore "Already watching" — it means it worked on a previous attempt
           const errText = await res.text().catch(() => '')
-          console.error('Watchlist POST failed:', res.status, errText)
-          throw new Error('Add failed')
+          if (res.status === 400 && errText.includes('Already watching')) {
+            console.log('Already on watchlist, ignoring')
+          } else {
+            console.error('Watchlist POST failed:', res.status, errText)
+            throw new Error('Add failed')
+          }
         }
         // Re-fetch to get full listing data
         await fetchWatchlist()
