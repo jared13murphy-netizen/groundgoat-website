@@ -66,6 +66,25 @@ function formatDate(dateString?: string | null): string {
   return date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
 }
 
+function formatTime(dateString?: string | null): string {
+  if (!dateString) return ''
+  const date = new Date(dateString)
+  const hours = date.getUTCHours()
+  const mins = date.getUTCMinutes()
+  // Skip midnight (00:00) — means no time was set
+  if (hours === 0 && mins === 0) return ''
+  const ampm = hours >= 12 ? 'PM' : 'AM'
+  const h12 = hours % 12 || 12
+  return `${h12}:${String(mins).padStart(2, '0')} ${ampm}`
+}
+
+function formatDateWithTime(dateString?: string | null): string {
+  const d = formatDate(dateString)
+  const t = formatTime(dateString)
+  if (d === '—') return '—'
+  return t ? `${d} at ${t}` : d
+}
+
 function getStatusLabel(status?: string | null): string {
   switch (status?.toLowerCase()) {
     case 'sold': return 'Sold'
@@ -149,6 +168,14 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
         {getStatusLabel(tract.saleStatus)}
       </div>
 
+      {/* Price/Acre highlight */}
+      {tract.pricePerAcre ? (
+        <div className="bg-gg-pink/10 rounded-xl p-4 border border-gg-pink/20">
+          <div className="text-[10px] text-gg-pink uppercase tracking-wider font-semibold">Price / Acre</div>
+          <div className="text-2xl font-bold text-gg-pink mt-1">{formatCurrency(tract.pricePerAcre)}/ac</div>
+        </div>
+      ) : null}
+
       {/* Key Metrics */}
       <div className="grid grid-cols-2 gap-3">
         <div className="bg-white/[0.03] rounded-xl p-4 border border-white/5">
@@ -161,27 +188,30 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
             <div className="text-lg font-bold mt-1">{formatCurrency(tract.salePrice)}</div>
           </div>
         ) : null}
-        {tract.pricePerAcre ? (
-          <div className="bg-white/[0.03] rounded-xl p-4 border border-white/5">
-            <div className="text-[10px] text-gg-gray-300 uppercase tracking-wider">Price/Acre</div>
-            <div className="text-lg font-bold text-gg-pink mt-1">{formatCurrency(tract.pricePerAcre)}/ac</div>
-          </div>
-        ) : null}
         {tract.tillableAcres ? (
           <div className="bg-white/[0.03] rounded-xl p-4 border border-white/5">
             <div className="text-[10px] text-gg-gray-300 uppercase tracking-wider">Tillable</div>
             <div className="text-lg font-bold mt-1">{formatAcres(tract.tillableAcres)}</div>
           </div>
         ) : null}
+        {tract.soilRating ? (
+          <div className="bg-white/[0.03] rounded-xl p-4 border border-white/5">
+            <div className="text-[10px] text-gg-gray-300 uppercase tracking-wider">Soil Rating</div>
+            <div className="text-lg font-bold mt-1">{tract.soilRating}</div>
+          </div>
+        ) : null}
       </div>
 
       {/* Detail Rows */}
       <div className="bg-white/[0.03] rounded-xl border border-white/5 divide-y divide-white/5">
-        <DetailRow label="Date" value={formatDate(tract.auctionDate)} />
+        <DetailRow label="Date" value={formatDateWithTime(tract.auctionDate)} />
         {tract.companyName && <DetailRow label="Listing Company" value={tract.companyName} />}
         <DetailRow label="County" value={tract.county || '—'} />
         <DetailRow label="State" value={tract.state || '—'} />
         <DetailRow label="Township" value={tract.township || '—'} />
+        {tract.pctTillable ? (
+          <DetailRow label="% Tillable" value={`${Math.round(tract.pctTillable)}%`} />
+        ) : null}
         {tract.tillableAcres && tract.pricePerAcre && tract.totalAcres ? (
           <DetailRow
             label="$/Tillable Acre"
@@ -194,12 +224,6 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
             label="$/Soil Rating"
             value={formatCurrency(tract.pricePerAcre / tract.soilRating)}
           />
-        ) : null}
-        {tract.soilRating ? (
-          <DetailRow label="Soil Rating" value={String(tract.soilRating)} />
-        ) : null}
-        {tract.pctTillable ? (
-          <DetailRow label="% Tillable" value={`${Math.round(tract.pctTillable)}%`} />
         ) : null}
       </div>
 

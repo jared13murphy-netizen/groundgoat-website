@@ -199,7 +199,7 @@ export default function PortalComparablesPanel({ data, loading, onClose, onSelec
       className="fixed top-0 left-0 bottom-0 w-[480px] z-[400] bg-gg-gray-900/95 backdrop-blur-xl border-r border-white/10 shadow-2xl flex flex-col"
     >
       {/* Header */}
-      <div className="pt-20 px-5 pb-4 border-b border-white/5 shrink-0">
+      <div className="pt-8 px-5 pb-4 border-b border-white/5 shrink-0">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">Comparable Sales</h2>
           <button

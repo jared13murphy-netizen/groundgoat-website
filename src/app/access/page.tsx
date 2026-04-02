@@ -340,7 +340,7 @@ export default function AccessPortalPage() {
 
   const handleTractSelected = (tract: any) => {
     // If we're currently viewing a listing, remember it so Back returns there
-    const fromListing = mapListingId || null
+    const fromListing = mapListingId || tract._fromListingId || null
     closeAllLeftPanels()
     setTractOpenedFromListing(fromListing)
     setSelectedTract(tract as TractSaleData)
@@ -571,7 +571,7 @@ export default function AccessPortalPage() {
             transition={{ type: 'spring', damping: 28, stiffness: 300 }}
             className="fixed top-0 left-0 bottom-0 w-[480px] z-[400] bg-gg-gray-900/95 backdrop-blur-xl border-r border-white/10 shadow-2xl flex flex-col"
           >
-            <div className="pt-20 px-5 pb-4 border-b border-white/5 flex items-center justify-between shrink-0">
+            <div className="pt-8 px-5 pb-4 border-b border-white/5 flex items-center justify-between shrink-0">
               <h2 className="text-lg font-semibold">Listing Detail</h2>
               <button
                 onClick={() => setMapListingId(null)}
@@ -605,7 +605,7 @@ export default function AccessPortalPage() {
             transition={{ type: 'spring', damping: 28, stiffness: 300 }}
             className="fixed top-0 left-0 bottom-0 w-[480px] z-[410] bg-gg-gray-900/95 backdrop-blur-xl border-r border-white/10 shadow-2xl flex flex-col"
           >
-            <div className="pt-20 px-5 pb-4 border-b border-white/5 flex items-center justify-between shrink-0">
+            <div className="pt-8 px-5 pb-4 border-b border-white/5 flex items-center justify-between shrink-0">
               <h2 className="text-lg font-semibold">Tract Detail</h2>
               <button
                 onClick={() => {
