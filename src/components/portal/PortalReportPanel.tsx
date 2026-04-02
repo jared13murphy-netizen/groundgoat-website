@@ -35,13 +35,26 @@ function fmtDate(dateStr?: string | null): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
+interface SubjectInfo {
+  county?: string
+  state?: string
+  subject_acres?: number
+  subject_tillable_acres?: number
+  subject_pct_tillable?: number
+  subject_soil_rating?: number
+  subject_soil_rating_type?: string | null
+  subject_township?: string
+  subject_land_type?: string
+}
+
 interface PortalReportPanelProps {
   tracts: TractSaleData[]
   onClose: () => void
   onRemoveTract: (id: string) => void
+  subjectInfo?: SubjectInfo | null
 }
 
-export default function PortalReportPanel({ tracts, onClose, onRemoveTract }: PortalReportPanelProps) {
+export default function PortalReportPanel({ tracts, onClose, onRemoveTract, subjectInfo }: PortalReportPanelProps) {
   const [sending, setSending] = useState(false)
   const [sent, setSent] = useState(false)
 
@@ -147,6 +160,46 @@ export default function PortalReportPanel({ tracts, onClose, onRemoveTract }: Po
           </div>
         ) : (
           <>
+            {/* Subject Tract */}
+            {subjectInfo && (
+              <div className="bg-gg-pink/5 rounded-xl p-4 border border-gg-pink/20">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-2 h-2 rounded-full bg-gg-pink" />
+                  <span className="text-xs font-semibold text-gg-pink uppercase tracking-wider">Subject Tract</span>
+                </div>
+                <div className="text-sm font-bold mb-1">
+                  {subjectInfo.county}, {subjectInfo.state}
+                  {subjectInfo.subject_township ? ` · ${subjectInfo.subject_township}` : ''}
+                </div>
+                <div className="grid grid-cols-4 gap-3 mt-3">
+                  {subjectInfo.subject_acres ? (
+                    <div>
+                      <div className="text-[10px] text-gg-gray-400">Acres</div>
+                      <div className="text-sm font-semibold">{Math.round(subjectInfo.subject_acres)}</div>
+                    </div>
+                  ) : null}
+                  {subjectInfo.subject_pct_tillable ? (
+                    <div>
+                      <div className="text-[10px] text-gg-gray-400">Tillable</div>
+                      <div className="text-sm font-semibold">{Math.round(subjectInfo.subject_pct_tillable)}%</div>
+                    </div>
+                  ) : null}
+                  {subjectInfo.subject_soil_rating ? (
+                    <div>
+                      <div className="text-[10px] text-gg-gray-400">{subjectInfo.subject_soil_rating_type || getSoilLabel(subjectInfo.state)}</div>
+                      <div className="text-sm font-semibold">{subjectInfo.subject_soil_rating}</div>
+                    </div>
+                  ) : null}
+                  {subjectInfo.subject_land_type ? (
+                    <div>
+                      <div className="text-[10px] text-gg-gray-400">Type</div>
+                      <div className="text-sm font-semibold">{subjectInfo.subject_land_type}</div>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            )}
+
             {/* Summary KPIs */}
             <div>
               <h3 className="text-xs font-semibold text-gg-gray-400 uppercase tracking-wider mb-3">Summary Averages</h3>

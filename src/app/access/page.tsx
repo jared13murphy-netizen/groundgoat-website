@@ -676,6 +676,7 @@ export default function AccessPortalPage() {
             tracts={reportTracts}
             onClose={() => setShowReportPanel(false)}
             onRemoveTract={handleRemoveFromReport}
+            subjectInfo={comparablesData?.search_criteria}
           />
         )}
       </AnimatePresence>
