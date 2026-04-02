@@ -1087,7 +1087,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                         setFilters(f => {
                           const current = f.stateFilter ? f.stateFilter.split(',') : []
                           const next = isActive ? current.filter(s => s !== st) : [...current, st]
-                          return { ...f, stateFilter: next.join(','), countyFilters: [] }
+                          return { ...f, stateFilter: next.join(','), countyFilters: [], townshipFilters: [], soilRatingMin: '', soilRatingMax: '' }
                         })
                       }}
                       style={{
