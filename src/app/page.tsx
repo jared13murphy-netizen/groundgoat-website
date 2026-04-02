@@ -19,6 +19,9 @@ import {
   Calendar,
   Maximize
 } from 'lucide-react'
+import dynamic from 'next/dynamic'
+
+const HomeTerrain3D = dynamic(() => import('@/components/HomeTerrain3D'), { ssr: false })
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -349,6 +352,52 @@ export default function Home() {
         </div>
       </section>
 
+      {/* 3D Terrain Section */}
+      <section className="py-24 bg-gg-black relative overflow-hidden">
+        <div className="absolute top-1/2 right-0 w-1/2 h-96 bg-gg-pink/5 rounded-full blur-[150px] -translate-y-1/2" />
+        <div className="max-w-7xl mx-auto px-6">
+          <div className="grid lg:grid-cols-2 gap-12 items-center">
+            {/* 3D Viewer */}
+            <div className="relative h-[500px] rounded-2xl overflow-hidden border border-white/10 shadow-2xl">
+              <HomeTerrain3D />
+            </div>
+
+            {/* Content */}
+            <div>
+              <h2 className="font-display text-4xl md:text-5xl font-bold text-white mb-6">
+                Interactive
+                <span className="block text-gradient">3D Terrain</span>
+              </h2>
+              <p className="text-xl text-gg-gray-400 mb-8">
+                Explore every tract in stunning 3D. View elevation changes, soil types,
+                slope analysis, and satellite imagery — all from your browser.
+              </p>
+              <ul className="space-y-4 mb-8">
+                <li className="flex items-center gap-3 text-gg-gray-300">
+                  <Check className="text-gg-pink" size={20} />
+                  Real elevation data from USGS
+                </li>
+                <li className="flex items-center gap-3 text-gg-gray-300">
+                  <Check className="text-gg-pink" size={20} />
+                  Soil type and NCCPI overlays
+                </li>
+                <li className="flex items-center gap-3 text-gg-gray-300">
+                  <Check className="text-gg-pink" size={20} />
+                  Satellite and slope analysis views
+                </li>
+                <li className="flex items-center gap-3 text-gg-gray-300">
+                  <Check className="text-gg-pink" size={20} />
+                  Click and drag to explore from any angle
+                </li>
+              </ul>
+              <p className="text-sm text-gg-gray-500 italic">
+                Try it — click and drag the terrain to rotate, scroll to zoom.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* App Preview Section */}
       <section className="py-24 bg-gg-black relative overflow-hidden">
         {/* Background accent */}
@@ -395,30 +444,20 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Phone Mockup */}
+            {/* Phone Mockup with Real Screenshot */}
             <div className="relative flex justify-center">
               <div className="relative w-72 h-[580px] bg-gg-gray-800 rounded-[3rem] border-4 border-gg-gray-700 shadow-2xl overflow-hidden">
                 {/* Phone notch */}
-                <div className="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-6 bg-gg-gray-700 rounded-b-2xl" />
-                {/* Screen content */}
-                <div className="absolute inset-2 top-8 bg-gg-gray-900 rounded-[2.5rem] overflow-hidden">
-                  <div className="p-4 pt-8">
-                    <div className="text-center mb-6">
-                      <Image
-                        src="/logo.png"
-                        alt="Ground Goat"
-                        width={120}
-                        height={40}
-                        className="h-8 w-auto mx-auto"
-                      />
-                    </div>
-                    {/* Mock auction cards */}
-                    <div className="space-y-3">
-                      <MockListingCard acres="320" county="Adams" state="IL" date="Jan 15" />
-                      <MockListingCard acres="156" county="Hancock" state="IL" date="Jan 18" />
-                      <MockListingCard acres="80" county="Pike" state="IL" date="Jan 22" />
-                    </div>
-                  </div>
+                <div className="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-6 bg-gg-gray-700 rounded-b-2xl z-10" />
+                {/* Real app screenshot */}
+                <div className="absolute inset-2 top-2 bg-gg-gray-900 rounded-[2.5rem] overflow-hidden">
+                  <Image
+                    src="/app-screenshot.png"
+                    alt="Ground Goat Mobile App - Auctions Screen"
+                    fill
+                    className="object-cover object-top"
+                    sizes="288px"
+                  />
                 </div>
               </div>
               {/* Glow effect */}
@@ -610,20 +649,3 @@ function FeatureCard({ icon, title, description }: { icon: React.ReactNode, titl
 }
 
 // Mock Listing Card for Phone
-function MockListingCard({ acres, county, state, date }: { acres: string, county: string, state: string, date: string }) {
-  return (
-    <div className="bg-gg-gray-800 rounded-xl p-3 border border-gg-gray-700">
-      <div className="flex justify-between items-start mb-2">
-        <div>
-          <p className="text-white font-semibold text-sm">{acres} Acres</p>
-          <p className="text-gg-gray-400 text-xs">{county} County, {state}</p>
-        </div>
-        <span className="text-gg-pink text-xs font-medium">{date}</span>
-      </div>
-      <div className="flex gap-2">
-        <span className="bg-gg-gray-700 text-gg-gray-300 text-xs px-2 py-0.5 rounded">Farm</span>
-        <span className="bg-gg-gray-700 text-gg-gray-300 text-xs px-2 py-0.5 rounded">Auction</span>
-      </div>
-    </div>
-  )
-}
