@@ -17,7 +17,6 @@ interface Listing {
   status: string
   auction_datetime?: string
   auction_date?: string
-  auction_time?: string
   primary_image_url?: string
   asking_price?: number
   sale_price?: number
@@ -63,29 +62,16 @@ function formatDate(listing: Listing): string {
 }
 
 function formatTime(listing: Listing): string {
-  // Try explicit auction_time first
-  if (listing.auction_time) {
-    try {
-      const [h, m] = listing.auction_time.split(':')
-      const hour = parseInt(h)
-      const ampm = hour >= 12 ? 'PM' : 'AM'
-      const h12 = hour % 12 || 12
-      return `${h12}:${m} ${ampm}`
-    } catch { /* fall through */ }
-  }
-  // Extract time from auction_datetime
   const raw = listing.auction_datetime
-  if (raw) {
-    const d = new Date(raw)
-    const hours = d.getUTCHours()
-    const mins = d.getUTCMinutes()
-    // Skip midnight (00:00) as it means "date only, no time set"
-    if (hours === 0 && mins === 0) return ''
-    const ampm = hours >= 12 ? 'PM' : 'AM'
-    const h12 = hours % 12 || 12
-    return `${h12}:${String(mins).padStart(2, '0')} ${ampm}`
-  }
-  return ''
+  if (!raw) return ''
+  const d = new Date(raw)
+  const hours = d.getUTCHours()
+  const mins = d.getUTCMinutes()
+  // Skip midnight (00:00) — means no time was set
+  if (hours === 0 && mins === 0) return ''
+  const ampm = hours >= 12 ? 'PM' : 'AM'
+  const h12 = hours % 12 || 12
+  return `${h12}:${String(mins).padStart(2, '0')} ${ampm}`
 }
 
 function formatPrice(price?: number): string {
