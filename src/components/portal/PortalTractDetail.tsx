@@ -328,7 +328,8 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
           </button>
         )}
 
-        {/* Show Neighbors */}
+        {/* Show Neighbors — hidden from users, still wired up for testing */}
+        {/* TODO: Re-enable once backend/scraper connection is verified
         {hasBoundaries && tract.tractId && onShowNeighbors && (
           <button
             onClick={handleShowNeighbors}
@@ -348,6 +349,7 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
             )}
           </button>
         )}
+        */}
 
         {/* Add to Report */}
         {onToggleReport && (
