@@ -17,6 +17,7 @@ import {
   TILE_URL,
   TILE_ATTRIBUTION,
   GLYPH_URL,
+  LABEL_TILE_URL,
   ZOOM_TIER_1_MAX,
   STATUS_COLORS,
 } from './mapConstants'
@@ -505,12 +506,24 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             tileSize: 256,
             attribution: TILE_ATTRIBUTION,
           },
+          'city-labels': {
+            type: 'raster',
+            tiles: [LABEL_TILE_URL],
+            tileSize: 256,
+          },
         },
         layers: [
           {
             id: 'osm-tiles',
             type: 'raster',
             source: 'osm',
+            minzoom: 0,
+            maxzoom: 19,
+          },
+          {
+            id: 'city-label-tiles',
+            type: 'raster',
+            source: 'city-labels',
             minzoom: 0,
             maxzoom: 19,
           },

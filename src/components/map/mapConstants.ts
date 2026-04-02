@@ -7,6 +7,7 @@ export const MAP_INITIAL_ZOOM = 6
 export const TILE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
 export const TILE_ATTRIBUTION = '&copy; Esri, Maxar, Earthstar Geographics'
 export const GLYPH_URL = 'https://fonts.openmaptiles.org/{fontstack}/{range}.pbf'
+export const LABEL_TILE_URL = 'https://cartodb-basemaps-a.global.ssl.fastly.net/light_only_labels/{z}/{x}/{y}.png'
 
 export const STATUS_COLORS: Record<string, { fill: string; border: string; opacity: number }> = {
   listed:  { fill: '#2563EB', border: '#1D4ED8', opacity: 0.25 },

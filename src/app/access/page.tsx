@@ -98,6 +98,7 @@ export default function AccessPortalPage() {
   const [subjectTractLocation, setSubjectTractLocation] = useState<{ lat: number; lng: number } | null>(null)
   const [comparablesSubjectInfo, setComparablesSubjectInfo] = useState<any>(null)
   const [showComparablesReportPanel, setShowComparablesReportPanel] = useState(false)
+  const [showMainReportPanel, setShowMainReportPanel] = useState(false)
   // 3D viewer state
   const [showReportPanel, setShowReportPanel] = useState(false)
   const [show3DViewer, setShow3DViewer] = useState(false)
@@ -287,6 +288,7 @@ export default function AccessPortalPage() {
   }
 
   const handleToggleReport = (tract: TractSaleData) => {
+    const isAdding = !reportIds.has(tract.id)
     setReportIds(prev => {
       const next = new Set(prev)
       if (next.has(tract.id)) {
@@ -298,6 +300,10 @@ export default function AccessPortalPage() {
       }
       return next
     })
+    // Auto-open report panel when adding from main map (not comparables mode)
+    if (isAdding && !showComparablesReportPanel) {
+      setShowMainReportPanel(true)
+    }
   }
 
   const handleView3DTerrain = (tractId: string, tractName: string) => {
@@ -645,26 +651,24 @@ export default function AccessPortalPage() {
         )}
       </AnimatePresence>
 
-      {/* Floating Report Bar */}
-      {reportIds.size > 0 && !showComparablesReportPanel && (
-        <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[500] flex items-center gap-3 bg-gg-pink rounded-full px-6 py-3 shadow-2xl">
-          <span className="text-white font-bold text-sm">
-            {reportIds.size} Selected
-          </span>
-          <button
-            onClick={handleCreateReport}
-            className="bg-white/20 text-white font-semibold text-sm px-4 py-2 rounded-full hover:bg-white/30 transition"
-          >
-            Create Report
-          </button>
-          <button
-            onClick={() => { setReportIds(new Set()); setReportTracts([]) }}
-            className="text-white/70 hover:text-white text-lg"
-          >
-            ✕
-          </button>
-        </div>
-      )}
+      {/* Main Map Report Panel (left side, no subject tract) */}
+      <AnimatePresence>
+        {showMainReportPanel && !showComparablesReportPanel && (
+          <PortalComparablesReportPanel
+            subjectInfo={null}
+            reportTracts={reportTracts}
+            onRemoveTract={(id) => {
+              setReportIds(prev => { const next = new Set(prev); next.delete(id); return next })
+              setReportTracts(prev => prev.filter(t => t.id !== id))
+            }}
+            onClose={() => {
+              setShowMainReportPanel(false)
+              setReportIds(new Set())
+              setReportTracts([])
+            }}
+          />
+        )}
+      </AnimatePresence>
 
       {/* 3D Terrain Viewer */}
       <Tract3DModal

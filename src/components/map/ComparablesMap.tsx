@@ -4,7 +4,7 @@ import { useRef, useEffect, useState } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import './ComparablesMap.css'
-import { TILE_URL, TILE_ATTRIBUTION, GLYPH_URL } from './mapConstants'
+import { TILE_URL, TILE_ATTRIBUTION, GLYPH_URL, LABEL_TILE_URL } from './mapConstants'
 import { countyCentroids } from '@/data/countyCentroids'
 import { normalizeTownship } from '../../utils/normalizeTownship'
 import Tract3DModal from '@/components/Tract3DModal'
@@ -145,12 +145,24 @@ export default function ComparablesMap({
             tileSize: 256,
             attribution: TILE_ATTRIBUTION,
           },
+          'city-labels': {
+            type: 'raster',
+            tiles: [LABEL_TILE_URL],
+            tileSize: 256,
+          },
         },
         layers: [
           {
             id: 'osm-tiles',
             type: 'raster',
             source: 'osm',
+            minzoom: 0,
+            maxzoom: 19,
+          },
+          {
+            id: 'city-label-tiles',
+            type: 'raster',
+            source: 'city-labels',
             minzoom: 0,
             maxzoom: 19,
           },
