@@ -58,7 +58,8 @@ function formatDate(listing: Listing): string {
   const raw = listing.auction_datetime || listing.auction_date
   if (!raw) return ''
   const d = new Date(raw)
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+  return `${months[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}`
 }
 
 function formatTime(listing: Listing): string {
@@ -163,11 +164,8 @@ function ListingCard({ listing, activeTab, onClick }: { listing: Listing; active
         {/* Auction date/time - prominent calendar style for auctions */}
         {activeTab === 'auctions' && (
           <div className="flex items-center gap-3 mt-3 bg-gg-pink/10 rounded-lg px-3 py-2.5 -mx-1 border border-gg-pink/20">
-            <div className="flex flex-col items-center justify-center bg-gg-pink/20 rounded-lg w-11 h-11 shrink-0">
-              <span className="text-[9px] font-bold text-gg-pink uppercase leading-none">
-                {(() => { const d = new Date(listing.auction_datetime || listing.auction_date || ''); return d.toLocaleDateString('en-US', { month: 'short' }).toUpperCase() })()}
-              </span>
-              <span className="text-sm font-black text-white leading-tight">
+            <div className="flex items-center justify-center bg-gg-pink/20 rounded-lg w-11 h-11 shrink-0">
+              <span className="text-sm font-black text-white">
                 {(() => { const d = new Date(listing.auction_datetime || listing.auction_date || ''); return ['SUN','MON','TUE','WED','THU','FRI','SAT'][d.getUTCDay()] })()}
               </span>
             </div>
@@ -238,7 +236,7 @@ export default function PortalListPanel({ listings, loading, activeTab, onClose,
       className="fixed top-0 left-0 bottom-0 w-[480px] z-[400] bg-gg-gray-900/95 backdrop-blur-xl border-r border-white/10 shadow-2xl flex flex-col"
     >
       {/* Header */}
-      <div className="pt-20 px-5 pb-4 border-b border-white/5 shrink-0">
+      <div className="pt-8 px-5 pb-4 border-b border-white/5 shrink-0">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">
             {selectedListingId ? 'Listing Detail' : TAB_TITLES[activeTab]}

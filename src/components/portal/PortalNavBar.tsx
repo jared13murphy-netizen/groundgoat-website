@@ -65,7 +65,7 @@ export default function PortalNavBar({ activeTab, onTabChange, onFilterToggle, f
               onClick={() => onTabChange(tab.key)}
               className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-all flex items-center gap-1.5 ${
                 activeTab === tab.key
-                  ? 'bg-gg-pink/15 text-gg-pink border-gg-pink/30'
+                  ? 'bg-gg-pink/15 text-white border-gg-pink/30'
                   : 'border-transparent text-white/60 hover:text-white hover:bg-white/5'
               }`}
             >

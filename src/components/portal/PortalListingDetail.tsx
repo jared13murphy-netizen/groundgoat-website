@@ -107,25 +107,21 @@ function formatAcres(acres?: number): string {
 
 function formatDate(dateString?: string): string {
   if (!dateString) return '—'
-  const date = new Date(dateString)
-  return date.toLocaleDateString('en-US', { weekday: 'short', month: 'long', day: 'numeric', year: 'numeric' })
+  const d = new Date(dateString)
+  const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
+  const months = ['January','February','March','April','May','June','July','August','September','October','November','December']
+  return `${days[d.getUTCDay()]}, ${months[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}`
 }
 
 function formatTime(listing: Listing): string {
-  if (listing.auction_time) {
-    try {
-      const [h, m] = listing.auction_time.split(':')
-      const hour = parseInt(h)
-      const ampm = hour >= 12 ? 'PM' : 'AM'
-      const h12 = hour % 12 || 12
-      return `${h12}:${m} ${ampm}`
-    } catch { return '' }
-  }
-  if (listing.auction_datetime) {
-    const date = new Date(listing.auction_datetime)
-    return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
-  }
-  return ''
+  if (!listing.auction_datetime) return ''
+  const d = new Date(listing.auction_datetime)
+  const hours = d.getUTCHours()
+  const mins = d.getUTCMinutes()
+  if (hours === 0 && mins === 0) return ''
+  const ampm = hours >= 12 ? 'PM' : 'AM'
+  const h12 = hours % 12 || 12
+  return `${h12}:${String(mins).padStart(2, '0')} ${ampm}`
 }
 
 export default function PortalListingDetail({ listingId, onBack, onTractSelected, onFindComparables, userAccountType }: PortalListingDetailProps) {
