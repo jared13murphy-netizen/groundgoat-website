@@ -3,7 +3,7 @@
 import { useState, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import Image from 'next/image'
-import { X, Calendar, Building2, DollarSign, Loader2, MapPin } from 'lucide-react'
+import { X, Calendar, Building2, DollarSign, Loader2, MapPin, Bookmark } from 'lucide-react'
 import PortalListingDetail from './PortalListingDetail'
 
 type TabType = 'auctions' | 'private_treaty' | 'results'
@@ -36,6 +36,8 @@ interface PortalListPanelProps {
   onFindComparables?: (tractId: string, county: string, state: string) => void
   activeFilters?: { stateFilter: string; countyFilters: string[] }
   userAccountType?: string
+  watchlistIds?: Set<string>
+  onToggleWatchlist?: (listingId: string) => void
 }
 
 const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=600'
@@ -105,7 +107,7 @@ function getListingSoilRating(listing: Listing): number | null {
   return Math.round(avg * 10) / 10
 }
 
-function ListingCard({ listing, activeTab, onClick }: { listing: Listing; activeTab: TabType; onClick: () => void }) {
+function ListingCard({ listing, activeTab, onClick, isWatchlisted, onToggleWatchlist }: { listing: Listing; activeTab: TabType; onClick: () => void; isWatchlisted?: boolean; onToggleWatchlist?: (id: string) => void }) {
   const hasCompany = !!(listing.company?.name || listing.company_name)
   const [imgError, setImgError] = useState(false)
   const imgSrc = (!imgError && listing.primary_image_url) ? listing.primary_image_url : FALLBACK_IMAGE
@@ -128,6 +130,15 @@ function ListingCard({ listing, activeTab, onClick }: { listing: Listing; active
           sizes="500px"
           onError={handleImgError}
         />
+        {/* Bookmark button */}
+        {onToggleWatchlist && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onToggleWatchlist(listing.id) }}
+            className="absolute top-2 left-2 p-2 bg-black/40 backdrop-blur-sm rounded-lg hover:bg-black/60 transition z-10"
+          >
+            <Bookmark size={14} className={isWatchlisted ? 'text-gg-pink fill-gg-pink' : 'text-white'} />
+          </button>
+        )}
         {listing.status === 'live' && (
           <span className="absolute top-2 right-2 text-[10px] px-2 py-1 rounded-full font-bold uppercase bg-red-500 text-white flex items-center gap-1.5 animate-pulse shadow-lg shadow-red-500/40">
             <span className="w-2 h-2 rounded-full bg-white animate-ping" />
@@ -224,7 +235,7 @@ function ListingCard({ listing, activeTab, onClick }: { listing: Listing; active
   )
 }
 
-export default function PortalListPanel({ listings, loading, activeTab, onClose, onTractSelected, onFindComparables, activeFilters, userAccountType }: PortalListPanelProps) {
+export default function PortalListPanel({ listings, loading, activeTab, onClose, onTractSelected, onFindComparables, activeFilters, userAccountType, watchlistIds, onToggleWatchlist }: PortalListPanelProps) {
   const [selectedListingId, setSelectedListingId] = useState<string | null>(null)
 
   return (
@@ -271,6 +282,8 @@ export default function PortalListPanel({ listings, loading, activeTab, onClose,
             onTractSelected={onTractSelected}
             onFindComparables={onFindComparables}
             userAccountType={userAccountType}
+            isWatchlisted={watchlistIds?.has(selectedListingId!)}
+            onToggleWatchlist={onToggleWatchlist}
           />
         ) : loading ? (
           <div className="flex items-center justify-center h-40">
@@ -288,6 +301,8 @@ export default function PortalListPanel({ listings, loading, activeTab, onClose,
                 listing={listing}
                 activeTab={activeTab}
                 onClick={() => setSelectedListingId(listing.id)}
+                isWatchlisted={watchlistIds?.has(listing.id)}
+                onToggleWatchlist={onToggleWatchlist}
               />
             ))}
           </div>

@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { motion } from 'framer-motion'
 import {
   ArrowLeft, MapPin, Calendar, Clock, Building2,
-  DollarSign, ExternalLink, Share2, BarChart3, Loader2, RefreshCw
+  DollarSign, ExternalLink, Share2, BarChart3, Loader2, RefreshCw, Bookmark
 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 
@@ -68,6 +68,8 @@ interface PortalListingDetailProps {
   onTractSelected?: (tract: any) => void
   onFindComparables?: (tractId: string, county: string, state: string) => void
   userAccountType?: string
+  isWatchlisted?: boolean
+  onToggleWatchlist?: (listingId: string) => void
 }
 
 const LAND_TYPE_COLORS: Record<string, string> = {
@@ -124,7 +126,7 @@ function formatTime(listing: Listing): string {
   return `${h12}:${String(mins).padStart(2, '0')} ${ampm}`
 }
 
-export default function PortalListingDetail({ listingId, onBack, onTractSelected, onFindComparables, userAccountType }: PortalListingDetailProps) {
+export default function PortalListingDetail({ listingId, onBack, onTractSelected, onFindComparables, userAccountType, isWatchlisted, onToggleWatchlist }: PortalListingDetailProps) {
   const [listing, setListing] = useState<Listing | null>(null)
   const [loading, setLoading] = useState(true)
   const [heroImgError, setHeroImgError] = useState(false)
@@ -243,13 +245,23 @@ export default function PortalListingDetail({ listingId, onBack, onTractSelected
           </span>
         )}
 
-        {/* Share */}
-        <button
-          onClick={handleShare}
-          className="absolute top-3 left-3 p-2 bg-black/40 backdrop-blur-sm rounded-lg hover:bg-black/60 transition"
-        >
-          <Share2 size={14} className="text-white" />
-        </button>
+        {/* Share + Bookmark */}
+        <div className="absolute top-3 left-3 flex items-center gap-2">
+          <button
+            onClick={handleShare}
+            className="p-2 bg-black/40 backdrop-blur-sm rounded-lg hover:bg-black/60 transition"
+          >
+            <Share2 size={14} className="text-white" />
+          </button>
+          {onToggleWatchlist && (
+            <button
+              onClick={() => onToggleWatchlist(listingId)}
+              className="p-2 bg-black/40 backdrop-blur-sm rounded-lg hover:bg-black/60 transition"
+            >
+              <Bookmark size={14} className={isWatchlisted ? 'text-gg-pink fill-gg-pink' : 'text-white'} />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Title */}

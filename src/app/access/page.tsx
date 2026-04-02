@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import Image from 'next/image'
@@ -17,6 +17,7 @@ import PortalListingDetail from '@/components/portal/PortalListingDetail'
 import PortalTractDetail from '@/components/portal/PortalTractDetail'
 import PortalComparablesPanel from '@/components/portal/PortalComparablesPanel'
 import PortalReportPanel from '@/components/portal/PortalReportPanel'
+import PortalWatchlistPanel from '@/components/portal/PortalWatchlistPanel'
 import type { TractSaleData } from '@/components/portal/PortalTractDetail'
 
 const ExploreMap = dynamic(() => import('@/components/map/ExploreMap'), { ssr: false })
@@ -84,6 +85,11 @@ export default function AccessPortalPage() {
   // Report state
   const [reportIds, setReportIds] = useState<Set<string>>(new Set())
   const [reportTracts, setReportTracts] = useState<TractSaleData[]>([])
+  const [watchlistIds, setWatchlistIds] = useState<Set<string>>(new Set())
+  const [watchlistListings, setWatchlistListings] = useState<Listing[]>([])
+  const [showWatchlistPanel, setShowWatchlistPanel] = useState(false)
+  const [watchlistLoading, setWatchlistLoading] = useState(false)
+  const watchTogglePendingRef = useRef<Set<string>>(new Set())
   // Map zoom state
   const [zoomToLocation, setZoomToLocation] = useState<{ lat: number; lng: number; zoom: number } | null>(null)
   // Comparables mode
@@ -103,10 +109,13 @@ export default function AccessPortalPage() {
     checkAuth()
   }, [])
 
-  // Fetch analytics for home county on load
+  // Fetch analytics for home county on load + watchlist
   useEffect(() => {
-    if (user?.home_county && user?.home_state) {
-      fetchAnalytics(user.home_county, user.home_state)
+    if (user) {
+      if (user.home_county && user.home_state) {
+        fetchAnalytics(user.home_county, user.home_state)
+      }
+      fetchWatchlist()
     }
   }, [user])
 
@@ -182,6 +191,64 @@ export default function AccessPortalPage() {
       console.error('Failed to fetch listings:', err)
     } finally {
       setListingsLoading(false)
+    }
+  }
+
+  const fetchWatchlist = async () => {
+    setWatchlistLoading(true)
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/watchlist`)
+      if (res.ok) {
+        const data = await res.json()
+        const ids = new Set<string>(data.map((w: any) => String(w.listing_id || w.listing?.id)))
+        const listings = data.map((w: any) => w.listing).filter(Boolean)
+        setWatchlistIds(ids)
+        setWatchlistListings(listings)
+      }
+    } catch {
+      // Silent fail
+    } finally {
+      setWatchlistLoading(false)
+    }
+  }
+
+  const handleToggleWatchlist = async (listingId: string) => {
+    if (watchTogglePendingRef.current.has(listingId)) return
+    watchTogglePendingRef.current.add(listingId)
+
+    const wasWatched = watchlistIds.has(listingId)
+
+    // Optimistic update
+    setWatchlistIds(prev => {
+      const next = new Set(prev)
+      wasWatched ? next.delete(listingId) : next.add(listingId)
+      return next
+    })
+
+    try {
+      if (wasWatched) {
+        const res = await fetchWithAuth(`${API_URL}/api/watchlist/${listingId}`, { method: 'DELETE' })
+        if (!res.ok) throw new Error('Delete failed')
+        setWatchlistListings(prev => prev.filter(l => l.id !== listingId))
+      } else {
+        const res = await fetchWithAuth(`${API_URL}/api/watchlist`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ listing_id: listingId }),
+        })
+        if (!res.ok) throw new Error('Add failed')
+        // Re-fetch to get full listing data
+        fetchWatchlist()
+      }
+    } catch {
+      // Rollback
+      setWatchlistIds(prev => {
+        const next = new Set(prev)
+        wasWatched ? next.add(listingId) : next.delete(listingId)
+        return next
+      })
+    } finally {
+      watchTogglePendingRef.current.delete(listingId)
     }
   }
 
@@ -426,6 +493,9 @@ export default function AccessPortalPage() {
         filterOpen={filterOpen}
         onAnalyticsToggle={() => setShowAnalyticsPanel(!showAnalyticsPanel)}
         analyticsOpen={showAnalyticsPanel}
+        onWatchlistToggle={() => setShowWatchlistPanel(!showWatchlistPanel)}
+        watchlistOpen={showWatchlistPanel}
+        watchlistCount={watchlistIds.size}
         user={user}
       />
 
@@ -444,6 +514,8 @@ export default function AccessPortalPage() {
             onFindComparables={handleFindComparables}
             activeFilters={activeFilters}
             userAccountType={user?.account_type}
+            watchlistIds={watchlistIds}
+            onToggleWatchlist={handleToggleWatchlist}
           />
         )}
       </AnimatePresence>
@@ -486,6 +558,8 @@ export default function AccessPortalPage() {
                 onTractSelected={setSelectedTract}
                 onFindComparables={handleFindComparables}
                 userAccountType={user?.account_type}
+                isWatchlisted={watchlistIds.has(mapListingId!)}
+                onToggleWatchlist={handleToggleWatchlist}
               />
             </div>
           </motion.div>
@@ -565,6 +639,22 @@ export default function AccessPortalPage() {
             isInReport={(id) => reportIds.has(id)}
             reportCount={reportIds.size}
             onViewReport={handleCreateReport}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Watchlist Panel */}
+      <AnimatePresence>
+        {showWatchlistPanel && (
+          <PortalWatchlistPanel
+            listings={watchlistListings}
+            loading={watchlistLoading}
+            onClose={() => setShowWatchlistPanel(false)}
+            onRemoveListing={handleToggleWatchlist}
+            onSelectListing={(listingId) => {
+              setShowWatchlistPanel(false)
+              setMapListingId(listingId)
+            }}
           />
         )}
       </AnimatePresence>

@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Map, Calendar, Building2, BarChart3, LogOut, User, Users, Settings, Filter } from 'lucide-react'
+import { Map, Calendar, Building2, BarChart3, LogOut, User, Users, Settings, Filter, Bookmark } from 'lucide-react'
 
 type TabType = 'map' | 'auctions' | 'private_treaty' | 'results'
 
@@ -14,6 +14,9 @@ interface PortalNavBarProps {
   filterOpen: boolean
   onAnalyticsToggle?: () => void
   analyticsOpen?: boolean
+  onWatchlistToggle?: () => void
+  watchlistOpen?: boolean
+  watchlistCount?: number
   user: {
     first_name: string
     last_name: string
@@ -21,7 +24,7 @@ interface PortalNavBarProps {
   }
 }
 
-export default function PortalNavBar({ activeTab, onTabChange, onFilterToggle, filterOpen, onAnalyticsToggle, analyticsOpen, user }: PortalNavBarProps) {
+export default function PortalNavBar({ activeTab, onTabChange, onFilterToggle, filterOpen, onAnalyticsToggle, analyticsOpen, onWatchlistToggle, watchlistOpen, watchlistCount = 0, user }: PortalNavBarProps) {
   const router = useRouter()
   const [showUserMenu, setShowUserMenu] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -88,6 +91,26 @@ export default function PortalNavBar({ activeTab, onTabChange, onFilterToggle, f
             <Filter size={14} className="text-gg-pink" />
             <span className="hidden md:inline">Filters</span>
           </button>
+
+          {/* Watchlist button */}
+          {onWatchlistToggle && (
+            <button
+              onClick={onWatchlistToggle}
+              className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-all flex items-center gap-1.5 relative ${
+                watchlistOpen
+                  ? 'bg-gg-pink/15 text-gg-pink border-gg-pink/30'
+                  : 'border-transparent text-white/60 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <Bookmark size={14} />
+              <span className="hidden md:inline">Watchlist</span>
+              {watchlistCount > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-gg-pink text-[9px] font-bold text-white flex items-center justify-center">
+                  {watchlistCount > 9 ? '9+' : watchlistCount}
+                </span>
+              )}
+            </button>
+          )}
 
           {/* Analytics button */}
           {onAnalyticsToggle && (
