@@ -1,10 +1,10 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import { MapPin, ArrowLeft, Plus, Loader2, Crown, X, ChevronDown } from 'lucide-react'
+import { MapPin, ArrowLeft, Plus, Loader2, Crown, X, ChevronDown, Smartphone } from 'lucide-react'
 import { parseApiError } from '@/lib/parseApiError'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
@@ -23,8 +23,10 @@ interface AreasResponse {
   areas: SubscribedArea[]
 }
 
-export default function MyAreasPage() {
+function MyAreasContent() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const fromApp = searchParams.get('from') === 'app'
   const [loading, setLoading] = useState(true)
   const [areasData, setAreasData] = useState<AreasResponse | null>(null)
   const [error, setError] = useState('')
@@ -222,6 +224,20 @@ export default function MyAreasPage() {
           )}
         </div>
 
+        {fromApp && (
+          <div className="card bg-gradient-to-r from-blue-500/10 to-purple-500/10 border-blue-500/20 mb-6">
+            <div className="flex items-center gap-4">
+              <div className="w-10 h-10 bg-blue-500/20 rounded-lg flex items-center justify-center">
+                <Smartphone className="text-blue-400" size={20} />
+              </div>
+              <div>
+                <p className="text-white font-medium">Welcome from the Ground Goat app!</p>
+                <p className="text-gg-gray-400 text-sm">Add additional states here at the same per-state price.</p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {areasData?.unlimited && (
           <div className="card bg-gradient-to-r from-gg-pink/20 to-purple-500/20 border-gg-pink/30 mb-8">
             <div className="flex items-center gap-4">
@@ -364,5 +380,17 @@ export default function MyAreasPage() {
         )}
       </div>
     </div>
+  )
+}
+
+export default function MyAreasPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gg-black flex items-center justify-center">
+        <Loader2 size={32} className="animate-spin text-gg-pink" />
+      </div>
+    }>
+      <MyAreasContent />
+    </Suspense>
   )
 }
