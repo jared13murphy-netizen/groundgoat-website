@@ -82,8 +82,6 @@ export default function AccessPortalPage() {
   const [analyticsLoading, setAnalyticsLoading] = useState(false)
   const [mapListingId, setMapListingId] = useState<string | null>(null)
   const [selectedTract, setSelectedTract] = useState<TractSaleData | null>(null)
-  // Track where the tract detail was opened from, so Back goes to the right place
-  const [tractOpenedFromListing, setTractOpenedFromListing] = useState<string | null>(null)
   // Report state
   const [reportIds, setReportIds] = useState<Set<string>>(new Set())
   const [reportTracts, setReportTracts] = useState<TractSaleData[]>([])
@@ -326,7 +324,6 @@ export default function AccessPortalPage() {
     setShowListPanel(false)
     setMapListingId(null)
     setSelectedTract(null)
-    setTractOpenedFromListing(null)
     setShowWatchlistPanel(false)
     setShowComparablesPanel(false)
     setShowReportPanel(false)
@@ -334,21 +331,11 @@ export default function AccessPortalPage() {
 
   const handleViewListingFromMap = (listingId: string) => {
     closeAllLeftPanels()
-    setTractOpenedFromListing(null)
     setMapListingId(listingId)
   }
 
   const handleTractSelected = (tract: any) => {
-    // Remember which listing we came from so Back returns there
-    const fromListing = mapListingId || tract._fromListingId || null
-    // Close panels but DON'T clear tractOpenedFromListing
-    setShowListPanel(false)
-    setMapListingId(null)
-    setShowWatchlistPanel(false)
-    setShowComparablesPanel(false)
-    setShowReportPanel(false)
-    // Set the breadcrumb and open tract detail
-    setTractOpenedFromListing(fromListing)
+    // Just open the tract detail — it sits above everything else via z-index
     setSelectedTract(tract as TractSaleData)
   }
 
@@ -575,7 +562,7 @@ export default function AccessPortalPage() {
             animate={{ x: 0 }}
             exit={{ x: -500 }}
             transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-            className="fixed top-0 left-0 bottom-0 w-[480px] z-[515] bg-gg-gray-900/95 backdrop-blur-xl border-r border-white/10 shadow-2xl flex flex-col"
+            className="fixed top-0 left-0 bottom-0 w-[480px] z-[520] bg-gg-gray-900/95 backdrop-blur-xl border-r border-white/10 shadow-2xl flex flex-col"
           >
             <div className="pt-8 px-5 pb-4 border-b border-white/5 shrink-0">
               <h2 className="text-lg font-semibold">Listing Detail</h2>
@@ -603,7 +590,7 @@ export default function AccessPortalPage() {
             animate={{ x: 0 }}
             exit={{ x: -500 }}
             transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-            className="fixed top-0 left-0 bottom-0 w-[480px] z-[515] bg-gg-gray-900/95 backdrop-blur-xl border-r border-white/10 shadow-2xl flex flex-col"
+            className="fixed top-0 left-0 bottom-0 w-[480px] z-[530] bg-gg-gray-900/95 backdrop-blur-xl border-r border-white/10 shadow-2xl flex flex-col"
           >
             <div className="pt-8 px-5 pb-4 border-b border-white/5 shrink-0">
               <h2 className="text-lg font-semibold">Tract Detail</h2>
@@ -611,16 +598,9 @@ export default function AccessPortalPage() {
             <div className="flex-1 overflow-y-auto px-5 py-4">
               <PortalTractDetail
                 tract={selectedTract}
-                onBack={() => {
-                  setSelectedTract(null)
-                  if (tractOpenedFromListing) {
-                    setMapListingId(tractOpenedFromListing)
-                    setTractOpenedFromListing(null)
-                  }
-                }}
+                onBack={() => setSelectedTract(null)}
                 onViewListing={(listingId) => {
                   setSelectedTract(null)
-                  setTractOpenedFromListing(null)
                   setMapListingId(listingId)
                 }}
                 onView3DTerrain={handleView3DTerrain}
