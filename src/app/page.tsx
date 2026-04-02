@@ -189,25 +189,16 @@ export default function Home() {
     <>
       {/* Hero Section with Full-Screen Carousel */}
       <section className="relative min-h-[calc(100vh-80px)] mt-20 flex items-center overflow-hidden">
-        {/* Background Image Carousel */}
+        {/* Static Background Image */}
         <div className="absolute inset-0">
-          {listings.map((listing, index) => (
-            <div
-              key={listing.id}
-              className={`absolute inset-0 transition-opacity duration-1000 ${
-                index === currentSlide ? 'opacity-100' : 'opacity-0'
-              }`}
-            >
-              <Image
-                src={listing.primary_image_url}
-                alt={`${listing.county} County auction`}
-                fill
-                className="object-cover"
-                priority={index === 0}
-                sizes="100vw"
-              />
-            </div>
-          ))}
+          <Image
+            src="https://images.unsplash.com/photo-1560493676-04071c5f467b?w=1920&q=80"
+            alt="Farmland"
+            fill
+            className="object-cover"
+            priority
+            sizes="100vw"
+          />
           
           {/* Gradient overlays for text readability */}
           <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/50 to-transparent" />
