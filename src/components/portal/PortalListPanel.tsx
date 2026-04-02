@@ -63,6 +63,7 @@ function formatDate(listing: Listing): string {
 }
 
 function formatTime(listing: Listing): string {
+  // Try explicit auction_time first
   if (listing.auction_time) {
     try {
       const [h, m] = listing.auction_time.split(':')
@@ -70,7 +71,19 @@ function formatTime(listing: Listing): string {
       const ampm = hour >= 12 ? 'PM' : 'AM'
       const h12 = hour % 12 || 12
       return `${h12}:${m} ${ampm}`
-    } catch { return '' }
+    } catch { /* fall through */ }
+  }
+  // Extract time from auction_datetime
+  const raw = listing.auction_datetime
+  if (raw) {
+    const d = new Date(raw)
+    const hours = d.getUTCHours()
+    const mins = d.getUTCMinutes()
+    // Skip midnight (00:00) as it means "date only, no time set"
+    if (hours === 0 && mins === 0) return ''
+    const ampm = hours >= 12 ? 'PM' : 'AM'
+    const h12 = hours % 12 || 12
+    return `${h12}:${String(mins).padStart(2, '0')} ${ampm}`
   }
   return ''
 }
@@ -161,12 +174,21 @@ function ListingCard({ listing, activeTab, onClick }: { listing: Listing; active
           </div>
         )}
 
-        {/* Auction date/time - prominent for auctions */}
+        {/* Auction date/time - prominent calendar style for auctions */}
         {activeTab === 'auctions' && (
-          <div className="flex items-center gap-2 mt-3 pt-3 border-t border-white/5 bg-gg-pink/5 rounded-lg px-3 py-2 -mx-1">
-            <Calendar size={14} className="text-gg-pink shrink-0" />
-            <span className="text-sm font-bold text-white">{formatDate(listing)}</span>
-            {formatTime(listing) && <span className="text-sm font-semibold text-gg-pink">· {formatTime(listing)}</span>}
+          <div className="flex items-center gap-3 mt-3 bg-gg-pink/10 rounded-lg px-3 py-2.5 -mx-1 border border-gg-pink/20">
+            <div className="flex flex-col items-center justify-center bg-gg-pink/20 rounded-lg w-11 h-11 shrink-0">
+              <span className="text-[9px] font-bold text-gg-pink uppercase leading-none">
+                {(() => { const d = new Date(listing.auction_datetime || listing.auction_date || ''); return d.toLocaleDateString('en-US', { month: 'short' }).toUpperCase() })()}
+              </span>
+              <span className="text-base font-black text-white leading-tight">
+                {(() => { const d = new Date(listing.auction_datetime || listing.auction_date || ''); return d.getUTCDate() })()}
+              </span>
+            </div>
+            <div className="flex flex-col">
+              <span className="text-sm font-bold text-white">{formatDate(listing)}</span>
+              {formatTime(listing) && <span className="text-xs font-semibold text-gg-pink">{formatTime(listing)}</span>}
+            </div>
           </div>
         )}
 
