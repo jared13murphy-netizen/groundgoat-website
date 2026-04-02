@@ -83,7 +83,11 @@ export default function ReScrapePage() {
         body: JSON.stringify({ listing_id: listingId })
       })
       const json = await res.json()
-      setRescrapeResults(prev => ({ ...prev, [listingId]: json }))
+      if (!res.ok) {
+        setRescrapeResults(prev => ({ ...prev, [listingId]: { success: false, error: json.detail || `HTTP ${res.status}` } }))
+      } else {
+        setRescrapeResults(prev => ({ ...prev, [listingId]: json }))
+      }
     } catch (e: any) {
       setRescrapeResults(prev => ({ ...prev, [listingId]: { success: false, error: e.message } }))
     }
