@@ -98,6 +98,7 @@ export default function AccessPortalPage() {
   const [subjectTractLocation, setSubjectTractLocation] = useState<{ lat: number; lng: number } | null>(null)
   const [comparablesData, setComparablesData] = useState<any>(null)
   const [showComparablesPanel, setShowComparablesPanel] = useState(false)
+  const [comparableVisibleIds, setComparableVisibleIds] = useState<Set<string> | null>(null)
   // 3D viewer state
   const [showReportPanel, setShowReportPanel] = useState(false)
   const [show3DViewer, setShow3DViewer] = useState(false)
@@ -496,6 +497,7 @@ export default function AccessPortalPage() {
           subjectTractId={subjectTractId}
           subjectTractLocation={subjectTractLocation}
           resetFiltersSignal={resetFiltersSignal}
+          comparableVisibleIds={showComparablesPanel ? comparableVisibleIds : null}
         />
       </div>
 
@@ -649,6 +651,7 @@ export default function AccessPortalPage() {
             isInReport={(id) => reportIds.has(id)}
             reportCount={reportIds.size}
             onViewReport={handleCreateReport}
+            onVisibleTractsChange={setComparableVisibleIds}
           />
         )}
       </AnimatePresence>

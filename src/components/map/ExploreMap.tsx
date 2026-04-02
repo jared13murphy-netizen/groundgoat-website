@@ -154,9 +154,10 @@ interface ExploreMapProps {
   subjectTractId?: string | null
   subjectTractLocation?: { lat: number; lng: number } | null
   resetFiltersSignal?: number
+  comparableVisibleIds?: Set<string> | null
 }
 
-export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, subjectTractId, subjectTractLocation, resetFiltersSignal }: ExploreMapProps) {
+export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, subjectTractId, subjectTractLocation, resetFiltersSignal, comparableVisibleIds }: ExploreMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const stateMarkersRef = useRef<maplibregl.Marker[]>([])
@@ -753,6 +754,20 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       }
     })
   }, [portalMode, reportIds])
+
+  // Show/hide markers based on comparable panel's visible IDs
+  useEffect(() => {
+    if (!comparableVisibleIds) {
+      // No filtering — show all markers
+      tractMarkerElementsRef.current.forEach((el) => {
+        el.style.display = ''
+      })
+      return
+    }
+    tractMarkerElementsRef.current.forEach((el, tractId) => {
+      el.style.display = comparableVisibleIds.has(tractId) ? '' : 'none'
+    })
+  }, [comparableVisibleIds])
 
   // Create dedicated subject tract marker in comparables mode
   const subjectMarkerRef = useRef<maplibregl.Marker | null>(null)

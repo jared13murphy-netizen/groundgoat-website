@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import dynamic from 'next/dynamic'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
@@ -95,6 +95,7 @@ export default function ComparablesPage({ params }: { params: { id: string } }) 
   const [filterVisible, setFilterVisible] = useState(false)
   const [loadedFullState, setLoadedFullState] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
+  const [sortBy, setSortBy] = useState<'similarity' | 'distance' | 'price_asc' | 'price_desc' | 'soil_rating' | 'acres' | 'date'>('similarity')
 
   useEffect(() => {
     checkAuth()
@@ -375,6 +376,44 @@ export default function ComparablesPage({ params }: { params: { id: string } }) 
     listing?.county, listing?.state
   )
 
+  // Sort comparables based on selected sort mode
+  const haversine = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+    const R = 3959
+    const dLat = (lat2 - lat1) * Math.PI / 180
+    const dLon = (lon2 - lon1) * Math.PI / 180
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+  }
+
+  const subjectLat2 = searchCriteria?.subject_latitude
+  const subjectLng2 = searchCriteria?.subject_longitude
+
+  // For non-similarity sorts, use all state sales if available (larger dataset)
+  const sortSource = sortBy === 'similarity' ? filteredComparables : (filteredStateSales.length > 0 ? filteredStateSales : filteredComparables)
+
+  const sortedComparables = useMemo(() => {
+    const arr = [...sortSource].map(c => ({
+      ...c,
+      _distance: (subjectLat2 && subjectLng2 && c.latitude && c.longitude)
+        ? haversine(subjectLat2, subjectLng2, c.latitude, c.longitude) : null,
+    }))
+    switch (sortBy) {
+      case 'similarity': arr.sort((a: any, b: any) => (b.similarity_score ?? 0) - (a.similarity_score ?? 0)); break
+      case 'distance': arr.sort((a: any, b: any) => (a._distance ?? 999) - (b._distance ?? 999)); break
+      case 'price_asc': arr.sort((a: any, b: any) => (a.price_per_acre ?? 0) - (b.price_per_acre ?? 0)); break
+      case 'price_desc': arr.sort((a: any, b: any) => (b.price_per_acre ?? 0) - (a.price_per_acre ?? 0)); break
+      case 'soil_rating': arr.sort((a: any, b: any) => (b.soil_rating ?? b.csr2 ?? 0) - (a.soil_rating ?? a.csr2 ?? 0)); break
+      case 'acres': arr.sort((a: any, b: any) => (b.total_acres ?? 0) - (a.total_acres ?? 0)); break
+      case 'date': arr.sort((a: any, b: any) => (a.days_ago ?? 999) - (b.days_ago ?? 999)); break
+    }
+    return arr.slice(0, 50)
+  }, [sortSource, sortBy, subjectLat2, subjectLng2])
+
+  // Build visible IDs set from sorted comparables for map sync
+  const visibleIds = useMemo(() => {
+    return new Set(sortedComparables.map((c: any) => String(c.tract_id || c.id)))
+  }, [sortedComparables])
+
   return (
     <div className="min-h-screen bg-gg-black pt-24 pb-12">
       <div className="max-w-5xl mx-auto px-6">
@@ -458,6 +497,21 @@ export default function ComparablesPage({ params }: { params: { id: string } }) 
               </button>
             </>
           )}
+          {/* Sort dropdown */}
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+            className="px-3 py-2 rounded-lg text-sm font-medium bg-gg-gray-800 text-gg-gray-300 border border-gg-gray-700 hover:text-white cursor-pointer"
+          >
+            <option value="similarity">Similarity</option>
+            <option value="distance">Distance</option>
+            <option value="price_desc">$/Acre (High)</option>
+            <option value="price_asc">$/Acre (Low)</option>
+            <option value="soil_rating">Soil Rating</option>
+            <option value="acres">Acreage</option>
+            <option value="date">Most Recent</option>
+          </select>
+
           <button
             onClick={() => setFilterVisible(true)}
             className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors ml-auto relative ${
@@ -479,7 +533,7 @@ export default function ComparablesPage({ params }: { params: { id: string } }) 
         {/* Active filter count */}
         {activeFilterCount > 0 && (
           <p className="text-sm text-gg-gray-400 mb-4">
-            Showing {filteredComparables.length} of {comparables.length} comparables (filtered)
+            Showing {sortedComparables.length} of {comparables.length} comparables
           </p>
         )}
 
@@ -524,6 +578,7 @@ export default function ComparablesPage({ params }: { params: { id: string } }) 
                 height="550px"
                 selectedIds={selectedIds}
                 toggleSelection={toggleSelection}
+                visibleIds={visibleIds}
               />
               {!loadedFullState && (
                 <div className="flex justify-center mt-4">
@@ -583,7 +638,7 @@ export default function ComparablesPage({ params }: { params: { id: string } }) 
               </div>
             ) : (
               <div className="space-y-3">
-                {filteredComparables.map((comp) => {
+                {sortedComparables.map((comp: any) => {
                   const itemId = comp.tract_id || comp.id
                   const isSelected = selectedIds.has(itemId)
 

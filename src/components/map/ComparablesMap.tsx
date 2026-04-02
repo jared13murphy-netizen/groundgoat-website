@@ -69,6 +69,7 @@ interface ComparablesMapProps {
   height?: string
   selectedIds?: Set<string>
   toggleSelection?: (item: any) => void
+  visibleIds?: Set<string>
 }
 
 function getCountyCentroid(county: string, state: string): [number, number] | null {
@@ -104,6 +105,7 @@ export default function ComparablesMap({
   height = '500px',
   selectedIds = new Set<string>(),
   toggleSelection,
+  visibleIds,
 }: ComparablesMapProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
@@ -217,9 +219,10 @@ export default function ComparablesMap({
         },
       })
 
-      // Add tract polygon boundaries
+      // Add tract polygon boundaries (filtered by visibleIds when provided)
       const polygonFeatures: any[] = []
       for (const sale of stateSales) {
+        if (visibleIds && !visibleIds.has(String(sale.id)) && !visibleIds.has(String(sale.tract_id))) continue
         if (sale.polygon_coordinates && sale.polygon_coordinates.length > 2) {
           polygonFeatures.push({
             type: 'Feature',
@@ -286,8 +289,11 @@ export default function ComparablesMap({
       }
 
       // Create markers for sold tracts with boundaries only
+      // When visibleIds is provided, only show tracts in that set
       markerElementsRef.current.clear()
       for (const sale of stateSales) {
+        // Skip tracts not in visible set (when filtering is active)
+        if (visibleIds && !visibleIds.has(String(sale.id)) && !visibleIds.has(String(sale.tract_id))) continue
         // Skip tracts without boundary data
         if (!sale.polygon_coordinates || !Array.isArray(sale.polygon_coordinates) || sale.polygon_coordinates.length < 3) continue
 
@@ -362,7 +368,7 @@ export default function ComparablesMap({
       map.remove()
       mapRef.current = null
     }
-  }, [comparables, stateSales, subjectCounty, subjectState, subjectLatitude, subjectLongitude, subjectAcres, subjectPolygon])
+  }, [comparables, stateSales, subjectCounty, subjectState, subjectLatitude, subjectLongitude, subjectAcres, subjectPolygon, visibleIds])
 
   // Update marker styles when selectedIds changes (without recreating map)
   useEffect(() => {

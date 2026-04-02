@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { X, Loader2, MapPin, Calendar, Building2, ArrowUpDown, SlidersHorizontal } from 'lucide-react'
 
@@ -65,6 +65,7 @@ interface PortalComparablesPanelProps {
   isInReport?: (id: string) => boolean
   reportCount?: number
   onViewReport?: () => void
+  onVisibleTractsChange?: (ids: Set<string>) => void
 }
 
 type SortOption = 'similarity' | 'distance' | 'price_asc' | 'price_desc' | 'acres' | 'soil_rating' | 'date'
@@ -122,7 +123,7 @@ const SORT_OPTIONS: { value: SortOption; label: string }[] = [
 
 const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=400'
 
-export default function PortalComparablesPanel({ data, loading, onClose, onSelectComparable, onToggleReport, isInReport, reportCount, onViewReport }: PortalComparablesPanelProps) {
+export default function PortalComparablesPanel({ data, loading, onClose, onSelectComparable, onToggleReport, isInReport, reportCount, onViewReport, onVisibleTractsChange }: PortalComparablesPanelProps) {
   const [sortBy, setSortBy] = useState<SortOption>('similarity')
   const [showFilters, setShowFilters] = useState(false)
   const [filterCounty, setFilterCounty] = useState<string>('')
@@ -185,6 +186,14 @@ export default function PortalComparablesPanel({ data, loading, onClose, onSelec
     }
     return arr.slice(0, 50)
   }, [filtered, sortBy])
+
+  // Notify parent of visible tract IDs whenever sorted list changes
+  useEffect(() => {
+    if (onVisibleTractsChange && sorted.length > 0) {
+      const ids = new Set(sorted.map(c => String((c as any).tract_id || c.id)))
+      onVisibleTractsChange(ids)
+    }
+  }, [sorted, onVisibleTractsChange])
 
   if (!data && !loading) return null
 
