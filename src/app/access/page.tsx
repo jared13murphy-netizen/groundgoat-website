@@ -15,7 +15,7 @@ import PortalListPanel from '@/components/portal/PortalListPanel'
 import PortalAnalyticsPanel from '@/components/portal/PortalAnalyticsPanel'
 import PortalListingDetail from '@/components/portal/PortalListingDetail'
 import PortalTractDetail from '@/components/portal/PortalTractDetail'
-import PortalComparablesPanel from '@/components/portal/PortalComparablesPanel'
+import PortalComparablesReportPanel from '@/components/portal/PortalComparablesReportPanel'
 import PortalReportPanel from '@/components/portal/PortalReportPanel'
 import PortalWatchlistPanel from '@/components/portal/PortalWatchlistPanel'
 import type { TractSaleData } from '@/components/portal/PortalTractDetail'
@@ -96,9 +96,8 @@ export default function AccessPortalPage() {
   const [resetFiltersSignal, setResetFiltersSignal] = useState(0)
   const [subjectTractId, setSubjectTractId] = useState<string | null>(null)
   const [subjectTractLocation, setSubjectTractLocation] = useState<{ lat: number; lng: number } | null>(null)
-  const [comparablesData, setComparablesData] = useState<any>(null)
-  const [showComparablesPanel, setShowComparablesPanel] = useState(false)
-  const [comparableVisibleIds, setComparableVisibleIds] = useState<Set<string> | null>(null)
+  const [comparablesSubjectInfo, setComparablesSubjectInfo] = useState<any>(null)
+  const [showComparablesReportPanel, setShowComparablesReportPanel] = useState(false)
   // 3D viewer state
   const [showReportPanel, setShowReportPanel] = useState(false)
   const [show3DViewer, setShow3DViewer] = useState(false)
@@ -326,7 +325,7 @@ export default function AccessPortalPage() {
     setMapListingId(null)
     setSelectedTract(null)
     setShowWatchlistPanel(false)
-    setShowComparablesPanel(false)
+    setShowComparablesReportPanel(false)
     setShowReportPanel(false)
   }
 
@@ -343,7 +342,7 @@ export default function AccessPortalPage() {
   const handleTabChange = (tab: TabType) => {
     setActiveTab(tab)
     // Close comparables mode first (it also resets map)
-    if (showComparablesPanel) handleCloseComparables()
+    if (showComparablesReportPanel) handleCloseComparables()
     closeAllLeftPanels()
     if (tab !== 'map') {
       setShowListPanel(true)
@@ -358,59 +357,23 @@ export default function AccessPortalPage() {
   const [comparablesLoading, setComparablesLoading] = useState(false)
 
   const handleFindComparables = async (tractId: string, county: string, state: string) => {
-    // Show loading state, close panels, switch to map, clear filters
-    setComparablesLoading(true)
+    // Close other panels, switch to map
     setMapListingId(null)
     setSelectedTract(null)
     setShowListPanel(false)
+    setShowReportPanel(false)
     setActiveTab('map')
     setSubjectTractId(tractId)
-    setActiveFilters({ stateFilter: '', countyFilters: [] })
-    setResetFiltersSignal(prev => prev + 1)
 
+    // Fetch subject tract info for the panel header
     try {
-      // Fetch scored comparables AND all state sales in parallel
-      // First fetch scored comparables to get subject tract coordinates
-      const compResponse = await fetchWithAuth(`${API_URL}/api/comparables/tract/${tractId}?months_back=24&include_neighboring=true&limit=50`)
-      const compData = compResponse.ok ? await compResponse.json() : { comparables: [], summary: { count: 0, avg_price_per_acre: 0, median_price_per_acre: 0, min_price_per_acre: 0, max_price_per_acre: 0, avg_acres: 0 }, search_criteria: { county, state } }
-
-      // Use subject coordinates for distance-sorted state sales
-      const subLat = compData.search_criteria?.subject_latitude
-      const subLng = compData.search_criteria?.subject_longitude
-      const latLngParams = subLat && subLng ? `&lat=${subLat}&lng=${subLng}` : ''
-      const salesResponse = await fetchWithAuth(`${API_URL}/api/comparables/state-sales/${state}?county=${encodeURIComponent(county)}&months_back=24&neighbor_depth=2&limit=2000${latLngParams}`)
-
-      if (!compResponse.ok) {
-        console.error('Comparables API error:', compResponse.status)
-      }
-
-      const salesData = salesResponse.ok ? await salesResponse.json() : { tracts: [] }
-
-      // Merge: attach similarity scores from scored comps to the full sales dataset
-      const scoreMap = new Map<string, number>()
-      for (const c of compData.comparables) {
-        scoreMap.set(String(c.id), c.similarity_score ?? 0)
-      }
-
-      // Build all_tracts from state-sales, enriched with similarity scores — only tracts with boundaries
-      const allTracts = (salesData.tracts || [])
-        .filter((t: any) => t.polygon_coordinates && Array.isArray(t.polygon_coordinates) && t.polygon_coordinates.length >= 3)
-        .map((t: any) => ({
-          ...t,
-          similarity_score: scoreMap.get(String(t.id)) ?? null,
-        }))
-
-      // Store both datasets — panel will use allTracts for sorting/filtering
-      const mergedData = {
-        ...compData,
-        all_tracts: allTracts,
-      }
-
-      setComparablesData(mergedData)
-      setShowComparablesPanel(true)
-
+      const compResponse = await fetchWithAuth(`${API_URL}/api/comparables/tract/${tractId}?months_back=24&include_neighboring=true&limit=1`)
       if (compResponse.ok) {
-        // Zoom to subject tract location
+        const compData = await compResponse.json()
+        setComparablesSubjectInfo(compData.search_criteria || { county, state })
+
+        const subLat = compData.search_criteria?.subject_latitude
+        const subLng = compData.search_criteria?.subject_longitude
         if (subLat && subLng) {
           setSubjectTractLocation({ lat: subLat, lng: subLng })
         }
@@ -429,19 +392,27 @@ export default function AccessPortalPage() {
             setTimeout(() => setZoomToLocation(null), 3000)
           }, 100)
         }
+      } else {
+        setComparablesSubjectInfo({ county, state })
       }
     } catch (err) {
-      console.error('Failed to fetch comparables:', err)
-    } finally {
-      setComparablesLoading(false)
+      console.error('Failed to fetch subject info:', err)
+      setComparablesSubjectInfo({ county, state })
     }
+
+    // Clear existing report and show the new panel
+    setReportIds(new Set())
+    setReportTracts([])
+    setShowComparablesReportPanel(true)
   }
 
   const handleCloseComparables = () => {
     setSubjectTractId(null)
     setSubjectTractLocation(null)
-    setComparablesData(null)
-    setShowComparablesPanel(false)
+    setComparablesSubjectInfo(null)
+    setShowComparablesReportPanel(false)
+    setReportIds(new Set())
+    setReportTracts([])
     // Reset map cache so regular tracts reload
     setResetFiltersSignal(prev => prev + 1)
   }
@@ -497,7 +468,7 @@ export default function AccessPortalPage() {
           subjectTractId={subjectTractId}
           subjectTractLocation={subjectTractLocation}
           resetFiltersSignal={resetFiltersSignal}
-          comparableVisibleIds={showComparablesPanel ? comparableVisibleIds : null}
+          comparableVisibleIds={null}
         />
       </div>
 
@@ -625,33 +596,17 @@ export default function AccessPortalPage() {
         </div>
       )}
 
-      {/* Comparables Panel */}
+      {/* Comparables Report Panel (left side) */}
       <AnimatePresence>
-        {showComparablesPanel && (
-          <PortalComparablesPanel
-            data={comparablesData}
-            onClose={handleCloseComparables}
-            onToggleReport={(comp) => {
-              // Convert comparable to TractSaleData format for report
-              const tractData = {
-                id: comp.id,
-                county: comp.county,
-                state: comp.state,
-                totalAcres: comp.total_acres,
-                tillableAcres: comp.tillable_acres,
-                pricePerAcre: comp.price_per_acre,
-                salePrice: comp.sale_price,
-                soilRating: comp.soil_rating || comp.csr2,
-                auctionDate: comp.auction_date,
-                companyName: comp.company_name,
-                township: comp.township,
-              } as TractSaleData
-              handleToggleReport(tractData)
+        {showComparablesReportPanel && (
+          <PortalComparablesReportPanel
+            subjectInfo={comparablesSubjectInfo}
+            reportTracts={reportTracts}
+            onRemoveTract={(id) => {
+              setReportIds(prev => { const next = new Set(prev); next.delete(id); return next })
+              setReportTracts(prev => prev.filter(t => t.id !== id))
             }}
-            isInReport={(id) => reportIds.has(id)}
-            reportCount={reportIds.size}
-            onViewReport={handleCreateReport}
-            onVisibleTractsChange={setComparableVisibleIds}
+            onClose={handleCloseComparables}
           />
         )}
       </AnimatePresence>
@@ -679,13 +634,13 @@ export default function AccessPortalPage() {
             tracts={reportTracts}
             onClose={() => setShowReportPanel(false)}
             onRemoveTract={handleRemoveFromReport}
-            subjectInfo={comparablesData?.search_criteria}
+            subjectInfo={comparablesSubjectInfo}
           />
         )}
       </AnimatePresence>
 
       {/* Floating Report Bar */}
-      {reportIds.size > 0 && (
+      {reportIds.size > 0 && !showComparablesReportPanel && (
         <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[500] flex items-center gap-3 bg-gg-pink rounded-full px-6 py-3 shadow-2xl">
           <span className="text-white font-bold text-sm">
             {reportIds.size} Selected
