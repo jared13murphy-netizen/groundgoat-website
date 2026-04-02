@@ -41,6 +41,14 @@ interface ElevationData {
   avg_slope_pct: number
 }
 
+interface NeighborParcel {
+  geometry: [number, number][]
+  owner: string
+  acres: number | null
+  apn: string
+  source: string
+}
+
 interface PortalTractDetailProps {
   tract: TractSaleData
   onBack: () => void
@@ -48,6 +56,7 @@ interface PortalTractDetailProps {
   onView3DTerrain?: (tractId: string, tractName: string) => void
   onToggleReport?: (tract: TractSaleData) => void
   isInReport?: boolean
+  onShowNeighbors?: (parcels: NeighborParcel[] | null) => void
 }
 
 function formatCurrency(value?: number | null): string {
@@ -104,10 +113,13 @@ const STATUS_COLORS: Record<string, string> = {
   no_sale: 'bg-gray-500/15 text-gray-400 border-gray-500/30',
 }
 
-export default function PortalTractDetail({ tract, onBack, onViewListing, onView3DTerrain, onToggleReport, isInReport }: PortalTractDetailProps) {
+export default function PortalTractDetail({ tract, onBack, onViewListing, onView3DTerrain, onToggleReport, isInReport, onShowNeighbors }: PortalTractDetailProps) {
   const [soilData, setSoilData] = useState<SoilData | null>(null)
   const [elevationData, setElevationData] = useState<ElevationData | null>(null)
   const [soilLoading, setSoilLoading] = useState(false)
+  const [neighborsLoading, setNeighborsLoading] = useState(false)
+  const [neighborsLoaded, setNeighborsLoaded] = useState(false)
+  const [neighborCount, setNeighborCount] = useState(0)
 
   const hasBoundaries = !!(tract.polygonCoordinates && tract.polygonCoordinates.length > 0)
 
@@ -138,6 +150,39 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
       setSoilLoading(false)
     })
   }, [tract.tractId])
+
+  // Clear neighbors when tract changes or component unmounts
+  useEffect(() => {
+    setNeighborsLoaded(false)
+    setNeighborCount(0)
+    onShowNeighbors?.(null)
+    return () => { onShowNeighbors?.(null) }
+  }, [tract.tractId])
+
+  const handleShowNeighbors = async () => {
+    if (!tract.tractId || neighborsLoading) return
+    if (neighborsLoaded) {
+      // Toggle off
+      onShowNeighbors?.(null)
+      setNeighborsLoaded(false)
+      setNeighborCount(0)
+      return
+    }
+    setNeighborsLoading(true)
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/tracts/${tract.tractId}/neighbors`)
+      if (res.ok) {
+        const data = await res.json()
+        const parcels = data.neighbors || []
+        onShowNeighbors?.(parcels)
+        setNeighborCount(parcels.length)
+        setNeighborsLoaded(true)
+      }
+    } catch (e) {
+      console.error('Failed to fetch neighbors', e)
+    }
+    setNeighborsLoading(false)
+  }
 
   const statusKey = tract.saleStatus?.toLowerCase() || ''
 
@@ -280,6 +325,27 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
           >
             <Mountain size={14} />
             3D Map
+          </button>
+        )}
+
+        {/* Show Neighbors */}
+        {hasBoundaries && tract.tractId && onShowNeighbors && (
+          <button
+            onClick={handleShowNeighbors}
+            disabled={neighborsLoading}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl font-medium transition text-xs border ${
+              neighborsLoaded
+                ? 'bg-blue-500/10 text-blue-400 border-blue-500/30'
+                : 'bg-white/5 text-white border-white/10 hover:bg-white/10'
+            }`}
+          >
+            {neighborsLoading ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : neighborsLoaded ? (
+              `Hide (${neighborCount})`
+            ) : (
+              'Neighbors'
+            )}
           </button>
         )}
 

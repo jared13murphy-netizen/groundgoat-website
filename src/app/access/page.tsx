@@ -82,6 +82,7 @@ export default function AccessPortalPage() {
   const [analyticsLoading, setAnalyticsLoading] = useState(false)
   const [mapListingId, setMapListingId] = useState<string | null>(null)
   const [selectedTract, setSelectedTract] = useState<TractSaleData | null>(null)
+  const [neighborParcels, setNeighborParcels] = useState<any[] | null>(null)
   // Report state
   const [reportIds, setReportIds] = useState<Set<string>>(new Set())
   const [reportTracts, setReportTracts] = useState<TractSaleData[]>([])
@@ -477,6 +478,7 @@ export default function AccessPortalPage() {
           subjectTractLocation={subjectTractLocation}
           resetFiltersSignal={resetFiltersSignal}
           comparableVisibleIds={null}
+          neighborParcels={neighborParcels}
         />
       </div>
 
@@ -591,6 +593,7 @@ export default function AccessPortalPage() {
                   setSelectedTract(null)
                 }}
                 isInReport={reportIds.has(selectedTract.id)}
+                onShowNeighbors={setNeighborParcels}
               />
             </div>
           </motion.div>

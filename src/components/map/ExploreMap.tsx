@@ -156,9 +156,10 @@ interface ExploreMapProps {
   subjectTractLocation?: { lat: number; lng: number } | null
   resetFiltersSignal?: number
   comparableVisibleIds?: Set<string> | null
+  neighborParcels?: { geometry: [number, number][]; owner: string; acres: number | null; apn: string }[] | null
 }
 
-export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, subjectTractId, subjectTractLocation, resetFiltersSignal, comparableVisibleIds }: ExploreMapProps) {
+export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, subjectTractId, subjectTractLocation, resetFiltersSignal, comparableVisibleIds, neighborParcels }: ExploreMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const stateMarkersRef = useRef<maplibregl.Marker[]>([])
@@ -652,6 +653,102 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       })
     }
   }, [mapLoaded, polygonGeoJSON])
+
+  // Render neighboring parcels overlay
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+
+    // Remove existing neighbor layers/source
+    if (map.getLayer('neighbor-polygon-fill')) map.removeLayer('neighbor-polygon-fill')
+    if (map.getLayer('neighbor-polygon-line')) map.removeLayer('neighbor-polygon-line')
+    if (map.getSource('neighbor-parcels')) map.removeSource('neighbor-parcels')
+
+    if (!neighborParcels || neighborParcels.length === 0) return
+
+    // Build GeoJSON FeatureCollection
+    const features = neighborParcels.map((p, i) => ({
+      type: 'Feature' as const,
+      properties: {
+        owner: p.owner || 'Unknown',
+        acres: p.acres ? p.acres.toFixed(1) : '—',
+        apn: p.apn || '',
+        index: i,
+      },
+      geometry: {
+        type: 'Polygon' as const,
+        coordinates: [p.geometry],
+      },
+    }))
+
+    map.addSource('neighbor-parcels', {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features },
+    })
+
+    map.addLayer({
+      id: 'neighbor-polygon-fill',
+      type: 'fill',
+      source: 'neighbor-parcels',
+      paint: {
+        'fill-color': '#3B82F6',
+        'fill-opacity': [
+          'case',
+          ['boolean', ['feature-state', 'hover'], false],
+          0.3,
+          0.12,
+        ],
+      },
+    })
+
+    map.addLayer({
+      id: 'neighbor-polygon-line',
+      type: 'line',
+      source: 'neighbor-parcels',
+      paint: {
+        'line-color': '#3B82F6',
+        'line-width': 1.5,
+        'line-opacity': 0.7,
+        'line-dasharray': [3, 2],
+      },
+    })
+
+    // Hover popup for neighbor parcels
+    const popup = new maplibregl.Popup({
+      closeButton: false,
+      closeOnClick: false,
+      className: 'neighbor-popup',
+    })
+
+    const onMouseMove = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
+      if (!e.features?.length) return
+      const props = e.features[0].properties
+      map.getCanvas().style.cursor = 'pointer'
+      popup
+        .setLngLat(e.lngLat)
+        .setHTML(`
+          <div style="font-size:12px;color:#fff;background:#1a1a2e;padding:8px 10px;border-radius:6px;min-width:140px;">
+            <div style="font-weight:600;margin-bottom:4px;">${props.owner}</div>
+            <div style="color:#94a3b8;">${props.acres} ac</div>
+          </div>
+        `)
+        .addTo(map)
+    }
+
+    const onMouseLeave = () => {
+      map.getCanvas().style.cursor = ''
+      popup.remove()
+    }
+
+    map.on('mousemove', 'neighbor-polygon-fill', onMouseMove)
+    map.on('mouseleave', 'neighbor-polygon-fill', onMouseLeave)
+
+    return () => {
+      map.off('mousemove', 'neighbor-polygon-fill', onMouseMove)
+      map.off('mouseleave', 'neighbor-polygon-fill', onMouseLeave)
+      popup.remove()
+    }
+  }, [mapLoaded, neighborParcels])
 
   // Create/update HTML markers for tracts
   useEffect(() => {
