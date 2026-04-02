@@ -82,6 +82,8 @@ export default function AccessPortalPage() {
   const [analyticsLoading, setAnalyticsLoading] = useState(false)
   const [mapListingId, setMapListingId] = useState<string | null>(null)
   const [selectedTract, setSelectedTract] = useState<TractSaleData | null>(null)
+  // Track where the tract detail was opened from, so Back goes to the right place
+  const [tractOpenedFromListing, setTractOpenedFromListing] = useState<string | null>(null)
   // Report state
   const [reportIds, setReportIds] = useState<Set<string>>(new Set())
   const [reportTracts, setReportTracts] = useState<TractSaleData[]>([])
@@ -319,28 +321,37 @@ export default function AccessPortalPage() {
     setReportTracts(prev => prev.filter(t => t.id !== tractId))
   }
 
-  const handleViewListingFromMap = (listingId: string) => {
+  // Close all left-side panels to prevent overlap
+  const closeAllLeftPanels = () => {
+    setShowListPanel(false)
+    setMapListingId(null)
     setSelectedTract(null)
+    setTractOpenedFromListing(null)
+    setShowWatchlistPanel(false)
+    setShowComparablesPanel(false)
+    setShowReportPanel(false)
+  }
+
+  const handleViewListingFromMap = (listingId: string) => {
+    closeAllLeftPanels()
+    setTractOpenedFromListing(null)
     setMapListingId(listingId)
   }
 
   const handleTractSelected = (tract: any) => {
-    // Convert SaleDetail from ExploreMap to TractSaleData
-    setMapListingId(null)
+    // If we're currently viewing a listing, remember it so Back returns there
+    const fromListing = mapListingId || null
+    closeAllLeftPanels()
+    setTractOpenedFromListing(fromListing)
     setSelectedTract(tract as TractSaleData)
   }
 
   const handleTabChange = (tab: TabType) => {
     setActiveTab(tab)
-    setMapListingId(null)
-    setSelectedTract(null)
-    // Close comparables mode if active
-    if (showComparablesPanel) {
-      handleCloseComparables()
-    }
-    if (tab === 'map') {
-      setShowListPanel(false)
-    } else {
+    // Close comparables mode first (it also resets map)
+    if (showComparablesPanel) handleCloseComparables()
+    closeAllLeftPanels()
+    if (tab !== 'map') {
       setShowListPanel(true)
       fetchListings(tab)
     }
@@ -597,7 +608,13 @@ export default function AccessPortalPage() {
             <div className="pt-20 px-5 pb-4 border-b border-white/5 flex items-center justify-between shrink-0">
               <h2 className="text-lg font-semibold">Tract Detail</h2>
               <button
-                onClick={() => setSelectedTract(null)}
+                onClick={() => {
+                  setSelectedTract(null)
+                  if (tractOpenedFromListing) {
+                    setMapListingId(tractOpenedFromListing)
+                    setTractOpenedFromListing(null)
+                  }
+                }}
                 className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center hover:bg-white/10 transition"
               >
                 <span className="text-gg-gray-400 text-sm">✕</span>
@@ -606,9 +623,16 @@ export default function AccessPortalPage() {
             <div className="flex-1 overflow-y-auto px-5 py-4">
               <PortalTractDetail
                 tract={selectedTract}
-                onBack={() => setSelectedTract(null)}
+                onBack={() => {
+                  setSelectedTract(null)
+                  if (tractOpenedFromListing) {
+                    setMapListingId(tractOpenedFromListing)
+                    setTractOpenedFromListing(null)
+                  }
+                }}
                 onViewListing={(listingId) => {
                   setSelectedTract(null)
+                  setTractOpenedFromListing(null)
                   setMapListingId(listingId)
                 }}
                 onView3DTerrain={handleView3DTerrain}
@@ -670,7 +694,7 @@ export default function AccessPortalPage() {
             onClose={() => setShowWatchlistPanel(false)}
             onRemoveListing={handleToggleWatchlist}
             onSelectListing={(listingId) => {
-              setShowWatchlistPanel(false)
+              closeAllLeftPanels()
               setMapListingId(listingId)
             }}
           />
