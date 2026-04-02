@@ -200,13 +200,17 @@ export default function AccessPortalPage() {
       const res = await fetchWithAuth(`${API_URL}/api/watchlist`)
       if (res.ok) {
         const data = await res.json()
+        console.log('Watchlist API response:', data.length, 'items', data.length > 0 ? JSON.stringify(data[0]).slice(0, 200) : 'empty')
         const ids = new Set<string>(data.map((w: any) => String(w.listing_id || w.listing?.id)))
         const listings = data.map((w: any) => w.listing).filter(Boolean)
+        console.log('Watchlist IDs:', Array.from(ids))
         setWatchlistIds(ids)
         setWatchlistListings(listings)
+      } else {
+        console.error('Watchlist fetch failed:', res.status)
       }
-    } catch {
-      // Silent fail
+    } catch (err) {
+      console.error('Watchlist fetch error:', err)
     } finally {
       setWatchlistLoading(false)
     }
@@ -228,7 +232,11 @@ export default function AccessPortalPage() {
     try {
       if (wasWatched) {
         const res = await fetchWithAuth(`${API_URL}/api/watchlist/${listingId}`, { method: 'DELETE' })
-        if (!res.ok) throw new Error('Delete failed')
+        if (!res.ok) {
+          const errText = await res.text().catch(() => '')
+          console.error('Watchlist DELETE failed:', res.status, errText)
+          throw new Error('Delete failed')
+        }
         setWatchlistListings(prev => prev.filter(l => l.id !== listingId))
       } else {
         const res = await fetchWithAuth(`${API_URL}/api/watchlist`, {
@@ -236,11 +244,16 @@ export default function AccessPortalPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ listing_id: listingId }),
         })
-        if (!res.ok) throw new Error('Add failed')
+        if (!res.ok) {
+          const errText = await res.text().catch(() => '')
+          console.error('Watchlist POST failed:', res.status, errText)
+          throw new Error('Add failed')
+        }
         // Re-fetch to get full listing data
-        fetchWatchlist()
+        await fetchWatchlist()
       }
-    } catch {
+    } catch (err) {
+      console.error('Watchlist toggle error:', err)
       // Rollback
       setWatchlistIds(prev => {
         const next = new Set(prev)
