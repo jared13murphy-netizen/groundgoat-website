@@ -63,10 +63,15 @@ export default function PortalAnalyticsPanel({ county, state, onClose, onDataLoa
     const params = new URLSearchParams({ county: selectedCounty, state: selectedState, date_from: dateFrom })
 
     fetchWithAuth(`${API_URL}/api/admin/county-sales-detail?${params}`)
-      .then(r => r.json())
+      .then(r => {
+        if (!r.ok) throw new Error('API error')
+        return r.json()
+      })
       .then(d => {
-        setData(d)
-        onDataLoad?.(d)
+        if (d && d.townships) {
+          setData(d)
+          onDataLoad?.(d)
+        }
       })
       .catch(console.error)
       .finally(() => setLoading(false))
@@ -76,7 +81,7 @@ export default function PortalAnalyticsPanel({ county, state, onClose, onDataLoa
     ? data.total_sale_amount / data.total_acres_sold
     : 0
 
-  const townshipChartData = data
+  const townshipChartData = data?.townships
     ? Object.entries(data.townships)
         .map(([name, t]) => ({
           name,
