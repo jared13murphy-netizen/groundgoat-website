@@ -31,6 +31,8 @@ interface RescrapeListingItem {
   company_name: string | null
   tract_count: number
   tracts_missing_boundary: number
+  auction_datetime: string | null
+  listing_type: string | null
 }
 
 interface RescrapeResponse {
@@ -113,11 +115,11 @@ export default function ReScrapePage() {
         {/* Filters */}
         <div className="flex gap-4 mb-6">
           <select
-            className="bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-3 py-2 text-sm"
+            className="bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-3 py-2 text-sm text-gray-300"
             value={stateFilter}
             onChange={(e) => { setStateFilter(e.target.value); setPage(0) }}
           >
-            <option value="">All States</option>
+            <option value="">Filter by State</option>
             {data && Object.entries(data.state_counts)
               .sort((a, b) => b[1] - a[1])
               .map(([state, count]) => (
@@ -126,11 +128,11 @@ export default function ReScrapePage() {
             }
           </select>
           <select
-            className="bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-3 py-2 text-sm"
+            className="bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-3 py-2 text-sm text-gray-300"
             value={companyFilter}
             onChange={(e) => { setCompanyFilter(e.target.value); setPage(0) }}
           >
-            <option value="">All Companies</option>
+            <option value="">Filter by Company</option>
             {data && Object.entries(data.company_counts)
               .sort((a, b) => b[1] - a[1])
               .map(([company, count]) => (
@@ -154,6 +156,7 @@ export default function ReScrapePage() {
                     <th className="px-4 py-3">Company</th>
                     <th className="px-4 py-3">County</th>
                     <th className="px-4 py-3">State</th>
+                    <th className="px-4 py-3">Date</th>
                     <th className="px-4 py-3 text-right">Tracts</th>
                     <th className="px-4 py-3 text-right">Missing</th>
                     <th className="px-4 py-3 text-right">Acres</th>
@@ -170,6 +173,13 @@ export default function ReScrapePage() {
                         <td className="px-4 py-3 font-medium">{item.company_name || 'Unknown'}</td>
                         <td className="px-4 py-3">{item.county || '-'}</td>
                         <td className="px-4 py-3">{item.state || '-'}</td>
+                        <td className="px-4 py-3 text-gray-400 text-xs">
+                          {item.auction_datetime ? (() => {
+                            const d = new Date(item.auction_datetime!)
+                            const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+                            return `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`
+                          })() : '-'}
+                        </td>
                         <td className="px-4 py-3 text-right">{item.tract_count}</td>
                         <td className="px-4 py-3 text-right">
                           <span className="text-red-400">{item.tracts_missing_boundary}</span>
