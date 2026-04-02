@@ -85,7 +85,8 @@ export function buildExplorePopupHTML(props: Record<string, unknown>): string {
   const salePrice = props.salePrice as number
   const county = props.county as string
   const state = props.state as string
-  const township = props.township as string
+  const rawTownship = props.township as string
+  const township = rawTownship ? (rawTownship.replace(/\s+(Township|CCD|Precinct)\s*$/i, '').replace(/\s+No\.?\s*\d+\s*$/i, '').replace(/^(in|of)\s+/i, '').trim() || rawTownship) : ''
   const listingId = props.listingId as string
   const soilRating = props.soilRating as number
   const pctTillable = props.pctTillable as number

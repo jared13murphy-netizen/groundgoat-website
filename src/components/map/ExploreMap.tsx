@@ -6,6 +6,7 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import './ComparablesMap.css'
 import './TractMap.css'
 import type { ApiMapTract, MapTractsResponse } from './exploreMapTypes'
+import { normalizeTownship } from '../../utils/normalizeTownship'
 import {
   buildExplorePolygonGeoJSON,
   buildExploreStateAggregates,
@@ -1170,11 +1171,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                 if (filters.countyFilters.length > 0) {
                   if (!filters.countyFilters.some(c => c.toLowerCase() === t.county?.toLowerCase())) return
                 }
-                // Normalize: strip " Township" suffix, title case
-                let twp = t.township.trim()
-                for (const suffix of [' Township', ' township', ' TOWNSHIP', ' Twp', ' twp']) {
-                  if (twp.endsWith(suffix)) { twp = twp.slice(0, -suffix.length); break }
-                }
+                // Normalize township name
+                const twp = normalizeTownship(t.township)
                 if (twp) townshipSet.add(twp)
               })
               const townships = Array.from(townshipSet).sort()
@@ -1403,7 +1401,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               </div>
               <div className="sale-modal-row">
                 <span className="sale-modal-label">Township</span>
-                <span className="sale-modal-value">{selectedSale.township || '—'}</span>
+                <span className="sale-modal-value">{normalizeTownship(selectedSale.township) || '—'}</span>
               </div>
               {selectedSale.tillableAcres ? (
                 <div className="sale-modal-row">

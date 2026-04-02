@@ -6,6 +6,7 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import './ComparablesMap.css'
 import { TILE_URL, TILE_ATTRIBUTION, GLYPH_URL } from './mapConstants'
 import { countyCentroids } from '@/data/countyCentroids'
+import { normalizeTownship } from '../../utils/normalizeTownship'
 import Tract3DModal from '@/components/Tract3DModal'
 
 interface ComparablePin {
@@ -428,7 +429,7 @@ export default function ComparablesMap({
               </div>
               <div className="sale-modal-row">
                 <span className="sale-modal-label">Township</span>
-                <span className="sale-modal-value">{selectedSale.township || '—'}</span>
+                <span className="sale-modal-value">{normalizeTownship(selectedSale.township) || '—'}</span>
               </div>
               {selectedSale.tillableAcres && (
                 <div className="sale-modal-row">
