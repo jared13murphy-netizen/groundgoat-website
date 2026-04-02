@@ -130,12 +130,14 @@ export default function Navigation() {
                     Listings
                   </Link>
                 )}
-                <Link
-                  href={isAdmin ? '/admin/dashboard' : '/account'}
-                  className="text-gg-gray-300 hover:text-white transition-colors font-medium"
-                >
-                  {isAdmin ? 'Dashboard' : 'My Account'}
-                </Link>
+                {isAdmin && (
+                  <Link
+                    href="/admin/dashboard"
+                    className="text-gg-gray-300 hover:text-white transition-colors font-medium"
+                  >
+                    Dashboard
+                  </Link>
+                )}
                 <div className="relative">
                   <button
                     onClick={() => setShowUserMenu(!showUserMenu)}
@@ -247,13 +249,15 @@ export default function Navigation() {
                       Listings
                     </Link>
                   )}
-                  <Link
-                    href={isAdmin ? '/admin/dashboard' : '/account'}
-                    className="text-white font-medium py-2"
-                    onClick={() => setIsMobileMenuOpen(false)}
-                  >
-                    {isAdmin ? 'Dashboard' : 'My Account'}
-                  </Link>
+                  {isAdmin && (
+                    <Link
+                      href="/admin/dashboard"
+                      className="text-white font-medium py-2"
+                      onClick={() => setIsMobileMenuOpen(false)}
+                    >
+                      Dashboard
+                    </Link>
+                  )}
                   <button
                     onClick={() => {
                       setIsMobileMenuOpen(false)
