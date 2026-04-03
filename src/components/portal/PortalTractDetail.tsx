@@ -57,6 +57,7 @@ interface PortalTractDetailProps {
   onToggleReport?: (tract: TractSaleData) => void
   isInReport?: boolean
   onShowNeighbors?: (parcels: NeighborParcel[] | null) => void
+  showNeighborsButton?: boolean
 }
 
 function formatCurrency(value?: number | null): string {
@@ -113,7 +114,7 @@ const STATUS_COLORS: Record<string, string> = {
   no_sale: 'bg-gray-500/15 text-gray-400 border-gray-500/30',
 }
 
-export default function PortalTractDetail({ tract, onBack, onViewListing, onView3DTerrain, onToggleReport, isInReport, onShowNeighbors }: PortalTractDetailProps) {
+export default function PortalTractDetail({ tract, onBack, onViewListing, onView3DTerrain, onToggleReport, isInReport, onShowNeighbors, showNeighborsButton = false }: PortalTractDetailProps) {
   const [soilData, setSoilData] = useState<SoilData | null>(null)
   const [elevationData, setElevationData] = useState<ElevationData | null>(null)
   const [soilLoading, setSoilLoading] = useState(false)
@@ -328,9 +329,8 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
           </button>
         )}
 
-        {/* Show Neighbors — hidden from users, still wired up for testing */}
-        {/* TODO: Re-enable once backend/scraper connection is verified
-        {hasBoundaries && tract.tractId && onShowNeighbors && (
+        {/* Show Neighbors — only visible for testing users */}
+        {hasBoundaries && tract.tractId && onShowNeighbors && showNeighborsButton && (
           <button
             onClick={handleShowNeighbors}
             disabled={neighborsLoading}
@@ -349,7 +349,6 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
             )}
           </button>
         )}
-        */}
 
         {/* Add to Report */}
         {onToggleReport && (
