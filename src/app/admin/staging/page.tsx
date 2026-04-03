@@ -327,7 +327,7 @@ export default function AdminStagingPage() {
       const res = await fetch(`${SCRAPER_URL}/api/scraper/scrape-single-url`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: scrapeUrl.trim() }),
+        body: JSON.stringify({ url: scrapeUrl.trim(), force: true }),
       })
       const data = await res.json()
       if (data.success) {
