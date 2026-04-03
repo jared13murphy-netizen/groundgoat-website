@@ -105,3 +105,17 @@
 .tract-popup-link:hover {
   text-decoration: underline;
 }
+
+/* Neighbor parcel popup — clean white bubble */
+.neighbor-popup .maplibregl-popup-content {
+  background: transparent;
+  padding: 0;
+  box-shadow: none;
+  border-radius: 0;
+}
+.neighbor-popup .maplibregl-popup-tip {
+  border-top-color: #fff;
+}
+.neighbor-popup .maplibregl-popup-close-button {
+  display: none;
+}
