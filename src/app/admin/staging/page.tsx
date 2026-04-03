@@ -1372,13 +1372,16 @@ export default function AdminStagingPage() {
                                         <span>Tillable: {tract.tillable_acres} ac</span>
                                       )}
                                       {tract.soil_rating != null && (
-                                        <span>Soil: {tract.soil_rating}</span>
+                                        <span className="text-green-400">Soil: {tract.soil_rating}{tract.soil_rating_type ? ` (${tract.soil_rating_type})` : ''}</span>
                                       )}
                                       {tract.pi != null && (
                                         <span>PI: {tract.pi}</span>
                                       )}
                                       {(tract.county?.county_name || tract.county_name) && (
                                         <span>{tract.county?.county_name || tract.county_name}{(tract.state_full || tract.state || tract.state_abbr) ? `, ${tract.state_full || tract.state || tract.state_abbr}` : ''}</span>
+                                      )}
+                                      {tract.township && (
+                                        <span>Twp: {tract.township}</span>
                                       )}
                                       {tract.latitude != null && tract.longitude != null && (
                                         <span className="flex items-center gap-0.5">
