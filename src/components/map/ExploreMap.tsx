@@ -729,7 +729,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         .setHTML(`
           <div style="font-size:12px;color:#fff;background:#1a1a2e;padding:8px 10px;border-radius:6px;min-width:140px;">
             <div style="font-weight:600;margin-bottom:4px;">${props.owner}</div>
-            <div style="color:#94a3b8;">${props.acres} ac</div>
+            <div style="color:#94a3b8;">${props.acres && props.acres !== '—' ? props.acres + ' ac' : ''}</div>
           </div>
         `)
         .addTo(map)
