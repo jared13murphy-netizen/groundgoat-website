@@ -34,6 +34,7 @@ interface Tract {
   township?: string
   county_name?: string
   state_abbr?: string
+  polygon_coordinates?: [number, number][] | null
 }
 
 interface Listing {
