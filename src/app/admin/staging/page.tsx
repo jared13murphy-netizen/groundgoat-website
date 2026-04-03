@@ -1374,6 +1374,9 @@ export default function AdminStagingPage() {
                                       {tract.soil_rating != null && (
                                         <span className="text-green-400">Soil: {tract.soil_rating}{tract.soil_rating_type ? ` (${tract.soil_rating_type})` : ''}</span>
                                       )}
+                                      {tract.nccpi != null && (
+                                        <span className="text-cyan-400">NCCPI: {tract.nccpi}</span>
+                                      )}
                                       {tract.pi != null && (
                                         <span>PI: {tract.pi}</span>
                                       )}
