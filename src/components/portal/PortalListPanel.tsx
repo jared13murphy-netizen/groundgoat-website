@@ -35,6 +35,7 @@ interface PortalListPanelProps {
   onTractSelected?: (tract: any) => void
   onFindComparables?: (tractId: string, county: string, state: string) => void
   activeFilters?: { stateFilter: string; countyFilters: string[] }
+  onClearFilters?: () => void
   userAccountType?: string
   watchlistIds?: Set<string>
   onToggleWatchlist?: (listingId: string) => void
@@ -256,7 +257,7 @@ function ListingCard({ listing, activeTab, onClick, isWatchlisted, onToggleWatch
   )
 }
 
-export default function PortalListPanel({ listings, loading, activeTab, onClose, onTractSelected, onFindComparables, activeFilters, userAccountType, watchlistIds, onToggleWatchlist }: PortalListPanelProps) {
+export default function PortalListPanel({ listings, loading, activeTab, onClose, onTractSelected, onFindComparables, activeFilters, onClearFilters, userAccountType, watchlistIds, onToggleWatchlist }: PortalListPanelProps) {
   const [selectedListingId, setSelectedListingId] = useState<string | null>(null)
 
   return (
@@ -286,11 +287,21 @@ export default function PortalListPanel({ listings, loading, activeTab, onClose,
             <X size={16} className="text-gg-gray-400" />
           </button>
         </div>
-        {/* Active filters display */}
+        {/* Active filters display with clear button */}
         {!selectedListingId && activeFilters && (activeFilters.stateFilter || activeFilters.countyFilters.length > 0) && (
-          <p className="text-xs text-gg-gray-400 mt-2">
-            Showing{activeFilters.stateFilter ? ` ${activeFilters.stateFilter}` : ''}{activeFilters.countyFilters.length > 0 ? ` · ${activeFilters.countyFilters.join(', ')}` : ''}
-          </p>
+          <div className="flex items-center justify-between mt-2">
+            <p className="text-xs text-gg-gray-400">
+              Showing{activeFilters.stateFilter ? ` ${activeFilters.stateFilter}` : ''}{activeFilters.countyFilters.length > 0 ? ` · ${activeFilters.countyFilters.join(', ')}` : ''}
+            </p>
+            {onClearFilters && (
+              <button
+                onClick={onClearFilters}
+                className="text-xs text-gg-pink hover:text-gg-pink/80 font-medium transition"
+              >
+                Clear Filters
+              </button>
+            )}
+          </div>
         )}
       </div>
 

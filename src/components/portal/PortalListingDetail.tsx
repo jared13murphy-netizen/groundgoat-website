@@ -431,6 +431,7 @@ export default function PortalListingDetail({ listingId, onBack, onTractSelected
                     state: listing.state,
                     township: tract.township,
                     soilRating: tract.soil_rating,
+                    polygonCoordinates: tract.polygon_coordinates,
                     saleStatus: tract.sale_status || listing.status,
                     listingType: listing.listing_type,
                   })

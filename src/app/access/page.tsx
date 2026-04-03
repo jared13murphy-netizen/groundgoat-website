@@ -518,6 +518,10 @@ export default function AccessPortalPage() {
             onTractSelected={setSelectedTract}
             onFindComparables={handleFindComparables}
             activeFilters={activeFilters}
+            onClearFilters={() => {
+              setActiveFilters({ stateFilter: '', countyFilters: [] })
+              setResetFiltersSignal(prev => prev + 1)
+            }}
             userAccountType={user?.account_type}
             watchlistIds={watchlistIds}
             onToggleWatchlist={handleToggleWatchlist}
