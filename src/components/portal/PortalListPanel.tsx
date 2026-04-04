@@ -25,6 +25,8 @@ interface Listing {
   company_name?: string
   tract_count?: number
   tracts?: { id: string; tillable_acres?: number; soil_rating?: number; csr2?: number; total_acres?: number; price_per_acre?: number }[]
+  is_incomplete?: boolean
+  incomplete_reason?: string
 }
 
 interface PortalListPanelProps {
@@ -153,6 +155,11 @@ function ListingCard({ listing, activeTab, onClick, isWatchlisted, onToggleWatch
             <Bookmark size={14} className={isWatchlisted ? 'text-gg-pink fill-gg-pink' : 'text-white'} />
           </button>
         )}
+        {listing.is_incomplete && (
+          <span className="absolute top-2 left-2 text-[10px] px-2 py-1 rounded-full font-bold uppercase bg-orange-500/90 text-white shadow-lg">
+            Details Coming Soon
+          </span>
+        )}
         {listing.status === 'live' && (
           <span className="absolute top-2 right-2 text-[10px] px-2 py-1 rounded-full font-bold uppercase bg-red-500 text-white flex items-center gap-1.5 animate-pulse shadow-lg shadow-red-500/40">
             <span className="w-2 h-2 rounded-full bg-white animate-ping" />
@@ -208,17 +215,17 @@ function ListingCard({ listing, activeTab, onClick, isWatchlisted, onToggleWatch
           </div>
           <div>
             <div className="text-[10px] text-gg-gray-500">Tracts</div>
-            <div className="text-sm font-medium">{listing.tract_count || '—'}</div>
+            <div className="text-sm font-medium">{listing.is_incomplete ? 'TBD' : (listing.tract_count || '—')}</div>
           </div>
           {activeTab === 'auctions' ? (
             <>
               <div>
                 <div className="text-[10px] text-gg-gray-500">Tillable</div>
-                <div className="text-sm font-medium">{getListingTillableAcres(listing) ? Math.round(getListingTillableAcres(listing)!) + ' ac' : '—'}</div>
+                <div className="text-sm font-medium">{listing.is_incomplete ? '—' : (getListingTillableAcres(listing) ? Math.round(getListingTillableAcres(listing)!) + ' ac' : '—')}</div>
               </div>
               <div>
                 <div className="text-[10px] text-gg-gray-500">{getSoilLabel(listing.state)}</div>
-                <div className="text-sm font-medium">{getListingSoilRating(listing) ?? '—'}</div>
+                <div className="text-sm font-medium">{listing.is_incomplete ? '—' : (getListingSoilRating(listing) ?? '—')}</div>
               </div>
             </>
           ) : (

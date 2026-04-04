@@ -49,6 +49,8 @@ interface StagingListing {
   status: string
   created_at: string
   scrape_duration_ms: number | null
+  is_incomplete: boolean
+  incomplete_reason: string | null
 }
 
 interface RunLogEntry {
@@ -613,6 +615,27 @@ export default function AdminStagingPage() {
       }
     } catch (err) {
       showToast('error', 'Network error — failed to verify listing')
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  const handlePublishIncomplete = async (id: number) => {
+    setActionLoading(id)
+    try {
+      const response = await fetchWithAuth(`${API_URL}/api/admin/staging/${id}/publish-incomplete`, {
+        method: 'POST',
+      })
+      if (response.ok) {
+        setListings((prev) => prev.filter((l) => l.id !== id))
+        setTotalCount((prev) => Math.max(0, prev - 1))
+        showToast('success', 'Published as incomplete — Details Coming Soon')
+      } else {
+        const err = await response.json().catch(() => ({ detail: 'Failed' }))
+        showToast('error', typeof err.detail === 'string' ? err.detail : 'Failed to publish as incomplete')
+      }
+    } catch (err) {
+      showToast('error', 'Network error')
     } finally {
       setActionLoading(null)
     }
@@ -1344,14 +1367,14 @@ export default function AdminStagingPage() {
                                         <img
                                           src={`data:image/png;base64,${cachedImage}`}
                                           alt={`Tract ${tract.tract_number ?? idx + 1}`}
-                                          className="w-16 h-16 rounded object-cover cursor-pointer hover:opacity-80 transition-opacity border border-gg-gray-700"
+                                          className="w-24 h-24 rounded object-cover cursor-pointer hover:opacity-80 transition-opacity border border-gg-gray-700"
                                         />
                                       </button>
                                     ) : (
                                       <button
                                         onClick={() => loadTractImage(listing.id, idx)}
                                         disabled={loadingTractImage === cacheKey}
-                                        className="flex-shrink-0 w-16 h-16 rounded flex items-center justify-center border border-gg-gray-700 hover:border-gg-gray-600 text-gg-gray-500 hover:text-gg-gray-400 transition-colors cursor-pointer"
+                                        className="flex-shrink-0 w-24 h-24 rounded flex items-center justify-center border border-gg-gray-700 hover:border-gg-gray-600 text-gg-gray-500 hover:text-gg-gray-400 transition-colors cursor-pointer"
                                         title="Load tract image"
                                       >
                                         {loadingTractImage === cacheKey ? (
@@ -1386,6 +1409,16 @@ export default function AdminStagingPage() {
                                       {tract.township && (
                                         <span>Twp: {tract.township}</span>
                                       )}
+                                      {tract._matching_strategy && (
+                                        <span className={
+                                          ['label', 'acreage', 'single_tract'].includes(tract._matching_strategy)
+                                            ? 'text-green-400'
+                                            : 'text-red-400'
+                                        }>
+                                          Match: {tract._matching_strategy}
+                                          {!['label', 'acreage', 'single_tract'].includes(tract._matching_strategy) && ' ⚠️'}
+                                        </span>
+                                      )}
                                       {tract.latitude != null && tract.longitude != null && (
                                         <span className="flex items-center gap-0.5">
                                           <Navigation size={10} />
@@ -1414,6 +1447,30 @@ export default function AdminStagingPage() {
                           </p>
                         )}
 
+                        {/* Confidence Badge */}
+                        {listing.is_incomplete && (
+                          <div className="flex items-center gap-2 mb-3 px-3 py-2 bg-orange-500/10 border border-orange-500/30 rounded-lg">
+                            <AlertTriangle size={16} className="text-orange-400 flex-shrink-0" />
+                            <div>
+                              <span className="text-orange-400 font-medium text-sm">INCOMPLETE</span>
+                              {listing.incomplete_reason && (
+                                <span className="text-orange-400/70 text-xs ml-2">{listing.incomplete_reason.replace(/_/g, ' ')}</span>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                        {!listing.is_incomplete && listing.scraped_data?.tracts?.length > 0 && (
+                          <div className="flex items-center gap-2 mb-3 px-3 py-2 bg-green-500/10 border border-green-500/30 rounded-lg">
+                            <CheckCircle size={16} className="text-green-400 flex-shrink-0" />
+                            <span className="text-green-400 font-medium text-sm">COMPLETE</span>
+                            {listing.scraped_data?.tracts?.[0]?._matching_strategy && (
+                              <span className="text-green-400/70 text-xs ml-1">
+                                Matched by: {listing.scraped_data.tracts[0]._matching_strategy}
+                              </span>
+                            )}
+                          </div>
+                        )}
+
                         {/* Action Buttons */}
                         <div className="flex items-center gap-3">
                           <button
@@ -1440,6 +1497,16 @@ export default function AdminStagingPage() {
                             {actionLoading === listing.id ? <Loader2 className="animate-spin" size={16} /> : <Clock size={16} />}
                             {actionLoading === listing.id ? 'Ignoring...' : 'Ignore'}
                           </button>
+                          {listing.is_incomplete && (
+                            <button
+                              onClick={() => handlePublishIncomplete(listing.id)}
+                              disabled={actionLoading === listing.id}
+                              className="flex items-center gap-2 px-5 py-2.5 bg-orange-600 text-white rounded-lg hover:bg-orange-500 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              {actionLoading === listing.id ? <Loader2 className="animate-spin" size={16} /> : <AlertTriangle size={16} />}
+                              Publish Incomplete
+                            </button>
+                          )}
                           <button
                             onClick={() => handleReject(listing.id)}
                             disabled={actionLoading === listing.id}

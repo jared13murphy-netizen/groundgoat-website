@@ -61,6 +61,8 @@ interface Listing {
   company_name?: string
   tracts?: Tract[]
   tract_count?: number
+  is_incomplete?: boolean
+  incomplete_reason?: string
 }
 
 interface PortalListingDetailProps {
@@ -408,8 +410,18 @@ export default function PortalListingDetail({ listingId, onBack, onTractSelected
         </div>
       )}
 
+      {/* Incomplete Banner */}
+      {listing.is_incomplete && (
+        <div className="bg-orange-500/10 border border-orange-500/30 rounded-xl px-4 py-3 mb-4">
+          <div className="text-orange-400 font-semibold text-sm">Details Coming Soon</div>
+          <div className="text-orange-400/70 text-xs mt-1">
+            Tract details will be available closer to the auction date. Check back soon for boundaries, soil ratings, and per-tract acreage.
+          </div>
+        </div>
+      )}
+
       {/* Tracts */}
-      {listing.tracts && listing.tracts.length > 0 && (
+      {listing.tracts && listing.tracts.length > 0 && !listing.is_incomplete && (
         <div>
           <h3 className="text-sm font-semibold text-gg-gray-300 uppercase tracking-wider mb-3">
             Tracts ({listing.tracts.length})

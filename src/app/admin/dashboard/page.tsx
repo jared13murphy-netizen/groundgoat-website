@@ -17,7 +17,8 @@ import {
   Moon,
   ClipboardList,
   ClipboardCheck,
-  MapPin
+  MapPin,
+  Clock
 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import type { ApiListing } from '@/components/map/mapTypes'
@@ -314,6 +315,12 @@ export default function AdminDashboard() {
                 description="Fix tracts missing boundary lines"
                 href="/admin/rescrape"
                 icon={<MapPin />}
+              />
+              <QuickActionCard
+                title="Incomplete Listings"
+                description="Auctions awaiting tract details"
+                href="/admin/incomplete"
+                icon={<Clock />}
               />
               <QuickActionCard
                 title="Manage Users"
