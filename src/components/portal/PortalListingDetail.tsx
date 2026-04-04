@@ -284,10 +284,12 @@ export default function PortalListingDetail({ listingId, onBack, onTractSelected
           <div className="text-lg font-bold">{formatAcres(displayAcres ?? undefined)}</div>
           <div className="text-[10px] text-gg-gray-500 uppercase">{acresLabel}</div>
         </div>
-        <div className="text-center">
-          <div className="text-lg font-bold">{listing.tracts?.length || listing.tract_count || '—'}</div>
-          <div className="text-[10px] text-gg-gray-500 uppercase">Tracts</div>
-        </div>
+        {!listing.is_incomplete && (
+          <div className="text-center">
+            <div className="text-lg font-bold">{listing.tracts?.length || listing.tract_count || '—'}</div>
+            <div className="text-[10px] text-gg-gray-500 uppercase">Tracts</div>
+          </div>
+        )}
         {getPricePerAcre() && (
           <div className="text-center">
             <div className="text-lg font-bold text-gg-pink">{formatCurrency(getPricePerAcre()!)}</div>

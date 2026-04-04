@@ -213,10 +213,12 @@ function ListingCard({ listing, activeTab, onClick, isWatchlisted, onToggleWatch
             <div className="text-[10px] text-gg-gray-500">Acres</div>
             <div className="text-sm font-medium">{listing.total_acres ? Math.round(listing.total_acres).toLocaleString() : '—'}</div>
           </div>
-          <div>
-            <div className="text-[10px] text-gg-gray-500">Tracts</div>
-            <div className="text-sm font-medium">{listing.is_incomplete ? 'TBD' : (listing.tract_count || '—')}</div>
-          </div>
+          {!listing.is_incomplete && (
+            <div>
+              <div className="text-[10px] text-gg-gray-500">Tracts</div>
+              <div className="text-sm font-medium">{listing.tract_count || '—'}</div>
+            </div>
+          )}
           {activeTab === 'auctions' ? (
             <>
               <div>
