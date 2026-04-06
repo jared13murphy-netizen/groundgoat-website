@@ -61,16 +61,16 @@
 }
 
 .comp-marker-pin.comparable {
-  background: #DC2626;
+  background: #22c55e;
 }
 
 .comp-marker-label.selected {
-  border-color: #22c55e;
-  background: rgba(34, 197, 94, 0.2);
+  border-color: #E91E8C;
+  background: rgba(233, 30, 140, 0.2);
 }
 
 .comp-marker-pin.selected {
-  background: #22c55e;
+  background: #E91E8C;
 }
 
 .comp-popup .maplibregl-popup-content {

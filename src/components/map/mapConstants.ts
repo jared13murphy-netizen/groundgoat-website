@@ -10,12 +10,12 @@ export const GLYPH_URL = 'https://fonts.openmaptiles.org/{fontstack}/{range}.pbf
 export const LABEL_TILE_URL = 'https://cartodb-basemaps-a.global.ssl.fastly.net/light_only_labels/{z}/{x}/{y}.png'
 
 export const STATUS_COLORS: Record<string, { fill: string; border: string; opacity: number }> = {
-  listed:  { fill: '#2563EB', border: '#1D4ED8', opacity: 0.25 },
-  active:  { fill: '#2563EB', border: '#1D4ED8', opacity: 0.25 },
-  live:    { fill: '#16A34A', border: '#15803D', opacity: 0.30 },
-  sold:    { fill: '#DC2626', border: '#B91C1C', opacity: 0.20 },
-  pending: { fill: '#DC2626', border: '#B91C1C', opacity: 0.20 },
-  no_sale: { fill: '#6B7280', border: '#4B5563', opacity: 0.15 },
+  listed:  { fill: '#eab308', border: '#ca8a04', opacity: 0.25 },
+  active:  { fill: '#eab308', border: '#ca8a04', opacity: 0.25 },
+  live:    { fill: '#E91E8C', border: '#c4176f', opacity: 0.30 },
+  sold:    { fill: '#22c55e', border: '#16a34a', opacity: 0.20 },
+  pending: { fill: '#eab308', border: '#ca8a04', opacity: 0.20 },
+  no_sale: { fill: '#ef4444', border: '#dc2626', opacity: 0.15 },
 }
 
 export const HOVER_OPACITY = 0.45
