@@ -99,6 +99,25 @@ export default function IncompletePage() {
     return diff
   }
 
+  const [sortBy, setSortBy] = useState<'days' | 'date' | 'default'>('days')
+
+  const sortedListings = [...listings].sort((a, b) => {
+    if (sortBy === 'days') {
+      const dA = daysUntilAuction(a.auction_datetime)
+      const dB = daysUntilAuction(b.auction_datetime)
+      if (dA === null && dB === null) return 0
+      if (dA === null) return 1
+      if (dB === null) return -1
+      return dA - dB
+    }
+    if (sortBy === 'date') {
+      const dA = a.auction_datetime ? new Date(a.auction_datetime).getTime() : Infinity
+      const dB = b.auction_datetime ? new Date(b.auction_datetime).getTime() : Infinity
+      return dA - dB
+    }
+    return 0
+  })
+
   const totalPages = Math.ceil(total / LIMIT)
 
   return (
@@ -139,6 +158,13 @@ export default function IncompletePage() {
                     <th className="px-4 py-3">State</th>
                     <th className="px-4 py-3 text-right">Acres</th>
                     <th className="px-4 py-3">Auction Date</th>
+                    <th
+                      className="px-4 py-3 text-center cursor-pointer hover:text-white transition"
+                      onClick={() => setSortBy(sortBy === 'days' ? 'default' : 'days')}
+                    >
+                      Days Left {sortBy === 'days' ? '▲' : ''}
+                    </th>
+                    <th className="px-4 py-3">Last Scraped</th>
                     <th className="px-4 py-3">Reason</th>
                     <th className="px-4 py-3 text-center">Rescrapes</th>
                     <th className="px-4 py-3">URL</th>
@@ -146,14 +172,15 @@ export default function IncompletePage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {listings.map((item) => {
+                  {sortedListings.map((item) => {
                     const isRescraping = rescrapingIds.has(item.id)
                     const result = rescrapeResults[item.id]
                     const days = daysUntilAuction(item.auction_datetime)
                     const isUrgent = days !== null && days <= 14 && days >= 0
+                    const isPast = days !== null && days < 0
 
                     return (
-                      <tr key={item.id} className={`border-b border-gg-gray-700/50 hover:bg-gg-gray-700/30 ${isUrgent ? 'bg-orange-500/5' : ''}`}>
+                      <tr key={item.id} className={`border-b border-gg-gray-700/50 hover:bg-gg-gray-700/30 ${isUrgent ? 'bg-orange-500/5' : ''} ${isPast ? 'opacity-50' : ''}`}>
                         <td className="px-4 py-3 font-medium">{item.company_name || 'Unknown'}</td>
                         <td className="px-4 py-3">{item.county || '—'}</td>
                         <td className="px-4 py-3">{item.state || '—'}</td>
@@ -161,14 +188,25 @@ export default function IncompletePage() {
                           {item.total_acres ? `${Math.round(item.total_acres).toLocaleString()} ac` : '—'}
                         </td>
                         <td className="px-4 py-3">
-                          <div className="flex items-center gap-2">
-                            <span>{formatDate(item.auction_datetime)}</span>
-                            {isUrgent && (
-                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-400 font-medium">
-                                {days === 0 ? 'Today' : days === 1 ? 'Tomorrow' : `${days}d`}
-                              </span>
-                            )}
-                          </div>
+                          {formatDate(item.auction_datetime)}
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          {days === null ? '—' : days < 0 ? (
+                            <span className="text-[11px] px-2 py-0.5 rounded bg-gray-500/20 text-gray-400 font-medium">Past</span>
+                          ) : days === 0 ? (
+                            <span className="text-[11px] px-2 py-0.5 rounded bg-red-500/20 text-red-400 font-bold">Today</span>
+                          ) : days === 1 ? (
+                            <span className="text-[11px] px-2 py-0.5 rounded bg-orange-500/20 text-orange-400 font-bold">Tomorrow</span>
+                          ) : days <= 7 ? (
+                            <span className="text-[11px] px-2 py-0.5 rounded bg-orange-500/20 text-orange-400 font-medium">{days} days</span>
+                          ) : days <= 14 ? (
+                            <span className="text-[11px] px-2 py-0.5 rounded bg-yellow-500/20 text-yellow-400 font-medium">{days} days</span>
+                          ) : (
+                            <span className="text-gray-400">{days} days</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-xs text-gray-400">
+                          {item.last_rescrape_at ? formatDate(item.last_rescrape_at) : formatDate(item.created_at)}
                         </td>
                         <td className="px-4 py-3 text-xs text-gray-400">
                           {(item.incomplete_reason || '').replace(/_/g, ' ')}
