@@ -39,6 +39,7 @@ interface StateSale {
   polygon_coordinates?: number[][] | null
   tillable_acres?: number | null
   soil_rating?: number | null
+  source_url?: string | null
 }
 
 interface SaleDetail {
@@ -55,6 +56,7 @@ interface SaleDetail {
   tillableAcres?: number | null
   soilRating?: number | null
   polygonCoordinates?: number[][] | null
+  sourceUrl?: string | null
 }
 
 interface ComparablesMapProps {
@@ -351,6 +353,7 @@ export default function ComparablesMap({
             tillableAcres: sale.tillable_acres,
             soilRating: sale.soil_rating,
             polygonCoordinates: sale.polygon_coordinates,
+            sourceUrl: sale.source_url,
           })
         })
 
@@ -482,6 +485,31 @@ export default function ComparablesMap({
               <div style={{ textAlign: 'center', padding: '12px 20px', color: '#999', fontSize: 13, fontStyle: 'italic' }}>
                 No map boundaries available
               </div>
+            )}
+
+            {/* View Details (external link to source) */}
+            {selectedSale.companyName && selectedSale.sourceUrl && (
+              <button
+                className="sale-modal-action-btn"
+                style={{
+                  backgroundColor: 'transparent',
+                  color: '#E91E8C',
+                  border: '1px solid #E91E8C',
+                  marginBottom: '8px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                }}
+                onClick={() => window.open(selectedSale.sourceUrl!, '_blank')}
+              >
+                View Details
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                  <polyline points="15 3 21 3 21 9" />
+                  <line x1="10" y1="14" x2="21" y2="3" />
+                </svg>
+              </button>
             )}
 
             {/* Add / Remove from email list */}

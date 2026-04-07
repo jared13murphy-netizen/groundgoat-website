@@ -21,6 +21,7 @@ export interface ApiMapTract {
   auction_date: string | null
   company_name: string | null
   listing_status: string | null
+  source_url: string | null
 }
 
 export interface MapTractsResponse {

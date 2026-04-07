@@ -80,6 +80,7 @@ export interface SaleDetail {
   pctTillable?: number | null
   pricePerTillableAcre?: number | null
   pricePerSoilRating?: number | null
+  sourceUrl?: string | null
 }
 
 interface FilterState {
@@ -827,6 +828,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           pctTillable: tract.pct_tillable,
           pricePerTillableAcre: tract.price_per_tillable_acre,
           pricePerSoilRating: tract.price_per_soil_rating,
+          sourceUrl: tract.source_url,
         }
         if (portalMode && onTractSelected) {
           onTractSelected(saleData)
@@ -1634,6 +1636,31 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               )
             )}
 
+            {/* View Details (external link to source) */}
+            {selectedSale.companyName && selectedSale.sourceUrl && (
+              <button
+                className="sale-modal-action-btn"
+                style={{
+                  backgroundColor: 'transparent',
+                  color: '#E91E8C',
+                  border: '1px solid #E91E8C',
+                  marginBottom: '8px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                }}
+                onClick={() => window.open(selectedSale.sourceUrl!, '_blank')}
+              >
+                View Details
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                  <polyline points="15 3 21 3 21 9" />
+                  <line x1="10" y1="14" x2="21" y2="3" />
+                </svg>
+              </button>
+            )}
+
             {/* Add to Report */}
             <button
               className="sale-modal-action-btn"
@@ -1660,7 +1687,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           position: 'absolute', bottom: 20, left: '50%', transform: 'translateX(-50%)',
           display: 'flex', alignItems: 'center', gap: 12,
           backgroundColor: '#E91E8C', borderRadius: 30, padding: '12px 24px',
-          boxShadow: '0 4px 20px rgba(0,0,0,0.4)', zIndex: 200, cursor: 'pointer',
+          boxShadow: '0 4px 20px rgba(0,0,0,0.4)', zIndex: 500, cursor: 'pointer',
         }}>
           <span style={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>
             {selectedIds.size} Selected
