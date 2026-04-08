@@ -1225,27 +1225,38 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                         <button
                           key={st}
                           onClick={() => {
-                            setFilters(f => {
-                              const current = f.stateFilter ? f.stateFilter.split(',') : []
-                              const next = isActive ? current.filter(s => s !== st) : [...current, st]
-                              // Zoom to fit selected state(s)
-                              if (next.length > 0 && mapRef.current) {
-                                let minLng = 180, minLat = 90, maxLng = -180, maxLat = -90
-                                for (const s of next) {
-                                  const b = STATE_BOUNDS[s]
-                                  if (b) {
-                                    if (b[0][0] < minLng) minLng = b[0][0]
-                                    if (b[0][1] < minLat) minLat = b[0][1]
-                                    if (b[1][0] > maxLng) maxLng = b[1][0]
-                                    if (b[1][1] > maxLat) maxLat = b[1][1]
-                                  }
-                                }
-                                if (minLng < 180) {
-                                  mapRef.current.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 40, duration: 1000 })
+                            const current = filters.stateFilter ? filters.stateFilter.split(',') : []
+                            const next = isActive ? current.filter(s => s !== st) : [...current, st]
+                            const newFilters = { ...filters, stateFilter: next.join(','), countyFilters: [], townshipFilters: [] }
+                            setFilters(newFilters)
+                            // Update filtersRef immediately so the loader uses the new filters
+                            filtersRef.current = newFilters
+                            // Clear cache and markers
+                            loadedCellsRef.current = new Set()
+                            tractMapRef.current = new Map()
+                            setTracts([])
+                            tractMarkersRef.current.forEach(m => m.remove())
+                            tractMarkersRef.current = []
+                            // Zoom to fit selected state(s) — the moveend event will trigger a reload
+                            if (next.length > 0 && mapRef.current) {
+                              let minLng = 180, minLat = 90, maxLng = -180, maxLat = -90
+                              for (const s of next) {
+                                const b = STATE_BOUNDS[s]
+                                if (b) {
+                                  if (b[0][0] < minLng) minLng = b[0][0]
+                                  if (b[0][1] < minLat) minLat = b[0][1]
+                                  if (b[1][0] > maxLng) maxLng = b[1][0]
+                                  if (b[1][1] > maxLat) maxLat = b[1][1]
                                 }
                               }
-                              return { ...f, stateFilter: next.join(','), countyFilters: [], townshipFilters: [] }
-                            })
+                              if (minLng < 180) {
+                                mapRef.current.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 40, duration: 1000 })
+                              }
+                            } else if (mapRef.current) {
+                              // No states selected — reload current viewport
+                              const bounds = mapRef.current.getBounds()
+                              loadTractsForBounds({ min_lat: bounds.getSouth(), max_lat: bounds.getNorth(), min_lng: bounds.getWest(), max_lng: bounds.getEast() })
+                            }
                           }}
                           style={{
                             padding: '6px 14px',
@@ -1290,14 +1301,22 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                           <button
                             key={county}
                             onClick={() => {
-                              setFilters(f => ({
-                                ...f,
-                                countyFilters: isActive
-                                  ? f.countyFilters.filter(c => c !== county)
-                                  : [...f.countyFilters, county],
-                                townshipFilters: [],
-                              }))
-                            }}
+                              const newCounties = isActive
+                                ? filters.countyFilters.filter(c => c !== county)
+                                : [...filters.countyFilters, county]
+                              const newFilters = { ...filters, countyFilters: newCounties, townshipFilters: [] }
+                              setFilters(newFilters)
+                              filtersRef.current = newFilters
+                              loadedCellsRef.current = new Set()
+                              tractMapRef.current = new Map()
+                              setTracts([])
+                              tractMarkersRef.current.forEach(m => m.remove())
+                              tractMarkersRef.current = []
+                              if (mapRef.current) {
+                                const bounds = mapRef.current.getBounds()
+                                loadTractsForBounds({ min_lat: bounds.getSouth(), max_lat: bounds.getNorth(), min_lng: bounds.getWest(), max_lng: bounds.getEast() })
+                              }
+                            }
                             style={{
                               padding: '4px 10px',
                               borderRadius: 14,
@@ -1350,12 +1369,21 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                         <button
                           key={twp}
                           onClick={() => {
-                            setFilters(f => ({
-                              ...f,
-                              townshipFilters: isActive
-                                ? f.townshipFilters.filter(t => t !== twp)
-                                : [...f.townshipFilters, twp]
-                            }))
+                            const newTownships = isActive
+                              ? filters.townshipFilters.filter(t => t !== twp)
+                              : [...filters.townshipFilters, twp]
+                            const newFilters = { ...filters, townshipFilters: newTownships }
+                            setFilters(newFilters)
+                            filtersRef.current = newFilters
+                            loadedCellsRef.current = new Set()
+                            tractMapRef.current = new Map()
+                            setTracts([])
+                            tractMarkersRef.current.forEach(m => m.remove())
+                            tractMarkersRef.current = []
+                            if (mapRef.current) {
+                              const bounds = mapRef.current.getBounds()
+                              loadTractsForBounds({ min_lat: bounds.getSouth(), max_lat: bounds.getNorth(), min_lng: bounds.getWest(), max_lng: bounds.getEast() })
+                            }
                           }}
                           style={{
                             padding: '4px 10px',
