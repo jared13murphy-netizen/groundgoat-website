@@ -111,9 +111,8 @@ const INITIAL_FILTERS: FilterState = {
   statuses: [],
 }
 
-const STATE_CHIPS = ['IL', 'IA', 'MO', 'MN', 'NE', 'IN', 'SD', 'ND', 'WI', 'KS', 'MI', 'KY', 'OH', 'OK', 'TX', 'TN', 'MT', 'CO', 'MS', 'LA']
+// States and counties are now built dynamically from loaded tract data
 
-const COUNTIES_BY_STATE: Record<string, string[]> = {"IL":["Adams","Alexander","Bond","Boone","Brown","Bureau","Calhoun","Carroll","Cass","Champaign","Christian","Clark","Clay","Clinton","Coles","Cook","Crawford","Cumberland","DeKalb","DeWitt","Douglas","DuPage","Edgar","Edwards","Effingham","Fayette","Ford","Franklin","Fulton","Gallatin","Greene","Grundy","Hamilton","Hancock","Hardin","Henderson","Henry","Iroquois","Jackson","Jasper","Jefferson","Jersey","Jo Daviess","Johnson","Kane","Kankakee","Kendall","Knox","La Salle","LaSalle","Lake","Lawrence","Lee","Livingston","Logan","Macon","Macoupin","Madison","Marion","Marshall","Mason","Massac","McDonough","McHenry","McLean","Menard","Mercer","Monroe","Montgomery","Morgan","Moultrie","Ogle","Peoria","Perry","Piatt","Pike","Pope","Pulaski","Putnam","Randolph","Richland","Rock Island","Saline","Sangamon","Schuyler","Scott","Shelby","St. Clair","Stark","Stephenson","Tazewell","Union","Vermilion","Wabash","Warren","Washington","Wayne","White","Whiteside","Will","Williamson","Winnebago","Woodford"],"IA":["Adair","Adams","Allamakee","Appanoose","Audubon","Benton","Black Hawk","Boone","Bremer","Buchanan","Buena Vista","Butler","Calhoun","Carroll","Cass","Cedar","Cerro Gordo","Cherokee","Chickasaw","Clarke","Clay","Clayton","Clinton","Crawford","Dallas","Davis","Decatur","Delaware","Des Moines","Dickinson","Dubuque","Emmet","Fayette","Floyd","Franklin","Fremont","Greene","Grundy","Guthrie","Hamilton","Hancock","Hardin","Harrison","Henry","Howard","Humboldt","Ida","Iowa","Jackson","Jasper","Jefferson","Johnson","Jones","Keokuk","Kossuth","Lee","Linn","Louisa","Lucas","Lyon","Madison","Mahaska","Marion","Marshall","Mills","Mitchell","Monona","Monroe","Montgomery","Muscatine","O'Brien","Osceola","Page","Palo Alto","Plymouth","Pocahontas","Polk","Pottawattamie","Poweshiek","Ringgold","Sac","Scott","Shelby","Sioux","Story","Tama","Taylor","Union","Van Buren","Wapello","Warren","Washington","Wayne","Webster","Winnebago","Winneshiek","Woodbury","Worth","Wright"],"MO":["Adair","Andrew","Atchison","Audrain","Barry","Barton","Bates","Benton","Bollinger","Boone","Buchanan","Butler","Caldwell","Callaway","Camden","Cape Girardeau","Carroll","Carter","Cass","Cedar","Chariton","Christian","Clark","Clay","Clinton","Cole","Cooper","Crawford","Dade","Dallas","Daviess","DeKalb","Dent","Douglas","Dunklin","Franklin","Gasconade","Gentry","Greene","Grundy","Harrison","Henry","Hickory","Holt","Howard","Howell","Iron","Jackson","Jasper","Jefferson","Johnson","Knox","Laclede","Lafayette","Lawrence","Lewis","Lincoln","Linn","Livingston","Macon","Madison","Maries","Marion","McDonald","Mercer","Miller","Mississippi","Moniteau","Monroe","Montgomery","Morgan","New Madrid","Newton","Nodaway","Oregon","Osage","Ozark","Pemiscot","Perry","Pettis","Phelps","Pike","Platte","Polk","Pulaski","Putnam","Ralls","Randolph","Ray","Reynolds","Ripley","Saline","Schuyler","Scotland","Scott","Shannon","Shelby","St. Charles","St. Clair","St. Francois","St. Louis","St. Louis City","Ste. Genevieve","Stoddard","Stone","Sullivan","Taney","Texas","Vernon","Warren","Washington","Wayne","Webster","Worth","Wright"],"MN":["Aitkin","Anoka","Becker","Beltrami","Benton","Big Stone","Blue Earth","Brown","Carlton","Carver","Cass","Chippewa","Chisago","Clay","Clearwater","Cook","Cottonwood","Crow Wing","Dakota","Dodge","Douglas","Faribault","Fillmore","Freeborn","Goodhue","Grant","Hennepin","Houston","Hubbard","Isanti","Itasca","Jackson","Kanabec","Kandiyohi","Kittson","Koochiching","Lac qui Parle","Lake","Lake of the Woods","Le Sueur","Lincoln","Lyon","Mahnomen","Marshall","Martin","McLeod","Meeker","Mille Lacs","Morrison","Mower","Murray","Nicollet","Nobles","Norman","Olmsted","Otter Tail","Pennington","Pine","Pipestone","Polk","Pope","Ramsey","Red Lake","Redwood","Renville","Rice","Rock","Roseau","Scott","Sherburne","Sibley","St. Louis","Stearns","Steele","Stevens","Swift","Todd","Traverse","Wabasha","Wadena","Waseca","Washington","Watonwan","Wilkin","Winona","Wright","Yellow Medicine"],"NE":["Adams","Antelope","Arthur","Banner","Blaine","Boone","Box Butte","Boyd","Brown","Buffalo","Burt","Butler","Cass","Cedar","Chase","Cherry","Cheyenne","Clay","Colfax","Cuming","Custer","Dakota","Dawes","Dawson","Deuel","Dixon","Dodge","Douglas","Dundy","Fillmore","Franklin","Frontier","Furnas","Gage","Garden","Garfield","Gosper","Grant","Greeley","Hall","Hamilton","Harlan","Hayes","Hitchcock","Holt","Hooker","Howard","Jefferson","Johnson","Kearney","Keith","Keya Paha","Kimball","Knox","Lancaster","Lincoln","Logan","Loup","Madison","McPherson","Merrick","Morrill","Nance","Nemaha","Nuckolls","Otoe","Pawnee","Perkins","Phelps","Pierce","Platte","Polk","Red Willow","Richardson","Rock","Saline","Sarpy","Saunders","Scotts Bluff","Seward","Sheridan","Sherman","Sioux","Stanton","Thayer","Thomas","Thurston","Valley","Washington","Wayne","Webster","Wheeler","York"],"IN":["Adams","Allen","Bartholomew","Benton","Blackford","Boone","Brown","Carroll","Cass","Clark","Clay","Clinton","Crawford","Daviess","DeKalb","Dearborn","Decatur","Delaware","Dubois","Elkhart","Fayette","Floyd","Fountain","Franklin","Fulton","Gibson","Grant","Greene","Hamilton","Hancock","Harrison","Hendricks","Henry","Howard","Huntington","Jackson","Jasper","Jay","Jefferson","Jennings","Johnson","Knox","Kosciusko","LaGrange","LaPorte","Lake","Lawrence","Logansport","Madison","Marion","Marshall","Martin","Miami","Monroe","Montgomery","Morgan","Newton","Noble","Ohio","Orange","Owen","Parke","Perry","Pike","Porter","Posey","Pulaski","Putnam","Randolph","Ripley","Rush","Scott","Shelby","Spencer","St. Joseph","Starke","Steuben","Sullivan","Switzerland","Tippecanoe","Tipton","Union","Vanderburgh","Vermillion","Vigo","Wabash","Warren","Warrick","Washington","Wayne","Wells","White","Whitley"],"SD":["Beadle","Bennett","Butte","Clark","Codington","Fall River","Hanson","Hutchinson","Lincoln","McPherson","Miner","Roberts","Spink","Sully","Turner","Union"],"ND":["Barnes","Benson","Bottineau","Burke","Burleigh","Cass","Cavalier","Grand Forks","Grant","Kidder","LaMoure","McHenry","McKenzie","McLean","Mercer","Morton","Nelson","Pembina","Ramsey","Renville","Richland","Sargent","Sheridan","Stark","Steele","Stutsman","Traill","Walsh","Wells"],"WI":["Buffalo","Calumet","Clark","Crawford","Dane","Dodge","Grant","Green","Jackson","Marathon","Monroe","Pepin","Price","Richland","Sawyer","St. Croix","Taylor","Vernon","Washington","Waupaca"],"KS":["Barber","Barton","Brown","Cloud","Douglas","Franklin","Graham","Greeley","Hamilton","Harper","Hodgeman","Jewell","Johnson","Kingman","Linn","Lyon","Marion","McPherson","Miami","Neosho","Osage","Pawnee","Republic","Rooks","Saline","Sedgwick","Seward","Stafford","Sumner","Trego","Washington","Wilson"],"MI":["Barry","Berrien","Calhoun","Lenawee","Sanilac","Shiawassee"],"KY":["Bracken","Butler","Christian","Crittenden","Daviess","Henderson","Livingston","Mercer","Muhlenberg","Todd","Warren"],"OH":["Athens","Clermont","Gallia","Guernsey","Jackson","Lawrence","Lorain","Madison","Meigs","Morrow","Muskingum","Ottawa","Paulding","Pike","Scioto","Union","Williams"],"OK":["Alfalfa","Comanche","Dewey","Haskell","Hughes","Marshall","Noble","Seminole","Texas","Woodward"],"TX":["Burleson","Denton","Grayson","Lipscomb","Reeves","San Saba","Sherman"],"TN":["Campbell","Knox","Lake"],"MT":["Fallon","McCone","Richland"],"CO":["Crowley","Mesa","Pueblo"],"MS":["Clay","Noxubee"],"LA":["Morehouse","West Carroll"]}
 
 function buildFilterParams(filters: FilterState) {
   const params: Record<string, string> = {}
@@ -1201,46 +1200,64 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               ))}
             </div>
 
-            {/* State Filter */}
-            <div style={{ marginBottom: 24 }}>
-              <div style={{ color: '#CCCCCC', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>State</div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                {STATE_CHIPS.map(st => {
-                  const activeStates = filters.stateFilter ? filters.stateFilter.split(',') : []
-                  const isActive = activeStates.includes(st)
-                  return (
-                    <button
-                      key={st}
-                      onClick={() => {
-                        setFilters(f => {
-                          const current = f.stateFilter ? f.stateFilter.split(',') : []
-                          const next = isActive ? current.filter(s => s !== st) : [...current, st]
-                          return { ...f, stateFilter: next.join(','), countyFilters: [], townshipFilters: [], soilRatingMin: '', soilRatingMax: '' }
-                        })
-                      }}
-                      style={{
-                        padding: '6px 14px',
-                        borderRadius: 20,
-                        border: `1px solid ${isActive ? '#E91E8C' : 'rgba(255,255,255,0.2)'}`,
-                        backgroundColor: isActive ? 'rgba(233,30,140,0.2)' : 'transparent',
-                        color: isActive ? '#E91E8C' : '#BBBBBB',
-                        fontSize: 13,
-                        fontWeight: 600,
-                        cursor: 'pointer',
-                      }}
-                    >
-                      {st}
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
+            {/* State Filter — built from ALL loaded tracts */}
+            {(() => {
+              const stateSet = new Set<string>()
+              tractMapRef.current.forEach(t => {
+                if (t.state) stateSet.add(t.state.toUpperCase())
+              })
+              const states = Array.from(stateSet).sort()
+              if (states.length === 0) return null
+              return (
+                <div style={{ marginBottom: 24 }}>
+                  <div style={{ color: '#CCCCCC', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>State</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                    {states.map(st => {
+                      const activeStates = filters.stateFilter ? filters.stateFilter.split(',') : []
+                      const isActive = activeStates.includes(st)
+                      return (
+                        <button
+                          key={st}
+                          onClick={() => {
+                            setFilters(f => {
+                              const current = f.stateFilter ? f.stateFilter.split(',') : []
+                              const next = isActive ? current.filter(s => s !== st) : [...current, st]
+                              return { ...f, stateFilter: next.join(','), countyFilters: [], townshipFilters: [] }
+                            })
+                          }}
+                          style={{
+                            padding: '6px 14px',
+                            borderRadius: 20,
+                            border: `1px solid ${isActive ? '#E91E8C' : 'rgba(255,255,255,0.2)'}`,
+                            backgroundColor: isActive ? 'rgba(233,30,140,0.2)' : 'transparent',
+                            color: isActive ? '#E91E8C' : '#BBBBBB',
+                            fontSize: 13,
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {st}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            })()}
 
-            {/* County Filter (when state selected) */}
+            {/* County Filter — built from loaded tracts for selected state(s) */}
             {filters.stateFilter && (() => {
-              const activeStates = filters.stateFilter.split(',').filter(Boolean)
-              if (activeStates.length !== 1) return null
-              const counties = COUNTIES_BY_STATE[activeStates[0]] || []
+              const activeStates = filters.stateFilter.split(',').filter(Boolean).map(s => s.toUpperCase())
+              const countySet = new Set<string>()
+              tractMapRef.current.forEach(t => {
+                if (!t.county || !t.state) return
+                if (!activeStates.includes(t.state.toUpperCase())) return
+                // Normalize: strip " County" suffix, trim
+                let county = t.county.trim()
+                county = county.replace(/\s+County$/i, '').trim()
+                if (county) countySet.add(county)
+              })
+              const counties = Array.from(countySet).sort()
               if (counties.length === 0) return null
               return (
                 <div style={{ marginBottom: 24 }}>
@@ -1259,7 +1276,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                                 ...f,
                                 countyFilters: isActive
                                   ? f.countyFilters.filter(c => c !== county)
-                                  : [...f.countyFilters, county]
+                                  : [...f.countyFilters, county],
+                                townshipFilters: [],
                               }))
                             }}
                             style={{
@@ -1283,19 +1301,19 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               )
             })()}
 
-            {/* Township — only show when county is selected */}
+            {/* Township — only show when county is selected, built from loaded tracts */}
             {filters.countyFilters.length > 0 && (() => {
-              // Get unique townships from loaded tracts, filtered by selected state/county
               const townshipSet = new Set<string>()
-              tracts.forEach(t => {
+              tractMapRef.current.forEach(t => {
                 if (!t.township) return
-                // Filter to selected states if any
+                // Filter to selected states
                 if (filters.stateFilter) {
                   const states = filters.stateFilter.split(',').map(s => s.trim().toUpperCase())
                   if (!states.includes(t.state?.toUpperCase())) return
                 }
-                // Filter to selected counties
-                if (!filters.countyFilters.some(c => c.toLowerCase() === t.county?.toLowerCase())) return
+                // Filter to selected counties (normalize both sides)
+                const tractCounty = (t.county || '').replace(/\s+County$/i, '').trim().toLowerCase()
+                if (!filters.countyFilters.some(c => c.toLowerCase() === tractCounty)) return
                 // Normalize township name
                 const twp = normalizeTownship(t.township)
                 if (twp) townshipSet.add(twp)
