@@ -71,7 +71,7 @@ function SignUpContent() {
   
   const [step, setStep] = useState(initialStep)
   const [selectedPlan, setSelectedPlan] = useState(initialPlan)
-  const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('monthly')
+  const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('annual')
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(cancelled ? 'Payment was cancelled. Please try again.' : '')
@@ -989,13 +989,13 @@ function SignUpContent() {
                 <div className="bg-gg-gray-800 rounded-full p-1 flex">
                   <button
                     onClick={() => setBillingCycle('monthly')}
-                    className={`px-6 py-2 rounded-full text-sm font-medium transition-colors ${billingCycle === 'monthly' ? 'bg-gg-pink text-black' : 'text-gg-gray-300'}`}
+                    className={`px-6 py-2 rounded-full text-sm font-medium transition-colors ${billingCycle === 'monthly' ? 'bg-gg-pink text-black' : 'text-white bg-gg-gray-700 hover:bg-gg-gray-600'}`}
                   >
                     Monthly
                   </button>
                   <button
                     onClick={() => setBillingCycle('annual')}
-                    className={`px-6 py-2 rounded-full text-sm font-medium transition-colors ${billingCycle === 'annual' ? 'bg-gg-pink text-black' : 'text-gg-gray-300'}`}
+                    className={`px-6 py-2 rounded-full text-sm font-medium transition-colors ${billingCycle === 'annual' ? 'bg-gg-pink text-black' : 'text-white bg-gg-gray-700 hover:bg-gg-gray-600'}`}
                   >
                     Annual (Save 10%)
                   </button>
