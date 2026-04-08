@@ -1230,33 +1230,53 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                             const newFilters = { ...filters, stateFilter: next.join(','), countyFilters: [], townshipFilters: [] }
                             setFilters(newFilters)
                             filtersRef.current = newFilters
-                            // Clear cache and markers
-                            loadedCellsRef.current = new Set()
-                            tractMapRef.current = new Map()
-                            setTracts([])
-                            tractMarkersRef.current.forEach(m => m.remove())
-                            tractMarkersRef.current = []
-                            if (next.length > 0) {
-                              // Load tracts using the combined state bounds — not the viewport
-                              let minLng = 180, minLat = 90, maxLng = -180, maxLat = -90
-                              for (const s of next) {
-                                const b = STATE_BOUNDS[s]
-                                if (b) {
-                                  if (b[0][0] < minLng) minLng = b[0][0]
-                                  if (b[0][1] < minLat) minLat = b[0][1]
-                                  if (b[1][0] > maxLng) maxLng = b[1][0]
-                                  if (b[1][1] > maxLat) maxLat = b[1][1]
+
+                            if (isActive) {
+                              // REMOVING a state — clear everything, reload remaining states
+                              loadedCellsRef.current = new Set()
+                              tractMapRef.current = new Map()
+                              setTracts([])
+                              tractMarkersRef.current.forEach(m => m.remove())
+                              tractMarkersRef.current = []
+                              if (next.length > 0) {
+                                let minLng = 180, minLat = 90, maxLng = -180, maxLat = -90
+                                for (const s of next) {
+                                  const b = STATE_BOUNDS[s]
+                                  if (b) {
+                                    if (b[0][0] < minLng) minLng = b[0][0]
+                                    if (b[0][1] < minLat) minLat = b[0][1]
+                                    if (b[1][0] > maxLng) maxLng = b[1][0]
+                                    if (b[1][1] > maxLat) maxLat = b[1][1]
+                                  }
                                 }
+                                if (minLng < 180) {
+                                  mapRef.current?.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 40, duration: 1000 })
+                                  loadTractsForBounds({ min_lat: minLat, max_lat: maxLat, min_lng: minLng, max_lng: maxLng })
+                                }
+                              } else if (mapRef.current) {
+                                // No states left — reload viewport
+                                const bounds = mapRef.current.getBounds()
+                                loadTractsForBounds({ min_lat: bounds.getSouth(), max_lat: bounds.getNorth(), min_lng: bounds.getWest(), max_lng: bounds.getEast() })
                               }
-                              if (minLng < 180) {
-                                // Zoom map to fit
+                            } else {
+                              // ADDING a state — just load the new state, keep existing tracts
+                              const b = STATE_BOUNDS[st]
+                              if (b) {
+                                // Zoom to fit all selected states
+                                let minLng = 180, minLat = 90, maxLng = -180, maxLat = -90
+                                for (const s of next) {
+                                  const sb = STATE_BOUNDS[s]
+                                  if (sb) {
+                                    if (sb[0][0] < minLng) minLng = sb[0][0]
+                                    if (sb[0][1] < minLat) minLat = sb[0][1]
+                                    if (sb[1][0] > maxLng) maxLng = sb[1][0]
+                                    if (sb[1][1] > maxLat) maxLat = sb[1][1]
+                                  }
+                                }
                                 mapRef.current?.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 40, duration: 1000 })
-                                // Load tracts for the full state bounds immediately
-                                loadTractsForBounds({ min_lat: minLat, max_lat: maxLat, min_lng: minLng, max_lng: maxLng })
+                                // Only load the NEW state's bounds
+                                loadTractsForBounds({ min_lat: b[0][1], max_lat: b[1][1], min_lng: b[0][0], max_lng: b[1][0] })
                               }
-                            } else if (mapRef.current) {
-                              const bounds = mapRef.current.getBounds()
-                              loadTractsForBounds({ min_lat: bounds.getSouth(), max_lat: bounds.getNorth(), min_lng: bounds.getWest(), max_lng: bounds.getEast() })
                             }
                           }}
                           style={{
