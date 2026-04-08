@@ -311,7 +311,7 @@ function SignUpContent() {
     const baseSeats = 3
     const maxMembers = baseSeats - 1 + additionalSeats
     if (teamMembers.length >= maxMembers) {
-      setError(`You've reached your seat limit. Add more seats to invite more members.`)
+      setError(`You've reached your user limit. Add more users to invite more members.`)
       return
     }
     
@@ -1323,14 +1323,14 @@ function SignUpContent() {
                   <div>
                     <h3 className="font-display text-xl font-semibold text-white">Add Team Members</h3>
                     <p className="text-gg-gray-400 text-sm">
-                      Your plan includes 3 seats (1 admin + 2 team members)
+                      Your plan includes 3 users (1 admin + 2 team members)
                     </p>
                   </div>
                 </div>
 
                 <div className="bg-gg-gray-900 rounded-lg p-4 mb-6">
                   <div className="flex justify-between items-center">
-                    <span className="text-gg-gray-300">Seats Used</span>
+                    <span className="text-gg-gray-300">Users</span>
                     <span className="text-white font-semibold">
                       {1 + teamMembers.length} / {3 + additionalSeats}
                     </span>
@@ -1447,8 +1447,8 @@ function SignUpContent() {
                 <div className="mt-6 pt-6 border-t border-gg-gray-700">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-white font-medium">Need more seats?</p>
-                      <p className="text-gg-gray-400 text-sm">${PLANS.firm.additionalUserPrice}/seat/month</p>
+                      <p className="text-white font-medium">Need more users?</p>
+                      <p className="text-gg-gray-400 text-sm">${PLANS.firm.additionalUserPrice}/user/month</p>
                     </div>
                     <div className="flex items-center gap-3">
                       <button
@@ -1479,7 +1479,7 @@ function SignUpContent() {
                   </div>
                   {additionalSeats > 0 && (
                     <div className="flex justify-between">
-                      <span className="text-gg-gray-400">{additionalSeats} Additional Seat(s)</span>
+                      <span className="text-gg-gray-400">{additionalSeats} Additional User(s)</span>
                       <span className="text-white">${(additionalSeats * PLANS.firm.additionalUserPrice).toFixed(2)}/mo</span>
                     </div>
                   )}

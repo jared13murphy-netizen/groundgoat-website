@@ -261,7 +261,7 @@ export default function TeamPage() {
               <div>
                 <h3 className="font-semibold text-white">Management Firm Plan</h3>
                 <p className="text-gg-gray-400 text-sm">
-                  {teamMembers.length + 1} of {maxSeats} seats used • {Math.max(0, maxSeats - teamMembers.length - 1)} seats remaining
+                  {teamMembers.length + 1} of {maxSeats} users • {Math.max(0, maxSeats - teamMembers.length - 1)} remaining
                 </p>
               </div>
             </div>
@@ -271,11 +271,11 @@ export default function TeamPage() {
                 disabled={upgradingSeats}
                 className="text-xs bg-gg-pink/20 text-gg-pink px-3 py-1.5 rounded-full hover:bg-gg-pink/30 transition font-medium disabled:opacity-50"
               >
-                {upgradingSeats ? 'Adding...' : '+ Add Seat ($9.99/mo)'}
+                {upgradingSeats ? 'Adding...' : '+ Add User ($9.99/mo)'}
               </button>
             ) : teamMembers.length >= 2 ? (
               <span className="text-xs bg-yellow-500/20 text-yellow-400 px-3 py-1 rounded-full">
-                Additional seats: $9.99/mo each
+                Additional users: $9.99/mo each
               </span>
             ) : null}
           </div>
