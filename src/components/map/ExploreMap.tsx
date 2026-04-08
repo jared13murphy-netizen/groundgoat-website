@@ -1228,10 +1228,21 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                             setFilters(f => {
                               const current = f.stateFilter ? f.stateFilter.split(',') : []
                               const next = isActive ? current.filter(s => s !== st) : [...current, st]
-                              // Zoom to state when selecting a single state
-                              if (next.length === 1 && mapRef.current && STATE_BOUNDS[next[0]]) {
-                                const bounds = STATE_BOUNDS[next[0]]
-                                mapRef.current.fitBounds(bounds, { padding: 40, duration: 1000 })
+                              // Zoom to fit selected state(s)
+                              if (next.length > 0 && mapRef.current) {
+                                let minLng = 180, minLat = 90, maxLng = -180, maxLat = -90
+                                for (const s of next) {
+                                  const b = STATE_BOUNDS[s]
+                                  if (b) {
+                                    if (b[0][0] < minLng) minLng = b[0][0]
+                                    if (b[0][1] < minLat) minLat = b[0][1]
+                                    if (b[1][0] > maxLng) maxLng = b[1][0]
+                                    if (b[1][1] > maxLat) maxLat = b[1][1]
+                                  }
+                                }
+                                if (minLng < 180) {
+                                  mapRef.current.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 40, duration: 1000 })
+                                }
                               }
                               return { ...f, stateFilter: next.join(','), countyFilters: [], townshipFilters: [] }
                             })
