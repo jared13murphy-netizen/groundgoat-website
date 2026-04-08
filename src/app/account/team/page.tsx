@@ -26,6 +26,8 @@ export default function TeamPage() {
   const [showInviteModal, setShowInviteModal] = useState(false)
   const [inviting, setInviting] = useState(false)
   const [removingId, setRemovingId] = useState<string | null>(null)
+  const [maxSeats, setMaxSeats] = useState(3)
+  const [upgradingSeats, setUpgradingSeats] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   
@@ -67,6 +69,7 @@ export default function TeamPage() {
       if (response.ok) {
         const data = await response.json()
         setTeamMembers(data.members || data || [])
+        if (data.max_seats) setMaxSeats(data.max_seats)
       } else if (response.status === 404) {
         // Endpoint doesn't exist yet - show empty state
         setTeamMembers([])
@@ -154,6 +157,37 @@ export default function TeamPage() {
     }
   }
 
+  const handleUpgradeSeats = async (seats: number) => {
+    const token = localStorage.getItem('auth_token')
+    if (!token) { router.push('/signin'); return }
+
+    setUpgradingSeats(true)
+    setError('')
+    setSuccess('')
+
+    try {
+      const response = await fetch(`${API_URL}/api/firms/upgrade-seats`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ additional_seats: seats })
+      })
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.detail || 'Failed to add seats')
+      }
+
+      const data = await response.json()
+      setSuccess(data.message || `Added ${seats} seat(s)!`)
+      setMaxSeats(data.max_users || maxSeats + seats)
+      fetchTeamMembers(token)
+    } catch (err: any) {
+      setError(err.message || 'Failed to upgrade seats')
+    } finally {
+      setUpgradingSeats(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gg-black flex items-center justify-center">
@@ -227,15 +261,23 @@ export default function TeamPage() {
               <div>
                 <h3 className="font-semibold text-white">Management Firm Plan</h3>
                 <p className="text-gg-gray-400 text-sm">
-                  {teamMembers.length + 1} of 3 seats used • {Math.max(0, 2 - teamMembers.length)} seats remaining
+                  {teamMembers.length + 1} of {maxSeats} seats used • {Math.max(0, maxSeats - teamMembers.length - 1)} seats remaining
                 </p>
               </div>
             </div>
-            {teamMembers.length >= 2 && (
+            {teamMembers.length + 1 >= maxSeats ? (
+              <button
+                onClick={() => handleUpgradeSeats(1)}
+                disabled={upgradingSeats}
+                className="text-xs bg-gg-pink/20 text-gg-pink px-3 py-1.5 rounded-full hover:bg-gg-pink/30 transition font-medium disabled:opacity-50"
+              >
+                {upgradingSeats ? 'Adding...' : '+ Add Seat ($9.99/mo)'}
+              </button>
+            ) : teamMembers.length >= 2 ? (
               <span className="text-xs bg-yellow-500/20 text-yellow-400 px-3 py-1 rounded-full">
-                Additional seats: $39.99/mo each
+                Additional seats: $9.99/mo each
               </span>
-            )}
+            ) : null}
           </div>
         </div>
 
