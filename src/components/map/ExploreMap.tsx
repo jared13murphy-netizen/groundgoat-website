@@ -1316,7 +1316,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                                 const bounds = mapRef.current.getBounds()
                                 loadTractsForBounds({ min_lat: bounds.getSouth(), max_lat: bounds.getNorth(), min_lng: bounds.getWest(), max_lng: bounds.getEast() })
                               }
-                            }
+                            }}
                             style={{
                               padding: '4px 10px',
                               borderRadius: 14,
