@@ -1229,7 +1229,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                             const next = isActive ? current.filter(s => s !== st) : [...current, st]
                             const newFilters = { ...filters, stateFilter: next.join(','), countyFilters: [], townshipFilters: [] }
                             setFilters(newFilters)
-                            // Update filtersRef immediately so the loader uses the new filters
                             filtersRef.current = newFilters
                             // Clear cache and markers
                             loadedCellsRef.current = new Set()
@@ -1237,8 +1236,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                             setTracts([])
                             tractMarkersRef.current.forEach(m => m.remove())
                             tractMarkersRef.current = []
-                            // Zoom to fit selected state(s) — the moveend event will trigger a reload
-                            if (next.length > 0 && mapRef.current) {
+                            if (next.length > 0) {
+                              // Load tracts using the combined state bounds — not the viewport
                               let minLng = 180, minLat = 90, maxLng = -180, maxLat = -90
                               for (const s of next) {
                                 const b = STATE_BOUNDS[s]
@@ -1250,10 +1249,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                                 }
                               }
                               if (minLng < 180) {
-                                mapRef.current.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 40, duration: 1000 })
+                                // Zoom map to fit
+                                mapRef.current?.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 40, duration: 1000 })
+                                // Load tracts for the full state bounds immediately
+                                loadTractsForBounds({ min_lat: minLat, max_lat: maxLat, min_lng: minLng, max_lng: maxLng })
                               }
                             } else if (mapRef.current) {
-                              // No states selected — reload current viewport
                               const bounds = mapRef.current.getBounds()
                               loadTractsForBounds({ min_lat: bounds.getSouth(), max_lat: bounds.getNorth(), min_lng: bounds.getWest(), max_lng: bounds.getEast() })
                             }
