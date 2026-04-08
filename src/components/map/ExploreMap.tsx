@@ -24,7 +24,7 @@ import {
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import Tract3DModal from '@/components/Tract3DModal'
 import { countyCentroids } from '@/data/countyCentroids'
-import { STATE_ABBR } from './mapConstants'
+import { STATE_ABBR, STATE_BOUNDS } from './mapConstants'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -1228,6 +1228,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                             setFilters(f => {
                               const current = f.stateFilter ? f.stateFilter.split(',') : []
                               const next = isActive ? current.filter(s => s !== st) : [...current, st]
+                              // Zoom to state when selecting a single state
+                              if (next.length === 1 && mapRef.current && STATE_BOUNDS[next[0]]) {
+                                const bounds = STATE_BOUNDS[next[0]]
+                                mapRef.current.fitBounds(bounds, { padding: 40, duration: 1000 })
+                              }
                               return { ...f, stateFilter: next.join(','), countyFilters: [], townshipFilters: [] }
                             })
                           }}
