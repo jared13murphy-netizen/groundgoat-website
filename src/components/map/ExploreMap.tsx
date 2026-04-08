@@ -181,6 +181,16 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const [elevationData, setElevationData] = useState<{ min_ft: number; max_ft: number; relief_ft: number; avg_slope_pct: number } | null>(null)
   const [soilLoading, setSoilLoading] = useState(false)
 
+  // Filter options — fetched once on mount, always shows ALL available states/counties
+  const [filterOptions, setFilterOptions] = useState<{ states: string[]; counties_by_state: Record<string, string[]> }>({ states: [], counties_by_state: {} })
+
+  useEffect(() => {
+    fetch(`${API_URL}/api/map/filter-options`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data) setFilterOptions(data) })
+      .catch(() => {})
+  }, [])
+
   // Filter state
   const [filters, setFilters] = useState<FilterState>(INITIAL_FILTERS)
   const [filterOpen, setFilterOpenInternal] = useState(false)
@@ -1200,13 +1210,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               ))}
             </div>
 
-            {/* State Filter — built from ALL loaded tracts */}
+            {/* State Filter — from API (all states with boundary data) */}
             {(() => {
-              const stateSet = new Set<string>()
-              tractMapRef.current.forEach(t => {
-                if (t.state) stateSet.add(t.state.toUpperCase())
-              })
-              const states = Array.from(stateSet).sort()
+              const states = filterOptions.states
               if (states.length === 0) return null
               return (
                 <div style={{ marginBottom: 24 }}>
@@ -1245,17 +1251,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               )
             })()}
 
-            {/* County Filter — built from loaded tracts for selected state(s) */}
+            {/* County Filter — from API for selected state(s) */}
             {filters.stateFilter && (() => {
               const activeStates = filters.stateFilter.split(',').filter(Boolean).map(s => s.toUpperCase())
               const countySet = new Set<string>()
-              tractMapRef.current.forEach(t => {
-                if (!t.county || !t.state) return
-                if (!activeStates.includes(t.state.toUpperCase())) return
-                // Normalize: strip " County" suffix, trim
-                let county = t.county.trim()
-                county = county.replace(/\s+County$/i, '').trim()
-                if (county) countySet.add(county)
+              activeStates.forEach(st => {
+                const stateCounties = filterOptions.counties_by_state[st] || []
+                stateCounties.forEach(c => countySet.add(c))
               })
               const counties = Array.from(countySet).sort()
               if (counties.length === 0) return null
@@ -1301,17 +1303,15 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               )
             })()}
 
-            {/* Township — only show when county is selected, built from loaded tracts */}
+            {/* Township — only show when county is selected, built from loaded tracts on map */}
             {filters.countyFilters.length > 0 && (() => {
               const townshipSet = new Set<string>()
               tractMapRef.current.forEach(t => {
                 if (!t.township) return
-                // Filter to selected states
                 if (filters.stateFilter) {
                   const states = filters.stateFilter.split(',').map(s => s.trim().toUpperCase())
                   if (!states.includes(t.state?.toUpperCase())) return
                 }
-                // Filter to selected counties (normalize both sides)
                 const tractCounty = (t.county || '').replace(/\s+County$/i, '').trim().toLowerCase()
                 if (!filters.countyFilters.some(c => c.toLowerCase() === tractCounty)) return
                 // Normalize township name
