@@ -313,26 +313,22 @@ export default function AdminUsersPage() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-gg-gray-700">
-                  <th className="text-left py-4 px-4 text-gg-gray-400 font-medium">User</th>
-                  <th className="text-left py-4 px-4 text-gg-gray-400 font-medium">Type</th>
-                  <th className="text-left py-4 px-4 text-gg-gray-400 font-medium">Status</th>
-                  <th className="text-left py-4 px-4 text-gg-gray-400 font-medium">Source</th>
-                  <th className="text-left py-4 px-4 text-gg-gray-400 font-medium">Subscription</th>
-                  <th className="text-left py-4 px-4 text-gg-gray-400 font-medium">Monthly</th>
-                  <th className="text-left py-4 px-4 text-gg-gray-400 font-medium">Billing</th>
-                  <th className="text-left py-4 px-4 text-gg-gray-400 font-medium">Next Payment</th>
-                  <th className="text-left py-4 px-4 text-gg-gray-400 font-medium">Promo</th>
-                  <th className="text-left py-4 px-4 text-gg-gray-400 font-medium">Trial Left</th>
-                  <th className="text-left py-4 px-4 text-gg-gray-400 font-medium">Joined</th>
-                  <th className="text-left py-4 px-4 text-gg-gray-400 font-medium">Referred By</th>
-                  <th className="text-left py-4 px-4 text-gg-gray-400 font-medium">Sales Rep</th>
-                  {canEdit && <th className="text-left py-4 px-4 text-gg-gray-400 font-medium">Actions</th>}
+                  <th className="text-left py-2 px-2 text-gg-gray-400 font-medium text-xs">User</th>
+                  <th className="text-left py-2 px-2 text-gg-gray-400 font-medium text-xs">Type</th>
+                  <th className="text-left py-2 px-2 text-gg-gray-400 font-medium text-xs">Status</th>
+                  <th className="text-left py-2 px-2 text-gg-gray-400 font-medium text-xs">Sub</th>
+                  <th className="text-left py-2 px-2 text-gg-gray-400 font-medium text-xs">Price</th>
+                  <th className="text-left py-2 px-2 text-gg-gray-400 font-medium text-xs">Billing</th>
+                  <th className="text-left py-2 px-2 text-gg-gray-400 font-medium text-xs">Promo / Trial</th>
+                  <th className="text-left py-2 px-2 text-gg-gray-400 font-medium text-xs">Joined</th>
+                  <th className="text-left py-2 px-2 text-gg-gray-400 font-medium text-xs">Referred By</th>
+                  {canEdit && <th className="text-left py-2 px-2 text-gg-gray-400 font-medium text-xs">Actions</th>}
                 </tr>
               </thead>
               <tbody>
                 {filteredUsers.length === 0 ? (
                   <tr>
-                    <td colSpan={canEdit ? 14 : 13} className="text-center py-8 text-gg-gray-400">
+                    <td colSpan={canEdit ? 10 : 9} className="text-center py-8 text-gg-gray-400">
                       No users found
                     </td>
                   </tr>
@@ -340,18 +336,18 @@ export default function AdminUsersPage() {
                   filteredUsers.map(user => (
                     <>
                       <tr key={user.id} className="border-b border-gg-gray-800 hover:bg-gg-gray-800/50">
-                        <td className="py-4 px-4">
+                        <td className="py-2 px-2">
                           <div>
-                            <p className="text-white font-medium">{user.first_name} {user.last_name}</p>
-                            <p className="text-gg-gray-400 text-sm">{user.email}</p>
+                            <p className="text-white font-medium text-xs">{user.first_name} {user.last_name}</p>
+                            <p className="text-gg-gray-500 text-[10px]">{user.email}</p>
                           </div>
                         </td>
-                        <td className="py-4 px-4">
+                        <td className="py-2 px-2">
                           {editingUser === user.id ? (
                             <select
                               value={editForm.account_type}
                               onChange={(e) => setEditForm(prev => ({ ...prev, account_type: e.target.value }))}
-                              className="bg-gg-gray-800 border border-gg-gray-600 rounded px-2 py-1 text-white text-sm"
+                              className="bg-gg-gray-800 border border-gg-gray-600 rounded px-2 py-1 text-white text-xs"
                             >
                               {ACCOUNT_TYPES.map(type => (
                                 <option key={type.value} value={type.value}>{type.label}</option>
@@ -361,144 +357,77 @@ export default function AdminUsersPage() {
                             getAccountTypeBadge(user.account_type)
                           )}
                         </td>
-                        <td className="py-4 px-4">
+                        <td className="py-2 px-2">
                           {editingUser === user.id ? (
                             <select
                               value={editForm.is_active ? 'active' : 'inactive'}
                               onChange={(e) => setEditForm(prev => ({ ...prev, is_active: e.target.value === 'active' }))}
-                              className="bg-gg-gray-800 border border-gg-gray-600 rounded px-2 py-1 text-white text-sm"
+                              className="bg-gg-gray-800 border border-gg-gray-600 rounded px-2 py-1 text-white text-xs"
                             >
                               <option value="active">Active</option>
                               <option value="inactive">Inactive</option>
                             </select>
                           ) : (
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-1">
                               {user.is_active ? (
-                                <span className="flex items-center gap-1 text-green-400 text-sm">
-                                  <UserCheck size={16} /> Active
-                                </span>
+                                <span className="flex items-center gap-1 text-green-400 text-xs"><UserCheck size={12} /> Active</span>
                               ) : (
-                                <span className="flex items-center gap-1 text-red-400 text-sm">
-                                  <UserX size={16} /> Inactive
-                                </span>
+                                <span className="flex items-center gap-1 text-red-400 text-xs"><UserX size={12} /> Inactive</span>
                               )}
-                              {user.is_verified && (
-                                <span className="flex items-center gap-1 text-blue-400 text-sm">
-                                  <Shield size={14} />
-                                </span>
-                              )}
+                              {user.is_verified && <Shield size={10} className="text-blue-400" />}
                             </div>
                           )}
                         </td>
-                        <td className="py-4 px-4">
-                          {getPaymentSourceBadge(user.payment_source)}
-                        </td>
-                        <td className="py-4 px-4">
-                          <button
-                            onClick={() => toggleExpand(user.id)}
-                            className="flex items-center gap-1"
-                          >
+                        <td className="py-2 px-2">
+                          <button onClick={() => toggleExpand(user.id)} className="flex items-center gap-1">
                             {getSubscriptionStatusBadge(user.subscription_status, user.subscription_count)}
-                            {user.subscription_count > 0 && (
-                              <span className="text-gg-gray-400 text-xs ml-1">
-                                ({user.subscription_count})
-                              </span>
-                            )}
+                            {user.subscription_count > 0 && <span className="text-gg-gray-400 text-[10px] ml-1">({user.subscription_count})</span>}
                           </button>
                         </td>
-                        <td className="py-4 px-4">
+                        <td className="py-2 px-2">
                           {user.total_monthly > 0 ? (
-                            <span className="flex items-center gap-1 text-green-400 text-sm">
-                              <DollarSign size={14} />
-                              {formatCurrency(user.total_monthly)}/{user.subscriptions.length > 0 && user.subscriptions[0].billing_cycle === 'annual' ? 'yr' : 'mo'}
-                            </span>
+                            <span className="text-green-400 text-xs">{formatCurrency(user.total_monthly)}/{user.subscriptions.length > 0 && user.subscriptions[0].billing_cycle === 'annual' ? 'yr' : 'mo'}</span>
                           ) : user.subscription_count > 0 ? (
-                            <span className="flex items-center gap-1 text-orange-400 text-sm">
-                              <DollarSign size={14} />
-                              $0
-                            </span>
+                            <span className="text-orange-400 text-xs">$0</span>
                           ) : (
-                            <span className="text-gg-gray-500 text-sm">–</span>
+                            <span className="text-gg-gray-500 text-xs">–</span>
                           )}
                         </td>
-                        <td className="py-4 px-4">
+                        <td className="py-2 px-2">
                           {user.subscriptions.length > 0 ? (
-                            <span className={`text-sm ${user.subscriptions[0].billing_cycle === 'annual' ? 'text-purple-400' : 'text-blue-400'}`}>
-                              {user.subscriptions[0].billing_cycle === 'annual' ? 'Annual' : 'Monthly'}
-                            </span>
+                            <div>
+                              <span className={`text-xs ${user.subscriptions[0].billing_cycle === 'annual' ? 'text-purple-400' : 'text-blue-400'}`}>{user.subscriptions[0].billing_cycle === 'annual' ? 'Annual' : 'Monthly'}</span>
+                              {user.subscriptions[0].current_period_end && (
+                                <div className={`text-[10px] ${new Date(user.subscriptions[0].current_period_end) < new Date() ? 'text-red-400' : 'text-gg-gray-500'}`}>{formatDate(user.subscriptions[0].current_period_end)}</div>
+                              )}
+                            </div>
                           ) : (
-                            <span className="text-gg-gray-500 text-sm">–</span>
+                            <span className="text-gg-gray-500 text-xs">–</span>
                           )}
                         </td>
-                        <td className="py-4 px-4">
-                          {user.subscriptions.length > 0 && user.subscriptions[0].current_period_end ? (
-                            <span className={`text-sm ${new Date(user.subscriptions[0].current_period_end) < new Date() ? 'text-red-400' : 'text-gg-gray-300'}`}>
-                              {formatDate(user.subscriptions[0].current_period_end)}
-                            </span>
-                          ) : (
-                            <span className="text-gg-gray-500 text-sm">–</span>
-                          )}
-                        </td>
-                        <td className="py-4 px-4">
+                        <td className="py-2 px-2">
                           {user.subscriptions.length > 0 && user.subscriptions[0].promo_code ? (
-                            <span className="px-2 py-1 rounded-full text-xs font-medium bg-pink-500/20 text-pink-400">
-                              {user.subscriptions[0].promo_code}
-                            </span>
-                          ) : (
-                            <span className="text-gg-gray-500 text-sm">–</span>
-                          )}
+                            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-pink-500/20 text-pink-400">{user.subscriptions[0].promo_code}</span>
+                          ) : null}
+                          {user.subscription_status === 'trialing' && user.subscriptions.length > 0 && user.subscriptions[0].current_period_end ? (
+                            <span className={`text-[10px] font-medium ${Math.ceil((new Date(user.subscriptions[0].current_period_end).getTime() - Date.now()) / 86400000) <= 7 ? 'text-red-400' : Math.ceil((new Date(user.subscriptions[0].current_period_end).getTime() - Date.now()) / 86400000) <= 14 ? 'text-yellow-400' : 'text-green-400'}`}>{' '}{Math.ceil((new Date(user.subscriptions[0].current_period_end).getTime() - Date.now()) / 86400000)}d trial</span>
+                          ) : null}
+                          {!(user.subscriptions.length > 0 && user.subscriptions[0].promo_code) && user.subscription_status !== 'trialing' ? (
+                            <span className="text-gg-gray-500 text-xs">–</span>
+                          ) : null}
                         </td>
-                        <td className="py-4 px-4">
-                          {(() => {
-                            if (user.subscription_status !== 'trialing' || user.subscriptions.length === 0) {
-                              return <span className="text-gg-gray-500 text-sm">–</span>
-                            }
-                            const periodEnd = user.subscriptions[0].current_period_end
-                            if (!periodEnd) return <span className="text-gg-gray-500 text-sm">–</span>
-                            const daysLeft = Math.ceil((new Date(periodEnd).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
-                            if (daysLeft <= 0) return <span className="text-red-400 text-sm font-medium">Trial Ended</span>
-                            const color = daysLeft <= 7 ? 'text-red-400' : daysLeft <= 14 ? 'text-yellow-400' : 'text-green-400'
-                            return <span className={`text-sm font-medium ${color}`}>{daysLeft}d</span>
-                          })()}
-                        </td>
-                        <td className="py-4 px-4 text-gg-gray-400 text-sm">
-                          {formatDate(user.created_at)}
-                        </td>
-                        <td className="py-4 px-4">
+                        <td className="py-2 px-2 text-gg-gray-400 text-xs">{formatDate(user.created_at)}</td>
+                        <td className="py-2 px-2">
                           {user.referred_by ? (
-                            <span className="text-gg-gray-300 text-sm">
-                              {user.referred_by.first_name} {user.referred_by.last_name}
-                            </span>
+                            <span className="text-gg-gray-300 text-xs">{user.referred_by.first_name} {user.referred_by.last_name}</span>
+                          ) : user.sales_rep ? (
+                            <span className="text-gg-gray-300 text-xs">{user.sales_rep.first_name} {user.sales_rep.last_name}</span>
                           ) : (
-                            <span className="text-gg-gray-500 text-sm">–</span>
-                          )}
-                        </td>
-                        <td className="py-4 px-4">
-                          {editingUser === user.id ? (
-                            <select
-                              value={editForm.sales_rep_id || ''}
-                              onChange={(e) => setEditForm(prev => ({ ...prev, sales_rep_id: e.target.value || null }))}
-                              className="bg-gg-gray-800 border border-gg-gray-600 rounded px-2 py-1 text-white text-sm min-w-[120px]"
-                            >
-                              <option value="">No Rep</option>
-                              {salesReps.map(rep => (
-                                <option key={rep.id} value={rep.id}>
-                                  {rep.first_name} {rep.last_name}
-                                </option>
-                              ))}
-                            </select>
-                          ) : (
-                            user.sales_rep ? (
-                              <span className="text-gg-gray-300 text-sm">
-                                {user.sales_rep.first_name} {user.sales_rep.last_name}
-                              </span>
-                            ) : (
-                              <span className="text-gg-gray-500 text-sm">-</span>
-                            )
+                            <span className="text-gg-gray-500 text-xs">–</span>
                           )}
                         </td>
                         {canEdit && (
-                          <td className="py-4 px-4">
+                          <td className="py-2 px-2">
                             {editingUser === user.id ? (
                               <div className="flex items-center gap-2">
                                 <button
