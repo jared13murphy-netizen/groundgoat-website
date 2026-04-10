@@ -615,7 +615,7 @@ function SignUpContent() {
       let authData
       if (!registerResponse.ok) {
         const data = await registerResponse.json().catch(() => ({}))
-        const errorMsg = (data.detail || '').toLowerCase()
+        const errorMsg = (typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail || '')).toLowerCase()
         // If email already registered, log in instead and continue to checkout
         if (errorMsg.includes('already registered') || errorMsg.includes('already exists')) {
           const loginResponse = await fetch(`${API_URL}/api/auth/login`, {
