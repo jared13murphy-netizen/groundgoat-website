@@ -372,17 +372,30 @@ function SignUpContent() {
   const sendVerificationCode = async () => {
     setLoading(true)
     setError('')
-    
+
     try {
+      const trimmedEmail = formData.email.trim().toLowerCase()
+
+      // Check if email already exists — if so, skip verification and go straight to plan selection
+      const checkResponse = await fetch(`${API_URL}/api/auth/check-email?email=${encodeURIComponent(trimmedEmail)}`)
+      const checkData = checkResponse.ok ? await checkResponse.json() : { exists: false }
+
+      if (checkData.exists) {
+        // Account exists — skip verification, go to step 2 (plan selection)
+        // The handleRegistration function will log them in when they finish
+        setStep(2)
+        return
+      }
+
       const response = await fetch(`${API_URL}/api/auth/send-code`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          email: formData.email,
+          email: trimmedEmail,
           first_name: formData.firstName,
           last_name: formData.lastName,
           password: formData.password,
-          referral_code: referralCode,  // Pass referral code
+          referral_code: referralCode,
         }),
       })
 
@@ -1309,6 +1322,42 @@ function SignUpContent() {
                   </div>
                 </div>
               )}
+
+              {/* Promo Code */}
+              <div className="card">
+                <h3 className="text-lg font-semibold text-white mb-4">Promo Code</h3>
+                <div className="flex gap-3">
+                  <input
+                    type="text"
+                    value={promoCode}
+                    onChange={(e) => { setPromoCode(e.target.value.toUpperCase()); setPromoValidation(null) }}
+                    className="flex-1 bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none uppercase"
+                    placeholder="Enter promo code (optional)"
+                  />
+                  <button
+                    onClick={validatePromoCode}
+                    disabled={validatingPromo || !promoCode.trim()}
+                    className="btn-secondary px-6 disabled:opacity-50"
+                  >
+                    {validatingPromo ? 'Checking...' : 'Apply'}
+                  </button>
+                </div>
+                {promoValidation?.valid && (
+                  <div className="mt-3 flex items-center gap-2 text-green-400 text-sm">
+                    <span>✓</span>
+                    <span>
+                      {promoValidation.description || (
+                        promoValidation.discount_type === 'percent_off'
+                          ? `${promoValidation.discount_value}% off applied!`
+                          : `$${promoValidation.discount_value} off applied!`
+                      )}
+                    </span>
+                  </div>
+                )}
+                {promoValidation && !promoValidation.valid && (
+                  <p className="mt-3 text-red-400 text-sm">{promoValidation.error || 'Invalid promo code'}</p>
+                )}
+              </div>
 
               {error && (
                 <p className="text-red-400 text-sm text-center">{error}</p>
