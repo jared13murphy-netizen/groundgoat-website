@@ -108,7 +108,7 @@ function TractDetail({ item }: { item: StagingItem }) {
       { label: '$/CSR', value: tract.price_per_soil_rating ? `$${Math.round(tract.price_per_soil_rating).toLocaleString()}` : null, source: sources.soil_rating || null },
       { label: 'Total CSR', value: sd.iowa_total_csr, source: dataSource },
     ] : [
-      { label: 'Soil Rating (PI)', value: tract.soil_rating || 'N/A — PI not available from USDA', source: null },
+      { label: `Soil Rating (${tract.soil_rating_type || 'PI'})`, value: tract.soil_rating || 'N/A', source: null },
     ]) as FieldRow[],
     { label: '---', value: '', source: null },
     { label: 'Tillable Acres', value: tract.tillable_acres, source: sources.tillable, warn: !tract.tillable_acres },
@@ -791,7 +791,7 @@ export default function MyDecImportPage() {
                           <div className="flex items-center gap-1">
                             <Wheat size={14} className="text-gg-gray-500" />
                             <span>
-                              {tract.soil_rating ? `${item.source_type === 'iowa' ? 'CSR2' : 'PI'}: ${tract.soil_rating} · ` : tract.nccpi ? `NCCPI: ${tract.nccpi} · ` : ''}
+                              {tract.soil_rating ? `${tract.soil_rating_type || (item.source_type === 'iowa' ? 'CSR2' : 'PI')}: ${tract.soil_rating} · ` : ''}
                               NCCPI: {tract.nccpi || '?'}
                               {tract.tillable_acres ? ` · ${tract.tillable_acres} tillable` : ''}
                             </span>
