@@ -335,6 +335,12 @@ export default function AdminDashboard() {
                 href="/admin/commissions"
                 icon={<DollarSign />}
               />
+              <QuickActionCard
+                title="MyDec Import"
+                description="Import Illinois MyDec declarations"
+                href="/admin/mydec-import"
+                icon={<ClipboardList />}
+              />
             </>
           )}
           {/* Visible to both Admin and Sales */}
