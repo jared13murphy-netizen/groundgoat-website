@@ -596,44 +596,48 @@ function SignUpContent() {
     setError('')
     
     try {
-      // Register the user with referral code and verification token
-      const registerResponse = await fetch(`${API_URL}/api/auth/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          first_name: formData.firstName,
-          last_name: formData.lastName,
-          email: formData.email,
-          password: formData.password,
-          home_state: getStateAbbreviation(formData.homeState),
-          home_county: formData.homeCounty,
-          referral_code: referralCode,  // Pass referral code
-          verification_token: verificationToken,  // Pass verification token to mark user as verified
-        }),
-      })
+      const trimmedEmail = formData.email.trim().toLowerCase()
 
+      // Check if email already exists — if so, skip registration and log in directly
       let authData
-      if (!registerResponse.ok) {
-        const data = await registerResponse.json().catch(() => ({}))
-        const errorMsg = (typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail || '')).toLowerCase()
-        // If email already registered, log in instead and continue to checkout
-        if (errorMsg.includes('already registered') || errorMsg.includes('already exists')) {
-          const loginResponse = await fetch(`${API_URL}/api/auth/login`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              email: formData.email,
-              password: formData.password,
-            }),
-          })
-          if (!loginResponse.ok) {
-            throw new Error('This email is already registered. Please check your password and try again.')
-          }
-          authData = await loginResponse.json()
-        } else {
+      const checkResponse = await fetch(`${API_URL}/api/auth/check-email?email=${encodeURIComponent(trimmedEmail)}`)
+      const checkData = checkResponse.ok ? await checkResponse.json() : { exists: false }
+
+      if (checkData.exists) {
+        // Account already exists — log in and continue to checkout
+        const loginResponse = await fetch(`${API_URL}/api/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: trimmedEmail,
+            password: formData.password,
+          }),
+        })
+        if (!loginResponse.ok) {
+          throw new Error('This email is already registered. Please check your password and try again.')
+        }
+        authData = await loginResponse.json()
+      } else {
+        // Register the user with referral code and verification token
+        const registerResponse = await fetch(`${API_URL}/api/auth/register`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            first_name: formData.firstName,
+            last_name: formData.lastName,
+            email: trimmedEmail,
+            password: formData.password,
+            home_state: getStateAbbreviation(formData.homeState),
+            home_county: formData.homeCounty,
+            referral_code: referralCode,
+            verification_token: verificationToken,
+          }),
+        })
+
+        if (!registerResponse.ok) {
+          const data = await registerResponse.json().catch(() => ({}))
           throw new Error(parseApiError(data, 'Registration failed. Please try again.'))
         }
-      } else {
         authData = await registerResponse.json()
       }
 
