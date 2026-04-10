@@ -693,6 +693,7 @@ function SignUpContent() {
               state: getStateAbbreviation(area.state),
               county: null,
             })),
+            promo_code: promoValidation?.valid ? promoCode.trim().toUpperCase() : null,
           }),
         })
 
