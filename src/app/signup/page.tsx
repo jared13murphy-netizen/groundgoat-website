@@ -612,13 +612,31 @@ function SignUpContent() {
         }),
       })
 
+      let authData
       if (!registerResponse.ok) {
         const data = await registerResponse.json().catch(() => ({}))
-        throw new Error(parseApiError(data, 'Registration failed. Please try again.'))
+        const errorMsg = (data.detail || '').toLowerCase()
+        // If email already registered, log in instead and continue to checkout
+        if (errorMsg.includes('already registered') || errorMsg.includes('already exists')) {
+          const loginResponse = await fetch(`${API_URL}/api/auth/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              email: formData.email,
+              password: formData.password,
+            }),
+          })
+          if (!loginResponse.ok) {
+            throw new Error('This email is already registered. Please check your password and try again.')
+          }
+          authData = await loginResponse.json()
+        } else {
+          throw new Error(parseApiError(data, 'Registration failed. Please try again.'))
+        }
+      } else {
+        authData = await registerResponse.json()
       }
-      
-      const authData = await registerResponse.json()
-      
+
       localStorage.setItem('auth_token', authData.access_token)
       if (authData.refresh_token) {
         localStorage.setItem('refresh_token', authData.refresh_token)
