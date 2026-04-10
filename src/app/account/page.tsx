@@ -304,15 +304,8 @@ const handleResendVerification = async () => {
               <MenuItem
                 icon={<CreditCard size={20} />}
                 label="Subscription"
-                description="Manage your plan and billing"
+                description="Manage your plan, states, and billing"
                 href="/account/subscription"
-              />
-
-              <MenuItem
-                icon={<MapPin size={20} />}
-                label="My Areas"
-                description="View your subscribed counties and states"
-                href="/account/areas"
               />
             </>
           )}
