@@ -182,7 +182,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const [soilLoading, setSoilLoading] = useState(false)
 
   // Filter options — fetched once on mount, always shows ALL available states/counties
-  const [filterOptions, setFilterOptions] = useState<{ states: string[]; counties_by_state: Record<string, string[]> }>({ states: [], counties_by_state: {} })
+  const [filterOptions, setFilterOptions] = useState<{ states: string[]; counties_by_state: Record<string, string[]>; townships_by_county: Record<string, string[]> }>({ states: [], counties_by_state: {}, townships_by_county: {} })
 
   useEffect(() => {
     fetch(`${API_URL}/api/map/filter-options`)
@@ -1340,21 +1340,17 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               )
             })()}
 
-            {/* Township — only show when county is selected, built from loaded tracts on map */}
+            {/* Township — only show when county is selected, derived from API data */}
             {filters.countyFilters.length > 0 && (() => {
+              const st = filters.stateFilter?.toUpperCase()
               const townshipSet = new Set<string>()
-              tractMapRef.current.forEach(t => {
-                if (!t.township) return
-                if (filters.stateFilter) {
-                  const states = filters.stateFilter.split(',').map(s => s.trim().toUpperCase())
-                  if (!states.includes(t.state?.toUpperCase())) return
-                }
-                const tractCounty = (t.county || '').replace(/\s+County$/i, '').trim().toLowerCase()
-                if (!filters.countyFilters.some(c => c.toLowerCase() === tractCounty)) return
-                // Normalize township name
-                const twp = normalizeTownship(t.township)
-                if (twp) townshipSet.add(twp)
-              })
+              if (st && filterOptions.townships_by_county) {
+                filters.countyFilters.forEach(county => {
+                  const key = `${st}|${county}`
+                  const twps = filterOptions.townships_by_county[key]
+                  if (twps) twps.forEach(t => townshipSet.add(t))
+                })
+              }
               const townships = Array.from(townshipSet).sort()
 
               if (townships.length === 0) return null
