@@ -9,7 +9,7 @@ export function normalizeTownship(name: string | null | undefined): string | nul
   if (!n) return null
 
   // Remove common suffixes
-  n = n.replace(/\s+(Township|CCD|Precinct)\s*$/i, '')
+  n = n.replace(/\s+(Township|town|CCD|Precinct)\s*$/i, '')
   // Remove numbered suffixes
   n = n.replace(/\s+No\.?\s*\d+\s*$/i, '')
   // Remove "in " or "of " prefixes
