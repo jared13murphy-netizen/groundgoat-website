@@ -279,6 +279,7 @@ export default function MyDecImportPage() {
   const [importLimit, setImportLimit] = useState(50)
   const [importing, setImporting] = useState(false)
   const [importStats, setImportStats] = useState<any>(null)
+  const [activeJobs, setActiveJobs] = useState<Record<string, any>>({})
 
   // Review list
   const [items, setItems] = useState<StagingItem[]>([])
@@ -377,9 +378,34 @@ export default function MyDecImportPage() {
     }
   }, [isAdmin, fetchItems, fetchMydecCount, fetchCountyTracker])
 
-  // Run import (Railway server)
+  // Poll a background import job until it completes
+  const pollJob = useCallback(async (jobId: string, jobCounty: string) => {
+    const poll = async () => {
+      try {
+        const res = await fetch(`${SCRAPER_URL}/api/mydec/import/status/${jobId}`)
+        const data = await res.json()
+        setActiveJobs(prev => ({ ...prev, [jobId]: { ...data, county: jobCounty } }))
+        if (data.status === 'running') {
+          setTimeout(poll, 3000)
+        } else {
+          // Job finished — refresh the review list
+          setPage(0)
+          fetchItems()
+          fetchCountyTracker()
+          // Show final stats
+          if (data.stats) {
+            setImportStats({ success: true, ...data.stats, _county: jobCounty })
+          }
+        }
+      } catch {
+        setTimeout(poll, 5000) // Retry on network error
+      }
+    }
+    poll()
+  }, [fetchItems, fetchCountyTracker])
+
+  // Run import (Railway server) — background mode with polling
   const runImport = async () => {
-    setImporting(true)
     setImportStats(null)
     const endpoint = activeState === 'IA' ? '/api/iowa/import' : activeState === 'IN' ? '/api/indiana/import' : '/api/mydec/import'
     try {
@@ -390,18 +416,28 @@ export default function MyDecImportPage() {
           county: county || null,
           months_back: monthsBack,
           limit: importLimit,
+          background: true,
         }),
       })
       const data = await res.json()
-      setImportStats(data)
-      // Refresh the review list and tracker
-      setPage(0)
-      fetchItems()
-      fetchCountyTracker()
+      if (data.job_id) {
+        // Background mode — start polling
+        const jobCounty = county || 'All Counties'
+        setActiveJobs(prev => ({
+          ...prev,
+          [data.job_id]: { status: 'running', county: jobCounty, progress: { processed: 0, total: 0 } }
+        }))
+        pollJob(data.job_id, jobCounty)
+      } else {
+        // Synchronous fallback (Iowa/Indiana)
+        setImportStats(data)
+        setPage(0)
+        fetchItems()
+        fetchCountyTracker()
+      }
     } catch (e: any) {
       setImportStats({ success: false, error: e.message })
     }
-    setImporting(false)
   }
 
   // Run import locally (for Iowa — Beacon requires residential IP)
@@ -614,11 +650,10 @@ export default function MyDecImportPage() {
             </div>
             <button
               onClick={runImport}
-              disabled={importing}
-              className="bg-gg-pink hover:bg-gg-pink/80 disabled:opacity-50 text-white px-5 py-2 rounded text-sm font-medium flex items-center gap-2"
+              className="bg-gg-pink hover:bg-gg-pink/80 text-white px-5 py-2 rounded text-sm font-medium flex items-center gap-2"
             >
-              {importing ? <Loader2 size={16} className="animate-spin" /> : <Play size={16} />}
-              {importing ? 'Importing...' : 'Run Import'}
+              <Play size={16} />
+              Run Import
             </button>
             {activeState === 'IA' && (
               <button
@@ -633,8 +668,54 @@ export default function MyDecImportPage() {
             )}
           </div>
 
-          {/* Import stats */}
-          {importStats && (
+          {/* Active background jobs */}
+          {Object.keys(activeJobs).length > 0 && (
+            <div className="mt-4 space-y-2">
+              {Object.entries(activeJobs).map(([jobId, job]) => (
+                <div key={jobId} className={`p-3 rounded text-sm ${
+                  job.status === 'running' ? 'bg-blue-900/30 border border-blue-800' :
+                  job.status === 'completed' ? 'bg-green-900/30 border border-green-800' :
+                  'bg-red-900/30 border border-red-800'
+                }`}>
+                  <div className="flex items-center gap-2">
+                    {job.status === 'running' && <Loader2 size={14} className="animate-spin text-blue-400" />}
+                    {job.status === 'completed' && <CheckCircle size={14} className="text-green-400" />}
+                    {job.status === 'failed' && <XCircle size={14} className="text-red-400" />}
+                    <span className="font-medium">
+                      {job.county || 'Import'}
+                      {job.status === 'running' && job.progress?.total > 0 &&
+                        ` — ${job.progress.processed}/${job.progress.total} sales`}
+                      {job.status === 'running' && job.progress?.total === 0 && ' — starting...'}
+                    </span>
+                  </div>
+                  {job.status === 'running' && job.progress?.total > 0 && (
+                    <div className="mt-2 bg-gg-gray-800 rounded-full h-2 overflow-hidden">
+                      <div
+                        className="bg-blue-500 h-full transition-all duration-500"
+                        style={{ width: `${Math.round((job.progress.processed / job.progress.total) * 100)}%` }}
+                      />
+                    </div>
+                  )}
+                  {job.stats && (
+                    <div className="text-gg-gray-300 mt-1">
+                      Fetched: {job.stats.total_fetched} &middot;
+                      Enriched: {job.stats.enriched} &middot;
+                      Staged: {job.stats.staged} &middot;
+                      Duplicates: {job.stats.duplicates_flagged} &middot;
+                      Regrid calls: {job.stats.regrid_calls}
+                      {job.stats.errors?.length > 0 && (
+                        <span className="text-red-400"> &middot; Errors: {job.stats.errors.length}</span>
+                      )}
+                    </div>
+                  )}
+                  {job.error && <div className="text-red-400 mt-1">{job.error}</div>}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Import stats (legacy sync mode) */}
+          {importStats && !importStats.job_id && (
             <div className={`mt-4 p-3 rounded text-sm ${importStats.success ? 'bg-green-900/30 border border-green-800' : 'bg-red-900/30 border border-red-800'}`}>
               {importStats.success ? (
                 <div className="space-y-1">
