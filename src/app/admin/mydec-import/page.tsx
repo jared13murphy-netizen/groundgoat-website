@@ -819,6 +819,7 @@ export default function MyDecImportPage() {
                 const warnings = sd.validation_warnings || []
                 const isDup = !!sd.potential_duplicate
                 const dup = sd.potential_duplicate || {}
+                const isPartialSale = !!sd.is_partial_sale
                 const sources = sd.enrichment_sources || {}
                 const cropBreakdown = sd.crop_breakdown || {}
                 const isProcessing = processingIds.has(item.id)
@@ -836,6 +837,11 @@ export default function MyDecImportPage() {
                           <span className="font-semibold">
                             {tract.acres || '?'} Acres &mdash; {tract.county_name || listing.county || '?'} County
                           </span>
+                          {isPartialSale && (
+                            <span className="bg-red-600/30 text-red-400 text-xs px-2 py-0.5 rounded font-medium">
+                              Partial Sale
+                            </span>
+                          )}
                           {isDup && (
                             <span className="bg-yellow-600/30 text-yellow-400 text-xs px-2 py-0.5 rounded">
                               Potential Duplicate
