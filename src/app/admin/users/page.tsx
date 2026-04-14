@@ -409,7 +409,7 @@ export default function AdminUsersPage() {
                           {user.subscriptions.length > 0 && user.subscriptions[0].promo_code ? (
                             <span className="px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-pink-500/20 text-pink-400">{user.subscriptions[0].promo_code}</span>
                           ) : null}
-                          {user.subscription_status === 'trialing' && user.subscriptions.length > 0 && user.subscriptions[0].current_period_end ? (
+                          {user.subscription_status === 'trialing' && user.subscriptions.length > 0 && user.subscriptions[0].current_period_end && Math.ceil((new Date(user.subscriptions[0].current_period_end).getTime() - Date.now()) / 86400000) > 0 ? (
                             <span className={`text-[10px] font-medium ${Math.ceil((new Date(user.subscriptions[0].current_period_end).getTime() - Date.now()) / 86400000) <= 7 ? 'text-red-400' : Math.ceil((new Date(user.subscriptions[0].current_period_end).getTime() - Date.now()) / 86400000) <= 14 ? 'text-yellow-400' : 'text-green-400'}`}>{' '}{Math.ceil((new Date(user.subscriptions[0].current_period_end).getTime() - Date.now()) / 86400000)}d trial</span>
                           ) : null}
                           {!(user.subscriptions.length > 0 && user.subscriptions[0].promo_code) && user.subscription_status !== 'trialing' ? (
