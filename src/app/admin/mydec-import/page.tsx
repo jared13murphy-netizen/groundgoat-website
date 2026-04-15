@@ -488,6 +488,32 @@ export default function MyDecImportPage() {
     })
   }
 
+  // Merge MyDec data into existing auction listing
+  const mergeItem = async (stagingId: number, listingId: string) => {
+    setProcessingIds(prev => new Set(prev).add(stagingId))
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/admin/staging/${stagingId}/merge/${listingId}`, { method: 'POST' })
+      if (res.ok) {
+        const data = await res.json()
+        setItems(prev => prev.filter(item => item.id !== stagingId))
+        setTotal(prev => prev - 1)
+        fetchMydecCount()
+        fetchCountyTracker()
+        alert(`Merged! ${data.matched_tracts} tract(s) updated.`)
+      } else {
+        const err = await res.json()
+        alert(`Merge failed: ${err.detail || 'Unknown error'}`)
+      }
+    } catch (e: any) {
+      alert(`Error: ${e.message}`)
+    }
+    setProcessingIds(prev => {
+      const next = new Set(prev)
+      next.delete(stagingId)
+      return next
+    })
+  }
+
   // Skip (ignore) a staging item
   const skipItem = async (id: number) => {
     setProcessingIds(prev => new Set(prev).add(id))
@@ -944,6 +970,16 @@ export default function MyDecImportPage() {
                           {isProcessing ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
                           Add
                         </button>
+                        {isDup && dup.listing_id && (
+                          <button
+                            onClick={() => mergeItem(item.id, dup.listing_id)}
+                            disabled={isProcessing}
+                            className="bg-yellow-700 hover:bg-yellow-600 disabled:opacity-50 text-white px-3 py-1.5 rounded text-sm font-medium flex items-center gap-1"
+                          >
+                            {isProcessing ? <Loader2 size={14} className="animate-spin" /> : <Layers size={14} />}
+                            Merge
+                          </button>
+                        )}
                         <button
                           onClick={() => skipItem(item.id)}
                           disabled={isProcessing}
