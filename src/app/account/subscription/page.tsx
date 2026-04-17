@@ -397,7 +397,14 @@ export default function SubscriptionPage() {
   const currentPlanType = activeSubscriptions[0]?.subscription_type || null
   const currentBillingCycle = activeSubscriptions[0]?.billing_cycle || null
   const isBasicPlan = currentPlanType === 'basic_state'
-  const perStatePrice = currentPlanType === 'premium_state' ? 74.99 : 24.99
+  // Use the user's ACTUAL per-state price from their existing subscription so
+  // legacy-priced users (e.g. $19.99/mo) see the correct base in the Add State
+  // modal. Fall back to the default plan price only if we somehow don't have a
+  // subscription record loaded.
+  const actualPerStatePrice = activeSubscriptions[0]?.monthly_price
+  const perStatePrice = (actualPerStatePrice && actualPerStatePrice > 0)
+    ? actualPerStatePrice
+    : (currentPlanType === 'premium_state' ? 74.99 : 24.99)
 
   return (
     <div className="min-h-screen bg-gg-black pt-24 pb-12">
