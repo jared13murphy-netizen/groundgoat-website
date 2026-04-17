@@ -508,6 +508,10 @@ export default function Home() {
                   <Check className="text-gg-pink" size={18} />
                   Mobile app access
                 </li>
+                <li className="flex items-center gap-2 text-gg-gray-300">
+                  <Check className="text-gg-pink" size={18} />
+                  Interactive Map
+                </li>
               </ul>
               <Link href="/signup?plan=basic_state" className="btn-secondary w-full text-center block">
                 Start 7-Day Free Trial
