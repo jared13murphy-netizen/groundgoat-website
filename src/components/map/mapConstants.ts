@@ -12,10 +12,10 @@ export const LABEL_TILE_URL = 'https://cartodb-basemaps-a.global.ssl.fastly.net/
 export const STATUS_COLORS: Record<string, { fill: string; border: string; opacity: number }> = {
   listed:  { fill: '#eab308', border: '#ca8a04', opacity: 0.25 },
   active:  { fill: '#eab308', border: '#ca8a04', opacity: 0.25 },
-  live:    { fill: '#E91E8C', border: '#c4176f', opacity: 0.30 },
-  sold:    { fill: '#22c55e', border: '#16a34a', opacity: 0.20 },
+  live:    { fill: '#22c55e', border: '#16a34a', opacity: 0.30 },
+  sold:    { fill: '#f58cde', border: '#c563ad', opacity: 0.25 },
   pending: { fill: '#eab308', border: '#ca8a04', opacity: 0.20 },
-  no_sale: { fill: '#ef4444', border: '#dc2626', opacity: 0.15 },
+  no_sale: { fill: '#9ca3af', border: '#6b7280', opacity: 0.15 },
 }
 
 export const HOVER_OPACITY = 0.45

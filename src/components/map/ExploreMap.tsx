@@ -30,12 +30,12 @@ const API_URL = 'https://practical-serenity-production.up.railway.app'
 
 // Pin colors by sale status (matching mobile app)
 const PIN_COLORS: Record<string, string> = {
-  sold: '#22c55e',
+  sold: '#f58cde',
   listed: '#eab308',
   active: '#eab308',
-  live: '#E91E8C',
+  live: '#22c55e',
   pending: '#eab308',
-  no_sale: '#ef4444',
+  no_sale: '#9ca3af',
 }
 const DEFAULT_PIN_COLOR = '#eab308' // Yellow for NULL/unknown status (= listed)
 
@@ -1516,10 +1516,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         gap: 4,
       }}>
         {[
-          { label: 'Sold', color: '#22c55e' },
+          { label: 'Sold', color: '#f58cde' },
           { label: 'Listed', color: '#eab308' },
-          { label: 'Live', color: '#E91E8C' },
-          { label: 'No Sale', color: '#ef4444' },
+          { label: 'Live', color: '#22c55e' },
+          { label: 'No Sale', color: '#9ca3af' },
         ].map(({ label, color }) => (
           <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={{
@@ -1838,7 +1838,7 @@ function createMarkerElement(
       width: 24px;
       height: 24px;
       border-radius: 50%;
-      border: 2px solid #E91E8C;
+      border: 2px solid #22c55e;
       animation: livePulse 1.5s ease-out infinite;
     `
     container.appendChild(pulseRing)
@@ -1860,7 +1860,7 @@ function createMarkerElement(
 
   const pin = document.createElement('div')
   pin.className = 'comp-marker-pin comparable'
-  pin.style.backgroundColor = isLive ? '#E91E8C' : getStatusPinColor(status)
+  pin.style.backgroundColor = isLive ? '#22c55e' : getStatusPinColor(status)
   container.appendChild(pin)
 
   return container
