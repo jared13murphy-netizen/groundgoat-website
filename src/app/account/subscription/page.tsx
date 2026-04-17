@@ -82,6 +82,7 @@ export default function SubscriptionPage() {
   const [showStateDropdown, setShowStateDropdown] = useState(false)
   const [loadingStates, setLoadingStates] = useState(false)
   const [addingState, setAddingState] = useState(false)
+  const [addStateStep, setAddStateStep] = useState<'select' | 'confirm'>('select')
 
   // Promo code
   const [promoCode, setPromoCode] = useState('')
@@ -179,6 +180,14 @@ export default function SubscriptionPage() {
     }
   }
 
+  // Step 1: user clicks "Add State" → move to confirmation step
+  const proceedToConfirm = () => {
+    if (!selectedState) { setError('Please select a state'); return }
+    setError('')
+    setAddStateStep('confirm')
+  }
+
+  // Step 2: user clicks "Confirm" → actually charge the card and add the state
   const handleAddState = async () => {
     if (!selectedState) { setError('Please select a state'); return }
     const token = localStorage.getItem('auth_token')
@@ -201,8 +210,7 @@ export default function SubscriptionPage() {
       if (!response.ok) {
         const data = await response.json().catch(() => ({}))
         if (data.detail === 'no_existing_subscription') {
-          router.push('/signup?step=2')
-          return
+          throw new Error("You don't have an active subscription. Please subscribe from the pricing page first.")
         }
         throw new Error(parseApiError(data, 'Failed to add state'))
       }
@@ -213,6 +221,7 @@ export default function SubscriptionPage() {
       setSelectedState('')
       setPromoCode('')
       setPromoValidation(null)
+      setAddStateStep('select')
       await fetchSubscriptions(token)
       setTimeout(() => setSuccessMessage(''), 5000)
     } catch (err: any) {
@@ -220,6 +229,19 @@ export default function SubscriptionPage() {
     } finally {
       setAddingState(false)
     }
+  }
+
+  // Price math for the confirm step
+  const computeDiscountedPrice = (base: number): { discountAmount: number; newPrice: number } => {
+    if (!promoValidation?.valid || !promoValidation.discount_type || promoValidation.discount_value === undefined) {
+      return { discountAmount: 0, newPrice: base }
+    }
+    if (promoValidation.discount_type === 'percentage') {
+      const discountAmount = base * (promoValidation.discount_value / 100)
+      return { discountAmount, newPrice: Math.max(0, base - discountAmount) }
+    }
+    // fixed amount
+    return { discountAmount: Math.min(base, promoValidation.discount_value), newPrice: Math.max(0, base - promoValidation.discount_value) }
   }
 
   const handleRemoveState = async (subscriptionId: string) => {
@@ -506,6 +528,10 @@ export default function SubscriptionPage() {
                   onClick={() => {
                     setShowAddModal(true)
                     setError('')
+                    setAddStateStep('select')
+                    setSelectedState('')
+                    setPromoCode('')
+                    setPromoValidation(null)
                     fetchAvailableStates()
                   }}
                   className="text-gg-pink hover:underline text-sm flex items-center gap-1"
@@ -654,120 +680,233 @@ export default function SubscriptionPage() {
           <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-6">
             <div className="bg-gg-gray-900 border border-gg-gray-700 rounded-2xl w-full max-w-md p-6">
               <div className="flex items-center justify-between mb-6">
-                <h2 className="font-display text-xl font-semibold text-white">Add a State</h2>
-                <button onClick={() => { setShowAddModal(false); setSelectedState(''); setPromoCode(''); setPromoValidation(null); setError('') }} className="text-gg-gray-500 hover:text-white">
+                <h2 className="font-display text-xl font-semibold text-white">
+                  {addStateStep === 'confirm' ? 'Confirm & Add State' : 'Add a State'}
+                </h2>
+                <button
+                  onClick={() => {
+                    setShowAddModal(false)
+                    setSelectedState('')
+                    setPromoCode('')
+                    setPromoValidation(null)
+                    setError('')
+                    setAddStateStep('select')
+                  }}
+                  className="text-gg-gray-500 hover:text-white"
+                >
                   <X size={24} />
                 </button>
               </div>
 
-              {/* State Dropdown */}
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gg-gray-300 mb-2">State</label>
-                <div className="relative">
-                  <button
-                    onClick={() => setShowStateDropdown(!showStateDropdown)}
-                    className="w-full bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-4 py-3 text-left text-white flex items-center justify-between"
-                  >
-                    <span className={selectedState ? 'text-white' : 'text-gg-gray-500'}>
-                      {selectedState || 'Select a state...'}
-                    </span>
-                    <ChevronDown size={20} className="text-gg-gray-500" />
-                  </button>
-                  {showStateDropdown && (
-                    <div className="absolute z-10 w-full mt-1 bg-gg-gray-800 border border-gg-gray-700 rounded-lg shadow-xl max-h-60 overflow-y-auto">
-                      {loadingStates ? (
-                        <div className="px-4 py-3 text-gg-gray-400 flex items-center gap-2">
-                          <Loader2 size={16} className="animate-spin" /> Loading...
+              {addStateStep === 'select' && (
+                <>
+                  {/* State Dropdown */}
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-gg-gray-300 mb-2">State</label>
+                    <div className="relative">
+                      <button
+                        onClick={() => setShowStateDropdown(!showStateDropdown)}
+                        className="w-full bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-4 py-3 text-left text-white flex items-center justify-between"
+                      >
+                        <span className={selectedState ? 'text-white' : 'text-gg-gray-500'}>
+                          {selectedState || 'Select a state...'}
+                        </span>
+                        <ChevronDown size={20} className="text-gg-gray-500" />
+                      </button>
+                      {showStateDropdown && (
+                        <div className="absolute z-10 w-full mt-1 bg-gg-gray-800 border border-gg-gray-700 rounded-lg shadow-xl max-h-60 overflow-y-auto">
+                          {loadingStates ? (
+                            <div className="px-4 py-3 text-gg-gray-400 flex items-center gap-2">
+                              <Loader2 size={16} className="animate-spin" /> Loading...
+                            </div>
+                          ) : availableStates.map(state => {
+                            const isSubscribed = activeSubscriptions.some(
+                              sub => getStateName(sub.state) === state || sub.state === STATE_TO_ABBR[state]
+                            )
+                            return (
+                              <button
+                                key={state}
+                                onClick={() => {
+                                  if (!isSubscribed) {
+                                    setSelectedState(state)
+                                    setShowStateDropdown(false)
+                                  }
+                                }}
+                                disabled={isSubscribed}
+                                className={`w-full px-4 py-3 text-left ${isSubscribed ? 'text-gg-gray-600 cursor-not-allowed' : 'text-gg-gray-300 hover:bg-gg-gray-700 hover:text-white'}`}
+                              >
+                                {state} {isSubscribed ? '(subscribed)' : ''}
+                              </button>
+                            )
+                          })}
                         </div>
-                      ) : availableStates.map(state => {
-                        const isSubscribed = activeSubscriptions.some(
-                          sub => getStateName(sub.state) === state || sub.state === STATE_TO_ABBR[state]
-                        )
-                        return (
-                          <button
-                            key={state}
-                            onClick={() => {
-                              if (!isSubscribed) {
-                                setSelectedState(state)
-                                setShowStateDropdown(false)
-                              }
-                            }}
-                            disabled={isSubscribed}
-                            className={`w-full px-4 py-3 text-left ${isSubscribed ? 'text-gg-gray-600 cursor-not-allowed' : 'text-gg-gray-300 hover:bg-gg-gray-700 hover:text-white'}`}
-                          >
-                            {state} {isSubscribed ? '(subscribed)' : ''}
-                          </button>
-                        )
-                      })}
+                      )}
                     </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Selected State Preview */}
-              {selectedState && (
-                <div className="mb-4 bg-gg-gray-800 rounded-lg p-4 border border-gg-gray-700">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-white font-medium">{selectedState}</p>
-                      <p className="text-gg-gray-400 text-sm">Full state coverage</p>
-                    </div>
-                    <p className="text-white font-semibold">${perStatePrice.toFixed(2)}/mo</p>
                   </div>
-                </div>
-              )}
 
-              {/* Promo Code */}
-              <div className="mb-6">
-                <label className="block text-sm font-medium text-gg-gray-300 mb-2">
-                  <Tag size={14} className="inline mr-1" />
-                  Promo Code (optional)
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={promoCode}
-                    onChange={(e) => { setPromoCode(e.target.value); setPromoValidation(null) }}
-                    placeholder="Enter code"
-                    className="flex-1 bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-4 py-2.5 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none"
-                  />
-                  <button
-                    onClick={validatePromoCode}
-                    disabled={!promoCode.trim() || validatingPromo}
-                    className="btn-secondary text-sm px-4 disabled:opacity-50"
-                  >
-                    {validatingPromo ? <Loader2 size={16} className="animate-spin" /> : 'Apply'}
-                  </button>
-                </div>
-                {promoValidation && (
-                  <p className={`text-sm mt-2 ${promoValidation.valid ? 'text-green-400' : 'text-red-400'}`}>
-                    {promoValidation.valid
-                      ? `${promoValidation.description || 'Promo applied!'}`
-                      : promoValidation.error || 'Invalid promo code'}
-                  </p>
-                )}
-              </div>
-
-              {error && showAddModal && (
-                <p className="text-red-400 text-sm mb-4">{error}</p>
-              )}
-
-              <div className="flex gap-3">
-                <button onClick={() => { setShowAddModal(false); setSelectedState(''); setPromoCode(''); setPromoValidation(null); setError('') }} className="btn-secondary flex-1">
-                  Cancel
-                </button>
-                <button
-                  onClick={handleAddState}
-                  disabled={!selectedState || addingState}
-                  className="btn-primary flex-1 flex items-center justify-center gap-2 disabled:opacity-50"
-                >
-                  {addingState ? (
-                    <><Loader2 size={18} className="animate-spin" /> Adding...</>
-                  ) : (
-                    <><Plus size={18} /> Add State</>
+                  {/* Selected State Preview */}
+                  {selectedState && (
+                    <div className="mb-4 bg-gg-gray-800 rounded-lg p-4 border border-gg-gray-700">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-white font-medium">{selectedState}</p>
+                          <p className="text-gg-gray-400 text-sm">Full state coverage</p>
+                        </div>
+                        <p className="text-white font-semibold">${perStatePrice.toFixed(2)}/mo</p>
+                      </div>
+                    </div>
                   )}
-                </button>
-              </div>
+
+                  {/* Promo Code */}
+                  <div className="mb-6">
+                    <label className="block text-sm font-medium text-gg-gray-300 mb-2">
+                      <Tag size={14} className="inline mr-1" />
+                      Promo Code (optional)
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={promoCode}
+                        onChange={(e) => { setPromoCode(e.target.value); setPromoValidation(null) }}
+                        placeholder="Enter code"
+                        className="flex-1 bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-4 py-2.5 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none"
+                      />
+                      <button
+                        onClick={validatePromoCode}
+                        disabled={!promoCode.trim() || validatingPromo}
+                        className="btn-secondary text-sm px-4 disabled:opacity-50"
+                      >
+                        {validatingPromo ? <Loader2 size={16} className="animate-spin" /> : 'Apply'}
+                      </button>
+                    </div>
+                    {promoValidation && !promoValidation.valid && (
+                      <p className="text-sm mt-2 text-red-400">
+                        {promoValidation.error || 'Invalid promo code'}
+                      </p>
+                    )}
+                    {promoValidation && promoValidation.valid && (() => {
+                      const { discountAmount, newPrice } = computeDiscountedPrice(perStatePrice)
+                      const label = promoValidation.discount_type === 'percentage'
+                        ? `${promoValidation.discount_value}% off`
+                        : `$${(promoValidation.discount_value || 0).toFixed(2)} off`
+                      return (
+                        <div className="mt-2 bg-green-500/10 border border-green-500/30 rounded-lg p-3 text-sm">
+                          <p className="text-green-400 font-medium flex items-center gap-1">
+                            <CheckCircle size={14} /> Promo applied: {label}
+                          </p>
+                          <div className="mt-2 space-y-1 text-xs">
+                            <div className="flex justify-between text-gg-gray-400">
+                              <span>Base price</span>
+                              <span>${perStatePrice.toFixed(2)}/mo</span>
+                            </div>
+                            <div className="flex justify-between text-green-400">
+                              <span>Discount</span>
+                              <span>−${discountAmount.toFixed(2)}</span>
+                            </div>
+                            <div className="flex justify-between text-white font-semibold pt-1 border-t border-gg-gray-700">
+                              <span>New price</span>
+                              <span>${newPrice.toFixed(2)}/mo</span>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })()}
+                  </div>
+
+                  {error && (
+                    <p className="text-red-400 text-sm mb-4">{error}</p>
+                  )}
+
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => {
+                        setShowAddModal(false)
+                        setSelectedState('')
+                        setPromoCode('')
+                        setPromoValidation(null)
+                        setError('')
+                        setAddStateStep('select')
+                      }}
+                      className="btn-secondary flex-1"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={proceedToConfirm}
+                      disabled={!selectedState}
+                      className="btn-primary flex-1 flex items-center justify-center gap-2 disabled:opacity-50"
+                    >
+                      Continue
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {addStateStep === 'confirm' && (() => {
+                const { discountAmount, newPrice } = computeDiscountedPrice(perStatePrice)
+                const hasPromo = promoValidation?.valid
+                return (
+                  <>
+                    <p className="text-gg-gray-300 text-sm mb-4">
+                      Please confirm to add <span className="text-white font-medium">{selectedState}</span> to your subscription.
+                    </p>
+
+                    <div className="bg-gg-gray-800 border border-gg-gray-700 rounded-lg p-4 mb-4 space-y-2">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gg-gray-400">State</span>
+                        <span className="text-white font-medium">{selectedState}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gg-gray-400">Base price</span>
+                        <span className="text-white">${perStatePrice.toFixed(2)}/mo</span>
+                      </div>
+                      {hasPromo && (
+                        <>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-gg-gray-400">
+                              Promo <span className="text-gg-pink">({promoCode.toUpperCase()})</span>
+                            </span>
+                            <span className="text-green-400">−${discountAmount.toFixed(2)}</span>
+                          </div>
+                        </>
+                      )}
+                      <div className="flex justify-between pt-2 border-t border-gg-gray-700">
+                        <span className="text-white font-semibold">New monthly charge</span>
+                        <span className="text-white font-semibold">${newPrice.toFixed(2)}/mo</span>
+                      </div>
+                    </div>
+
+                    <p className="text-gg-gray-500 text-xs mb-4">
+                      Your card on file will be charged a prorated amount today based on the days remaining in your current billing cycle. Future invoices will include this state at ${newPrice.toFixed(2)}/mo.
+                    </p>
+
+                    {error && (
+                      <p className="text-red-400 text-sm mb-4">{error}</p>
+                    )}
+
+                    <div className="flex gap-3">
+                      <button
+                        onClick={() => { setAddStateStep('select'); setError('') }}
+                        disabled={addingState}
+                        className="btn-secondary flex-1 disabled:opacity-50"
+                      >
+                        Back
+                      </button>
+                      <button
+                        onClick={handleAddState}
+                        disabled={addingState}
+                        className="btn-primary flex-1 flex items-center justify-center gap-2 disabled:opacity-50"
+                      >
+                        {addingState ? (
+                          <><Loader2 size={18} className="animate-spin" /> Charging...</>
+                        ) : (
+                          <><CheckCircle size={18} /> Confirm & Charge</>
+                        )}
+                      </button>
+                    </div>
+                  </>
+                )
+              })()}
             </div>
           </div>
         )}
