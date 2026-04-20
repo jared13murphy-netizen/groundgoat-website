@@ -529,6 +529,32 @@ export default function MyDecImportPage() {
     })
   }
 
+  // Keep this item and skip all siblings in the duplicate cluster
+  const keepSkipSiblings = async (stagingId: number) => {
+    setProcessingIds(prev => new Set(prev).add(stagingId))
+    try {
+      const res = await fetch(`${SCRAPER_URL}/api/mydec/staging/${stagingId}/keep-skip-siblings`, { method: 'POST' })
+      const data = await res.json()
+      if (res.ok && data.success) {
+        // Remove siblings from the visible list
+        const siblingSet = new Set<number>(data.skipped_ids || [])
+        setItems(prev => prev.filter(item => !siblingSet.has(item.id)))
+        setTotal(prev => prev - (data.skipped_count || 0))
+        fetchMydecCount()
+        alert(`Kept this item. Skipped ${data.skipped_count || 0} sibling(s).`)
+      } else {
+        alert(`Failed: ${data.error || 'Unknown error'}`)
+      }
+    } catch (e: any) {
+      alert(`Error: ${e.message}`)
+    }
+    setProcessingIds(prev => {
+      const next = new Set(prev)
+      next.delete(stagingId)
+      return next
+    })
+  }
+
   // Skip (ignore) a staging item
   const skipItem = async (id: number) => {
     setProcessingIds(prev => new Set(prev).add(id))
@@ -909,6 +935,13 @@ export default function MyDecImportPage() {
                 const sources = sd.enrichment_sources || {}
                 const cropBreakdown = sd.crop_breakdown || {}
                 const isProcessing = processingIds.has(item.id)
+                const stagingDup = sd.staging_duplicate
+                const hasStagingDup = !!stagingDup
+                const stagingDupLabel: Record<string, string> = {
+                  exact: 'Exact Duplicate',
+                  same_transaction: 'Same Transaction',
+                  pass_through: 'Pass-Through Chain',
+                }
 
                 return (
                   <div key={item.id} className="p-4 hover:bg-gg-gray-800/50 transition-colors">
@@ -931,6 +964,16 @@ export default function MyDecImportPage() {
                           {isDup && (
                             <span className="bg-yellow-600/30 text-yellow-400 text-xs px-2 py-0.5 rounded">
                               Potential Duplicate
+                            </span>
+                          )}
+                          {hasStagingDup && (
+                            <span className={`text-xs px-2 py-0.5 rounded font-medium ${
+                              stagingDup.suggested_keep
+                                ? 'bg-indigo-600/40 text-indigo-200'
+                                : 'bg-indigo-900/40 text-indigo-400'
+                            }`}>
+                              {stagingDupLabel[stagingDup.reason] || 'Staging Duplicate'}
+                              {stagingDup.suggested_keep && ' · Suggested Keep'}
                             </span>
                           )}
                           {warnings.length > 0 && (
@@ -995,6 +1038,28 @@ export default function MyDecImportPage() {
                           </div>
                         )}
 
+                        {/* Staging duplicate cluster info */}
+                        {hasStagingDup && (
+                          <div className="mt-2 p-2 bg-indigo-900/20 rounded text-xs border border-indigo-800/50">
+                            <div className="font-medium text-indigo-300 mb-1">
+                              {stagingDupLabel[stagingDup.reason] || 'Duplicate cluster'} — {stagingDup.sibling_staging_ids?.length || 0} sibling{(stagingDup.sibling_staging_ids?.length || 0) === 1 ? '' : 's'}
+                            </div>
+                            {stagingDup.chain_description && (
+                              <div className="text-gg-gray-300 mb-1">
+                                Chain: {stagingDup.chain_description}
+                              </div>
+                            )}
+                            <div className="text-gg-gray-400">
+                              {stagingDup.reason === 'exact' && 'Same PIN, acres, price, and date — these are filed twice in MyDec (correction or buyer/seller dual filing).'}
+                              {stagingDup.reason === 'same_transaction' && 'Same PIN + price + date but different reported acres. Usually primary-PIN acres vs total-portfolio acres.'}
+                              {stagingDup.reason === 'pass_through' && 'Parcel sold through an intermediary on the same day (1031 exchange or similar tax-motivated routing).'}
+                            </div>
+                            <div className="text-gg-gray-500 mt-1">
+                              Sibling IDs: {(stagingDup.sibling_staging_ids || []).join(', ')}
+                            </div>
+                          </div>
+                        )}
+
                         {/* Warnings */}
                         {warnings.length > 0 && (
                           <div className="mt-2 space-y-0.5">
@@ -1038,6 +1103,17 @@ export default function MyDecImportPage() {
                           >
                             {isProcessing ? <Loader2 size={14} className="animate-spin" /> : <Layers size={14} />}
                             Merge
+                          </button>
+                        )}
+                        {hasStagingDup && stagingDup.sibling_staging_ids?.length > 0 && (
+                          <button
+                            onClick={() => keepSkipSiblings(item.id)}
+                            disabled={isProcessing}
+                            className="bg-indigo-700 hover:bg-indigo-600 disabled:opacity-50 text-white px-3 py-1.5 rounded text-sm font-medium flex items-center gap-1"
+                            title={`Keep this item and skip ${stagingDup.sibling_staging_ids.length} sibling(s)`}
+                          >
+                            {isProcessing ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
+                            Keep, Skip {stagingDup.sibling_staging_ids.length}
                           </button>
                         )}
                         <button
