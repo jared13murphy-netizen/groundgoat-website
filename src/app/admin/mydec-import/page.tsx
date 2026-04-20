@@ -280,6 +280,21 @@ export default function MyDecImportPage() {
   const [importing, setImporting] = useState(false)
   const [importStats, setImportStats] = useState<any>(null)
   const [activeJobs, setActiveJobs] = useState<Record<string, any>>({})
+  const [showIaCounties, setShowIaCounties] = useState(false)
+
+  // List of Iowa counties supported by Beacon (Run Locally)
+  const IOWA_BEACON_COUNTIES = [
+    'Adair', 'Audubon', 'Benton', 'Boone', 'Bremer', 'Buchanan', 'Buena Vista',
+    'Butler', 'Cass', 'Cedar', 'Cerro Gordo', 'Cherokee', 'Clay', 'Clayton',
+    'Davis', 'Delaware', 'Dickinson', 'Emmet', 'Fayette', 'Franklin', 'Fremont',
+    'Grundy', 'Guthrie', 'Hardin', 'Harrison', 'Henry', 'Humboldt', 'Ida',
+    'Jackson', 'Jasper', 'Jefferson', 'Johnson', 'Keokuk', 'Lee', 'Louisa',
+    'Lyon', 'Madison', 'Mahaska', 'Marion', 'Marshall', 'Mills', 'Mitchell',
+    'Montgomery', 'Muscatine', 'Osceola', 'Page', 'Palo Alto', 'Plymouth',
+    'Pocahontas', 'Ringgold', 'Sac', 'Scott', 'Shelby', 'Sioux', 'Union',
+    'Wapello', 'Warren', 'Washington', 'Webster', 'Winnebago', 'Winneshiek',
+    'Woodbury', 'Worth', 'Wright',
+  ]
 
   // Review list
   const [items, setItems] = useState<StagingItem[]>([])
@@ -693,6 +708,51 @@ export default function MyDecImportPage() {
               </button>
             )}
           </div>
+
+          {/* Iowa supported counties list */}
+          {activeState === 'IA' && (
+            <div className="mt-4">
+              <div className="bg-blue-900/20 border border-blue-800/50 rounded p-3 text-xs space-y-2">
+                <div className="flex items-start gap-2 text-blue-300">
+                  <AlertTriangle size={14} className="shrink-0 mt-0.5" />
+                  <div>
+                    <div className="font-medium">Before clicking Run Locally:</div>
+                    <div className="text-gg-gray-300 mt-1">
+                      Start the local server on your Mac:{' '}
+                      <code className="bg-gg-gray-800 px-1.5 py-0.5 rounded">python3 run_iowa_local.py --serve</code>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowIaCounties(!showIaCounties)}
+                className="mt-2 text-xs text-gg-gray-400 hover:text-white flex items-center gap-1"
+              >
+                {showIaCounties ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                {showIaCounties ? 'Hide supported counties' : `Show supported counties (${IOWA_BEACON_COUNTIES.length} of 99 Iowa counties)`}
+              </button>
+              {showIaCounties && (
+                <div className="mt-2 p-3 bg-gg-gray-800/50 border border-gg-gray-700 rounded text-xs">
+                  <div className="text-gg-gray-400 mb-2">
+                    Counties available on Beacon. Other Iowa counties are not yet supported — 0 results ≠ broken; may just mean no sales in window.
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-1">
+                    {IOWA_BEACON_COUNTIES.map(c => (
+                      <button
+                        key={c}
+                        onClick={() => setCounty(c)}
+                        className={`text-left px-2 py-1 rounded hover:bg-gg-gray-700 transition-colors ${
+                          county === c ? 'bg-emerald-700 text-white' : 'text-gg-gray-300'
+                        }`}
+                      >
+                        {c}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Active background jobs */}
           {Object.keys(activeJobs).length > 0 && (
