@@ -23,7 +23,7 @@ const US_STATES: Record<string, string> = {
 }
 
 const STATUSES = ['listed', 'live', 'pending', 'sold', 'no_sale']
-const LAND_TYPES = ['Farm', 'Recreational', 'Pasture', 'Timber', 'Commercial', 'Residential', 'Development', 'CRP']
+const LAND_TYPES = ['Farm', 'Recreational', 'Pasture', 'Timber', 'Hunting', 'Vacant Land', 'CRP', 'Commercial', 'Residential', 'Development', 'Other']
 
 interface Listing {
   id: string

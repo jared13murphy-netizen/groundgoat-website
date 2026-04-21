@@ -286,7 +286,7 @@ export default function EditTractPage() {
     )
   }
 
-  const LAND_TYPES = ['Farm', 'Recreational', 'Pasture', 'Timber', 'Commercial', 'Residential', 'Development', 'CRP']
+  const LAND_TYPES = ['Farm', 'Recreational', 'Pasture', 'Timber', 'Hunting', 'Vacant Land', 'CRP', 'Commercial', 'Residential', 'Development', 'Other']
   const BID_TYPES = ['per_acre', 'total']
   const SALE_STATUSES = ['pending', 'sold', 'no_sale']
 
