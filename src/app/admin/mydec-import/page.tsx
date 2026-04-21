@@ -793,12 +793,24 @@ export default function MyDecImportPage() {
                     {job.status === 'running' && <Loader2 size={14} className="animate-spin text-blue-400" />}
                     {job.status === 'completed' && <CheckCircle size={14} className="text-green-400" />}
                     {job.status === 'failed' && <XCircle size={14} className="text-red-400" />}
-                    <span className="font-medium">
+                    {job.status === 'cancelled' && <XCircle size={14} className="text-gg-gray-400" />}
+                    <span className="font-medium flex-1">
                       {job.county || 'Import'}
                       {job.status === 'running' && job.progress?.total > 0 &&
                         ` — ${job.progress.processed}/${job.progress.total} sales`}
                       {job.status === 'running' && job.progress?.total === 0 && ' — starting...'}
+                      {job.status === 'cancelled' && ' — cancelled'}
                     </span>
+                    {job.status === 'running' && (
+                      <button
+                        onClick={async () => {
+                          await fetch(`${SCRAPER_URL}/api/mydec/import/cancel/${jobId}`, { method: 'POST' })
+                        }}
+                        className="text-xs text-red-400 hover:text-red-300 px-2 py-0.5 rounded bg-red-900/30 hover:bg-red-900/50"
+                      >
+                        Cancel
+                      </button>
+                    )}
                   </div>
                   {job.status === 'running' && job.progress?.total > 0 && (
                     <div className="mt-2 bg-gg-gray-800 rounded-full h-2 overflow-hidden">
