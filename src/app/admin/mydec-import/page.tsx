@@ -941,6 +941,7 @@ export default function MyDecImportPage() {
                   exact: 'Exact Duplicate',
                   same_transaction: 'Same Transaction',
                   pass_through: 'Pass-Through Chain',
+                  joint_ownership: 'Joint Ownership',
                 }
 
                 return (
@@ -1050,9 +1051,14 @@ export default function MyDecImportPage() {
                               </div>
                             )}
                             <div className="text-gg-gray-400">
-                              {stagingDup.reason === 'exact' && 'Same PIN, acres, price, and date — these are filed twice in MyDec (correction or buyer/seller dual filing).'}
+                              {stagingDup.reason === 'exact' && 'Same PIN, acres, price, date, buyer, and seller — these are filed twice in MyDec (correction filing).'}
                               {stagingDup.reason === 'same_transaction' && 'Same PIN + price + date but different reported acres. Usually primary-PIN acres vs total-portfolio acres.'}
                               {stagingDup.reason === 'pass_through' && 'Parcel sold through an intermediary on the same day (1031 exchange or similar tax-motivated routing).'}
+                              {stagingDup.reason === 'joint_ownership' && (
+                                <>
+                                  Same buyer bought the parcel from <strong>multiple sellers</strong> (usually heirs of an estate). Each declaration reports one seller&apos;s share of the price. The <strong>suggested keep</strong> item has been updated to show the <strong>true combined total: ${Number(stagingDup.combined_total_price || 0).toLocaleString()}</strong> ({stagingDup.combined_price_per_acre ? `$${Math.round(stagingDup.combined_price_per_acre).toLocaleString()}/ac` : ''}).
+                                </>
+                              )}
                             </div>
                             <div className="text-gg-gray-500 mt-1">
                               Sibling IDs: {(stagingDup.sibling_staging_ids || []).join(', ')}
