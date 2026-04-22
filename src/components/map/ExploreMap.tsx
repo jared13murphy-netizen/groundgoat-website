@@ -440,8 +440,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             // Hide past-date auction tracts that haven't been marked sold/pending/no_sale.
             // The auction happened but no result was entered — don't show on map.
             const isAuctionListing = t.listing_type === 'auction'
-            const hasAuctionDate = !!t.auction_date
-            const auctionInPast = hasAuctionDate && new Date(t.auction_date) < now
+            const auctionInPast = !!t.auction_date && new Date(t.auction_date as string) < now
             const unfinalized = !t.sale_status || ['auction', 'listed'].includes(t.sale_status)
             if (isAuctionListing && auctionInPast && unfinalized) {
               return  // Skip: stale auction
