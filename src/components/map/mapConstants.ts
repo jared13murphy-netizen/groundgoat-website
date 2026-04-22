@@ -10,6 +10,7 @@ export const GLYPH_URL = 'https://fonts.openmaptiles.org/{fontstack}/{range}.pbf
 export const LABEL_TILE_URL = 'https://cartodb-basemaps-a.global.ssl.fastly.net/light_only_labels/{z}/{x}/{y}.png'
 
 export const STATUS_COLORS: Record<string, { fill: string; border: string; opacity: number }> = {
+  auction: { fill: '#2563eb', border: '#1d4ed8', opacity: 0.28 },  // Royal blue for upcoming auctions
   listed:  { fill: '#eab308', border: '#ca8a04', opacity: 0.25 },
   active:  { fill: '#eab308', border: '#ca8a04', opacity: 0.25 },
   live:    { fill: '#22c55e', border: '#16a34a', opacity: 0.30 },

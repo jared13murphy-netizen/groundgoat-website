@@ -119,7 +119,11 @@ function buildFilterParams(filters: FilterState) {
   if (filters.dateRange === 'upcoming') {
     params.date_from = new Date().toISOString().split('T')[0]
   } else if (filters.dateRange !== 'all') {
-    const months = filters.dateRange === '6months' ? 6 : filters.dateRange === '1year' ? 12 : 24
+    const months = filters.dateRange === '1month' ? 1
+      : filters.dateRange === '6months' ? 6
+      : filters.dateRange === '1year' ? 12
+      : filters.dateRange === '18months' ? 18
+      : 24
     const cutoff = new Date()
     cutoff.setMonth(cutoff.getMonth() - months)
     params.date_from = cutoff.toISOString().split('T')[0]
@@ -432,6 +436,16 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           data.tracts.forEach(t => {
             // Only show tracts that have boundary data
             if (!t.polygon_coordinates || !Array.isArray(t.polygon_coordinates) || t.polygon_coordinates.length < 3) return
+
+            // Hide past-date auction tracts that haven't been marked sold/pending/no_sale.
+            // The auction happened but no result was entered — don't show on map.
+            const isAuctionListing = t.listing_type === 'auction'
+            const hasAuctionDate = !!t.auction_date
+            const auctionInPast = hasAuctionDate && new Date(t.auction_date) < now
+            const unfinalized = !t.sale_status || ['auction', 'listed'].includes(t.sale_status)
+            if (isAuctionListing && auctionInPast && unfinalized) {
+              return  // Skip: stale auction
+            }
 
             if (isUpcomingFilter) {
               // Upcoming: show tracts that are NOT sold, pending, or no_sale
@@ -1039,6 +1053,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     if (!status) return 'Unknown'
     switch (status.toLowerCase()) {
       case 'sold': return 'Sold'
+      case 'auction': return 'Auction'
       case 'listed': return 'Listed'
       case 'active': return 'Active'
       case 'pending': return 'Pending'
@@ -1183,8 +1198,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               <div style={{ color: '#CCCCCC', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>Date Range</div>
               {[
                 { label: 'Upcoming', value: 'upcoming' },
+                { label: 'Last month', value: '1month' },
                 { label: 'Last 6 months', value: '6months' },
                 { label: 'Last 1 year', value: '1year' },
+                { label: 'Last 18 months', value: '18months' },
                 { label: 'Last 2 years', value: '2years' },
                 { label: 'All time', value: 'all' },
               ].map(opt => (
@@ -1517,6 +1534,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       }}>
         {[
           { label: 'Sold', color: '#f58cde' },
+          { label: 'Auction', color: '#2563eb' },
           { label: 'Listed', color: '#eab308' },
           { label: 'Live', color: '#22c55e' },
           { label: 'No Sale', color: '#9ca3af' },
