@@ -271,7 +271,7 @@ export default function MyDecImportPage() {
   const [authChecked, setAuthChecked] = useState(false)
 
   // State selector
-  const [activeState, setActiveState] = useState<'IL' | 'IA' | 'IN'>('IL')
+  const [activeState, setActiveState] = useState<'IL' | 'IA' | 'IN' | 'NE'>('IL')
 
   // Import controls
   const [county, setCounty] = useState('LaSalle')
@@ -358,7 +358,11 @@ export default function MyDecImportPage() {
   }, [router])
 
   // Fetch staging items
-  const sourceType = activeState === 'IA' ? 'iowa' : activeState === 'IN' ? 'indiana_sdf' : 'mydec'
+  const sourceType =
+    activeState === 'IA' ? 'iowa' :
+    activeState === 'IN' ? 'indiana_sdf' :
+    activeState === 'NE' ? 'nebraska_gworks' :
+    'mydec'
   const fetchItems = useCallback(async () => {
     setLoading(true)
     try {
@@ -394,10 +398,13 @@ export default function MyDecImportPage() {
   }, [isAdmin, fetchItems, fetchMydecCount, fetchCountyTracker])
 
   // Poll a background import job until it completes
-  const pollJob = useCallback(async (jobId: string, jobCounty: string) => {
+  const pollJob = useCallback(async (jobId: string, jobCounty: string, statePrefix: 'IL' | 'IA' | 'IN' | 'NE' = 'IL') => {
+    const statusPath =
+      statePrefix === 'NE' ? `/api/nebraska/import/status/${jobId}` :
+      `/api/mydec/import/status/${jobId}`
     const poll = async () => {
       try {
-        const res = await fetch(`${SCRAPER_URL}/api/mydec/import/status/${jobId}`)
+        const res = await fetch(`${SCRAPER_URL}${statusPath}`)
         const data = await res.json()
         setActiveJobs(prev => ({ ...prev, [jobId]: { ...data, county: jobCounty } }))
         if (data.status === 'running') {
@@ -422,17 +429,24 @@ export default function MyDecImportPage() {
   // Run import (Railway server) — background mode with polling
   const runImport = async () => {
     setImportStats(null)
-    const endpoint = activeState === 'IA' ? '/api/iowa/import' : activeState === 'IN' ? '/api/indiana/import' : '/api/mydec/import'
+    const endpoint =
+      activeState === 'IA' ? '/api/iowa/import' :
+      activeState === 'IN' ? '/api/indiana/import' :
+      activeState === 'NE' ? '/api/nebraska/import' :
+      '/api/mydec/import'
+    // Nebraska uses county_slug; others use county (display name)
+    const body: any = {
+      months_back: monthsBack,
+      limit: importLimit,
+      background: true,
+    }
+    if (activeState === 'NE') body.county_slug = (county || '').toLowerCase().trim()
+    else body.county = county || null
     try {
       const res = await fetch(`${SCRAPER_URL}${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          county: county || null,
-          months_back: monthsBack,
-          limit: importLimit,
-          background: true,
-        }),
+        body: JSON.stringify(body),
       })
       const data = await res.json()
       if (data.job_id) {
@@ -440,9 +454,9 @@ export default function MyDecImportPage() {
         const jobCounty = county || 'All Counties'
         setActiveJobs(prev => ({
           ...prev,
-          [data.job_id]: { status: 'running', county: jobCounty, progress: { processed: 0, total: 0 } }
+          [data.job_id]: { status: 'running', county: jobCounty, state: activeState, progress: { processed: 0, total: 0 } }
         }))
-        pollJob(data.job_id, jobCounty)
+        pollJob(data.job_id, jobCounty, activeState)
       } else {
         // Synchronous fallback (Iowa/Indiana)
         setImportStats(data)
@@ -631,7 +645,10 @@ export default function MyDecImportPage() {
             <div>
               <h1 className="text-xl font-bold">State Farm Sale Import</h1>
               <p className="text-sm text-gg-gray-400">
-                {activeState === 'IL' ? 'Illinois PTAX-203 transfer records' : activeState === 'IN' ? 'Indiana Sales Disclosure Forms' : 'Iowa Assessor ag sales'} &middot; {total} pending review
+                {activeState === 'IL' ? 'Illinois PTAX-203 transfer records' :
+                 activeState === 'IN' ? 'Indiana Sales Disclosure Forms' :
+                 activeState === 'NE' ? 'Nebraska gWorks qualified farm sales' :
+                 'Iowa Assessor ag sales'} &middot; {total} pending review
               </p>
             </div>
           </div>
@@ -678,6 +695,16 @@ export default function MyDecImportPage() {
           >
             🏁 Indiana (SDF)
           </button>
+          <button
+            onClick={() => { setActiveState('NE'); setCounty('saunders'); setImportStats(null); setPage(0) }}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              activeState === 'NE'
+                ? 'bg-gg-pink text-white'
+                : 'bg-gg-gray-800 text-gg-gray-400 hover:text-white hover:bg-gg-gray-700'
+            }`}
+          >
+            🌽 Nebraska (gWorks)
+          </button>
         </div>
 
         {/* Import Controls */}
@@ -688,12 +715,19 @@ export default function MyDecImportPage() {
           </h2>
           <div className="flex flex-wrap items-end gap-4">
             <div>
-              <label className="block text-xs text-gg-gray-400 mb-1">County (blank = all)</label>
+              <label className="block text-xs text-gg-gray-400 mb-1">
+                {activeState === 'NE' ? 'County slug (required)' : 'County (blank = all)'}
+              </label>
               <input
                 type="text"
                 value={county}
                 onChange={e => setCounty(e.target.value)}
-                placeholder={activeState === 'IL' ? 'e.g., LaSalle' : activeState === 'IN' ? 'e.g., Huntington' : 'e.g., Washington'}
+                placeholder={
+                  activeState === 'IL' ? 'e.g., LaSalle' :
+                  activeState === 'IN' ? 'e.g., Huntington' :
+                  activeState === 'NE' ? 'e.g., saunders' :
+                  'e.g., Washington'
+                }
                 className="bg-gg-gray-800 border border-gg-gray-700 rounded px-3 py-2 text-sm w-40"
               />
             </div>
@@ -734,6 +768,43 @@ export default function MyDecImportPage() {
               </button>
             )}
           </div>
+
+          {/* Nebraska supported counties picker */}
+          {activeState === 'NE' && (
+            <div className="mt-4">
+              <div className="bg-amber-900/20 border border-amber-800/50 rounded p-3 text-xs text-gg-gray-300">
+                Nebraska imports target a single gWorks county at a time. Click a slug
+                below to select it. Douglas (Omaha), Lancaster (Lincoln), and Sarpy are
+                not on gWorks and are not supported here yet.
+              </div>
+              <div className="mt-2 p-3 bg-gg-gray-800/50 border border-gg-gray-700 rounded text-xs">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-1">
+                  {[
+                    'arthur','banner','blaine','boone','boxbutte','boyd','brown','burt',
+                    'butler','cedar','chase','cheyenne','clay','cuming','custer','dakota',
+                    'dawes','dawson','deuel','dodge','dundy','franklin','furnas','gage',
+                    'garden','garfield','grant','greeley','hamilton','harlan','hayes',
+                    'hitchcock','hooker','howard','jefferson','johnson','kearney','keith',
+                    'keyapaha','kimball','knox','lincoln','logan','loup','madison',
+                    'mcpherson','merrick','morrill','nuckolls','otoe','pawnee','perkins',
+                    'phelps','pierce','platte','polk','rock','saline','saunders','sheridan',
+                    'sherman','sioux','thomas','thurston','valley','washington','wayne',
+                    'webster','wheeler',
+                  ].map(s => (
+                    <button
+                      key={s}
+                      onClick={() => setCounty(s)}
+                      className={`text-left px-2 py-1 rounded hover:bg-gg-gray-700 transition-colors ${
+                        county === s ? 'bg-amber-700 text-white' : 'text-gg-gray-300'
+                      }`}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Iowa supported counties list */}
           {activeState === 'IA' && (
@@ -804,7 +875,10 @@ export default function MyDecImportPage() {
                     {job.status === 'running' && (
                       <button
                         onClick={async () => {
-                          await fetch(`${SCRAPER_URL}/api/mydec/import/cancel/${jobId}`, { method: 'POST' })
+                          const cancelPath = job.state === 'NE'
+                            ? `/api/nebraska/import/cancel/${jobId}`
+                            : `/api/mydec/import/cancel/${jobId}`
+                          await fetch(`${SCRAPER_URL}${cancelPath}`, { method: 'POST' })
                         }}
                         className="text-xs text-red-400 hover:text-red-300 px-2 py-0.5 rounded bg-red-900/30 hover:bg-red-900/50"
                       >
