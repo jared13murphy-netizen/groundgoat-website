@@ -59,6 +59,7 @@ function TractDetail({ item }: { item: StagingItem }) {
       mydec: { text: 'IL MyDec PTAX-203', color: 'text-purple-400' },
       indiana_sdf: { text: 'IN Sales Disclosure Form', color: 'text-yellow-400' },
       iowaassessors: { text: 'Iowa Assessors (Vanguard)', color: 'text-purple-400' },
+      iowa_beacon: { text: 'Iowa Beacon (Schneider)', color: 'text-purple-400' },
       iowaassessors_csr: { text: 'Iowa Assessors CSR2', color: 'text-green-400' },
     }
     const l = labels[src] || { text: src, color: 'text-gg-gray-300' }
@@ -69,7 +70,10 @@ function TractDetail({ item }: { item: StagingItem }) {
 
   const isIowa = item.source_type === 'iowa' || !!sd.iowa_parcel_number
   const isIndiana = item.source_type === 'indiana_sdf' || !!sd.indiana_sdf_id
-  const dataSource = isIowa ? 'iowaassessors' : isIndiana ? 'indiana_sdf' : 'mydec'
+  // For Iowa rows, pick the correct sub-source label: Beacon vs Vanguard.
+  const iowaSubSource = (sd.enrichment_sources?.sale_data === 'beacon' || sd.beacon_sale_qual !== undefined || sd.beacon_owner_name !== undefined)
+    ? 'iowa_beacon' : 'iowaassessors'
+  const dataSource = isIowa ? iowaSubSource : isIndiana ? 'indiana_sdf' : 'mydec'
 
   const fields: FieldRow[] = [
     // Source-specific ID fields
@@ -83,6 +87,12 @@ function TractDetail({ item }: { item: StagingItem }) {
       { label: 'Parcel Number', value: sd.iowa_parcel_number, source: dataSource },
       { label: 'Recording', value: sd.iowa_recording || 'N/A', source: dataSource },
       { label: 'Sale Date', value: sd.iowa_sale_date, source: dataSource },
+      ...(dataSource === 'iowa_beacon' ? [
+        { label: 'Sales Qual', value: sd.beacon_sale_qual || 'N/A', source: 'iowa_beacon', warn: !!(sd.beacon_sale_qual && /unqualified|not qualified|family|quit|trust|estate|gift|correct|related/i.test(sd.beacon_sale_qual)) },
+        { label: 'Reason', value: sd.beacon_reason || 'N/A', source: 'iowa_beacon' },
+        { label: 'Beacon Owner', value: sd.beacon_owner_name || 'N/A', source: 'iowa_beacon' },
+        { label: 'Assessed Value', value: sd.iowa_appraised_value ? `$${Number(String(sd.iowa_appraised_value).replace(/[^\d.]/g,'')).toLocaleString()}` : 'N/A', source: 'iowa_beacon' },
+      ] : []),
     ] : [
       { label: 'PIN', value: sd.mydec_pin, source: dataSource },
       { label: 'Declaration ID', value: sd.mydec_declaration_id, source: dataSource },
@@ -1068,6 +1078,33 @@ export default function MyDecImportPage() {
                               {warnings.length} Warning{warnings.length > 1 ? 's' : ''}
                             </span>
                           )}
+                          {/* Iowa Beacon: unqualified-sale flag */}
+                          {(() => {
+                            const q = (sd.beacon_sale_qual || sd.beacon_reason || '').toLowerCase()
+                            if (q && /unqualified|not qualified|family|quit|trust|estate|gift|correct|related|foreclos|sheriff|partition|divorce|life estate|partial interest/.test(q)) {
+                              return (
+                                <span className="bg-rose-700/40 text-rose-200 text-xs px-2 py-0.5 rounded font-medium" title={sd.beacon_sale_qual || sd.beacon_reason}>
+                                  Unqualified Sale
+                                </span>
+                              )
+                            }
+                            return null
+                          })()}
+                          {/* Iowa Beacon: sale price far below assessed value */}
+                          {(() => {
+                            if (!tract.sale_price || !sd.iowa_appraised_value) return null
+                            const assessed = Number(String(sd.iowa_appraised_value).replace(/[^\d.]/g, ''))
+                            if (!assessed) return null
+                            const ratio = Number(tract.sale_price) / assessed
+                            if (ratio < 0.40) {
+                              return (
+                                <span className="bg-rose-700/40 text-rose-200 text-xs px-2 py-0.5 rounded font-medium" title={`Sale $${Number(tract.sale_price).toLocaleString()} vs assessed $${assessed.toLocaleString()}`}>
+                                  {Math.round(ratio * 100)}% of Assessed
+                                </span>
+                              )
+                            }
+                            return null
+                          })()}
                           {sources.boundary === 'county_arcgis' && (
                             <span className="bg-green-800/40 text-green-400 text-xs px-2 py-0.5 rounded">ArcGIS</span>
                           )}
