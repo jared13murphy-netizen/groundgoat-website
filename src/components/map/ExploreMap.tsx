@@ -31,6 +31,7 @@ const API_URL = 'https://practical-serenity-production.up.railway.app'
 // Pin colors by sale status (matching mobile app)
 const PIN_COLORS: Record<string, string> = {
   sold: '#f58cde',
+  auction: '#2563eb',  // Royal blue for upcoming auctions
   listed: '#eab308',
   active: '#eab308',
   live: '#22c55e',
@@ -39,9 +40,29 @@ const PIN_COLORS: Record<string, string> = {
 }
 const DEFAULT_PIN_COLOR = '#eab308' // Yellow for NULL/unknown status (= listed)
 
+// Draw order on the map — higher value = drawn on top.
+// Live auctions sit above upcoming auctions, which sit above finalized and
+// listed tracts so the most time-sensitive pins are never obscured.
+const PIN_Z_ORDER: Record<string, number> = {
+  live:    50,
+  auction: 40,
+  sold:    30,
+  no_sale: 20,
+  listed:  10,
+  active:  10,
+  pending: 10,
+}
+const DEFAULT_PIN_Z = 10
+
 function getStatusPinColor(status: string | null): string {
   if (!status) return DEFAULT_PIN_COLOR
   return PIN_COLORS[status.toLowerCase()] || DEFAULT_PIN_COLOR
+}
+
+function getStatusPinZ(status: string | null, isLive: boolean): number {
+  if (isLive) return PIN_Z_ORDER.live
+  if (!status) return DEFAULT_PIN_Z
+  return PIN_Z_ORDER[status.toLowerCase()] ?? DEFAULT_PIN_Z
 }
 
 function formatCurrency(amount: number | null | undefined): string {
@@ -837,6 +858,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         tract.listing_status
       )
 
+      // Z-order by status: live > auction > sold > no_sale > listed.
+      // Ensures the most time-sensitive pins stay on top as the map gets busy.
+      // Stashed in a dataset so the report-highlight effect can restore it.
+      const isLive = tract.listing_status === 'live'
+      const statusZ = String(getStatusPinZ(tract.sale_status, isLive))
+      el.dataset.statusZ = statusZ
+      el.style.zIndex = statusZ
+
       // Click to open modal or slide-out (portal mode)
       el.addEventListener('click', () => {
         const saleData: SaleDetail = {
@@ -887,11 +916,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       const pin = el.querySelector('.comp-marker-pin') as HTMLDivElement | null
       if (!pin) return
       if (reportIds.has(tractId)) {
-        el.style.zIndex = '10'
+        // Selected markers float above everything else, including live pins.
+        el.style.zIndex = '100'
         pin.style.boxShadow = '0 0 0 3px #E91E8C, 0 0 12px 2px rgba(233,30,140,0.6)'
         pin.style.border = '2px solid #E91E8C'
       } else {
-        el.style.zIndex = ''
+        // Restore the status-based z stashed when the marker was created.
+        el.style.zIndex = el.dataset.statusZ || ''
         pin.style.boxShadow = ''
         pin.style.border = ''
       }
