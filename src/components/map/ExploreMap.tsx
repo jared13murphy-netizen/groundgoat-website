@@ -181,7 +181,7 @@ interface ExploreMapProps {
   subjectTractLocation?: { lat: number; lng: number } | null
   resetFiltersSignal?: number
   comparableVisibleIds?: Set<string> | null
-  neighborParcels?: { geometry: [number, number][]; owner: string; acres: number | null; apn: string; source?: string }[] | null
+  neighborParcels?: { geometry: [number, number][]; owner: string; acres: number | null; apn: string; source?: string; soil_rating?: number | null; tillable_acres?: number | null }[] | null
 }
 
 export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, subjectTractId, subjectTractLocation, resetFiltersSignal, comparableVisibleIds, neighborParcels }: ExploreMapProps) {
@@ -718,6 +718,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         acres: p.acres ? p.acres.toFixed(1) : '—',
         apn: p.apn || '',
         source: p.source || '',
+        soil_rating: p.soil_rating != null ? p.soil_rating.toFixed(1) : '',
+        tillable_acres: p.tillable_acres != null ? p.tillable_acres.toFixed(1) : '',
         index: i,
       },
       geometry: {
@@ -776,12 +778,23 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       const attribution = src.includes('regrid')
         ? `<div style="color:#9ca3af;font-size:10px;margin-top:6px;padding-top:6px;border-top:1px solid #e5e7eb;">Parcel data by <a href="https://regrid.com" target="_blank" rel="noopener noreferrer" style="color:#6b7280;text-decoration:underline;">Regrid</a></div>`
         : ''
+      // Build the detail rows conditionally so we only show fields that exist.
+      const rows: string[] = []
+      if (props.acres && props.acres !== '—') {
+        rows.push(`<div style="color:#6b7280;">${props.acres} ac</div>`)
+      }
+      if (props.tillable_acres) {
+        rows.push(`<div style="color:#6b7280;">${props.tillable_acres} ac tillable</div>`)
+      }
+      if (props.soil_rating) {
+        rows.push(`<div style="color:#6b7280;">Soil rating ${props.soil_rating}</div>`)
+      }
       popup
         .setLngLat(e.lngLat)
         .setHTML(`
-          <div style="font-size:12px;color:#111;background:#fff;padding:10px 14px;border-radius:10px;min-width:140px;box-shadow:0 4px 12px rgba(0,0,0,0.15);">
-            <div style="font-weight:600;margin-bottom:3px;">${props.owner}</div>
-            <div style="color:#6b7280;">${props.acres && props.acres !== '—' ? props.acres + ' ac' : ''}</div>
+          <div style="font-size:12px;color:#111;background:#fff;padding:10px 14px;border-radius:10px;min-width:160px;box-shadow:0 4px 12px rgba(0,0,0,0.15);">
+            <div style="font-weight:600;margin-bottom:4px;">${props.owner}</div>
+            ${rows.join('')}
             ${attribution}
           </div>
         `)

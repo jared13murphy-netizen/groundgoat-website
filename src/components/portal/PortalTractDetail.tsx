@@ -48,6 +48,8 @@ interface NeighborParcel {
   acres: number | null
   apn: string
   source: string
+  soil_rating?: number | null
+  tillable_acres?: number | null
 }
 
 interface PortalTractDetailProps {
