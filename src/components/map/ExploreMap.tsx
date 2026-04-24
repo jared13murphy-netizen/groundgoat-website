@@ -187,6 +187,12 @@ interface ExploreMapProps {
     acres: number | null
     apn: string
     source?: string
+    county?: string | null
+    state?: string | null
+    township?: string | null
+    // The fields below are returned by the API but currently not shown in
+    // the popup. Left in the type so they're available when we re-enable
+    // additional rows in the future.
     soil_rating?: number | null
     tillable_acres?: number | null
     sale_price?: number | null
@@ -730,33 +736,18 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
     if (!neighborParcels || neighborParcels.length === 0) return
 
-    // Compact helpers for popup formatting
-    const compactUSD = (n: number | null | undefined) => {
-      if (n == null) return ''
-      if (n >= 1_000_000) return '$' + (n / 1_000_000).toFixed(n >= 10_000_000 ? 1 : 2) + 'M'
-      if (n >= 1_000) return '$' + (n / 1_000).toFixed(0) + 'K'
-      return '$' + Math.round(n).toLocaleString('en-US')
-    }
-
-    // Build GeoJSON FeatureCollection. All fields string-encoded because
-    // maplibre feature properties must be JSON-serializable scalars.
+    // Build GeoJSON FeatureCollection. Only the 4 fields we actually render
+    // are encoded into properties — keeps the popup logic simple. Extra API
+    // fields can be piped in here when we re-enable more rows later.
     const features = neighborParcels.map((p, i) => ({
       type: 'Feature' as const,
       properties: {
         owner: p.owner || 'Unknown',
-        acres: p.acres ? p.acres.toFixed(1) : '—',
-        apn: p.apn || '',
+        acres: p.acres ? p.acres.toFixed(1) : '',
+        county: p.county || '',
+        state: p.state || '',
+        township: p.township || '',
         source: p.source || '',
-        soil_rating: p.soil_rating != null ? p.soil_rating.toFixed(1) : '',
-        tillable_acres: p.tillable_acres != null ? p.tillable_acres.toFixed(1) : '',
-        sale_price: compactUSD(p.sale_price),
-        sale_date: p.sale_date || '',
-        assessed_value_total: compactUSD(p.assessed_value_total),
-        assessed_value_land: compactUSD(p.assessed_value_land),
-        assessed_value_ag: compactUSD(p.assessed_value_ag),
-        annual_tax: compactUSD(p.annual_tax),
-        use_description: p.use_description || '',
-        zoning: p.zoning || '',
         index: i,
       },
       geometry: {
@@ -815,41 +806,28 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       const attribution = src.includes('regrid')
         ? `<div style="color:#9ca3af;font-size:10px;margin-top:6px;padding-top:6px;border-top:1px solid #e5e7eb;">Parcel data by <a href="https://regrid.com" target="_blank" rel="noopener noreferrer" style="color:#6b7280;text-decoration:underline;">Regrid</a></div>`
         : ''
-      // Build the detail rows conditionally so we only show fields that exist.
-      // Rows are grouped: size stats → sale history → assessed values → use.
+      // Popup content: owner, acres, county/state, township. Rows render
+      // only when we have data.
       const rows: string[] = []
-      const row = (label: string, value: string) =>
-        `<div style="display:flex;justify-content:space-between;gap:10px;color:#4b5563;"><span style="color:#9ca3af;">${label}</span><span style="font-weight:500;color:#111;">${value}</span></div>`
+      if (props.acres) rows.push(`<div style="color:#6b7280;">${props.acres} ac</div>`)
 
-      if (props.acres && props.acres !== '—') rows.push(row('Acres', `${props.acres} ac`))
-      if (props.tillable_acres) rows.push(row('Tillable', `${props.tillable_acres} ac`))
-      if (props.soil_rating) rows.push(row('Soil (NCCPI)', props.soil_rating))
-
-      // Sale history
-      if (props.sale_price || props.sale_date) {
-        const sale = [props.sale_price, props.sale_date].filter(Boolean).join(' · ')
-        rows.push(row('Last sale', sale))
+      const countyState = [props.county, props.state].filter(Boolean).join(', ')
+      if (countyState) {
+        const cs = props.county ? `${props.county} County${props.state ? `, ${props.state}` : ''}` : props.state
+        rows.push(`<div style="color:#6b7280;">${cs}</div>`)
       }
 
-      // Assessed values — show total if available, plus any breakdown we have
-      if (props.assessed_value_total) rows.push(row('Assessed', props.assessed_value_total))
-      if (props.assessed_value_ag) rows.push(row('  Ag value', props.assessed_value_ag))
-      if (props.assessed_value_land && !props.assessed_value_total)
-        rows.push(row('Land value', props.assessed_value_land))
-      if (props.annual_tax) rows.push(row('Annual tax', props.annual_tax))
-
-      // Use / zoning (short single line)
-      const usageParts: string[] = []
-      if (props.use_description) usageParts.push(props.use_description)
-      if (props.zoning) usageParts.push(`Zone ${props.zoning}`)
-      if (usageParts.length) rows.push(row('Use', usageParts.join(' · ')))
+      if (props.township) {
+        const tw = /township/i.test(props.township) ? props.township : `${props.township} Township`
+        rows.push(`<div style="color:#6b7280;">${tw}</div>`)
+      }
 
       popup
         .setLngLat(e.lngLat)
         .setHTML(`
-          <div style="font-size:12px;color:#111;background:#fff;padding:12px 14px;border-radius:10px;min-width:220px;max-width:280px;box-shadow:0 4px 12px rgba(0,0,0,0.15);">
-            <div style="font-weight:600;font-size:13px;margin-bottom:6px;color:#111;">${props.owner}</div>
-            <div style="display:flex;flex-direction:column;gap:2px;font-size:11px;">${rows.join('')}</div>
+          <div style="font-size:12px;color:#111;background:#fff;padding:10px 14px;border-radius:10px;min-width:160px;max-width:240px;box-shadow:0 4px 12px rgba(0,0,0,0.15);">
+            <div style="font-weight:600;margin-bottom:4px;">${props.owner}</div>
+            ${rows.join('')}
             ${attribution}
           </div>
         `)
