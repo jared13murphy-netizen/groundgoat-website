@@ -627,6 +627,8 @@ export default function AccessPortalPage() {
               setReportTracts(prev => prev.filter(t => t.id !== id))
             }}
             onClose={handleCloseComparables}
+            onView3DTerrain={handleView3DTerrain}
+            onViewListing={(listingId) => setMapListingId(listingId)}
           />
         )}
       </AnimatePresence>
@@ -674,6 +676,8 @@ export default function AccessPortalPage() {
               setReportIds(new Set())
               setReportTracts([])
             }}
+            onView3DTerrain={handleView3DTerrain}
+            onViewListing={(listingId) => setMapListingId(listingId)}
           />
         )}
       </AnimatePresence>

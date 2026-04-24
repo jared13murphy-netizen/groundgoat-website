@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from 'react'
 import { motion } from 'framer-motion'
-import { X, Mail, Loader2, Trash2, Check } from 'lucide-react'
+import { X, Mail, Loader2, Trash2, Check, Mountain, ExternalLink } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import type { TractSaleData } from './PortalTractDetail'
 
@@ -60,9 +60,11 @@ interface PortalComparablesReportPanelProps {
   reportTracts: TractSaleData[]
   onRemoveTract: (id: string) => void
   onClose: () => void
+  onView3DTerrain?: (tractId: string, tractName: string) => void
+  onViewListing?: (listingId: string) => void
 }
 
-export default function PortalComparablesReportPanel({ subjectInfo, reportTracts, onRemoveTract, onClose }: PortalComparablesReportPanelProps) {
+export default function PortalComparablesReportPanel({ subjectInfo, reportTracts, onRemoveTract, onClose, onView3DTerrain, onViewListing }: PortalComparablesReportPanelProps) {
   const [sending, setSending] = useState(false)
   const [sent, setSent] = useState(false)
 
@@ -296,6 +298,28 @@ export default function PortalComparablesReportPanel({ subjectInfo, reportTracts
                           <span className="text-gg-gray-500">$/{getSoilLabel(t.state)}: </span>
                           <span className="text-white font-medium">{fmt(getPricePerSoil(t))}</span>
                         </div>
+                      )}
+                    </div>
+                  )}
+                  {(onView3DTerrain || (onViewListing && t.listingId && t.companyName)) && (
+                    <div className="flex gap-2 px-4 pb-3 pt-2 border-t border-white/5">
+                      {onView3DTerrain && (t.tractId || t.id) && (
+                        <button
+                          onClick={() => onView3DTerrain((t.tractId || t.id)!, `${t.county}, ${t.state}`)}
+                          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-[11px] font-medium text-white/80 bg-white/5 hover:bg-white/10 hover:text-white rounded-md border border-white/10 transition"
+                        >
+                          <Mountain size={12} />
+                          3D Map
+                        </button>
+                      )}
+                      {onViewListing && t.listingId && t.companyName && (
+                        <button
+                          onClick={() => onViewListing(t.listingId!)}
+                          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-[11px] font-medium text-gg-pink bg-gg-pink/10 hover:bg-gg-pink/20 rounded-md border border-gg-pink/30 transition"
+                        >
+                          <ExternalLink size={12} />
+                          View Details
+                        </button>
                       )}
                     </div>
                   )}
