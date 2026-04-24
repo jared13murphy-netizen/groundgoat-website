@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { ArrowLeft, Loader2, Mountain } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
+import { formatAuctionDate, formatAuctionDateTime } from '@/lib/auctionTime'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -70,30 +71,9 @@ function formatAcres(acres?: number | null): string {
   return acres.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' ac'
 }
 
-function formatDate(dateString?: string | null): string {
-  if (!dateString) return '—'
-  const date = new Date(dateString)
-  return date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
-}
-
-function formatTime(dateString?: string | null): string {
-  if (!dateString) return ''
-  const date = new Date(dateString)
-  const hours = date.getUTCHours()
-  const mins = date.getUTCMinutes()
-  // Skip midnight (00:00) — means no time was set
-  if (hours === 0 && mins === 0) return ''
-  const ampm = hours >= 12 ? 'PM' : 'AM'
-  const h12 = hours % 12 || 12
-  return `${h12}:${String(mins).padStart(2, '0')} ${ampm}`
-}
-
-function formatDateWithTime(dateString?: string | null): string {
-  const d = formatDate(dateString)
-  const t = formatTime(dateString)
-  if (d === '—') return '—'
-  return t ? `${d} at ${t}` : d
-}
+// Date/time rendering now delegates to lib/auctionTime which converts from
+// UTC to the auction's LOCAL timezone (based on the tract's state) and adds
+// a tz label like "CDT" so viewers in any timezone see the right clock time.
 
 function getStatusLabel(status?: string | null): string {
   switch (status?.toLowerCase()) {
@@ -250,7 +230,7 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
 
       {/* Detail Rows */}
       <div className="bg-white/[0.03] rounded-xl border border-white/5 divide-y divide-white/5">
-        <DetailRow label="Date" value={formatDateWithTime(tract.auctionDate)} />
+        <DetailRow label="Date" value={formatAuctionDateTime(tract.auctionDate, tract.state)} />
         {tract.companyName && <DetailRow label="Listing Company" value={tract.companyName} />}
         <DetailRow label="County" value={tract.county || '—'} />
         <DetailRow label="State" value={tract.state || '—'} />
