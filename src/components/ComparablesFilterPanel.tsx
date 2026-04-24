@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { X, SlidersHorizontal } from 'lucide-react'
 
 export interface FilterState {
-  dateRange: 'all' | 'upcoming' | '6months' | '1year' | '2years'
+  dateRange: 'all' | 'upcoming' | '1month' | '6months' | '1year' | '18months' | '2years'
   statuses: string[]
   countyScope: 'same' | 'neighbors' | 'state'
   distance: 'any' | '10' | '25' | '50' | '100'
@@ -77,7 +77,11 @@ export function applyFilters(
       if (saleDate) {
         const d = new Date(saleDate)
         const now = new Date()
-        const months = filters.dateRange === '6months' ? 6 : filters.dateRange === '1year' ? 12 : 24
+        const months = filters.dateRange === '1month' ? 1
+          : filters.dateRange === '6months' ? 6
+          : filters.dateRange === '1year' ? 12
+          : filters.dateRange === '18months' ? 18
+          : 24
         const cutoff = new Date(now.getFullYear(), now.getMonth() - months, now.getDate())
         if (d < cutoff) return false
       }
@@ -244,8 +248,10 @@ export default function ComparablesFilterPanel({ filters, onApply, onClose }: Fi
             label="Date Range"
             options={[
               { value: 'upcoming', label: 'Upcoming' },
+              { value: '1month', label: 'Last mo' },
               { value: '6months', label: 'Last 6 mo' },
               { value: '1year', label: 'Last 1 yr' },
+              { value: '18months', label: 'Last 18 mo' },
               { value: '2years', label: 'Last 2 yr' },
               { value: 'all', label: 'All time' },
             ]}
