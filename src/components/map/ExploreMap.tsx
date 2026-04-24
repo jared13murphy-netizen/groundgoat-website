@@ -201,9 +201,10 @@ interface ExploreMapProps {
     use_description?: string | null
     zoning?: string | null
   }[] | null
+  neighborsLoading?: boolean
 }
 
-export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, subjectTractId, subjectTractLocation, resetFiltersSignal, comparableVisibleIds, neighborParcels }: ExploreMapProps) {
+export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, subjectTractId, subjectTractLocation, resetFiltersSignal, comparableVisibleIds, neighborParcels, neighborsLoading }: ExploreMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const stateMarkersRef = useRef<maplibregl.Marker[]>([])
@@ -1200,6 +1201,40 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             animation: 'spin 1s linear infinite',
           }} />
           Loading tracts...
+        </div>
+      )}
+
+      {/* Neighbors loading pill — shows while the scraper fetches + enriches.
+          First-time views in a fresh area can take 5-10s for soil/tillable
+          enrichment; this gives the user explicit feedback that work is
+          happening. Tints blue to match the Neighbors pin color. */}
+      {neighborsLoading && (
+        <div style={{
+          position: 'absolute',
+          top: loading ? 56 : 16,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 10,
+          background: 'rgba(37, 99, 235, 0.92)',
+          backdropFilter: 'blur(4px)',
+          color: '#fff',
+          fontSize: 13,
+          padding: '8px 16px',
+          borderRadius: 9999,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          boxShadow: '0 4px 12px rgba(37, 99, 235, 0.25)',
+        }}>
+          <div style={{
+            width: 16,
+            height: 16,
+            border: '2px solid rgba(255,255,255,0.35)',
+            borderTopColor: '#fff',
+            borderRadius: '50%',
+            animation: 'spin 1s linear infinite',
+          }} />
+          Loading neighbors...
         </div>
       )}
 

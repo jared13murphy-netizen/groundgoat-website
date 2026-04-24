@@ -71,6 +71,7 @@ interface PortalTractDetailProps {
   onToggleReport?: (tract: TractSaleData) => void
   isInReport?: boolean
   onShowNeighbors?: (parcels: NeighborParcel[] | null) => void
+  onNeighborsLoadingChange?: (loading: boolean) => void
   showNeighborsButton?: boolean
 }
 
@@ -109,7 +110,7 @@ const STATUS_COLORS: Record<string, string> = {
   no_sale: 'bg-gray-500/15 text-gray-400 border-gray-500/30',
 }
 
-export default function PortalTractDetail({ tract, onBack, onViewListing, onView3DTerrain, onToggleReport, isInReport, onShowNeighbors, showNeighborsButton = false }: PortalTractDetailProps) {
+export default function PortalTractDetail({ tract, onBack, onViewListing, onView3DTerrain, onToggleReport, isInReport, onShowNeighbors, onNeighborsLoadingChange, showNeighborsButton = false }: PortalTractDetailProps) {
   const [soilData, setSoilData] = useState<SoilData | null>(null)
   const [elevationData, setElevationData] = useState<ElevationData | null>(null)
   const [soilLoading, setSoilLoading] = useState(false)
@@ -165,6 +166,7 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
       return
     }
     setNeighborsLoading(true)
+    onNeighborsLoadingChange?.(true)
     try {
       const res = await fetchWithAuth(`${API_URL}/api/tracts/${tract.tractId}/neighbors`)
       if (res.ok) {
@@ -178,6 +180,7 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
       console.error('Failed to fetch neighbors', e)
     }
     setNeighborsLoading(false)
+    onNeighborsLoadingChange?.(false)
   }
 
   const statusKey = tract.saleStatus?.toLowerCase() || ''

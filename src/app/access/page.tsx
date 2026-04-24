@@ -83,6 +83,7 @@ export default function AccessPortalPage() {
   const [mapListingId, setMapListingId] = useState<string | null>(null)
   const [selectedTract, setSelectedTract] = useState<TractSaleData | null>(null)
   const [neighborParcels, setNeighborParcels] = useState<any[] | null>(null)
+  const [neighborsLoading, setNeighborsLoading] = useState(false)
   // Report state
   const [reportIds, setReportIds] = useState<Set<string>>(new Set())
   const [reportTracts, setReportTracts] = useState<TractSaleData[]>([])
@@ -479,6 +480,7 @@ export default function AccessPortalPage() {
           resetFiltersSignal={resetFiltersSignal}
           comparableVisibleIds={null}
           neighborParcels={neighborParcels}
+          neighborsLoading={neighborsLoading}
         />
       </div>
 
@@ -598,6 +600,7 @@ export default function AccessPortalPage() {
                 }}
                 isInReport={reportIds.has(selectedTract.id)}
                 onShowNeighbors={setNeighborParcels}
+                onNeighborsLoadingChange={setNeighborsLoading}
                 showNeighborsButton={user?.email === 'jmurphy@groundgoat.com'}
               />
             </div>
