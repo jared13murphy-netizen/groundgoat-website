@@ -160,7 +160,7 @@ interface ExploreMapProps {
   subjectTractLocation?: { lat: number; lng: number } | null
   resetFiltersSignal?: number
   comparableVisibleIds?: Set<string> | null
-  neighborParcels?: { geometry: [number, number][]; owner: string; acres: number | null; apn: string }[] | null
+  neighborParcels?: { geometry: [number, number][]; owner: string; acres: number | null; apn: string; source?: string }[] | null
 }
 
 export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, subjectTractId, subjectTractLocation, resetFiltersSignal, comparableVisibleIds, neighborParcels }: ExploreMapProps) {
@@ -696,6 +696,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         owner: p.owner || 'Unknown',
         acres: p.acres ? p.acres.toFixed(1) : '—',
         apn: p.apn || '',
+        source: p.source || '',
         index: i,
       },
       geometry: {
@@ -747,12 +748,20 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       if (!e.features?.length) return
       const props = e.features[0].properties
       map.getCanvas().style.cursor = 'pointer'
+      // Attribution: Regrid TOS requires crediting them when their data is
+      // displayed. We only show it when the parcel actually came from Regrid
+      // (either a live call or a cached Regrid row).
+      const src = (props.source || '').toString()
+      const attribution = src.includes('regrid')
+        ? `<div style="color:#9ca3af;font-size:10px;margin-top:6px;padding-top:6px;border-top:1px solid #e5e7eb;">Parcel data by <a href="https://regrid.com" target="_blank" rel="noopener noreferrer" style="color:#6b7280;text-decoration:underline;">Regrid</a></div>`
+        : ''
       popup
         .setLngLat(e.lngLat)
         .setHTML(`
           <div style="font-size:12px;color:#111;background:#fff;padding:10px 14px;border-radius:10px;min-width:140px;box-shadow:0 4px 12px rgba(0,0,0,0.15);">
             <div style="font-weight:600;margin-bottom:3px;">${props.owner}</div>
             <div style="color:#6b7280;">${props.acres && props.acres !== '—' ? props.acres + ' ac' : ''}</div>
+            ${attribution}
           </div>
         `)
         .addTo(map)
