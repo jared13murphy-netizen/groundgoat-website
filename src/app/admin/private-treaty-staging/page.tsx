@@ -26,7 +26,8 @@ import {
   Clock,
   Copy,
   StopCircle,
-  Play
+  Play,
+  Link2
 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 
@@ -195,6 +196,11 @@ export default function AdminPrivateTreatyStagingPage() {
   const [startingScraper, setStartingScraper] = useState(false)
   const prevScraperRunning = useRef<boolean | null>(null)
 
+  // Single URL scrape (paste a direct PT listing URL)
+  const [scrapeUrl, setScrapeUrl] = useState('')
+  const [scrapingUrl, setScrapingUrl] = useState(false)
+  const [scrapeUrlResult, setScrapeUrlResult] = useState<{ success: boolean; message: string } | null>(null)
+
   useEffect(() => {
     const fetchStatus = async () => {
       try {
@@ -227,6 +233,38 @@ export default function AdminPrivateTreatyStagingPage() {
       console.error('Failed to stop scraper:', err)
     } finally {
       setStoppingScraper(false)
+    }
+  }
+
+  const scrapeSingleUrl = async () => {
+    if (!scrapeUrl.trim()) return
+    setScrapingUrl(true)
+    setScrapeUrlResult(null)
+    try {
+      const res = await fetch(`${SCRAPER_URL}/api/scraper/scrape-single-url`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: scrapeUrl.trim(),
+          listing_type: 'private_treaty',
+          force: true,
+        }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        setScrapeUrlResult({
+          success: true,
+          message: `Staged (${data.company_name || 'Unknown company'}, ${Math.round((data.scrape_duration_ms || 0) / 1000)}s)`,
+        })
+        setScrapeUrl('')
+        fetchStagingListings()
+      } else {
+        setScrapeUrlResult({ success: false, message: data.error || 'Scraping failed' })
+      }
+    } catch (err: any) {
+      setScrapeUrlResult({ success: false, message: err.message || 'Network error' })
+    } finally {
+      setScrapingUrl(false)
     }
   }
 
@@ -690,6 +728,49 @@ export default function AdminPrivateTreatyStagingPage() {
             </button>
           </div>
         </div>
+
+        {/* Single PT URL Scrape — paste a direct PT listing URL to scrape just that one page */}
+        <div className="mb-4 flex items-center gap-3">
+          <div className="flex-1 relative">
+            <Link2 className="absolute left-3 top-1/2 -translate-y-1/2 text-gg-gray-500" size={16} />
+            <input
+              type="text"
+              value={scrapeUrl}
+              onChange={(e) => { setScrapeUrl(e.target.value); setScrapeUrlResult(null) }}
+              onKeyDown={(e) => { if (e.key === 'Enter' && scrapeUrl.trim() && !scrapingUrl) scrapeSingleUrl() }}
+              placeholder="Paste private treaty URL to scrape..."
+              className="w-full pl-10 pr-4 py-2.5 bg-gg-gray-800 border border-gg-gray-700 rounded-lg text-white text-sm placeholder-gg-gray-500 focus:outline-none focus:border-gg-pink/50 transition-colors"
+              disabled={scrapingUrl}
+            />
+          </div>
+          <button
+            onClick={scrapeSingleUrl}
+            disabled={!scrapeUrl.trim() || scrapingUrl}
+            className="px-5 py-2.5 bg-gg-pink text-white rounded-lg hover:bg-gg-pink/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium flex items-center gap-2 shrink-0"
+          >
+            {scrapingUrl ? (
+              <>
+                <Loader2 className="animate-spin" size={16} />
+                Scraping...
+              </>
+            ) : (
+              <>
+                <Play size={16} />
+                Scrape URL
+              </>
+            )}
+          </button>
+        </div>
+        {scrapeUrlResult && (
+          <div className={`mb-4 rounded-lg px-4 py-2.5 text-sm flex items-center gap-2 ${
+            scrapeUrlResult.success
+              ? 'bg-green-500/10 border border-green-500/30 text-green-400'
+              : 'bg-red-500/10 border border-red-500/30 text-red-400'
+          }`}>
+            {scrapeUrlResult.success ? <CheckCircle size={16} /> : <XCircle size={16} />}
+            {scrapeUrlResult.message}
+          </div>
+        )}
 
         {/* Scraper Status Banner */}
         {scraperStatus && (
