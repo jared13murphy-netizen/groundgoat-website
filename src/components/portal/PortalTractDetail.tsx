@@ -78,6 +78,7 @@ function formatAcres(acres?: number | null): string {
 function getStatusLabel(status?: string | null): string {
   switch (status?.toLowerCase()) {
     case 'sold': return 'Sold'
+    case 'auction': return 'Auction'
     case 'listed': case 'active': return 'Listed'
     case 'live': case 'pending': return 'Live'
     case 'no_sale': return 'No Sale'
@@ -87,6 +88,7 @@ function getStatusLabel(status?: string | null): string {
 
 const STATUS_COLORS: Record<string, string> = {
   sold: 'bg-green-500/15 text-green-400 border-green-500/30',
+  auction: 'bg-blue-500/15 text-blue-400 border-blue-500/30',
   listed: 'bg-blue-500/15 text-blue-400 border-blue-500/30',
   active: 'bg-blue-500/15 text-blue-400 border-blue-500/30',
   live: 'bg-red-500/15 text-red-400 border-red-500/30',
