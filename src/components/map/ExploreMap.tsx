@@ -181,7 +181,26 @@ interface ExploreMapProps {
   subjectTractLocation?: { lat: number; lng: number } | null
   resetFiltersSignal?: number
   comparableVisibleIds?: Set<string> | null
-  neighborParcels?: { geometry: [number, number][]; owner: string; acres: number | null; apn: string; source?: string; soil_rating?: number | null; tillable_acres?: number | null }[] | null
+  neighborParcels?: {
+    geometry: [number, number][]
+    owner: string
+    acres: number | null
+    apn: string
+    source?: string
+    soil_rating?: number | null
+    tillable_acres?: number | null
+    sale_price?: number | null
+    sale_date?: string | null
+    last_transfer_date?: string | null
+    assessed_value_total?: number | null
+    assessed_value_land?: number | null
+    assessed_value_improvement?: number | null
+    assessed_value_ag?: number | null
+    annual_tax?: number | null
+    use_code?: string | null
+    use_description?: string | null
+    zoning?: string | null
+  }[] | null
 }
 
 export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, subjectTractId, subjectTractLocation, resetFiltersSignal, comparableVisibleIds, neighborParcels }: ExploreMapProps) {
@@ -710,7 +729,16 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
     if (!neighborParcels || neighborParcels.length === 0) return
 
-    // Build GeoJSON FeatureCollection
+    // Compact helpers for popup formatting
+    const compactUSD = (n: number | null | undefined) => {
+      if (n == null) return ''
+      if (n >= 1_000_000) return '$' + (n / 1_000_000).toFixed(n >= 10_000_000 ? 1 : 2) + 'M'
+      if (n >= 1_000) return '$' + (n / 1_000).toFixed(0) + 'K'
+      return '$' + Math.round(n).toLocaleString('en-US')
+    }
+
+    // Build GeoJSON FeatureCollection. All fields string-encoded because
+    // maplibre feature properties must be JSON-serializable scalars.
     const features = neighborParcels.map((p, i) => ({
       type: 'Feature' as const,
       properties: {
@@ -720,6 +748,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         source: p.source || '',
         soil_rating: p.soil_rating != null ? p.soil_rating.toFixed(1) : '',
         tillable_acres: p.tillable_acres != null ? p.tillable_acres.toFixed(1) : '',
+        sale_price: compactUSD(p.sale_price),
+        sale_date: p.sale_date || '',
+        assessed_value_total: compactUSD(p.assessed_value_total),
+        assessed_value_land: compactUSD(p.assessed_value_land),
+        assessed_value_ag: compactUSD(p.assessed_value_ag),
+        annual_tax: compactUSD(p.annual_tax),
+        use_description: p.use_description || '',
+        zoning: p.zoning || '',
         index: i,
       },
       geometry: {
@@ -779,22 +815,40 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         ? `<div style="color:#9ca3af;font-size:10px;margin-top:6px;padding-top:6px;border-top:1px solid #e5e7eb;">Parcel data by <a href="https://regrid.com" target="_blank" rel="noopener noreferrer" style="color:#6b7280;text-decoration:underline;">Regrid</a></div>`
         : ''
       // Build the detail rows conditionally so we only show fields that exist.
+      // Rows are grouped: size stats → sale history → assessed values → use.
       const rows: string[] = []
-      if (props.acres && props.acres !== '—') {
-        rows.push(`<div style="color:#6b7280;">${props.acres} ac</div>`)
+      const row = (label: string, value: string) =>
+        `<div style="display:flex;justify-content:space-between;gap:10px;color:#4b5563;"><span style="color:#9ca3af;">${label}</span><span style="font-weight:500;color:#111;">${value}</span></div>`
+
+      if (props.acres && props.acres !== '—') rows.push(row('Acres', `${props.acres} ac`))
+      if (props.tillable_acres) rows.push(row('Tillable', `${props.tillable_acres} ac`))
+      if (props.soil_rating) rows.push(row('Soil (NCCPI)', props.soil_rating))
+
+      // Sale history
+      if (props.sale_price || props.sale_date) {
+        const sale = [props.sale_price, props.sale_date].filter(Boolean).join(' · ')
+        rows.push(row('Last sale', sale))
       }
-      if (props.tillable_acres) {
-        rows.push(`<div style="color:#6b7280;">${props.tillable_acres} ac tillable</div>`)
-      }
-      if (props.soil_rating) {
-        rows.push(`<div style="color:#6b7280;">Soil rating ${props.soil_rating}</div>`)
-      }
+
+      // Assessed values — show total if available, plus any breakdown we have
+      if (props.assessed_value_total) rows.push(row('Assessed', props.assessed_value_total))
+      if (props.assessed_value_ag) rows.push(row('  Ag value', props.assessed_value_ag))
+      if (props.assessed_value_land && !props.assessed_value_total)
+        rows.push(row('Land value', props.assessed_value_land))
+      if (props.annual_tax) rows.push(row('Annual tax', props.annual_tax))
+
+      // Use / zoning (short single line)
+      const usageParts: string[] = []
+      if (props.use_description) usageParts.push(props.use_description)
+      if (props.zoning) usageParts.push(`Zone ${props.zoning}`)
+      if (usageParts.length) rows.push(row('Use', usageParts.join(' · ')))
+
       popup
         .setLngLat(e.lngLat)
         .setHTML(`
-          <div style="font-size:12px;color:#111;background:#fff;padding:10px 14px;border-radius:10px;min-width:160px;box-shadow:0 4px 12px rgba(0,0,0,0.15);">
-            <div style="font-weight:600;margin-bottom:4px;">${props.owner}</div>
-            ${rows.join('')}
+          <div style="font-size:12px;color:#111;background:#fff;padding:12px 14px;border-radius:10px;min-width:220px;max-width:280px;box-shadow:0 4px 12px rgba(0,0,0,0.15);">
+            <div style="font-weight:600;font-size:13px;margin-bottom:6px;color:#111;">${props.owner}</div>
+            <div style="display:flex;flex-direction:column;gap:2px;font-size:11px;">${rows.join('')}</div>
             ${attribution}
           </div>
         `)

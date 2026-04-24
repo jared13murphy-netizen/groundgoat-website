@@ -50,6 +50,17 @@ interface NeighborParcel {
   source: string
   soil_rating?: number | null
   tillable_acres?: number | null
+  sale_price?: number | null
+  sale_date?: string | null
+  last_transfer_date?: string | null
+  assessed_value_total?: number | null
+  assessed_value_land?: number | null
+  assessed_value_improvement?: number | null
+  assessed_value_ag?: number | null
+  annual_tax?: number | null
+  use_code?: string | null
+  use_description?: string | null
+  zoning?: string | null
 }
 
 interface PortalTractDetailProps {
