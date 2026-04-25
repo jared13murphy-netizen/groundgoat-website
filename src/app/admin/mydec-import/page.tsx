@@ -514,8 +514,25 @@ export default function MyDecImportPage() {
         setTotal(prev => prev - 1)
         fetchMydecCount()
       } else {
-        const err = await res.json()
-        alert(`Verify failed: ${err.detail || 'Unknown error'}`)
+        // FastAPI returns `detail` as a string for plain errors and as an
+        // object/array for validation errors. Stringify object/array values
+        // so the user sees the real message instead of "[object Object]".
+        const formatErr = (d: unknown): string => {
+          if (d == null) return `HTTP ${res.status}`
+          if (typeof d === 'string') return d
+          try { return JSON.stringify(d) } catch { return String(d) }
+        }
+        let detail: unknown = null
+        let raw = ''
+        try {
+          const body = await res.clone().json()
+          detail = body?.detail ?? body
+        } catch {
+          try { raw = await res.text() } catch { /* ignore */ }
+        }
+        const msg = detail !== null ? formatErr(detail) : (raw || `HTTP ${res.status}`)
+        console.error('[verify failed]', { status: res.status, detail, raw })
+        alert(`Verify failed (HTTP ${res.status}): ${msg}`)
       }
     } catch (e: any) {
       alert(`Error: ${e.message}`)
