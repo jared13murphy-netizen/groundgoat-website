@@ -504,7 +504,10 @@ export default function MyDecImportPage() {
     setImporting(false)
   }
 
-  // Approve (verify) a staging item
+  // Approve (verify) a staging item.
+  // On 409 duplicate (match_type url|url_normalized|composite), auto-merge
+  // into the existing listing instead of showing a raw error — that's the
+  // intended UX since the merge endpoint already handles this case.
   const approveItem = async (id: number) => {
     setProcessingIds(prev => new Set(prev).add(id))
     try {
@@ -514,21 +517,34 @@ export default function MyDecImportPage() {
         setTotal(prev => prev - 1)
         fetchMydecCount()
       } else {
-        // FastAPI returns `detail` as a string for plain errors and as an
-        // object/array for validation errors. Stringify object/array values
-        // so the user sees the real message instead of "[object Object]".
-        const formatErr = (d: unknown): string => {
-          if (d == null) return `HTTP ${res.status}`
-          if (typeof d === 'string') return d
-          try { return JSON.stringify(d) } catch { return String(d) }
-        }
-        let detail: unknown = null
+        // Read the detail object once; FastAPI may return it as object or string.
+        let detail: any = null
         let raw = ''
         try {
           const body = await res.clone().json()
           detail = body?.detail ?? body
         } catch {
           try { raw = await res.text() } catch { /* ignore */ }
+        }
+
+        // 409 with existing_listing_id → auto-merge into that listing.
+        const existingId =
+          detail && typeof detail === 'object' ? detail.existing_listing_id : null
+        if (res.status === 409 && existingId) {
+          setProcessingIds(prev => {
+            const next = new Set(prev)
+            next.delete(id)
+            return next
+          })
+          await mergeItem(id, existingId)
+          return
+        }
+
+        // Other errors: surface a readable message.
+        const formatErr = (d: unknown): string => {
+          if (d == null) return `HTTP ${res.status}`
+          if (typeof d === 'string') return d
+          try { return JSON.stringify(d) } catch { return String(d) }
         }
         const msg = detail !== null ? formatErr(detail) : (raw || `HTTP ${res.status}`)
         console.error('[verify failed]', { status: res.status, detail, raw })
