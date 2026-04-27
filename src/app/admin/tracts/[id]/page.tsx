@@ -304,21 +304,13 @@ export default function EditTractPage() {
               <p className="text-gg-gray-400">{tract.total_acres} acres</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Link
-              href={`/admin/tracts/${tractId}/draw`}
-              className="flex items-center gap-2 px-4 py-2 bg-gg-pink/20 text-gg-pink border border-gg-pink/30 rounded-lg hover:bg-gg-pink/30"
-            >
-              Draw boundary
-            </Link>
-            <button
-              onClick={handleDelete}
-              className="flex items-center gap-2 px-4 py-2 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30"
-            >
-              <Trash2 size={16} />
-              Delete
-            </button>
-          </div>
+          <button
+            onClick={handleDelete}
+            className="flex items-center gap-2 px-4 py-2 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30"
+          >
+            <Trash2 size={16} />
+            Delete
+          </button>
         </div>
 
         {/* Messages */}

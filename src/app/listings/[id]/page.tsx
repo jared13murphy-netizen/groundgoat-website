@@ -8,7 +8,6 @@ import {
   Loader2, ArrowLeft, MapPin, Calendar, Clock, Building2,
   DollarSign, ExternalLink, Share2, BarChart3
 } from 'lucide-react'
-import GroundTruthPanel from '@/components/GroundTruthPanel'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=600'
@@ -467,11 +466,6 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
               ))}
             </div>
           </div>
-        )}
-
-        {/* Ground Truth — USDA NASS county/state benchmarks */}
-        {listing.tracts && listing.tracts.length > 0 && listing.tracts[0].id && (
-          <GroundTruthPanel tractId={listing.tracts[0].id} />
         )}
       </div>
     </div>
