@@ -229,7 +229,7 @@ function TractDetail({
           <h3 className="text-sm font-semibold text-gg-pink mb-3">Visual Verification</h3>
           {tract.has_tract_image && (
             <div className="mb-3">
-              <p className="text-xs text-gg-gray-500 mb-1">Satellite + Boundary Overlay (200×200)</p>
+              <p className="text-xs text-gg-gray-500 mb-1">Satellite + Boundary Overlay</p>
               <TractThumbnailLarge stagingId={item.id} tractIndex={0} />
             </div>
           )}
@@ -291,9 +291,9 @@ function TractThumbnailLarge({ stagingId, tractIndex }: { stagingId: number, tra
       .catch(() => setLoaded(true))
   }, [stagingId, tractIndex])
 
-  if (!loaded) return <div className="w-48 h-48 rounded bg-gg-gray-800 animate-pulse" />
-  if (!src) return <div className="w-48 h-48 rounded bg-gg-gray-800 flex items-center justify-center text-gg-gray-600"><MapPin size={24} /></div>
-  return <img src={src} alt="Tract satellite" className="w-48 h-48 rounded object-cover border border-gg-gray-700" />
+  if (!loaded) return <div className="w-72 h-72 rounded bg-gg-gray-800 animate-pulse" />
+  if (!src) return <div className="w-72 h-72 rounded bg-gg-gray-800 flex items-center justify-center text-gg-gray-600"><MapPin size={24} /></div>
+  return <img src={src} alt="Tract satellite" className="w-72 h-72 rounded object-cover border border-gg-gray-700" />
 }
 
 function TractThumbnail({ stagingId, tractIndex }: { stagingId: number, tractIndex: number }) {
