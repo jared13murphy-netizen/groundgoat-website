@@ -28,6 +28,21 @@ import fetchWithAuth from '@/lib/fetchWithAuth'
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 const SCRAPER_URL = 'https://ground-goat-scraper-production.up.railway.app'
 
+// Must match ALLOWED_LAND_TYPES in main.py:11654
+const LAND_TYPE_OPTIONS = [
+  'Farm',
+  'Recreational',
+  'Pasture',
+  'Timber',
+  'Hunting',
+  'Vacant Land',
+  'CRP',
+  'Commercial',
+  'Residential',
+  'Development',
+  'Other',
+] as const
+
 interface StagingItem {
   id: number
   source_url: string
@@ -39,8 +54,16 @@ interface StagingItem {
   source_type: string
 }
 
-// Expandable detail panel showing every field with its data source
-function TractDetail({ item }: { item: StagingItem }) {
+// Expandable detail panel showing every field with its data source.
+// `onLandTypeChange` is called when the operator picks a different tract type
+// from the dropdown — the parent updates local state and PATCHes the backend.
+function TractDetail({
+  item,
+  onLandTypeChange,
+}: {
+  item: StagingItem
+  onLandTypeChange?: (newLandType: string) => void
+}) {
   const sd = item.scraped_data || {}
   const tract = sd.tracts?.[0] || {}
   const listing = sd.listing || {}
@@ -162,6 +185,31 @@ function TractDetail({ item }: { item: StagingItem }) {
                 if (f.label === '---') {
                   return <tr key={i}><td colSpan={3} className="py-1"><hr className="border-gg-gray-700" /></td></tr>
                 }
+
+                // Land Type row: render an editable dropdown when the parent
+                // provides an onLandTypeChange callback. Override scraper guess.
+                const isLandType = f.label === 'Land Type'
+                if (isLandType && onLandTypeChange) {
+                  const current = String(f.value || 'Farm')
+                  return (
+                    <tr key={i}>
+                      <td className="py-0.5 text-gg-gray-400">{f.label}</td>
+                      <td className="py-0.5">
+                        <select
+                          value={LAND_TYPE_OPTIONS.includes(current as any) ? current : 'Farm'}
+                          onChange={(e) => onLandTypeChange(e.target.value)}
+                          className="bg-gg-gray-700 border border-gg-gray-600 text-white text-xs rounded px-2 py-0.5 font-mono focus:outline-none focus:ring-1 focus:ring-gg-pink"
+                        >
+                          {LAND_TYPE_OPTIONS.map((opt) => (
+                            <option key={opt} value={opt}>{opt}</option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="py-0.5">{sourceLabel(f.source)}</td>
+                    </tr>
+                  )
+                }
+
                 return (
                   <tr key={i} className={f.warn ? 'text-red-400' : ''}>
                     <td className="py-0.5 text-gg-gray-400">{f.label}</td>
@@ -502,6 +550,36 @@ export default function MyDecImportPage() {
       setImportStats({ success: false, error: 'Local scraper not running. Start it with: python3 run_iowa_local.py --serve' })
     }
     setImporting(false)
+  }
+
+  // Update the land_type on a staged tract — both locally (instant UI feedback)
+  // and on the backend (PATCH staging.scraped_data.tracts[0].land_type).
+  const updateTractLandType = async (item: StagingItem, newLandType: string) => {
+    const sd = item.scraped_data || {}
+    const tracts = Array.isArray(sd.tracts) ? [...sd.tracts] : []
+    if (tracts.length === 0) return  // nothing to update
+    tracts[0] = { ...tracts[0], land_type: newLandType }
+    const updated = { ...sd, tracts }
+
+    // Optimistic local update
+    setItems((prev) => prev.map((it) => (it.id === item.id ? { ...it, scraped_data: updated } : it)))
+
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/admin/staging/${item.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scraped_data: updated }),
+      })
+      if (!res.ok) {
+        const body = await res.text().catch(() => '')
+        // Roll back on failure so UI doesn't lie
+        setItems((prev) => prev.map((it) => (it.id === item.id ? { ...it, scraped_data: sd } : it)))
+        alert(`Failed to update land type (HTTP ${res.status}): ${body || ''}`)
+      }
+    } catch (e: any) {
+      setItems((prev) => prev.map((it) => (it.id === item.id ? { ...it, scraped_data: sd } : it)))
+      alert(`Failed to update land type: ${e?.message || e}`)
+    }
   }
 
   // Approve (verify) a staging item
@@ -1228,7 +1306,12 @@ export default function MyDecImportPage() {
                         </button>
 
                         {/* Expanded detail panel */}
-                        {expandedIds.has(item.id) && <TractDetail item={item} />}
+                        {expandedIds.has(item.id) && (
+                          <TractDetail
+                            item={item}
+                            onLandTypeChange={(newType) => updateTractLandType(item, newType)}
+                          />
+                        )}
                       </div>
 
                       {/* Actions */}
