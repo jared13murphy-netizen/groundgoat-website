@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import { ArrowLeft, Save, RotateCcw, Trash2, Loader2, ExternalLink } from 'lucide-react'
+import { ArrowLeft, Save, RotateCcw, Trash2, Loader2, ExternalLink, X } from 'lucide-react'
 
 const SCRAPER_URL = 'https://ground-goat-scraper-production.up.railway.app'
 
@@ -147,7 +147,16 @@ export default function BoundaryDrawTractPage() {
       setPoints(prev => [...prev, [lng, lat]])
     })
 
-    return () => { map.remove() }
+    // Force re-measure after the page paints — the map sometimes
+    // initializes before flex children resolve their final size.
+    const t1 = setTimeout(() => map.resize(), 50)
+    const t2 = setTimeout(() => map.resize(), 250)
+    const t3 = setTimeout(() => map.resize(), 1000)
+
+    return () => {
+      clearTimeout(t1); clearTimeout(t2); clearTimeout(t3)
+      map.remove()
+    }
   }, [data])
 
   useEffect(() => {
@@ -210,8 +219,8 @@ export default function BoundaryDrawTractPage() {
   const computedAcres = gisAcres(points)
 
   return (
-    <div className="min-h-screen bg-gg-gray-950 text-white">
-      <div className="border-b border-gg-gray-800 px-4 py-3 flex items-center justify-between bg-gg-gray-900">
+    <div className="fixed inset-0 z-[100] bg-gg-gray-950 text-white flex flex-col">
+      <div className="border-b border-gg-gray-800 px-4 py-3 flex items-center justify-between bg-gg-gray-900 flex-shrink-0">
         <div className="flex items-center gap-3">
           <button onClick={() => router.push('/admin/missing-boundaries')} className="p-2 hover:bg-gg-gray-800 rounded">
             <ArrowLeft size={20} />
@@ -238,6 +247,9 @@ export default function BoundaryDrawTractPage() {
           <button onClick={clearAll} disabled={points.length === 0} className="px-3 py-2 bg-gg-gray-800 hover:bg-gg-gray-700 disabled:opacity-40 rounded flex items-center gap-1">
             <Trash2 size={16} /> Clear
           </button>
+          <button onClick={() => router.push('/admin/missing-boundaries')} className="px-3 py-2 bg-gg-gray-800 hover:bg-gg-gray-700 rounded flex items-center gap-1">
+            <X size={16} /> Cancel
+          </button>
           <button onClick={save} disabled={saving || points.length < 3} className="px-4 py-2 bg-gg-gold hover:bg-yellow-500 text-black font-semibold disabled:opacity-40 rounded flex items-center gap-1">
             {saving ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
             {saving ? 'Saving...' : 'Save & Re-enrich'}
@@ -250,7 +262,7 @@ export default function BoundaryDrawTractPage() {
         </div>
       )}
 
-      <div className="flex" style={{ height: 'calc(100vh - 65px)' }}>
+      <div className="flex flex-1 min-h-0">
         <div className="w-1/3 overflow-y-auto bg-gg-gray-900 border-r border-gg-gray-800 p-4 space-y-4">
           <div>
             <h2 className="text-sm font-semibold mb-2 text-gg-gray-300">Source Listing</h2>
