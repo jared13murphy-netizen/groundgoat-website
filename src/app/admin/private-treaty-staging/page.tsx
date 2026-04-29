@@ -1118,6 +1118,16 @@ export default function AdminPrivateTreatyStagingPage() {
                                     {tract.has_house && <span className="text-blue-400">House</span>}
                                     {tract.has_building && <span className="text-amber-400">Building</span>}
                                   </div>
+                                  {(!tract.polygon_coordinates || (Array.isArray(tract.polygon_coordinates) && tract.polygon_coordinates.length === 0)) && (
+                                    <a
+                                      href={`/admin/boundary-draw/${listing.id}?tract=${idx}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="inline-block mt-1.5 px-2 py-0.5 text-[11px] rounded bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-300 border border-yellow-500/40 transition-colors"
+                                    >
+                                      ✏️ Draw Boundary
+                                    </a>
+                                  )}
                                 </div>
                               ))}
                             </div>
