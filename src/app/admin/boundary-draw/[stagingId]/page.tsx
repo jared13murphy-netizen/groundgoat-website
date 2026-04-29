@@ -88,7 +88,8 @@ export default function BoundaryDrawPage() {
   const [points, setPoints] = useState<Pt[]>([])
   const [saving, setSaving] = useState(false)
   const [saveResult, setSaveResult] = useState<string | null>(null)
-  const [sourceImages, setSourceImages] = useState<{url: string; alt: string}[]>([])
+  const [sourceScreenshot, setSourceScreenshot] = useState<string | null>(null)
+  const [sourceImages, setSourceImages] = useState<{url: string; alt: string; w: number; h: number}[]>([])
   const [imagesLoading, setImagesLoading] = useState(false)
   const [enlargedImage, setEnlargedImage] = useState<string | null>(null)
 
@@ -127,8 +128,9 @@ export default function BoundaryDrawPage() {
     return () => { cancelled = true }
   }, [stagingId])
 
-  // Scrape every image off the source listing so the operator can see
-  // the actual boundary diagram next to the satellite map.
+  // Render the source listing with Playwright and pull a full-page
+  // screenshot + every rendered image so the boundary diagram is
+  // visible next to the satellite map.
   useEffect(() => {
     const src = staging?.source_url
     if (!src) return
@@ -138,9 +140,8 @@ export default function BoundaryDrawPage() {
       .then(r => r.json())
       .then(body => {
         if (cancelled) return
-        if (body.success && Array.isArray(body.images)) {
-          setSourceImages(body.images)
-        }
+        if (body.screenshot_base64) setSourceScreenshot(body.screenshot_base64)
+        if (Array.isArray(body.images)) setSourceImages(body.images)
       })
       .catch(() => {/* ignore */})
       .finally(() => { if (!cancelled) setImagesLoading(false) })
@@ -366,45 +367,71 @@ export default function BoundaryDrawPage() {
               )}
             </p>
             {mapImage && (
-              <button
-                onClick={() => setEnlargedImage(`data:image/png;base64,${mapImage}`)}
-                className="block w-full rounded border border-gg-gold/60 hover:border-gg-gold overflow-hidden"
-                title="Auctioneer tract diagram (scraped)"
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={`data:image/png;base64,${mapImage}`} alt="auctioneer diagram"
-                     className="w-full h-auto" />
-              </button>
+              <>
+                <p className="text-[11px] text-gg-gray-500 uppercase tracking-wider">
+                  Auctioneer Tract Diagram (scraped)
+                </p>
+                <button
+                  onClick={() => setEnlargedImage(`data:image/png;base64,${mapImage}`)}
+                  className="block w-full rounded border border-gg-gold/60 hover:border-gg-gold overflow-hidden"
+                  title="Auctioneer tract diagram"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={`data:image/png;base64,${mapImage}`} alt="auctioneer diagram"
+                       className="w-full h-auto" />
+                </button>
+              </>
             )}
-            {sourceImages.length === 0 && imagesLoading && (
+            {imagesLoading && !sourceScreenshot && sourceImages.length === 0 && !mapImage && (
               <div className="flex items-center gap-2 text-gg-gray-500 text-sm">
-                <Loader2 className="animate-spin" size={14} /> Loading images…
+                <Loader2 className="animate-spin" size={14} />
+                Fetching source listing (~10s)…
               </div>
+            )}
+            {sourceImages.length > 0 && (
+              <p className="text-[11px] text-gg-gray-500 uppercase tracking-wider pt-1">
+                Source Page Images ({sourceImages.length})
+              </p>
             )}
             {sourceImages.map((img, i) => (
               <button
                 key={i}
                 onClick={() => setEnlargedImage(img.url)}
                 className="block w-full rounded border border-gg-gray-700 hover:border-gg-gold transition-colors overflow-hidden"
-                title={img.alt || `Source image ${i + 1}`}
+                title={`${img.alt || `Source image ${i + 1}`} — ${img.w}×${img.h}`}
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={img.url} alt={img.alt || `Source ${i + 1}`}
                      className="w-full h-auto" loading="lazy" />
               </button>
             ))}
-            {screenshot && sourceImages.length === 0 && (
+            {sourceScreenshot && (
+              <>
+                <p className="text-[11px] text-gg-gray-500 uppercase tracking-wider pt-1">
+                  Full Page Screenshot
+                </p>
+                <button
+                  onClick={() => setEnlargedImage(`data:image/jpeg;base64,${sourceScreenshot}`)}
+                  className="block w-full rounded border border-gg-gray-700 hover:border-gg-gold transition-colors overflow-hidden"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={`data:image/jpeg;base64,${sourceScreenshot}`} alt="source page"
+                       className="w-full h-auto" />
+                </button>
+              </>
+            )}
+            {!mapImage && screenshot && !sourceScreenshot && sourceImages.length === 0 && (
               <button
                 onClick={() => setEnlargedImage(`data:image/png;base64,${screenshot}`)}
                 className="block w-full rounded border border-gg-gray-700 hover:border-gg-gold overflow-hidden"
-                title="Page screenshot"
+                title="Page screenshot (cached)"
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={`data:image/png;base64,${screenshot}`} alt="screenshot"
                      className="w-full h-auto" />
               </button>
             )}
-            {!mapImage && !imagesLoading && sourceImages.length === 0 && !screenshot && (
+            {!mapImage && !imagesLoading && !sourceScreenshot && sourceImages.length === 0 && !screenshot && (
               <div className="text-xs text-gg-gray-500">
                 No images found. Open the brochure or source listing in
                 a new tab to see the tract layout.

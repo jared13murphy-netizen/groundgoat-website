@@ -76,7 +76,8 @@ export default function BoundaryDrawTractPage() {
   const [points, setPoints] = useState<Pt[]>([])
   const [saving, setSaving] = useState(false)
   const [saveResult, setSaveResult] = useState<string | null>(null)
-  const [sourceImages, setSourceImages] = useState<{url: string; alt: string}[]>([])
+  const [sourceScreenshot, setSourceScreenshot] = useState<string | null>(null)
+  const [sourceImages, setSourceImages] = useState<{url: string; alt: string; w: number; h: number}[]>([])
   const [imagesLoading, setImagesLoading] = useState(false)
   const [enlargedImage, setEnlargedImage] = useState<string | null>(null)
 
@@ -98,8 +99,9 @@ export default function BoundaryDrawTractPage() {
     return () => { cancelled = true }
   }, [tractId])
 
-  // Once we have the listing's source URL, scrape every image off the
-  // listing page so the operator can see the actual boundary diagram.
+  // Once we have the listing's source URL, render it with Playwright
+  // and pull back a full-page screenshot + every rendered image so the
+  // operator can see the actual boundary diagram.
   useEffect(() => {
     if (!data?.source_url) return
     let cancelled = false
@@ -108,9 +110,8 @@ export default function BoundaryDrawTractPage() {
       .then(r => r.json())
       .then(body => {
         if (cancelled) return
-        if (body.success && Array.isArray(body.images)) {
-          setSourceImages(body.images)
-        }
+        if (body.screenshot_base64) setSourceScreenshot(body.screenshot_base64)
+        if (Array.isArray(body.images)) setSourceImages(body.images)
       })
       .catch(() => {/* ignore */})
       .finally(() => { if (!cancelled) setImagesLoading(false) })
@@ -119,8 +120,18 @@ export default function BoundaryDrawTractPage() {
 
   useEffect(() => {
     if (!containerRef.current || !data) return
-    const initLng = Number(data.longitude) || -93.5
-    const initLat = Number(data.latitude) || 41.9
+    // Best center: tract lat/lng > listing lat/lng > Iowa fallback.
+    // Zoom: 16 for a tract-level coord, 13 for listing-level (county/town).
+    let initLng: number, initLat: number, initZoom: number
+    if (data.latitude != null && data.longitude != null) {
+      initLng = Number(data.longitude); initLat = Number(data.latitude)
+      initZoom = 16
+    } else if (data.listing_latitude != null && data.listing_longitude != null) {
+      initLng = Number(data.listing_longitude); initLat = Number(data.listing_latitude)
+      initZoom = 13
+    } else {
+      initLng = -93.5; initLat = 41.9; initZoom = 6
+    }
 
     const map = new maplibregl.Map({
       container: containerRef.current,
@@ -137,7 +148,7 @@ export default function BoundaryDrawTractPage() {
         layers: [{ id: 'imagery', type: 'raster', source: 'imagery' }],
       },
       center: [initLng, initLat],
-      zoom: data.latitude ? 16 : 6,
+      zoom: initZoom,
     })
     mapRef.current = map
 
@@ -313,32 +324,33 @@ export default function BoundaryDrawTractPage() {
               Boundary Reference
               {imagesLoading && (
                 <span className="ml-2 text-gg-gray-500 normal-case">
-                  (fetching source page…)
-                </span>
-              )}
-              {!imagesLoading && sourceImages.length > 0 && (
-                <span className="ml-2 text-gg-gray-500 normal-case">
-                  ({sourceImages.length} image{sourceImages.length === 1 ? '' : 's'} from source)
+                  (rendering source page, ~10s)…
                 </span>
               )}
             </p>
-            {sourceImages.length === 0 && imagesLoading && (
+            {imagesLoading && !sourceScreenshot && sourceImages.length === 0 && (
               <div className="flex items-center gap-2 text-gg-gray-500 text-sm">
-                <Loader2 className="animate-spin" size={14} /> Loading images…
+                <Loader2 className="animate-spin" size={14} />
+                Fetching source listing…
               </div>
             )}
-            {sourceImages.length === 0 && !imagesLoading && (
+            {!imagesLoading && !sourceScreenshot && sourceImages.length === 0 && (
               <div className="text-xs text-gg-gray-500">
-                No images returned from the source listing. Click the
-                Brochure or Source buttons above to view in a new tab.
+                Could not fetch the source listing. Click the Brochure or
+                Source buttons above to view in a new tab.
               </div>
+            )}
+            {sourceImages.length > 0 && (
+              <p className="text-[11px] text-gg-gray-500 uppercase tracking-wider pt-1">
+                Images ({sourceImages.length})
+              </p>
             )}
             {sourceImages.map((img, i) => (
               <button
                 key={i}
                 onClick={() => setEnlargedImage(img.url)}
                 className="block w-full rounded border border-gg-gray-700 hover:border-gg-gold transition-colors overflow-hidden"
-                title={img.alt || `Source image ${i + 1}`}
+                title={`${img.alt || `Source image ${i + 1}`} — ${img.w}×${img.h}`}
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
@@ -349,8 +361,27 @@ export default function BoundaryDrawTractPage() {
                 />
               </button>
             ))}
+            {sourceScreenshot && (
+              <>
+                <p className="text-[11px] text-gg-gray-500 uppercase tracking-wider pt-1">
+                  Full Page Screenshot
+                </p>
+                <button
+                  onClick={() => setEnlargedImage(`data:image/jpeg;base64,${sourceScreenshot}`)}
+                  className="block w-full rounded border border-gg-gray-700 hover:border-gg-gold transition-colors overflow-hidden"
+                  title="Click to enlarge — full page screenshot"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={`data:image/jpeg;base64,${sourceScreenshot}`}
+                    alt="source page"
+                    className="w-full h-auto"
+                  />
+                </button>
+              </>
+            )}
             {data.description && (
-              <details className="text-xs text-gg-gray-400">
+              <details className="text-xs text-gg-gray-400 pt-2">
                 <summary className="cursor-pointer hover:text-white">
                   Description
                 </summary>
