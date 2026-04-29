@@ -309,18 +309,18 @@ export default function BoundaryDrawPage() {
           </div>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
-          <button onClick={undoLast} disabled={points.length === 0} className="px-3 py-2 bg-gg-gray-800 hover:bg-gg-gray-700 disabled:opacity-40 rounded flex items-center gap-1">
-            <RotateCcw size={16} /> Undo
+          <button onClick={undoLast} disabled={points.length === 0} className="px-3 py-1.5 text-sm bg-gg-gray-800 hover:bg-gg-gray-700 disabled:opacity-40 rounded flex items-center gap-1 whitespace-nowrap">
+            <RotateCcw size={14} /> Undo
           </button>
-          <button onClick={clearAll} disabled={points.length === 0} className="px-3 py-2 bg-gg-gray-800 hover:bg-gg-gray-700 disabled:opacity-40 rounded flex items-center gap-1">
-            <Trash2 size={16} /> Clear
+          <button onClick={clearAll} disabled={points.length === 0} className="px-3 py-1.5 text-sm bg-gg-gray-800 hover:bg-gg-gray-700 disabled:opacity-40 rounded flex items-center gap-1 whitespace-nowrap">
+            <Trash2 size={14} /> Clear
           </button>
-          <button onClick={() => router.back()} className="px-3 py-2 bg-gg-gray-800 hover:bg-gg-gray-700 rounded flex items-center gap-1">
-            <X size={16} /> Cancel
+          <button onClick={() => router.back()} className="px-3 py-1.5 text-sm bg-gg-gray-800 hover:bg-gg-gray-700 rounded flex items-center gap-1 whitespace-nowrap">
+            <X size={14} /> Cancel
           </button>
-          <button onClick={save} disabled={saving || points.length < 3} className="px-4 py-2 bg-gg-gold hover:bg-yellow-500 text-black font-semibold disabled:opacity-40 rounded flex items-center gap-1">
-            {saving ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
-            {saving ? 'Saving...' : 'Save & Re-enrich'}
+          <button onClick={save} disabled={saving || points.length < 3} className="px-4 py-1.5 text-sm bg-yellow-500 hover:bg-yellow-400 text-black font-semibold disabled:opacity-40 disabled:hover:bg-yellow-500 rounded flex items-center gap-1.5 whitespace-nowrap">
+            {saving ? <Loader2 className="animate-spin" size={14} /> : <Save size={14} />}
+            {saving ? 'Saving…' : 'Save'}
           </button>
         </div>
       </div>

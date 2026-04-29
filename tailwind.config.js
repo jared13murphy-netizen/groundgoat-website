@@ -14,6 +14,11 @@ module.exports = {
           dark: '#c563ad',
         },
         'gg-black': '#0a0a0a',
+        'gg-gold': {
+          DEFAULT: '#f5b800',
+          light: '#ffd54f',
+          dark: '#c89200',
+        },
         'gg-gray': {
           900: '#111111',
           800: '#1a1a1a',
