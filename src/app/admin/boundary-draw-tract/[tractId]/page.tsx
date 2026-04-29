@@ -263,56 +263,59 @@ export default function BoundaryDrawTractPage() {
       )}
 
       <div className="flex flex-1 min-h-0">
-        <div className="w-1/3 overflow-y-auto bg-gg-gray-900 border-r border-gg-gray-800 p-4 space-y-4">
-          <div>
-            <h2 className="text-sm font-semibold mb-2 text-gg-gray-300">Source Listing</h2>
+        {/* Left rail — boundary reference. ~30% width. Brochure PDF
+            embedded inline so the operator can scroll its tract maps
+            while drawing on the satellite view to the right. */}
+        <div className="w-[30%] min-w-[280px] flex-shrink-0 flex flex-col bg-gg-gray-900 border-r border-gg-gray-800">
+          <div className="p-3 border-b border-gg-gray-800 flex flex-col gap-1.5 flex-shrink-0">
             {data.source_url && (
               <a href={data.source_url} target="_blank" rel="noreferrer"
-                 className="text-gg-gold text-sm flex items-center gap-1 hover:underline break-all">
-                {data.source_url.slice(0, 80)} <ExternalLink size={12} />
+                 className="px-3 py-2 bg-gg-gray-800 hover:bg-gg-gray-700 rounded text-sm text-gg-gold flex items-center justify-between gap-2 truncate">
+                <span className="truncate">Source listing ↗</span>
+                <ExternalLink size={14} className="flex-shrink-0" />
+              </a>
+            )}
+            {data.brochure_url && (
+              <a href={data.brochure_url} target="_blank" rel="noreferrer"
+                 className="px-3 py-2 bg-gg-gold/20 hover:bg-gg-gold/30 border border-gg-gold/40 rounded text-sm text-gg-gold flex items-center justify-between gap-2 truncate">
+                <span className="truncate">Open brochure (full screen) ↗</span>
+                <ExternalLink size={14} className="flex-shrink-0" />
               </a>
             )}
             {data.company_name && (
-              <p className="text-xs text-gg-gray-400 mt-1">{data.company_name}</p>
+              <p className="text-xs text-gg-gray-500 px-1">{data.company_name}</p>
             )}
           </div>
-          {data.primary_image_base64 && (
-            <div>
-              <h2 className="text-sm font-semibold mb-2 text-gg-gray-300">Listing Image</h2>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={`data:image/png;base64,${data.primary_image_base64}`} alt="primary" className="w-full rounded border border-gg-gray-700" />
+          {data.brochure_url ? (
+            <iframe
+              src={data.brochure_url}
+              title="Brochure"
+              className="flex-1 w-full bg-white"
+              style={{ border: 'none' }}
+            />
+          ) : data.description ? (
+            <div className="flex-1 overflow-y-auto p-3">
+              <p className="text-xs text-gg-gray-400 whitespace-pre-wrap">
+                {data.description}
+              </p>
             </div>
-          )}
-          {!data.primary_image_base64 && data.primary_image_url && (
-            <div>
-              <h2 className="text-sm font-semibold mb-2 text-gg-gray-300">Listing Image</h2>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={data.primary_image_url} alt="primary" className="w-full rounded border border-gg-gray-700" />
-            </div>
-          )}
-          {data.brochure_url && (
-            <div>
-              <h2 className="text-sm font-semibold mb-2 text-gg-gray-300">Brochure</h2>
-              <a href={data.brochure_url} target="_blank" rel="noreferrer"
-                 className="text-gg-gold text-sm flex items-center gap-1 hover:underline">
-                Open brochure <ExternalLink size={12} />
-              </a>
-            </div>
-          )}
-          {data.description && (
-            <div>
-              <h2 className="text-sm font-semibold mb-2 text-gg-gray-300">Description</h2>
-              <p className="text-xs text-gg-gray-400 whitespace-pre-wrap">{data.description.slice(0, 1000)}</p>
+          ) : (
+            <div className="flex-1 flex items-center justify-center text-xs text-gg-gray-500 p-6 text-center">
+              No brochure URL on this listing — open the source listing in
+              a new tab to see the boundary diagram.
             </div>
           )}
         </div>
-        <div className="flex-1 relative">
-          <div ref={containerRef} className="absolute inset-0" />
-          <div className="absolute top-2 left-2 bg-black/70 text-white text-xs px-3 py-2 rounded space-y-1">
-            <div>Click on the map to add boundary points</div>
+        {/* Map — gets the rest of the screen */}
+        <div className="flex-1 min-w-0 relative">
+          <div
+            ref={containerRef}
+            style={{ width: '100%', height: '100%' }}
+          />
+          <div className="absolute top-2 left-2 bg-black/70 text-white text-xs px-3 py-2 rounded space-y-1 pointer-events-none">
+            <div>Click the map to drop a boundary point</div>
             <div>≥ 3 points = closed polygon</div>
             <div>Use Undo / Clear if you mis-click</div>
-            <div>Save when the polygon matches the source diagram</div>
           </div>
         </div>
       </div>
