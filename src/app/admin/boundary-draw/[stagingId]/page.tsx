@@ -88,6 +88,9 @@ export default function BoundaryDrawPage() {
   const [points, setPoints] = useState<Pt[]>([])
   const [saving, setSaving] = useState(false)
   const [saveResult, setSaveResult] = useState<string | null>(null)
+  const [sourceImages, setSourceImages] = useState<{url: string; alt: string}[]>([])
+  const [imagesLoading, setImagesLoading] = useState(false)
+  const [enlargedImage, setEnlargedImage] = useState<string | null>(null)
 
   // Load staging item
   useEffect(() => {
@@ -123,6 +126,26 @@ export default function BoundaryDrawPage() {
     load()
     return () => { cancelled = true }
   }, [stagingId])
+
+  // Scrape every image off the source listing so the operator can see
+  // the actual boundary diagram next to the satellite map.
+  useEffect(() => {
+    const src = staging?.source_url
+    if (!src) return
+    let cancelled = false
+    setImagesLoading(true)
+    fetch(`${SCRAPER_URL}/api/admin/scrape-source-images?url=${encodeURIComponent(src)}`)
+      .then(r => r.json())
+      .then(body => {
+        if (cancelled) return
+        if (body.success && Array.isArray(body.images)) {
+          setSourceImages(body.images)
+        }
+      })
+      .catch(() => {/* ignore */})
+      .finally(() => { if (!cancelled) setImagesLoading(false) })
+    return () => { cancelled = true }
+  }, [staging?.source_url])
 
   // Init map
   useEffect(() => {
@@ -328,37 +351,66 @@ export default function BoundaryDrawPage() {
               </a>
             )}
           </div>
-          {mapImage ? (
-            <div className="flex-1 overflow-y-auto p-3">
-              <p className="text-xs text-gg-gray-400 mb-2 uppercase tracking-wider">
-                Auctioneer Tract Diagram
-              </p>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={`data:image/png;base64,${mapImage}`} alt="diagram"
-                   className="w-full rounded border border-gg-gray-700" />
-            </div>
-          ) : brochureUrl ? (
-            <iframe
-              src={brochureUrl}
-              title="Brochure"
-              className="flex-1 w-full bg-white"
-              style={{ border: 'none' }}
-            />
-          ) : screenshot ? (
-            <div className="flex-1 overflow-y-auto p-3">
-              <p className="text-xs text-gg-gray-400 mb-2 uppercase tracking-wider">
-                Page Screenshot
-              </p>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={`data:image/png;base64,${screenshot}`} alt="screenshot"
-                   className="w-full rounded border border-gg-gray-700" />
-            </div>
-          ) : (
-            <div className="flex-1 flex items-center justify-center text-xs text-gg-gray-500 p-6 text-center">
-              No boundary diagram captured. Open the source listing in a
-              new tab to see the tract layout.
-            </div>
-          )}
+          <div className="flex-1 overflow-y-auto p-3 space-y-3">
+            <p className="text-xs text-gg-gray-400 uppercase tracking-wider">
+              Boundary Reference
+              {imagesLoading && (
+                <span className="ml-2 text-gg-gray-500 normal-case">
+                  (fetching source page…)
+                </span>
+              )}
+              {!imagesLoading && sourceImages.length > 0 && (
+                <span className="ml-2 text-gg-gray-500 normal-case">
+                  ({sourceImages.length} from source)
+                </span>
+              )}
+            </p>
+            {mapImage && (
+              <button
+                onClick={() => setEnlargedImage(`data:image/png;base64,${mapImage}`)}
+                className="block w-full rounded border border-gg-gold/60 hover:border-gg-gold overflow-hidden"
+                title="Auctioneer tract diagram (scraped)"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={`data:image/png;base64,${mapImage}`} alt="auctioneer diagram"
+                     className="w-full h-auto" />
+              </button>
+            )}
+            {sourceImages.length === 0 && imagesLoading && (
+              <div className="flex items-center gap-2 text-gg-gray-500 text-sm">
+                <Loader2 className="animate-spin" size={14} /> Loading images…
+              </div>
+            )}
+            {sourceImages.map((img, i) => (
+              <button
+                key={i}
+                onClick={() => setEnlargedImage(img.url)}
+                className="block w-full rounded border border-gg-gray-700 hover:border-gg-gold transition-colors overflow-hidden"
+                title={img.alt || `Source image ${i + 1}`}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={img.url} alt={img.alt || `Source ${i + 1}`}
+                     className="w-full h-auto" loading="lazy" />
+              </button>
+            ))}
+            {screenshot && sourceImages.length === 0 && (
+              <button
+                onClick={() => setEnlargedImage(`data:image/png;base64,${screenshot}`)}
+                className="block w-full rounded border border-gg-gray-700 hover:border-gg-gold overflow-hidden"
+                title="Page screenshot"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={`data:image/png;base64,${screenshot}`} alt="screenshot"
+                     className="w-full h-auto" />
+              </button>
+            )}
+            {!mapImage && !imagesLoading && sourceImages.length === 0 && !screenshot && (
+              <div className="text-xs text-gg-gray-500">
+                No images found. Open the brochure or source listing in
+                a new tab to see the tract layout.
+              </div>
+            )}
+          </div>
         </div>
         {/* Map — gets the rest of the screen */}
         <div className="flex-1 min-w-0 relative">
@@ -373,6 +425,26 @@ export default function BoundaryDrawPage() {
           </div>
         </div>
       </div>
+      {enlargedImage && (
+        <div
+          className="fixed inset-0 z-[200] bg-black/90 flex items-center justify-center p-6"
+          onClick={() => setEnlargedImage(null)}
+        >
+          <button
+            onClick={() => setEnlargedImage(null)}
+            className="absolute top-4 right-4 text-white hover:text-gg-gold p-2 bg-black/60 rounded-full"
+          >
+            <X size={24} />
+          </button>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={enlargedImage}
+            alt="enlarged"
+            className="max-w-full max-h-full object-contain"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
     </div>
   )
 }

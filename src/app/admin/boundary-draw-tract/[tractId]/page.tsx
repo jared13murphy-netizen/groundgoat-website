@@ -76,6 +76,9 @@ export default function BoundaryDrawTractPage() {
   const [points, setPoints] = useState<Pt[]>([])
   const [saving, setSaving] = useState(false)
   const [saveResult, setSaveResult] = useState<string | null>(null)
+  const [sourceImages, setSourceImages] = useState<{url: string; alt: string}[]>([])
+  const [imagesLoading, setImagesLoading] = useState(false)
+  const [enlargedImage, setEnlargedImage] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -94,6 +97,25 @@ export default function BoundaryDrawTractPage() {
     load()
     return () => { cancelled = true }
   }, [tractId])
+
+  // Once we have the listing's source URL, scrape every image off the
+  // listing page so the operator can see the actual boundary diagram.
+  useEffect(() => {
+    if (!data?.source_url) return
+    let cancelled = false
+    setImagesLoading(true)
+    fetch(`${SCRAPER_URL}/api/admin/scrape-source-images?url=${encodeURIComponent(data.source_url)}`)
+      .then(r => r.json())
+      .then(body => {
+        if (cancelled) return
+        if (body.success && Array.isArray(body.images)) {
+          setSourceImages(body.images)
+        }
+      })
+      .catch(() => {/* ignore */})
+      .finally(() => { if (!cancelled) setImagesLoading(false) })
+    return () => { cancelled = true }
+  }, [data?.source_url])
 
   useEffect(() => {
     if (!containerRef.current || !data) return
@@ -286,25 +308,56 @@ export default function BoundaryDrawTractPage() {
               <p className="text-xs text-gg-gray-500 px-1">{data.company_name}</p>
             )}
           </div>
-          {data.brochure_url ? (
-            <iframe
-              src={data.brochure_url}
-              title="Brochure"
-              className="flex-1 w-full bg-white"
-              style={{ border: 'none' }}
-            />
-          ) : data.description ? (
-            <div className="flex-1 overflow-y-auto p-3">
-              <p className="text-xs text-gg-gray-400 whitespace-pre-wrap">
-                {data.description}
-              </p>
-            </div>
-          ) : (
-            <div className="flex-1 flex items-center justify-center text-xs text-gg-gray-500 p-6 text-center">
-              No brochure URL on this listing — open the source listing in
-              a new tab to see the boundary diagram.
-            </div>
-          )}
+          <div className="flex-1 overflow-y-auto p-3 space-y-3">
+            <p className="text-xs text-gg-gray-400 uppercase tracking-wider">
+              Boundary Reference
+              {imagesLoading && (
+                <span className="ml-2 text-gg-gray-500 normal-case">
+                  (fetching source page…)
+                </span>
+              )}
+              {!imagesLoading && sourceImages.length > 0 && (
+                <span className="ml-2 text-gg-gray-500 normal-case">
+                  ({sourceImages.length} image{sourceImages.length === 1 ? '' : 's'} from source)
+                </span>
+              )}
+            </p>
+            {sourceImages.length === 0 && imagesLoading && (
+              <div className="flex items-center gap-2 text-gg-gray-500 text-sm">
+                <Loader2 className="animate-spin" size={14} /> Loading images…
+              </div>
+            )}
+            {sourceImages.length === 0 && !imagesLoading && (
+              <div className="text-xs text-gg-gray-500">
+                No images returned from the source listing. Click the
+                Brochure or Source buttons above to view in a new tab.
+              </div>
+            )}
+            {sourceImages.map((img, i) => (
+              <button
+                key={i}
+                onClick={() => setEnlargedImage(img.url)}
+                className="block w-full rounded border border-gg-gray-700 hover:border-gg-gold transition-colors overflow-hidden"
+                title={img.alt || `Source image ${i + 1}`}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={img.url}
+                  alt={img.alt || `Source ${i + 1}`}
+                  className="w-full h-auto"
+                  loading="lazy"
+                />
+              </button>
+            ))}
+            {data.description && (
+              <details className="text-xs text-gg-gray-400">
+                <summary className="cursor-pointer hover:text-white">
+                  Description
+                </summary>
+                <p className="whitespace-pre-wrap mt-2">{data.description}</p>
+              </details>
+            )}
+          </div>
         </div>
         {/* Map — gets the rest of the screen */}
         <div className="flex-1 min-w-0 relative">
@@ -319,6 +372,26 @@ export default function BoundaryDrawTractPage() {
           </div>
         </div>
       </div>
+      {enlargedImage && (
+        <div
+          className="fixed inset-0 z-[200] bg-black/90 flex items-center justify-center p-6"
+          onClick={() => setEnlargedImage(null)}
+        >
+          <button
+            onClick={() => setEnlargedImage(null)}
+            className="absolute top-4 right-4 text-white hover:text-gg-gold p-2 bg-black/60 rounded-full"
+          >
+            <X size={24} />
+          </button>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={enlargedImage}
+            alt="enlarged"
+            className="max-w-full max-h-full object-contain"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
     </div>
   )
 }
