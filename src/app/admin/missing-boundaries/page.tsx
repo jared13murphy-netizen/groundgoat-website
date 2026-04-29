@@ -37,6 +37,7 @@ export default function MissingBoundariesPage() {
   const [items, setItems] = useState<Item[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [geocodeStatus, setGeocodeStatus] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -53,6 +54,23 @@ export default function MissingBoundariesPage() {
       }
     }
     load()
+    // Fire-and-forget: ensure every listing on this screen has a
+    // geocoded lat/lng so the boundary editor opens with the map
+    // already centered on the correct township.
+    setGeocodeStatus('Geocoding listings…')
+    fetch(`${SCRAPER_URL}/api/admin/geocode-missing-listings`, { method: 'POST' })
+      .then(r => r.json())
+      .then(body => {
+        if (cancelled) return
+        if (body.success) {
+          setGeocodeStatus(`Geocoded ${body.geocoded}/${body.processed} listings`)
+        } else {
+          setGeocodeStatus(`Geocode failed: ${body.error || 'unknown'}`)
+        }
+      })
+      .catch(e => {
+        if (!cancelled) setGeocodeStatus(`Geocode failed: ${e.message || e}`)
+      })
     return () => { cancelled = true }
   }, [])
 
@@ -80,8 +98,11 @@ export default function MissingBoundariesPage() {
               tool — pick a tract and draw its polygon.
             </p>
           </div>
-          <div className="text-sm text-gg-gray-400">
-            {loading ? '…' : `${items.length} tract${items.length === 1 ? '' : 's'} across ${listingIds.length} listing${listingIds.length === 1 ? '' : 's'}`}
+          <div className="text-sm text-gg-gray-400 text-right">
+            <div>{loading ? '…' : `${items.length} tract${items.length === 1 ? '' : 's'} across ${listingIds.length} listing${listingIds.length === 1 ? '' : 's'}`}</div>
+            {geocodeStatus && (
+              <div className="text-xs text-gg-gray-500 mt-1">{geocodeStatus}</div>
+            )}
           </div>
         </div>
 
