@@ -317,6 +317,12 @@ export default function AdminDashboard() {
                 icon={<MapPin />}
               />
               <QuickActionCard
+                title="Missing Boundaries"
+                description="Hand-draw boundaries for upcoming auction tracts"
+                href="/admin/missing-boundaries"
+                icon={<MapPin />}
+              />
+              <QuickActionCard
                 title="Incomplete Listings"
                 description="Auctions awaiting tract details"
                 href="/admin/incomplete"
