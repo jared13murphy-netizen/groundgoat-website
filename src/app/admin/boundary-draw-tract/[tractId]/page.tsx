@@ -157,18 +157,18 @@ export default function BoundaryDrawTractPage() {
       map.addSource('verts', { type: 'geojson', data: buildVertexGeo([]) })
       map.addLayer({
         id: 'drawn-fill', type: 'fill', source: 'drawn',
-        paint: { 'fill-color': '#FFD700', 'fill-opacity': 0.25 },
+        paint: { 'fill-color': '#f58cde', 'fill-opacity': 0.25 },
         filter: ['==', '$type', 'Polygon'],
       })
       map.addLayer({
         id: 'drawn-line', type: 'line', source: 'drawn',
-        paint: { 'line-color': '#FFD700', 'line-width': 3 },
+        paint: { 'line-color': '#f58cde', 'line-width': 3 },
       })
       map.addLayer({
         id: 'verts', type: 'circle', source: 'verts',
         paint: {
           'circle-radius': 7,
-          'circle-color': '#FFD700',
+          'circle-color': '#f58cde',
           'circle-stroke-width': 2,
           'circle-stroke-color': '#000',
         },
@@ -245,7 +245,7 @@ export default function BoundaryDrawTractPage() {
   if (error || !data) return (
     <div className="min-h-screen bg-gg-gray-950 text-white p-8">
       <p className="text-red-400">{error || 'Tract not found'}</p>
-      <button onClick={() => router.back()} className="mt-4 text-gg-gold underline">Back</button>
+      <button onClick={() => router.back()} className="mt-4 text-gg-pink underline">Back</button>
     </div>
   )
 
@@ -291,7 +291,7 @@ export default function BoundaryDrawTractPage() {
           <button onClick={() => router.push('/admin/missing-boundaries')} className="px-3 py-1.5 text-sm bg-gg-gray-800 hover:bg-gg-gray-700 rounded flex items-center gap-1 whitespace-nowrap">
             <X size={14} /> Cancel
           </button>
-          <button onClick={save} disabled={saving || points.length < 3} className="px-4 py-1.5 text-sm bg-yellow-500 hover:bg-yellow-400 text-black font-semibold disabled:opacity-40 disabled:hover:bg-yellow-500 rounded flex items-center gap-1.5 whitespace-nowrap">
+          <button onClick={save} disabled={saving || points.length < 3} className="px-4 py-1.5 text-sm bg-gg-pink hover:bg-gg-pink-light text-white font-semibold disabled:opacity-40 disabled:hover:bg-gg-pink rounded flex items-center gap-1.5 whitespace-nowrap">
             {saving ? <Loader2 className="animate-spin" size={14} /> : <Save size={14} />}
             {saving ? 'Saving…' : 'Save'}
           </button>
@@ -311,14 +311,14 @@ export default function BoundaryDrawTractPage() {
           <div className="p-3 border-b border-gg-gray-800 flex flex-col gap-1.5 flex-shrink-0">
             {data.source_url && (
               <a href={data.source_url} target="_blank" rel="noreferrer"
-                 className="px-3 py-2 bg-gg-gray-800 hover:bg-gg-gray-700 rounded text-sm text-gg-gold flex items-center justify-between gap-2 truncate">
+                 className="px-3 py-2 bg-gg-gray-800 hover:bg-gg-gray-700 rounded text-sm text-gg-pink flex items-center justify-between gap-2 truncate">
                 <span className="truncate">Source listing ↗</span>
                 <ExternalLink size={14} className="flex-shrink-0" />
               </a>
             )}
             {data.brochure_url && (
               <a href={data.brochure_url} target="_blank" rel="noreferrer"
-                 className="px-3 py-2 bg-gg-gold/20 hover:bg-gg-gold/30 border border-gg-gold/40 rounded text-sm text-gg-gold flex items-center justify-between gap-2 truncate">
+                 className="px-3 py-2 bg-gg-pink/20 hover:bg-gg-pink/30 border border-gg-pink/40 rounded text-sm text-gg-pink flex items-center justify-between gap-2 truncate">
                 <span className="truncate">Open brochure (full screen) ↗</span>
                 <ExternalLink size={14} className="flex-shrink-0" />
               </a>
@@ -357,7 +357,7 @@ export default function BoundaryDrawTractPage() {
               <button
                 key={i}
                 onClick={() => setEnlargedImage(img.url)}
-                className="block w-full rounded border border-gg-gray-700 hover:border-gg-gold transition-colors overflow-hidden"
+                className="block w-full rounded border border-gg-gray-700 hover:border-gg-pink transition-colors overflow-hidden"
                 title={`${img.alt || `Source image ${i + 1}`} — ${img.w}×${img.h}`}
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -376,7 +376,7 @@ export default function BoundaryDrawTractPage() {
                 </p>
                 <button
                   onClick={() => setEnlargedImage(`data:image/jpeg;base64,${sourceScreenshot}`)}
-                  className="block w-full rounded border border-gg-gray-700 hover:border-gg-gold transition-colors overflow-hidden"
+                  className="block w-full rounded border border-gg-gray-700 hover:border-gg-pink transition-colors overflow-hidden"
                   title="Click to enlarge — full page screenshot"
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -418,7 +418,7 @@ export default function BoundaryDrawTractPage() {
         >
           <button
             onClick={() => setEnlargedImage(null)}
-            className="absolute top-4 right-4 text-white hover:text-gg-gold p-2 bg-black/60 rounded-full"
+            className="absolute top-4 right-4 text-white hover:text-gg-pink p-2 bg-black/60 rounded-full"
           >
             <X size={24} />
           </button>

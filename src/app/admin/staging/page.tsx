@@ -1436,7 +1436,7 @@ export default function AdminStagingPage() {
                                         href={`/admin/boundary-draw/${listing.id}?tract=${idx}`}
                                         target="_blank"
                                         rel="noopener noreferrer"
-                                        className="inline-block mt-1.5 px-2 py-0.5 text-[11px] rounded bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-300 border border-yellow-500/40 transition-colors"
+                                        className="inline-block mt-1.5 px-2 py-0.5 text-[11px] rounded bg-gg-pink/20 hover:bg-gg-pink/30 text-gg-pink border border-gg-pink/40 transition-colors"
                                       >
                                         ✏️ Draw Boundary
                                       </a>

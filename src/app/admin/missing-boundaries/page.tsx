@@ -149,7 +149,7 @@ export default function MissingBoundariesPage() {
                           href={head.source_url}
                           target="_blank"
                           rel="noreferrer"
-                          className="text-gg-gold hover:underline flex items-center gap-1"
+                          className="text-gg-pink hover:underline flex items-center gap-1"
                         >
                           Source <ExternalLink size={10} />
                         </a>
@@ -159,7 +159,7 @@ export default function MissingBoundariesPage() {
                           href={head.brochure_url}
                           target="_blank"
                           rel="noreferrer"
-                          className="text-gg-gold hover:underline flex items-center gap-1"
+                          className="text-gg-pink hover:underline flex items-center gap-1"
                         >
                           Brochure <ExternalLink size={10} />
                         </a>
@@ -181,7 +181,7 @@ export default function MissingBoundariesPage() {
                       </div>
                       <Link
                         href={`/admin/boundary-draw-tract/${t.tract_id}`}
-                        className="px-3 py-1.5 text-xs rounded bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-300 border border-yellow-500/40 transition-colors flex items-center gap-1"
+                        className="px-3 py-1.5 text-xs rounded bg-gg-pink/20 hover:bg-gg-pink/30 text-gg-pink border border-gg-pink/40 transition-colors flex items-center gap-1"
                       >
                         ✏️ Draw Boundary
                       </Link>
