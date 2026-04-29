@@ -253,16 +253,22 @@ export default function BoundaryDrawTractPage() {
 
   return (
     <div className="fixed inset-0 z-[100] bg-gg-gray-950 text-white flex flex-col">
-      <div className="border-b border-gg-gray-800 px-4 py-3 flex items-center justify-between bg-gg-gray-900 flex-shrink-0">
-        <div className="flex items-center gap-3">
-          <button onClick={() => router.push('/admin/missing-boundaries')} className="p-2 hover:bg-gg-gray-800 rounded">
+      <div className="border-b border-gg-gray-800 px-4 py-3 flex items-center justify-between bg-gg-gray-900 flex-shrink-0 gap-4">
+        {/* Left: back arrow + title block (truncated so it can't push
+            the action buttons off-screen on long descriptions) */}
+        <div className="flex items-center gap-3 min-w-0 flex-1">
+          <button onClick={() => router.push('/admin/missing-boundaries')} className="p-2 hover:bg-gg-gray-800 rounded flex-shrink-0">
             <ArrowLeft size={20} />
           </button>
-          <div>
-            <h1 className="font-semibold">
-              Draw Boundary — {data.title || 'Listing'} / Tract {data.tract_number ?? '?'}
+          <div className="min-w-0">
+            <h1 className="font-semibold truncate" title={`${data.title || 'Listing'} / Tract ${data.tract_number ?? '?'}`}>
+              Draw Boundary — Tract {data.tract_number ?? '?'}
+              <span className="text-gg-gray-400 font-normal ml-2 truncate">
+                {(data.title || 'Listing').slice(0, 60)}
+                {(data.title || '').length > 60 ? '…' : ''}
+              </span>
             </h1>
-            <p className="text-xs text-gg-gray-400">
+            <p className="text-xs text-gg-gray-400 truncate">
               {data.county || '?'} County, {data.state || '?'}
               {' · '}
               Claimed acres: {data.total_acres ?? '?'}
@@ -273,7 +279,9 @@ export default function BoundaryDrawTractPage() {
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        {/* Right: action buttons. flex-shrink-0 so they NEVER get pushed
+            off the right edge by a long title. */}
+        <div className="flex items-center gap-2 flex-shrink-0">
           <button onClick={undoLast} disabled={points.length === 0} className="px-3 py-2 bg-gg-gray-800 hover:bg-gg-gray-700 disabled:opacity-40 rounded flex items-center gap-1">
             <RotateCcw size={16} /> Undo
           </button>
