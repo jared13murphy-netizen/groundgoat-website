@@ -232,6 +232,22 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
         })()}
       </div>
 
+      {/* Tract satellite image with pink boundary overlay. Only renders
+          when the tract has polygon_coordinates (so we know there's a
+          rendered thumbnail in tracts.image_base64). 480-wide JPEG via
+          the existing /api/tracts/{id}/image resize endpoint. */}
+      {hasBoundaries && (tract.tractId || tract.id) && (
+        <div className="rounded-xl overflow-hidden border border-white/10">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={`${API_URL}/api/tracts/${tract.tractId || tract.id}/image?w=600&q=80`}
+            alt="Tract satellite view with boundary outline"
+            className="w-full h-auto block bg-gg-gray-900"
+            loading="lazy"
+          />
+        </div>
+      )}
+
       {/* Price/Acre highlight */}
       {tract.pricePerAcre ? (
         <div className="bg-gg-pink/10 rounded-xl p-4 border border-gg-pink/20">
