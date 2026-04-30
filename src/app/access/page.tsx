@@ -100,6 +100,12 @@ export default function AccessPortalPage() {
   const handleChatApplyFilters = (filters: Record<string, any>, clearUnspecified: boolean) => {
     setChatAppliedFilters({ filters, clearUnspecified, nonce: Date.now() })
   }
+  // Bumped on every Goat Search submit — kicks off the map's loading
+  // animation BEFORE the chat-filter response comes back, so the user
+  // sees feedback immediately instead of staring at the still map for
+  // ~1-2s while Claude runs.
+  const [chatSearchStartSignal, setChatSearchStartSignal] = useState(0)
+  const handleChatSearchStart = () => setChatSearchStartSignal(Date.now())
   // Comparables mode
   const [resetFiltersSignal, setResetFiltersSignal] = useState(0)
   const [subjectTractId, setSubjectTractId] = useState<string | null>(null)
@@ -485,6 +491,7 @@ export default function AccessPortalPage() {
           subjectTractLocation={subjectTractLocation}
           resetFiltersSignal={resetFiltersSignal}
           applyExternalFilters={chatAppliedFilters}
+          chatSearchStartSignal={chatSearchStartSignal}
           comparableVisibleIds={null}
           neighborParcels={neighborParcels}
           neighborsLoading={neighborsLoading}
@@ -706,6 +713,7 @@ export default function AccessPortalPage() {
       {user?.account_type === 'groundgoat_admin' && (
         <MapChatPanel
           onApplyFilters={handleChatApplyFilters}
+          onSearchStart={handleChatSearchStart}
           hasActiveFilters={
             !!chatAppliedFilters?.filters &&
             Object.keys(chatAppliedFilters.filters).length > 0

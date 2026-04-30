@@ -235,6 +235,11 @@ interface ExploreMapProps {
       current FilterState. Pass a fresh object each call (not just a
       changed property of the same object). */
   applyExternalFilters?: { filters: Partial<FilterState>; clearUnspecified?: boolean; nonce: number } | null
+  /** Bumped externally when the user submits a chat query. Triggers
+      the map's search animation immediately, BEFORE the
+      applyExternalFilters payload arrives (which can take 1-2s for the
+      Claude tool-use call to come back). */
+  chatSearchStartSignal?: number
   comparableVisibleIds?: Set<string> | null
   neighborParcels?: {
     geometry: [number, number][]
@@ -265,7 +270,7 @@ interface ExploreMapProps {
   neighborsLoading?: boolean
 }
 
-export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, comparableVisibleIds, neighborParcels, neighborsLoading }: ExploreMapProps) {
+export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, comparableVisibleIds, neighborParcels, neighborsLoading }: ExploreMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const stateMarkersRef = useRef<maplibregl.Marker[]>([])
@@ -281,6 +286,29 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // before the state's first render) can read it without re-creating.
   const chatSearchingRef = useRef(false)
   useEffect(() => { chatSearchingRef.current = chatSearching }, [chatSearching])
+  // Tracks the moment the animation began so we can enforce a minimum
+  // display time — even very fast searches need to FEEL like something
+  // happened, not flash.
+  const chatSearchStartedAtRef = useRef(0)
+  const CHAT_ANIM_MIN_MS = 900
+  const stopChatSearchingSoon = () => {
+    const elapsed = Date.now() - chatSearchStartedAtRef.current
+    if (elapsed >= CHAT_ANIM_MIN_MS) {
+      setChatSearching(false)
+    } else {
+      setTimeout(() => setChatSearching(false), CHAT_ANIM_MIN_MS - elapsed)
+    }
+  }
+
+  // Start the animation the moment the user submits a chat query —
+  // fires BEFORE the chat-filter response arrives (which can take 1-2s)
+  // so the user sees feedback immediately.
+  useEffect(() => {
+    if (chatSearchStartSignal && chatSearchStartSignal > 0) {
+      chatSearchStartedAtRef.current = Date.now()
+      setChatSearching(true)
+    }
+  }, [chatSearchStartSignal])
   const subjectTractIdRef = useRef<string | null>(null)
   subjectTractIdRef.current = subjectTractId || null
 
@@ -379,7 +407,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const map = mapRef.current
     if (!map) return
 
-    setChatSearching(true)
+    // The user already pressed Send → chatSearchStartSignal fired and
+    // the animation is already up. Just make sure the start time is set
+    // (in case applyExternalFilters fires without a preceding start
+    // signal, e.g. the "Clear search" button).
+    if (!chatSearching) {
+      chatSearchStartedAtRef.current = Date.now()
+      setChatSearching(true)
+    }
 
     // Pick the query bbox without moving the camera. State filter →
     // that state's bounds; otherwise continental US (capture matches
@@ -434,7 +469,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         }
       })
       .catch(e => { if (e.name !== 'AbortError') console.error('chat search load:', e) })
-      .finally(() => { setChatSearching(false) })
+      .finally(() => { stopChatSearchingSoon() })
 
     return () => ac.abort()
   // eslint-disable-next-line react-hooks/exhaustive-deps

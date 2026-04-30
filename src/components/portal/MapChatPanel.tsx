@@ -17,9 +17,13 @@ interface MapChatPanelProps {
   currentFilters?: Record<string, any>
   /** True when filters are non-default — shows a "Clear search" link. */
   hasActiveFilters?: boolean
+  /** Fired the moment the user submits a query. Lifts loading-state up
+      so the map can start its animation overlay BEFORE the chat-filter
+      response comes back. The map handles turning the flag back off. */
+  onSearchStart?: () => void
 }
 
-export default function MapChatPanel({ onApplyFilters, currentFilters, hasActiveFilters }: MapChatPanelProps) {
+export default function MapChatPanel({ onApplyFilters, currentFilters, hasActiveFilters, onSearchStart }: MapChatPanelProps) {
   const [open, setOpen] = useState(false)
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -71,6 +75,9 @@ export default function MapChatPanel({ onApplyFilters, currentFilters, hasActive
     if (!text || loading) return
     setLoading(true)
     setToast(null)
+    // Tell the map to start its loading animation NOW — covers the
+    // chat-filter call AND the subsequent /api/map/tracts call.
+    onSearchStart?.()
     try {
       const res = await fetchWithAuth(`${API_URL}/api/map/chat-filter`, {
         method: 'POST',
