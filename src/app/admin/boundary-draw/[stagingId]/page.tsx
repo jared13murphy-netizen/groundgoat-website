@@ -336,7 +336,61 @@ export default function BoundaryDrawPage() {
             auctioneer tract diagram > brochure PDF (inline) > screenshot.
             Promotional listing photos are dropped — they don't help. */}
         <div className="w-[30%] min-w-[280px] flex-shrink-0 flex flex-col bg-gg-gray-900 border-r border-gg-gray-800">
-          <div className="p-3 border-b border-gg-gray-800 flex flex-col gap-1.5 flex-shrink-0">
+          <div className="p-3 border-b border-gg-gray-800 flex flex-col gap-2 flex-shrink-0">
+            {/* Scraped details — what the scraper already pulled. */}
+            <div className="bg-gg-gray-800/60 rounded p-2.5">
+              <p className="text-[10px] uppercase tracking-wider text-gg-gray-500 mb-1.5">
+                Scraped details
+              </p>
+              <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+                <div>
+                  <span className="text-gg-gray-400">Acres</span>
+                  <div className="text-white font-medium">
+                    {tract.acres != null ? tract.acres : '—'}
+                  </div>
+                </div>
+                <div>
+                  <span className="text-gg-gray-400">Tillable</span>
+                  <div className="text-white font-medium">
+                    {tract.tillable_acres != null ? `${tract.tillable_acres} ac` : '—'}
+                  </div>
+                </div>
+                <div>
+                  <span className="text-gg-gray-400">Land type</span>
+                  <div className="text-gg-pink font-medium">
+                    {tract.land_type || '—'}
+                  </div>
+                </div>
+                <div>
+                  <span className="text-gg-gray-400">NCCPI</span>
+                  <div className="text-cyan-300 font-medium">
+                    {tract.nccpi != null ? tract.nccpi : (tract.soil_rating != null ? tract.soil_rating : '—')}
+                  </div>
+                </div>
+                {(tract.sale_price != null || tract.price_per_acre != null) && (
+                  <>
+                    <div>
+                      <span className="text-gg-gray-400">Sale price</span>
+                      <div className="text-white font-medium">
+                        {tract.sale_price != null ? `$${Number(tract.sale_price).toLocaleString()}` : '—'}
+                      </div>
+                    </div>
+                    <div>
+                      <span className="text-gg-gray-400">$/acre</span>
+                      <div className="text-white font-medium">
+                        {tract.price_per_acre != null ? `$${Number(tract.price_per_acre).toLocaleString()}` : '—'}
+                      </div>
+                    </div>
+                  </>
+                )}
+                <div className="col-span-2">
+                  <span className="text-gg-gray-400">Location</span>
+                  <div className="text-white font-medium">
+                    {tract.county_name || sd.listing?.county || '?'} County, {tract.state_abbr || sd.listing?.state || '?'}
+                  </div>
+                </div>
+              </div>
+            </div>
             {sourceUrl && (
               <a href={sourceUrl} target="_blank" rel="noreferrer"
                  className="px-3 py-2 bg-gg-gray-800 hover:bg-gg-gray-700 rounded text-sm text-gg-pink flex items-center justify-between gap-2 truncate">
@@ -450,6 +504,38 @@ export default function BoundaryDrawPage() {
             <div>≥ 3 points = closed polygon</div>
             <div>Use Undo / Clear if you mis-click</div>
           </div>
+          {/* Live acreage bubble */}
+          {points.length >= 3 && (() => {
+            const claimed = tract.acres != null ? Number(tract.acres) : null
+            const delta = claimed && claimed > 0 ? (computedAcres - claimed) / claimed : null
+            const off = delta != null && Math.abs(delta) > 0.10
+            return (
+              <div className={`absolute top-3 right-3 bg-black/85 backdrop-blur-sm rounded-lg px-4 py-3 shadow-xl pointer-events-none border ${off ? 'border-amber-400/70' : 'border-gg-pink/50'}`}>
+                <div className="text-[10px] uppercase tracking-wider text-gg-gray-400">
+                  Drawn polygon
+                </div>
+                <div className="text-2xl font-semibold text-white leading-tight">
+                  {computedAcres.toFixed(2)}
+                  <span className="text-sm font-normal text-gg-gray-300 ml-1">ac</span>
+                </div>
+                {claimed != null && (
+                  <div className="text-[11px] mt-1 leading-tight">
+                    <div className="text-gg-gray-400">
+                      Claimed: <span className="text-white">{claimed} ac</span>
+                    </div>
+                    <div className={off ? 'text-amber-300 font-medium' : 'text-gg-gray-400'}>
+                      Δ {delta != null && delta >= 0 ? '+' : ''}{delta != null ? (delta * 100).toFixed(1) : '—'}%
+                      {' '}
+                      ({delta != null && delta >= 0 ? '+' : ''}{(computedAcres - claimed).toFixed(2)} ac)
+                    </div>
+                  </div>
+                )}
+                <div className="text-[10px] text-gg-gray-500 mt-1">
+                  {points.length} points
+                </div>
+              </div>
+            )
+          })()}
         </div>
       </div>
       {enlargedImage && (
