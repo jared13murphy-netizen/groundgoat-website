@@ -274,12 +274,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const loadedCellsRef = useRef<Set<string>>(new Set())
   const tractMapRef = useRef<Map<string, ApiMapTract>>(new Map())
-  // After a chat-applied filter triggers a refetch, this ref tells the
-  // tracts-state effect below to fit the camera to the actual returned
-  // results (instead of just the prior viewport / state bounds). The
-  // value is the deadline timestamp — we keep watching tract updates
-  // up to ~3s after the chat fired, then fit to whatever loaded.
-  const fitToResultsUntilRef = useRef<number>(0)
+  // Chat-search: when true, the cell-loader pauses (we run a single
+  // wide query instead) and the chat-search animation overlays the map.
+  const [chatSearching, setChatSearching] = useState(false)
+  // Mirror state in a ref so handleMoveEnd (which is created via useCallback
+  // before the state's first render) can read it without re-creating.
+  const chatSearchingRef = useRef(false)
+  useEffect(() => { chatSearchingRef.current = chatSearching }, [chatSearching])
   const subjectTractIdRef = useRef<string | null>(null)
   subjectTractIdRef.current = subjectTractId || null
 
@@ -354,20 +355,21 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
   }, [resetFiltersSignal])
 
-  // AI chat applied filters: merge into state, auto-fit map to filter
-  // state bounds (so we're looking at the right region), then refetch.
+  // AI chat applied filters: ONE single wide query, no camera moves
+  // up front, then snap-fit to whatever results actually came back.
+  // Replaces the previous "zoom out → cell-load every 0.5° cell → fit"
+  // dance, which fired hundreds of API calls and made the camera lurch
+  // mid-search.
   useEffect(() => {
     if (!applyExternalFilters) return
     const { filters: incoming, clearUnspecified } = applyExternalFilters
 
-    // Compute the next filter state synchronously for the fit calculation
     const base = clearUnspecified ? INITIAL_FILTERS : filtersRef.current
     const nextFilters = { ...base, ...incoming }
-
     setFilters(nextFilters)
     filtersRef.current = nextFilters
 
-    // Drop cached tract cells so the fetch re-runs with the new filters
+    // Clear current tract markers / cache so the new results render fresh
     loadedCellsRef.current = new Set()
     tractMapRef.current = new Map()
     setTracts([])
@@ -377,80 +379,66 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const map = mapRef.current
     if (!map) return
 
-    // Three-step camera dance after a chat applies filters:
-    //   1. Zoom out to a wide enough box to capture all possible matches:
-    //      - if state was set → that state's bounds
-    //      - otherwise → continental US
-    //   2. Cell-load tracts within the wide viewport
-    //   3. Fit-to-results: once tracts have arrived, fit the camera
-    //      tightly to whichever tracts actually came back (the
-    //      `fitToResultsUntilRef` signal triggers the effect below).
+    setChatSearching(true)
+
+    // Pick the query bbox without moving the camera. State filter →
+    // that state's bounds; otherwise continental US (capture matches
+    // anywhere). The user's current viewport is irrelevant — we want
+    // EVERY match, then we'll fit-to-results.
     const stateFit = (incoming as any).stateFilter as string | undefined
+    let qbbox: [[number, number], [number, number]]
     if (stateFit && STATE_BOUNDS[stateFit]) {
-      const [[swLng, swLat], [neLng, neLat]] = STATE_BOUNDS[stateFit]
-      map.fitBounds([[swLng, swLat], [neLng, neLat]], {
-        padding: 60, duration: 900,
-      })
+      qbbox = STATE_BOUNDS[stateFit]
     } else {
-      // No state filter — pull back to continental US so cell-load
-      // can find matches anywhere in the country.
-      map.fitBounds([[-125, 24], [-66, 50]], { padding: 40, duration: 900 })
+      qbbox = [[-125, 24], [-66, 50]]
     }
+    const [[qWest, qSouth], [qEast, qNorth]] = qbbox
 
-    // Tell the tracts-state effect below: for the next 3 seconds, fit
-    // the camera to whatever tracts have arrived. Long enough to wait
-    // for cell loads but short enough that further user pans don't
-    // re-trigger a fit.
-    fitToResultsUntilRef.current = Date.now() + 3000
+    // Single wide-bbox query with the new filter set. limit=2000 caps
+    // any single query — enough for almost any natural-language search.
+    const filterParams = buildFilterParams(nextFilters)
+    const extra = Object.entries(filterParams)
+      .map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&')
+    const url = `${API_URL}/api/map/tracts?min_lat=${qSouth}&max_lat=${qNorth}&min_lng=${qWest}&max_lng=${qEast}&limit=2000${extra ? '&' + extra : ''}`
 
-    // After the wide fit settles, kick off cell loading.
-    setTimeout(() => {
-      const bounds = map.getBounds()
-      const south = bounds.getSouth(), north = bounds.getNorth()
-      const west = bounds.getWest(), east = bounds.getEast()
-      const cellSize = 0.5
-      const startLat = Math.floor(south * 2) / 2
-      const startLng = Math.floor(west * 2) / 2
-      for (let lat = startLat; lat < north; lat += cellSize) {
-        for (let lng = startLng; lng < east; lng += cellSize) {
-          loadTractsForBounds({
-            min_lat: Math.max(lat, south),
-            max_lat: Math.min(lat + cellSize, north),
-            min_lng: Math.max(lng, west),
-            max_lng: Math.min(lng + cellSize, east),
-          })
+    const ac = new AbortController()
+    fetchWithAuth(url, { signal: ac.signal })
+      .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
+      .then((data: MapTractsResponse) => {
+        const result = data.tracts || []
+        // Mark this cell as loaded so the cell-loader doesn't re-fetch it
+        loadedCellsRef.current.add(`chat-search-${Date.now()}`)
+        for (const t of result) {
+          if (t.id) tractMapRef.current.set(t.id, t)
         }
-      }
-    }, 950)
+        setTracts(Array.from(tractMapRef.current.values()))
+
+        // Snap-fit camera to the bounding box of actual results.
+        if (result.length > 0) {
+          const lats: number[] = []
+          const lngs: number[] = []
+          for (const t of result) {
+            if (typeof t.latitude === 'number' && typeof t.longitude === 'number') {
+              lats.push(t.latitude); lngs.push(t.longitude)
+            }
+          }
+          if (lats.length > 0) {
+            let minLat = Math.min(...lats), maxLat = Math.max(...lats)
+            let minLng = Math.min(...lngs), maxLng = Math.max(...lngs)
+            if (minLat === maxLat) { minLat -= 0.05; maxLat += 0.05 }
+            if (minLng === maxLng) { minLng -= 0.05; maxLng += 0.05 }
+            map.fitBounds([[minLng, minLat], [maxLng, maxLat]], {
+              padding: 100, duration: 900, maxZoom: 12,
+            })
+          }
+        }
+      })
+      .catch(e => { if (e.name !== 'AbortError') console.error('chat search load:', e) })
+      .finally(() => { setChatSearching(false) })
+
+    return () => ac.abort()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [applyExternalFilters?.nonce])
-
-  // Fit camera to actual returned tracts after a chat-applied filter.
-  // Watches `tracts` state — every time new tracts arrive within the
-  // 3-second window after a chat fired, recompute their bbox and fit.
-  // We re-fit on every update during the window so as additional cells
-  // come back, the camera incrementally tightens to the true result set.
-  useEffect(() => {
-    if (Date.now() > fitToResultsUntilRef.current) return
-    if (!tracts || tracts.length === 0) return
-    const lats: number[] = []
-    const lngs: number[] = []
-    for (const t of tracts) {
-      if (typeof t.latitude === 'number' && typeof t.longitude === 'number') {
-        lats.push(t.latitude); lngs.push(t.longitude)
-      }
-    }
-    if (lats.length === 0) return
-    let minLat = Math.min(...lats), maxLat = Math.max(...lats)
-    let minLng = Math.min(...lngs), maxLng = Math.max(...lngs)
-    // Single-point degenerate case → tiny padding box
-    if (minLat === maxLat) { minLat -= 0.05; maxLat += 0.05 }
-    if (minLng === maxLng) { minLng -= 0.05; maxLng += 0.05 }
-    mapRef.current?.fitBounds([[minLng, minLat], [maxLng, maxLat]], {
-      padding: 80, duration: 800, maxZoom: 12,
-    })
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tracts])
 
   // Zoom to location from parent (portal mode)
   useEffect(() => {
@@ -691,6 +679,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     debounceTimerRef.current = setTimeout(() => {
       const map = mapRef.current
       if (!map) return
+      // While a chat search is in flight, skip cell loads — the chat
+      // handler does ONE wide query and then snap-fits the camera. The
+      // resulting fitBounds fires moveend, which would otherwise queue
+      // up hundreds of redundant cell loads.
+      if (chatSearchingRef.current) return
       const bounds = map.getBounds()
       const south = bounds.getSouth()
       const north = bounds.getNorth()
@@ -1330,6 +1323,89 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   return (
     <div className="comparables-map-container" style={{ height }}>
       <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+
+      {/* Goat Search animation overlay — renders while a chat-driven
+          search is in flight. Pure visual sugar; pointer-events:none so
+          the map under it stays interactive. No dimming/blur — keeps
+          the map fully visible. */}
+      {chatSearching && (
+        <div
+          style={{
+            position: 'absolute', inset: 0,
+            pointerEvents: 'none', zIndex: 8,
+            overflow: 'hidden',
+          }}
+        >
+          {/* Radar-pulse rings expanding from center */}
+          {[0, 0.6, 1.2].map(delay => (
+            <div
+              key={delay}
+              style={{
+                position: 'absolute',
+                top: '50%', left: '50%',
+                width: 80, height: 80,
+                marginLeft: -40, marginTop: -40,
+                border: '2px solid rgba(245, 140, 222, 0.8)',
+                borderRadius: '50%',
+                animation: 'goatPulse 1.8s ease-out infinite',
+                animationDelay: `${delay}s`,
+                opacity: 0,
+              }}
+            />
+          ))}
+          {/* Sparkles drifting up at random horizontal positions */}
+          {[12, 27, 41, 58, 73, 87].map((leftPct, i) => (
+            <div
+              key={i}
+              style={{
+                position: 'absolute',
+                left: `${leftPct}%`, bottom: -10,
+                width: 6, height: 6,
+                background: 'rgba(245, 140, 222, 0.95)',
+                borderRadius: '50%',
+                boxShadow: '0 0 12px rgba(245, 140, 222, 0.9)',
+                animation: 'goatSparkle 2.2s ease-in infinite',
+                animationDelay: `${i * 0.18}s`,
+                opacity: 0,
+              }}
+            />
+          ))}
+          {/* Centered "Searching the map…" pill */}
+          <div
+            style={{
+              position: 'absolute',
+              top: 24, left: '50%',
+              transform: 'translateX(-50%)',
+              background: 'rgba(0,0,0,0.78)',
+              border: '1px solid rgba(245, 140, 222, 0.45)',
+              padding: '8px 18px',
+              borderRadius: 9999,
+              color: '#fff', fontSize: 13, fontWeight: 600,
+              backdropFilter: 'blur(8px)',
+              filter: 'drop-shadow(0 3px 10px rgba(0,0,0,0.5))',
+              animation: 'goatPillShine 2s ease-in-out infinite',
+            }}
+          >
+            ✨ Searching the map…
+          </div>
+          <style>{`
+            @keyframes goatPulse {
+              0%   { opacity: 0; transform: scale(0.4); }
+              30%  { opacity: 0.9; }
+              100% { opacity: 0; transform: scale(8); }
+            }
+            @keyframes goatSparkle {
+              0%   { opacity: 0; transform: translateY(0) scale(0.5); }
+              30%  { opacity: 1; transform: translateY(-30vh) scale(1); }
+              100% { opacity: 0; transform: translateY(-90vh) scale(0.3); }
+            }
+            @keyframes goatPillShine {
+              0%, 100% { box-shadow: 0 0 0 rgba(245,140,222,0.0); }
+              50%      { box-shadow: 0 0 22px rgba(245,140,222,0.55); }
+            }
+          `}</style>
+        </div>
+      )}
 
       {/* Loading indicator */}
       {loading && (
