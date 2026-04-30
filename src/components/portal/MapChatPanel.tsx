@@ -129,8 +129,8 @@ export default function MapChatPanel({ onApplyFilters, currentFilters }: MapChat
         )}
       </AnimatePresence>
 
-      {/* Morphing pill — collapsed = button, expanded = input. layout
-          prop on the parent makes the height + width animate smoothly. */}
+      {/* Morphing pill — collapsed = pink button, expanded = dark glass
+          input. layout prop on the parent animates width + bg smoothly. */}
       <motion.form
         ref={formRef}
         layout
@@ -141,11 +141,17 @@ export default function MapChatPanel({ onApplyFilters, currentFilters }: MapChat
             : 'auto',
         }}
         transition={{ type: 'spring', damping: 26, stiffness: 280 }}
-        className={`relative bg-black/75 backdrop-blur-xl border border-white/15 hover:border-gg-pink/50 focus-within:border-gg-pink/70 rounded-full shadow-2xl flex items-center transition-colors overflow-hidden ${
-          open ? 'pl-5 pr-1.5 py-1.5' : 'p-0'
+        style={{
+          // Same stacked drop-shadow as the floating logo so the
+          // button reads as a primary CTA and lifts off the map.
+          filter: 'drop-shadow(0 3px 12px rgba(0,0,0,0.7)) drop-shadow(0 1px 4px rgba(0,0,0,0.5))',
+        }}
+        className={`relative rounded-full flex items-center transition-colors overflow-hidden ${
+          open
+            ? 'bg-black/75 backdrop-blur-xl border border-white/15 focus-within:border-gg-pink/70 pl-5 pr-1.5 py-1.5'
+            : 'bg-gg-pink hover:bg-gg-pink-light border border-gg-pink p-0 cursor-pointer'
         }`}
         onClick={(e) => {
-          // When collapsed, clicking anywhere on the button opens the pill
           if (!open) {
             e.preventDefault()
             setOpen(true)
@@ -156,9 +162,9 @@ export default function MapChatPanel({ onApplyFilters, currentFilters }: MapChat
           <button
             type="button"
             onClick={() => setOpen(true)}
-            className="flex items-center gap-2 px-5 py-3 text-sm font-semibold text-white whitespace-nowrap"
+            className="flex items-center gap-2 px-5 py-3 text-sm font-semibold text-black whitespace-nowrap"
           >
-            <Sparkles size={18} className="text-gg-pink" />
+            <Sparkles size={18} className="text-white" />
             Goat Search
           </button>
         )}
