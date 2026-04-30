@@ -98,6 +98,7 @@ export interface SaleDetail {
   polygonCoordinates?: [number, number][] | null
   saleStatus?: string | null
   listingType?: string | null
+  askingPrice?: number | null
   pctTillable?: number | null
   pricePerTillableAcre?: number | null
   pricePerSoilRating?: number | null
@@ -897,8 +898,17 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         markerLat += offset * Math.sin(angle)
       }
 
+      // Display price-per-acre rule: private-treaty (status='listed') and
+      // pending auctions show asking_price/total_acres. Sold tracts show
+      // their recorded price_per_acre. Falls back to whichever is set.
+      const isPrivateTreaty = (tract.listing_type || '').toLowerCase() === 'private_treaty'
+      const isPending = (tract.sale_status || '').toLowerCase() === 'pending'
+      const markerPpa = (isPrivateTreaty || isPending) && tract.asking_price && tract.total_acres
+        ? tract.asking_price / tract.total_acres
+        : tract.price_per_acre
+
       const el = createMarkerElement(
-        tract.price_per_acre,
+        markerPpa,
         tract.total_acres,
         tract.sale_status,
         tract.listing_status
@@ -931,6 +941,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           polygonCoordinates: tract.polygon_coordinates,
           saleStatus: tract.sale_status,
           listingType: tract.listing_type,
+          askingPrice: tract.asking_price,
           pctTillable: tract.pct_tillable,
           pricePerTillableAcre: tract.price_per_tillable_acre,
           pricePerSoilRating: tract.price_per_soil_rating,

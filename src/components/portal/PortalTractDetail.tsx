@@ -25,6 +25,7 @@ export interface TractSaleData {
   polygonCoordinates?: [number, number][] | null
   saleStatus?: string | null
   listingType?: string | null
+  askingPrice?: number | null
   pctTillable?: number | null
   pricePerTillableAcre?: number | null
   pricePerSoilRating?: number | null
@@ -226,12 +227,26 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
           <div className="text-[10px] text-gg-gray-300 uppercase tracking-wider">Acres</div>
           <div className="text-lg font-bold mt-1">{formatAcres(tract.totalAcres)}</div>
         </div>
-        {tract.salePrice ? (
-          <div className="bg-white/[0.03] rounded-xl p-4 border border-white/5">
-            <div className="text-[10px] text-gg-gray-300 uppercase tracking-wider">Sale Price</div>
-            <div className="text-lg font-bold mt-1">{formatCurrency(tract.salePrice)}</div>
-          </div>
-        ) : null}
+        {(() => {
+          const isPT = (tract.listingType || '').toLowerCase() === 'private_treaty'
+          if (tract.salePrice) {
+            return (
+              <div className="bg-white/[0.03] rounded-xl p-4 border border-white/5">
+                <div className="text-[10px] text-gg-gray-300 uppercase tracking-wider">Sale Price</div>
+                <div className="text-lg font-bold mt-1">{formatCurrency(tract.salePrice)}</div>
+              </div>
+            )
+          }
+          if (isPT && tract.askingPrice) {
+            return (
+              <div className="bg-white/[0.03] rounded-xl p-4 border border-white/5">
+                <div className="text-[10px] text-gg-gray-300 uppercase tracking-wider">Asking Price</div>
+                <div className="text-lg font-bold mt-1">{formatCurrency(tract.askingPrice)}</div>
+              </div>
+            )
+          }
+          return null
+        })()}
         {tract.tillableAcres ? (
           <div className="bg-white/[0.03] rounded-xl p-4 border border-white/5">
             <div className="text-[10px] text-gg-gray-300 uppercase tracking-wider">Tillable</div>
@@ -247,29 +262,56 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
       </div>
 
       {/* Detail Rows */}
-      <div className="bg-white/[0.03] rounded-xl border border-white/5 divide-y divide-white/5">
-        <DetailRow label="Date" value={formatAuctionDateTime(tract.auctionDate, tract.state)} />
-        {tract.companyName && <DetailRow label="Listing Company" value={tract.companyName} />}
-        <DetailRow label="County" value={tract.county || '—'} />
-        <DetailRow label="State" value={tract.state || '—'} />
-        <DetailRow label="Township" value={tract.township || '—'} />
-        {tract.pctTillable ? (
-          <DetailRow label="% Tillable" value={`${Math.round(tract.pctTillable)}%`} />
-        ) : null}
-        {tract.tillableAcres && tract.pricePerAcre && tract.totalAcres ? (
-          <DetailRow
-            label="$/Tillable Acre"
-            value={formatCurrency((tract.pricePerAcre * tract.totalAcres) / tract.tillableAcres) + '/ac'}
-            highlight
-          />
-        ) : null}
-        {tract.soilRating && tract.pricePerAcre ? (
-          <DetailRow
-            label="$/Soil Rating"
-            value={formatCurrency(tract.pricePerAcre / tract.soilRating)}
-          />
-        ) : null}
-      </div>
+      {(() => {
+        const isPrivateTreaty = (tract.listingType || '').toLowerCase() === 'private_treaty'
+        const askingPpa = isPrivateTreaty && tract.askingPrice && tract.totalAcres
+          ? tract.askingPrice / tract.totalAcres
+          : null
+        return (
+          <div className="bg-white/[0.03] rounded-xl border border-white/5 divide-y divide-white/5">
+            {/* Auction date — hidden for private treaty (no auction date) */}
+            {!isPrivateTreaty && (
+              <DetailRow label="Date" value={formatAuctionDateTime(tract.auctionDate, tract.state)} />
+            )}
+            {/* Private-treaty asking-price rows replace the Date for PT listings */}
+            {isPrivateTreaty && tract.askingPrice ? (
+              <DetailRow
+                label="Listing Total Price"
+                value={formatCurrency(tract.askingPrice)}
+                highlight
+              />
+            ) : null}
+            {isPrivateTreaty && askingPpa ? (
+              <DetailRow
+                label="Listing Price/Acre"
+                value={formatCurrency(askingPpa) + '/ac'}
+                highlight
+              />
+            ) : null}
+            {tract.companyName && <DetailRow label="Listing Company" value={tract.companyName} />}
+            <DetailRow label="County" value={tract.county || '—'} />
+            <DetailRow label="State" value={tract.state || '—'} />
+            <DetailRow label="Township" value={tract.township || '—'} />
+            {tract.pctTillable ? (
+              <DetailRow label="% Tillable" value={`${Math.round(tract.pctTillable)}%`} />
+            ) : null}
+            {/* $/tillable acre — use askingPpa for PT, else pricePerAcre */}
+            {tract.tillableAcres && tract.totalAcres && (askingPpa || tract.pricePerAcre) ? (
+              <DetailRow
+                label="$/Tillable Acre"
+                value={formatCurrency(((askingPpa || tract.pricePerAcre || 0) * tract.totalAcres) / tract.tillableAcres) + '/ac'}
+                highlight
+              />
+            ) : null}
+            {tract.soilRating && (askingPpa || tract.pricePerAcre) ? (
+              <DetailRow
+                label="$/Soil Rating"
+                value={formatCurrency((askingPpa || tract.pricePerAcre || 0) / tract.soilRating)}
+              />
+            ) : null}
+          </div>
+        )
+      })()}
 
       {/* Soil & Elevation Data (only if tract has boundaries) */}
       {hasBoundaries && soilLoading && (

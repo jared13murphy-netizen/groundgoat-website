@@ -49,9 +49,12 @@ export function buildExplorePointGeoJSON(tracts: ApiMapTract[]): GeoJSON.Feature
       const hasPolygon = poly && poly.length >= 3
       const dataResolution = hasPolygon ? 'polygon' : 'point'
 
-      // For pending, show asking price per acre if available
+      // Private-treaty listings (status=listed) show asking-price/acre.
+      // Pending auctions also fall back to asking_price/acre when set.
+      // Otherwise use the recorded sale_price/acre.
+      const isPrivateTreaty = (t.listing_type || '').toLowerCase() === 'private_treaty'
       const isPending = t.sale_status?.toLowerCase() === 'pending'
-      const displayPricePerAcre = isPending && t.asking_price && t.total_acres
+      const displayPricePerAcre = (isPrivateTreaty || isPending) && t.asking_price && t.total_acres
         ? t.asking_price / t.total_acres
         : t.price_per_acre
 
@@ -68,6 +71,7 @@ export function buildExplorePointGeoJSON(tracts: ApiMapTract[]): GeoJSON.Feature
           tillableAcres: t.tillable_acres,
           salePrice: t.sale_price,
           pricePerAcre: displayPricePerAcre,
+          askingPrice: t.asking_price,
           status: t.sale_status || 'listed',
           dataResolution,
           companyName: t.company_name || 'Unknown',
@@ -100,6 +104,13 @@ export function buildExplorePolygonGeoJSON(tracts: ApiMapTract[]): GeoJSON.Featu
         coords.push([first[0], first[1]])
       }
 
+      // Same display-price-per-acre rule as the point layer
+      const isPrivateTreaty = (t.listing_type || '').toLowerCase() === 'private_treaty'
+      const isPending = t.sale_status?.toLowerCase() === 'pending'
+      const displayPricePerAcre = (isPrivateTreaty || isPending) && t.asking_price && t.total_acres
+        ? t.asking_price / t.total_acres
+        : t.price_per_acre
+
       return {
         type: 'Feature' as const,
         id: t.id,
@@ -112,8 +123,10 @@ export function buildExplorePolygonGeoJSON(tracts: ApiMapTract[]): GeoJSON.Featu
           listingId: t.listing_id,
           status: t.sale_status || 'listed',
           totalAcres: t.total_acres,
-          pricePerAcre: t.price_per_acre,
+          pricePerAcre: displayPricePerAcre,
           salePrice: t.sale_price,
+          askingPrice: t.asking_price,
+          listingType: t.listing_type,
           companyName: t.company_name || 'Unknown',
           county: t.county,
           state: t.state,
