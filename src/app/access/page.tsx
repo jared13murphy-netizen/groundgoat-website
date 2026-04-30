@@ -704,7 +704,14 @@ export default function AccessPortalPage() {
           validated we drop the gating and surface for all signed-in
           subscribers. */}
       {user?.account_type === 'groundgoat_admin' && (
-        <MapChatPanel onApplyFilters={handleChatApplyFilters} />
+        <MapChatPanel
+          onApplyFilters={handleChatApplyFilters}
+          hasActiveFilters={
+            !!chatAppliedFilters?.filters &&
+            Object.keys(chatAppliedFilters.filters).length > 0
+          }
+          currentFilters={chatAppliedFilters?.filters}
+        />
       )}
     </div>
   )

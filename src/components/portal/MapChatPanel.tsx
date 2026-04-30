@@ -15,9 +15,11 @@ interface MapChatPanelProps {
   /** Frontend's current FilterState — sent to the model so it can do
       partial updates ("CSR2 80+" without losing the existing state filter). */
   currentFilters?: Record<string, any>
+  /** True when filters are non-default — shows a "Clear search" link. */
+  hasActiveFilters?: boolean
 }
 
-export default function MapChatPanel({ onApplyFilters, currentFilters }: MapChatPanelProps) {
+export default function MapChatPanel({ onApplyFilters, currentFilters, hasActiveFilters }: MapChatPanelProps) {
   const [open, setOpen] = useState(false)
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -101,8 +103,42 @@ export default function MapChatPanel({ onApplyFilters, currentFilters }: MapChat
   }
 
   return (
+    <>
+      {/* Loading scrim — covers the map with a subtle pink pulse + a
+          centered "Filtering map…" pill while the chat is applying
+          filters. Pointer-events:none so the user can still interact
+          with the chat input but the map sit-tight visually. */}
+      <AnimatePresence>
+        {loading && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="fixed inset-0 z-[535] pointer-events-none flex items-center justify-center"
+          >
+            <motion.div
+              animate={{ opacity: [0.18, 0.32, 0.18] }}
+              transition={{ duration: 1.6, repeat: Infinity }}
+              className="absolute inset-0 bg-gg-pink/15 backdrop-blur-[2px]"
+            />
+            <motion.div
+              animate={{ scale: [0.96, 1.04, 0.96] }}
+              transition={{ duration: 1.4, repeat: Infinity }}
+              className="relative bg-black/85 border border-gg-pink/50 rounded-full px-5 py-3 flex items-center gap-3 shadow-2xl"
+              style={{ filter: 'drop-shadow(0 3px 12px rgba(0,0,0,0.7))' }}
+            >
+              <Sparkles size={18} className="text-gg-pink animate-pulse" />
+              <span className="text-sm font-semibold text-white">
+                Filtering map…
+              </span>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
     <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[540] flex flex-col items-center gap-2">
-      {/* Toast */}
+      {/* Toast + optional Clear-search link */}
       <AnimatePresence>
         {toast && (
           <motion.div
@@ -126,6 +162,27 @@ export default function MapChatPanel({ onApplyFilters, currentFilters }: MapChat
               <X size={12} />
             </button>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Clear search — visible whenever any filter is active. One
+          click reverts the map to the unfiltered default view. */}
+      <AnimatePresence>
+        {hasActiveFilters && !loading && (
+          <motion.button
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 6 }}
+            transition={{ duration: 0.15 }}
+            onClick={() => {
+              onApplyFilters({}, true)
+              setToast({ kind: 'ok', text: 'Filters cleared.' })
+            }}
+            className="px-3 py-1 rounded-full text-[11px] bg-black/70 hover:bg-black/85 text-white border border-white/15 hover:border-gg-pink/50 backdrop-blur-md flex items-center gap-1 transition-colors"
+            style={{ filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.5))' }}
+          >
+            <X size={11} /> Clear search
+          </motion.button>
         )}
       </AnimatePresence>
 
@@ -201,5 +258,6 @@ export default function MapChatPanel({ onApplyFilters, currentFilters }: MapChat
         </motion.button>
       </motion.form>
     </div>
+    </>
   )
 }

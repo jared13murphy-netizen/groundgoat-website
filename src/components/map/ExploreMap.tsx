@@ -303,43 +303,60 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
   }, [resetFiltersSignal])
 
-  // AI chat applied filters: merge into state and refetch.
+  // AI chat applied filters: merge into state, auto-fit map to filter
+  // state bounds (so we're looking at the right region), then refetch.
   useEffect(() => {
     if (!applyExternalFilters) return
     const { filters: incoming, clearUnspecified } = applyExternalFilters
-    setFilters(prev => {
-      const base = clearUnspecified ? INITIAL_FILTERS : prev
-      const next = { ...base, ...incoming }
-      filtersRef.current = next
-      return next
-    })
+
+    // Compute the next filter state synchronously for the fit calculation
+    const base = clearUnspecified ? INITIAL_FILTERS : filtersRef.current
+    const nextFilters = { ...base, ...incoming }
+
+    setFilters(nextFilters)
+    filtersRef.current = nextFilters
+
     // Drop cached tract cells so the fetch re-runs with the new filters
     loadedCellsRef.current = new Set()
     tractMapRef.current = new Map()
     setTracts([])
     tractMarkersRef.current.forEach(m => m.remove())
     tractMarkersRef.current = []
+
     const map = mapRef.current
-    if (map) {
-      setTimeout(() => {
-        const bounds = map.getBounds()
-        const south = bounds.getSouth(), north = bounds.getNorth()
-        const west = bounds.getWest(), east = bounds.getEast()
-        const cellSize = 0.5
-        const startLat = Math.floor(south * 2) / 2
-        const startLng = Math.floor(west * 2) / 2
-        for (let lat = startLat; lat < north; lat += cellSize) {
-          for (let lng = startLng; lng < east; lng += cellSize) {
-            loadTractsForBounds({
-              min_lat: Math.max(lat, south),
-              max_lat: Math.min(lat + cellSize, north),
-              min_lng: Math.max(lng, west),
-              max_lng: Math.min(lng + cellSize, east),
-            })
-          }
-        }
-      }, 100)
+    if (!map) return
+
+    // Auto-fit: if the chat changed the state, fit the map to that
+    // state's bounds first so the cell-load picks up the right viewport.
+    // Otherwise stay at current zoom and reload the visible cells.
+    const stateFit = (incoming as any).stateFilter as string | undefined
+    if (stateFit && STATE_BOUNDS[stateFit]) {
+      const [[swLng, swLat], [neLng, neLat]] = STATE_BOUNDS[stateFit]
+      map.fitBounds([[swLng, swLat], [neLng, neLat]], {
+        padding: 60, duration: 900,
+      })
     }
+
+    // After the (optional) fit settles, load tracts for the visible
+    // cells. Wait long enough that map.getBounds() reflects the fit.
+    setTimeout(() => {
+      const bounds = map.getBounds()
+      const south = bounds.getSouth(), north = bounds.getNorth()
+      const west = bounds.getWest(), east = bounds.getEast()
+      const cellSize = 0.5
+      const startLat = Math.floor(south * 2) / 2
+      const startLng = Math.floor(west * 2) / 2
+      for (let lat = startLat; lat < north; lat += cellSize) {
+        for (let lng = startLng; lng < east; lng += cellSize) {
+          loadTractsForBounds({
+            min_lat: Math.max(lat, south),
+            max_lat: Math.min(lat + cellSize, north),
+            min_lng: Math.max(lng, west),
+            max_lng: Math.min(lng + cellSize, east),
+          })
+        }
+      }
+    }, stateFit && STATE_BOUNDS[stateFit] ? 950 : 100)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [applyExternalFilters?.nonce])
 
