@@ -129,70 +129,76 @@ export default function MapChatPanel({ onApplyFilters, currentFilters }: MapChat
         )}
       </AnimatePresence>
 
-      {/* Morphing pill — collapsed = pink button, expanded = dark glass
-          input. layout prop on the parent animates width + bg smoothly. */}
+      {/* Morphing pill — single consistent layout. Width animates
+          smoothly between two numeric values; padding stays constant
+          so the spring never "catches" mid-animation. Inner content
+          (label vs input + send) crossfades in place. */}
       <motion.form
         ref={formRef}
-        layout
         onSubmit={(e) => { e.preventDefault(); submit(input) }}
         animate={{
           width: open
             ? Math.min(620, typeof window !== 'undefined' ? window.innerWidth - 32 : 620)
-            : 'auto',
+            : 168,
         }}
-        transition={{ type: 'spring', damping: 26, stiffness: 280 }}
+        transition={{ type: 'spring', damping: 28, stiffness: 240 }}
         style={{
-          // Same stacked drop-shadow as the floating logo so the
-          // button reads as a primary CTA and lifts off the map.
           filter: 'drop-shadow(0 3px 12px rgba(0,0,0,0.7)) drop-shadow(0 1px 4px rgba(0,0,0,0.5))',
         }}
-        className={`relative rounded-full flex items-center transition-colors overflow-hidden ${
+        className={`relative rounded-full flex items-center gap-2 pl-5 pr-1.5 py-1.5 overflow-hidden transition-colors duration-300 ${
           open
-            ? 'bg-black/75 backdrop-blur-xl border border-white/15 focus-within:border-gg-pink/70 pl-5 pr-1.5 py-1.5'
-            : 'bg-gg-pink hover:bg-gg-pink-light border border-gg-pink p-0 cursor-pointer'
+            ? 'bg-black/75 backdrop-blur-xl border border-white/15 focus-within:border-gg-pink/70'
+            : 'bg-gg-pink hover:bg-gg-pink-light border border-gg-pink cursor-pointer'
         }`}
-        onClick={(e) => {
-          if (!open) {
-            e.preventDefault()
-            setOpen(true)
-          }
-        }}
+        onClick={!open ? () => setOpen(true) : undefined}
       >
-        {!open && (
-          <button
-            type="button"
-            onClick={() => setOpen(true)}
-            className="flex items-center gap-2 px-5 py-3 text-sm font-semibold text-black whitespace-nowrap"
-          >
-            <Sparkles size={18} className="text-white" />
-            Goat Search
-          </button>
-        )}
+        <Sparkles
+          size={18}
+          className={`flex-shrink-0 transition-colors duration-300 ${
+            open ? 'text-gg-pink' : 'text-white'
+          }`}
+        />
 
-        {open && (
-          <>
-            <Sparkles size={18} className="text-gg-pink flex-shrink-0" />
-            <motion.input
-              ref={inputRef}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.15, duration: 0.15 }}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Ask the map…  e.g. Iowa CSR2 75+ upcoming auctions"
-              disabled={loading}
-              className="flex-1 bg-transparent outline-none text-sm text-white placeholder-gg-gray-400 py-2 px-3 min-w-0"
-            />
-            <button
-              type="submit"
-              disabled={loading || !input.trim()}
-              className="bg-gg-pink hover:bg-gg-pink-light disabled:opacity-40 disabled:hover:bg-gg-pink text-white rounded-full w-9 h-9 flex items-center justify-center transition-colors flex-shrink-0"
-              aria-label="Submit"
-            >
-              {loading ? <Loader2 className="animate-spin" size={16} /> : <Send size={15} />}
-            </button>
-          </>
-        )}
+        {/* Crossfade label vs input. Both rendered, only one visible/
+            interactive at a time. Stays in the same flex slot so the
+            width animation has nothing to fight with. */}
+        <div className="relative flex-1 min-w-0 h-9 flex items-center">
+          <motion.span
+            animate={{ opacity: open ? 0 : 1 }}
+            transition={{ duration: 0.18 }}
+            className="absolute inset-0 flex items-center text-sm font-semibold text-black whitespace-nowrap pointer-events-none"
+          >
+            Goat Search
+          </motion.span>
+          <motion.input
+            ref={inputRef}
+            animate={{ opacity: open ? 1 : 0 }}
+            transition={{ duration: 0.18, delay: open ? 0.12 : 0 }}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Ask the map…  e.g. Iowa CSR2 75+ upcoming auctions"
+            disabled={loading || !open}
+            tabIndex={open ? 0 : -1}
+            className="absolute inset-0 w-full bg-transparent outline-none text-sm text-white placeholder-gg-gray-400 px-1"
+            style={{ pointerEvents: open ? 'auto' : 'none' }}
+          />
+        </div>
+
+        {/* Send button — fades + scales in once expanded */}
+        <motion.button
+          type="submit"
+          animate={{
+            opacity: open ? 1 : 0,
+            scale: open ? 1 : 0.4,
+          }}
+          transition={{ duration: 0.18, delay: open ? 0.15 : 0 }}
+          style={{ pointerEvents: open ? 'auto' : 'none' }}
+          disabled={loading || !input.trim()}
+          aria-label="Submit"
+          className="bg-gg-pink hover:bg-gg-pink-light disabled:opacity-40 disabled:hover:bg-gg-pink text-white rounded-full w-9 h-9 flex items-center justify-center transition-colors flex-shrink-0"
+        >
+          {loading ? <Loader2 className="animate-spin" size={16} /> : <Send size={15} />}
+        </motion.button>
       </motion.form>
     </div>
   )
