@@ -119,6 +119,7 @@ interface FilterState {
   pctTillableMin: string
   pctTillableMax: string
   statuses: string[]
+  landTypes: string[]
 }
 
 const INITIAL_FILTERS: FilterState = {
@@ -133,6 +134,7 @@ const INITIAL_FILTERS: FilterState = {
   pctTillableMin: '',
   pctTillableMax: '',
   statuses: [],
+  landTypes: [],
 }
 
 // States and counties are now built dynamically from loaded tract data
@@ -162,6 +164,7 @@ function buildFilterParams(filters: FilterState) {
   if (filters.acreageMax) params.acreage_max = filters.acreageMax
   if (filters.pctTillableMin) params.pct_tillable_min = filters.pctTillableMin
   if (filters.pctTillableMax) params.pct_tillable_max = filters.pctTillableMax
+  if (filters.landTypes?.length > 0) params.land_types = filters.landTypes.join(',')
   return params
 }
 
@@ -495,7 +498,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     filters.soilRatingMin !== '' || filters.soilRatingMax !== '' ||
     filters.acreageMin !== '' || filters.acreageMax !== '' ||
     filters.pctTillableMin !== '' || filters.pctTillableMax !== '' ||
-    filters.statuses.length > 0
+    filters.statuses.length > 0 ||
+    filters.landTypes.length > 0
 
   const polygonGeoJSON = useMemo(() => buildExplorePolygonGeoJSON(tracts), [tracts])
   const stateAggregates = useMemo(() => buildExploreStateAggregates(tracts), [tracts])

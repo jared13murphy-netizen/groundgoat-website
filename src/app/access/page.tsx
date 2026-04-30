@@ -608,7 +608,7 @@ export default function AccessPortalPage() {
                 isInReport={reportIds.has(selectedTract.id)}
                 onShowNeighbors={setNeighborParcels}
                 onNeighborsLoadingChange={setNeighborsLoading}
-                showNeighborsButton={user?.email === 'jmurphy@groundgoat.com'}
+                showNeighborsButton={user?.account_type === 'groundgoat_admin'}
               />
             </div>
           </motion.div>
