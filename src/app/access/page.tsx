@@ -17,6 +17,7 @@ import PortalListingDetail from '@/components/portal/PortalListingDetail'
 import PortalTractDetail from '@/components/portal/PortalTractDetail'
 import PortalComparablesReportPanel from '@/components/portal/PortalComparablesReportPanel'
 import PortalReportPanel from '@/components/portal/PortalReportPanel'
+import MapChatPanel from '@/components/portal/MapChatPanel'
 import PortalWatchlistPanel from '@/components/portal/PortalWatchlistPanel'
 import type { TractSaleData } from '@/components/portal/PortalTractDetail'
 
@@ -94,6 +95,11 @@ export default function AccessPortalPage() {
   const watchTogglePendingRef = useRef<Set<string>>(new Set())
   // Map zoom state
   const [zoomToLocation, setZoomToLocation] = useState<{ lat: number; lng: number; zoom: number } | null>(null)
+  // AI chat → map filter pipeline (admin only, see render below)
+  const [chatAppliedFilters, setChatAppliedFilters] = useState<{ filters: any; clearUnspecified?: boolean; nonce: number } | null>(null)
+  const handleChatApplyFilters = (filters: Record<string, any>, clearUnspecified: boolean) => {
+    setChatAppliedFilters({ filters, clearUnspecified, nonce: Date.now() })
+  }
   // Comparables mode
   const [resetFiltersSignal, setResetFiltersSignal] = useState(0)
   const [subjectTractId, setSubjectTractId] = useState<string | null>(null)
@@ -478,6 +484,7 @@ export default function AccessPortalPage() {
           subjectTractId={subjectTractId}
           subjectTractLocation={subjectTractLocation}
           resetFiltersSignal={resetFiltersSignal}
+          applyExternalFilters={chatAppliedFilters}
           comparableVisibleIds={null}
           neighborParcels={neighborParcels}
           neighborsLoading={neighborsLoading}
@@ -692,6 +699,13 @@ export default function AccessPortalPage() {
         isOpen={show3DViewer}
         onClose={() => setShow3DViewer(false)}
       />
+
+      {/* AI Map Search — admin only for now (operator pilot). Once
+          validated we drop the gating and surface for all signed-in
+          subscribers. */}
+      {user?.account_type === 'groundgoat_admin' && (
+        <MapChatPanel onApplyFilters={handleChatApplyFilters} />
+      )}
     </div>
   )
 }

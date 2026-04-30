@@ -183,6 +183,10 @@ interface ExploreMapProps {
   subjectTractId?: string | null
   subjectTractLocation?: { lat: number; lng: number } | null
   resetFiltersSignal?: number
+  /** AI chat hook: when this object changes, merge its keys into the
+      current FilterState. Pass a fresh object each call (not just a
+      changed property of the same object). */
+  applyExternalFilters?: { filters: Partial<FilterState>; clearUnspecified?: boolean; nonce: number } | null
   comparableVisibleIds?: Set<string> | null
   neighborParcels?: {
     geometry: [number, number][]
@@ -213,7 +217,7 @@ interface ExploreMapProps {
   neighborsLoading?: boolean
 }
 
-export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, subjectTractId, subjectTractLocation, resetFiltersSignal, comparableVisibleIds, neighborParcels, neighborsLoading }: ExploreMapProps) {
+export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, comparableVisibleIds, neighborParcels, neighborsLoading }: ExploreMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const stateMarkersRef = useRef<maplibregl.Marker[]>([])
@@ -295,6 +299,46 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       }
     }
   }, [resetFiltersSignal])
+
+  // AI chat applied filters: merge into state and refetch.
+  useEffect(() => {
+    if (!applyExternalFilters) return
+    const { filters: incoming, clearUnspecified } = applyExternalFilters
+    setFilters(prev => {
+      const base = clearUnspecified ? INITIAL_FILTERS : prev
+      const next = { ...base, ...incoming }
+      filtersRef.current = next
+      return next
+    })
+    // Drop cached tract cells so the fetch re-runs with the new filters
+    loadedCellsRef.current = new Set()
+    tractMapRef.current = new Map()
+    setTracts([])
+    tractMarkersRef.current.forEach(m => m.remove())
+    tractMarkersRef.current = []
+    const map = mapRef.current
+    if (map) {
+      setTimeout(() => {
+        const bounds = map.getBounds()
+        const south = bounds.getSouth(), north = bounds.getNorth()
+        const west = bounds.getWest(), east = bounds.getEast()
+        const cellSize = 0.5
+        const startLat = Math.floor(south * 2) / 2
+        const startLng = Math.floor(west * 2) / 2
+        for (let lat = startLat; lat < north; lat += cellSize) {
+          for (let lng = startLng; lng < east; lng += cellSize) {
+            loadTractsForBounds({
+              min_lat: Math.max(lat, south),
+              max_lat: Math.min(lat + cellSize, north),
+              min_lng: Math.max(lng, west),
+              max_lng: Math.min(lng + cellSize, east),
+            })
+          }
+        }
+      }, 100)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [applyExternalFilters?.nonce])
 
   // Zoom to location from parent (portal mode)
   useEffect(() => {
