@@ -674,11 +674,14 @@ export default function MyDecImportPage() {
     })
   }
 
-  // Skip (ignore) a staging item
+  // Skip a staging item — uses /reject-and-delete (NOT /ignore) so the
+  // source_url_hash is written to rejected_urls and future scraper runs
+  // skip it. /ignore was the bug that caused 100s of duplicates because
+  // it deleted with no trail.
   const skipItem = async (id: number) => {
     setProcessingIds(prev => new Set(prev).add(id))
     try {
-      const res = await fetchWithAuth(`${API_URL}/api/admin/staging/${id}/ignore`, { method: 'POST' })
+      const res = await fetchWithAuth(`${API_URL}/api/admin/staging/${id}/reject-and-delete`, { method: 'POST' })
       if (res.ok) {
         setItems(prev => prev.filter(item => item.id !== id))
         setTotal(prev => prev - 1)
