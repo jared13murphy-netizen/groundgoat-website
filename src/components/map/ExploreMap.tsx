@@ -120,6 +120,22 @@ interface FilterState {
   pctTillableMax: string
   statuses: string[]
   landTypes: string[]
+  // Chat-driven filters (no UI control yet — surfaced via Goat Search).
+  // Empty string / null / [] means "not set".
+  listingType: string                // 'auction' | 'private_treaty' | ''
+  pricePerAcreMin: string
+  pricePerAcreMax: string
+  salePriceMin: string
+  salePriceMax: string
+  askingPriceMin: string
+  askingPriceMax: string
+  companyName: string
+  buyer: string
+  seller: string
+  hasHouse: boolean | null
+  hasBuildings: boolean | null
+  hasPolygon: boolean | null
+  keyword: string
 }
 
 const INITIAL_FILTERS: FilterState = {
@@ -135,6 +151,20 @@ const INITIAL_FILTERS: FilterState = {
   pctTillableMax: '',
   statuses: [],
   landTypes: [],
+  listingType: '',
+  pricePerAcreMin: '',
+  pricePerAcreMax: '',
+  salePriceMin: '',
+  salePriceMax: '',
+  askingPriceMin: '',
+  askingPriceMax: '',
+  companyName: '',
+  buyer: '',
+  seller: '',
+  hasHouse: null,
+  hasBuildings: null,
+  hasPolygon: null,
+  keyword: '',
 }
 
 // States and counties are now built dynamically from loaded tract data
@@ -165,6 +195,21 @@ function buildFilterParams(filters: FilterState) {
   if (filters.pctTillableMin) params.pct_tillable_min = filters.pctTillableMin
   if (filters.pctTillableMax) params.pct_tillable_max = filters.pctTillableMax
   if (filters.landTypes?.length > 0) params.land_types = filters.landTypes.join(',')
+  // Chat-driven additions
+  if (filters.listingType) params.listing_type = filters.listingType
+  if (filters.pricePerAcreMin) params.price_per_acre_min = filters.pricePerAcreMin
+  if (filters.pricePerAcreMax) params.price_per_acre_max = filters.pricePerAcreMax
+  if (filters.salePriceMin) params.sale_price_min = filters.salePriceMin
+  if (filters.salePriceMax) params.sale_price_max = filters.salePriceMax
+  if (filters.askingPriceMin) params.asking_price_min = filters.askingPriceMin
+  if (filters.askingPriceMax) params.asking_price_max = filters.askingPriceMax
+  if (filters.companyName) params.company_name = filters.companyName
+  if (filters.buyer) params.buyer = filters.buyer
+  if (filters.seller) params.seller = filters.seller
+  if (filters.hasHouse !== null) params.has_house = String(filters.hasHouse)
+  if (filters.hasBuildings !== null) params.has_buildings = String(filters.hasBuildings)
+  if (filters.hasPolygon !== null) params.has_polygon = String(filters.hasPolygon)
+  if (filters.keyword) params.keyword = filters.keyword
   return params
 }
 
@@ -516,7 +561,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     filters.acreageMin !== '' || filters.acreageMax !== '' ||
     filters.pctTillableMin !== '' || filters.pctTillableMax !== '' ||
     filters.statuses.length > 0 ||
-    filters.landTypes.length > 0
+    filters.landTypes.length > 0 ||
+    filters.listingType !== '' ||
+    filters.pricePerAcreMin !== '' || filters.pricePerAcreMax !== '' ||
+    filters.salePriceMin !== '' || filters.salePriceMax !== '' ||
+    filters.askingPriceMin !== '' || filters.askingPriceMax !== '' ||
+    filters.companyName !== '' || filters.buyer !== '' || filters.seller !== '' ||
+    filters.hasHouse !== null || filters.hasBuildings !== null ||
+    filters.hasPolygon !== null || filters.keyword !== ''
 
   const polygonGeoJSON = useMemo(() => buildExplorePolygonGeoJSON(tracts), [tracts])
   const stateAggregates = useMemo(() => buildExploreStateAggregates(tracts), [tracts])
@@ -1637,7 +1689,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                   <input
                     type="number"
                     placeholder="Min"
-                    value={filters[minKey]}
+                    value={filters[minKey] as string}
                     onChange={e => setFilters(f => ({ ...f, [minKey]: e.target.value }))}
                     style={{
                       flex: 1, padding: '8px 12px', borderRadius: 8,
@@ -1650,7 +1702,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                   <input
                     type="number"
                     placeholder="Max"
-                    value={filters[maxKey]}
+                    value={filters[maxKey] as string}
                     onChange={e => setFilters(f => ({ ...f, [maxKey]: e.target.value }))}
                     style={{
                       flex: 1, padding: '8px 12px', borderRadius: 8,
