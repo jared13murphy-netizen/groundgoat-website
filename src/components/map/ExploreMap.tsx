@@ -65,6 +65,42 @@ function getStatusPinZ(status: string | null, isLive: boolean): number {
   return PIN_Z_ORDER[status.toLowerCase()] ?? DEFAULT_PIN_Z
 }
 
+/**
+ * Decide whether a tract returned by the API should actually render on the
+ * map. Used by BOTH the cell-loader (viewport pans/zooms) and the chat-search
+ * wide-query path so the two stay in lock-step.
+ *
+ * Rules in order:
+ *   1. Must have a real polygon (≥3 points). Tracts without boundaries get
+ *      dropped — otherwise we'd render markers at county centroids that look
+ *      like phantom dots that "move" when re-renders shuffle co-located
+ *      offsets.
+ *   2. Auction-style listings whose date is in the past and where no result
+ *      was ever recorded (sale_status is null/'auction'/'listed') are stale —
+ *      hide them. The auction happened; we just don't have an outcome.
+ *   3. With the "upcoming" date filter: hide post-sale statuses
+ *      (sold/pending/no_sale).
+ *   4. Default: show anything with a sale_status, OR a listed/live listing,
+ *      OR a future auction date.
+ */
+function isAcceptableMapTract(t: ApiMapTract, isUpcomingFilter: boolean, now: Date): boolean {
+  if (!t.polygon_coordinates || !Array.isArray(t.polygon_coordinates) || t.polygon_coordinates.length < 3) {
+    return false
+  }
+  const isAuctionListing = t.listing_type === 'auction'
+  const auctionInPast = !!t.auction_date && new Date(t.auction_date as string) < now
+  const unfinalized = !t.sale_status || ['auction', 'listed'].includes(t.sale_status)
+  if (isAuctionListing && auctionInPast && unfinalized) return false
+
+  if (isUpcomingFilter) {
+    const postSaleStatuses = ['sold', 'pending', 'no_sale']
+    return !t.sale_status || !postSaleStatuses.includes(t.sale_status)
+  }
+  const isListed = t.listing_status === 'listed' || t.listing_status === 'live'
+  const hasFutureAuction = !!t.auction_date && new Date(t.auction_date as string) >= now
+  return !!(t.sale_status || isListed || hasFutureAuction)
+}
+
 function formatCurrency(amount: number | null | undefined): string {
   if (!amount) return '—'
   return '$' + Math.round(amount).toLocaleString('en-US')
@@ -277,7 +313,15 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const tractMarkersRef = useRef<maplibregl.Marker[]>([])
   const tractMarkerElementsRef = useRef<Map<string, HTMLDivElement>>(new Map())
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Cells we've FULLY loaded (got all matching tracts back, didn't hit
+  // the per-cell 1000 cap). Future moveends won't re-fetch these.
   const loadedCellsRef = useRef<Set<string>>(new Set())
+  // Cells currently being fetched. Prevents duplicate concurrent
+  // requests when many moveend events overlap. A cell only graduates
+  // into `loadedCellsRef` if its fetch SUCCEEDED and wasn't capped.
+  // Failed / capped fetches drop out of `loadingCellsRef` without
+  // being added to `loadedCellsRef`, so a future moveend can retry.
+  const loadingCellsRef = useRef<Set<string>>(new Set())
   const tractMapRef = useRef<Map<string, ApiMapTract>>(new Map())
   // Chat-search: when true, the cell-loader pauses (we run a single
   // wide query instead) and the chat-search animation overlays the map.
@@ -441,18 +485,53 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
       .then((data: MapTractsResponse) => {
         const result = data.tracts || []
-        // Mark this cell as loaded so the cell-loader doesn't re-fetch it
-        loadedCellsRef.current.add(`chat-search-${Date.now()}`)
+        // Apply the same accept-rules as the cell-loader so the chat path
+        // doesn't accidentally render stale auctions, polygon-less tracts,
+        // or anything else the cell-loader would have hidden. Without this
+        // step, "Clear search" + a continental-US wide query renders
+        // phantom dots from past auctions that vanish on refresh.
+        const isUpcomingFilter = nextFilters.dateRange === 'upcoming'
+        const now = new Date()
+        const accepted: ApiMapTract[] = []
         for (const t of result) {
-          if (t.id) tractMapRef.current.set(t.id, t)
+          if (t.id && isAcceptableMapTract(t, isUpcomingFilter, now)) {
+            tractMapRef.current.set(t.id, t)
+            accepted.push(t)
+          }
         }
         setTracts(Array.from(tractMapRef.current.values()))
 
-        // Snap-fit camera to the bounding box of actual results.
-        if (result.length > 0) {
+        // If the wide query wasn't capped, we have ALL matches — pre-mark
+        // every 0.5° cell inside the queried bbox as loaded so the post-
+        // fitBounds moveend doesn't waste round-trips re-fetching ground
+        // we've already covered. If the query WAS capped (2000 rows),
+        // there could be more matches we didn't see — leave cells
+        // un-cached so the cell-loader can fill them in on demand.
+        const CHAT_LIMIT = 2000
+        if (result.length < CHAT_LIMIT) {
+          const r = (v: number) => Math.round(v * 2) / 2
+          const cellSize = 0.5
+          const startLat = Math.floor(qSouth * 2) / 2
+          const startLng = Math.floor(qWest * 2) / 2
+          for (let lat = startLat; lat < qNorth; lat += cellSize) {
+            for (let lng = startLng; lng < qEast; lng += cellSize) {
+              const minLat = Math.max(lat, qSouth)
+              const maxLat = Math.min(lat + cellSize, qNorth)
+              const minLng = Math.max(lng, qWest)
+              const maxLng = Math.min(lng + cellSize, qEast)
+              const gridKey = `${r(minLat)},${r(minLng)},${r(maxLat)},${r(maxLng)}`
+              loadedCellsRef.current.add(gridKey)
+            }
+          }
+        }
+
+        // Snap-fit camera to the bounding box of actual ACCEPTED results
+        // (not raw API rows — those can include polygon-less tracts whose
+        // lat/lng would skew the bbox).
+        if (accepted.length > 0) {
           const lats: number[] = []
           const lngs: number[] = []
-          for (const t of result) {
+          for (const t of accepted) {
             if (typeof t.latitude === 'number' && typeof t.longitude === 'number') {
               lats.push(t.latitude); lngs.push(t.longitude)
             }
@@ -644,6 +723,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const stateAggregates = useMemo(() => buildExploreStateAggregates(tracts), [tracts])
 
   // Load tracts for a bounding box
+  const CELL_LIMIT = 1000
   const loadTractsForBounds = useCallback(async (bounds: {
     min_lat: number; max_lat: number; min_lng: number; max_lng: number
   }) => {
@@ -652,9 +732,18 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // Use precise bounds rounded to 0.5 degrees for cache keys
     const r = (v: number) => Math.round(v * 2) / 2
     const gridKey = `${r(min_lat)},${r(min_lng)},${r(max_lat)},${r(max_lng)}`
+    // Already loaded with a complete (non-capped) result — skip.
     if (loadedCellsRef.current.has(gridKey)) return
-    loadedCellsRef.current.add(gridKey)
+    // Already in flight — skip duplicate concurrent fetch.
+    if (loadingCellsRef.current.has(gridKey)) return
+    loadingCellsRef.current.add(gridKey)
 
+    // Did this fetch return a complete result? Only then do we mark the
+    // cell as fully loaded. Failed fetches and capped results stay
+    // un-cached so future moveends can retry. Without this, a transient
+    // network error or a dense cell that hits the limit silently leaves
+    // a region permanently empty on the map.
+    let cellComplete = false
     try {
       setLoading(true)
       const filterParams = buildFilterParams(filtersRef.current)
@@ -663,47 +752,31 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         filterParams.sale_status = 'sold'
       }
       const extraParams = Object.entries(filterParams).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&')
-      const url = `${API_URL}/api/map/tracts?min_lat=${min_lat}&max_lat=${max_lat}&min_lng=${min_lng}&max_lng=${max_lng}&limit=1000${extraParams ? '&' + extraParams : ''}`
+      const url = `${API_URL}/api/map/tracts?min_lat=${min_lat}&max_lat=${max_lat}&min_lng=${min_lng}&max_lng=${max_lng}&limit=${CELL_LIMIT}${extraParams ? '&' + extraParams : ''}`
       const response = await fetchWithAuth(url)
       if (response.ok) {
         const data: MapTractsResponse = await response.json()
         if (data.tracts) {
+          // Cap detection: if we got exactly CELL_LIMIT rows, the bbox
+          // probably has more matches we didn't see. Keep the cell
+          // un-cached so a deeper zoom can re-query and pick them up.
+          cellComplete = data.tracts.length < CELL_LIMIT
           const isUpcomingFilter = filtersRef.current.dateRange === 'upcoming'
           const now = new Date()
-          data.tracts.forEach(t => {
-            // Only show tracts that have boundary data
-            if (!t.polygon_coordinates || !Array.isArray(t.polygon_coordinates) || t.polygon_coordinates.length < 3) return
-
-            // Hide past-date auction tracts that haven't been marked sold/pending/no_sale.
-            // The auction happened but no result was entered — don't show on map.
-            const isAuctionListing = t.listing_type === 'auction'
-            const auctionInPast = !!t.auction_date && new Date(t.auction_date as string) < now
-            const unfinalized = !t.sale_status || ['auction', 'listed'].includes(t.sale_status)
-            if (isAuctionListing && auctionInPast && unfinalized) {
-              return  // Skip: stale auction
+          for (const t of data.tracts) {
+            if (isAcceptableMapTract(t, isUpcomingFilter, now)) {
+              tractMapRef.current.set(t.id, t)
             }
-
-            if (isUpcomingFilter) {
-              // Upcoming: show tracts that are NOT sold, pending, or no_sale
-              const postSaleStatuses = ['sold', 'pending', 'no_sale']
-              if (!t.sale_status || !postSaleStatuses.includes(t.sale_status)) {
-                tractMapRef.current.set(t.id, t)
-              }
-            } else {
-              // Show tracts with a sale_status, OR listed/live auctions (null sale_status but have listing_status or future date)
-              const isListed = t.listing_status === 'listed' || t.listing_status === 'live'
-              const hasFutureAuction = t.auction_date && new Date(t.auction_date) >= now
-              if (t.sale_status || isListed || hasFutureAuction) {
-                tractMapRef.current.set(t.id, t)
-              }
-            }
-          })
+          }
           setTracts(Array.from(tractMapRef.current.values()))
         }
       }
     } catch (err) {
       console.error('Failed to load map tracts:', err)
+      // cellComplete stays false → cell will retry on next moveend.
     } finally {
+      loadingCellsRef.current.delete(gridKey)
+      if (cellComplete) loadedCellsRef.current.add(gridKey)
       setLoading(false)
     }
   }, [])
