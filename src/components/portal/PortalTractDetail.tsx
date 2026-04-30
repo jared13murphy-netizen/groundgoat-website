@@ -29,6 +29,8 @@ export interface TractSaleData {
   pctTillable?: number | null
   pricePerTillableAcre?: number | null
   pricePerSoilRating?: number | null
+  landType?: string | null
+  landTypes?: string[] | null
 }
 
 interface SoilData {
@@ -208,9 +210,26 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
         <p className="text-xs text-gg-gray-400 mt-0.5">{tract.county}, {tract.state}</p>
       </div>
 
-      {/* Status badge */}
-      <div className={`inline-flex px-3 py-1 rounded-full text-xs font-semibold border ${STATUS_COLORS[statusKey] || 'bg-gray-500/15 text-gray-400 border-gray-500/30'}`}>
-        {getStatusLabel(tract.saleStatus)}
+      {/* Status + land-type badges. Multi-badge: every land_type the
+          tract qualifies for shows up — a 50/50 farm-and-trees parcel
+          shows BOTH Farm and Recreational. */}
+      <div className="flex flex-wrap gap-2 items-center">
+        <div className={`inline-flex px-3 py-1 rounded-full text-xs font-semibold border ${STATUS_COLORS[statusKey] || 'bg-gray-500/15 text-gray-400 border-gray-500/30'}`}>
+          {getStatusLabel(tract.saleStatus)}
+        </div>
+        {(() => {
+          const types = (tract.landTypes && tract.landTypes.length > 0)
+            ? Array.from(new Set([
+                ...(tract.landType ? [tract.landType] : []),
+                ...tract.landTypes,
+              ]))
+            : (tract.landType ? [tract.landType] : [])
+          return types.map(lt => (
+            <span key={lt} className="inline-flex px-3 py-1 rounded-full text-xs font-semibold border bg-gg-pink/15 text-gg-pink border-gg-pink/30">
+              {lt}
+            </span>
+          ))
+        })()}
       </div>
 
       {/* Price/Acre highlight */}

@@ -99,6 +99,8 @@ export interface SaleDetail {
   saleStatus?: string | null
   listingType?: string | null
   askingPrice?: number | null
+  landType?: string | null
+  landTypes?: string[] | null
   pctTillable?: number | null
   pricePerTillableAcre?: number | null
   pricePerSoilRating?: number | null
@@ -942,6 +944,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           saleStatus: tract.sale_status,
           listingType: tract.listing_type,
           askingPrice: tract.asking_price,
+          landType: tract.land_type,
+          landTypes: tract.land_types,
           pctTillable: tract.pct_tillable,
           pricePerTillableAcre: tract.price_per_tillable_acre,
           pricePerSoilRating: tract.price_per_soil_rating,

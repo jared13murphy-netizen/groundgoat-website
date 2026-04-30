@@ -1425,9 +1425,17 @@ export default function AdminStagingPage() {
                                           {Number(tract.latitude).toFixed(4)}, {Number(tract.longitude).toFixed(4)}
                                         </span>
                                       )}
-                                      {tract.land_type && (
-                                        <span className="text-gg-pink">{tract.land_type}</span>
-                                      )}
+                                      {(() => {
+                                        const types = (Array.isArray(tract.land_types) && tract.land_types.length > 0)
+                                          ? Array.from(new Set([
+                                              ...(tract.land_type ? [tract.land_type] : []),
+                                              ...tract.land_types,
+                                            ]))
+                                          : (tract.land_type ? [tract.land_type] : [])
+                                        return types.length > 0 ? (
+                                          <span className="text-gg-pink">{types.join(' · ')}</span>
+                                        ) : null
+                                      })()}
                                       {tract.has_house && <span className="text-blue-400">House</span>}
                                       {tract.has_building && <span className="text-amber-400">Building</span>}
                                     </div>

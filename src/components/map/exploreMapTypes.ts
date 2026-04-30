@@ -22,6 +22,8 @@ export interface ApiMapTract {
   company_name: string | null
   listing_status: string | null
   source_url: string | null
+  land_type: string | null
+  land_types: string[] | null
 }
 
 export interface MapTractsResponse {

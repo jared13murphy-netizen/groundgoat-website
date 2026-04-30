@@ -24,6 +24,7 @@ interface Tract {
   tillable_acres?: number
   soil_rating?: number
   land_type?: string
+  land_types?: string[]
   sale_status?: string
   sale_price?: number
   estimated_value_per_acre?: number
@@ -414,12 +415,23 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
                     <span className="text-white font-semibold">
                       Tract {tract.tract_number || index + 1}
                     </span>
-                    <div className="flex items-center gap-2">
-                      {tract.land_type && (
-                        <span className={`px-2 py-1 rounded-full text-xs font-semibold text-white ${LAND_TYPE_COLORS[tract.land_type] || 'bg-gg-pink'}`}>
-                          {tract.land_type}
-                        </span>
-                      )}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {/* Multi-badge: every applicable land type, primary
+                          (singular land_type) listed first when both
+                          arrays + singular are present. */}
+                      {(() => {
+                        const types = (tract.land_types && tract.land_types.length > 0)
+                          ? Array.from(new Set([
+                              ...(tract.land_type ? [tract.land_type] : []),
+                              ...tract.land_types,
+                            ]))
+                          : (tract.land_type ? [tract.land_type] : [])
+                        return types.map(lt => (
+                          <span key={lt} className={`px-2 py-1 rounded-full text-xs font-semibold text-white ${LAND_TYPE_COLORS[lt] || 'bg-gg-pink'}`}>
+                            {lt}
+                          </span>
+                        ))
+                      })()}
                       {tract.sale_status && ['sold', 'no_sale', 'pending'].includes(tract.sale_status.toLowerCase()) && (
                         <span className={`px-2 py-1 rounded-full text-xs font-semibold text-white ${getStatusColor(tract.sale_status.toLowerCase())}`}>
                           {getStatusLabel(tract.sale_status.toLowerCase())}
