@@ -998,61 +998,113 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     if (!map || !mapLoaded) return
 
     // Remove existing neighbor layers/source
+    if (map.getLayer('neighbor-polygon-label')) map.removeLayer('neighbor-polygon-label')
     if (map.getLayer('neighbor-polygon-fill')) map.removeLayer('neighbor-polygon-fill')
     if (map.getLayer('neighbor-polygon-line')) map.removeLayer('neighbor-polygon-line')
     if (map.getSource('neighbor-parcels')) map.removeSource('neighbor-parcels')
 
     if (!neighborParcels || neighborParcels.length === 0) return
 
-    // Build GeoJSON FeatureCollection. Only the 4 fields we actually render
-    // are encoded into properties — keeps the popup logic simple. Extra API
-    // fields can be piped in here when we re-enable more rows later.
-    const features = neighborParcels.map((p, i) => ({
-      type: 'Feature' as const,
-      properties: {
-        owner: p.owner || 'Unknown',
-        acres: p.acres ? p.acres.toFixed(1) : '',
-        county: p.county || '',
-        state: p.state || '',
-        township: p.township || '',
-        source: p.source || '',
-        index: i,
-      },
-      geometry: {
-        type: 'Polygon' as const,
-        coordinates: [p.geometry],
-      },
-    }))
+    // Build GeoJSON FeatureCollection. The `label` property is a pre-built
+    // two-line string ("Owner Name\n42.0 ac") so the symbol layer can drop
+    // it straight onto the centroid without any runtime concat.
+    const features = neighborParcels.map((p, i) => {
+      const acresStr = p.acres ? `${p.acres.toFixed(1)} ac` : ''
+      const ownerStr = (p.owner || 'Unknown').trim()
+      const label = acresStr ? `${ownerStr}\n${acresStr}` : ownerStr
+      return {
+        type: 'Feature' as const,
+        properties: {
+          owner: ownerStr,
+          acres: p.acres ? p.acres.toFixed(1) : '',
+          label,
+          county: p.county || '',
+          state: p.state || '',
+          township: p.township || '',
+          source: p.source || '',
+          index: i,
+        },
+        geometry: {
+          type: 'Polygon' as const,
+          coordinates: [p.geometry],
+        },
+      }
+    })
 
     map.addSource('neighbor-parcels', {
       type: 'geojson',
       data: { type: 'FeatureCollection', features },
     })
 
+    // Fill: ambient 8% so the parcel grid reads at a glance, but light
+    // enough that the imagery still shines through. Hover bumps to brand
+    // pink at 25% so the active parcel "lights up" against the blue.
     map.addLayer({
       id: 'neighbor-polygon-fill',
       type: 'fill',
       source: 'neighbor-parcels',
       paint: {
-        'fill-color': '#3B82F6',
+        'fill-color': [
+          'case',
+          ['boolean', ['feature-state', 'hover'], false],
+          '#E91E8C',
+          '#60A5FA',
+        ],
         'fill-opacity': [
           'case',
           ['boolean', ['feature-state', 'hover'], false],
-          0.3,
-          0.12,
+          0.25,
+          0.08,
         ],
       },
     })
 
+    // Outline: solid (not dashed — dashes read as "tentative"). Lighter
+    // blue-400 so it sits comfortably on green/brown aerial without
+    // tinting the whole scene cyan.
     map.addLayer({
       id: 'neighbor-polygon-line',
       type: 'line',
       source: 'neighbor-parcels',
       paint: {
-        'line-color': '#3B82F6',
+        'line-color': '#60A5FA',
         'line-width': 1.5,
-        'line-opacity': 0.7,
-        'line-dasharray': [3, 2],
+        'line-opacity': 0.85,
+      },
+    })
+
+    // Always-on owner + acres label. MapLibre auto-places the label at
+    // the polygon's pole-of-inaccessibility (most-interior point), which
+    // beats the geometric centroid for L- and U-shaped parcels.
+    // `text-allow-overlap: false` lets MapLibre drop labels that would
+    // collide so the map stays readable when zoomed out. Min zoom 11 so
+    // we don't paint a wall of names at the lowest zoom levels.
+    map.addLayer({
+      id: 'neighbor-polygon-label',
+      type: 'symbol',
+      source: 'neighbor-parcels',
+      minzoom: 11,
+      layout: {
+        'text-field': ['get', 'label'],
+        'text-font': ['Open Sans Regular'],
+        'text-size': [
+          'interpolate', ['linear'], ['zoom'],
+          11, 10,
+          14, 12,
+          17, 14,
+        ],
+        'text-anchor': 'center',
+        'text-justify': 'center',
+        'text-max-width': 9,
+        'text-allow-overlap': false,
+        'text-ignore-placement': false,
+        'text-padding': 2,
+      },
+      paint: {
+        'text-color': '#ffffff',
+        'text-halo-color': 'rgba(0,0,0,0.85)',
+        'text-halo-width': 1.4,
+        'text-halo-blur': 0.4,
       },
     })
 
