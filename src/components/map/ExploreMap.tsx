@@ -274,6 +274,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const loadedCellsRef = useRef<Set<string>>(new Set())
   const tractMapRef = useRef<Map<string, ApiMapTract>>(new Map())
+  // After a chat-applied filter triggers a refetch, this ref tells the
+  // tracts-state effect below to fit the camera to the actual returned
+  // results (instead of just the prior viewport / state bounds). The
+  // value is the deadline timestamp — we keep watching tract updates
+  // up to ~3s after the chat fired, then fit to whatever loaded.
+  const fitToResultsUntilRef = useRef<number>(0)
   const subjectTractIdRef = useRef<string | null>(null)
   subjectTractIdRef.current = subjectTractId || null
 
@@ -371,19 +377,33 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const map = mapRef.current
     if (!map) return
 
-    // Auto-fit: if the chat changed the state, fit the map to that
-    // state's bounds first so the cell-load picks up the right viewport.
-    // Otherwise stay at current zoom and reload the visible cells.
+    // Three-step camera dance after a chat applies filters:
+    //   1. Zoom out to a wide enough box to capture all possible matches:
+    //      - if state was set → that state's bounds
+    //      - otherwise → continental US
+    //   2. Cell-load tracts within the wide viewport
+    //   3. Fit-to-results: once tracts have arrived, fit the camera
+    //      tightly to whichever tracts actually came back (the
+    //      `fitToResultsUntilRef` signal triggers the effect below).
     const stateFit = (incoming as any).stateFilter as string | undefined
     if (stateFit && STATE_BOUNDS[stateFit]) {
       const [[swLng, swLat], [neLng, neLat]] = STATE_BOUNDS[stateFit]
       map.fitBounds([[swLng, swLat], [neLng, neLat]], {
         padding: 60, duration: 900,
       })
+    } else {
+      // No state filter — pull back to continental US so cell-load
+      // can find matches anywhere in the country.
+      map.fitBounds([[-125, 24], [-66, 50]], { padding: 40, duration: 900 })
     }
 
-    // After the (optional) fit settles, load tracts for the visible
-    // cells. Wait long enough that map.getBounds() reflects the fit.
+    // Tell the tracts-state effect below: for the next 3 seconds, fit
+    // the camera to whatever tracts have arrived. Long enough to wait
+    // for cell loads but short enough that further user pans don't
+    // re-trigger a fit.
+    fitToResultsUntilRef.current = Date.now() + 3000
+
+    // After the wide fit settles, kick off cell loading.
     setTimeout(() => {
       const bounds = map.getBounds()
       const south = bounds.getSouth(), north = bounds.getNorth()
@@ -401,9 +421,36 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           })
         }
       }
-    }, stateFit && STATE_BOUNDS[stateFit] ? 950 : 100)
+    }, 950)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [applyExternalFilters?.nonce])
+
+  // Fit camera to actual returned tracts after a chat-applied filter.
+  // Watches `tracts` state — every time new tracts arrive within the
+  // 3-second window after a chat fired, recompute their bbox and fit.
+  // We re-fit on every update during the window so as additional cells
+  // come back, the camera incrementally tightens to the true result set.
+  useEffect(() => {
+    if (Date.now() > fitToResultsUntilRef.current) return
+    if (!tracts || tracts.length === 0) return
+    const lats: number[] = []
+    const lngs: number[] = []
+    for (const t of tracts) {
+      if (typeof t.latitude === 'number' && typeof t.longitude === 'number') {
+        lats.push(t.latitude); lngs.push(t.longitude)
+      }
+    }
+    if (lats.length === 0) return
+    let minLat = Math.min(...lats), maxLat = Math.max(...lats)
+    let minLng = Math.min(...lngs), maxLng = Math.max(...lngs)
+    // Single-point degenerate case → tiny padding box
+    if (minLat === maxLat) { minLat -= 0.05; maxLat += 0.05 }
+    if (minLng === maxLng) { minLng -= 0.05; maxLng += 0.05 }
+    mapRef.current?.fitBounds([[minLng, minLat], [maxLng, maxLat]], {
+      padding: 80, duration: 800, maxZoom: 12,
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tracts])
 
   // Zoom to location from parent (portal mode)
   useEffect(() => {
