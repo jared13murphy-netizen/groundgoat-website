@@ -81,6 +81,8 @@ export default function UploadBoundaryTractPage() {
     notes?: string
     tract_label_matched?: string | null
     projection_method?: 'auction_image_georeference' | 'reference_satellite_match' | null
+    polygon_source?: 'opencv_color_extraction' | 'vision_polygon' | null
+    boundary_color?: string | null
     boundary_center_from_image?: [number, number] | null
   } | null>(null)
 
@@ -211,6 +213,8 @@ export default function UploadBoundaryTractPage() {
         notes: body.vision_notes,
         tract_label_matched: body.tract_label_matched,
         projection_method: body.projection_method,
+        polygon_source: body.polygon_source,
+        boundary_color: body.boundary_color,
         boundary_center_from_image: body.boundary_center_from_image,
       })
       setStatusMsg(null)
@@ -399,6 +403,16 @@ export default function UploadBoundaryTractPage() {
                     {extractMeta.projection_method === 'auction_image_georeference'
                       ? 'image georeference (most accurate)'
                       : 'satellite landmark match'}
+                  </span>
+                </div>
+              )}
+              {extractMeta.polygon_source && (
+                <div className="flex items-center justify-between">
+                  <span className="text-gg-gray-400">Polygon shape from</span>
+                  <span className={extractMeta.polygon_source === 'opencv_color_extraction' ? 'text-emerald-400' : 'text-amber-400'}>
+                    {extractMeta.polygon_source === 'opencv_color_extraction'
+                      ? `OpenCV color trace (${extractMeta.boundary_color || 'detected color'})`
+                      : 'Vision vertex estimate'}
                   </span>
                 </div>
               )}
