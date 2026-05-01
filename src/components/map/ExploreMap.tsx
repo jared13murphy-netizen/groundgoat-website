@@ -383,6 +383,61 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const [filterOpen, setFilterOpenInternal] = useState(false)
   const filtersRef = useRef<FilterState>(INITIAL_FILTERS)
 
+  // Admin parcel-overlay state. Lights up the map with every parcel
+  // (boundary + owner + acres) sourced from free state GIS clearinghouses
+  // (Wisconsin V11, Indiana Data Harvest, etc.). Visible only to
+  // groundgoat_admin users; the toggle button only appears when
+  // currentZoom >= ADMIN_PARCEL_MIN_ZOOM so we never paint a wall of
+  // names at low zoom.
+  const ADMIN_PARCEL_MIN_ZOOM = 13
+  type AdminParcelFeature = {
+    id: number
+    parcel_id: string | null
+    county: string | null
+    owner_name: string | null
+    owner_name_2: string | null
+    acres: number | null
+    centroid_lat: number | null
+    centroid_lng: number | null
+    polygon_coordinates: Array<[number, number]> | null
+  }
+  const [isAdmin, setIsAdmin] = useState(false)
+  const [adminParcelOverlay, setAdminParcelOverlay] = useState(false)
+  const [adminParcels, setAdminParcels] = useState<AdminParcelFeature[]>([])
+  const [adminParcelsTruncated, setAdminParcelsTruncated] = useState(false)
+  const [adminParcelsLoading, setAdminParcelsLoading] = useState(false)
+  // States that have data loaded — populated from the coverage endpoint
+  // on first admin login. Used to skip fetches when the viewport is over
+  // a state we haven't imported yet.
+  const [adminParcelStates, setAdminParcelStates] = useState<string[]>([])
+
+  // One-time admin check + coverage fetch
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetchWithAuth(`${API_URL}/api/auth/me`)
+        if (!res.ok) return
+        const me = await res.json()
+        if (cancelled) return
+        const admin = me?.account_type === 'groundgoat_admin'
+        setIsAdmin(admin)
+        if (!admin) return
+        const cov = await fetchWithAuth(`${API_URL}/api/admin/state-parcels/coverage`)
+        if (!cov.ok) return
+        const covData = await cov.json()
+        if (cancelled) return
+        const states = (covData?.states ?? [])
+          .filter((s: any) => (s?.parcel_count ?? 0) > 0)
+          .map((s: any) => s.state)
+        setAdminParcelStates(states)
+      } catch {
+        /* not fatal — overlay just won't appear */
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
+
   // Sync external filter open state (portal mode)
   useEffect(() => {
     if (externalFilterOpen !== undefined) {
@@ -1194,6 +1249,252 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
   }, [mapLoaded, neighborParcels])
 
+  // ─────────────────────────────────────────────────────────────────
+  // Admin parcel overlay — fetch parcels for the current viewport when
+  // the toggle is on and the user has zoomed in past the threshold.
+  // Debounced 250ms via the same moveend pattern used for tract loading.
+  // The endpoint requires a `state` parameter, so we infer which loaded
+  // state(s) the viewport overlaps using STATE_BOUNDS and fan out one
+  // request per state. In practice that's nearly always 1 state.
+  // ─────────────────────────────────────────────────────────────────
+  const adminFetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+
+    if (!isAdmin || !adminParcelOverlay || adminParcelStates.length === 0) {
+      setAdminParcels([])
+      setAdminParcelsTruncated(false)
+      return
+    }
+
+    const fetchForCurrentBounds = () => {
+      if (currentZoom < ADMIN_PARCEL_MIN_ZOOM) {
+        setAdminParcels([])
+        setAdminParcelsTruncated(false)
+        return
+      }
+      const b = map.getBounds()
+      const minLat = b.getSouth(), maxLat = b.getNorth()
+      const minLng = b.getWest(),  maxLng = b.getEast()
+
+      // Which loaded states does the viewport intersect?
+      const statesInView = adminParcelStates.filter(st => {
+        const sb = (STATE_BOUNDS as any)?.[st]
+        if (!sb) return true  // unknown bounds → fetch defensively
+        const [[sw_lng, sw_lat], [ne_lng, ne_lat]] = sb
+        return !(maxLng < sw_lng || minLng > ne_lng ||
+                 maxLat < sw_lat || minLat > ne_lat)
+      })
+      if (statesInView.length === 0) {
+        setAdminParcels([])
+        setAdminParcelsTruncated(false)
+        return
+      }
+
+      setAdminParcelsLoading(true)
+      Promise.all(statesInView.map(st =>
+        fetchWithAuth(`${API_URL}/api/admin/state-parcels?` + new URLSearchParams({
+          state: st,
+          min_lat: String(minLat),
+          max_lat: String(maxLat),
+          min_lng: String(minLng),
+          max_lng: String(maxLng),
+          limit: '500',
+        }).toString())
+          .then(r => r.ok ? r.json() : null)
+          .catch(() => null)
+      )).then(results => {
+        const combined: AdminParcelFeature[] = []
+        let anyTruncated = false
+        for (const r of results) {
+          if (!r) continue
+          if (r.truncated) anyTruncated = true
+          for (const p of (r.parcels ?? [])) combined.push(p)
+        }
+        setAdminParcels(combined)
+        setAdminParcelsTruncated(anyTruncated)
+        setAdminParcelsLoading(false)
+      })
+    }
+
+    fetchForCurrentBounds()
+
+    const onMoveEnd = () => {
+      if (adminFetchTimerRef.current) clearTimeout(adminFetchTimerRef.current)
+      adminFetchTimerRef.current = setTimeout(fetchForCurrentBounds, 250)
+    }
+    map.on('moveend', onMoveEnd)
+    return () => {
+      map.off('moveend', onMoveEnd)
+      if (adminFetchTimerRef.current) clearTimeout(adminFetchTimerRef.current)
+    }
+  }, [mapLoaded, isAdmin, adminParcelOverlay, adminParcelStates, currentZoom])
+
+  // Render the admin parcel overlay — fill, outline, owner+acres label.
+  // Mirrors the neighbor-parcels layer but in a distinct color (amber
+  // 500) so admins can tell at a glance that they're looking at the
+  // admin overlay rather than the per-tract Neighbors data.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+
+    if (map.getLayer('admin-parcel-label')) map.removeLayer('admin-parcel-label')
+    if (map.getLayer('admin-parcel-fill')) map.removeLayer('admin-parcel-fill')
+    if (map.getLayer('admin-parcel-line')) map.removeLayer('admin-parcel-line')
+    if (map.getSource('admin-parcels')) map.removeSource('admin-parcels')
+
+    if (!adminParcels.length) return
+
+    const features = adminParcels
+      .filter(p => p.polygon_coordinates && p.polygon_coordinates.length >= 3)
+      .map(p => {
+        const a = typeof p.acres === 'number' ? p.acres : null
+        const acresStr = a != null && a > 0 ? `${a.toFixed(1)} ac` : ''
+        const owner = (p.owner_name || 'Unknown').trim()
+        return {
+          type: 'Feature' as const,
+          properties: {
+            id: p.id,
+            owner,
+            acres_str: acresStr,
+            acres_num: a,
+            owner_2: p.owner_name_2 || '',
+            county: p.county || '',
+            parcel_id: p.parcel_id || '',
+          },
+          geometry: {
+            type: 'Polygon' as const,
+            coordinates: [p.polygon_coordinates!],
+          },
+        }
+      })
+
+    map.addSource('admin-parcels', {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features },
+    })
+    map.addLayer({
+      id: 'admin-parcel-fill',
+      type: 'fill',
+      source: 'admin-parcels',
+      paint: {
+        'fill-color': [
+          'case',
+          ['boolean', ['feature-state', 'hover'], false],
+          '#F59E0B',
+          '#FBBF24',
+        ],
+        'fill-opacity': [
+          'case',
+          ['boolean', ['feature-state', 'hover'], false],
+          0.30,
+          0.10,
+        ],
+      },
+    })
+    map.addLayer({
+      id: 'admin-parcel-line',
+      type: 'line',
+      source: 'admin-parcels',
+      paint: {
+        'line-color': '#F59E0B',
+        'line-width': 1.2,
+        'line-opacity': 0.85,
+      },
+    })
+    map.addLayer({
+      id: 'admin-parcel-label',
+      type: 'symbol',
+      source: 'admin-parcels',
+      minzoom: ADMIN_PARCEL_MIN_ZOOM,
+      layout: {
+        'text-field': [
+          'format',
+          ['get', 'owner'], { 'font-scale': 1.0 },
+          [
+            'case',
+            ['>', ['length', ['coalesce', ['get', 'acres_str'], '']], 0],
+            ['concat', '\n', ['get', 'acres_str']],
+            '',
+          ],
+          { 'font-scale': 0.85 },
+        ],
+        'text-font': ['Open Sans Regular'],
+        'text-size': [
+          'interpolate', ['linear'], ['zoom'],
+          13, 10,
+          15, 12,
+          17, 14,
+        ],
+        'text-anchor': 'center',
+        'text-justify': 'center',
+        'text-max-width': 9,
+        'text-line-height': 1.15,
+        'text-allow-overlap': false,
+        'text-ignore-placement': false,
+        'text-padding': 2,
+      },
+      paint: {
+        'text-color': '#ffffff',
+        'text-halo-color': 'rgba(0,0,0,0.85)',
+        'text-halo-width': 1.4,
+        'text-halo-blur': 0.4,
+      },
+    })
+
+    const popup = new maplibregl.Popup({
+      closeButton: false, closeOnClick: false, className: 'neighbor-popup',
+    })
+    let hoveredId: number | null = null
+
+    const onMove = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
+      if (!e.features?.length) return
+      const f = e.features[0]
+      const props: any = f.properties
+      map.getCanvas().style.cursor = 'pointer'
+
+      if (hoveredId !== null && hoveredId !== props.id) {
+        map.setFeatureState({ source: 'admin-parcels', id: hoveredId }, { hover: false })
+      }
+      hoveredId = props.id
+      map.setFeatureState({ source: 'admin-parcels', id: props.id }, { hover: true })
+
+      const rows: string[] = []
+      if (props.owner_2) rows.push(`<div style="color:#444;font-size:11px;">${props.owner_2}</div>`)
+      if (props.acres_num) rows.push(`<div style="color:#6b7280;">${Number(props.acres_num).toFixed(2)} ac</div>`)
+      if (props.county) rows.push(`<div style="color:#6b7280;">${props.county} County</div>`)
+      if (props.parcel_id) rows.push(`<div style="color:#9ca3af;font-size:10px;margin-top:4px;">PID: ${props.parcel_id}</div>`)
+
+      popup
+        .setLngLat(e.lngLat)
+        .setHTML(`
+          <div style="font-size:12px;color:#111;background:#fff;padding:10px 14px;border-radius:10px;min-width:160px;max-width:260px;box-shadow:0 4px 12px rgba(0,0,0,0.15);">
+            <div style="font-weight:600;margin-bottom:4px;">${props.owner}</div>
+            ${rows.join('')}
+          </div>
+        `)
+        .addTo(map)
+    }
+    const onLeave = () => {
+      map.getCanvas().style.cursor = ''
+      if (hoveredId !== null) {
+        map.setFeatureState({ source: 'admin-parcels', id: hoveredId }, { hover: false })
+        hoveredId = null
+      }
+      popup.remove()
+    }
+
+    map.on('mousemove', 'admin-parcel-fill', onMove)
+    map.on('mouseleave', 'admin-parcel-fill', onLeave)
+
+    return () => {
+      map.off('mousemove', 'admin-parcel-fill', onMove)
+      map.off('mouseleave', 'admin-parcel-fill', onLeave)
+      popup.remove()
+    }
+  }, [mapLoaded, adminParcels])
+
   // Create/update HTML markers for tracts
   useEffect(() => {
     const map = mapRef.current
@@ -1654,6 +1955,47 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           }} />
           Loading neighbors...
         </div>
+      )}
+
+      {/* Admin Parcel Overlay Toggle — appears only for groundgoat_admin
+          users when zoomed in past the parcel-detail threshold. Shows
+          every parcel (boundary + owner + acres) sourced from free state
+          GIS clearinghouses. */}
+      {isAdmin && currentZoom >= ADMIN_PARCEL_MIN_ZOOM && adminParcelStates.length > 0 && (
+        <button
+          onClick={() => setAdminParcelOverlay(v => !v)}
+          style={{
+            position: 'absolute',
+            top: portalMode ? 70 : 120,
+            right: 56,
+            zIndex: 10,
+            height: 36,
+            padding: '0 12px',
+            borderRadius: 6,
+            border: 'none',
+            backgroundColor: adminParcelOverlay ? '#F59E0B' : 'rgba(0,0,0,0.75)',
+            color: '#fff',
+            fontSize: 12,
+            fontWeight: 600,
+            cursor: 'pointer',
+            display: portalMode ? 'none' : 'flex',
+            alignItems: 'center',
+            gap: 6,
+            boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
+          }}
+          title={`Show every parcel (${adminParcelStates.join(', ')}) — admin only`}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2" />
+            <line x1="3" y1="9"  x2="21" y2="9"  />
+            <line x1="3" y1="15" x2="21" y2="15" />
+            <line x1="9"  y1="3" x2="9"  y2="21" />
+            <line x1="15" y1="3" x2="15" y2="21" />
+          </svg>
+          {adminParcelOverlay
+            ? (adminParcelsLoading ? 'Loading…' : `Parcels${adminParcelsTruncated ? ' (zoom in)' : ''}`)
+            : 'Show parcels'}
+        </button>
       )}
 
       {/* Filter Button */}
