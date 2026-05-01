@@ -79,6 +79,9 @@ export default function UploadBoundaryTractPage() {
     acreage_match?: 'good' | 'loose' | 'off' | null
     confidence?: 'high' | 'medium' | 'low'
     notes?: string
+    tract_label_matched?: string | null
+    projection_method?: 'auction_image_georeference' | 'reference_satellite_match' | null
+    boundary_center_from_image?: [number, number] | null
   } | null>(null)
 
   // Load tract details. The scraper endpoint wraps the row under a
@@ -206,6 +209,9 @@ export default function UploadBoundaryTractPage() {
         acreage_match: body.acreage_match,
         confidence: body.vision_confidence,
         notes: body.vision_notes,
+        tract_label_matched: body.tract_label_matched,
+        projection_method: body.projection_method,
+        boundary_center_from_image: body.boundary_center_from_image,
       })
       setStatusMsg(null)
     } catch (e: any) {
@@ -316,12 +322,13 @@ export default function UploadBoundaryTractPage() {
               <div className="text-center">
                 <div className="font-medium">Paste, drop, or click to pick</div>
                 <div className="text-xs text-gg-gray-400 mt-1">
-                  Use the auction screenshot showing the highlighted boundary
+                  Auction screenshot, GIS export, or PDF boundary map.<br />
+                  Vision works best when the image has printed coordinates and a scale bar.
                 </div>
               </div>
               <input
                 type="file"
-                accept="image/*"
+                accept="image/*,application/pdf"
                 className="hidden"
                 onChange={(e) => e.target.files?.[0] && onFilePicked(e.target.files[0])}
               />
@@ -379,6 +386,22 @@ export default function UploadBoundaryTractPage() {
                 <span className="text-gg-gray-400">Vision confidence</span>
                 <span className="capitalize">{extractMeta.confidence || '—'}</span>
               </div>
+              {extractMeta.tract_label_matched && (
+                <div className="flex items-center justify-between">
+                  <span className="text-gg-gray-400">Matched tract</span>
+                  <span className="text-emerald-400">{extractMeta.tract_label_matched}</span>
+                </div>
+              )}
+              {extractMeta.projection_method && (
+                <div className="flex items-center justify-between">
+                  <span className="text-gg-gray-400">Projected via</span>
+                  <span className={extractMeta.projection_method === 'auction_image_georeference' ? 'text-emerald-400' : 'text-amber-400'}>
+                    {extractMeta.projection_method === 'auction_image_georeference'
+                      ? 'image georeference (most accurate)'
+                      : 'satellite landmark match'}
+                  </span>
+                </div>
+              )}
               {extractMeta.notes && (
                 <div className="text-xs text-gg-gray-400 mt-2 pt-2 border-t border-gg-gray-800">
                   {extractMeta.notes}
