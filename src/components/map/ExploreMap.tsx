@@ -23,6 +23,7 @@ import {
 } from './mapConstants'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import Tract3DModal from '@/components/Tract3DModal'
+import GroundTruthPanel from '@/components/portal/GroundTruthPanel'
 import { countyCentroids } from '@/data/countyCentroids'
 import { STATE_ABBR, STATE_BOUNDS } from './mapConstants'
 
@@ -2226,6 +2227,18 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                       </div>
                     ))
                   )}
+                </div>
+              )}
+
+              {/* Ground Truth — USDA NASS county yields, cash rent, state
+                  landvalue. Same gating surface as Soil & Land Data above:
+                  the page-level role gate decides who reaches this modal at
+                  all (ALLOWED_ROLES on /listings + /access). The panel
+                  itself self-hides when the tract has no resolved
+                  state/county or no NASS data exists. */}
+              {selectedSale.tractId && (
+                <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid #eee' }}>
+                  <GroundTruthPanel tractId={selectedSale.tractId} theme="light" />
                 </div>
               )}
             </div>
