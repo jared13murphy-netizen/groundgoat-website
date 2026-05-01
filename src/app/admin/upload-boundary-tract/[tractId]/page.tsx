@@ -263,8 +263,8 @@ export default function UploadBoundaryTractPage() {
 
   return (
     <div className="fixed inset-0 z-[100] bg-gg-gray-950 text-white flex flex-col">
-      {/* Header */}
-      <div className="border-b border-gg-gray-800 px-4 py-3 flex items-center gap-3 bg-gg-gray-900">
+      {/* Header — flex-shrink-0 so it never compresses against the body */}
+      <div className="border-b border-gg-gray-800 px-4 py-3 flex items-center gap-3 bg-gg-gray-900 flex-shrink-0">
         <button
           onClick={() => router.back()}
           className="p-1 text-gg-gray-400 hover:text-white"
@@ -279,17 +279,17 @@ export default function UploadBoundaryTractPage() {
         </div>
         <a
           href={`/admin/boundary-draw-tract/${tractId}`}
-          className="text-xs px-3 py-1.5 rounded bg-gg-gray-800 hover:bg-gg-gray-700 text-gg-gray-300"
+          className="text-xs px-3 py-1.5 rounded bg-gg-gray-800 hover:bg-gg-gray-700 text-gg-gray-300 flex-shrink-0"
           title="Switch to manual draw"
         >
           Draw manually instead
         </a>
       </div>
 
-      {/* Body: two-column layout */}
-      <div className="flex-1 flex min-h-0">
+      {/* Body: two-column layout — min-h-0 lets flex children shrink past content */}
+      <div className="flex flex-1 min-h-0">
         {/* Left: image upload + controls */}
-        <div className="w-1/2 border-r border-gg-gray-800 flex flex-col p-4 gap-3 overflow-y-auto">
+        <div className="flex-1 min-w-0 border-r border-gg-gray-800 flex flex-col p-4 gap-3 overflow-y-auto">
           <div className="text-xs text-gg-gray-400 uppercase tracking-wider font-semibold">
             1. Paste auction-website image
           </div>
@@ -397,9 +397,13 @@ export default function UploadBoundaryTractPage() {
           )}
         </div>
 
-        {/* Right: satellite map */}
-        <div className="w-1/2 relative">
-          <div className="absolute top-3 left-3 bg-gg-gray-900/85 backdrop-blur rounded-lg px-3 py-2 z-10">
+        {/* Right: satellite map.
+            Container uses explicit width/height instead of `absolute
+            inset-0` because absolute children don't contribute to a
+            flex parent's intrinsic size — the parent collapsed to 0px
+            and the map rendered into a hidden viewport. */}
+        <div className="flex-1 min-w-0 relative">
+          <div className="absolute top-3 left-3 bg-gg-gray-900/85 backdrop-blur rounded-lg px-3 py-2 z-10 pointer-events-none">
             <div className="text-[10px] text-gg-gray-400 uppercase tracking-wider font-semibold">2. Result</div>
             <div className="text-xs text-gg-gray-300 mt-0.5">
               {polygon.length === 0
@@ -407,7 +411,7 @@ export default function UploadBoundaryTractPage() {
                 : `${polygon.length} vertices · ${computedAcres.toFixed(1)} ac`}
             </div>
           </div>
-          <div ref={containerRef} className="absolute inset-0" />
+          <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
         </div>
       </div>
     </div>
