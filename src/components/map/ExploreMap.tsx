@@ -1960,28 +1960,29 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       {/* Admin Parcel Overlay Toggle — appears only for groundgoat_admin
           users when zoomed in past the parcel-detail threshold. Shows
           every parcel (boundary + owner + acres) sourced from free state
-          GIS clearinghouses. */}
+          GIS clearinghouses. Bottom-right placement (per user) so it's
+          out of the way of the filter button group. */}
       {isAdmin && currentZoom >= ADMIN_PARCEL_MIN_ZOOM && adminParcelStates.length > 0 && (
         <button
           onClick={() => setAdminParcelOverlay(v => !v)}
           style={{
             position: 'absolute',
-            top: portalMode ? 70 : 120,
-            right: 56,
+            bottom: 24,
+            right: 16,
             zIndex: 10,
-            height: 36,
-            padding: '0 12px',
-            borderRadius: 6,
+            height: 40,
+            padding: '0 14px',
+            borderRadius: 8,
             border: 'none',
-            backgroundColor: adminParcelOverlay ? '#F59E0B' : 'rgba(0,0,0,0.75)',
+            backgroundColor: adminParcelOverlay ? '#F59E0B' : 'rgba(0,0,0,0.85)',
             color: '#fff',
-            fontSize: 12,
+            fontSize: 13,
             fontWeight: 600,
             cursor: 'pointer',
-            display: portalMode ? 'none' : 'flex',
+            display: 'flex',
             alignItems: 'center',
-            gap: 6,
-            boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
+            gap: 8,
+            boxShadow: '0 4px 12px rgba(0,0,0,0.35)',
           }}
           title={`Show every parcel (${adminParcelStates.join(', ')}) — admin only`}
         >
