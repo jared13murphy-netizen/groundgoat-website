@@ -5,6 +5,7 @@ import { motion } from 'framer-motion'
 import { ArrowLeft, Loader2, Mountain } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { formatAuctionDate, formatAuctionDateTime } from '@/lib/auctionTime'
+import GroundTruthPanel from './GroundTruthPanel'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -390,6 +391,12 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
           )}
         </div>
       )}
+
+      {/* Ground Truth — USDA NASS county yields, cash rent, state landvalue.
+          Panel quietly hides when the tract has no resolved state/county or
+          when no NASS data exists (e.g. non-ag-belt states), so it doesn't
+          clutter detail views for outliers. */}
+      {tract.tractId && <GroundTruthPanel tractId={tract.tractId} />}
 
       {/* Action Buttons — sticky at bottom */}
       <div className="flex gap-2 pt-3 pb-2 sticky bottom-0 bg-gg-gray-900/95 backdrop-blur-sm border-t border-white/5 -mx-5 px-5 mt-4">
