@@ -81,7 +81,9 @@ export default function UploadBoundaryTractPage() {
     notes?: string
   } | null>(null)
 
-  // Load tract details
+  // Load tract details. The scraper endpoint wraps the row under a
+  // `tract` key (`{success, tract: {...}}`), so we unwrap to match the
+  // existing /admin/boundary-draw-tract page's behavior.
   useEffect(() => {
     let cancelled = false
     fetch(`${SCRAPER_URL}/api/admin/tracts/${tractId}/details`)
@@ -89,19 +91,21 @@ export default function UploadBoundaryTractPage() {
       .then(body => {
         if (cancelled) return
         if (!body.success) throw new Error(body.error)
-        setTract(body)
+        setTract(body.tract)
       })
       .catch(e => { if (!cancelled) setError(String(e.message || e)) })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }, [tractId])
 
-  // Init map once tract is loaded
+  // Init map once tract is loaded. Tract may not have its own lat/lng
+  // (common for missing-boundaries tracts) — fall back to the parent
+  // listing's coordinates so the map still has something to center on.
   useEffect(() => {
     if (!tract || !containerRef.current || mapRef.current) return
-    const lat = Number(tract.latitude)
-    const lng = Number(tract.longitude)
-    if (!lat || !lng) return
+    const lat = Number(tract.latitude ?? tract.listing_latitude)
+    const lng = Number(tract.longitude ?? tract.listing_longitude)
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || (!lat && !lng)) return
 
     const map = new maplibregl.Map({
       container: containerRef.current,
@@ -244,12 +248,12 @@ export default function UploadBoundaryTractPage() {
   }
 
   if (loading) return (
-    <div className="min-h-screen bg-gg-gray-950 text-white flex items-center justify-center">
+    <div className="min-h-screen bg-black text-white flex items-center justify-center">
       <Loader2 className="animate-spin" size={28} />
     </div>
   )
   if (error || !tract) return (
-    <div className="min-h-screen bg-gg-gray-950 text-white p-8">
+    <div className="min-h-screen bg-black text-white p-8">
       <p className="text-red-400">{error || 'Tract not found'}</p>
       <button onClick={() => router.back()} className="mt-4 text-gg-pink underline">Back</button>
     </div>
@@ -262,7 +266,7 @@ export default function UploadBoundaryTractPage() {
     extractMeta?.acreage_match === 'off' ? 'text-red-400' : 'text-gg-gray-400'
 
   return (
-    <div className="fixed inset-0 z-[100] bg-gg-gray-950 text-white flex flex-col">
+    <div className="fixed inset-0 z-[100] bg-black text-white flex flex-col">
       {/* Header — flex-shrink-0 so it never compresses against the body */}
       <div className="border-b border-gg-gray-800 px-4 py-3 flex items-center gap-3 bg-gg-gray-900 flex-shrink-0">
         <button
@@ -273,9 +277,18 @@ export default function UploadBoundaryTractPage() {
         </button>
         <div className="min-w-0 flex-1">
           <div className="font-semibold truncate">{tract.title || 'Tract'}</div>
-          <div className="text-xs text-gg-gray-400 truncate">
-            {tract.county}, {tract.state} · {tract.total_acres} ac · centroid ({Number(tract.latitude).toFixed(4)}, {Number(tract.longitude).toFixed(4)})
-          </div>
+          {(() => {
+            const lat = Number(tract.latitude ?? tract.listing_latitude)
+            const lng = Number(tract.longitude ?? tract.listing_longitude)
+            const haveCoord = Number.isFinite(lat) && Number.isFinite(lng) && (lat !== 0 || lng !== 0)
+            return (
+              <div className="text-xs text-gg-gray-400 truncate">
+                {tract.county}, {tract.state}
+                {tract.total_acres ? ` · ${tract.total_acres} ac` : ''}
+                {haveCoord ? ` · centroid (${lat.toFixed(4)}, ${lng.toFixed(4)})` : ' · no centroid yet'}
+              </div>
+            )
+          })()}
         </div>
         <a
           href={`/admin/boundary-draw-tract/${tractId}`}
