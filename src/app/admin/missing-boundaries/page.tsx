@@ -179,12 +179,21 @@ export default function MissingBoundariesPage() {
                           <span className="text-xs text-gg-pink">{t.land_type}</span>
                         )}
                       </div>
-                      <Link
-                        href={`/admin/boundary-draw-tract/${t.tract_id}`}
-                        className="px-3 py-1.5 text-xs rounded bg-gg-pink/20 hover:bg-gg-pink/30 text-gg-pink border border-gg-pink/40 transition-colors flex items-center gap-1"
-                      >
-                        ✏️ Draw Boundary
-                      </Link>
+                      <div className="flex items-center gap-2">
+                        <Link
+                          href={`/admin/upload-boundary-tract/${t.tract_id}`}
+                          className="px-3 py-1.5 text-xs rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 transition-colors flex items-center gap-1"
+                          title="Paste an auction-website screenshot and let Claude Vision extract the boundary"
+                        >
+                          📷 Upload Image
+                        </Link>
+                        <Link
+                          href={`/admin/boundary-draw-tract/${t.tract_id}`}
+                          className="px-3 py-1.5 text-xs rounded bg-gg-pink/20 hover:bg-gg-pink/30 text-gg-pink border border-gg-pink/40 transition-colors flex items-center gap-1"
+                        >
+                          ✏️ Draw Boundary
+                        </Link>
+                      </div>
                     </div>
                   ))}
                 </div>
