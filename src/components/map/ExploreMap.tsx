@@ -24,6 +24,7 @@ import {
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import Tract3DModal from '@/components/Tract3DModal'
 import GroundTruthPanel from '@/components/portal/GroundTruthPanel'
+import NdviPanel from '@/components/portal/NdviPanel'
 import { countyCentroids } from '@/data/countyCentroids'
 import { STATE_ABBR, STATE_BOUNDS } from './mapConstants'
 
@@ -2239,6 +2240,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               {selectedSale.tractId && (
                 <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid #eee' }}>
                   <GroundTruthPanel tractId={selectedSale.tractId} theme="light" />
+                </div>
+              )}
+
+              {/* NDVI — Sentinel-2 vegetation history. Self-hides when
+                  no observations have been ingested yet for this tract. */}
+              {selectedSale.tractId && (
+                <div style={{ marginTop: 16 }}>
+                  <NdviPanel tractId={selectedSale.tractId} theme="light" />
                 </div>
               )}
             </div>
