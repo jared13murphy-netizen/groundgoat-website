@@ -32,6 +32,7 @@ import {
   Link2
 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
+import NassStagingPreview from '@/components/admin/NassStagingPreview'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 const SCRAPER_URL = 'https://ground-goat-scraper-production.up.railway.app'
@@ -1345,6 +1346,18 @@ export default function AdminStagingPage() {
                               )}
                             </p>
                           </div>
+                        </div>
+
+                        {/* NASS Ground Truth preview — at-a-glance USDA
+                            data for the listing's county. Confirms the
+                            county will resolve correctly once promoted to
+                            the live `tracts` table; warns in amber if the
+                            county can't be matched. */}
+                        <div className="mb-3">
+                          <NassStagingPreview
+                            state={info.state}
+                            county={info.county}
+                          />
                         </div>
 
                         {/* Tract Details */}

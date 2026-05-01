@@ -24,6 +24,7 @@ import {
   Eye,
 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
+import NassStagingPreview from '@/components/admin/NassStagingPreview'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 const SCRAPER_URL = 'https://ground-goat-scraper-production.up.railway.app'
@@ -1251,6 +1252,15 @@ export default function MyDecImportPage() {
                           {tract.soil_rating && tract.soil_rating_type === 'CSR2' && ` · CSR2: ${tract.soil_rating}`}
                           {Object.entries(cropBreakdown).map(([crop, acres]) => ` · ${crop}: ${acres}ac`).join('')}
                           {tract.polygon_coordinates && ` · ${tract.polygon_coordinates.length} boundary pts`}
+                        </div>
+
+                        {/* NASS Ground Truth preview — confirms the tract's
+                            county will resolve to USDA data once promoted. */}
+                        <div className="mt-1.5">
+                          <NassStagingPreview
+                            state={tract.state_abbr || tract.state_full || listing.state}
+                            county={tract.county_name || listing.county}
+                          />
                         </div>
 
                         {/* Duplicate comparison */}
