@@ -1005,19 +1005,25 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
     if (!neighborParcels || neighborParcels.length === 0) return
 
-    // Build GeoJSON FeatureCollection. The `label` property is a pre-built
-    // two-line string ("Owner Name\n42.0 ac") so the symbol layer can drop
-    // it straight onto the centroid without any runtime concat.
+    // Build GeoJSON FeatureCollection. Owner and acres go in as separate
+    // properties — the symbol layer's `format` expression composes them
+    // into a two-line label at render time. Done this way (instead of a
+    // pre-baked "Owner\nAcres" string) so we can style the acres line at a
+    // smaller font scale and skip the second line entirely when acres is
+    // missing without re-baking the source.
     const features = neighborParcels.map((p, i) => {
-      const acresStr = p.acres ? `${p.acres.toFixed(1)} ac` : ''
+      const acresNum = typeof p.acres === 'number'
+        ? p.acres
+        : (p.acres != null ? Number(p.acres) : NaN)
+      const acresStr = !isNaN(acresNum) && acresNum > 0
+        ? `${acresNum.toFixed(1)} ac`
+        : ''
       const ownerStr = (p.owner || 'Unknown').trim()
-      const label = acresStr ? `${ownerStr}\n${acresStr}` : ownerStr
       return {
         type: 'Feature' as const,
         properties: {
           owner: ownerStr,
-          acres: p.acres ? p.acres.toFixed(1) : '',
-          label,
+          acres_str: acresStr,
           county: p.county || '',
           state: p.state || '',
           township: p.township || '',
@@ -1085,7 +1091,23 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       source: 'neighbor-parcels',
       minzoom: 11,
       layout: {
-        'text-field': ['get', 'label'],
+        // Two-line owner + acres label, explicitly composed via `format`.
+        // The acres section drops out (zero-length string) when no acreage
+        // came back from Regrid — single-line owner only in that case. The
+        // acres line renders at 0.85× scale so the owner stays the visual
+        // anchor. Empty-string `format` sections render nothing, including
+        // the leading newline.
+        'text-field': [
+          'format',
+          ['get', 'owner'], { 'font-scale': 1.0 },
+          [
+            'case',
+            ['>', ['length', ['coalesce', ['get', 'acres_str'], '']], 0],
+            ['concat', '\n', ['get', 'acres_str']],
+            '',
+          ],
+          { 'font-scale': 0.85 },
+        ],
         'text-font': ['Open Sans Regular'],
         'text-size': [
           'interpolate', ['linear'], ['zoom'],
@@ -1096,6 +1118,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         'text-anchor': 'center',
         'text-justify': 'center',
         'text-max-width': 9,
+        'text-line-height': 1.15,
         'text-allow-overlap': false,
         'text-ignore-placement': false,
         'text-padding': 2,
