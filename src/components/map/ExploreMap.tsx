@@ -146,7 +146,12 @@ export interface SaleDetail {
 }
 
 interface FilterState {
+  // dateRange is the coarse preset ('all' | 'upcoming' | '1month' | '6months' |
+  // '1year' | '18months' | '2years' | 'custom'). When set to 'custom' the
+  // dateFrom / dateTo strings (YYYY-MM-DD) drive the auction/sale-date filter.
   dateRange: string
+  dateFrom: string
+  dateTo: string
   stateFilter: string
   countyFilters: string[]
   townshipFilters: string[]
@@ -178,6 +183,8 @@ interface FilterState {
 
 const INITIAL_FILTERS: FilterState = {
   dateRange: 'all',
+  dateFrom: '',
+  dateTo: '',
   stateFilter: '',
   countyFilters: [],
   townshipFilters: [],
@@ -210,7 +217,12 @@ const INITIAL_FILTERS: FilterState = {
 
 function buildFilterParams(filters: FilterState) {
   const params: Record<string, string> = {}
-  if (filters.dateRange === 'upcoming') {
+  if (filters.dateRange === 'custom') {
+    // Explicit user-entered window — only set the bounds we actually have
+    // so a one-sided range (e.g. "since March 2024", no end date) works.
+    if (filters.dateFrom) params.date_from = filters.dateFrom
+    if (filters.dateTo) params.date_to = filters.dateTo
+  } else if (filters.dateRange === 'upcoming') {
     params.date_from = new Date().toISOString().split('T')[0]
   } else if (filters.dateRange !== 'all') {
     const months = filters.dateRange === '1month' ? 1
@@ -2106,10 +2118,18 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                 { label: 'Last 18 months', value: '18months' },
                 { label: 'Last 2 years', value: '2years' },
                 { label: 'All time', value: 'all' },
+                { label: 'Custom range…', value: 'custom' },
               ].map(opt => (
                 <div
                   key={opt.value}
-                  onClick={() => setFilters(f => ({ ...f, dateRange: opt.value }))}
+                  onClick={() => setFilters(f => ({
+                    ...f,
+                    dateRange: opt.value,
+                    // Leaving 'custom' clears the date inputs so the user
+                    // doesn't get silent stale filtering after switching back.
+                    dateFrom: opt.value === 'custom' ? f.dateFrom : '',
+                    dateTo: opt.value === 'custom' ? f.dateTo : '',
+                  }))}
                   style={{
                     display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', cursor: 'pointer',
                   }}
@@ -2127,6 +2147,48 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                   <span style={{ color: '#BBBBBB', fontSize: 14 }}>{opt.label}</span>
                 </div>
               ))}
+
+              {/* Custom-range date inputs — only visible when the radio is on
+                  'custom'. Either bound can be left blank for a one-sided
+                  window (e.g. "since March 2024" with no end). */}
+              {filters.dateRange === 'custom' && (
+                <div style={{ marginTop: 10, marginLeft: 28, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <label style={{ color: '#888', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 }}>From</label>
+                    <input
+                      type="date"
+                      value={filters.dateFrom}
+                      onChange={(e) => setFilters(f => ({ ...f, dateFrom: e.target.value }))}
+                      style={{
+                        padding: '6px 10px',
+                        borderRadius: 8,
+                        border: '1px solid rgba(255,255,255,0.15)',
+                        backgroundColor: 'rgba(255,255,255,0.05)',
+                        color: '#fff',
+                        fontSize: 13,
+                        colorScheme: 'dark',
+                      }}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <label style={{ color: '#888', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 }}>To</label>
+                    <input
+                      type="date"
+                      value={filters.dateTo}
+                      onChange={(e) => setFilters(f => ({ ...f, dateTo: e.target.value }))}
+                      style={{
+                        padding: '6px 10px',
+                        borderRadius: 8,
+                        border: '1px solid rgba(255,255,255,0.15)',
+                        backgroundColor: 'rgba(255,255,255,0.05)',
+                        color: '#fff',
+                        fontSize: 13,
+                        colorScheme: 'dark',
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* State Filter — from API (all states with boundary data) */}
