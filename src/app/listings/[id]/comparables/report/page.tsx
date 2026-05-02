@@ -2,7 +2,7 @@
 
 import { useSearchParams, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
-import { ArrowLeft, Mail } from 'lucide-react'
+import { ArrowLeft, Mail, Download, Loader2 } from 'lucide-react'
 import { fetchWithAuth } from '@/lib/fetchWithAuth'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
@@ -42,6 +42,7 @@ export default function ComparablesReportPage({ params }: { params: { id: string
   const [comparables, setComparables] = useState<Comparable[]>([])
   const [subject, setSubject] = useState<any>(null)
   const [sending, setSending] = useState(false)
+  const [downloading, setDownloading] = useState(false)
 
   useEffect(() => {
     // Read from sessionStorage (set by comparables page)
@@ -80,10 +81,13 @@ export default function ComparablesReportPage({ params }: { params: { id: string
     })
   }, [params.id, searchParams])
 
-  // Calculate averages
+  // Calculate averages. Note: avgTillable averages tillable acreage across
+  // every comp that reports it — it must NOT be filtered by price, since
+  // tillable acreage is independent of whether we have a sale price.
   const withPrice = comparables.filter(c => c.price_per_acre)
   const withSoil = comparables.filter(c => c.soil_rating && c.price_per_acre)
-  const withTillable = comparables.filter(c => c.tillable_acres && c.total_acres && c.price_per_acre)
+  const withTillablePrice = comparables.filter(c => c.tillable_acres && c.total_acres && c.price_per_acre)
+  const withTillable = comparables.filter(c => c.tillable_acres)
   const withAcres = comparables.filter(c => c.total_acres)
 
   const avgPricePerAcre = withPrice.length ? withPrice.reduce((s, c) => s + (c.price_per_acre || 0), 0) / withPrice.length : null
@@ -91,13 +95,45 @@ export default function ComparablesReportPage({ params }: { params: { id: string
   const avgTillable = withTillable.length ? withTillable.reduce((s, c) => s + (c.tillable_acres || 0), 0) / withTillable.length : null
   const avgSoilRating = withSoil.length ? withSoil.reduce((s, c) => s + (c.soil_rating || 0), 0) / withSoil.length : null
 
-  const avgPricePerTillable = withTillable.length
-    ? withTillable.reduce((s, c) => s + ((c.price_per_acre! * c.total_acres!) / c.tillable_acres!), 0) / withTillable.length
+  const avgPricePerTillable = withTillablePrice.length
+    ? withTillablePrice.reduce((s, c) => s + ((c.price_per_acre! * c.total_acres!) / c.tillable_acres!), 0) / withTillablePrice.length
     : null
 
   const avgPricePerSoil = withSoil.length
     ? withSoil.reduce((s, c) => s + (c.price_per_acre! / c.soil_rating!), 0) / withSoil.length
     : null
+
+  // Build the request body shared by the email + download endpoints.
+  const buildReportBody = () => ({
+    listing_id: params.id,
+    tract_id: subject?.id || null,
+    subject_county: subject?.county || null,
+    subject_state: subject?.state || null,
+    subject_acres: subject?.total_acres ? String(subject.total_acres) : null,
+    subject_tillable_pct: subject?.tillable_acres && subject?.total_acres
+      ? String(Math.round((subject.tillable_acres / subject.total_acres) * 100)) + '%'
+      : null,
+    subject_soil_rating: subject?.soil_rating ? String(subject.soil_rating) : null,
+    subject_auction_date: subject?.auction_datetime || null,
+    subject_company: subject?.company_name || null,
+    comparables: comparables.map(c => ({
+      tract_id: c.id,
+      county: c.county || '',
+      state: c.state || '',
+      total_acres: c.total_acres,
+      tillable_acres: c.tillable_acres,
+      pct_tillable: c.tillable_acres && c.total_acres ? Math.round((c.tillable_acres / c.total_acres) * 100) : null,
+      soil_rating: c.soil_rating,
+      price_per_acre: c.price_per_acre,
+      price_per_tillable_acre: c.tillable_acres && c.total_acres && c.price_per_acre && c.tillable_acres > 0
+        ? (c.price_per_acre * c.total_acres) / c.tillable_acres : null,
+      price_per_soil_rating: c.soil_rating && c.price_per_acre && c.soil_rating > 0
+        ? c.price_per_acre / c.soil_rating : null,
+      sale_price: c.sale_price,
+      auction_date: c.auction_date,
+      company_name: c.company_name,
+    })),
+  })
 
   const handleEmail = async () => {
     setSending(true)
@@ -105,35 +141,7 @@ export default function ComparablesReportPage({ params }: { params: { id: string
       const res = await fetchWithAuth(`${API_URL}/api/comparables/email`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          listing_id: params.id,
-          tract_id: subject?.id || '',
-          subject_county: subject?.county || '',
-          subject_state: subject?.state || '',
-          subject_tract_number: String(subject?.tract_number || '—'),
-          subject_acres: subject?.total_acres ? String(subject.total_acres) : '—',
-          subject_tillable_pct: subject?.tillable_acres && subject?.total_acres
-            ? String(Math.round((subject.tillable_acres / subject.total_acres) * 100)) + '%'
-            : null,
-          subject_soil_rating: subject?.soil_rating ? String(subject.soil_rating) : null,
-          subject_auction_date: subject?.auction_datetime || null,
-          subject_company: subject?.company_name || null,
-          comparables: comparables.map(c => ({
-            county: c.county || '',
-            state: c.state || '',
-            total_acres: c.total_acres,
-            pct_tillable: c.tillable_acres && c.total_acres ? Math.round((c.tillable_acres / c.total_acres) * 100) : null,
-            soil_rating: c.soil_rating,
-            price_per_acre: c.price_per_acre,
-            price_per_tillable_acre: c.tillable_acres && c.total_acres && c.price_per_acre && c.tillable_acres > 0
-              ? (c.price_per_acre * c.total_acres) / c.tillable_acres : null,
-            price_per_soil_rating: c.soil_rating && c.price_per_acre && c.soil_rating > 0
-              ? c.price_per_acre / c.soil_rating : null,
-            sale_price: c.sale_price,
-            auction_date: c.auction_date,
-            company_name: c.company_name,
-          })),
-        }),
+        body: JSON.stringify(buildReportBody()),
       })
       if (!res.ok) {
         const errText = await res.text()
@@ -147,6 +155,37 @@ export default function ComparablesReportPage({ params }: { params: { id: string
       alert('Failed to send email: ' + (e instanceof Error ? e.message : 'unknown error'))
     }
     setSending(false)
+  }
+
+  const handleDownload = async () => {
+    setDownloading(true)
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/comparables/report/pdf`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(buildReportBody()),
+      })
+      if (!res.ok) {
+        alert(`Failed to generate PDF: ${res.status}`)
+        return
+      }
+      const blob = await res.blob()
+      const dispo = res.headers.get('Content-Disposition') || ''
+      const match = dispo.match(/filename="?([^";]+)"?/i)
+      const filename = match?.[1] || 'ground-goat-comp-report.pdf'
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      console.error('Download error:', e)
+      alert('Failed to generate PDF: ' + (e instanceof Error ? e.message : 'unknown error'))
+    }
+    setDownloading(false)
   }
 
   return (
@@ -250,15 +289,26 @@ export default function ComparablesReportPage({ params }: { params: { id: string
           })}
         </div>
 
-        {/* Email button */}
-        <button
-          onClick={handleEmail}
-          disabled={sending}
-          className="w-full py-3 rounded-xl bg-gg-pink text-white font-semibold flex items-center justify-center gap-2 hover:bg-gg-pink/90 disabled:opacity-50"
-        >
-          <Mail size={18} />
-          {sending ? 'Sending...' : 'Email Report'}
-        </button>
+        {/* Action buttons. Download is web-only; Email works for both web
+            and mobile and produces the same PDF attachment. */}
+        <div className="flex gap-3">
+          <button
+            onClick={handleDownload}
+            disabled={downloading || sending}
+            className="flex-1 py-3 rounded-xl bg-white/10 border border-white/15 text-white font-semibold flex items-center justify-center gap-2 hover:bg-white/15 disabled:opacity-50"
+          >
+            {downloading ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
+            {downloading ? 'Building PDF...' : 'Download PDF'}
+          </button>
+          <button
+            onClick={handleEmail}
+            disabled={sending || downloading}
+            className="flex-1 py-3 rounded-xl bg-gg-pink text-white font-semibold flex items-center justify-center gap-2 hover:bg-gg-pink/90 disabled:opacity-50"
+          >
+            <Mail size={18} />
+            {sending ? 'Sending...' : 'Email Report'}
+          </button>
+        </div>
       </div>
     </div>
   )

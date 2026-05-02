@@ -391,7 +391,17 @@ export default function AccessPortalPage() {
       const compResponse = await fetchWithAuth(`${API_URL}/api/comparables/tract/${tractId}?months_back=24&include_neighboring=true&limit=1`)
       if (compResponse.ok) {
         const compData = await compResponse.json()
-        setComparablesSubjectInfo(compData.search_criteria || { county, state })
+        // Carry tract_id + listing_id forward so the report panel can include
+        // them in the email/download payload — backend uses tract_id to fetch
+        // the subject's polygon, satellite image, and DEM grid for the PDF.
+        const sc = compData.search_criteria || {}
+        setComparablesSubjectInfo({
+          ...sc,
+          county: sc.county || county,
+          state: sc.state || state,
+          tract_id: tractId,
+          listing_id: sc.listing_id || null,
+        })
 
         const subLat = compData.search_criteria?.subject_latitude
         const subLng = compData.search_criteria?.subject_longitude
@@ -414,11 +424,11 @@ export default function AccessPortalPage() {
           }, 100)
         }
       } else {
-        setComparablesSubjectInfo({ county, state })
+        setComparablesSubjectInfo({ county, state, tract_id: tractId })
       }
     } catch (err) {
       console.error('Failed to fetch subject info:', err)
-      setComparablesSubjectInfo({ county, state })
+      setComparablesSubjectInfo({ county, state, tract_id: tractId })
     }
 
     // Clear existing report and show the new panel

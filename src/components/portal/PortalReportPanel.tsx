@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from 'react'
 import { motion } from 'framer-motion'
-import { X, Mail, Loader2, Trash2, Check } from 'lucide-react'
+import { X, Mail, Loader2, Trash2, Check, Download } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import type { TractSaleData } from './PortalTractDetail'
 
@@ -45,6 +45,11 @@ interface SubjectInfo {
   subject_soil_rating_type?: string | null
   subject_township?: string
   subject_land_type?: string
+  // IDs needed by the backend to fetch polygon/image/DEM for the PDF
+  listing_id?: string | null
+  tract_id?: string | null
+  subject_auction_date?: string | null
+  subject_company?: string | null
 }
 
 interface PortalReportPanelProps {
@@ -57,12 +62,48 @@ interface PortalReportPanelProps {
 export default function PortalReportPanel({ tracts, onClose, onRemoveTract, subjectInfo }: PortalReportPanelProps) {
   const [sending, setSending] = useState(false)
   const [sent, setSent] = useState(false)
+  const [downloading, setDownloading] = useState(false)
 
-  // Calculate averages (same logic as /listings/report)
+  // Build the request body shared by the email + download endpoints. Both
+  // endpoints take the same shape; only the response handling differs.
+  const buildReportBody = () => ({
+    listing_id: subjectInfo?.listing_id || null,
+    tract_id: subjectInfo?.tract_id || null,
+    subject_county: subjectInfo?.county || null,
+    subject_state: subjectInfo?.state || null,
+    subject_acres: subjectInfo?.subject_acres ? String(subjectInfo.subject_acres) : null,
+    subject_tillable_pct: subjectInfo?.subject_pct_tillable
+      ? String(Math.round(subjectInfo.subject_pct_tillable)) + '%' : null,
+    subject_soil_rating: subjectInfo?.subject_soil_rating ? String(subjectInfo.subject_soil_rating) : null,
+    subject_auction_date: subjectInfo?.subject_auction_date || null,
+    subject_company: subjectInfo?.subject_company || null,
+    comparables: tracts.map(t => ({
+      tract_id: t.tractId || t.id,
+      county: t.county || '',
+      state: t.state || '',
+      total_acres: t.totalAcres,
+      tillable_acres: t.tillableAcres,
+      pct_tillable: t.tillableAcres && t.totalAcres ? Math.round((t.tillableAcres / t.totalAcres) * 100) : null,
+      soil_rating: t.soilRating,
+      price_per_acre: t.pricePerAcre,
+      price_per_tillable_acre: t.tillableAcres && t.totalAcres && t.pricePerAcre && t.tillableAcres > 0
+        ? (t.pricePerAcre * t.totalAcres) / t.tillableAcres : null,
+      price_per_soil_rating: t.soilRating && t.pricePerAcre && t.soilRating > 0
+        ? t.pricePerAcre / t.soilRating : null,
+      sale_price: t.salePrice,
+      auction_date: t.auctionDate,
+      company_name: t.companyName,
+    })),
+  })
+
+  // Calculate averages. NOTE: avgTillable averages tillable acreage across all
+  // tracts that report it — it must NOT be gated on price data, or comps
+  // missing a sale price drop out of an unrelated metric.
   const stats = useMemo(() => {
     const withPrice = tracts.filter(t => t.pricePerAcre)
     const withSoil = tracts.filter(t => t.soilRating && t.pricePerAcre)
-    const withTillable = tracts.filter(t => t.tillableAcres && t.totalAcres && t.pricePerAcre)
+    const withTillablePrice = tracts.filter(t => t.tillableAcres && t.totalAcres && t.pricePerAcre)
+    const withTillable = tracts.filter(t => t.tillableAcres)
     const withAcres = tracts.filter(t => t.totalAcres)
 
     return {
@@ -74,8 +115,8 @@ export default function PortalReportPanel({ tracts, onClose, onRemoveTract, subj
         ? withTillable.reduce((s, t) => s + (t.tillableAcres || 0), 0) / withTillable.length : null,
       avgSoilRating: withSoil.length
         ? withSoil.reduce((s, t) => s + (t.soilRating || 0), 0) / withSoil.length : null,
-      avgPricePerTillable: withTillable.length
-        ? withTillable.reduce((s, t) => s + ((t.pricePerAcre! * t.totalAcres!) / t.tillableAcres!), 0) / withTillable.length : null,
+      avgPricePerTillable: withTillablePrice.length
+        ? withTillablePrice.reduce((s, t) => s + ((t.pricePerAcre! * t.totalAcres!) / t.tillableAcres!), 0) / withTillablePrice.length : null,
       avgPricePerSoil: withSoil.length
         ? withSoil.reduce((s, t) => s + (t.pricePerAcre! / t.soilRating!), 0) / withSoil.length : null,
     }
@@ -87,23 +128,7 @@ export default function PortalReportPanel({ tracts, onClose, onRemoveTract, subj
       const res = await fetchWithAuth(`${API_URL}/api/comparables/email`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          comparables: tracts.map(t => ({
-            county: t.county || '',
-            state: t.state || '',
-            total_acres: t.totalAcres,
-            pct_tillable: t.tillableAcres && t.totalAcres ? Math.round((t.tillableAcres / t.totalAcres) * 100) : null,
-            soil_rating: t.soilRating,
-            price_per_acre: t.pricePerAcre,
-            price_per_tillable_acre: t.tillableAcres && t.totalAcres && t.pricePerAcre && t.tillableAcres > 0
-              ? (t.pricePerAcre * t.totalAcres) / t.tillableAcres : null,
-            price_per_soil_rating: t.soilRating && t.pricePerAcre && t.soilRating > 0
-              ? t.pricePerAcre / t.soilRating : null,
-            sale_price: t.salePrice,
-            auction_date: t.auctionDate,
-            company_name: t.companyName,
-          })),
-        }),
+        body: JSON.stringify(buildReportBody()),
       })
       if (!res.ok) {
         alert('Failed to send email')
@@ -115,6 +140,38 @@ export default function PortalReportPanel({ tracts, onClose, onRemoveTract, subj
       alert('Failed to send email')
     }
     setSending(false)
+  }
+
+  const handleDownload = async () => {
+    setDownloading(true)
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/comparables/report/pdf`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(buildReportBody()),
+      })
+      if (!res.ok) {
+        alert('Failed to generate PDF')
+        return
+      }
+      const blob = await res.blob()
+      // Pull filename from Content-Disposition when present, else default.
+      const dispo = res.headers.get('Content-Disposition') || ''
+      const match = dispo.match(/filename="?([^";]+)"?/i)
+      const filename = match?.[1] || 'ground-goat-comp-report.pdf'
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      console.error('Download error:', e)
+      alert('Failed to generate PDF')
+    }
+    setDownloading(false)
   }
 
   // Derive per-tract metrics
@@ -307,13 +364,29 @@ export default function PortalReportPanel({ tracts, onClose, onRemoveTract, subj
         )}
       </div>
 
-      {/* Sticky Footer — Email Button */}
+      {/* Sticky Footer — Download + Email buttons. Download is web-only;
+          Email works for both web and mobile and produces the same PDF. */}
       {tracts.length > 0 && (
-        <div className="px-5 py-4 border-t border-white/5 shrink-0">
+        <div className="px-5 py-4 border-t border-white/5 shrink-0 flex gap-2">
+          <button
+            onClick={handleDownload}
+            disabled={downloading || sending}
+            className={`flex-1 py-3 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 transition border ${
+              downloading
+                ? 'bg-white/5 border-white/10 text-white/60 cursor-wait'
+                : 'bg-white/5 border-white/15 text-white hover:bg-white/10'
+            }`}
+          >
+            {downloading ? (
+              <><Loader2 size={16} className="animate-spin" /> Building PDF...</>
+            ) : (
+              <><Download size={16} /> Download PDF</>
+            )}
+          </button>
           <button
             onClick={handleEmail}
-            disabled={sending || sent}
-            className={`w-full py-3 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 transition ${
+            disabled={sending || sent || downloading}
+            className={`flex-1 py-3 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 transition ${
               sent
                 ? 'bg-green-500/20 text-green-400 border border-green-500/30'
                 : sending
@@ -322,7 +395,7 @@ export default function PortalReportPanel({ tracts, onClose, onRemoveTract, subj
             }`}
           >
             {sent ? (
-              <><Check size={16} /> Report Sent!</>
+              <><Check size={16} /> Sent!</>
             ) : sending ? (
               <><Loader2 size={16} className="animate-spin" /> Sending...</>
             ) : (
