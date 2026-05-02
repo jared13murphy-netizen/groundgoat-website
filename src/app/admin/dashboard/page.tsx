@@ -53,6 +53,19 @@ const CountyDetailPanel = dynamic(() => import('@/components/map/CountyDetailPan
   ssr: false,
 })
 
+// Usage Metrics renders Recharts. Lazy-load it so the dashboard's first
+// paint isn't gated on the recharts bundle, and so SSR doesn't bail out
+// on the chart's window/document refs.
+const UsageMetricsPanel = dynamic(() => import('@/components/admin/UsageMetricsPanel'), {
+  ssr: false,
+  loading: () => (
+    <div className="card mt-8 h-32 flex items-center justify-center text-gg-gray-500">
+      <Loader2 className="animate-spin mr-2" size={18} />
+      Loading metrics…
+    </div>
+  ),
+})
+
 export default function AdminDashboard() {
   const router = useRouter()
   const [user, setUser] = useState<any>(null)
@@ -770,6 +783,10 @@ export default function AdminDashboard() {
             statuses={countyStatuses.size > 0 ? Array.from(countyStatuses).join(',') : undefined}
           />
         )}
+
+        {/* Usage Metrics — real customer traffic, Regrid cost monitoring,
+            top endpoints by p50/p95 latency. Renders below all maps. */}
+        <UsageMetricsPanel />
       </div>
     </div>
   )
