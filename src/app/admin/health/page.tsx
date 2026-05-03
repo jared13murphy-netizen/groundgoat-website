@@ -29,6 +29,17 @@ const DatabaseStoragePanel = dynamic(() => import('@/components/admin/DatabaseSt
   ),
 })
 
+// Service health, Subscriptions, Background Jobs, External APIs — all
+// share a single fetch via HealthPanels.
+const HealthPanels = dynamic(() => import('@/components/admin/HealthPanels'), {
+  ssr: false,
+  loading: () => (
+    <div className="card mt-6 h-32 flex items-center justify-center text-gg-gray-500">
+      <Loader2 className="animate-spin mr-2" size={18} /> Loading health…
+    </div>
+  ),
+})
+
 /**
  * Health Monitor — single ops view for the website + mobile app + Railway
  * Postgres. Today this hosts the Usage Metrics + Regrid + Database Storage
@@ -89,23 +100,15 @@ export default function HealthMonitorPage() {
           </div>
         </div>
 
-        {/* Panels */}
+        {/* Panels — order is intentional: top-of-funnel monitors at the
+            top (service up/down, subscriptions, jobs, external APIs),
+            usage + DB-size detail below. */}
+        <HealthPanels />
         <UsageMetricsPanel />
         <DatabaseStoragePanel />
 
-        {/* Placeholder for the next batch of additions — service health,
-            external-API health, subscription health, etc. Marked here so
-            future sessions know where to slot them. */}
-        <div className="card mt-6 border-dashed border-white/10 bg-transparent">
-          <div className="text-sm font-medium text-gg-gray-400 mb-2">Coming soon</div>
-          <ul className="text-xs text-gg-gray-500 space-y-1 list-disc pl-5">
-            <li>Service health (web · mobile API · scraper · DB) with up/down badges</li>
-            <li>Background-job freshness (last run for scraper, NASS sync, private-treaty monitor)</li>
-            <li>External API health (Regrid, NASS, Mapbox, Anthropic, Stripe, Resend)</li>
-            <li>Subscription health (active subs, MRR estimate, churn, trial conversion)</li>
-            <li>Mobile crash rate + OTA-version distribution</li>
-          </ul>
-        </div>
+        {/* Future additions slotted here: Mobile crash rate + OTA-version
+            distribution (needs Sentry or similar — deferred). */}
       </div>
     </div>
   )
