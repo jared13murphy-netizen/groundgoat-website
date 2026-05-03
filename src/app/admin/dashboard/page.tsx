@@ -18,7 +18,8 @@ import {
   ClipboardList,
   ClipboardCheck,
   MapPin,
-  Clock
+  Clock,
+  Activity,
 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import type { ApiListing } from '@/components/map/mapTypes'
@@ -51,19 +52,6 @@ const CountySalesMap = dynamic(() => import('@/components/map/CountySalesMap'), 
 
 const CountyDetailPanel = dynamic(() => import('@/components/map/CountyDetailPanel'), {
   ssr: false,
-})
-
-// Usage Metrics renders Recharts. Lazy-load it so the dashboard's first
-// paint isn't gated on the recharts bundle, and so SSR doesn't bail out
-// on the chart's window/document refs.
-const UsageMetricsPanel = dynamic(() => import('@/components/admin/UsageMetricsPanel'), {
-  ssr: false,
-  loading: () => (
-    <div className="card mt-8 h-32 flex items-center justify-center text-gg-gray-500">
-      <Loader2 className="animate-spin mr-2" size={18} />
-      Loading metrics…
-    </div>
-  ),
 })
 
 export default function AdminDashboard() {
@@ -305,6 +293,12 @@ export default function AdminDashboard() {
           {/* Admin-only actions */}
           {user?.account_type === 'groundgoat_admin' && (
             <>
+              <QuickActionCard
+                title="Health Monitor"
+                description="Usage, performance, Regrid cost, and database storage"
+                href="/admin/health"
+                icon={<Activity />}
+              />
               <QuickActionCard
                 title="Nightly Updates"
                 description="Price & status changes from nightly monitoring"
@@ -784,9 +778,6 @@ export default function AdminDashboard() {
           />
         )}
 
-        {/* Usage Metrics — real customer traffic, Regrid cost monitoring,
-            top endpoints by p50/p95 latency. Renders below all maps. */}
-        <UsageMetricsPanel />
       </div>
     </div>
   )
