@@ -821,7 +821,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         filterParams.sale_status = 'sold'
       }
       const extraParams = Object.entries(filterParams).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&')
-      const url = `${API_URL}/api/map/tracts?min_lat=${min_lat}&max_lat=${max_lat}&min_lng=${min_lng}&max_lng=${max_lng}&limit=${CELL_LIMIT}${extraParams ? '&' + extraParams : ''}`
+      // Polygon JSONB is multi-KB per tract; including it for every map
+      // load was the dominant cost (multi-MB responses + cold-cache disk
+      // reads). At low zoom the user can't see polygon detail anyway, so
+      // ask for them only when zoomed in. Threshold 11 = roughly the
+      // zoom where individual parcel boundaries start to read on screen.
+      const currentZoom = mapRef.current?.getZoom?.() ?? 0
+      const includePolygons = currentZoom >= 11
+      const url = `${API_URL}/api/map/tracts?min_lat=${min_lat}&max_lat=${max_lat}&min_lng=${min_lng}&max_lng=${max_lng}&limit=${CELL_LIMIT}${includePolygons ? '&include_polygons=true' : ''}${extraParams ? '&' + extraParams : ''}`
       const response = await fetchWithAuth(url)
       if (response.ok) {
         const data: MapTractsResponse = await response.json()

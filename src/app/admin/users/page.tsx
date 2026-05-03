@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Search, UserCheck, UserX, Shield, Loader2, ChevronDown, Edit2, X, Check, DollarSign } from 'lucide-react'
+import { ArrowLeft, Search, UserCheck, UserX, Shield, Loader2, ChevronDown, Edit2, X, Check, DollarSign, RefreshCw } from 'lucide-react'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -255,14 +255,28 @@ export default function AdminUsersPage() {
     <div className="min-h-screen bg-gg-black pt-24 pb-12">
       <div className="max-w-7xl mx-auto px-6">
         {/* Header */}
-        <div className="flex items-center gap-4 mb-8">
-          <Link href="/admin/dashboard" className="text-gg-gray-400 hover:text-white">
-            <ArrowLeft size={24} />
-          </Link>
-          <div>
-            <h1 className="font-display text-4xl font-bold text-white">Manage Users</h1>
-            <p className="text-gg-gray-400">{users.length} total users</p>
+        <div className="flex items-center justify-between gap-4 mb-8 flex-wrap">
+          <div className="flex items-center gap-4">
+            <Link href="/admin/dashboard" className="text-gg-gray-400 hover:text-white">
+              <ArrowLeft size={24} />
+            </Link>
+            <div>
+              <h1 className="font-display text-4xl font-bold text-white">Manage Users</h1>
+              <p className="text-gg-gray-400">{users.length} total users</p>
+            </div>
           </div>
+          {/* Force-refresh subscription prices from Stripe. Use this before
+              running commission reports or doing bookkeeping reconciliation
+              so the displayed amounts reflect the actual Stripe-billed
+              prices (incl. promo discounts + annual-plan discounts).
+              Apple IAP subs already show the price captured at signup
+              from the Apple webhook — those don't need refreshing
+              because Apple subscription prices don't change without the
+              user re-accepting. */}
+          <RefreshStripePricesButton onDone={() => {
+            const t = localStorage.getItem('auth_token')
+            if (t) fetchUsers(t)
+          }} />
         </div>
 
         {/* Filters */}
@@ -508,6 +522,75 @@ export default function AdminUsersPage() {
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+
+/**
+ * Pulls fresh prices for every active Stripe subscription via
+ * POST /api/admin/refresh-all-stripe-prices, then refreshes the table.
+ * Use this before running commission reports / bookkeeping so the
+ * displayed amounts reflect the actual Stripe-billed price (incl.
+ * promo codes + annual discounts). Apple IAP subs already show the
+ * grandfathered price captured at signup; not refreshable from here
+ * because Apple subscription prices don't change without user
+ * re-acceptance.
+ */
+function RefreshStripePricesButton({ onDone }: { onDone: () => void }) {
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
+
+  const refresh = async () => {
+    setBusy(true)
+    setResult(null)
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/admin/refresh-all-stripe-prices`, {
+        method: 'POST',
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body.detail || `HTTP ${res.status}`)
+      }
+      const body = await res.json()
+      setResult({
+        kind: 'ok',
+        text: `Synced ${body.synced} of ${body.stripe_subscriptions_processed} Stripe subs${body.failed > 0 ? ` (${body.failed} failed)` : ''}`,
+      })
+      onDone()
+    } catch (e: any) {
+      setResult({ kind: 'err', text: e?.message || String(e) })
+    } finally {
+      setBusy(false)
+      // Auto-clear toast after 6s
+      setTimeout(() => setResult(null), 6000)
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-3">
+      {result && (
+        <span className={`text-xs ${result.kind === 'ok' ? 'text-green-300' : 'text-red-300'}`}>
+          {result.text}
+        </span>
+      )}
+      <button
+        onClick={refresh}
+        disabled={busy}
+        title="Pull current prices from Stripe so commission/bookkeeping math reflects what customers are actually billed"
+        className={`flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium transition ${
+          busy
+            ? 'bg-gg-gray-800 border-gg-gray-700 text-gg-gray-400 cursor-wait'
+            : 'bg-gg-pink/10 border-gg-pink/40 text-gg-pink hover:bg-gg-pink/20'
+        }`}
+      >
+        {busy ? (
+          <Loader2 size={14} className="animate-spin" />
+        ) : (
+          <RefreshCw size={14} />
+        )}
+        {busy ? 'Refreshing prices…' : 'Refresh prices from Stripe'}
+      </button>
     </div>
   )
 }
