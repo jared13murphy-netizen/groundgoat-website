@@ -23,26 +23,33 @@ export function getStatusBadge(
   const s = (status || '').toLowerCase()
   const lt = (listingType || '').toLowerCase()
 
-  // live > sold > pending > no_sale > auction (upcoming) > listed (PT)
+  // Tokens chosen so the hex matches PIN_COLORS in ExploreMap exactly:
+  //   gg-pink    = #f58cde (sold)
+  //   blue-600   = #2563eb (auction)
+  //   yellow-500 = #eab308 (pending / private-treaty listed)
+  //   green-500  = #22c55e (live)
+  //   gray-400   = #9ca3af (no_sale)
+  // Using named tokens (not arbitrary hex) so Tailwind always compiles
+  // them even from files outside the JIT content scan.
   if (s === 'live') {
-    return { label: 'Live Now', className: 'bg-[#22c55e] text-white animate-pulse' }
+    return { label: 'Live Now', className: 'bg-green-500 text-white animate-pulse' }
   }
   if (s === 'sold') {
-    return { label: 'Sold', className: 'bg-[#f58cde] text-white' }
+    return { label: 'Sold', className: 'bg-gg-pink text-white' }
   }
   if (s === 'pending') {
-    return { label: 'Pending', className: 'bg-[#eab308] text-white' }
+    return { label: 'Pending', className: 'bg-yellow-500 text-white' }
   }
   if (s === 'no_sale') {
-    return { label: 'No Sale', className: 'bg-[#9ca3af] text-white' }
+    return { label: 'No Sale', className: 'bg-gray-400 text-white' }
   }
   // status is 'listed' (or null/unknown). Distinguish auction vs PT.
   if (lt === 'auction') {
-    return { label: 'Auction', className: 'bg-[#2563eb] text-white' }
+    return { label: 'Auction', className: 'bg-blue-600 text-white' }
   }
   if (lt === 'private_treaty' || lt === 'private treaty') {
-    return { label: 'Private Treaty', className: 'bg-[#eab308] text-white' }
+    return { label: 'Private Treaty', className: 'bg-yellow-500 text-white' }
   }
   // Fallback when listing_type isn't known — treat as upcoming.
-  return { label: 'Upcoming', className: 'bg-[#2563eb] text-white' }
+  return { label: 'Upcoming', className: 'bg-blue-600 text-white' }
 }
