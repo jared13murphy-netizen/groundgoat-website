@@ -423,9 +423,27 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // a state we haven't imported yet.
   const [adminParcelStates, setAdminParcelStates] = useState<string[]>([])
 
-  // One-time admin check + coverage fetch
+  // One-time admin check + coverage fetch.
+  //
+  // We hydrate adminParcelStates from localStorage immediately so the
+  // "Show Parcels" button can appear without waiting for the coverage
+  // network call (which scans 44M rows and can take seconds on a cold
+  // backend cache). The network call refreshes the value in the
+  // background — if the list of loaded states has changed, the button
+  // updates.
   useEffect(() => {
     let cancelled = false
+
+    try {
+      const cached = localStorage.getItem('gg_admin_parcel_states')
+      if (cached) {
+        const arr = JSON.parse(cached)
+        if (Array.isArray(arr) && arr.every(s => typeof s === 'string')) {
+          setAdminParcelStates(arr)
+        }
+      }
+    } catch {/* ignore */}
+
     ;(async () => {
       try {
         const res = await fetchWithAuth(`${API_URL}/api/auth/me`)
@@ -443,6 +461,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           .filter((s: any) => (s?.parcel_count ?? 0) > 0)
           .map((s: any) => s.state)
         setAdminParcelStates(states)
+        try {
+          localStorage.setItem('gg_admin_parcel_states', JSON.stringify(states))
+        } catch {/* ignore */}
       } catch {
         /* not fatal — overlay just won't appear */
       }
@@ -1305,8 +1326,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                  maxLat < sw_lat || minLat > ne_lat)
       })
       if (statesInView.length === 0) {
-        setAdminParcels([])
-        setAdminParcelsTruncated(false)
+        // Don't drop already-loaded parcels just because the viewport
+        // moved off-state — the user may pan back. They get evicted by
+        // the soft cap below if memory grows too large.
         return
       }
 
@@ -1323,14 +1345,35 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           .then(r => r.ok ? r.json() : null)
           .catch(() => null)
       )).then(results => {
-        const combined: AdminParcelFeature[] = []
         let anyTruncated = false
+        const incoming: AdminParcelFeature[] = []
         for (const r of results) {
           if (!r) continue
           if (r.truncated) anyTruncated = true
-          for (const p of (r.parcels ?? [])) combined.push(p)
+          for (const p of (r.parcels ?? [])) incoming.push(p)
         }
-        setAdminParcels(combined)
+        // Merge with already-loaded parcels (dedupe by id) so panning
+        // back to a previous viewport doesn't cause a re-fetch flash.
+        // Soft cap at 5000: if we exceed it, drop the parcels furthest
+        // from the current viewport center to free memory.
+        setAdminParcels(prev => {
+          const byId = new Map<number, AdminParcelFeature>()
+          for (const p of prev) byId.set(p.id, p)
+          for (const p of incoming) byId.set(p.id, p)
+          let merged = Array.from(byId.values())
+          const CAP = 5000
+          if (merged.length > CAP) {
+            const cLat = (minLat + maxLat) / 2
+            const cLng = (minLng + maxLng) / 2
+            merged.sort((a, b) => {
+              const da = ((a.centroid_lat ?? 0) - cLat) ** 2 + ((a.centroid_lng ?? 0) - cLng) ** 2
+              const db = ((b.centroid_lat ?? 0) - cLat) ** 2 + ((b.centroid_lng ?? 0) - cLng) ** 2
+              return da - db
+            })
+            merged = merged.slice(0, CAP)
+          }
+          return merged
+        })
         setAdminParcelsTruncated(anyTruncated)
         setAdminParcelsLoading(false)
       })
@@ -1349,48 +1392,23 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
   }, [mapLoaded, isAdmin, adminParcelOverlay, adminParcelStates, currentZoom])
 
-  // Render the admin parcel overlay — fill, outline, owner+acres label.
+  // Set up the admin parcel overlay — fill, outline, owner+acres label.
   // Mirrors the neighbor-parcels layer but in a distinct color (amber
   // 500) so admins can tell at a glance that they're looking at the
   // admin overlay rather than the per-tract Neighbors data.
+  //
+  // This effect runs ONCE per map lifetime (deps: [mapLoaded]) to
+  // create the source + 3 layers + hover handlers. Data updates happen
+  // via the next effect (setData on the source). Splitting these
+  // avoids the teardown flash that happens when you remove + re-add
+  // layers on every pan — MapLibre paints those as separate frames.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded) return
 
-    if (map.getLayer('admin-parcel-label')) map.removeLayer('admin-parcel-label')
-    if (map.getLayer('admin-parcel-fill')) map.removeLayer('admin-parcel-fill')
-    if (map.getLayer('admin-parcel-line')) map.removeLayer('admin-parcel-line')
-    if (map.getSource('admin-parcels')) map.removeSource('admin-parcels')
-
-    if (!adminParcels.length) return
-
-    const features = adminParcels
-      .filter(p => p.polygon_coordinates && p.polygon_coordinates.length >= 3)
-      .map(p => {
-        const a = typeof p.acres === 'number' ? p.acres : null
-        const acresStr = a != null && a > 0 ? `${a.toFixed(1)} ac` : ''
-        const owner = (p.owner_name || 'Unknown').trim()
-        return {
-          type: 'Feature' as const,
-          properties: {
-            id: p.id,
-            owner,
-            acres_str: acresStr,
-            acres_num: a,
-            owner_2: p.owner_name_2 || '',
-            county: p.county || '',
-            parcel_id: p.parcel_id || '',
-          },
-          geometry: {
-            type: 'Polygon' as const,
-            coordinates: [p.polygon_coordinates!],
-          },
-        }
-      })
-
     map.addSource('admin-parcels', {
       type: 'geojson',
-      data: { type: 'FeatureCollection', features },
+      data: { type: 'FeatureCollection', features: [] },
     })
     map.addLayer({
       id: 'admin-parcel-fill',
@@ -1510,7 +1528,47 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       map.off('mousemove', 'admin-parcel-fill', onMove)
       map.off('mouseleave', 'admin-parcel-fill', onLeave)
       popup.remove()
+      if (map.getLayer('admin-parcel-label')) map.removeLayer('admin-parcel-label')
+      if (map.getLayer('admin-parcel-fill')) map.removeLayer('admin-parcel-fill')
+      if (map.getLayer('admin-parcel-line')) map.removeLayer('admin-parcel-line')
+      if (map.getSource('admin-parcels')) map.removeSource('admin-parcels')
     }
+  }, [mapLoaded])
+
+  // Push parcel data into the existing source whenever it changes.
+  // Uses setData() so MapLibre diffs and repaints in place — no flash.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+    const src = map.getSource('admin-parcels') as maplibregl.GeoJSONSource | undefined
+    if (!src) return
+
+    const features = adminParcels
+      .filter(p => p.polygon_coordinates && p.polygon_coordinates.length >= 3)
+      .map(p => {
+        const a = typeof p.acres === 'number' ? p.acres : null
+        const acresStr = a != null && a > 0 ? `${a.toFixed(1)} ac` : ''
+        const owner = (p.owner_name || 'Unknown').trim()
+        return {
+          type: 'Feature' as const,
+          id: p.id,
+          properties: {
+            id: p.id,
+            owner,
+            acres_str: acresStr,
+            acres_num: a,
+            owner_2: p.owner_name_2 || '',
+            county: p.county || '',
+            parcel_id: p.parcel_id || '',
+          },
+          geometry: {
+            type: 'Polygon' as const,
+            coordinates: [p.polygon_coordinates!],
+          },
+        }
+      })
+
+    src.setData({ type: 'FeatureCollection', features } as any)
   }, [mapLoaded, adminParcels])
 
   // Create/update HTML markers for tracts
