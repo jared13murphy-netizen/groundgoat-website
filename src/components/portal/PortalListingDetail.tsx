@@ -24,17 +24,23 @@ interface Tract {
   tract_number?: number
   total_acres?: number
   tillable_acres?: number
+  pct_tillable?: number
   soil_rating?: number
   land_type?: string
+  land_types?: string[]
   sale_status?: string
   sale_price?: number
+  asking_price?: number
   price_per_acre?: number
+  price_per_tillable_acre?: number
+  price_per_soil_rating?: number
   estimated_value_per_acre?: number
   estimate_confidence?: number
   image_url?: string
   township?: string
   county_name?: string
   state_abbr?: string
+  source_url?: string
   polygon_coordinates?: [number, number][] | null
 }
 
@@ -426,6 +432,13 @@ export default function PortalListingDetail({ listingId, onBack, onTractSelected
             {listing.tracts.map((tract, index) => {
               const handleTractClick = () => {
                 if (onTractSelected) {
+                  // Mirror the field shape that ExploreMap.createMarker
+                  // produces for map-pin clicks (see ExploreMap.tsx where
+                  // saleData is built). PortalTractDetail reads landType
+                  // / landTypes / pctTillable / etc. to render badges +
+                  // sub-stats — without these the panel shows fewer
+                  // chips when opened from the listing pane than from
+                  // the map.
                   onTractSelected({
                     id: tract.id,
                     listingId: listing.id,
@@ -433,16 +446,23 @@ export default function PortalListingDetail({ listingId, onBack, onTractSelected
                     auctionDate: listing.auction_datetime || listing.auction_date,
                     totalAcres: tract.total_acres,
                     tillableAcres: tract.tillable_acres,
+                    pctTillable: tract.pct_tillable,
                     companyName: getCompanyName(),
                     salePrice: tract.sale_price,
+                    askingPrice: tract.asking_price ?? listing.asking_price,
                     pricePerAcre: tract.sale_price && tract.total_acres ? tract.sale_price / tract.total_acres : tract.price_per_acre,
+                    pricePerTillableAcre: tract.price_per_tillable_acre,
+                    pricePerSoilRating: tract.price_per_soil_rating,
                     county: listing.county,
                     state: listing.state,
                     township: tract.township,
                     soilRating: tract.soil_rating,
+                    landType: tract.land_type,
+                    landTypes: tract.land_types,
                     polygonCoordinates: tract.polygon_coordinates,
                     saleStatus: tract.sale_status || listing.status,
                     listingType: listing.listing_type,
+                    sourceUrl: tract.source_url,
                   })
                 }
               }
