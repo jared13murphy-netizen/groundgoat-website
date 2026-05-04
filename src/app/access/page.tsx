@@ -100,12 +100,17 @@ export default function AccessPortalPage() {
   // to these coords. `nonce` lets the same polygon retrigger if the
   // user clicks it again.
   const [zoomToBoundsSignal, setZoomToBoundsSignal] = useState<{ coords: [number, number][]; nonce: number } | null>(null)
+  // Most-recently-clicked tract polygon. Force-rendered on the map even
+  // if the tract's status would otherwise be filtered out by the
+  // current view (e.g. a sold tract inside an upcoming-auction listing).
+  const [pinnedTractPolygon, setPinnedTractPolygon] = useState<{ id: string; coords: [number, number][] } | null>(null)
   const zoomToFirstTractWithBoundary = (listing: any) => {
     const tract = (listing?.tracts || []).find((t: any) =>
       Array.isArray(t?.polygon_coordinates) && t.polygon_coordinates.length >= 3
     )
     if (tract) {
       setZoomToBoundsSignal({ coords: tract.polygon_coordinates, nonce: Date.now() })
+      setPinnedTractPolygon({ id: tract.id, coords: tract.polygon_coordinates })
     }
   }
   const zoomToTractBoundary = (tract: any) => {
@@ -113,6 +118,10 @@ export default function AccessPortalPage() {
       tract?.polygonCoordinates ?? tract?.polygon_coordinates
     if (Array.isArray(coords) && coords.length >= 3) {
       setZoomToBoundsSignal({ coords, nonce: Date.now() })
+      const tractId = tract?.tractId ?? tract?.id
+      if (tractId) {
+        setPinnedTractPolygon({ id: tractId, coords })
+      }
     }
   }
   // AI chat → map filter pipeline (admin only, see render below)
@@ -518,6 +527,7 @@ export default function AccessPortalPage() {
           onFiltersApplied={handleFiltersApplied}
           zoomToLocation={zoomToLocation}
           zoomToBoundsSignal={zoomToBoundsSignal}
+          pinnedTractPolygon={pinnedTractPolygon}
           subjectTractId={subjectTractId}
           subjectTractLocation={subjectTractLocation}
           resetFiltersSignal={resetFiltersSignal}

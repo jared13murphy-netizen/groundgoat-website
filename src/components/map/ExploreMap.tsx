@@ -282,6 +282,10 @@ interface ExploreMapProps {
   /** Fit the map to a polygon's bounds. Bumped via `nonce` so the same
       coords retrigger if the user clicks the same listing/tract twice. */
   zoomToBoundsSignal?: { coords: [number, number][]; nonce: number } | null
+  /** Polygon to overlay even if the tract isn't in the map's filter
+      set — set when the user picks a tract from a slide-out so its
+      boundary always shows up after a zoom-to-tract action. */
+  pinnedTractPolygon?: { id: string; coords: [number, number][] } | null
   subjectTractId?: string | null
   subjectTractLocation?: { lat: number; lng: number } | null
   resetFiltersSignal?: number
@@ -324,7 +328,7 @@ interface ExploreMapProps {
   neighborsLoading?: boolean
 }
 
-export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, comparableVisibleIds, neighborParcels, neighborsLoading }: ExploreMapProps) {
+export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, comparableVisibleIds, neighborParcels, neighborsLoading }: ExploreMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const stateMarkersRef = useRef<maplibregl.Marker[]>([])
@@ -840,7 +844,39 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     filters.hasHouse !== null || filters.hasBuildings !== null ||
     filters.hasPolygon !== null || filters.keyword !== ''
 
-  const polygonGeoJSON = useMemo(() => buildExplorePolygonGeoJSON(tracts), [tracts])
+  const polygonGeoJSON = useMemo(() => {
+    const fc = buildExplorePolygonGeoJSON(tracts)
+    // Overlay the user's currently-pinned tract polygon (clicked from a
+    // slide-out) regardless of whether it passed isAcceptableMapTract.
+    // Some listings have tracts whose status would normally exclude them
+    // from the upcoming/auctions filter (e.g. one tract already sold);
+    // when the user explicitly clicks that tract, they expect to see the
+    // boundary draw. We dedupe by id so we don't render twice if it's
+    // already in the filtered set.
+    if (pinnedTractPolygon?.coords && pinnedTractPolygon.coords.length >= 3) {
+      const existingIds = new Set(
+        fc.features.map((f: any) => f.properties?.tractId ?? f.id),
+      )
+      if (!existingIds.has(pinnedTractPolygon.id)) {
+        const coords = [...pinnedTractPolygon.coords]
+        const first = coords[0]
+        const last = coords[coords.length - 1]
+        if (first[0] !== last[0] || first[1] !== last[1]) {
+          coords.push([first[0], first[1]])
+        }
+        ;(fc.features as any[]).push({
+          type: 'Feature',
+          id: pinnedTractPolygon.id,
+          geometry: { type: 'Polygon', coordinates: [coords] },
+          properties: {
+            tractId: pinnedTractPolygon.id,
+            status: 'pinned',
+          },
+        })
+      }
+    }
+    return fc
+  }, [tracts, pinnedTractPolygon])
   const stateAggregates = useMemo(() => buildExploreStateAggregates(tracts), [tracts])
 
   // Load tracts for a bounding box

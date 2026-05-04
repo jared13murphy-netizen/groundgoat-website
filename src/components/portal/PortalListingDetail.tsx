@@ -9,6 +9,7 @@ import {
   DollarSign, ExternalLink, Share2, BarChart3, Loader2, RefreshCw, Bookmark
 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
+import { getStatusBadge } from '@/lib/listingStatusBadge'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=600'
@@ -86,22 +87,6 @@ const LAND_TYPE_COLORS: Record<string, string> = {
   'Commercial': 'bg-purple-500',
   'Residential': 'bg-pink-500',
   'Development': 'bg-red-500',
-}
-
-const STATUS_COLORS: Record<string, string> = {
-  listed: 'bg-blue-500',
-  live: 'bg-red-500 animate-pulse',
-  pending: 'bg-yellow-500',
-  sold: 'bg-purple-500',
-  no_sale: 'bg-red-500',
-}
-
-const STATUS_LABELS: Record<string, string> = {
-  listed: 'Upcoming',
-  live: 'LIVE NOW',
-  pending: 'Pending',
-  sold: 'Sold',
-  no_sale: 'No Sale',
 }
 
 function formatCurrency(value?: number): string {
@@ -246,12 +231,16 @@ export default function PortalListingDetail({ listingId, onBack, onTractSelected
         />
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
 
-        {/* Status badge */}
-        {listing.status !== 'listed' && (
-          <span className={`absolute top-3 right-3 px-3 py-1 rounded-full text-xs font-semibold text-white ${STATUS_COLORS[listing.status] || 'bg-gray-500'}`}>
-            {STATUS_LABELS[listing.status] || listing.status}
-          </span>
-        )}
+        {/* Status badge — colors mirror map pin palette so list-card,
+            detail page, and map pin all read the same status. */}
+        {(() => {
+          const badge = getStatusBadge(listing.status, listing.listing_type)
+          return (
+            <span className={`absolute top-3 right-3 px-3 py-1 rounded-full text-xs font-semibold ${badge.className}`}>
+              {badge.label}
+            </span>
+          )
+        })()}
 
         {/* Share + Bookmark */}
         <div className="absolute top-3 left-3 flex items-center gap-2">
@@ -488,11 +477,14 @@ export default function PortalListingDetail({ listingId, onBack, onTractSelected
                             {tract.land_type}
                           </span>
                         )}
-                        {tract.sale_status && ['sold', 'no_sale', 'pending'].includes(tract.sale_status.toLowerCase()) && (
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold text-white ${STATUS_COLORS[tract.sale_status.toLowerCase()] || 'bg-gray-500'}`}>
-                            {STATUS_LABELS[tract.sale_status.toLowerCase()] || tract.sale_status}
-                          </span>
-                        )}
+                        {tract.sale_status && ['sold', 'no_sale', 'pending'].includes(tract.sale_status.toLowerCase()) && (() => {
+                          const badge = getStatusBadge(tract.sale_status, listing.listing_type)
+                          return (
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${badge.className}`}>
+                              {badge.label}
+                            </span>
+                          )
+                        })()}
                       </div>
                     </div>
 

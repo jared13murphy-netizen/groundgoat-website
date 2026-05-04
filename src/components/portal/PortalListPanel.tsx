@@ -5,6 +5,7 @@ import { motion } from 'framer-motion'
 import Image from 'next/image'
 import { X, Calendar, Building2, DollarSign, Loader2, MapPin, Bookmark } from 'lucide-react'
 import PortalListingDetail from './PortalListingDetail'
+import { getStatusBadge } from '@/lib/listingStatusBadge'
 
 type TabType = 'auctions' | 'private_treaty' | 'results'
 
@@ -48,14 +49,6 @@ interface PortalListPanelProps {
 }
 
 const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=600'
-
-const STATUS_COLORS: Record<string, string> = {
-  listed: 'bg-blue-500/20 text-blue-400',
-  live: 'bg-red-500/20 text-red-400',
-  pending: 'bg-yellow-500/20 text-yellow-400',
-  sold: 'bg-purple-500/20 text-purple-400',
-  no_sale: 'bg-gray-500/20 text-gray-400',
-}
 
 const TAB_TITLES: Record<TabType, string> = {
   auctions: 'Upcoming Auctions',
@@ -164,19 +157,20 @@ function ListingCard({ listing, activeTab, onClick, isWatchlisted, onToggleWatch
             Details Coming Soon
           </span>
         )}
-        {listing.status === 'live' && (
-          <span className="absolute top-2 right-2 text-[10px] px-2 py-1 rounded-full font-bold uppercase bg-red-500 text-white flex items-center gap-1.5 animate-pulse shadow-lg shadow-red-500/40">
-            <span className="w-2 h-2 rounded-full bg-white animate-ping" />
-            Live Now
-          </span>
-        )}
-        {activeTab === 'results' && listing.status !== 'live' && (
-          <span className={`absolute top-2 right-2 text-[10px] px-2 py-0.5 rounded-full font-medium uppercase ${
-            STATUS_COLORS[listing.status] || 'bg-gray-500/20 text-gray-400'
-          }`}>
-            {listing.status === 'no_sale' ? 'No Sale' : listing.status}
-          </span>
-        )}
+        {(() => {
+          // Always show a status badge so card and detail-page badges
+          // tell the same story; getStatusBadge picks the right color
+          // (sold→pink, auction→blue, live→green, etc.) to match the
+          // map pin palette.
+          const badge = getStatusBadge(listing.status, listing.listing_type)
+          return (
+            <span
+              className={`absolute top-2 right-2 text-[10px] px-2 py-0.5 rounded-full font-semibold uppercase shadow-lg ${badge.className}`}
+            >
+              {badge.label}
+            </span>
+          )
+        })()}
       </div>
 
       <div className="p-4">
