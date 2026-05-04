@@ -279,6 +279,9 @@ interface ExploreMapProps {
   reportIds?: Set<string>
   onFiltersApplied?: (filters: { stateFilter: string; countyFilters: string[] }) => void
   zoomToLocation?: { lat: number; lng: number; zoom: number } | null
+  /** Fit the map to a polygon's bounds. Bumped via `nonce` so the same
+      coords retrigger if the user clicks the same listing/tract twice. */
+  zoomToBoundsSignal?: { coords: [number, number][]; nonce: number } | null
   subjectTractId?: string | null
   subjectTractLocation?: { lat: number; lng: number } | null
   resetFiltersSignal?: number
@@ -321,7 +324,7 @@ interface ExploreMapProps {
   neighborsLoading?: boolean
 }
 
-export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, comparableVisibleIds, neighborParcels, neighborsLoading }: ExploreMapProps) {
+export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, comparableVisibleIds, neighborParcels, neighborsLoading }: ExploreMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const stateMarkersRef = useRef<maplibregl.Marker[]>([])
@@ -660,6 +663,28 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       })
     }
   }, [zoomToLocation])
+
+  // Fit map to polygon bounds (e.g. when the user picks a listing or
+  // tract from a slide-out pane). Computes the bbox client-side so we
+  // never zoom past the polygon. `nonce` lets the same coords retrigger.
+  useEffect(() => {
+    if (!zoomToBoundsSignal?.coords?.length) return
+    const map = mapRef.current
+    if (!map) return
+    let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity
+    for (const [lng, lat] of zoomToBoundsSignal.coords) {
+      if (typeof lng !== 'number' || typeof lat !== 'number') continue
+      if (lng < minLng) minLng = lng
+      if (lng > maxLng) maxLng = lng
+      if (lat < minLat) minLat = lat
+      if (lat > maxLat) maxLat = lat
+    }
+    if (!Number.isFinite(minLng)) return
+    map.fitBounds(
+      [[minLng, minLat], [maxLng, maxLat]],
+      { padding: 80, duration: 1200, maxZoom: 17 },
+    )
+  }, [zoomToBoundsSignal?.nonce])
 
   const setFilterOpen = (open: boolean) => {
     setFilterOpenInternal(open)

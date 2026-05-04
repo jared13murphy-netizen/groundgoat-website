@@ -69,6 +69,10 @@ interface PortalListingDetailProps {
   listingId: string
   onBack: () => void
   onTractSelected?: (tract: any) => void
+  /** Fired once the listing's full payload (including tracts +
+      polygon_coordinates) is loaded. Parents use this to zoom the
+      map to the listing's first tract on open. */
+  onListingLoaded?: (listing: Listing) => void
   onFindComparables?: (tractId: string, county: string, state: string) => void
   userAccountType?: string
   isWatchlisted?: boolean
@@ -129,7 +133,7 @@ function formatTime(listing: Listing): string {
   return `${h12}:${String(mins).padStart(2, '0')} ${ampm}`
 }
 
-export default function PortalListingDetail({ listingId, onBack, onTractSelected, onFindComparables, userAccountType, isWatchlisted, onToggleWatchlist }: PortalListingDetailProps) {
+export default function PortalListingDetail({ listingId, onBack, onTractSelected, onListingLoaded, onFindComparables, userAccountType, isWatchlisted, onToggleWatchlist }: PortalListingDetailProps) {
   const [listing, setListing] = useState<Listing | null>(null)
   const [loading, setLoading] = useState(true)
   const [heroImgError, setHeroImgError] = useState(false)
@@ -147,6 +151,7 @@ export default function PortalListingDetail({ listingId, onBack, onTractSelected
       if (response.ok) {
         const data = await response.json()
         setListing(data)
+        onListingLoaded?.(data)
       }
     } catch (err) {
       console.error('Failed to fetch listing:', err)

@@ -35,6 +35,10 @@ interface PortalListPanelProps {
   activeTab: TabType
   onClose: () => void
   onTractSelected?: (tract: any) => void
+  /** Forwarded to PortalListingDetail — fired when the listing's
+      full payload (including tract polygons) finishes loading.
+      Lets the access page zoom the map to the first tract. */
+  onListingLoaded?: (listing: any) => void
   onFindComparables?: (tractId: string, county: string, state: string) => void
   activeFilters?: { stateFilter: string; countyFilters: string[] }
   onClearFilters?: () => void
@@ -266,7 +270,7 @@ function ListingCard({ listing, activeTab, onClick, isWatchlisted, onToggleWatch
   )
 }
 
-export default function PortalListPanel({ listings, loading, activeTab, onClose, onTractSelected, onFindComparables, activeFilters, onClearFilters, userAccountType, watchlistIds, onToggleWatchlist }: PortalListPanelProps) {
+export default function PortalListPanel({ listings, loading, activeTab, onClose, onTractSelected, onListingLoaded, onFindComparables, activeFilters, onClearFilters, userAccountType, watchlistIds, onToggleWatchlist }: PortalListPanelProps) {
   const [selectedListingId, setSelectedListingId] = useState<string | null>(null)
 
   return (
@@ -323,6 +327,7 @@ export default function PortalListPanel({ listings, loading, activeTab, onClose,
             onTractSelected={(tract) => {
               onTractSelected?.(tract)
             }}
+            onListingLoaded={onListingLoaded}
             onFindComparables={onFindComparables}
             userAccountType={userAccountType}
             isWatchlisted={watchlistIds?.has(selectedListingId!)}

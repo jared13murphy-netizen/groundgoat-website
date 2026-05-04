@@ -95,6 +95,26 @@ export default function AccessPortalPage() {
   const watchTogglePendingRef = useRef<Set<string>>(new Set())
   // Map zoom state
   const [zoomToLocation, setZoomToLocation] = useState<{ lat: number; lng: number; zoom: number } | null>(null)
+  // Polygon-bounds zoom: fired when the user picks a listing or a
+  // specific tract from the slide-out pane. ExploreMap fits the map
+  // to these coords. `nonce` lets the same polygon retrigger if the
+  // user clicks it again.
+  const [zoomToBoundsSignal, setZoomToBoundsSignal] = useState<{ coords: [number, number][]; nonce: number } | null>(null)
+  const zoomToFirstTractWithBoundary = (listing: any) => {
+    const tract = (listing?.tracts || []).find((t: any) =>
+      Array.isArray(t?.polygon_coordinates) && t.polygon_coordinates.length >= 3
+    )
+    if (tract) {
+      setZoomToBoundsSignal({ coords: tract.polygon_coordinates, nonce: Date.now() })
+    }
+  }
+  const zoomToTractBoundary = (tract: any) => {
+    const coords =
+      tract?.polygonCoordinates ?? tract?.polygon_coordinates
+    if (Array.isArray(coords) && coords.length >= 3) {
+      setZoomToBoundsSignal({ coords, nonce: Date.now() })
+    }
+  }
   // AI chat → map filter pipeline (admin only, see render below)
   const [chatAppliedFilters, setChatAppliedFilters] = useState<{ filters: any; clearUnspecified?: boolean; nonce: number } | null>(null)
   const handleChatApplyFilters = (filters: Record<string, any>, clearUnspecified: boolean) => {
@@ -497,6 +517,7 @@ export default function AccessPortalPage() {
           reportIds={reportIds}
           onFiltersApplied={handleFiltersApplied}
           zoomToLocation={zoomToLocation}
+          zoomToBoundsSignal={zoomToBoundsSignal}
           subjectTractId={subjectTractId}
           subjectTractLocation={subjectTractLocation}
           resetFiltersSignal={resetFiltersSignal}
@@ -541,7 +562,11 @@ export default function AccessPortalPage() {
               setShowListPanel(false)
               setActiveTab('map')
             }}
-            onTractSelected={setSelectedTract}
+            onTractSelected={(tract) => {
+              setSelectedTract(tract as TractSaleData)
+              zoomToTractBoundary(tract)
+            }}
+            onListingLoaded={zoomToFirstTractWithBoundary}
             onFindComparables={handleFindComparables}
             activeFilters={activeFilters}
             onClearFilters={() => {
@@ -584,7 +609,11 @@ export default function AccessPortalPage() {
               <PortalListingDetail
                 listingId={mapListingId}
                 onBack={() => setMapListingId(null)}
-                onTractSelected={setSelectedTract}
+                onTractSelected={(tract) => {
+                  setSelectedTract(tract as TractSaleData)
+                  zoomToTractBoundary(tract)
+                }}
+                onListingLoaded={zoomToFirstTractWithBoundary}
                 onFindComparables={handleFindComparables}
                 userAccountType={user?.account_type}
                 isWatchlisted={watchlistIds.has(mapListingId!)}
