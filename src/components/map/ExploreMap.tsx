@@ -1423,28 +1423,36 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
 
     // Hover handlers — bind to every state's fill layer at once.
+    // The popup always shows when a feature is under the cursor; the
+    // hover-color fill only kicks in when the feature has an id we
+    // can target with setFeatureState. (MVT features sometimes come
+    // through without an id — promoteId on the source helps but isn't
+    // a guarantee, so we treat hover-color as best-effort.)
     const onMove = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
       if (!e.features?.length) return
       const f = e.features[0]
-      const props: any = f.properties
-      const fid = (f as any).id ?? props.id
-      const sid = (f as any).source as string
-      if (fid == null || !sid) return
+      const props: any = f.properties || {}
+      const fid = (f as any).id
+      const sid = (f as any).source as string | undefined
       map.getCanvas().style.cursor = 'pointer'
 
-      const key = `${sid}:${fid}`
-      if (hoveredKey && hoveredKey !== key) {
-        const [prevSid, prevId] = hoveredKey.split(':')
+      // Hover fill color (best-effort — only works when fid + sid are
+      // both available and stable across pans).
+      if (sid && fid != null) {
+        const key = `${sid}:${fid}`
+        if (hoveredKey && hoveredKey !== key) {
+          const [prevSid, prevIdStr] = hoveredKey.split(':')
+          map.setFeatureState(
+            { source: prevSid, sourceLayer: 'parcels', id: prevIdStr },
+            { hover: false },
+          )
+        }
+        hoveredKey = key
         map.setFeatureState(
-          { source: prevSid, sourceLayer: 'parcels', id: prevId },
-          { hover: false },
+          { source: sid, sourceLayer: 'parcels', id: fid },
+          { hover: true },
         )
       }
-      hoveredKey = key
-      map.setFeatureState(
-        { source: sid, sourceLayer: 'parcels', id: fid },
-        { hover: true },
-      )
 
       const owner = props.owner || 'Unknown'
       const rows: string[] = []
@@ -1466,9 +1474,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const onLeave = () => {
       map.getCanvas().style.cursor = ''
       if (hoveredKey) {
-        const [prevSid, prevId] = hoveredKey.split(':')
+        const [prevSid, prevIdStr] = hoveredKey.split(':')
         map.setFeatureState(
-          { source: prevSid, sourceLayer: 'parcels', id: prevId },
+          { source: prevSid, sourceLayer: 'parcels', id: prevIdStr },
           { hover: false },
         )
         hoveredKey = null
