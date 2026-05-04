@@ -1301,7 +1301,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const map = mapRef.current
     if (!map || !mapLoaded) return
 
-    if (!isAdmin || !adminParcelOverlay || adminParcelStates.length === 0) {
+    if (!isAdmin || !adminParcelOverlay) {
       setAdminParcels([])
       setAdminParcelsTruncated(false)
       return
@@ -1317,8 +1317,16 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       const minLat = b.getSouth(), maxLat = b.getNorth()
       const minLng = b.getWest(),  maxLng = b.getEast()
 
-      // Which loaded states does the viewport intersect?
-      const statesInView = adminParcelStates.filter(st => {
+      // Which states does the viewport intersect? If we have the
+      // coverage list (states known to have parcel data) use that as a
+      // filter so we don't fire wasted requests. If coverage hasn't
+      // loaded yet, fall back to all states in STATE_BOUNDS — the
+      // backend returns empty quickly via the (state, ...) index for
+      // states that have no rows.
+      const candidateStates = adminParcelStates.length > 0
+        ? adminParcelStates
+        : Object.keys(STATE_BOUNDS as any)
+      const statesInView = candidateStates.filter(st => {
         const sb = (STATE_BOUNDS as any)?.[st]
         if (!sb) return true  // unknown bounds → fetch defensively
         const [[sw_lng, sw_lat], [ne_lng, ne_lat]] = sb
@@ -2038,7 +2046,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           every parcel (boundary + owner + acres) sourced from free state
           GIS clearinghouses. Bottom-right placement (per user) so it's
           out of the way of the filter button group. */}
-      {isAdmin && currentZoom >= ADMIN_PARCEL_MIN_ZOOM && adminParcelStates.length > 0 && (
+      {isAdmin && currentZoom >= ADMIN_PARCEL_MIN_ZOOM && (
         <button
           onClick={() => setAdminParcelOverlay(v => !v)}
           style={{
@@ -2060,7 +2068,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             gap: 8,
             boxShadow: '0 4px 12px rgba(0,0,0,0.35)',
           }}
-          title={`Show every parcel (${adminParcelStates.join(', ')}) — admin only`}
+          title={
+            adminParcelStates.length > 0
+              ? `Show every parcel (${adminParcelStates.join(', ')}) — admin only`
+              : 'Show every parcel — admin only'
+          }
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <rect x="3" y="3" width="18" height="18" rx="2" />
