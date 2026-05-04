@@ -1442,8 +1442,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       type: 'line',
       source: 'admin-parcels',
       paint: {
-        'line-color': '#F59E0B',
-        'line-width': 1.2,
+        'line-color': '#000000',
+        'line-width': 1.7,
         'line-opacity': 0.85,
       },
     })
