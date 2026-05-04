@@ -1438,7 +1438,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       source: 'admin-parcels',
       paint: {
         'line-color': '#000000',
-        'line-width': 1.7,
+        'line-width': 2.2,
         'line-opacity': 0.85,
       },
     })
@@ -1450,7 +1450,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       layout: {
         'text-field': [
           'format',
-          ['get', 'owner'], { 'font-scale': 1.0 },
+          ['get', 'owner'], {
+            'font-scale': 1.0,
+            'text-font': ['literal', ['Open Sans Bold']],
+          },
           [
             'case',
             ['>', ['length', ['coalesce', ['get', 'acres_str'], '']], 0],
