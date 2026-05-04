@@ -682,7 +682,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     if (!Number.isFinite(minLng)) return
     map.fitBounds(
       [[minLng, minLat], [maxLng, maxLat]],
-      { padding: 80, duration: 1200, maxZoom: 17 },
+      { padding: 80, duration: 1200, maxZoom: 16 },
     )
   }, [zoomToBoundsSignal?.nonce])
 
