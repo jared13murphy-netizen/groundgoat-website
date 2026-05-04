@@ -412,7 +412,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     process.env.NEXT_PUBLIC_TILES_URL ||
     'https://ground-goat-tiles-production.up.railway.app'
   const [isAdmin, setIsAdmin] = useState(false)
-  const [adminParcelOverlay, setAdminParcelOverlay] = useState(false)
+  // Default ON for admins — parcels show automatically when zoomed in
+  // past z13. Toggle preference is persisted in localStorage so a
+  // deliberate "hide" stays hidden on the next visit.
+  const [adminParcelOverlay, setAdminParcelOverlay] = useState(() => {
+    if (typeof window === 'undefined') return true
+    const v = localStorage.getItem('gg_admin_parcel_overlay')
+    return v == null ? true : v === '1'
+  })
   // List of state codes that have a .pmtiles file on the tile server.
   // Populated from the tile server's listing endpoint; hydrated from
   // localStorage immediately for instant button render on subsequent
@@ -1958,7 +1965,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           out of the way of the filter button group. */}
       {isAdmin && currentZoom >= ADMIN_PARCEL_MIN_ZOOM && (
         <button
-          onClick={() => setAdminParcelOverlay(v => !v)}
+          onClick={() => setAdminParcelOverlay(v => {
+            const next = !v
+            try { localStorage.setItem('gg_admin_parcel_overlay', next ? '1' : '0') } catch {}
+            return next
+          })}
           style={{
             position: 'absolute',
             bottom: 24,
