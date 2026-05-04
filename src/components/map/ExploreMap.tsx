@@ -1423,17 +1423,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       type: 'fill',
       source: 'admin-parcels',
       paint: {
-        'fill-color': [
-          'case',
-          ['boolean', ['feature-state', 'hover'], false],
-          '#F59E0B',
-          '#FBBF24',
-        ],
+        'fill-color': '#EC4899',  // brand pink-500
         'fill-opacity': [
           'case',
           ['boolean', ['feature-state', 'hover'], false],
-          0.30,
-          0.10,
+          0.22,
+          0.06,
         ],
       },
     })
