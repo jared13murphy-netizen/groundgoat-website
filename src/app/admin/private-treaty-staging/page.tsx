@@ -466,13 +466,18 @@ export default function AdminPrivateTreatyStagingPage() {
 
   const handleVerify = async (id: number) => {
     setActionLoading(id)
+    const item = listings.find((l) => l.id === id)
+    const isRescrape = !!item?.scraped_data?.rescrape_listing_id
+    const verifyUrl = isRescrape
+      ? `${API_URL}/api/admin/staging/${id}/verify-rescrape`
+      : `${API_URL}/api/admin/staging/${id}/verify`
     try {
-      const response = await fetchWithAuth(`${API_URL}/api/admin/staging/${id}/verify`, {
+      const response = await fetchWithAuth(verifyUrl, {
         method: 'POST',
       })
       if (response.ok) {
         setListings((prev) => prev.filter((l) => l.id !== id))
-        showToast('success', 'Listing verified and created successfully')
+        showToast('success', isRescrape ? 'Tracts updated with new data' : 'Listing verified and created successfully')
       } else {
         const err = await response.json().catch(() => ({ detail: 'Unknown error' }))
         const detail = err.detail
@@ -1160,7 +1165,7 @@ export default function AdminPrivateTreatyStagingPage() {
                             className="flex items-center gap-2 px-5 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-500 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             {actionLoading === listing.id ? <Loader2 className="animate-spin" size={16} /> : <CheckCircle size={16} />}
-                            {actionLoading === listing.id ? 'Verifying...' : 'Verify'}
+                            {actionLoading === listing.id ? 'Verifying...' : (listing.scraped_data?.rescrape_listing_id ? 'Update Tracts' : 'Verify')}
                           </button>
                           <button
                             onClick={() => openEditModal(listing)}
