@@ -54,15 +54,6 @@ const CountyDetailPanel = dynamic(() => import('@/components/map/CountyDetailPan
   ssr: false,
 })
 
-const AdminExploreMap = dynamic(() => import('@/components/map/AdminExploreMap'), {
-  ssr: false,
-  loading: () => (
-    <div className="h-[700px] bg-gg-gray-800 rounded-xl flex items-center justify-center">
-      <Loader2 className="animate-spin text-gg-pink" size={32} />
-    </div>
-  )
-})
-
 export default function AdminDashboard() {
   const router = useRouter()
   const [user, setUser] = useState<any>(null)
@@ -771,25 +762,6 @@ export default function AdminDashboard() {
               onCountyClick={(county, state) => setSelectedCountyDetail({ county, state })}
               height="600px"
             />
-          </div>
-        </div>
-
-        {/* FastMap (progressive disclosure: heatmap → clusters → pins).
-            Currently lives at the bottom of the admin dashboard so we can
-            iterate without disrupting the customer-facing ExploreMap; will
-            replace it once parity (filters, polygons, state_parcels) is in. */}
-        <div className="card mt-8">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h2 className="text-xl font-bold text-white">Explore Map (preview)</h2>
-              <p className="text-gg-gray-400 text-sm">
-                Three-tier zoom: state badges → county squares → tract pins.
-                Will replace the customer-facing ExploreMap once approved.
-              </p>
-            </div>
-          </div>
-          <div className="rounded-xl overflow-hidden">
-            <AdminExploreMap height="700px" />
           </div>
         </div>
 

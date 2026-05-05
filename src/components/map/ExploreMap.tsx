@@ -10,7 +10,6 @@ import type { ApiMapTract, MapTractsResponse } from './exploreMapTypes'
 import { normalizeTownship } from '../../utils/normalizeTownship'
 import {
   buildExplorePolygonGeoJSON,
-  buildExploreStateAggregates,
 } from './exploreMapTransform'
 import {
   MAP_CENTER,
@@ -19,7 +18,6 @@ import {
   TILE_ATTRIBUTION,
   GLYPH_URL,
   LABEL_TILE_URL,
-  ZOOM_TIER_1_MAX,
   STATUS_COLORS,
 } from './mapConstants'
 import fetchWithAuth from '@/lib/fetchWithAuth'
@@ -107,6 +105,154 @@ function isAcceptableMapTract(t: ApiMapTract, isUpcomingFilter: boolean, now: Da
 function formatCurrency(amount: number | null | undefined): string {
   if (!amount) return '—'
   return '$' + Math.round(amount).toLocaleString('en-US')
+}
+
+// ───────────────────────────────────────────────────────────────
+// 3-tier zoom system (state silhouettes / county squares / tract
+// pins). Hard-gated: only one tier's markers are visible at a time
+// so the map never gets visually crowded.
+// ───────────────────────────────────────────────────────────────
+const STATE_TIER_MAX = 6
+const COUNTY_TIER_MIN = 6
+const COUNTY_TIER_MAX = 9
+const TRACT_TIER_MIN = 9
+
+type ZoomTier = 'state' | 'county' | 'tract'
+function currentZoomTier(z: number): ZoomTier {
+  if (z <= STATE_TIER_MAX) return 'state'
+  if (z <= COUNTY_TIER_MAX) return 'county'
+  return 'tract'
+}
+
+// Full-name → 2-letter abbr lookup for ALL US states. Used to match
+// /data/us-states.json features (keyed by `properties.NAME`) to the
+// state-counts API rows (keyed by 2-letter abbr).
+const ALL_STATE_NAME_TO_ABBR: Record<string, string> = {
+  Alabama: 'AL', Alaska: 'AK', Arizona: 'AZ', Arkansas: 'AR',
+  California: 'CA', Colorado: 'CO', Connecticut: 'CT', Delaware: 'DE',
+  'District of Columbia': 'DC',
+  Florida: 'FL', Georgia: 'GA', Hawaii: 'HI', Idaho: 'ID',
+  Illinois: 'IL', Indiana: 'IN', Iowa: 'IA', Kansas: 'KS',
+  Kentucky: 'KY', Louisiana: 'LA', Maine: 'ME', Maryland: 'MD',
+  Massachusetts: 'MA', Michigan: 'MI', Minnesota: 'MN',
+  Mississippi: 'MS', Missouri: 'MO', Montana: 'MT', Nebraska: 'NE',
+  Nevada: 'NV', 'New Hampshire': 'NH', 'New Jersey': 'NJ',
+  'New Mexico': 'NM', 'New York': 'NY', 'North Carolina': 'NC',
+  'North Dakota': 'ND', Ohio: 'OH', Oklahoma: 'OK', Oregon: 'OR',
+  Pennsylvania: 'PA', 'Rhode Island': 'RI', 'South Carolina': 'SC',
+  'South Dakota': 'SD', Tennessee: 'TN', Texas: 'TX', Utah: 'UT',
+  Vermont: 'VT', Virginia: 'VA', Washington: 'WA',
+  'West Virginia': 'WV', Wisconsin: 'WI', Wyoming: 'WY',
+}
+let _ABBR_TO_NAME: Record<string, string> | null = null
+function abbrToName(abbr: string): string {
+  if (!_ABBR_TO_NAME) {
+    _ABBR_TO_NAME = {}
+    for (const [name, a] of Object.entries(ALL_STATE_NAME_TO_ABBR)) {
+      _ABBR_TO_NAME[a] = name
+    }
+  }
+  return _ABBR_TO_NAME[abbr] || abbr
+}
+
+// Bbox of a state Feature (Polygon or MultiPolygon). Returns
+// [[minLng, minLat], [maxLng, maxLat]] or null. Used both for the
+// marker centroid and for sizing each badge to match the state's
+// actual on-map extent at the current zoom.
+function featureBbox(
+  feature: any,
+): [[number, number], [number, number]] | null {
+  if (!feature?.geometry?.coordinates) return null
+  const geom = feature.geometry
+  let minLng = Infinity, minLat = Infinity
+  let maxLng = -Infinity, maxLat = -Infinity
+  const visit = (ring: number[][]) => {
+    for (const [lng, lat] of ring) {
+      if (lng < minLng) minLng = lng
+      if (lng > maxLng) maxLng = lng
+      if (lat < minLat) minLat = lat
+      if (lat > maxLat) maxLat = lat
+    }
+  }
+  if (geom.type === 'Polygon') {
+    for (const ring of geom.coordinates) visit(ring as number[][])
+  } else if (geom.type === 'MultiPolygon') {
+    for (const poly of geom.coordinates) {
+      for (const ring of poly as number[][][]) visit(ring)
+    }
+  } else {
+    return null
+  }
+  if (!isFinite(minLng) || !isFinite(minLat)) return null
+  return [[minLng, minLat], [maxLng, maxLat]]
+}
+
+// SVG path that STRETCHES across a 100×100 viewBox (no aspect-ratio
+// centering). Combined with preserveAspectRatio="none" + a container
+// sized to the projected bbox in pixels, the silhouette ends up
+// perfectly aligned over the actual state on the map.
+function featureToSvgPath(feature: any): string | null {
+  if (!feature?.geometry?.coordinates) return null
+  const geom = feature.geometry
+  const rings: number[][][] = []
+  if (geom.type === 'Polygon') {
+    for (const ring of geom.coordinates) rings.push(ring as number[][])
+  } else if (geom.type === 'MultiPolygon') {
+    for (const poly of geom.coordinates) {
+      for (const ring of poly as number[][][]) rings.push(ring)
+    }
+  } else {
+    return null
+  }
+  if (!rings.length) return null
+  let minLng = Infinity, minLat = Infinity
+  let maxLng = -Infinity, maxLat = -Infinity
+  for (const ring of rings) {
+    for (const [lng, lat] of ring) {
+      if (lng < minLng) minLng = lng
+      if (lng > maxLng) maxLng = lng
+      if (lat < minLat) minLat = lat
+      if (lat > maxLat) maxLat = lat
+    }
+  }
+  const w = maxLng - minLng
+  const h = maxLat - minLat
+  if (w <= 0 || h <= 0) return null
+  const sx = 100 / w
+  const sy = 100 / h
+  const parts: string[] = []
+  for (const ring of rings) {
+    if (ring.length < 3) continue
+    const cmds: string[] = []
+    for (let i = 0; i < ring.length; i++) {
+      const [lng, lat] = ring[i]
+      const x = (lng - minLng) * sx
+      const y = (maxLat - lat) * sy
+      cmds.push(`${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`)
+    }
+    cmds.push('Z')
+    parts.push(cmds.join(' '))
+  }
+  return parts.join(' ')
+}
+
+// Fade-out then remove a batch of markers. Adds the .aem-leaving
+// class to the INNER badge (not the maplibre shell, which holds the
+// translate transform that positions the marker). 380ms later we
+// call .remove().
+function fadeOutAndRemove(markers: maplibregl.Marker[]): void {
+  if (!markers.length) return
+  const snapshot = [...markers]
+  for (const m of snapshot) {
+    const shell = m.getElement()
+    const inner = shell?.firstElementChild as HTMLElement | null
+    if (inner) inner.classList.add('aem-leaving')
+  }
+  setTimeout(() => {
+    for (const m of snapshot) {
+      try { m.remove() } catch {}
+    }
+  }, 380)
 }
 
 function formatAcres(acres: number | null | undefined): string {
@@ -263,7 +409,11 @@ function buildFilterParams(filters: FilterState) {
   if (filters.seller) params.seller = filters.seller
   if (filters.hasHouse !== null) params.has_house = String(filters.hasHouse)
   if (filters.hasBuildings !== null) params.has_buildings = String(filters.hasBuildings)
-  if (filters.hasPolygon !== null) params.has_polygon = String(filters.hasPolygon)
+  // Always exclude tracts without polygon boundaries from the map.
+  // Pins/badges/county counts only reflect tracts the user can
+  // actually see outlined. Backend predicate is
+  // Tract.polygon_coordinates.isnot(None).
+  params.has_polygon = 'true'
   if (filters.keyword) params.keyword = filters.keyword
   return params
 }
@@ -336,6 +486,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const stateMarkersRef = useRef<maplibregl.Marker[]>([])
+  const countyMarkersRef = useRef<maplibregl.Marker[]>([])
   const tractMarkersRef = useRef<maplibregl.Marker[]>([])
   const tractMarkerElementsRef = useRef<Map<string, HTMLDivElement>>(new Map())
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -385,6 +536,23 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const [tracts, setTracts] = useState<ApiMapTract[]>([])
   const [currentZoom, setCurrentZoom] = useState(MAP_INITIAL_ZOOM)
   const [mapLoaded, setMapLoaded] = useState(false)
+
+  // 3-tier marker counts and silhouette geometry. Counts come from
+  // dedicated server-side aggregation endpoints (filter-aware) so
+  // the badges show accurate numbers regardless of what's been
+  // loaded into the cell-loader. Silhouette paths + bboxes are
+  // loaded once from /data/us-states.json on mount.
+  const [stateCounts, setStateCounts] = useState<
+    Array<{ state: string; count: number }>
+  >([])
+  const [countyCounts, setCountyCounts] = useState<
+    Array<{ state: string; county: string; count: number; lat: number; lng: number }>
+  >([])
+  const [stateSilhouettes, setStateSilhouettes] = useState<Record<string, string>>({})
+  const [stateCentroids, setStateCentroids] = useState<Record<string, [number, number]>>({})
+  const [stateBboxes, setStateBboxes] = useState<
+    Record<string, [[number, number], [number, number]]>
+  >({})
   const [loading, setLoading] = useState(false)
   const [selectedSale, setSelectedSale] = useState<SaleDetail | null>(null)
   const [show3DViewer, setShow3DViewer] = useState(false)
@@ -406,6 +574,72 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const [filters, setFilters] = useState<FilterState>(INITIAL_FILTERS)
   const [filterOpen, setFilterOpenInternal] = useState(false)
   const filtersRef = useRef<FilterState>(INITIAL_FILTERS)
+
+  // Serialized filter params used by the new state/county count
+  // endpoints (and any future filter-aware fetcher). Re-computes
+  // whenever `filters` change, which causes the count effects below
+  // to re-fire automatically.
+  const filterParamString = useMemo(() => {
+    return new URLSearchParams(buildFilterParams(filters)).toString()
+  }, [filters])
+
+  const currentTier = currentZoomTier(currentZoom)
+
+  // Load state silhouettes + bboxes ONCE on mount from us-states.json.
+  // Used to render the silhouette badges with bbox-projected sizing.
+  useEffect(() => {
+    let cancelled = false
+    fetch('/data/us-states.json')
+      .then(r => r.ok ? r.json() : null)
+      .then((geo: any) => {
+        if (cancelled || !geo?.features) return
+        const paths: Record<string, string> = {}
+        const centroids: Record<string, [number, number]> = {}
+        const bboxes: Record<string, [[number, number], [number, number]]> = {}
+        for (const feat of geo.features) {
+          const abbr = ALL_STATE_NAME_TO_ABBR[feat?.properties?.NAME]
+          if (!abbr) continue
+          const path = featureToSvgPath(feat)
+          if (path) paths[abbr] = path
+          const bbox = featureBbox(feat)
+          if (bbox) {
+            bboxes[abbr] = bbox
+            centroids[abbr] = [
+              (bbox[0][0] + bbox[1][0]) / 2,
+              (bbox[0][1] + bbox[1][1]) / 2,
+            ]
+          }
+        }
+        setStateSilhouettes(paths)
+        setStateCentroids(centroids)
+        setStateBboxes(bboxes)
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
+
+  // Filter-aware state-tier counts. Auto-refetches when filters
+  // change, so silhouette badges stay accurate to the user's filter
+  // set across the entire DB (not just the cell-loader's loaded set).
+  useEffect(() => {
+    let cancel = false
+    fetchWithAuth(`${API_URL}/api/map/state-tract-counts?${filterParamString}`)
+      .then(r => r.ok ? r.json() : { states: [] })
+      .then(d => { if (!cancel) setStateCounts(d.states || []) })
+      .catch(() => {})
+    return () => { cancel = true }
+  }, [filterParamString])
+
+  // Filter-aware county-tier counts (scoped to selected state(s) when set).
+  useEffect(() => {
+    let cancel = false
+    const stateScope = filters.stateFilter ? `state=${filters.stateFilter}&` : ''
+    fetchWithAuth(`${API_URL}/api/map/county-tract-counts?${stateScope}${filterParamString}`)
+      .then(r => r.ok ? r.json() : { counties: [] })
+      .then(d => { if (!cancel) setCountyCounts(d.counties || []) })
+      .catch(() => {})
+    return () => { cancel = true }
+  }, [filterParamString, filters.stateFilter])
 
   // Admin parcel-overlay state. Lights up the map with every parcel
   // (boundary + owner + acres). Visible only to groundgoat_admin users;
@@ -881,7 +1115,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
     return fc
   }, [tracts, pinnedTractPolygon])
-  const stateAggregates = useMemo(() => buildExploreStateAggregates(tracts), [tracts])
 
   // Load tracts for a bounding box
   const CELL_LIMIT = 1000
@@ -1837,47 +2070,197 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
   }, [portalMode, subjectTractLocation])
 
-  // Manage state card markers
+  // ─────────────────────────────────────────────────────────────
+  // 3-tier zoom system: state silhouettes → county squares → tract
+  // pins. Hard-gated so only one tier's markers are in the DOM at
+  // any zoom. Each tier's effect tears down its own markers (with
+  // fade-out) and rebuilds when its data or the active tier changes.
+  // Tract pins (existing) are toggled via display: none in a
+  // separate effect so we don't pay the cost of recreating their
+  // click/report-highlight wiring on every zoom change.
+  // ─────────────────────────────────────────────────────────────
+
+  // STATE BADGES — silhouette + count, sized to the projected bbox
+  // of each state so the silhouette sits over its real on-map
+  // footprint. Inner sized inline; resize wired to map "move" so
+  // badges stay locked to their footprints during pan/zoom.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded) return
 
-    stateMarkersRef.current.forEach(m => m.remove())
+    fadeOutAndRemove(stateMarkersRef.current)
     stateMarkersRef.current = []
+    if (currentTier !== 'state') return
 
-    for (const agg of stateAggregates) {
+    const sized: Array<{
+      inner: HTMLElement
+      bbox: [[number, number], [number, number]]
+    }> = []
+    const MIN_BADGE_PX = 70
+    const SHRINK_FACTOR = 0.92
+
+    const sizeBadge = (
+      inner: HTMLElement,
+      bbox: [[number, number], [number, number]],
+    ) => {
+      const tl = map.project([bbox[0][0], bbox[1][1]])
+      const br = map.project([bbox[1][0], bbox[0][1]])
+      const w = Math.max(MIN_BADGE_PX, Math.abs(br.x - tl.x) * SHRINK_FACTOR)
+      const h = Math.max(MIN_BADGE_PX, Math.abs(br.y - tl.y) * SHRINK_FACTOR)
+      inner.style.width = `${w}px`
+      inner.style.height = `${h}px`
+    }
+
+    for (const { state, count } of stateCounts) {
+      if (count === 0) continue
+      let lng: number | undefined
+      let lat: number | undefined
+      const c = stateCentroids[state]
+      if (c) {
+        lng = c[0]; lat = c[1]
+      } else {
+        const bounds = STATE_BOUNDS[state]
+        if (!bounds) continue
+        lng = (bounds[0][0] + bounds[1][0]) / 2
+        lat = (bounds[0][1] + bounds[1][1]) / 2
+      }
+
+      const silhouettePath = stateSilhouettes[state]
+      const bbox = stateBboxes[state]
+      const maskId = `aem-cut-${state}`
+      const blurId = `aem-blur-${state}`
+
       const el = document.createElement('div')
-      el.innerHTML = `
-        <div class="state-card">
-          <div class="state-card-name">${agg.state}</div>
-          <div class="state-card-count">${agg.count} tract${agg.count !== 1 ? 's' : ''}</div>
+      el.className = 'aem-marker-shell'
+      const inner = document.createElement('div')
+      inner.className = 'aem-state-badge'
+      // Hovering shadow: render the silhouette TWICE inside one SVG.
+      // First copy is a translated + blurred shadow, masked so only
+      // the part OUTSIDE the silhouette draws. Second copy is the
+      // 62%-opacity silhouette on top. Result: shadow appears only
+      // along the bottom-right edge, silhouette stays see-through,
+      // state appears to lift off the map.
+      inner.innerHTML = `
+        <svg class="aem-state-shape" viewBox="0 0 100 100"
+             preserveAspectRatio="none">
+          ${silhouettePath ? `
+            <defs>
+              <mask id="${maskId}" maskUnits="userSpaceOnUse"
+                    x="-50" y="-50" width="200" height="200">
+                <rect x="-50" y="-50" width="200" height="200" fill="white"/>
+                <path d="${silhouettePath}" fill="black"/>
+              </mask>
+              <filter id="${blurId}" x="-30%" y="-30%" width="160%" height="160%">
+                <feGaussianBlur stdDeviation="1.5"/>
+              </filter>
+            </defs>
+            <g mask="url(#${maskId})" pointer-events="none">
+              <path d="${silhouettePath}"
+                    fill="rgba(0,0,0,0.92)"
+                    transform="translate(3 4)"
+                    filter="url(#${blurId})"
+                    stroke="none"/>
+            </g>
+            <path d="${silhouettePath}"
+                  fill="rgba(10,10,12,0.62)"
+                  stroke="none" />
+          ` : '<rect x="2" y="2" width="96" height="96" rx="6" fill="rgba(10,10,12,0.62)"/>'}
+        </svg>
+        <div class="aem-state-overlay">
+          <img src="/goat-icon-white.png" alt="" class="aem-state-goat" />
+          <div class="aem-state-name">${abbrToName(state)}</div>
+          <div class="aem-state-count">${count.toLocaleString()}</div>
+          <a class="aem-state-link" data-action="filter">Filter</a>
         </div>
       `
-      el.addEventListener('click', () => {
-        map.fitBounds(agg.bounds, { padding: 50, duration: 1000 })
+      el.appendChild(inner)
+
+      el.addEventListener('click', (ev) => {
+        const target = ev.target as HTMLElement
+        const isFilterLink = target?.closest('[data-action="filter"]')
+        ev.stopPropagation()
+        if (isFilterLink) {
+          setFilters(prev => ({
+            ...prev, stateFilter: state, countyFilters: [], townshipFilters: [],
+          }))
+          setFilterOpen(true)
+        }
+        map.easeTo({ center: [lng!, lat!], zoom: 7, duration: 900 })
       })
 
       const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
-        .setLngLat([agg.centerLng, agg.centerLat])
+        .setLngLat([lng, lat])
         .addTo(map)
-
       stateMarkersRef.current.push(marker)
+      if (bbox) {
+        sized.push({ inner, bbox })
+        sizeBadge(inner, bbox)
+      } else {
+        inner.style.width = '100px'
+        inner.style.height = '100px'
+      }
     }
 
-    updateStateCardVisibility(map.getZoom())
-  }, [mapLoaded, stateAggregates])
+    const onMove = () => {
+      for (const { inner, bbox } of sized) sizeBadge(inner, bbox)
+    }
+    map.on('move', onMove)
 
-  // Toggle state card visibility on zoom
+    return () => {
+      map.off('move', onMove)
+      fadeOutAndRemove(stateMarkersRef.current)
+      stateMarkersRef.current = []
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stateCounts, mapLoaded, currentTier, stateSilhouettes, stateBboxes])
+
+  // COUNTY SQUARES — only built when in county tier.
   useEffect(() => {
-    updateStateCardVisibility(currentZoom)
-  }, [currentZoom])
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
 
-  function updateStateCardVisibility(zoom: number) {
-    const visible = zoom <= ZOOM_TIER_1_MAX
-    stateMarkersRef.current.forEach(m => {
-      m.getElement().style.display = visible ? 'block' : 'none'
+    fadeOutAndRemove(countyMarkersRef.current)
+    countyMarkersRef.current = []
+    if (currentTier !== 'county') return
+
+    for (const c of countyCounts) {
+      if (!c.count || c.lat == null || c.lng == null) continue
+      const el = document.createElement('div')
+      el.className = 'aem-marker-shell'
+      const inner = document.createElement('div')
+      inner.className = 'aem-county-square'
+      inner.innerHTML = `
+        <div class="aem-county-name">${c.county}</div>
+        <div class="aem-county-count">${c.count.toLocaleString()}</div>
+      `
+      el.appendChild(inner)
+      el.addEventListener('click', () => {
+        map.easeTo({ center: [c.lng, c.lat], zoom: 10, duration: 800 })
+      })
+      const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
+        .setLngLat([c.lng, c.lat])
+        .addTo(map)
+      countyMarkersRef.current.push(marker)
+    }
+
+    return () => {
+      fadeOutAndRemove(countyMarkersRef.current)
+      countyMarkersRef.current = []
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [countyCounts, mapLoaded, currentTier])
+
+  // TRACT PIN VISIBILITY — toggle existing tract pins by tier.
+  // Pins are created/maintained by their own effect (downstream);
+  // we just hide them when not in tract tier so state silhouettes
+  // and county squares aren't competing with them.
+  useEffect(() => {
+    const visible = currentTier === 'tract'
+    tractMarkersRef.current.forEach(m => {
+      const el = m.getElement()
+      if (el) el.style.display = visible ? '' : 'none'
     })
-  }
+  }, [currentTier, tracts])
 
   const getStatusLabel = (status: string | null | undefined) => {
     if (!status) return 'Unknown'
