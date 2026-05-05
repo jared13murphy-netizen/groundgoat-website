@@ -81,7 +81,7 @@ export default function UploadBoundaryTractPage() {
     notes?: string
     tract_label_matched?: string | null
     projection_method?: 'auction_image_georeference' | 'reference_satellite_match' | null
-    polygon_source?: 'opencv_color_extraction' | 'vision_polygon' | null
+    polygon_source?: 'opencv_color_extraction' | 'vision_polygon' | 'vision_snapped_to_line' | null
     boundary_color?: string | null
     boundary_center_from_image?: [number, number] | null
   } | null>(null)
@@ -409,10 +409,18 @@ export default function UploadBoundaryTractPage() {
               {extractMeta.polygon_source && (
                 <div className="flex items-center justify-between">
                   <span className="text-gg-gray-400">Polygon shape from</span>
-                  <span className={extractMeta.polygon_source === 'opencv_color_extraction' ? 'text-emerald-400' : 'text-amber-400'}>
-                    {extractMeta.polygon_source === 'opencv_color_extraction'
-                      ? `OpenCV color trace (${extractMeta.boundary_color || 'detected color'})`
-                      : 'Vision vertex estimate'}
+                  <span className={
+                    extractMeta.polygon_source === 'vision_snapped_to_line'
+                      ? 'text-emerald-400'
+                      : extractMeta.polygon_source === 'opencv_color_extraction'
+                        ? 'text-emerald-400'
+                        : 'text-amber-400'
+                  }>
+                    {extractMeta.polygon_source === 'vision_snapped_to_line'
+                      ? `Vision + skeleton-walk on ${extractMeta.boundary_color || 'line'} (most accurate)`
+                      : extractMeta.polygon_source === 'opencv_color_extraction'
+                        ? `OpenCV color trace (${extractMeta.boundary_color || 'detected color'})`
+                        : 'Vision vertex estimate'}
                   </span>
                 </div>
               )}
