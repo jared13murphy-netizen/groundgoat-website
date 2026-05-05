@@ -719,9 +719,9 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
              preserveAspectRatio="none">
           ${silhouettePath ? `
             <path d="${silhouettePath}"
-                  fill="rgba(10,10,12,0.62)"
+                  fill="rgba(8,10,14,0.92)"
                   stroke="none" />
-          ` : '<rect x="2" y="2" width="96" height="96" rx="6" fill="rgba(10,10,12,0.62)"/>'}
+          ` : '<rect x="2" y="2" width="96" height="96" rx="6" fill="rgba(8,10,14,0.92)"/>'}
         </svg>
         <div class="aem-state-overlay">
           <img src="/goat-icon-white.png" alt="" class="aem-state-goat" />
@@ -1053,16 +1053,18 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
              override below still bubble events back up to the shell. */
           pointer-events: none;
           /* Bottom-right drop-shadow. CSS drop-shadow multiplies the
-             rendered shape's alpha by the shadow alpha, and the
-             silhouette path fill is rgba(10,10,12,0.62) — semi-
-             transparent — so we need ~1.0 shadow alpha to read
-             clearly. Positive X+Y offsets give a directional cast
-             toward the bottom-right of every state. Two stacked
-             drop-shadows: one wide and soft for ambient depth, one
-             tight and dark for a crisp contact edge. */
+             rendered shape's alpha by the shadow alpha, so the
+             silhouette path is now rgba(8,10,14,0.92) (near-opaque)
+             to let shadows render at near-full strength.
+
+             Three stacked shadows for visibility on a dark satellite
+             map: a wide PINK-tinted glow (so the cast contrasts the
+             dark green imagery — pure black would blend in), then a
+             medium black shadow, then a tight black contact edge. */
           filter:
-            drop-shadow(8px 10px 14px rgba(0, 0, 0, 1))
-            drop-shadow(3px 4px 4px rgba(0, 0, 0, 0.9));
+            drop-shadow(10px 14px 16px rgba(245, 140, 222, 0.55))
+            drop-shadow(6px 8px 8px rgba(0, 0, 0, 1))
+            drop-shadow(2px 3px 2px rgba(0, 0, 0, 1));
         }
         .aem-state-shape {
           position: absolute;
