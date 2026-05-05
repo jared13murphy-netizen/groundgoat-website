@@ -120,6 +120,76 @@ function currentZoomTier(z: number): 'state' | 'county' | 'tract' {
   return 'tract'
 }
 
+// Convert a state GeoJSON Feature (Polygon or MultiPolygon) into an
+// SVG `d` path string normalized to a 100×100 viewBox so it renders
+// the same size regardless of the state's actual geographic extent.
+function featureToSvgPath(feature: any): string | null {
+  if (!feature?.geometry?.coordinates) return null
+  const geom = feature.geometry
+  const rings: number[][][] = []
+  if (geom.type === 'Polygon') {
+    for (const ring of geom.coordinates) rings.push(ring as number[][])
+  } else if (geom.type === 'MultiPolygon') {
+    for (const poly of geom.coordinates) {
+      for (const ring of poly as number[][][]) rings.push(ring)
+    }
+  } else {
+    return null
+  }
+  if (!rings.length) return null
+  let minLng = Infinity, minLat = Infinity
+  let maxLng = -Infinity, maxLat = -Infinity
+  for (const ring of rings) {
+    for (const [lng, lat] of ring) {
+      if (lng < minLng) minLng = lng
+      if (lng > maxLng) maxLng = lng
+      if (lat < minLat) minLat = lat
+      if (lat > maxLat) maxLat = lat
+    }
+  }
+  const w = maxLng - minLng
+  const h = maxLat - minLat
+  if (w <= 0 || h <= 0) return null
+  const scale = 100 / Math.max(w, h)
+  const offsetX = (100 - w * scale) / 2
+  const offsetY = (100 - h * scale) / 2
+  const parts: string[] = []
+  for (const ring of rings) {
+    if (ring.length < 3) continue
+    const cmds: string[] = []
+    for (let i = 0; i < ring.length; i++) {
+      const [lng, lat] = ring[i]
+      const x = (lng - minLng) * scale + offsetX
+      const y = (maxLat - lat) * scale + offsetY  // SVG y grows down
+      cmds.push(`${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`)
+    }
+    cmds.push('Z')
+    parts.push(cmds.join(' '))
+  }
+  return parts.join(' ')
+}
+
+
+// Fade-out then remove a batch of markers. Adds the .aem-leaving
+// class — CSS keyframe animates opacity 1→0 + scale 1→1.15 + blur over
+// 400ms, then we call .remove() on each. This is what makes the
+// state→county transition feel like "old badges fade out, new ones
+// fade in" instead of a hard pop. Pure UI helper, no React state.
+function fadeOutAndRemove(markers: maplibregl.Marker[]): void {
+  if (!markers.length) return
+  const snapshot = [...markers]
+  for (const m of snapshot) {
+    const el = m.getElement()
+    if (el) el.classList.add('aem-leaving')
+  }
+  setTimeout(() => {
+    for (const m of snapshot) {
+      try { m.remove() } catch {}
+    }
+  }, 380)
+}
+
+
 function buildFilterParams(f: FilterState) {
   const p: Record<string, string> = {}
   if (f.dateRange === 'custom') {
@@ -211,8 +281,33 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
       .catch(() => {})
   }, [])
 
-  // (state silhouettes are rendered as a map fill+line layer — see
-  // map.on('load') below; no client-side SVG path generation needed.)
+  // Silhouette SVG paths, indexed by state abbr. Loaded once on
+  // mount from /data/us-states.json. Keyed by feature.NAME (full name
+  // like "Illinois") translated to abbr via STATE_NAMES.
+  const [stateSilhouettes, setStateSilhouettes] = useState<Record<string, string>>({})
+
+  useEffect(() => {
+    let cancelled = false
+    fetch('/data/us-states.json')
+      .then(r => r.ok ? r.json() : null)
+      .then((geo: any) => {
+        if (cancelled || !geo?.features) return
+        const nameToAbbr: Record<string, string> = {}
+        for (const [abbr, name] of Object.entries(STATE_NAMES)) {
+          nameToAbbr[name] = abbr
+        }
+        const out: Record<string, string> = {}
+        for (const feat of geo.features) {
+          const abbr = nameToAbbr[feat?.properties?.NAME]
+          if (!abbr) continue
+          const path = featureToSvgPath(feat)
+          if (path) out[abbr] = path
+        }
+        setStateSilhouettes(out)
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
 
   // ─────────────────────────────────────────────────────────────
   // Init map + state-silhouette + WI parcel layers
@@ -236,58 +331,9 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
     map.addControl(new maplibregl.NavigationControl(), 'top-right')
 
     map.on('load', () => {
-      // State silhouettes as a MAP LAYER (not as a fixed-size SVG inside
-      // a DOM badge). This way the silhouette is THE state shape on the
-      // map — guaranteed-correct alignment at every zoom level.
-      // Two layers stacked:
-      //   • base fill+line: every state, dim — the user sees the
-      //     silhouette of every state in the country
-      //   • "hot" fill+line: only states that have matching tracts —
-      //     brighter pink outline + slightly brighter fill. setFilter
-      //     swaps the highlighted set when filters change.
-      // Both layers are scoped to maxzoom: STATE_TIER_MAX + 0.5 so they
-      // disappear when the user moves into the county tier.
-      map.addSource('admin-states', {
-        type: 'geojson', data: '/data/us-states.json',
-      })
-      map.addLayer({
-        id: 'admin-states-fill',
-        type: 'fill',
-        source: 'admin-states',
-        maxzoom: STATE_TIER_MAX + 0.5,
-        paint: {
-          'fill-color': '#0a0a0c',
-          'fill-opacity': 0.6,
-        },
-      })
-      map.addLayer({
-        id: 'admin-states-line',
-        type: 'line',
-        source: 'admin-states',
-        maxzoom: STATE_TIER_MAX + 0.5,
-        paint: {
-          'line-color': 'rgba(255,255,255,0.18)',
-          'line-width': 1,
-        },
-      })
-      // Brighter "hot" layer — populated below via setFilter once the
-      // state-counts data arrives.
-      map.addLayer({
-        id: 'admin-states-fill-hot',
-        type: 'fill',
-        source: 'admin-states',
-        maxzoom: STATE_TIER_MAX + 0.5,
-        paint: { 'fill-color': '#1a1a22', 'fill-opacity': 0.82 },
-        filter: ['in', ['get', 'NAME'], ['literal', []]] as any,
-      })
-      map.addLayer({
-        id: 'admin-states-line-hot',
-        type: 'line',
-        source: 'admin-states',
-        maxzoom: STATE_TIER_MAX + 0.5,
-        paint: { 'line-color': '#f58cde', 'line-width': 2.2, 'line-opacity': 1 },
-        filter: ['in', ['get', 'NAME'], ['literal', []]] as any,
-      })
+      // No map-level state silhouette layers — the silhouette is the
+      // BADGE itself (rendered as inline SVG inside the marker DOM).
+      // See the state-badge useEffect below.
 
       // WI parcel overlay (admin-only, vector tiles via pmtiles, z 13+)
       if (isAdmin) {
@@ -374,28 +420,6 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
     return () => { cancel = true }
   }, [filterParamString, filters.stateFilter])
 
-  // Keep the "hot" state silhouette layer in sync with which states
-  // currently have matching tracts. /data/us-states.json keys features
-  // by `properties.NAME` (full name, e.g. "Illinois"), not the 2-letter
-  // abbr we use elsewhere — so we translate via STATE_NAMES.
-  useEffect(() => {
-    const map = mapRef.current
-    if (!map || !mapLoaded) return
-    const fullNames = stateCounts
-      .filter(s => s.count > 0)
-      .map(s => STATE_NAMES[s.state])
-      .filter(Boolean)
-    try {
-      if (map.getLayer('admin-states-fill-hot')) {
-        map.setFilter('admin-states-fill-hot',
-          ['in', ['get', 'NAME'], ['literal', fullNames]] as any)
-      }
-      if (map.getLayer('admin-states-line-hot')) {
-        map.setFilter('admin-states-line-hot',
-          ['in', ['get', 'NAME'], ['literal', fullNames]] as any)
-      }
-    } catch {}
-  }, [stateCounts, mapLoaded])
 
   // ─────────────────────────────────────────────────────────────
   // Tract loader (high zoom only)
@@ -451,7 +475,7 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
     if (!map || !mapLoaded) return
 
     // Always tear down first — guarantees no leftovers from a prior tier.
-    stateMarkersRef.current.forEach(m => m.remove())
+    fadeOutAndRemove(stateMarkersRef.current)
     stateMarkersRef.current = []
     if (currentTier !== 'state') return
 
@@ -462,12 +486,28 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
       const lng = (bounds[0][0] + bounds[1][0]) / 2
       const lat = (bounds[0][1] + bounds[1][1]) / 2
 
+      const silhouettePath = stateSilhouettes[state]
+
       const el = document.createElement('div')
       el.className = 'aem-state-badge'
       el.innerHTML = `
-        <img src="/goat-icon-white.png" alt="" class="aem-state-goat" />
-        <div class="aem-state-count">${count.toLocaleString()}</div>
-        <a class="aem-state-link" data-action="filter">Start Filtering →</a>
+        <svg class="aem-state-shape" viewBox="0 0 100 100"
+             preserveAspectRatio="xMidYMid meet">
+          ${silhouettePath ? `
+            <path d="${silhouettePath}"
+                  fill="rgba(10,10,12,0.88)"
+                  stroke="#f58cde"
+                  stroke-width="2.2"
+                  stroke-linejoin="round"
+                  stroke-linecap="round"
+                  vector-effect="non-scaling-stroke" />
+          ` : '<rect x="2" y="2" width="96" height="96" rx="6" fill="rgba(10,10,12,0.88)" stroke="#f58cde" stroke-width="2"/>'}
+        </svg>
+        <div class="aem-state-overlay">
+          <img src="/goat-icon-white.png" alt="" class="aem-state-goat" />
+          <div class="aem-state-count">${count.toLocaleString()}</div>
+          <a class="aem-state-link" data-action="filter">Start Filtering →</a>
+        </div>
       `
 
       el.addEventListener('click', (ev) => {
@@ -489,20 +529,20 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
         .addTo(map)
       stateMarkersRef.current.push(marker)
     }
-    // Cleanup runs when tier or data changes — guarantees no orphans.
+    // Cleanup runs when tier or data changes — fade out, then remove.
     return () => {
-      stateMarkersRef.current.forEach(m => m.remove())
+      fadeOutAndRemove(stateMarkersRef.current)
       stateMarkersRef.current = []
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stateCounts, mapLoaded, currentTier])
+  }, [stateCounts, mapLoaded, currentTier, stateSilhouettes])
 
   // COUNTY SQUARES — only built when in county tier.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded) return
 
-    countyMarkersRef.current.forEach(m => m.remove())
+    fadeOutAndRemove(countyMarkersRef.current)
     countyMarkersRef.current = []
     if (currentTier !== 'county') return
 
@@ -524,7 +564,7 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
       countyMarkersRef.current.push(marker)
     }
     return () => {
-      countyMarkersRef.current.forEach(m => m.remove())
+      fadeOutAndRemove(countyMarkersRef.current)
       countyMarkersRef.current = []
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -535,7 +575,7 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
     const map = mapRef.current
     if (!map || !mapLoaded) return
 
-    tractMarkersRef.current.forEach(m => m.remove())
+    fadeOutAndRemove(tractMarkersRef.current)
     tractMarkersRef.current = []
     if (currentTier !== 'tract') return
 
@@ -577,7 +617,7 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
       tractMarkersRef.current.push(marker)
     }
     return () => {
-      tractMarkersRef.current.forEach(m => m.remove())
+      fadeOutAndRemove(tractMarkersRef.current)
       tractMarkersRef.current = []
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -652,66 +692,109 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
 
       <style jsx global>{`
         /* One-shot fade-in animation when a marker mounts. No
-           data-tier transitions, no scale transforms — those caused
-           badges to scale up to 1.4× during zoom and look like they
-           were sliding across the map. Keeping it simple: opacity
-           fades from 0 to 1 over 350ms on mount, that's it. Exit
-           animation is just .remove() (instant — fine because the
-           old tier is teared down before the new tier appears). */
+           Fade-in on mount, fade-out on tier-leave. The .aem-leaving
+           class is added by fadeOutAndRemove() in the cleanup just
+           before .remove() is called via setTimeout. So when the user
+           clicks a state badge: state markers get .aem-leaving (fade
+           out 380ms while scaling up + blurring), county markers
+           mount with the fade-in keyframe (fade in + scale up). The
+           two run simultaneously → buttery cross-fade. */
         @keyframes aem-fade-in {
-          from { opacity: 0; }
-          to   { opacity: 1; }
+          from {
+            opacity: 0;
+            transform: scale(0.7);
+            filter: blur(6px);
+          }
+          to {
+            opacity: 1;
+            transform: scale(1);
+            filter: blur(0);
+          }
+        }
+        @keyframes aem-fade-out {
+          from {
+            opacity: 1;
+            transform: scale(1);
+            filter: blur(0);
+          }
+          to {
+            opacity: 0;
+            transform: scale(1.18);
+            filter: blur(8px);
+          }
         }
         .aem-state-badge,
         .aem-county-square,
         .aem-tract-pin {
-          animation: aem-fade-in 0.35s ease-out forwards;
+          animation: aem-fade-in 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+        }
+        .aem-leaving {
+          animation: aem-fade-out 0.38s cubic-bezier(0.4, 0, 0.2, 1) forwards !important;
+          pointer-events: none !important;
         }
 
-        /* ── State badge overlay (goat + count + Start Filtering) ──
-           The state SHAPE is rendered as a map fill+line layer below
-           the marker — this badge just sits at the state's centroid
-           and shows the count, link, and goat on top of the dark fill. */
+        /* ── State badge: SVG silhouette as background, goat + count
+              + Start Filtering centered on top.
+              Container is 70×70; the SVG fills the container; the
+              .aem-state-overlay is absolutely positioned and centered
+              over the silhouette. */
         .aem-state-badge {
+          position: relative;
+          width: 70px;
+          height: 70px;
+          cursor: pointer;
+          user-select: none;
+          filter: drop-shadow(0 4px 12px rgba(245, 140, 222, 0.4));
+        }
+        .aem-state-shape {
+          position: absolute;
+          inset: 0;
+          width: 100%;
+          height: 100%;
+          pointer-events: none;
+          overflow: visible;
+        }
+        .aem-state-overlay {
+          position: absolute;
+          inset: 0;
           display: flex;
           flex-direction: column;
           align-items: center;
-          cursor: pointer;
-          user-select: none;
-          padding: 4px 6px;
+          justify-content: center;
+          gap: 1px;
         }
         .aem-state-badge:hover .aem-state-link {
           background: #f58cde;
           color: #fff;
         }
         .aem-state-goat {
-          width: 36px;
-          height: 36px;
+          width: 22px;
+          height: 22px;
           object-fit: contain;
-          filter: drop-shadow(0 1px 6px rgba(245, 140, 222, 0.85));
+          filter: drop-shadow(0 1px 4px rgba(245, 140, 222, 0.85));
         }
         .aem-state-count {
           font-family: ui-sans-serif, system-ui, sans-serif;
           font-weight: 800;
-          font-size: 18px;
+          font-size: 13px;
           color: #fff;
           line-height: 1;
-          margin-top: 2px;
-          text-shadow: 0 1px 4px rgba(0, 0, 0, 0.95),
-                       0 0 8px rgba(0, 0, 0, 0.6);
+          margin-top: 1px;
+          text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95);
         }
         .aem-state-link {
-          font-size: 9px;
+          font-size: 7px;
           color: #f58cde;
-          margin-top: 4px;
+          margin-top: 2px;
           font-weight: 700;
-          letter-spacing: 0.04em;
+          letter-spacing: 0.03em;
           cursor: pointer;
           text-decoration: none;
-          padding: 3px 6px;
-          border-radius: 4px;
-          background: rgba(0, 0, 0, 0.65);
+          padding: 1px 4px;
+          border-radius: 3px;
+          background: rgba(0, 0, 0, 0.7);
           transition: background 0.15s ease, color 0.15s ease;
+          white-space: nowrap;
         }
         .aem-state-link:hover {
           color: #fff;
