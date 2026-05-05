@@ -475,7 +475,8 @@ export default function AdminPrivateTreatyStagingPage() {
         showToast('success', 'Listing verified and created successfully')
       } else {
         const err = await response.json().catch(() => ({ detail: 'Unknown error' }))
-        showToast('error', err.detail || err.error || 'Failed to verify listing')
+        const detail = err.detail
+        showToast('error', (typeof detail === 'string' ? detail : detail?.message) || err.error || 'Failed to verify listing')
       }
     } catch (err) {
       showToast('error', 'Network error — failed to verify listing')
