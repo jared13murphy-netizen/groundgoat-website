@@ -111,14 +111,65 @@ const INITIAL_FILTERS: FilterState = {
   keyword: '',
 }
 
-// Tier classification — drives CSS transitions on each marker via a
-// data-tier attribute. The marker DOM stays mounted at all zoom
-// levels; only this attribute changes, so CSS transitions fire.
+// Full-name → 2-letter abbr lookup for ALL US states. Used to match
+// /data/us-states.json features (keyed by `properties.NAME`) to the
+// state-counts API rows (keyed by 2-letter abbr). The mapConstants
+// STATE_NAMES export only has 12 Midwest states — without this, every
+// other state would fall back to a rectangle silhouette.
+const ALL_STATE_NAME_TO_ABBR: Record<string, string> = {
+  Alabama: 'AL', Alaska: 'AK', Arizona: 'AZ', Arkansas: 'AR',
+  California: 'CA', Colorado: 'CO', Connecticut: 'CT', Delaware: 'DE',
+  'District of Columbia': 'DC',
+  Florida: 'FL', Georgia: 'GA', Hawaii: 'HI', Idaho: 'ID',
+  Illinois: 'IL', Indiana: 'IN', Iowa: 'IA', Kansas: 'KS',
+  Kentucky: 'KY', Louisiana: 'LA', Maine: 'ME', Maryland: 'MD',
+  Massachusetts: 'MA', Michigan: 'MI', Minnesota: 'MN',
+  Mississippi: 'MS', Missouri: 'MO', Montana: 'MT', Nebraska: 'NE',
+  Nevada: 'NV', 'New Hampshire': 'NH', 'New Jersey': 'NJ',
+  'New Mexico': 'NM', 'New York': 'NY', 'North Carolina': 'NC',
+  'North Dakota': 'ND', Ohio: 'OH', Oklahoma: 'OK', Oregon: 'OR',
+  Pennsylvania: 'PA', 'Rhode Island': 'RI', 'South Carolina': 'SC',
+  'South Dakota': 'SD', Tennessee: 'TN', Texas: 'TX', Utah: 'UT',
+  Vermont: 'VT', Virginia: 'VA', Washington: 'WA',
+  'West Virginia': 'WV', Wisconsin: 'WI', Wyoming: 'WY',
+}
+
+// Tier classification.
 function currentZoomTier(z: number): 'state' | 'county' | 'tract' {
   if (z <= STATE_TIER_MAX) return 'state'
   if (z <= COUNTY_TIER_MAX) return 'county'
   return 'tract'
 }
+
+// Bbox center of a state Feature (Polygon or MultiPolygon). Returns
+// [lng, lat] or null. Used as the marker centroid when STATE_BOUNDS
+// doesn't have the state (mapConstants only covers 26 states).
+function featureBboxCenter(feature: any): [number, number] | null {
+  if (!feature?.geometry?.coordinates) return null
+  const geom = feature.geometry
+  let minLng = Infinity, minLat = Infinity
+  let maxLng = -Infinity, maxLat = -Infinity
+  const visit = (ring: number[][]) => {
+    for (const [lng, lat] of ring) {
+      if (lng < minLng) minLng = lng
+      if (lng > maxLng) maxLng = lng
+      if (lat < minLat) minLat = lat
+      if (lat > maxLat) maxLat = lat
+    }
+  }
+  if (geom.type === 'Polygon') {
+    for (const ring of geom.coordinates) visit(ring as number[][])
+  } else if (geom.type === 'MultiPolygon') {
+    for (const poly of geom.coordinates) {
+      for (const ring of poly as number[][][]) visit(ring)
+    }
+  } else {
+    return null
+  }
+  if (!isFinite(minLng) || !isFinite(minLat)) return null
+  return [(minLng + maxLng) / 2, (minLat + maxLat) / 2]
+}
+
 
 // Convert a state GeoJSON Feature (Polygon or MultiPolygon) into an
 // SVG `d` path string normalized to a 100×100 viewBox so it renders
@@ -283,10 +334,12 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
       .catch(() => {})
   }, [])
 
-  // Silhouette SVG paths, indexed by state abbr. Loaded once on
-  // mount from /data/us-states.json. Keyed by feature.NAME (full name
-  // like "Illinois") translated to abbr via STATE_NAMES.
+  // Silhouette SVG paths + centroid lookup, both indexed by state
+  // abbr. Loaded once on mount from /data/us-states.json. Keyed by
+  // feature.NAME (full state name) translated to abbr via the
+  // 50-state lookup defined above.
   const [stateSilhouettes, setStateSilhouettes] = useState<Record<string, string>>({})
+  const [stateCentroids, setStateCentroids] = useState<Record<string, [number, number]>>({})
 
   useEffect(() => {
     let cancelled = false
@@ -294,18 +347,23 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
       .then(r => r.ok ? r.json() : null)
       .then((geo: any) => {
         if (cancelled || !geo?.features) return
-        const nameToAbbr: Record<string, string> = {}
-        for (const [abbr, name] of Object.entries(STATE_NAMES)) {
-          nameToAbbr[name] = abbr
-        }
-        const out: Record<string, string> = {}
+        // Use the full 50-state lookup (NOT mapConstants STATE_NAMES,
+        // which only has 12 Midwest states).
+        const paths: Record<string, string> = {}
+        const centroids: Record<string, [number, number]> = {}
         for (const feat of geo.features) {
-          const abbr = nameToAbbr[feat?.properties?.NAME]
+          const abbr = ALL_STATE_NAME_TO_ABBR[feat?.properties?.NAME]
           if (!abbr) continue
           const path = featureToSvgPath(feat)
-          if (path) out[abbr] = path
+          if (path) paths[abbr] = path
+          // Compute centroid from polygon bbox — accurate enough for
+          // marker placement and works for ALL 50 states (mapConstants
+          // STATE_BOUNDS only has 26).
+          const c = featureBboxCenter(feat)
+          if (c) centroids[abbr] = c
         }
-        setStateSilhouettes(out)
+        setStateSilhouettes(paths)
+        setStateCentroids(centroids)
       })
       .catch(() => {})
     return () => { cancelled = true }
@@ -483,10 +541,20 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
 
     for (const { state, count } of stateCounts) {
       if (count === 0) continue
-      const bounds = STATE_BOUNDS[state]
-      if (!bounds) continue
-      const lng = (bounds[0][0] + bounds[1][0]) / 2
-      const lat = (bounds[0][1] + bounds[1][1]) / 2
+      // Prefer the 50-state centroid we computed from us-states.json;
+      // fall back to mapConstants STATE_BOUNDS (26 states) for safety.
+      let lng: number | undefined
+      let lat: number | undefined
+      const c = stateCentroids[state]
+      if (c) {
+        lng = c[0]
+        lat = c[1]
+      } else {
+        const bounds = STATE_BOUNDS[state]
+        if (!bounds) continue
+        lng = (bounds[0][0] + bounds[1][0]) / 2
+        lat = (bounds[0][1] + bounds[1][1]) / 2
+      }
 
       const silhouettePath = stateSilhouettes[state]
 
@@ -532,8 +600,13 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
           }))
           setFilterOpen(true)
         }
-        // Both clicks zoom past STATE_TIER_MAX so the next tier appears.
-        map.fitBounds(bounds as any, { padding: 60, maxZoom: 7.5, duration: 900 })
+        // easeTo with explicit zoom (NOT fitBounds) so the final zoom
+        // ALWAYS lands past STATE_TIER_MAX (6). fitBounds + maxZoom for
+        // small states like Iowa settles at z 5.5–6, which is still
+        // state tier — the user clicks but state badges stay visible.
+        // zoom: 7 guarantees we cross into county tier so badges fade
+        // out and county squares fade in.
+        map.easeTo({ center: [lng!, lat!], zoom: 7, duration: 900 })
       })
 
       const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
@@ -571,7 +644,10 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
       `
       el.appendChild(inner)
       el.addEventListener('click', () => {
-        map.easeTo({ center: [c.lng, c.lat], zoom: 9.5, duration: 800 })
+        // zoom 10.5 lands past COUNTY_TIER_MAX (10) so the county
+        // square fades out and tract pins fade in. Close enough to
+        // see neighboring counties for context per the spec.
+        map.easeTo({ center: [c.lng, c.lat], zoom: 10.5, duration: 800 })
       })
       const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
         .setLngLat([c.lng, c.lat])
@@ -769,11 +845,11 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
               over the silhouette. */
         .aem-state-badge {
           position: relative;
-          width: 70px;
-          height: 70px;
+          width: 100px;
+          height: 100px;
           cursor: pointer;
           user-select: none;
-          filter: drop-shadow(0 4px 12px rgba(245, 140, 222, 0.4));
+          filter: drop-shadow(0 4px 14px rgba(245, 140, 222, 0.4));
         }
         .aem-state-shape {
           position: absolute;
@@ -797,31 +873,31 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
           color: #fff;
         }
         .aem-state-goat {
-          width: 22px;
-          height: 22px;
+          width: 30px;
+          height: 30px;
           object-fit: contain;
-          filter: drop-shadow(0 1px 4px rgba(245, 140, 222, 0.85));
+          filter: drop-shadow(0 1px 5px rgba(245, 140, 222, 0.9));
         }
         .aem-state-count {
           font-family: ui-sans-serif, system-ui, sans-serif;
           font-weight: 800;
-          font-size: 13px;
+          font-size: 17px;
           color: #fff;
           line-height: 1;
-          margin-top: 1px;
-          text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95);
+          margin-top: 2px;
+          text-shadow: 0 1px 4px rgba(0, 0, 0, 0.95);
         }
         .aem-state-link {
-          font-size: 7px;
+          font-size: 9px;
           color: #f58cde;
-          margin-top: 2px;
+          margin-top: 3px;
           font-weight: 700;
           letter-spacing: 0.03em;
           cursor: pointer;
           text-decoration: none;
-          padding: 1px 4px;
-          border-radius: 3px;
-          background: rgba(0, 0, 0, 0.7);
+          padding: 2px 5px;
+          border-radius: 4px;
+          background: rgba(0, 0, 0, 0.72);
           transition: background 0.15s ease, color 0.15s ease;
           white-space: nowrap;
         }
