@@ -111,6 +111,72 @@ const INITIAL_FILTERS: FilterState = {
   keyword: '',
 }
 
+// Tier classification — drives CSS transitions on each marker via a
+// data-tier attribute. The marker DOM stays mounted at all zoom
+// levels; only this attribute changes, so CSS transitions fire.
+function currentZoomTier(z: number): 'state' | 'county' | 'tract' {
+  if (z <= STATE_TIER_MAX) return 'state'
+  if (z <= COUNTY_TIER_MAX) return 'county'
+  return 'tract'
+}
+
+// Convert a state GeoJSON Feature (Polygon or MultiPolygon) into an
+// SVG `d` path string normalized to a 100×100 viewBox. The badge
+// markup uses `preserveAspectRatio="xMidYMid meet"` so it'll center
+// and fit any 100×80 (etc) container without distortion.
+function featureToSvgPath(feature: any): string | null {
+  if (!feature?.geometry?.coordinates) return null
+  const geom = feature.geometry
+  // Collect all rings as [[lng,lat], ...]
+  const rings: number[][][] = []
+  if (geom.type === 'Polygon') {
+    for (const ring of geom.coordinates) rings.push(ring as number[][])
+  } else if (geom.type === 'MultiPolygon') {
+    for (const poly of geom.coordinates) {
+      for (const ring of poly as number[][][]) rings.push(ring)
+    }
+  } else {
+    return null
+  }
+  if (!rings.length) return null
+
+  // Compute bbox across all rings
+  let minLng = Infinity, minLat = Infinity
+  let maxLng = -Infinity, maxLat = -Infinity
+  for (const ring of rings) {
+    for (const [lng, lat] of ring) {
+      if (lng < minLng) minLng = lng
+      if (lng > maxLng) maxLng = lng
+      if (lat < minLat) minLat = lat
+      if (lat > maxLat) maxLat = lat
+    }
+  }
+  const w = maxLng - minLng
+  const h = maxLat - minLat
+  if (w <= 0 || h <= 0) return null
+  // Fit longest dimension to 100; center along the shorter axis.
+  const scale = 100 / Math.max(w, h)
+  const offsetX = (100 - w * scale) / 2
+  const offsetY = (100 - h * scale) / 2
+
+  const parts: string[] = []
+  for (const ring of rings) {
+    if (ring.length < 3) continue
+    const cmds: string[] = []
+    for (let i = 0; i < ring.length; i++) {
+      const [lng, lat] = ring[i]
+      const x = (lng - minLng) * scale + offsetX
+      // Flip Y because SVG coords grow downward but lat grows upward
+      const y = (maxLat - lat) * scale + offsetY
+      cmds.push(`${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`)
+    }
+    cmds.push('Z')
+    parts.push(cmds.join(' '))
+  }
+  return parts.join(' ')
+}
+
+
 function buildFilterParams(f: FilterState) {
   const p: Record<string, string> = {}
   if (f.dateRange === 'custom') {
@@ -203,6 +269,40 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
   }, [])
 
   // ─────────────────────────────────────────────────────────────
+  // State silhouette SVG paths.
+  // Loaded once from /data/us-states.json. For each state we
+  // normalize the polygon coordinates to a 100x100 viewBox so a
+  // badge of any pixel size can render the shape without distortion.
+  // Indexed by state abbreviation (translated from feature.NAME via
+  // STATE_NAMES_INV).
+  // ─────────────────────────────────────────────────────────────
+  const [stateSilhouettes, setStateSilhouettes] = useState<Record<string, string>>({})
+
+  useEffect(() => {
+    let cancelled = false
+    fetch('/data/us-states.json')
+      .then(r => r.ok ? r.json() : null)
+      .then((geo: any) => {
+        if (cancelled || !geo?.features) return
+        // Build full-name → 2-letter abbr lookup (inverse of STATE_NAMES)
+        const nameToAbbr: Record<string, string> = {}
+        for (const [abbr, name] of Object.entries(STATE_NAMES)) {
+          nameToAbbr[name] = abbr
+        }
+        const out: Record<string, string> = {}
+        for (const feat of geo.features) {
+          const abbr = nameToAbbr[feat?.properties?.NAME]
+          if (!abbr) continue
+          const path = featureToSvgPath(feat)
+          if (path) out[abbr] = path
+        }
+        setStateSilhouettes(out)
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
+
+  // ─────────────────────────────────────────────────────────────
   // Init map + state-silhouette + WI parcel layers
   // ─────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -224,39 +324,11 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
     map.addControl(new maplibregl.NavigationControl(), 'top-right')
 
     map.on('load', () => {
-      // State silhouette layer: fill the states with a dark mask, white
-      // outline. Visible only at the state tier; the count+goat overlay
-      // marker sits on top via DOM.
-      map.addSource('admin-states', {
-        type: 'geojson', data: '/data/us-states.json',
-      })
-      // Filled silhouette of every state, dark with pink outline.
-      // We don't try to differentiate "has tracts" vs "no tracts" via
-      // paint — keeping it simple. The presence of a goat-icon badge
-      // overlay does that. Property name in /data/us-states.json is
-      // `NAME` (full state name like "Illinois"), not the 2-letter
-      // abbreviation we use elsewhere.
-      map.addLayer({
-        id: 'admin-states-fill',
-        type: 'fill',
-        source: 'admin-states',
-        maxzoom: STATE_TIER_MAX + 0.5,
-        paint: {
-          'fill-color': '#0a0a0c',
-          'fill-opacity': 0.7,
-        },
-      })
-      map.addLayer({
-        id: 'admin-states-line',
-        type: 'line',
-        source: 'admin-states',
-        maxzoom: STATE_TIER_MAX + 0.5,
-        paint: {
-          'line-color': '#f58cde',
-          'line-width': 1.5,
-          'line-opacity': 0.7,
-        },
-      })
+      // No map-level state-fill layer here. The state silhouette is
+      // rendered as inline SVG INSIDE each state badge marker instead
+      // — that's the user's request: the silhouette IS the badge,
+      // floating above the state, with the goat icon and count layered
+      // on top of the silhouette.
 
       // WI parcel overlay (admin-only, vector tiles via pmtiles, z 13+)
       if (isAdmin) {
@@ -318,48 +390,8 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin])
 
-  // Highlight states with matching tracts via setFilter on a brighter
-  // duplicate fill. Cleaner than a paint expression with `in` (which
-  // failed silently because us-states.json uses NAME as the property,
-  // not the 2-letter abbr we keep state-counts by). We translate
-  // abbr → full name with STATE_NAMES so the filter compares apples
-  // to apples.
-  useEffect(() => {
-    const map = mapRef.current
-    if (!map || !mapLoaded) return
-    const fullNames = stateCounts
-      .filter(s => s.count > 0)
-      .map(s => STATE_NAMES[s.state])
-      .filter(Boolean)
-    if (!map.getLayer('admin-states-fill')) return
-    try {
-      // Highlight states with matching tracts: brighter fill + thicker
-      // pink outline. Other states keep the default dim style.
-      if (!map.getLayer('admin-states-fill-hot')) {
-        map.addLayer({
-          id: 'admin-states-fill-hot',
-          type: 'fill',
-          source: 'admin-states',
-          maxzoom: STATE_TIER_MAX + 0.5,
-          paint: { 'fill-color': '#1f1f25', 'fill-opacity': 0.85 },
-          filter: ['in', ['get', 'NAME'], ['literal', fullNames]] as any,
-        })
-        map.addLayer({
-          id: 'admin-states-line-hot',
-          type: 'line',
-          source: 'admin-states',
-          maxzoom: STATE_TIER_MAX + 0.5,
-          paint: { 'line-color': '#f58cde', 'line-width': 2.2, 'line-opacity': 1 },
-          filter: ['in', ['get', 'NAME'], ['literal', fullNames]] as any,
-        })
-      } else {
-        map.setFilter('admin-states-fill-hot',
-          ['in', ['get', 'NAME'], ['literal', fullNames]] as any)
-        map.setFilter('admin-states-line-hot',
-          ['in', ['get', 'NAME'], ['literal', fullNames]] as any)
-      }
-    } catch {}
-  }, [stateCounts, mapLoaded])
+  // (state silhouettes now live inside each badge marker as inline SVG;
+  // see stateSilhouetteSvg below)
 
   // ─────────────────────────────────────────────────────────────
   // Aggregation fetches
@@ -418,7 +450,11 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
   }, [filterParamString, mapLoaded, loadTractsForViewport])
 
   // ─────────────────────────────────────────────────────────────
-  // STATE BADGES (smaller — goat icon + count + Start Filtering)
+  // STATE BADGES — silhouette behind goat icon + count + Start Filtering.
+  // Markers are built ONCE per data change and stay mounted at all
+  // zoom levels. A separate effect updates each marker's `data-tier`
+  // attribute when the zoom changes, so CSS transitions can drive
+  // smooth fade-in / fade-out between tiers (no DOM teardown).
   // ─────────────────────────────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current
@@ -427,8 +463,6 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
     stateMarkersRef.current.forEach(m => m.remove())
     stateMarkersRef.current = []
 
-    if (currentZoom > STATE_TIER_MAX + 0.3) return
-
     for (const { state, count } of stateCounts) {
       if (count === 0) continue
       const bounds = STATE_BOUNDS[state]
@@ -436,37 +470,46 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
       const lng = (bounds[0][0] + bounds[1][0]) / 2
       const lat = (bounds[0][1] + bounds[1][1]) / 2
 
+      const silhouettePath = stateSilhouettes[state]
+
       const el = document.createElement('div')
-      el.className = 'admin-explore-state-badge'
+      el.className = 'aem-state-badge'
+      el.dataset.tier = currentZoomTier(currentZoom)
       el.innerHTML = `
-        <img src="/goat-icon-white.png" alt="" class="admin-explore-state-goat" />
-        <div class="admin-explore-state-count">${count.toLocaleString()}</div>
-        <a class="admin-explore-state-link" data-action="filter">Start Filtering →</a>
+        <div class="aem-state-shape">
+          ${silhouettePath ? `
+            <svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet"
+                 width="100%" height="100%">
+              <path d="${silhouettePath}"
+                    fill="rgba(10,10,12,0.86)"
+                    stroke="#f58cde"
+                    stroke-width="2.5"
+                    stroke-linejoin="round"
+                    stroke-linecap="round"
+                    vector-effect="non-scaling-stroke" />
+            </svg>` : ''}
+        </div>
+        <div class="aem-state-overlay">
+          <img src="/goat-icon-white.png" alt="" class="aem-state-goat" />
+          <div class="aem-state-count">${count.toLocaleString()}</div>
+          <a class="aem-state-link" data-action="filter">Start Filtering →</a>
+        </div>
       `
 
-      // Click on Start Filtering → open panel + apply state filter (no zoom).
-      // Click anywhere else on the badge → just zoom into the state.
       el.addEventListener('click', (ev) => {
         const target = ev.target as HTMLElement
         const isFilterLink = target?.closest('[data-action="filter"]')
         ev.stopPropagation()
-
         if (isFilterLink) {
           setFilters(prev => ({
             ...prev, stateFilter: state, countyFilters: [], townshipFilters: [],
           }))
           setFilterOpen(true)
-          // Light zoom toward the state but not past STATE_TIER_MAX so the
-          // user can still see the badge while picking other filters.
-          map.fitBounds(bounds as any, { padding: 80, maxZoom: STATE_TIER_MAX, duration: 700 })
+          // Zoom INTO the state past STATE_TIER_MAX so badges fade out
+          // and counties fade in — same as a regular badge click.
+          map.fitBounds(bounds as any, { padding: 60, maxZoom: 7.5, duration: 900 })
         } else {
-          // Zoom past STATE_TIER_MAX so the state-tier hides and the
-          // county-tier shows up.
-          map.fitBounds(bounds as any, {
-            padding: 60,
-            maxZoom: 7.5,
-            duration: 800,
-          })
+          map.fitBounds(bounds as any, { padding: 60, maxZoom: 7.5, duration: 900 })
         }
       })
 
@@ -475,10 +518,31 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
         .addTo(map)
       stateMarkersRef.current.push(marker)
     }
-  }, [stateCounts, mapLoaded, currentZoom])
+    // We DON'T tear down on currentZoom changes — the second effect
+    // below updates the data-tier attribute for fade transitions.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stateCounts, mapLoaded, stateSilhouettes])
+
+  // Smooth fade between tiers — flip the data-tier attribute on every
+  // marker DOM node, CSS handles the transition.
+  useEffect(() => {
+    const tier = currentZoomTier(currentZoom)
+    for (const m of stateMarkersRef.current) {
+      const el = m.getElement()
+      if (el) el.dataset.tier = tier
+    }
+    for (const m of countyMarkersRef.current) {
+      const el = m.getElement()
+      if (el) el.dataset.tier = tier
+    }
+    for (const m of tractMarkersRef.current) {
+      const el = m.getElement()
+      if (el) el.dataset.tier = tier
+    }
+  }, [currentZoom])
 
   // ─────────────────────────────────────────────────────────────
-  // COUNTY SQUARES
+  // COUNTY SQUARES — always mounted, tier-driven fades via CSS.
   // ─────────────────────────────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current
@@ -487,32 +551,31 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
     countyMarkersRef.current.forEach(m => m.remove())
     countyMarkersRef.current = []
 
-    if (currentZoom < COUNTY_TIER_MIN || currentZoom > COUNTY_TIER_MAX + 0.3) return
-
     for (const c of countyCounts) {
       if (!c.count || c.lat == null || c.lng == null) continue
       const el = document.createElement('div')
-      el.className = 'admin-explore-county-square'
+      el.className = 'aem-county-square'
+      el.dataset.tier = currentZoomTier(currentZoom)
       el.innerHTML = `
-        <div class="admin-explore-county-name">${c.county}</div>
-        <div class="admin-explore-county-count">${c.count.toLocaleString()} tracts</div>
+        <div class="aem-county-name">${c.county}</div>
+        <div class="aem-county-count">${c.count.toLocaleString()}</div>
       `
       el.addEventListener('click', () => {
-        // Ease to the county centroid at z 9.5 (close enough to read,
-        // far enough that neighboring counties are visible). After the
-        // ease, the existing moveend handler will populate tracts in
-        // the viewport — and as the user pans, more will load.
-        map.easeTo({ center: [c.lng, c.lat], zoom: 9.5, duration: 700 })
+        // Ease to z 9.5 — past COUNTY_TIER_MAX so county squares fade
+        // out and tract pins fade in. Tracts load via the moveend
+        // handler debounce; pan continues populating more.
+        map.easeTo({ center: [c.lng, c.lat], zoom: 9.5, duration: 800 })
       })
       const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
         .setLngLat([c.lng, c.lat])
         .addTo(map)
       countyMarkersRef.current.push(marker)
     }
-  }, [countyCounts, mapLoaded, currentZoom])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [countyCounts, mapLoaded])
 
   // ─────────────────────────────────────────────────────────────
-  // TRACT PINS
+  // TRACT PINS — always mounted, tier-driven fade via CSS data-tier.
   // ─────────────────────────────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current
@@ -520,8 +583,6 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
 
     tractMarkersRef.current.forEach(m => m.remove())
     tractMarkersRef.current = []
-
-    if (currentZoom < TRACT_TIER_MIN) return
 
     for (const t of Array.from(tractMapRef.current.values())) {
       if (!t.latitude || !t.longitude) continue
@@ -532,7 +593,8 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
         : t.price_per_acre
 
       const el = document.createElement('div')
-      el.className = 'comp-marker'
+      el.className = 'comp-marker aem-tract-pin'
+      el.dataset.tier = currentZoomTier(currentZoom)
       const label = document.createElement('div')
       label.className = 'comp-marker-label'
       if (ppa) {
@@ -560,7 +622,8 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
         .addTo(map)
       tractMarkersRef.current.push(marker)
     }
-  }, [tractRefresh, mapLoaded, currentZoom])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tractRefresh, mapLoaded])
 
   // Apply chat-driven filter args from MapChatPanel
   const handleApplyChatFilters = useCallback(
@@ -630,79 +693,132 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
       </div>
 
       <style jsx global>{`
-        .admin-explore-state-badge {
+        /* ── Cross-tier transition rules ────────────────────────
+           Every marker (state, county, tract) sets data-tier on its
+           root element. When the tier matches the marker type, the
+           marker is visible + interactive. Otherwise it's faded out
+           and pointer-events are disabled so it doesn't block clicks
+           on the underlying map.
+           The transition is driven by CSS so MapLibre never has to
+           tear down the DOM — markers stay mounted across zoom
+           changes, which is what makes the fade buttery-smooth. */
+        .aem-state-badge,
+        .aem-county-square,
+        .aem-tract-pin {
+          transition: opacity 0.5s cubic-bezier(0.4, 0, 0.2, 1),
+                      transform 0.5s cubic-bezier(0.4, 0, 0.2, 1),
+                      filter 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+          will-change: opacity, transform;
+        }
+        .aem-state-badge[data-tier="state"]   { opacity: 1; transform: scale(1);   pointer-events: auto; }
+        .aem-state-badge[data-tier="county"]  { opacity: 0; transform: scale(1.4); pointer-events: none; }
+        .aem-state-badge[data-tier="tract"]   { opacity: 0; transform: scale(1.6); pointer-events: none; }
+
+        .aem-county-square[data-tier="state"] { opacity: 0; transform: scale(0.6); pointer-events: none; }
+        .aem-county-square[data-tier="county"]{ opacity: 1; transform: scale(1);   pointer-events: auto; }
+        .aem-county-square[data-tier="tract"] { opacity: 0; transform: scale(1.3); pointer-events: none; }
+
+        .aem-tract-pin[data-tier="state"]     { opacity: 0; transform: scale(0.5); pointer-events: none; }
+        .aem-tract-pin[data-tier="county"]    { opacity: 0; transform: scale(0.7); pointer-events: none; }
+        .aem-tract-pin[data-tier="tract"]     { opacity: 1; transform: scale(1);   pointer-events: auto; }
+
+        /* ── State badge: silhouette behind goat icon + count ────
+           Two stacked layers inside a fixed-size container:
+            • .aem-state-shape — SVG of the state polygon
+            • .aem-state-overlay — goat icon + count + Start Filtering
+           Floats above the state on the map (marker positioned at
+           the state's bbox center). */
+        .aem-state-badge {
+          position: relative;
+          width: 110px;
+          height: 110px;
+          cursor: pointer;
+          user-select: none;
+          filter: drop-shadow(0 6px 18px rgba(245, 140, 222, 0.35));
+        }
+        .aem-state-badge:hover {
+          transform: translateY(-3px) scale(1.05);
+        }
+        .aem-state-shape {
+          position: absolute;
+          inset: 0;
+          width: 100%;
+          height: 100%;
+          pointer-events: none;
+        }
+        .aem-state-shape svg {
+          display: block;
+        }
+        .aem-state-overlay {
+          position: absolute;
+          inset: 0;
           display: flex;
           flex-direction: column;
           align-items: center;
-          cursor: pointer;
-          padding: 4px 8px 6px;
-          background: transparent;
-          user-select: none;
-          transition: transform 0.18s ease, opacity 0.2s ease;
-          opacity: 1;
+          justify-content: center;
+          gap: 0;
         }
-        .admin-explore-state-badge:hover {
-          transform: scale(1.06);
-        }
-        .admin-explore-state-goat {
-          width: 28px;
-          height: 28px;
+        .aem-state-goat {
+          width: 36px;
+          height: 36px;
           object-fit: contain;
-          filter: drop-shadow(0 1px 4px rgba(245, 140, 222, 0.6));
+          filter: drop-shadow(0 1px 6px rgba(245, 140, 222, 0.85));
         }
-        .admin-explore-state-count {
+        .aem-state-count {
           font-family: ui-sans-serif, system-ui, sans-serif;
-          font-weight: 700;
-          font-size: 14px;
+          font-weight: 800;
+          font-size: 18px;
           color: #fff;
           line-height: 1;
           margin-top: 2px;
-          text-shadow: 0 1px 4px rgba(0, 0, 0, 0.85);
+          text-shadow: 0 1px 4px rgba(0, 0, 0, 0.95),
+                       0 0 8px rgba(0, 0, 0, 0.6);
         }
-        .admin-explore-state-link {
+        .aem-state-link {
           font-size: 9px;
           color: #f58cde;
-          margin-top: 3px;
-          font-weight: 600;
+          margin-top: 4px;
+          font-weight: 700;
           letter-spacing: 0.04em;
           cursor: pointer;
           text-decoration: none;
-          padding: 2px 4px;
+          padding: 3px 6px;
           border-radius: 4px;
-          background: rgba(0, 0, 0, 0.55);
+          background: rgba(0, 0, 0, 0.65);
+          transition: background 0.15s ease, color 0.15s ease;
         }
-        .admin-explore-state-link:hover {
+        .aem-state-link:hover {
           color: #fff;
           background: #f58cde;
         }
-        .admin-explore-county-square {
-          background: rgba(15, 15, 18, 0.85);
+
+        /* ── County squares: smaller than v1 ─────────────────── */
+        .aem-county-square {
+          background: rgba(15, 15, 18, 0.86);
           border: 1.5px solid #f58cde;
-          border-radius: 10px;
-          padding: 5px 9px;
+          border-radius: 8px;
+          padding: 3px 7px;
           cursor: pointer;
           backdrop-filter: blur(4px);
-          box-shadow: 0 6px 18px rgba(245, 140, 222, 0.22);
-          min-width: 78px;
+          box-shadow: 0 4px 14px rgba(245, 140, 222, 0.22);
+          min-width: 50px;
           text-align: center;
-          transition: transform 0.15s, box-shadow 0.15s, opacity 0.2s;
           user-select: none;
-          opacity: 1;
         }
-        .admin-explore-county-square:hover {
-          transform: scale(1.05);
-          box-shadow: 0 10px 26px rgba(245, 140, 222, 0.4);
+        .aem-county-square:hover {
+          box-shadow: 0 8px 22px rgba(245, 140, 222, 0.45);
         }
-        .admin-explore-county-name {
-          font-size: 11px;
+        .aem-county-name {
+          font-size: 10px;
           font-weight: 700;
           color: #fff;
-          line-height: 1.1;
+          line-height: 1.05;
         }
-        .admin-explore-county-count {
+        .aem-county-count {
           font-size: 9px;
           color: #f58cde;
-          margin-top: 2px;
+          margin-top: 1px;
+          font-weight: 600;
         }
       `}</style>
     </div>
