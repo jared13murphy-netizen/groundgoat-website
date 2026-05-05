@@ -153,12 +153,17 @@ export default function AdminFastMap({ height = '700px' }: AdminFastMapProps) {
   // DOM marker pool — only populated when zoom is high enough to need them.
   const pinMarkersRef = useRef<maplibregl.Marker[]>([])
 
-  // Push the canonical tract map into the source as a FeatureCollection.
+  // Push the canonical tract map into BOTH sources as a FeatureCollection.
+  // Why two sources: a clustered source aggregates points into cluster
+  // features at low zoom, so a heatmap layer reading from it would only
+  // see a handful of cluster centers — not the actual point density.
+  // We give the heatmap an UN-clustered source so it sees every tract.
   const pushTractsToSource = useCallback(() => {
     const map = mapRef.current
-    if (!map || !map.getSource('tract-points')) return
+    if (!map) return
     const features: GeoJSON.Feature[] = []
-    for (const t of tractMapRef.current.values()) {
+    const tracts = Array.from(tractMapRef.current.values())
+    for (const t of tracts) {
       const point = getTractPoint(t)
       if (!point) continue
       const isPrivateTreaty =
@@ -186,8 +191,18 @@ export default function AdminFastMap({ height = '700px' }: AdminFastMapProps) {
         },
       })
     }
-    const source = map.getSource('tract-points') as maplibregl.GeoJSONSource
-    source.setData({ type: 'FeatureCollection', features })
+    const fc: GeoJSON.FeatureCollection = {
+      type: 'FeatureCollection',
+      features,
+    }
+    const rawSource = map.getSource('tract-points-raw') as
+      | maplibregl.GeoJSONSource
+      | undefined
+    const clusterSource = map.getSource('tract-points-cluster') as
+      | maplibregl.GeoJSONSource
+      | undefined
+    if (rawSource) rawSource.setData(fc)
+    if (clusterSource) clusterSource.setData(fc)
     setTractCount(features.length)
   }, [])
 
@@ -274,10 +289,17 @@ export default function AdminFastMap({ height = '700px' }: AdminFastMapProps) {
     map.addControl(new maplibregl.NavigationControl(), 'top-right')
 
     map.on('load', () => {
-      // Single GeoJSON source backs ALL three native layers. Clustering
-      // is enabled — MapLibre maintains a parallel cluster index that
-      // we use for the cluster bubble layer.
-      map.addSource('tract-points', {
+      // TWO sources, same data:
+      //  - tract-points-raw: cluster:false, drives the heatmap. The
+      //    heatmap NEEDS unclustered points or it sees only a handful
+      //    of cluster centers and looks empty at low zoom.
+      //  - tract-points-cluster: cluster:true, drives the cluster
+      //    bubbles + individual dots above CLUSTER_MAX_ZOOM.
+      map.addSource('tract-points-raw', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      })
+      map.addSource('tract-points-cluster', {
         type: 'geojson',
         data: { type: 'FeatureCollection', features: [] },
         cluster: true,
@@ -285,43 +307,48 @@ export default function AdminFastMap({ height = '700px' }: AdminFastMapProps) {
         clusterRadius: 50,
       })
 
-      // ── Heatmap layer (low zoom). MapLibre's native heatmap is GPU-
-      // accelerated and stays smooth at any tract count. We weight by
-      // tract acreage so big sales count more.
+      // ── Heatmap layer (low zoom). GPU-accelerated, weighted by
+      // tract acreage so big sales pop more than postage-stamp parcels.
+      // Reads from the UN-clustered source.
       map.addLayer({
         id: 'tract-heatmap',
         type: 'heatmap',
-        source: 'tract-points',
+        source: 'tract-points-raw',
         maxzoom: HEATMAP_FADE_OUT_ZOOM,
         paint: {
           'heatmap-weight': ['get', 'weight'],
           'heatmap-intensity': [
             'interpolate', ['linear'], ['zoom'],
-            0, 0.5,
-            6, 1.2,
+            0, 1,
+            4, 1.5,
+            6, 2,
           ],
+          // Radius bumped — at z 4 (continental US) tracts are far
+          // apart in pixels, so a small radius shows as isolated dots
+          // instead of a continuous heatmap.
           'heatmap-radius': [
             'interpolate', ['linear'], ['zoom'],
-            0, 8,
-            4, 18,
-            6, 30,
-            8, 40,
+            0, 12,
+            3, 24,
+            5, 36,
+            7, 48,
+            8, 56,
           ],
           'heatmap-opacity': [
             'interpolate', ['linear'], ['zoom'],
-            HEATMAP_FADE_OUT_ZOOM - 1, 0.85,
+            HEATMAP_FADE_OUT_ZOOM - 1.5, 0.9,
             HEATMAP_FADE_OUT_ZOOM, 0,
           ],
-          // Pink-leaning palette — keeps the brand color present even
-          // at the macro view, and contrasts with the OSM gray.
+          // Pink-leaning palette — brand color stays present at macro
+          // view, contrasts well against the gray OSM basemap.
           'heatmap-color': [
             'interpolate', ['linear'], ['heatmap-density'],
             0, 'rgba(0,0,0,0)',
-            0.2, 'rgba(91,33,182,0.45)',   // deep purple
-            0.4, 'rgba(220,38,127,0.65)',  // magenta
-            0.6, 'rgba(245,140,222,0.8)',  // gg-pink
-            0.8, 'rgba(253,224,71,0.9)',   // yellow-hot
-            1, 'rgba(255,255,255,1)',      // hot core
+            0.15, 'rgba(91,33,182,0.55)',   // deep purple
+            0.35, 'rgba(220,38,127,0.75)',  // magenta
+            0.55, 'rgba(245,140,222,0.9)',  // gg-pink
+            0.75, 'rgba(253,224,71,1)',     // yellow-hot
+            1, 'rgba(255,255,255,1)',       // hot core
           ],
         },
       })
@@ -330,7 +357,7 @@ export default function AdminFastMap({ height = '700px' }: AdminFastMapProps) {
       map.addLayer({
         id: 'tract-clusters',
         type: 'circle',
-        source: 'tract-points',
+        source: 'tract-points-cluster',
         filter: ['has', 'point_count'],
         minzoom: CLUSTER_MIN_ZOOM,
         paint: {
@@ -361,7 +388,7 @@ export default function AdminFastMap({ height = '700px' }: AdminFastMapProps) {
       map.addLayer({
         id: 'tract-cluster-counts',
         type: 'symbol',
-        source: 'tract-points',
+        source: 'tract-points-cluster',
         filter: ['has', 'point_count'],
         minzoom: CLUSTER_MIN_ZOOM,
         layout: {
@@ -383,7 +410,7 @@ export default function AdminFastMap({ height = '700px' }: AdminFastMapProps) {
       map.addLayer({
         id: 'tract-points-dot',
         type: 'circle',
-        source: 'tract-points',
+        source: 'tract-points-cluster',
         filter: ['!', ['has', 'point_count']],
         minzoom: CLUSTER_MIN_ZOOM,
         paint: {
@@ -417,7 +444,7 @@ export default function AdminFastMap({ height = '700px' }: AdminFastMapProps) {
         const feat = e.features[0]
         if (feat.geometry.type !== 'Point') return
         const clusterId = feat.properties?.cluster_id
-        const src = map.getSource('tract-points') as maplibregl.GeoJSONSource
+        const src = map.getSource('tract-points-cluster') as maplibregl.GeoJSONSource
         if (clusterId == null || !src.getClusterExpansionZoom) return
         src.getClusterExpansionZoom(clusterId).then((zoom) => {
           map.easeTo({
@@ -517,7 +544,8 @@ export default function AdminFastMap({ height = '700px' }: AdminFastMapProps) {
     pinMarkersRef.current.forEach(m => m.remove())
     pinMarkersRef.current = []
 
-    for (const tract of tractMapRef.current.values()) {
+    const allTracts = Array.from(tractMapRef.current.values())
+    for (const tract of allTracts) {
       const pt = getTractPoint(tract)
       if (!pt) continue
       const [lng, lat] = pt
