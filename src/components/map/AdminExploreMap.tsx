@@ -230,6 +230,12 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
       map.addSource('admin-states', {
         type: 'geojson', data: '/data/us-states.json',
       })
+      // Filled silhouette of every state, dark with pink outline.
+      // We don't try to differentiate "has tracts" vs "no tracts" via
+      // paint — keeping it simple. The presence of a goat-icon badge
+      // overlay does that. Property name in /data/us-states.json is
+      // `NAME` (full state name like "Illinois"), not the 2-letter
+      // abbreviation we use elsewhere.
       map.addLayer({
         id: 'admin-states-fill',
         type: 'fill',
@@ -237,7 +243,7 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
         maxzoom: STATE_TIER_MAX + 0.5,
         paint: {
           'fill-color': '#0a0a0c',
-          'fill-opacity': 0.78,
+          'fill-opacity': 0.7,
         },
       })
       map.addLayer({
@@ -248,7 +254,7 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
         paint: {
           'line-color': '#f58cde',
           'line-width': 1.5,
-          'line-opacity': 0.85,
+          'line-opacity': 0.7,
         },
       })
 
@@ -312,40 +318,47 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin])
 
-  // ─────────────────────────────────────────────────────────────
-  // Filter the silhouette fill so only states with matching tracts
-  // light up — the rest stay dim.
-  // ─────────────────────────────────────────────────────────────
+  // Highlight states with matching tracts via setFilter on a brighter
+  // duplicate fill. Cleaner than a paint expression with `in` (which
+  // failed silently because us-states.json uses NAME as the property,
+  // not the 2-letter abbr we keep state-counts by). We translate
+  // abbr → full name with STATE_NAMES so the filter compares apples
+  // to apples.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded) return
-    const haveStates = new Set(stateCounts.filter(s => s.count > 0).map(s => s.state))
+    const fullNames = stateCounts
+      .filter(s => s.count > 0)
+      .map(s => STATE_NAMES[s.state])
+      .filter(Boolean)
     if (!map.getLayer('admin-states-fill')) return
     try {
-      // Match expression using the GeoJSON property; fallback dim color
-      // when no tracts are matched. The us-states.json file uses
-      // various property names depending on source — we try common ones.
-      map.setPaintProperty('admin-states-fill', 'fill-color', [
-        'case',
-        ['in', ['coalesce', ['get', 'STUSPS'], ['get', 'stusps'], ['get', 'state_abbr'], ['get', 'STATE_ABBR']], ['literal', Array.from(haveStates)]],
-        '#1a1a20',
-        '#0a0a0c',
-      ] as any)
-      map.setPaintProperty('admin-states-fill', 'fill-opacity', [
-        'case',
-        ['in', ['coalesce', ['get', 'STUSPS'], ['get', 'stusps'], ['get', 'state_abbr'], ['get', 'STATE_ABBR']], ['literal', Array.from(haveStates)]],
-        0.78,
-        0.55,
-      ] as any)
-      map.setPaintProperty('admin-states-line', 'line-color', [
-        'case',
-        ['in', ['coalesce', ['get', 'STUSPS'], ['get', 'stusps'], ['get', 'state_abbr'], ['get', 'STATE_ABBR']], ['literal', Array.from(haveStates)]],
-        '#f58cde',
-        'rgba(255,255,255,0.18)',
-      ] as any)
-    } catch (e) {
-      // styling may fail before source is loaded — silent retry on next render
-    }
+      // Highlight states with matching tracts: brighter fill + thicker
+      // pink outline. Other states keep the default dim style.
+      if (!map.getLayer('admin-states-fill-hot')) {
+        map.addLayer({
+          id: 'admin-states-fill-hot',
+          type: 'fill',
+          source: 'admin-states',
+          maxzoom: STATE_TIER_MAX + 0.5,
+          paint: { 'fill-color': '#1f1f25', 'fill-opacity': 0.85 },
+          filter: ['in', ['get', 'NAME'], ['literal', fullNames]] as any,
+        })
+        map.addLayer({
+          id: 'admin-states-line-hot',
+          type: 'line',
+          source: 'admin-states',
+          maxzoom: STATE_TIER_MAX + 0.5,
+          paint: { 'line-color': '#f58cde', 'line-width': 2.2, 'line-opacity': 1 },
+          filter: ['in', ['get', 'NAME'], ['literal', fullNames]] as any,
+        })
+      } else {
+        map.setFilter('admin-states-fill-hot',
+          ['in', ['get', 'NAME'], ['literal', fullNames]] as any)
+        map.setFilter('admin-states-line-hot',
+          ['in', ['get', 'NAME'], ['literal', fullNames]] as any)
+      }
+    } catch {}
   }, [stateCounts, mapLoaded])
 
   // ─────────────────────────────────────────────────────────────
@@ -626,12 +639,7 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
           background: transparent;
           user-select: none;
           transition: transform 0.18s ease, opacity 0.2s ease;
-          opacity: 0;
-          animation: adminBadgeFadeIn 0.3s ease forwards;
-        }
-        @keyframes adminBadgeFadeIn {
-          from { opacity: 0; transform: translateY(4px); }
-          to   { opacity: 1; transform: translateY(0); }
+          opacity: 1;
         }
         .admin-explore-state-badge:hover {
           transform: scale(1.06);
@@ -679,8 +687,7 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
           text-align: center;
           transition: transform 0.15s, box-shadow 0.15s, opacity 0.2s;
           user-select: none;
-          opacity: 0;
-          animation: adminBadgeFadeIn 0.25s ease forwards;
+          opacity: 1;
         }
         .admin-explore-county-square:hover {
           transform: scale(1.05);
