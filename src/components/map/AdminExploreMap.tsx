@@ -154,10 +154,13 @@ function currentZoomTier(z: number): 'state' | 'county' | 'tract' {
   return 'tract'
 }
 
-// Bbox center of a state Feature (Polygon or MultiPolygon). Returns
-// [lng, lat] or null. Used as the marker centroid when STATE_BOUNDS
-// doesn't have the state (mapConstants only covers 26 states).
-function featureBboxCenter(feature: any): [number, number] | null {
+// Bbox of a state Feature (Polygon or MultiPolygon). Returns
+// [[minLng, minLat], [maxLng, maxLat]] or null. Used both for the
+// marker centroid and (now) for sizing the badge to match the
+// state's actual on-map extent.
+function featureBbox(
+  feature: any,
+): [[number, number], [number, number]] | null {
   if (!feature?.geometry?.coordinates) return null
   const geom = feature.geometry
   let minLng = Infinity, minLat = Infinity
@@ -180,13 +183,14 @@ function featureBboxCenter(feature: any): [number, number] | null {
     return null
   }
   if (!isFinite(minLng) || !isFinite(minLat)) return null
-  return [(minLng + maxLng) / 2, (minLat + maxLat) / 2]
+  return [[minLng, minLat], [maxLng, maxLat]]
 }
 
-
-// Convert a state GeoJSON Feature (Polygon or MultiPolygon) into an
-// SVG `d` path string normalized to a 100×100 viewBox so it renders
-// the same size regardless of the state's actual geographic extent.
+// Convert a state GeoJSON Feature into an SVG `d` path that STRETCHES
+// across the full 100×100 viewBox (no aspect-ratio centering). When
+// rendered with `preserveAspectRatio="none"` and a container sized to
+// the state's projected bbox in pixels, the silhouette ends up
+// perfectly aligned over the actual state on the map.
 function featureToSvgPath(feature: any): string | null {
   if (!feature?.geometry?.coordinates) return null
   const geom = feature.geometry
@@ -214,17 +218,19 @@ function featureToSvgPath(feature: any): string | null {
   const w = maxLng - minLng
   const h = maxLat - minLat
   if (w <= 0 || h <= 0) return null
-  const scale = 100 / Math.max(w, h)
-  const offsetX = (100 - w * scale) / 2
-  const offsetY = (100 - h * scale) / 2
+  // Stretch — full 100 width and 100 height. The container's aspect
+  // ratio in pixels is what gives the silhouette the right shape; SVG
+  // with preserveAspectRatio="none" stretches the path 1:1 into it.
+  const sx = 100 / w
+  const sy = 100 / h
   const parts: string[] = []
   for (const ring of rings) {
     if (ring.length < 3) continue
     const cmds: string[] = []
     for (let i = 0; i < ring.length; i++) {
       const [lng, lat] = ring[i]
-      const x = (lng - minLng) * scale + offsetX
-      const y = (maxLat - lat) * scale + offsetY  // SVG y grows down
+      const x = (lng - minLng) * sx
+      const y = (maxLat - lat) * sy  // SVG y grows down
       cmds.push(`${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`)
     }
     cmds.push('Z')
@@ -357,6 +363,9 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
   // 50-state lookup defined above.
   const [stateSilhouettes, setStateSilhouettes] = useState<Record<string, string>>({})
   const [stateCentroids, setStateCentroids] = useState<Record<string, [number, number]>>({})
+  const [stateBboxes, setStateBboxes] = useState<
+    Record<string, [[number, number], [number, number]]>
+  >({})
 
   useEffect(() => {
     let cancelled = false
@@ -368,19 +377,25 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
         // which only has 12 Midwest states).
         const paths: Record<string, string> = {}
         const centroids: Record<string, [number, number]> = {}
+        const bboxes: Record<string, [[number, number], [number, number]]> = {}
         for (const feat of geo.features) {
           const abbr = ALL_STATE_NAME_TO_ABBR[feat?.properties?.NAME]
           if (!abbr) continue
           const path = featureToSvgPath(feat)
           if (path) paths[abbr] = path
-          // Compute centroid from polygon bbox — accurate enough for
-          // marker placement and works for ALL 50 states (mapConstants
-          // STATE_BOUNDS only has 26).
-          const c = featureBboxCenter(feat)
-          if (c) centroids[abbr] = c
+          const bbox = featureBbox(feat)
+          if (bbox) {
+            bboxes[abbr] = bbox
+            // Centroid is the bbox center — works for ALL 50 states.
+            centroids[abbr] = [
+              (bbox[0][0] + bbox[1][0]) / 2,
+              (bbox[0][1] + bbox[1][1]) / 2,
+            ]
+          }
         }
         setStateSilhouettes(paths)
         setStateCentroids(centroids)
+        setStateBboxes(bboxes)
       })
       .catch(() => {})
     return () => { cancelled = true }
@@ -634,6 +649,30 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
     stateMarkersRef.current = []
     if (currentTier !== 'state') return
 
+    // Track each badge's inner element + bbox so we can resize on
+    // every map move/zoom to keep the silhouette aligned over the
+    // real state footprint.
+    const sized: Array<{
+      inner: HTMLElement
+      bbox: [[number, number], [number, number]]
+    }> = []
+    // Minimum on-screen size — RI/DE/CT/etc. would shrink to a few
+    // pixels at z 4 if we let them. 70px keeps the count + goat icon
+    // legible.
+    const MIN_BADGE_PX = 70
+
+    const sizeBadge = (
+      inner: HTMLElement,
+      bbox: [[number, number], [number, number]],
+    ) => {
+      const tl = map.project([bbox[0][0], bbox[1][1]])
+      const br = map.project([bbox[1][0], bbox[0][1]])
+      const w = Math.max(MIN_BADGE_PX, Math.abs(br.x - tl.x))
+      const h = Math.max(MIN_BADGE_PX, Math.abs(br.y - tl.y))
+      inner.style.width = `${w}px`
+      inner.style.height = `${h}px`
+    }
+
     for (const { state, count } of stateCounts) {
       if (count === 0) continue
       // Prefer the 50-state centroid we computed from us-states.json;
@@ -652,6 +691,7 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
       }
 
       const silhouettePath = stateSilhouettes[state]
+      const bbox = stateBboxes[state]
 
       // OUTER shell — maplibre sets transform: translate(x, y) on this
       // to position the marker. NO css animations / transforms here
@@ -664,9 +704,13 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
       // the marker sits on the map.
       const inner = document.createElement('div')
       inner.className = 'aem-state-badge'
+      // preserveAspectRatio="none" makes the silhouette stretch to
+      // fill the container exactly. Combined with sizing the
+      // container to the projected bbox, the silhouette ends up over
+      // the real state footprint at any zoom.
       inner.innerHTML = `
         <svg class="aem-state-shape" viewBox="0 0 100 100"
-             preserveAspectRatio="xMidYMid meet">
+             preserveAspectRatio="none">
           ${silhouettePath ? `
             <path d="${silhouettePath}"
                   fill="rgba(10,10,12,0.62)"
@@ -705,14 +749,33 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
         .setLngLat([lng, lat])
         .addTo(map)
       stateMarkersRef.current.push(marker)
+      if (bbox) {
+        sized.push({ inner, bbox })
+        sizeBadge(inner, bbox)
+      } else {
+        // No bbox — fall back to the old fixed 100×100 size.
+        inner.style.width = '100px'
+        inner.style.height = '100px'
+      }
     }
+
+    // Resize all badges on every map move/zoom so they stay locked to
+    // their geographic footprints. Direct DOM writes (no React state)
+    // keep this cheap — a 50-element loop per move event runs in
+    // sub-millisecond.
+    const onMove = () => {
+      for (const { inner, bbox } of sized) sizeBadge(inner, bbox)
+    }
+    map.on('move', onMove)
+
     // Cleanup runs when tier or data changes — fade out, then remove.
     return () => {
+      map.off('move', onMove)
       fadeOutAndRemove(stateMarkersRef.current)
       stateMarkersRef.current = []
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stateCounts, mapLoaded, currentTier, stateSilhouettes])
+  }, [stateCounts, mapLoaded, currentTier, stateSilhouettes, stateBboxes])
 
   // COUNTY SQUARES — only built when in county tier.
   useEffect(() => {
@@ -963,16 +1026,23 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
 
         /* ── State badge: SVG silhouette as background, goat + count
               + Start Filtering centered on top.
-              Container is 70×70; the SVG fills the container; the
+              Container width/height is set inline per-state from the
+              projected geographic bbox so each silhouette sits over
+              its real on-map footprint. The SVG uses
+              preserveAspectRatio="none" and stretches to fill. The
               .aem-state-overlay is absolutely positioned and centered
               over the silhouette. */
         .aem-state-badge {
           position: relative;
-          width: 100px;
-          height: 100px;
           cursor: pointer;
           user-select: none;
-          filter: drop-shadow(0 4px 14px rgba(245, 140, 222, 0.4));
+          /* Layered drop-shadows: dark cast for depth, pink glow for
+             brand. drop-shadow follows the silhouette's actual
+             outline (unlike box-shadow which would cast a rectangle
+             from the bounding box). */
+          filter:
+            drop-shadow(0 6px 18px rgba(0, 0, 0, 0.55))
+            drop-shadow(0 0 14px rgba(245, 140, 222, 0.35));
         }
         .aem-state-shape {
           position: absolute;
