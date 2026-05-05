@@ -714,14 +714,28 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
       // fill the container exactly. Combined with sizing the
       // container to the projected bbox, the silhouette ends up over
       // the real state footprint at any zoom.
+      //
+      // Shadow trick: render a SECOND path BEFORE the silhouette
+      // (z-order: behind), filled solid black at full opacity, then
+      // CSS-translate + blur it to produce the bottom-right cast.
+      // Doing this as its own element (instead of CSS drop-shadow on
+      // the silhouette) means the shadow's alpha isn't multiplied by
+      // the silhouette's 0.62 alpha — so we get a strong, visible
+      // shadow without changing the silhouette's transparency.
       inner.innerHTML = `
+        <svg class="aem-state-shadow" viewBox="0 0 100 100"
+             preserveAspectRatio="none">
+          ${silhouettePath ? `
+            <path d="${silhouettePath}" fill="#000" stroke="none" />
+          ` : '<rect x="2" y="2" width="96" height="96" rx="6" fill="#000"/>'}
+        </svg>
         <svg class="aem-state-shape" viewBox="0 0 100 100"
              preserveAspectRatio="none">
           ${silhouettePath ? `
             <path d="${silhouettePath}"
-                  fill="rgba(8,10,14,0.92)"
+                  fill="rgba(10,10,12,0.62)"
                   stroke="none" />
-          ` : '<rect x="2" y="2" width="96" height="96" rx="6" fill="rgba(8,10,14,0.92)"/>'}
+          ` : '<rect x="2" y="2" width="96" height="96" rx="6" fill="rgba(10,10,12,0.62)"/>'}
         </svg>
         <div class="aem-state-overlay">
           <img src="/goat-icon-white.png" alt="" class="aem-state-goat" />
@@ -1052,19 +1066,21 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
              + overlay are clickable. Children with pointer-events
              override below still bubble events back up to the shell. */
           pointer-events: none;
-          /* Bottom-right drop-shadow. CSS drop-shadow multiplies the
-             rendered shape's alpha by the shadow alpha, so the
-             silhouette path is now rgba(8,10,14,0.92) (near-opaque)
-             to let shadows render at near-full strength.
-
-             Three stacked shadows for visibility on a dark satellite
-             map: a wide PINK-tinted glow (so the cast contrasts the
-             dark green imagery — pure black would blend in), then a
-             medium black shadow, then a tight black contact edge. */
-          filter:
-            drop-shadow(10px 14px 16px rgba(245, 140, 222, 0.55))
-            drop-shadow(6px 8px 8px rgba(0, 0, 0, 1))
-            drop-shadow(2px 3px 2px rgba(0, 0, 0, 1));
+        }
+        /* Shadow path — full-opacity black silhouette translated
+           down+right and blurred. Rendered as its own element (not
+           a CSS drop-shadow on the 62%-opacity silhouette) so the
+           shadow's alpha isn't multiplied down to invisibility. */
+        .aem-state-shadow {
+          position: absolute;
+          inset: 0;
+          width: 100%;
+          height: 100%;
+          overflow: visible;
+          transform: translate(8px, 10px);
+          filter: blur(5px);
+          opacity: 0.95;
+          pointer-events: none;
         }
         .aem-state-shape {
           position: absolute;
