@@ -7,18 +7,18 @@
  * touching the customer-facing map. Will replace ExploreMap once
  * approved.
  *
- * Tier strategy (driven by zoom level):
- *   • z 0–STATE_TIER_MAX (≈6)        → state badges:
- *       white goat icon + tract count + "Start Filtering" link
- *   • z STATE_TIER_MAX–COUNTY_TIER_MAX (≈10) → county squares:
- *       rounded square with county name + tract count
- *   • z >= TRACT_TIER_MIN (10+)      → individual tract pins
- *       (price-per-acre / acres bubble, copied from ExploreMap)
+ * Tiers:
+ *   z <= STATE_TIER_MAX (6)    → state silhouettes (filled state polygons
+ *                                from us-states.json) + small goat-icon
+ *                                count overlay + "Start Filtering" link
+ *   z 6–10  (county tier)      → rounded county squares with name + count
+ *   z >= 9 (TRACT_TIER_MIN)    → individual price-bubble tract pins
+ *   z >= 13                    → WI parcel overlay (admin-only, pmtiles)
  *
- * Counts at the state and county tier come from new aggregation
- * endpoints (filter-aware), so they refresh whenever the user
- * applies a filter or runs a Goat Search query. Tract pins are
- * loaded by the existing /api/map/tracts bbox endpoint.
+ * Counts at the state and county tiers come from the new
+ * /api/map/state-tract-counts and /api/map/county-tract-counts
+ * aggregation endpoints (filter-aware). Tract pins are loaded by the
+ * existing /api/map/tracts bbox endpoint.
  */
 
 import { useRef, useEffect, useState, useCallback, useMemo } from 'react'
@@ -37,17 +37,16 @@ import {
 } from './mapConstants'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import MapChatPanel from '@/components/portal/MapChatPanel'
-import { Filter, X } from 'lucide-react'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
-// Zoom thresholds. Slightly fuzzy boundaries keep transitions smooth.
-const STATE_TIER_MAX = 6     // state badges visible up to this zoom
-const COUNTY_TIER_MIN = 6    // county squares appear at this zoom
-const COUNTY_TIER_MAX = 10   // county squares hidden past this zoom
-const TRACT_TIER_MIN = 10    // tract pins appear at this zoom
-const POLYGON_TIER_MIN = 13  // tract polygons drawn at this zoom
-const PARCEL_TIER_MIN = 13   // WI admin parcel overlay (vector tiles) at this zoom
+const STATE_TIER_MAX = 6
+const COUNTY_TIER_MIN = 6
+const COUNTY_TIER_MAX = 10
+const TRACT_TIER_MIN = 9   // lowered from 10 → tracts load when user clicks
+                            // a county and we ease to z 9.5
+const POLYGON_TIER_MIN = 13
+const PARCEL_TIER_MIN = 13
 
 const PIN_COLORS: Record<string, string> = {
   sold: '#f58cde',
@@ -58,33 +57,30 @@ const PIN_COLORS: Record<string, string> = {
   pending: '#eab308',
   no_sale: '#9ca3af',
 }
-function pinColor(status: string | null): string {
-  if (!status) return '#eab308'
-  return PIN_COLORS[status.toLowerCase()] || '#eab308'
-}
-function fmt$(n: number | null | undefined): string {
-  if (!n) return '—'
-  return '$' + Math.round(n).toLocaleString('en-US')
-}
-function fmtAc(n: number | null | undefined): string {
-  if (!n) return '—'
-  return n.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
+function pinColor(s: string | null) { return s ? (PIN_COLORS[s.toLowerCase()] || '#eab308') : '#eab308' }
+function fmt$(n: number | null | undefined) { return n ? '$' + Math.round(n).toLocaleString('en-US') : '—' }
+function fmtAc(n: number | null | undefined) {
+  return n ? n.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : '—'
 }
 
-// Same FilterState shape as ExploreMap so the chat panel and the filter
-// panel can share fields. TODO (Phase 2): extract into a shared types
-// module that both maps import.
+// FilterState shape mirrors ExploreMap so we can drop it into the same
+// MapChatPanel without translation. Phase 2 will extract this into a
+// shared types module.
 interface FilterState {
   dateRange: string
   dateFrom: string
   dateTo: string
   stateFilter: string
   countyFilters: string[]
-  statuses: string[]
+  townshipFilters: string[]
+  soilRatingMin: string
+  soilRatingMax: string
   acreageMin: string
   acreageMax: string
   pctTillableMin: string
   pctTillableMax: string
+  statuses: string[]
+  landTypes: string[]
   listingType: string
   pricePerAcreMin: string
   pricePerAcreMax: string
@@ -95,33 +91,27 @@ interface FilterState {
   companyName: string
   buyer: string
   seller: string
+  hasHouse: boolean | null
+  hasBuildings: boolean | null
+  hasPolygon: boolean | null
   keyword: string
 }
 const INITIAL_FILTERS: FilterState = {
-  dateRange: 'all',
-  dateFrom: '',
-  dateTo: '',
-  stateFilter: '',
-  countyFilters: [],
-  statuses: [],
-  acreageMin: '',
-  acreageMax: '',
-  pctTillableMin: '',
-  pctTillableMax: '',
+  dateRange: 'all', dateFrom: '', dateTo: '',
+  stateFilter: '', countyFilters: [], townshipFilters: [],
+  soilRatingMin: '', soilRatingMax: '',
+  acreageMin: '', acreageMax: '', pctTillableMin: '', pctTillableMax: '',
+  statuses: [], landTypes: [],
   listingType: '',
-  pricePerAcreMin: '',
-  pricePerAcreMax: '',
-  salePriceMin: '',
-  salePriceMax: '',
-  askingPriceMin: '',
-  askingPriceMax: '',
-  companyName: '',
-  buyer: '',
-  seller: '',
+  pricePerAcreMin: '', pricePerAcreMax: '',
+  salePriceMin: '', salePriceMax: '',
+  askingPriceMin: '', askingPriceMax: '',
+  companyName: '', buyer: '', seller: '',
+  hasHouse: null, hasBuildings: null, hasPolygon: null,
   keyword: '',
 }
 
-function buildFilterParams(f: FilterState): Record<string, string> {
+function buildFilterParams(f: FilterState) {
   const p: Record<string, string> = {}
   if (f.dateRange === 'custom') {
     if (f.dateFrom) p.date_from = f.dateFrom
@@ -140,13 +130,17 @@ function buildFilterParams(f: FilterState): Record<string, string> {
       p.date_from = d.toISOString().slice(0, 10)
     }
   }
-  if (f.statuses.length > 0) p.sale_status = f.statuses.join(',')
+  if (f.statuses.length > 0) p.sale_status = f.statuses.flatMap(s => s.split(',')).join(',')
   if (f.stateFilter) p.state_abbr = f.stateFilter
   if (f.countyFilters.length > 0) p.county_name = f.countyFilters.join(',')
+  if (f.townshipFilters.length > 0) p.township = f.townshipFilters.join(',')
+  if (f.soilRatingMin) p.soil_rating_min = f.soilRatingMin
+  if (f.soilRatingMax) p.soil_rating_max = f.soilRatingMax
   if (f.acreageMin) p.acreage_min = f.acreageMin
   if (f.acreageMax) p.acreage_max = f.acreageMax
   if (f.pctTillableMin) p.pct_tillable_min = f.pctTillableMin
   if (f.pctTillableMax) p.pct_tillable_max = f.pctTillableMax
+  if (f.landTypes.length > 0) p.land_types = f.landTypes.join(',')
   if (f.listingType) p.listing_type = f.listingType
   if (f.pricePerAcreMin) p.price_per_acre_min = f.pricePerAcreMin
   if (f.pricePerAcreMax) p.price_per_acre_max = f.pricePerAcreMax
@@ -166,16 +160,12 @@ interface AdminExploreMapProps {
   isAdmin?: boolean
 }
 
-export default function AdminExploreMap({
-  height = '700px',
-  isAdmin = true,
-}: AdminExploreMapProps) {
+export default function AdminExploreMap({ height = '700px', isAdmin = true }: AdminExploreMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const [mapLoaded, setMapLoaded] = useState(false)
   const [currentZoom, setCurrentZoom] = useState(4)
 
-  // Tier data
   const [stateCounts, setStateCounts] = useState<Array<{ state: string; count: number }>>([])
   const [countyCounts, setCountyCounts] = useState<
     Array<{ state: string; county: string; count: number; lat: number; lng: number }>
@@ -183,25 +173,38 @@ export default function AdminExploreMap({
   const tractMapRef = useRef<Map<string, ApiMapTract>>(new Map())
   const [tractRefresh, setTractRefresh] = useState(0)
 
-  // Filter state
   const [filters, setFilters] = useState<FilterState>(INITIAL_FILTERS)
   const filtersRef = useRef(filters)
   useEffect(() => { filtersRef.current = filters }, [filters])
-  const [filterPanelOpen, setFilterPanelOpen] = useState(false)
+  const [filterOpen, setFilterOpen] = useState(false)
 
-  // Marker pools (DOM markers, separate per tier)
+  const [filterOptions, setFilterOptions] = useState<{
+    states: string[]
+    counties_by_state: Record<string, string[]>
+    townships_by_county: Record<string, string[]>
+  }>({ states: [], counties_by_state: {}, townships_by_county: {} })
+
+  // Refs for DOM markers per tier
   const stateMarkersRef = useRef<maplibregl.Marker[]>([])
   const countyMarkersRef = useRef<maplibregl.Marker[]>([])
   const tractMarkersRef = useRef<maplibregl.Marker[]>([])
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const filterParamString = useMemo(() => {
-    const p = buildFilterParams(filters)
-    const usp = new URLSearchParams(p)
-    return usp.toString()
+    return new URLSearchParams(buildFilterParams(filters)).toString()
   }, [filters])
 
-  // Init map once
+  // Public filter-options API (states/counties/townships catalog)
+  useEffect(() => {
+    fetch(`${API_URL}/api/map/filter-options`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data) setFilterOptions(data) })
+      .catch(() => {})
+  }, [])
+
+  // ─────────────────────────────────────────────────────────────
+  // Init map + state-silhouette + WI parcel layers
+  // ─────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!containerRef.current) return
     const map = new maplibregl.Map({
@@ -209,12 +212,7 @@ export default function AdminExploreMap({
       style: {
         version: 8,
         sources: {
-          osm: {
-            type: 'raster',
-            tiles: [TILE_URL],
-            tileSize: 256,
-            attribution: TILE_ATTRIBUTION,
-          },
+          osm: { type: 'raster', tiles: [TILE_URL], tileSize: 256, attribution: TILE_ATTRIBUTION },
         },
         layers: [{ id: 'osm-tiles', type: 'raster', source: 'osm' }],
         glyphs: GLYPH_URL,
@@ -226,18 +224,75 @@ export default function AdminExploreMap({
     map.addControl(new maplibregl.NavigationControl(), 'top-right')
 
     map.on('load', () => {
+      // State silhouette layer: fill the states with a dark mask, white
+      // outline. Visible only at the state tier; the count+goat overlay
+      // marker sits on top via DOM.
+      map.addSource('admin-states', {
+        type: 'geojson', data: '/data/us-states.json',
+      })
+      map.addLayer({
+        id: 'admin-states-fill',
+        type: 'fill',
+        source: 'admin-states',
+        maxzoom: STATE_TIER_MAX + 0.5,
+        paint: {
+          'fill-color': '#0a0a0c',
+          'fill-opacity': 0.78,
+        },
+      })
+      map.addLayer({
+        id: 'admin-states-line',
+        type: 'line',
+        source: 'admin-states',
+        maxzoom: STATE_TIER_MAX + 0.5,
+        paint: {
+          'line-color': '#f58cde',
+          'line-width': 1.5,
+          'line-opacity': 0.85,
+        },
+      })
+
+      // WI parcel overlay (admin-only, vector tiles via pmtiles, z 13+)
+      if (isAdmin) {
+        const w = window as any
+        if (!w.__ggPmtilesRegistered) {
+          maplibregl.addProtocol('pmtiles', new PMTilesProtocol().tile as any)
+          w.__ggPmtilesRegistered = true
+        }
+        try {
+          const TILES_BASE_URL =
+            process.env.NEXT_PUBLIC_PMTILES_BASE_URL ||
+            'https://ground-goat-tiles-production.up.railway.app'
+          map.addSource('admin-parcels-WI', {
+            type: 'vector', url: `pmtiles://${TILES_BASE_URL}/wi.pmtiles`,
+          })
+          map.addLayer({
+            id: 'admin-parcels-WI-fill', type: 'fill',
+            source: 'admin-parcels-WI', 'source-layer': 'parcels',
+            minzoom: PARCEL_TIER_MIN,
+            paint: { 'fill-color': '#888', 'fill-opacity': 0.05 },
+          })
+          map.addLayer({
+            id: 'admin-parcels-WI-line', type: 'line',
+            source: 'admin-parcels-WI', 'source-layer': 'parcels',
+            minzoom: PARCEL_TIER_MIN,
+            paint: { 'line-color': '#fff', 'line-width': 0.5, 'line-opacity': 0.5 },
+          })
+        } catch (e) {
+          console.warn('[AdminExploreMap] pmtiles add failed', e)
+        }
+      }
+
       mapRef.current = map
       setMapLoaded(true)
       setCurrentZoom(map.getZoom())
     })
-    map.on('zoom', () => {
-      setCurrentZoom(map.getZoom())
-    })
+    map.on('zoom', () => setCurrentZoom(map.getZoom()))
     map.on('moveend', () => {
-      // Tract loader fires only at high zoom. Debounced.
       if (debounceRef.current) clearTimeout(debounceRef.current)
       debounceRef.current = setTimeout(() => {
-        if (map.getZoom() < TRACT_TIER_MIN) return
+        if (!mapRef.current) return
+        if (mapRef.current.getZoom() < TRACT_TIER_MIN) return
         loadTractsForViewport()
       }, 250)
     })
@@ -255,41 +310,69 @@ export default function AdminExploreMap({
       setMapLoaded(false)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [isAdmin])
 
-  // Load state counts whenever filters change
+  // ─────────────────────────────────────────────────────────────
+  // Filter the silhouette fill so only states with matching tracts
+  // light up — the rest stay dim.
+  // ─────────────────────────────────────────────────────────────
   useEffect(() => {
-    let cancelled = false
-    const url = `${API_URL}/api/map/state-tract-counts?${filterParamString}`
-    fetchWithAuth(url)
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+    const haveStates = new Set(stateCounts.filter(s => s.count > 0).map(s => s.state))
+    if (!map.getLayer('admin-states-fill')) return
+    try {
+      // Match expression using the GeoJSON property; fallback dim color
+      // when no tracts are matched. The us-states.json file uses
+      // various property names depending on source — we try common ones.
+      map.setPaintProperty('admin-states-fill', 'fill-color', [
+        'case',
+        ['in', ['coalesce', ['get', 'STUSPS'], ['get', 'stusps'], ['get', 'state_abbr'], ['get', 'STATE_ABBR']], ['literal', Array.from(haveStates)]],
+        '#1a1a20',
+        '#0a0a0c',
+      ] as any)
+      map.setPaintProperty('admin-states-fill', 'fill-opacity', [
+        'case',
+        ['in', ['coalesce', ['get', 'STUSPS'], ['get', 'stusps'], ['get', 'state_abbr'], ['get', 'STATE_ABBR']], ['literal', Array.from(haveStates)]],
+        0.78,
+        0.55,
+      ] as any)
+      map.setPaintProperty('admin-states-line', 'line-color', [
+        'case',
+        ['in', ['coalesce', ['get', 'STUSPS'], ['get', 'stusps'], ['get', 'state_abbr'], ['get', 'STATE_ABBR']], ['literal', Array.from(haveStates)]],
+        '#f58cde',
+        'rgba(255,255,255,0.18)',
+      ] as any)
+    } catch (e) {
+      // styling may fail before source is loaded — silent retry on next render
+    }
+  }, [stateCounts, mapLoaded])
+
+  // ─────────────────────────────────────────────────────────────
+  // Aggregation fetches
+  // ─────────────────────────────────────────────────────────────
+  useEffect(() => {
+    let cancel = false
+    fetchWithAuth(`${API_URL}/api/map/state-tract-counts?${filterParamString}`)
       .then(r => r.ok ? r.json() : { states: [] })
-      .then(data => {
-        if (cancelled) return
-        setStateCounts(data.states || [])
-      })
+      .then(d => { if (!cancel) setStateCounts(d.states || []) })
       .catch(() => {})
-    return () => { cancelled = true }
+    return () => { cancel = true }
   }, [filterParamString])
 
-  // Load county counts whenever filters change OR a state is selected.
-  // We always fetch counties for the selected state(s); if no state
-  // filter is active and the user is at county zoom, fetch all counties
-  // (server scopes by visible viewport via state param when present).
   useEffect(() => {
-    let cancelled = false
+    let cancel = false
     const stateScope = filters.stateFilter ? `state=${filters.stateFilter}&` : ''
-    const url = `${API_URL}/api/map/county-tract-counts?${stateScope}${filterParamString}`
-    fetchWithAuth(url)
+    fetchWithAuth(`${API_URL}/api/map/county-tract-counts?${stateScope}${filterParamString}`)
       .then(r => r.ok ? r.json() : { counties: [] })
-      .then(data => {
-        if (cancelled) return
-        setCountyCounts(data.counties || [])
-      })
+      .then(d => { if (!cancel) setCountyCounts(d.counties || []) })
       .catch(() => {})
-    return () => { cancelled = true }
+    return () => { cancel = true }
   }, [filterParamString, filters.stateFilter])
 
-  // Load tract details for the current viewport (high zoom only).
+  // ─────────────────────────────────────────────────────────────
+  // Tract loader (high zoom only)
+  // ─────────────────────────────────────────────────────────────
   const loadTractsForViewport = useCallback(async () => {
     const map = mapRef.current
     if (!map) return
@@ -307,9 +390,6 @@ export default function AdminExploreMap({
       if (!r.ok) return
       const data: MapTractsResponse = await r.json()
       if (!data.tracts) return
-      // Replace, not merge — at this zoom the viewport is small enough
-      // that re-fetching all visible tracts is cheap. Avoids stale
-      // tracts hanging around when the user pans far.
       const next = new Map<string, ApiMapTract>()
       for (const t of data.tracts) next.set(t.id, t)
       tractMapRef.current = next
@@ -317,28 +397,24 @@ export default function AdminExploreMap({
     } catch {}
   }, [filterParamString])
 
-  // Re-fetch tracts when filters change (only at high zoom)
   useEffect(() => {
     if (!mapLoaded) return
     const map = mapRef.current
     if (!map) return
-    if (map.getZoom() >= TRACT_TIER_MIN) {
-      loadTractsForViewport()
-    }
+    if (map.getZoom() >= TRACT_TIER_MIN) loadTractsForViewport()
   }, [filterParamString, mapLoaded, loadTractsForViewport])
 
   // ─────────────────────────────────────────────────────────────
-  // STATE BADGES (z 0–STATE_TIER_MAX)
+  // STATE BADGES (smaller — goat icon + count + Start Filtering)
   // ─────────────────────────────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded) return
 
-    // Always rebuild — count or filters may have changed.
     stateMarkersRef.current.forEach(m => m.remove())
     stateMarkersRef.current = []
 
-    if (currentZoom >= STATE_TIER_MAX + 0.5) return  // hidden past tier
+    if (currentZoom > STATE_TIER_MAX + 0.3) return
 
     for (const { state, count } of stateCounts) {
       if (count === 0) continue
@@ -352,18 +428,33 @@ export default function AdminExploreMap({
       el.innerHTML = `
         <img src="/goat-icon-white.png" alt="" class="admin-explore-state-goat" />
         <div class="admin-explore-state-count">${count.toLocaleString()}</div>
-        <div class="admin-explore-state-name">${STATE_NAMES[state] || state}</div>
-        <div class="admin-explore-state-link">Start Filtering →</div>
+        <a class="admin-explore-state-link" data-action="filter">Start Filtering →</a>
       `
-      el.addEventListener('click', () => {
-        // Apply state filter, open filter panel, AND zoom to the state.
-        setFilters(prev => ({ ...prev, stateFilter: state }))
-        setFilterPanelOpen(true)
-        map.fitBounds(bounds as any, {
-          padding: 60,
-          maxZoom: 7.5,
-          duration: 800,
-        })
+
+      // Click on Start Filtering → open panel + apply state filter (no zoom).
+      // Click anywhere else on the badge → just zoom into the state.
+      el.addEventListener('click', (ev) => {
+        const target = ev.target as HTMLElement
+        const isFilterLink = target?.closest('[data-action="filter"]')
+        ev.stopPropagation()
+
+        if (isFilterLink) {
+          setFilters(prev => ({
+            ...prev, stateFilter: state, countyFilters: [], townshipFilters: [],
+          }))
+          setFilterOpen(true)
+          // Light zoom toward the state but not past STATE_TIER_MAX so the
+          // user can still see the badge while picking other filters.
+          map.fitBounds(bounds as any, { padding: 80, maxZoom: STATE_TIER_MAX, duration: 700 })
+        } else {
+          // Zoom past STATE_TIER_MAX so the state-tier hides and the
+          // county-tier shows up.
+          map.fitBounds(bounds as any, {
+            padding: 60,
+            maxZoom: 7.5,
+            duration: 800,
+          })
+        }
       })
 
       const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
@@ -374,7 +465,7 @@ export default function AdminExploreMap({
   }, [stateCounts, mapLoaded, currentZoom])
 
   // ─────────────────────────────────────────────────────────────
-  // COUNTY SQUARES (z COUNTY_TIER_MIN–COUNTY_TIER_MAX)
+  // COUNTY SQUARES
   // ─────────────────────────────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current
@@ -383,11 +474,10 @@ export default function AdminExploreMap({
     countyMarkersRef.current.forEach(m => m.remove())
     countyMarkersRef.current = []
 
-    if (currentZoom < COUNTY_TIER_MIN || currentZoom >= COUNTY_TIER_MAX + 0.5) return
+    if (currentZoom < COUNTY_TIER_MIN || currentZoom > COUNTY_TIER_MAX + 0.3) return
 
     for (const c of countyCounts) {
       if (!c.count || c.lat == null || c.lng == null) continue
-
       const el = document.createElement('div')
       el.className = 'admin-explore-county-square'
       el.innerHTML = `
@@ -395,11 +485,12 @@ export default function AdminExploreMap({
         <div class="admin-explore-county-count">${c.count.toLocaleString()} tracts</div>
       `
       el.addEventListener('click', () => {
-        // Zoom to county at z 9.5 — close enough to read, far enough
-        // to see neighboring counties for context.
+        // Ease to the county centroid at z 9.5 (close enough to read,
+        // far enough that neighboring counties are visible). After the
+        // ease, the existing moveend handler will populate tracts in
+        // the viewport — and as the user pans, more will load.
         map.easeTo({ center: [c.lng, c.lat], zoom: 9.5, duration: 700 })
       })
-
       const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
         .setLngLat([c.lng, c.lat])
         .addTo(map)
@@ -408,7 +499,7 @@ export default function AdminExploreMap({
   }, [countyCounts, mapLoaded, currentZoom])
 
   // ─────────────────────────────────────────────────────────────
-  // TRACT PINS (z TRACT_TIER_MIN+) — same look as ExploreMap
+  // TRACT PINS
   // ─────────────────────────────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current
@@ -448,11 +539,9 @@ export default function AdminExploreMap({
       pin.className = 'comp-marker-pin comparable'
       pin.style.backgroundColor = pinColor(t.sale_status)
       el.appendChild(pin)
-
       el.addEventListener('click', () => {
         if (t.listing_id) window.open(`/listings/${t.listing_id}`, '_blank')
       })
-
       const marker = new maplibregl.Marker({ element: el })
         .setLngLat([t.longitude, t.latitude])
         .addTo(map)
@@ -460,87 +549,26 @@ export default function AdminExploreMap({
     }
   }, [tractRefresh, mapLoaded, currentZoom])
 
-  // ─────────────────────────────────────────────────────────────
-  // ADMIN PARCEL OVERLAY (WI vector tiles via pmtiles, z 13+)
-  // ─────────────────────────────────────────────────────────────
-  useEffect(() => {
-    const map = mapRef.current
-    if (!map || !mapLoaded || !isAdmin) return
-
-    const w = window as any
-    if (!w.__ggPmtilesRegistered) {
-      maplibregl.addProtocol('pmtiles', new PMTilesProtocol().tile as any)
-      w.__ggPmtilesRegistered = true
-    }
-
-    const sourceId = 'admin-parcels-WI'
-    const fillId = 'admin-parcels-WI-fill'
-    const lineId = 'admin-parcels-WI-line'
-    const TILES_BASE_URL =
-      process.env.NEXT_PUBLIC_PMTILES_BASE_URL ||
-      'https://ground-goat-tiles-production.up.railway.app'
-
-    if (!map.getSource(sourceId)) {
-      try {
-        map.addSource(sourceId, {
-          type: 'vector',
-          url: `pmtiles://${TILES_BASE_URL}/wi.pmtiles`,
-        })
-        map.addLayer({
-          id: fillId,
-          type: 'fill',
-          source: sourceId,
-          'source-layer': 'parcels',
-          minzoom: PARCEL_TIER_MIN,
-          paint: {
-            'fill-color': '#888',
-            'fill-opacity': 0.05,
-          },
-        })
-        map.addLayer({
-          id: lineId,
-          type: 'line',
-          source: sourceId,
-          'source-layer': 'parcels',
-          minzoom: PARCEL_TIER_MIN,
-          paint: {
-            'line-color': '#fff',
-            'line-width': 0.5,
-            'line-opacity': 0.5,
-          },
-        })
-      } catch (e) {
-        console.warn('[AdminExploreMap] pmtiles source add failed', e)
-      }
-    }
-
-    return () => {
-      try {
-        if (!map.getStyle()) return
-        if (map.getLayer(lineId)) map.removeLayer(lineId)
-        if (map.getLayer(fillId)) map.removeLayer(fillId)
-        if (map.getSource(sourceId)) map.removeSource(sourceId)
-      } catch {}
-    }
-  }, [mapLoaded, isAdmin])
-
-  const totalCount = stateCounts.reduce((acc, s) => acc + s.count, 0)
-  const tier =
-    currentZoom < STATE_TIER_MAX ? 'States'
-      : currentZoom < COUNTY_TIER_MAX ? 'Counties'
-      : currentZoom < POLYGON_TIER_MIN ? 'Tracts (pins)'
-      : 'Tracts (pins + parcels)'
-
-  // Apply chat-driven filters from MapChatPanel
+  // Apply chat-driven filter args from MapChatPanel
   const handleApplyChatFilters = useCallback(
     (incoming: Record<string, any>, clearUnspecified: boolean) => {
       setFilters(prev => {
         const base = clearUnspecified ? INITIAL_FILTERS : prev
         return { ...base, ...incoming } as FilterState
       })
-      setFilterPanelOpen(true)
+      setFilterOpen(true)
     }, []
   )
+
+  // ─────────────────────────────────────────────────────────────
+  // Render
+  // ─────────────────────────────────────────────────────────────
+  const totalCount = stateCounts.reduce((acc, s) => acc + s.count, 0)
+  const tier =
+    currentZoom <= STATE_TIER_MAX ? 'States'
+      : currentZoom <= COUNTY_TIER_MAX ? 'Counties'
+      : currentZoom < POLYGON_TIER_MIN ? 'Tracts'
+      : 'Tracts + parcels'
 
   return (
     <div className="relative" style={{ height }}>
@@ -555,26 +583,29 @@ export default function AdminExploreMap({
         <span>{totalCount.toLocaleString()} tracts</span>
       </div>
 
-      {/* Filter toggle (top-left, below tier) */}
-      <button
-        onClick={() => setFilterPanelOpen(o => !o)}
-        className="absolute top-12 left-3 bg-gg-pink hover:bg-gg-pink/90 text-white text-sm px-3 py-1.5 rounded-md z-10 flex items-center gap-1.5 shadow-lg"
-      >
-        <Filter size={14} />
-        Filters
-      </button>
-
-      {/* Filter panel (slide-out, top-right) */}
-      {filterPanelOpen && (
+      {/* Filter panel — copied from ExploreMap so the look is identical */}
+      {filterOpen && (
         <FilterPanel
           filters={filters}
           setFilters={setFilters}
-          stateCounts={stateCounts}
-          onClose={() => setFilterPanelOpen(false)}
+          filterOptions={filterOptions}
+          onClose={() => setFilterOpen(false)}
+          onApply={() => {
+            // Re-fetch tracts at high zoom; aggregations update via the
+            // filterParamString memo automatically.
+            if (mapRef.current && mapRef.current.getZoom() >= TRACT_TIER_MIN) {
+              loadTractsForViewport()
+            }
+            setFilterOpen(false)
+          }}
+          onReset={() => {
+            setFilters(INITIAL_FILTERS)
+            setFilterOpen(false)
+          }}
         />
       )}
 
-      {/* Goat Search (bottom-right, copies the existing chat panel) */}
+      {/* Goat Search */}
       <div className="absolute bottom-3 right-3 z-10">
         <MapChatPanel
           onApplyFilters={handleApplyChatFilters}
@@ -591,72 +622,78 @@ export default function AdminExploreMap({
           flex-direction: column;
           align-items: center;
           cursor: pointer;
-          padding: 8px 14px 10px;
-          background: rgba(15, 15, 18, 0.78);
-          border: 1.5px solid #f58cde;
-          border-radius: 14px;
-          backdrop-filter: blur(6px);
-          box-shadow: 0 8px 24px rgba(245, 140, 222, 0.18);
-          transition: transform 0.15s ease, box-shadow 0.15s ease;
+          padding: 4px 8px 6px;
+          background: transparent;
           user-select: none;
+          transition: transform 0.18s ease, opacity 0.2s ease;
+          opacity: 0;
+          animation: adminBadgeFadeIn 0.3s ease forwards;
+        }
+        @keyframes adminBadgeFadeIn {
+          from { opacity: 0; transform: translateY(4px); }
+          to   { opacity: 1; transform: translateY(0); }
         }
         .admin-explore-state-badge:hover {
-          transform: translateY(-2px) scale(1.04);
-          box-shadow: 0 12px 32px rgba(245, 140, 222, 0.32);
+          transform: scale(1.06);
         }
         .admin-explore-state-goat {
-          width: 56px;
-          height: 56px;
+          width: 28px;
+          height: 28px;
           object-fit: contain;
-          margin-bottom: 2px;
-          filter: drop-shadow(0 2px 6px rgba(245, 140, 222, 0.45));
+          filter: drop-shadow(0 1px 4px rgba(245, 140, 222, 0.6));
         }
         .admin-explore-state-count {
           font-family: ui-sans-serif, system-ui, sans-serif;
           font-weight: 700;
-          font-size: 22px;
+          font-size: 14px;
           color: #fff;
           line-height: 1;
-        }
-        .admin-explore-state-name {
-          font-size: 11px;
-          color: rgba(255, 255, 255, 0.7);
-          letter-spacing: 0.05em;
-          text-transform: uppercase;
           margin-top: 2px;
+          text-shadow: 0 1px 4px rgba(0, 0, 0, 0.85);
         }
         .admin-explore-state-link {
-          font-size: 10px;
+          font-size: 9px;
           color: #f58cde;
-          margin-top: 6px;
+          margin-top: 3px;
           font-weight: 600;
-          letter-spacing: 0.03em;
+          letter-spacing: 0.04em;
+          cursor: pointer;
+          text-decoration: none;
+          padding: 2px 4px;
+          border-radius: 4px;
+          background: rgba(0, 0, 0, 0.55);
+        }
+        .admin-explore-state-link:hover {
+          color: #fff;
+          background: #f58cde;
         }
         .admin-explore-county-square {
           background: rgba(15, 15, 18, 0.85);
           border: 1.5px solid #f58cde;
           border-radius: 10px;
-          padding: 6px 10px;
+          padding: 5px 9px;
           cursor: pointer;
           backdrop-filter: blur(4px);
           box-shadow: 0 6px 18px rgba(245, 140, 222, 0.22);
-          min-width: 90px;
+          min-width: 78px;
           text-align: center;
-          transition: transform 0.15s, box-shadow 0.15s;
+          transition: transform 0.15s, box-shadow 0.15s, opacity 0.2s;
           user-select: none;
+          opacity: 0;
+          animation: adminBadgeFadeIn 0.25s ease forwards;
         }
         .admin-explore-county-square:hover {
           transform: scale(1.05);
           box-shadow: 0 10px 26px rgba(245, 140, 222, 0.4);
         }
         .admin-explore-county-name {
-          font-size: 12px;
+          font-size: 11px;
           font-weight: 700;
           color: #fff;
           line-height: 1.1;
         }
         .admin-explore-county-count {
-          font-size: 10px;
+          font-size: 9px;
           color: #f58cde;
           margin-top: 2px;
         }
@@ -666,201 +703,280 @@ export default function AdminExploreMap({
 }
 
 // ───────────────────────────────────────────────────────────────
-// FilterPanel — slide-out, mirrors the most-used filters in ExploreMap.
-// TODO (Phase 2): extract into shared component, used by ExploreMap too.
+// FilterPanel — pixel-faithful copy of ExploreMap's filter slide-out.
+// Self-contained (doesn't reach into ExploreMap-specific refs); driven
+// by props. TODO Phase 2: extract into shared component used by both.
 // ───────────────────────────────────────────────────────────────
 function FilterPanel({
-  filters,
-  setFilters,
-  stateCounts,
-  onClose,
+  filters, setFilters, filterOptions, onClose, onApply, onReset,
 }: {
   filters: FilterState
-  setFilters: (fn: (p: FilterState) => FilterState) => void
-  stateCounts: Array<{ state: string; count: number }>
+  setFilters: React.Dispatch<React.SetStateAction<FilterState>>
+  filterOptions: { states: string[]; counties_by_state: Record<string, string[]>; townships_by_county: Record<string, string[]> }
   onClose: () => void
+  onApply: () => void
+  onReset: () => void
 }) {
-  const update = <K extends keyof FilterState>(k: K, v: FilterState[K]) =>
-    setFilters(p => ({ ...p, [k]: v }))
-
-  const states = stateCounts
-    .filter(s => s.count > 0)
-    .map(s => s.state)
-    .sort()
-
   return (
-    <div className="absolute top-3 right-16 bg-gg-black/95 border border-gg-gray-700 rounded-xl p-4 z-20 shadow-2xl w-72 max-h-[640px] overflow-y-auto backdrop-blur">
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-white font-semibold text-sm">Filters</h3>
-        <button onClick={onClose} className="text-gg-gray-400 hover:text-white">
-          <X size={16} />
+    <div style={{
+      position: 'absolute', top: 0, right: 0, width: 320, height: '100%',
+      backgroundColor: '#111', zIndex: 100, overflowY: 'auto',
+      boxShadow: '-4px 0 20px rgba(0,0,0,0.5)',
+      display: 'flex', flexDirection: 'column',
+    }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '16px 20px', borderBottom: '1px solid rgba(255,255,255,0.1)',
+      }}>
+        <span style={{ color: '#fff', fontSize: 18, fontWeight: 700 }}>Filters</span>
+        <button onClick={onClose}
+          style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.6)', fontSize: 22, cursor: 'pointer' }}>
+          ✕
         </button>
       </div>
 
-      <FilterRow label="State">
-        <select
-          value={filters.stateFilter}
-          onChange={e => update('stateFilter', e.target.value)}
-          className="filter-select"
-        >
-          <option value="">All states</option>
-          {states.map(s => (
-            <option key={s} value={s}>{STATE_NAMES[s] || s}</option>
+      <div style={{ padding: '16px 20px', flex: 1, overflowY: 'auto' }}>
+        {/* Status */}
+        <div style={{ marginBottom: 24 }}>
+          <SectionLabel>Status</SectionLabel>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 24 }}>
+            {[
+              { label: 'Listed', value: 'active' },
+              { label: 'Live', value: 'live,pending' },
+              { label: 'Sold', value: 'sold' },
+            ].map(opt => {
+              const isActive = filters.statuses.includes(opt.value)
+              return (
+                <button key={opt.value}
+                  onClick={() => setFilters(f => ({
+                    ...f,
+                    statuses: isActive ? f.statuses.filter(s => s !== opt.value) : [...f.statuses, opt.value],
+                  }))}
+                  style={pillStyle(isActive)}>
+                  {opt.label}
+                </button>
+              )
+            })}
+          </div>
+
+          <SectionLabel>Date Range</SectionLabel>
+          {[
+            { label: 'Upcoming', value: 'upcoming' },
+            { label: 'Last month', value: '1month' },
+            { label: 'Last 6 months', value: '6months' },
+            { label: 'Last 1 year', value: '1year' },
+            { label: 'Last 18 months', value: '18months' },
+            { label: 'Last 2 years', value: '2years' },
+            { label: 'All time', value: 'all' },
+            { label: 'Custom range…', value: 'custom' },
+          ].map(opt => (
+            <div key={opt.value}
+              onClick={() => setFilters(f => ({
+                ...f, dateRange: opt.value,
+                dateFrom: opt.value === 'custom' ? f.dateFrom : '',
+                dateTo: opt.value === 'custom' ? f.dateTo : '',
+              }))}
+              style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', cursor: 'pointer' }}>
+              <div style={{
+                width: 18, height: 18, borderRadius: '50%',
+                border: `2px solid ${filters.dateRange === opt.value ? '#E91E8C' : 'rgba(255,255,255,0.3)'}`,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+              }}>
+                {filters.dateRange === opt.value && (
+                  <div style={{ width: 10, height: 10, borderRadius: '50%', backgroundColor: '#E91E8C' }} />
+                )}
+              </div>
+              <span style={{ color: '#BBBBBB', fontSize: 14 }}>{opt.label}</span>
+            </div>
           ))}
-        </select>
-      </FilterRow>
 
-      <FilterRow label="Type">
-        <select
-          value={filters.listingType}
-          onChange={e => update('listingType', e.target.value)}
-          className="filter-select"
-        >
-          <option value="">All types</option>
-          <option value="auction">Auction</option>
-          <option value="private_treaty">Private Treaty</option>
-        </select>
-      </FilterRow>
+          {filters.dateRange === 'custom' && (
+            <div style={{ marginTop: 10, marginLeft: 28, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+              <DateField label="From" value={filters.dateFrom} onChange={v => setFilters(f => ({ ...f, dateFrom: v }))} />
+              <DateField label="To" value={filters.dateTo} onChange={v => setFilters(f => ({ ...f, dateTo: v }))} />
+            </div>
+          )}
+        </div>
 
-      <FilterRow label="Status">
-        <div className="flex flex-wrap gap-1">
-          {(['sold', 'pending', 'listed', 'live', 'no_sale'] as const).map(s => (
-            <button
-              key={s}
-              onClick={() =>
-                update('statuses',
-                  filters.statuses.includes(s)
-                    ? filters.statuses.filter(x => x !== s)
-                    : [...filters.statuses, s]
+        {/* State */}
+        {filterOptions.states.length > 0 && (
+          <div style={{ marginBottom: 24 }}>
+            <SectionLabel>State</SectionLabel>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {filterOptions.states.map(st => {
+                const activeStates = filters.stateFilter ? filters.stateFilter.split(',') : []
+                const isActive = activeStates.includes(st)
+                return (
+                  <button key={st}
+                    onClick={() => {
+                      const cur = filters.stateFilter ? filters.stateFilter.split(',') : []
+                      const next = isActive ? cur.filter(s => s !== st) : [...cur, st]
+                      setFilters(f => ({ ...f, stateFilter: next.join(','), countyFilters: [], townshipFilters: [] }))
+                    }}
+                    style={pillStyle(isActive)}>
+                    {st}
+                  </button>
                 )
-              }
-              className={
-                'px-2 py-0.5 rounded text-xs ' +
-                (filters.statuses.includes(s)
-                  ? 'bg-gg-pink text-white'
-                  : 'bg-gg-gray-800 text-gg-gray-300')
-              }
-            >
-              {s.replace('_', ' ')}
-            </button>
-          ))}
-        </div>
-      </FilterRow>
+              })}
+            </div>
+          </div>
+        )}
 
-      <FilterRow label="Date">
-        <select
-          value={filters.dateRange}
-          onChange={e => update('dateRange', e.target.value)}
-          className="filter-select"
-        >
-          <option value="all">All time</option>
-          <option value="upcoming">Upcoming</option>
-          <option value="1month">Last month</option>
-          <option value="6months">Last 6 months</option>
-          <option value="1year">Last year</option>
-          <option value="2years">Last 2 years</option>
-          <option value="custom">Custom range…</option>
-        </select>
-      </FilterRow>
+        {/* County */}
+        {filters.stateFilter && (() => {
+          const activeStates = filters.stateFilter.split(',').filter(Boolean).map(s => s.toUpperCase())
+          const set = new Set<string>()
+          activeStates.forEach(st => (filterOptions.counties_by_state[st] || []).forEach(c => set.add(c)))
+          const counties = Array.from(set).sort()
+          if (!counties.length) return null
+          return (
+            <div style={{ marginBottom: 24 }}>
+              <SectionLabel>County{filters.countyFilters.length > 0 ? ` (${filters.countyFilters.length} selected)` : ''}</SectionLabel>
+              <div style={{ maxHeight: 160, overflowY: 'auto', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: 8 }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {counties.map(county => {
+                    const isActive = filters.countyFilters.includes(county)
+                    return (
+                      <button key={county}
+                        onClick={() => setFilters(f => ({
+                          ...f,
+                          countyFilters: isActive ? f.countyFilters.filter(c => c !== county) : [...f.countyFilters, county],
+                          townshipFilters: [],
+                        }))}
+                        style={smallPillStyle(isActive)}>
+                        {county}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+          )
+        })()}
 
-      {filters.dateRange === 'custom' && (
-        <>
-          <FilterRow label="From">
-            <input
-              type="date"
-              value={filters.dateFrom}
-              onChange={e => update('dateFrom', e.target.value)}
-              className="filter-input"
-            />
-          </FilterRow>
-          <FilterRow label="To">
-            <input
-              type="date"
-              value={filters.dateTo}
-              onChange={e => update('dateTo', e.target.value)}
-              className="filter-input"
-            />
-          </FilterRow>
-        </>
-      )}
+        {/* Township */}
+        {filters.countyFilters.length > 0 && (() => {
+          const st = filters.stateFilter?.toUpperCase()
+          const set = new Set<string>()
+          if (st) {
+            filters.countyFilters.forEach(county => {
+              const twps = filterOptions.townships_by_county[`${st}|${county}`]
+              if (twps) twps.forEach(t => set.add(t))
+            })
+          }
+          const townships = Array.from(set).sort()
+          if (!townships.length) return null
+          return (
+            <div style={{ marginBottom: 20 }}>
+              <SectionLabel>Township{filters.townshipFilters.length > 0 ? ` (${filters.townshipFilters.length} selected)` : ''}</SectionLabel>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, maxHeight: 160, overflowY: 'auto' }}>
+                {townships.map(twp => {
+                  const isActive = filters.townshipFilters.includes(twp)
+                  return (
+                    <button key={twp}
+                      onClick={() => setFilters(f => ({
+                        ...f,
+                        townshipFilters: isActive ? f.townshipFilters.filter(t => t !== twp) : [...f.townshipFilters, twp],
+                      }))}
+                      style={smallPillStyle(isActive)}>
+                      {twp}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )
+        })()}
 
-      <FilterRow label="Acres">
-        <div className="flex gap-1">
-          <input
-            type="number"
-            placeholder="min"
-            value={filters.acreageMin}
-            onChange={e => update('acreageMin', e.target.value)}
-            className="filter-input"
-          />
-          <input
-            type="number"
-            placeholder="max"
-            value={filters.acreageMax}
-            onChange={e => update('acreageMax', e.target.value)}
-            className="filter-input"
-          />
-        </div>
-      </FilterRow>
+        {/* Range filters */}
+        {[
+          ...(filters.stateFilter ? [{
+            label: filters.stateFilter === 'IL' ? 'PI Rating'
+              : filters.stateFilter === 'IN' ? 'WAPI'
+              : filters.stateFilter === 'IA' ? 'CSR2' : 'Soil Rating',
+            minKey: 'soilRatingMin' as keyof FilterState, maxKey: 'soilRatingMax' as keyof FilterState,
+          }] : []),
+          { label: 'Acreage', minKey: 'acreageMin' as keyof FilterState, maxKey: 'acreageMax' as keyof FilterState },
+          { label: '% Tillable', minKey: 'pctTillableMin' as keyof FilterState, maxKey: 'pctTillableMax' as keyof FilterState },
+        ].map(({ label, minKey, maxKey }) => (
+          <div key={label} style={{ marginBottom: 20 }}>
+            <SectionLabel>{label}</SectionLabel>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+              <input type="number" placeholder="Min"
+                value={filters[minKey] as string}
+                onChange={e => setFilters(f => ({ ...f, [minKey]: e.target.value }))}
+                style={rangeInputStyle} />
+              <span style={{ color: '#999999', fontSize: 13 }}>to</span>
+              <input type="number" placeholder="Max"
+                value={filters[maxKey] as string}
+                onChange={e => setFilters(f => ({ ...f, [maxKey]: e.target.value }))}
+                style={rangeInputStyle} />
+            </div>
+          </div>
+        ))}
+      </div>
 
-      <FilterRow label="$/acre">
-        <div className="flex gap-1">
-          <input
-            type="number"
-            placeholder="min"
-            value={filters.pricePerAcreMin}
-            onChange={e => update('pricePerAcreMin', e.target.value)}
-            className="filter-input"
-          />
-          <input
-            type="number"
-            placeholder="max"
-            value={filters.pricePerAcreMax}
-            onChange={e => update('pricePerAcreMax', e.target.value)}
-            className="filter-input"
-          />
-        </div>
-      </FilterRow>
-
-      <button
-        onClick={() => setFilters(_ => INITIAL_FILTERS)}
-        className="text-gg-pink text-xs hover:underline mt-2"
-      >
-        Clear all filters
-      </button>
-
-      <style jsx>{`
-        .filter-select,
-        .filter-input {
-          width: 100%;
-          background: #1a1a20;
-          border: 1px solid #2a2a32;
-          border-radius: 6px;
-          padding: 4px 8px;
-          color: #fff;
-          font-size: 12px;
-        }
-        .filter-select:focus,
-        .filter-input:focus {
-          outline: none;
-          border-color: #f58cde;
-        }
-      `}</style>
+      <div style={{
+        padding: '16px 20px', borderTop: '1px solid rgba(255,255,255,0.1)',
+        display: 'flex', gap: 10,
+      }}>
+        <button onClick={onReset}
+          style={{
+            flex: 1, padding: '12px 0', borderRadius: 10,
+            border: '1px solid rgba(255,255,255,0.2)', backgroundColor: 'transparent',
+            color: '#BBBBBB', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+          }}>
+          Reset
+        </button>
+        <button onClick={onApply}
+          style={{
+            flex: 1, padding: '12px 0', borderRadius: 10, border: 'none',
+            backgroundColor: '#E91E8C', color: '#fff',
+            fontSize: 14, fontWeight: 700, cursor: 'pointer',
+          }}>
+          Apply
+        </button>
+      </div>
     </div>
   )
 }
 
-function FilterRow({
-  label,
-  children,
-}: {
-  label: string
-  children: React.ReactNode
-}) {
-  return (
-    <div className="mb-2">
-      <label className="block text-xs text-gg-gray-400 mb-1">{label}</label>
-      {children}
-    </div>
-  )
+const SectionLabel = ({ children }: { children: React.ReactNode }) => (
+  <div style={{
+    color: '#CCCCCC', fontSize: 12, fontWeight: 600,
+    textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10,
+  }}>{children}</div>
+)
+const pillStyle = (isActive: boolean): React.CSSProperties => ({
+  padding: '6px 14px', borderRadius: 20,
+  border: `1px solid ${isActive ? '#E91E8C' : 'rgba(255,255,255,0.2)'}`,
+  backgroundColor: isActive ? 'rgba(233,30,140,0.2)' : 'transparent',
+  color: isActive ? '#E91E8C' : '#BBBBBB',
+  fontSize: 13, fontWeight: 600, cursor: 'pointer',
+})
+const smallPillStyle = (isActive: boolean): React.CSSProperties => ({
+  padding: '4px 10px', borderRadius: 14,
+  border: `1px solid ${isActive ? '#E91E8C' : 'rgba(255,255,255,0.15)'}`,
+  backgroundColor: isActive ? 'rgba(233,30,140,0.2)' : 'transparent',
+  color: isActive ? '#E91E8C' : '#BBBBBB',
+  fontSize: 12, fontWeight: 500, cursor: 'pointer',
+})
+const rangeInputStyle: React.CSSProperties = {
+  flex: 1, padding: '8px 12px', borderRadius: 8,
+  border: '1px solid rgba(255,255,255,0.15)',
+  backgroundColor: 'rgba(255,255,255,0.05)',
+  color: '#fff', fontSize: 14, outline: 'none',
 }
+
+const DateField = ({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) => (
+  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+    <label style={{ color: '#888', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 }}>{label}</label>
+    <input type="date" value={value} onChange={e => onChange(e.target.value)}
+      style={{
+        padding: '6px 10px', borderRadius: 8,
+        border: '1px solid rgba(255,255,255,0.15)',
+        backgroundColor: 'rgba(255,255,255,0.05)',
+        color: '#fff', fontSize: 13, colorScheme: 'dark',
+      }} />
+  </div>
+)
