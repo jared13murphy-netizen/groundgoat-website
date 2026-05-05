@@ -120,63 +120,6 @@ function currentZoomTier(z: number): 'state' | 'county' | 'tract' {
   return 'tract'
 }
 
-// Convert a state GeoJSON Feature (Polygon or MultiPolygon) into an
-// SVG `d` path string normalized to a 100×100 viewBox. The badge
-// markup uses `preserveAspectRatio="xMidYMid meet"` so it'll center
-// and fit any 100×80 (etc) container without distortion.
-function featureToSvgPath(feature: any): string | null {
-  if (!feature?.geometry?.coordinates) return null
-  const geom = feature.geometry
-  // Collect all rings as [[lng,lat], ...]
-  const rings: number[][][] = []
-  if (geom.type === 'Polygon') {
-    for (const ring of geom.coordinates) rings.push(ring as number[][])
-  } else if (geom.type === 'MultiPolygon') {
-    for (const poly of geom.coordinates) {
-      for (const ring of poly as number[][][]) rings.push(ring)
-    }
-  } else {
-    return null
-  }
-  if (!rings.length) return null
-
-  // Compute bbox across all rings
-  let minLng = Infinity, minLat = Infinity
-  let maxLng = -Infinity, maxLat = -Infinity
-  for (const ring of rings) {
-    for (const [lng, lat] of ring) {
-      if (lng < minLng) minLng = lng
-      if (lng > maxLng) maxLng = lng
-      if (lat < minLat) minLat = lat
-      if (lat > maxLat) maxLat = lat
-    }
-  }
-  const w = maxLng - minLng
-  const h = maxLat - minLat
-  if (w <= 0 || h <= 0) return null
-  // Fit longest dimension to 100; center along the shorter axis.
-  const scale = 100 / Math.max(w, h)
-  const offsetX = (100 - w * scale) / 2
-  const offsetY = (100 - h * scale) / 2
-
-  const parts: string[] = []
-  for (const ring of rings) {
-    if (ring.length < 3) continue
-    const cmds: string[] = []
-    for (let i = 0; i < ring.length; i++) {
-      const [lng, lat] = ring[i]
-      const x = (lng - minLng) * scale + offsetX
-      // Flip Y because SVG coords grow downward but lat grows upward
-      const y = (maxLat - lat) * scale + offsetY
-      cmds.push(`${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`)
-    }
-    cmds.push('Z')
-    parts.push(cmds.join(' '))
-  }
-  return parts.join(' ')
-}
-
-
 function buildFilterParams(f: FilterState) {
   const p: Record<string, string> = {}
   if (f.dateRange === 'custom') {
@@ -268,39 +211,8 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
       .catch(() => {})
   }, [])
 
-  // ─────────────────────────────────────────────────────────────
-  // State silhouette SVG paths.
-  // Loaded once from /data/us-states.json. For each state we
-  // normalize the polygon coordinates to a 100x100 viewBox so a
-  // badge of any pixel size can render the shape without distortion.
-  // Indexed by state abbreviation (translated from feature.NAME via
-  // STATE_NAMES_INV).
-  // ─────────────────────────────────────────────────────────────
-  const [stateSilhouettes, setStateSilhouettes] = useState<Record<string, string>>({})
-
-  useEffect(() => {
-    let cancelled = false
-    fetch('/data/us-states.json')
-      .then(r => r.ok ? r.json() : null)
-      .then((geo: any) => {
-        if (cancelled || !geo?.features) return
-        // Build full-name → 2-letter abbr lookup (inverse of STATE_NAMES)
-        const nameToAbbr: Record<string, string> = {}
-        for (const [abbr, name] of Object.entries(STATE_NAMES)) {
-          nameToAbbr[name] = abbr
-        }
-        const out: Record<string, string> = {}
-        for (const feat of geo.features) {
-          const abbr = nameToAbbr[feat?.properties?.NAME]
-          if (!abbr) continue
-          const path = featureToSvgPath(feat)
-          if (path) out[abbr] = path
-        }
-        setStateSilhouettes(out)
-      })
-      .catch(() => {})
-    return () => { cancelled = true }
-  }, [])
+  // (state silhouettes are rendered as a map fill+line layer — see
+  // map.on('load') below; no client-side SVG path generation needed.)
 
   // ─────────────────────────────────────────────────────────────
   // Init map + state-silhouette + WI parcel layers
@@ -324,11 +236,58 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
     map.addControl(new maplibregl.NavigationControl(), 'top-right')
 
     map.on('load', () => {
-      // No map-level state-fill layer here. The state silhouette is
-      // rendered as inline SVG INSIDE each state badge marker instead
-      // — that's the user's request: the silhouette IS the badge,
-      // floating above the state, with the goat icon and count layered
-      // on top of the silhouette.
+      // State silhouettes as a MAP LAYER (not as a fixed-size SVG inside
+      // a DOM badge). This way the silhouette is THE state shape on the
+      // map — guaranteed-correct alignment at every zoom level.
+      // Two layers stacked:
+      //   • base fill+line: every state, dim — the user sees the
+      //     silhouette of every state in the country
+      //   • "hot" fill+line: only states that have matching tracts —
+      //     brighter pink outline + slightly brighter fill. setFilter
+      //     swaps the highlighted set when filters change.
+      // Both layers are scoped to maxzoom: STATE_TIER_MAX + 0.5 so they
+      // disappear when the user moves into the county tier.
+      map.addSource('admin-states', {
+        type: 'geojson', data: '/data/us-states.json',
+      })
+      map.addLayer({
+        id: 'admin-states-fill',
+        type: 'fill',
+        source: 'admin-states',
+        maxzoom: STATE_TIER_MAX + 0.5,
+        paint: {
+          'fill-color': '#0a0a0c',
+          'fill-opacity': 0.6,
+        },
+      })
+      map.addLayer({
+        id: 'admin-states-line',
+        type: 'line',
+        source: 'admin-states',
+        maxzoom: STATE_TIER_MAX + 0.5,
+        paint: {
+          'line-color': 'rgba(255,255,255,0.18)',
+          'line-width': 1,
+        },
+      })
+      // Brighter "hot" layer — populated below via setFilter once the
+      // state-counts data arrives.
+      map.addLayer({
+        id: 'admin-states-fill-hot',
+        type: 'fill',
+        source: 'admin-states',
+        maxzoom: STATE_TIER_MAX + 0.5,
+        paint: { 'fill-color': '#1a1a22', 'fill-opacity': 0.82 },
+        filter: ['in', ['get', 'NAME'], ['literal', []]] as any,
+      })
+      map.addLayer({
+        id: 'admin-states-line-hot',
+        type: 'line',
+        source: 'admin-states',
+        maxzoom: STATE_TIER_MAX + 0.5,
+        paint: { 'line-color': '#f58cde', 'line-width': 2.2, 'line-opacity': 1 },
+        filter: ['in', ['get', 'NAME'], ['literal', []]] as any,
+      })
 
       // WI parcel overlay (admin-only, vector tiles via pmtiles, z 13+)
       if (isAdmin) {
@@ -415,6 +374,29 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
     return () => { cancel = true }
   }, [filterParamString, filters.stateFilter])
 
+  // Keep the "hot" state silhouette layer in sync with which states
+  // currently have matching tracts. /data/us-states.json keys features
+  // by `properties.NAME` (full name, e.g. "Illinois"), not the 2-letter
+  // abbr we use elsewhere — so we translate via STATE_NAMES.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+    const fullNames = stateCounts
+      .filter(s => s.count > 0)
+      .map(s => STATE_NAMES[s.state])
+      .filter(Boolean)
+    try {
+      if (map.getLayer('admin-states-fill-hot')) {
+        map.setFilter('admin-states-fill-hot',
+          ['in', ['get', 'NAME'], ['literal', fullNames]] as any)
+      }
+      if (map.getLayer('admin-states-line-hot')) {
+        map.setFilter('admin-states-line-hot',
+          ['in', ['get', 'NAME'], ['literal', fullNames]] as any)
+      }
+    } catch {}
+  }, [stateCounts, mapLoaded])
+
   // ─────────────────────────────────────────────────────────────
   // Tract loader (high zoom only)
   // ─────────────────────────────────────────────────────────────
@@ -480,29 +462,12 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
       const lng = (bounds[0][0] + bounds[1][0]) / 2
       const lat = (bounds[0][1] + bounds[1][1]) / 2
 
-      const silhouettePath = stateSilhouettes[state]
-
       const el = document.createElement('div')
       el.className = 'aem-state-badge'
       el.innerHTML = `
-        <div class="aem-state-shape">
-          ${silhouettePath ? `
-            <svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet"
-                 width="100%" height="100%">
-              <path d="${silhouettePath}"
-                    fill="rgba(10,10,12,0.86)"
-                    stroke="#f58cde"
-                    stroke-width="2.5"
-                    stroke-linejoin="round"
-                    stroke-linecap="round"
-                    vector-effect="non-scaling-stroke" />
-            </svg>` : ''}
-        </div>
-        <div class="aem-state-overlay">
-          <img src="/goat-icon-white.png" alt="" class="aem-state-goat" />
-          <div class="aem-state-count">${count.toLocaleString()}</div>
-          <a class="aem-state-link" data-action="filter">Start Filtering →</a>
-        </div>
+        <img src="/goat-icon-white.png" alt="" class="aem-state-goat" />
+        <div class="aem-state-count">${count.toLocaleString()}</div>
+        <a class="aem-state-link" data-action="filter">Start Filtering →</a>
       `
 
       el.addEventListener('click', (ev) => {
@@ -530,7 +495,7 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
       stateMarkersRef.current = []
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stateCounts, mapLoaded, stateSilhouettes, currentTier])
+  }, [stateCounts, mapLoaded, currentTier])
 
   // COUNTY SQUARES — only built when in county tier.
   useEffect(() => {
@@ -703,41 +668,21 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
           animation: aem-fade-in 0.35s ease-out forwards;
         }
 
-        /* ── State badge: silhouette behind goat icon + count ────
-           Two stacked layers inside a fixed-size container:
-            • .aem-state-shape — SVG of the state polygon
-            • .aem-state-overlay — goat icon + count + Start Filtering
-           Floats above the state on the map (marker positioned at
-           the state's bbox center). */
+        /* ── State badge overlay (goat + count + Start Filtering) ──
+           The state SHAPE is rendered as a map fill+line layer below
+           the marker — this badge just sits at the state's centroid
+           and shows the count, link, and goat on top of the dark fill. */
         .aem-state-badge {
-          position: relative;
-          width: 110px;
-          height: 110px;
-          cursor: pointer;
-          user-select: none;
-          filter: drop-shadow(0 6px 18px rgba(245, 140, 222, 0.35));
-        }
-        .aem-state-badge:hover {
-          transform: translateY(-3px) scale(1.05);
-        }
-        .aem-state-shape {
-          position: absolute;
-          inset: 0;
-          width: 100%;
-          height: 100%;
-          pointer-events: none;
-        }
-        .aem-state-shape svg {
-          display: block;
-        }
-        .aem-state-overlay {
-          position: absolute;
-          inset: 0;
           display: flex;
           flex-direction: column;
           align-items: center;
-          justify-content: center;
-          gap: 0;
+          cursor: pointer;
+          user-select: none;
+          padding: 4px 6px;
+        }
+        .aem-state-badge:hover .aem-state-link {
+          background: #f58cde;
+          color: #fff;
         }
         .aem-state-goat {
           width: 36px;
