@@ -1159,6 +1159,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded) return
+    // map.getLayer dereferences map.style internally — guard against
+    // a map that's mid-teardown (e.g. cross-route navigation racing
+    // with this effect re-running).
+    if (!map.getStyle()) return
 
     // Remove existing neighbor layers/source
     if (map.getLayer('neighbor-polygon-label')) map.removeLayer('neighbor-polygon-label')
@@ -1551,16 +1555,25 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
 
     return () => {
-      for (const id of fillLayerIds) {
-        map.off('mousemove', id, onMove)
-        map.off('mouseleave', id, onLeave)
-      }
-      popup.remove()
-      for (const id of layerIds) {
-        if (map.getLayer(id)) map.removeLayer(id)
-      }
-      for (const id of sourceIds) {
-        if (map.getSource(id)) map.removeSource(id)
+      // Cleanup is best-effort. If the map is mid-teardown, getLayer
+      // dereferences a now-undefined .style and throws — bubbling that
+      // up unmounts the whole route tree and shows Next.js's red error
+      // page. Wrap in try/catch + an early style check.
+      try {
+        if (!map.getStyle()) return
+        for (const id of fillLayerIds) {
+          map.off('mousemove', id, onMove)
+          map.off('mouseleave', id, onLeave)
+        }
+        popup.remove()
+        for (const id of layerIds) {
+          if (map.getLayer(id)) map.removeLayer(id)
+        }
+        for (const id of sourceIds) {
+          if (map.getSource(id)) map.removeSource(id)
+        }
+      } catch (err) {
+        // map already torn down — nothing to clean up.
       }
     }
   }, [mapLoaded, isAdmin, adminParcelOverlay, adminParcelStates, TILES_BASE_URL])
