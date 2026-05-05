@@ -450,18 +450,28 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
   }, [filterParamString, mapLoaded, loadTractsForViewport])
 
   // ─────────────────────────────────────────────────────────────
-  // STATE BADGES — silhouette behind goat icon + count + Start Filtering.
-  // Markers are built ONCE per data change and stay mounted at all
-  // zoom levels. A separate effect updates each marker's `data-tier`
-  // attribute when the zoom changes, so CSS transitions can drive
-  // smooth fade-in / fade-out between tiers (no DOM teardown).
+  // Tier gating. Hard rule: at any zoom, ONLY ONE tier's markers
+  // exist in the DOM. No overlap possible.
+  //
+  //   z <= STATE_TIER_MAX        → state badges only
+  //   STATE_TIER_MAX < z <= COUNTY_TIER_MAX → county squares only
+  //   z > COUNTY_TIER_MAX        → tract pins only
+  //
+  // Each tier effect rebuilds when the relevant data OR the
+  // current tier changes. Fade-in is a one-shot CSS keyframe on
+  // marker mount; fade-out is just removal.
   // ─────────────────────────────────────────────────────────────
+  const currentTier = currentZoomTier(currentZoom)
+
+  // STATE BADGES
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded) return
 
+    // Always tear down first — guarantees no leftovers from a prior tier.
     stateMarkersRef.current.forEach(m => m.remove())
     stateMarkersRef.current = []
+    if (currentTier !== 'state') return
 
     for (const { state, count } of stateCounts) {
       if (count === 0) continue
@@ -474,7 +484,6 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
 
       const el = document.createElement('div')
       el.className = 'aem-state-badge'
-      el.dataset.tier = currentZoomTier(currentZoom)
       el.innerHTML = `
         <div class="aem-state-shape">
           ${silhouettePath ? `
@@ -505,12 +514,9 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
             ...prev, stateFilter: state, countyFilters: [], townshipFilters: [],
           }))
           setFilterOpen(true)
-          // Zoom INTO the state past STATE_TIER_MAX so badges fade out
-          // and counties fade in — same as a regular badge click.
-          map.fitBounds(bounds as any, { padding: 60, maxZoom: 7.5, duration: 900 })
-        } else {
-          map.fitBounds(bounds as any, { padding: 60, maxZoom: 7.5, duration: 900 })
         }
+        // Both clicks zoom past STATE_TIER_MAX so the next tier appears.
+        map.fitBounds(bounds as any, { padding: 60, maxZoom: 7.5, duration: 900 })
       })
 
       const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
@@ -518,52 +524,33 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
         .addTo(map)
       stateMarkersRef.current.push(marker)
     }
-    // We DON'T tear down on currentZoom changes — the second effect
-    // below updates the data-tier attribute for fade transitions.
+    // Cleanup runs when tier or data changes — guarantees no orphans.
+    return () => {
+      stateMarkersRef.current.forEach(m => m.remove())
+      stateMarkersRef.current = []
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stateCounts, mapLoaded, stateSilhouettes])
+  }, [stateCounts, mapLoaded, stateSilhouettes, currentTier])
 
-  // Smooth fade between tiers — flip the data-tier attribute on every
-  // marker DOM node, CSS handles the transition.
-  useEffect(() => {
-    const tier = currentZoomTier(currentZoom)
-    for (const m of stateMarkersRef.current) {
-      const el = m.getElement()
-      if (el) el.dataset.tier = tier
-    }
-    for (const m of countyMarkersRef.current) {
-      const el = m.getElement()
-      if (el) el.dataset.tier = tier
-    }
-    for (const m of tractMarkersRef.current) {
-      const el = m.getElement()
-      if (el) el.dataset.tier = tier
-    }
-  }, [currentZoom])
-
-  // ─────────────────────────────────────────────────────────────
-  // COUNTY SQUARES — always mounted, tier-driven fades via CSS.
-  // ─────────────────────────────────────────────────────────────
+  // COUNTY SQUARES — only built when in county tier.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded) return
 
     countyMarkersRef.current.forEach(m => m.remove())
     countyMarkersRef.current = []
+    if (currentTier !== 'county') return
 
     for (const c of countyCounts) {
       if (!c.count || c.lat == null || c.lng == null) continue
       const el = document.createElement('div')
       el.className = 'aem-county-square'
-      el.dataset.tier = currentZoomTier(currentZoom)
       el.innerHTML = `
         <div class="aem-county-name">${c.county}</div>
         <div class="aem-county-count">${c.count.toLocaleString()}</div>
       `
       el.addEventListener('click', () => {
-        // Ease to z 9.5 — past COUNTY_TIER_MAX so county squares fade
-        // out and tract pins fade in. Tracts load via the moveend
-        // handler debounce; pan continues populating more.
+        // Past COUNTY_TIER_MAX so tract pins appear.
         map.easeTo({ center: [c.lng, c.lat], zoom: 9.5, duration: 800 })
       })
       const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
@@ -571,18 +558,21 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
         .addTo(map)
       countyMarkersRef.current.push(marker)
     }
+    return () => {
+      countyMarkersRef.current.forEach(m => m.remove())
+      countyMarkersRef.current = []
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [countyCounts, mapLoaded])
+  }, [countyCounts, mapLoaded, currentTier])
 
-  // ─────────────────────────────────────────────────────────────
-  // TRACT PINS — always mounted, tier-driven fade via CSS data-tier.
-  // ─────────────────────────────────────────────────────────────
+  // TRACT PINS — only built when in tract tier.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded) return
 
     tractMarkersRef.current.forEach(m => m.remove())
     tractMarkersRef.current = []
+    if (currentTier !== 'tract') return
 
     for (const t of Array.from(tractMapRef.current.values())) {
       if (!t.latitude || !t.longitude) continue
@@ -594,7 +584,6 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
 
       const el = document.createElement('div')
       el.className = 'comp-marker aem-tract-pin'
-      el.dataset.tier = currentZoomTier(currentZoom)
       const label = document.createElement('div')
       label.className = 'comp-marker-label'
       if (ppa) {
@@ -622,8 +611,12 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
         .addTo(map)
       tractMarkersRef.current.push(marker)
     }
+    return () => {
+      tractMarkersRef.current.forEach(m => m.remove())
+      tractMarkersRef.current = []
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tractRefresh, mapLoaded])
+  }, [tractRefresh, mapLoaded, currentTier])
 
   // Apply chat-driven filter args from MapChatPanel
   const handleApplyChatFilters = useCallback(
@@ -693,34 +686,22 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
       </div>
 
       <style jsx global>{`
-        /* ── Cross-tier transition rules ────────────────────────
-           Every marker (state, county, tract) sets data-tier on its
-           root element. When the tier matches the marker type, the
-           marker is visible + interactive. Otherwise it's faded out
-           and pointer-events are disabled so it doesn't block clicks
-           on the underlying map.
-           The transition is driven by CSS so MapLibre never has to
-           tear down the DOM — markers stay mounted across zoom
-           changes, which is what makes the fade buttery-smooth. */
+        /* One-shot fade-in animation when a marker mounts. No
+           data-tier transitions, no scale transforms — those caused
+           badges to scale up to 1.4× during zoom and look like they
+           were sliding across the map. Keeping it simple: opacity
+           fades from 0 to 1 over 350ms on mount, that's it. Exit
+           animation is just .remove() (instant — fine because the
+           old tier is teared down before the new tier appears). */
+        @keyframes aem-fade-in {
+          from { opacity: 0; }
+          to   { opacity: 1; }
+        }
         .aem-state-badge,
         .aem-county-square,
         .aem-tract-pin {
-          transition: opacity 0.5s cubic-bezier(0.4, 0, 0.2, 1),
-                      transform 0.5s cubic-bezier(0.4, 0, 0.2, 1),
-                      filter 0.5s cubic-bezier(0.4, 0, 0.2, 1);
-          will-change: opacity, transform;
+          animation: aem-fade-in 0.35s ease-out forwards;
         }
-        .aem-state-badge[data-tier="state"]   { opacity: 1; transform: scale(1);   pointer-events: auto; }
-        .aem-state-badge[data-tier="county"]  { opacity: 0; transform: scale(1.4); pointer-events: none; }
-        .aem-state-badge[data-tier="tract"]   { opacity: 0; transform: scale(1.6); pointer-events: none; }
-
-        .aem-county-square[data-tier="state"] { opacity: 0; transform: scale(0.6); pointer-events: none; }
-        .aem-county-square[data-tier="county"]{ opacity: 1; transform: scale(1);   pointer-events: auto; }
-        .aem-county-square[data-tier="tract"] { opacity: 0; transform: scale(1.3); pointer-events: none; }
-
-        .aem-tract-pin[data-tier="state"]     { opacity: 0; transform: scale(0.5); pointer-events: none; }
-        .aem-tract-pin[data-tier="county"]    { opacity: 0; transform: scale(0.7); pointer-events: none; }
-        .aem-tract-pin[data-tier="tract"]     { opacity: 1; transform: scale(1);   pointer-events: auto; }
 
         /* ── State badge: silhouette behind goat icon + count ────
            Two stacked layers inside a fixed-size container:

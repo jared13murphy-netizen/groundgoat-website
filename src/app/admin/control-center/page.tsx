@@ -288,26 +288,49 @@ export default function ControlCenterPage() {
     ))
   }
 
-  const calculateListingStatus = (tracts: Tract[], tractStates: Record<string, TractState>): string => {
+  // Compute what the listing-level status SHOULD be given the current
+  // tract states. The current listing.status is passed in so we can
+  // preserve 'Live' while an auction is in progress (the scheduler
+  // sets 'Live' 15 min before auction_datetime; we shouldn't overwrite
+  // it back to 'Listed' just because the user is mid-marking-tracts).
+  const calculateListingStatus = (
+    tracts: Tract[],
+    tractStates: Record<string, TractState>,
+    currentListingStatus?: string,
+  ): string => {
     if (!tracts || tracts.length === 0) return 'Listed'
-    
+
     const statuses = tracts.map(t => tractStates[t.id]?.status || normalizeStatus(t.sale_status || 'listed'))
-    
-    // If at least one tract is Live, listing is Live
+
+    // EVERY tract has a final status (Sold or No Sale) → the auction
+    // is over. Flip to Sold or No Sale based on whether anything sold.
+    // This is the ONLY path that flips the listing to a terminal
+    // status — covers the McDonough bug: the previous version flipped
+    // the listing to 'Sold' the moment the FIRST tract was marked sold,
+    // even while other tracts were still 'Auction' (mid-bid).
+    const isFinal = (s: string) => s === 'Sold' || s === 'No Sale'
+    if (statuses.every(isFinal)) {
+      return statuses.some(s => s === 'Sold') ? 'Sold' : 'No Sale'
+    }
+
+    // Auction is still in progress. If the scheduler already flipped
+    // the listing to 'Live' (it does this 15 min before auction_datetime),
+    // preserve that — overwriting it back to 'Listed' would suppress
+    // the green pulse on the map mid-auction. Once all tracts are
+    // marked final, the branch above kicks in and flips to Sold/No Sale.
+    if (currentListingStatus && currentListingStatus.toLowerCase() === 'live') {
+      return 'Live'
+    }
+
+    // Tract-level 'Live' is a niche path — tracts in our data model
+    // generally don't carry 'Live' (it's a listing-level status), but
+    // if a tract somehow does, treat the whole listing as Live.
     if (statuses.some(s => s === 'Live')) return 'Live'
-    
-    // If at least one tract is Sold AND no tracts are Listed or Live, listing is Sold
-    const hasSold = statuses.some(s => s === 'Sold')
-    const hasListedOrLive = statuses.some(s => s === 'Listed' || s === 'Live')
-    if (hasSold && !hasListedOrLive) return 'Sold'
-    
-    // If all tracts are Pending, listing is Pending
+
+    // All pending → Pending (buyer on paper, not closed).
     if (statuses.every(s => s === 'Pending')) return 'Pending'
-    
-    // If all tracts are No Sale, listing is No Sale
-    if (statuses.every(s => s === 'No Sale')) return 'No Sale'
-    
-    // Otherwise listing is Listed
+
+    // Otherwise the listing is still open.
     return 'Listed'
   }
 
@@ -388,8 +411,10 @@ export default function ControlCenterPage() {
           }
         })
 
-        // Calculate listing status and sold acres
-        const listingStatus = calculateListingStatus(allTracts, { ...tractStates, [tractId]: state })
+        // Calculate listing status and sold acres. Pass listing.status
+        // so an in-progress 'Live' auction stays Live until all tracts
+        // are final (instead of getting overwritten to Listed mid-bid).
+        const listingStatus = calculateListingStatus(allTracts, { ...tractStates, [tractId]: state }, listing?.status)
         const soldAcres = calculateSoldAcres(allTracts, { ...tractStates, [tractId]: state })
 
         // Update listing with aggregated metrics
@@ -455,7 +480,7 @@ export default function ControlCenterPage() {
     setSavingListing(listingId)
     const token = localStorage.getItem('auth_token')
     const listing = listings.find(l => l.id === listingId)
-    
+
     if (!listing) return
 
     try {
@@ -507,7 +532,7 @@ export default function ControlCenterPage() {
         totalSalePrice += tState ? tState.pricePerAcre * tractAcres : (t.sale_price || 0)
       })
 
-      const listingStatus = calculateListingStatus(allTracts, tractStates)
+      const listingStatus = calculateListingStatus(allTracts, tractStates, listing?.status)
       const soldAcres = calculateSoldAcres(allTracts, tractStates)
       const listingPricePerAcre = newListingTotalAcres > 0 ? totalSalePrice / newListingTotalAcres : null
       const listingPPTA = totalTillableAcres > 0 ? totalSalePrice / totalTillableAcres : null
@@ -631,7 +656,7 @@ export default function ControlCenterPage() {
         totalSalePrice += tState ? tState.pricePerAcre * tractAcres : (t.sale_price || 0)
       })
 
-      const listingStatus = calculateListingStatus(allTracts, tractStates)
+      const listingStatus = calculateListingStatus(allTracts, tractStates, listing?.status)
       const soldAcres = calculateSoldAcres(allTracts, tractStates)
       const listingPricePerAcre = newListingTotalAcres > 0 ? totalSalePrice / newListingTotalAcres : null
       const listingPPTA = totalTillableAcres > 0 ? totalSalePrice / totalTillableAcres : null
