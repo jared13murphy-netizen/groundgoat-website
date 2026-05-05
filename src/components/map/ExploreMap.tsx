@@ -1215,7 +1215,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }, 500)
   }, [loadTractsForBounds])
 
-  // Calculate initial center from home county
+  // Calculate initial center from home county or, falling back, the
+  // home state's bbox center. Initial zoom is set to land in state
+  // tier (z <= STATE_TIER_MAX) whenever a home state is known, so
+  // the user opens the map already seeing their state's silhouette
+  // badge instead of dropping into the tract tier.
   const initialCenter = useMemo((): [number, number] => {
     if (homeState && homeCounty) {
       const stateAbbr = STATE_ABBR[homeState] || homeState
@@ -1225,10 +1229,20 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         return [centroid[1], centroid[0]] // [lng, lat] — countyCentroids stores [lat, lng]
       }
     }
+    if (homeState) {
+      const stateAbbr = STATE_ABBR[homeState] || homeState
+      const bounds = STATE_BOUNDS[stateAbbr]
+      if (bounds) {
+        return [
+          (bounds[0][0] + bounds[1][0]) / 2,
+          (bounds[0][1] + bounds[1][1]) / 2,
+        ]
+      }
+    }
     return MAP_CENTER
   }, [homeState, homeCounty])
 
-  const initialZoom = homeState && homeCounty ? 9 : MAP_INITIAL_ZOOM
+  const initialZoom = homeState ? 5 : MAP_INITIAL_ZOOM
 
   // Initialize map
   useEffect(() => {
@@ -1370,10 +1384,15 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         type: 'geojson',
         data: polygonGeoJSON,
       })
+      // minzoom matches TRACT_TIER_MIN so polygon outlines only render
+      // when tract pins do — at the state/county tiers there's no
+      // benefit to drawing thousands of tiny pink squares behind the
+      // badges, and it adds visual noise + paint cost for nothing.
       map.addLayer({
         id: 'tract-polygon-fill',
         type: 'fill',
         source: 'tract-polygons',
+        minzoom: TRACT_TIER_MIN,
         paint: {
           'fill-color': '#E91E8C',
           'fill-opacity': 0.08,
@@ -1383,6 +1402,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         id: 'tract-polygon-line',
         type: 'line',
         source: 'tract-polygons',
+        minzoom: TRACT_TIER_MIN,
         paint: {
           'line-color': '#E91E8C',
           'line-width': 2,
