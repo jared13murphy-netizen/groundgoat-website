@@ -264,6 +264,12 @@ function fadeOutAndRemove(markers: maplibregl.Marker[]): void {
 
 function buildFilterParams(f: FilterState) {
   const p: Record<string, string> = {}
+  // Always exclude tracts without polygon boundaries from the map.
+  // Pins for boundary-less tracts had nothing to "land on" visually
+  // — they appeared as floating dots over no outline. Filtering at
+  // the API level also keeps state/county count badges consistent
+  // with what the user actually sees pinned at higher zoom.
+  p.has_polygon = 'true'
   if (f.dateRange === 'custom') {
     if (f.dateFrom) p.date_from = f.dateFrom
     if (f.dateTo) p.date_to = f.dateTo
