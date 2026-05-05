@@ -660,6 +660,12 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
     // pixels at z 4 if we let them. 70px keeps the count + goat icon
     // legible.
     const MIN_BADGE_PX = 70
+    // Shrink each silhouette to JUST BARELY smaller than the real
+    // state on the map. With anchor: 'center', a 92% scale pulls in
+    // ~4% on every side — enough to leave a visible gap between
+    // neighboring silhouettes (no border-stacking, no shadows
+    // bleeding into one another).
+    const SHRINK_FACTOR = 0.92
 
     const sizeBadge = (
       inner: HTMLElement,
@@ -667,8 +673,8 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
     ) => {
       const tl = map.project([bbox[0][0], bbox[1][1]])
       const br = map.project([bbox[1][0], bbox[0][1]])
-      const w = Math.max(MIN_BADGE_PX, Math.abs(br.x - tl.x))
-      const h = Math.max(MIN_BADGE_PX, Math.abs(br.y - tl.y))
+      const w = Math.max(MIN_BADGE_PX, Math.abs(br.x - tl.x) * SHRINK_FACTOR)
+      const h = Math.max(MIN_BADGE_PX, Math.abs(br.y - tl.y) * SHRINK_FACTOR)
       inner.style.width = `${w}px`
       inner.style.height = `${h}px`
     }
@@ -1046,14 +1052,14 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
              + overlay are clickable. Children with pointer-events
              override below still bubble events back up to the shell. */
           pointer-events: none;
-          /* Layered drop-shadows: heavy dark cast for depth + crisp
-             contact shadow + pink glow for brand. drop-shadow follows
-             the silhouette's actual outline (unlike box-shadow which
-             would cast a rectangle from the bounding box). */
+          /* Subtle drop-shadow — separation between states comes from
+             the silhouette being JUST BARELY smaller than the real
+             state on the map (see SHRINK_FACTOR), so we don't need a
+             heavy shadow to do that work. Keep just a soft cast for
+             depth and a faint pink glow for brand. */
           filter:
-            drop-shadow(0 10px 28px rgba(0, 0, 0, 0.85))
-            drop-shadow(0 3px 8px rgba(0, 0, 0, 0.7))
-            drop-shadow(0 0 18px rgba(245, 140, 222, 0.55));
+            drop-shadow(0 4px 10px rgba(0, 0, 0, 0.55))
+            drop-shadow(0 0 8px rgba(245, 140, 222, 0.25));
         }
         .aem-state-shape {
           position: absolute;
