@@ -783,14 +783,14 @@ export default function AdminDashboard() {
   )
 }
 
-function QuickActionCard({ title, description, href, icon, count }: { title: string, description: string, href: string, icon: React.ReactNode, count?: number }) {
+function QuickActionCard({ title, description, href, icon, count }: { title: string, description: string, href: string, icon: React.ReactNode, count?: number | null }) {
   return (
     <Link href={href} className="card hover:border-gg-pink group">
       <div className="flex items-start justify-between">
         <div className="w-12 h-12 bg-gg-pink/10 rounded-xl flex items-center justify-center text-gg-pink mb-4 group-hover:bg-gg-pink/20 transition-colors">
           {icon}
         </div>
-        {count !== undefined ? (
+        {typeof count === 'number' ? (
           <span className="text-2xl font-bold text-gg-pink">{count.toLocaleString()}</span>
         ) : (
           <ChevronRight className="text-gg-gray-500 group-hover:text-gg-pink transition-colors" />
