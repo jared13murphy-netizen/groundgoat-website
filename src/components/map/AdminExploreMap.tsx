@@ -631,7 +631,7 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
           <img src="/goat-icon-white.png" alt="" class="aem-state-goat" />
           <div class="aem-state-name">${abbrToName(state)}</div>
           <div class="aem-state-count">${count.toLocaleString()}</div>
-          <a class="aem-state-link" data-action="filter">Start Filtering →</a>
+          <a class="aem-state-link" data-action="filter">Filter</a>
         </div>
       `
       el.appendChild(inner)
