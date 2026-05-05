@@ -54,7 +54,7 @@ const CountyDetailPanel = dynamic(() => import('@/components/map/CountyDetailPan
   ssr: false,
 })
 
-const AdminFastMap = dynamic(() => import('@/components/map/AdminFastMap'), {
+const AdminExploreMap = dynamic(() => import('@/components/map/AdminExploreMap'), {
   ssr: false,
   loading: () => (
     <div className="h-[700px] bg-gg-gray-800 rounded-xl flex items-center justify-center">
@@ -781,15 +781,15 @@ export default function AdminDashboard() {
         <div className="card mt-8">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h2 className="text-xl font-bold text-white">FastMap (preview)</h2>
+              <h2 className="text-xl font-bold text-white">Explore Map (preview)</h2>
               <p className="text-gg-gray-400 text-sm">
-                Heatmap zoomed out · clusters mid-zoom · price-bubble pins close in.
-                Loads only the viewport, native MapLibre layers throughout.
+                Three-tier zoom: state badges → county squares → tract pins.
+                Will replace the customer-facing ExploreMap once approved.
               </p>
             </div>
           </div>
           <div className="rounded-xl overflow-hidden">
-            <AdminFastMap height="700px" />
+            <AdminExploreMap height="700px" />
           </div>
         </div>
 
