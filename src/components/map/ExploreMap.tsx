@@ -234,6 +234,10 @@ function buildFilterParams(filters: FilterState) {
     const cutoff = new Date()
     cutoff.setMonth(cutoff.getMonth() - months)
     params.date_from = cutoff.toISOString().split('T')[0]
+    // Also bound the upper end at today — without this, a "last 6 months"
+    // query lets future-dated upcoming auctions through because the API
+    // filter is just `auction_datetime >= cutoff` with no ceiling.
+    params.date_to = new Date().toISOString().split('T')[0]
   }
   if (filters.statuses?.length > 0) params.sale_status = filters.statuses.flatMap(s => s.split(',')).join(',')
   if (filters.stateFilter) params.state_abbr = filters.stateFilter

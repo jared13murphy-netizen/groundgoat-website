@@ -273,6 +273,10 @@ function buildFilterParams(f: FilterState) {
       const d = new Date()
       d.setMonth(d.getMonth() - months)
       p.date_from = d.toISOString().slice(0, 10)
+      // Bound the upper end at today so future-dated upcoming auctions
+      // don't slip past a "last 6 months" filter (the API filter is
+      // just `auction_datetime >= cutoff` with no ceiling otherwise).
+      p.date_to = new Date().toISOString().slice(0, 10)
     }
   }
   if (f.statuses.length > 0) p.sale_status = f.statuses.flatMap(s => s.split(',')).join(',')
@@ -404,9 +408,51 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
     map.addControl(new maplibregl.NavigationControl(), 'top-right')
 
     map.on('load', () => {
-      // No map-level state silhouette layers — the silhouette is the
-      // BADGE itself (rendered as inline SVG inside the marker DOM).
-      // See the state-badge useEffect below.
+      // State outlines — always visible, faint white so they don't
+      // compete with the badges. The silhouette inside each badge is
+      // the focal point; these lines just give the user the geographic
+      // skeleton of the country.
+      map.addSource('admin-states-outline', {
+        type: 'geojson', data: '/data/us-states.json',
+      })
+      map.addLayer({
+        id: 'admin-states-outline-line',
+        type: 'line',
+        source: 'admin-states-outline',
+        paint: {
+          'line-color': 'rgba(255, 255, 255, 0.45)',
+          'line-width': [
+            'interpolate', ['linear'], ['zoom'],
+            3, 0.6,
+            6, 1.2,
+            9, 1.8,
+          ],
+        },
+      })
+
+      // County outlines — only at county-badge tier (z 6–9). Above z 9
+      // we're in the tract tier and tract-polygon outlines do the work.
+      // Keeping county lines visible past 9 would clutter the
+      // tract-pin view.
+      map.addSource('admin-counties-outline', {
+        type: 'geojson', data: '/data/us-counties.json',
+      })
+      map.addLayer({
+        id: 'admin-counties-outline-line',
+        type: 'line',
+        source: 'admin-counties-outline',
+        minzoom: COUNTY_TIER_MIN - 0.5,
+        maxzoom: COUNTY_TIER_MAX + 0.5,
+        paint: {
+          'line-color': 'rgba(255, 255, 255, 0.32)',
+          'line-width': [
+            'interpolate', ['linear'], ['zoom'],
+            6, 0.4,
+            8, 0.8,
+            9, 1.0,
+          ],
+        },
+      })
 
       // Tract polygon source + layers — pink fill outline of every
       // tract that has polygon_coordinates. Visible at TRACT_TIER_MIN

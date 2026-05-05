@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { ArrowLeft, Loader2, Mountain } from 'lucide-react'
+import { ArrowLeft, Loader2, Mountain, BarChart3 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { formatAuctionDate, formatAuctionDateTime } from '@/lib/auctionTime'
 import GroundTruthPanel from './GroundTruthPanel'
@@ -78,6 +78,10 @@ interface PortalTractDetailProps {
   onShowNeighbors?: (parcels: NeighborParcel[] | null) => void
   onNeighborsLoadingChange?: (loading: boolean) => void
   showNeighborsButton?: boolean
+  /** Same callback the listing detail panel uses — when set, a "Find
+      Comparables" button shows in the tract detail and triggers the
+      comparables flow with this tract as the subject. */
+  onFindComparables?: (tractId: string, county: string, state: string) => void
 }
 
 function formatCurrency(value?: number | null): string {
@@ -115,7 +119,7 @@ const STATUS_COLORS: Record<string, string> = {
   no_sale: 'bg-gray-500/15 text-gray-400 border-gray-500/30',
 }
 
-export default function PortalTractDetail({ tract, onBack, onViewListing, onView3DTerrain, onToggleReport, isInReport, onShowNeighbors, onNeighborsLoadingChange, showNeighborsButton = false }: PortalTractDetailProps) {
+export default function PortalTractDetail({ tract, onBack, onViewListing, onView3DTerrain, onToggleReport, isInReport, onShowNeighbors, onNeighborsLoadingChange, showNeighborsButton = false, onFindComparables }: PortalTractDetailProps) {
   const [soilData, setSoilData] = useState<SoilData | null>(null)
   const [elevationData, setElevationData] = useState<ElevationData | null>(null)
   const [soilLoading, setSoilLoading] = useState(false)
@@ -306,9 +310,16 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
           : null
         return (
           <div className="bg-white/[0.03] rounded-xl border border-white/5 divide-y divide-white/5">
-            {/* Auction date — hidden for private treaty (no auction date) */}
-            {!isPrivateTreaty && (
-              <DetailRow label="Date" value={formatAuctionDateTime(tract.auctionDate, tract.state)} />
+            {/* Date — always show when we have one, regardless of PT vs
+                auction or whether a listing company is attached. The
+                label is "Sale Date" when the tract has been sold (the
+                auction_datetime IS the sale date for closed auctions),
+                otherwise "Auction Date". */}
+            {tract.auctionDate && (
+              <DetailRow
+                label={(tract.saleStatus || '').toLowerCase() === 'sold' ? 'Sale Date' : 'Auction Date'}
+                value={formatAuctionDateTime(tract.auctionDate, tract.state)}
+              />
             )}
             {/* Private-treaty asking-price rows replace the Date for PT listings */}
             {isPrivateTreaty && tract.askingPrice ? (
@@ -459,6 +470,19 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
             className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-white/5 border border-white/10 text-white font-medium rounded-xl hover:bg-white/10 transition text-xs"
           >
             View Listing
+          </button>
+        )}
+
+        {/* Find Comparables — same callback the listing detail panel
+            uses; here it lets the user pick THIS tract as the subject
+            for a comparables search. */}
+        {onFindComparables && (
+          <button
+            onClick={() => onFindComparables(tract.id, tract.county, tract.state)}
+            className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-gg-pink/10 text-gg-pink border border-gg-pink/30 rounded-xl hover:bg-gg-pink/20 transition text-xs font-medium"
+          >
+            <BarChart3 size={14} />
+            Find Comparables
           </button>
         )}
       </div>

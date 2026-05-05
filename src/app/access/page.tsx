@@ -665,6 +665,7 @@ export default function AccessPortalPage() {
                 onShowNeighbors={setNeighborParcels}
                 onNeighborsLoadingChange={setNeighborsLoading}
                 showNeighborsButton={user?.account_type === 'groundgoat_admin'}
+                onFindComparables={handleFindComparables}
               />
             </div>
           </motion.div>
