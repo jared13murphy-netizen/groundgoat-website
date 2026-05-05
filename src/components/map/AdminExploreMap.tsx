@@ -1031,26 +1031,43 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
               its real on-map footprint. The SVG uses
               preserveAspectRatio="none" and stretches to fill. The
               .aem-state-overlay is absolutely positioned and centered
-              over the silhouette. */
+              over the silhouette.
+
+              Hit-target: only the SVG path itself catches clicks (via
+              pointer-events on the path) plus the overlay text. The
+              badge bbox is empty-space-passthrough so neighboring
+              states don't steal clicks where their bboxes overlap
+              (e.g. a click on southern IL was routing to MO before). */
         .aem-state-badge {
           position: relative;
           cursor: pointer;
           user-select: none;
-          /* Layered drop-shadows: dark cast for depth, pink glow for
-             brand. drop-shadow follows the silhouette's actual
-             outline (unlike box-shadow which would cast a rectangle
-             from the bounding box). */
+          /* Pass-through on the rectangular bbox; only filled silhouette
+             + overlay are clickable. Children with pointer-events
+             override below still bubble events back up to the shell. */
+          pointer-events: none;
+          /* Layered drop-shadows: heavy dark cast for depth + crisp
+             contact shadow + pink glow for brand. drop-shadow follows
+             the silhouette's actual outline (unlike box-shadow which
+             would cast a rectangle from the bounding box). */
           filter:
-            drop-shadow(0 6px 18px rgba(0, 0, 0, 0.55))
-            drop-shadow(0 0 14px rgba(245, 140, 222, 0.35));
+            drop-shadow(0 10px 28px rgba(0, 0, 0, 0.85))
+            drop-shadow(0 3px 8px rgba(0, 0, 0, 0.7))
+            drop-shadow(0 0 18px rgba(245, 140, 222, 0.55));
         }
         .aem-state-shape {
           position: absolute;
           inset: 0;
           width: 100%;
           height: 100%;
-          pointer-events: none;
           overflow: visible;
+        }
+        .aem-state-shape path,
+        .aem-state-shape rect {
+          /* Click hits only where the silhouette is filled. Empty
+             space inside the badge's bbox falls through to the
+             next marker (or the map). */
+          pointer-events: visiblePainted;
         }
         .aem-state-overlay {
           position: absolute;
@@ -1060,6 +1077,7 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
           align-items: center;
           justify-content: center;
           gap: 1px;
+          pointer-events: auto;
         }
         .aem-state-badge:hover .aem-state-link {
           background: #f58cde;
