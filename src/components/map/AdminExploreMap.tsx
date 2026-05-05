@@ -395,6 +395,38 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
       // BADGE itself (rendered as inline SVG inside the marker DOM).
       // See the state-badge useEffect below.
 
+      // Tract polygon source + layers — pink fill outline of every
+      // tract that has polygon_coordinates. Visible at TRACT_TIER_MIN
+      // and up so the user sees boundaries the moment they cross
+      // into the tract tier. Source data is updated by the
+      // pushTractPolygonsToSource effect below whenever tract data
+      // changes.
+      map.addSource('tract-polygons', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      })
+      map.addLayer({
+        id: 'tract-polygons-fill',
+        type: 'fill',
+        source: 'tract-polygons',
+        minzoom: TRACT_TIER_MIN,
+        paint: {
+          'fill-color': '#f58cde',
+          'fill-opacity': 0.18,
+        },
+      })
+      map.addLayer({
+        id: 'tract-polygons-line',
+        type: 'line',
+        source: 'tract-polygons',
+        minzoom: TRACT_TIER_MIN,
+        paint: {
+          'line-color': '#f58cde',
+          'line-width': 2,
+          'line-opacity': 0.9,
+        },
+      })
+
       // WI parcel overlay (admin-only, vector tiles via pmtiles, z 13+)
       if (isAdmin) {
         const w = window as any
@@ -490,7 +522,11 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
     const z = map.getZoom()
     if (z < TRACT_TIER_MIN) return
     const b = map.getBounds()
-    const includePolygons = z >= POLYGON_TIER_MIN
+    // Always include polygons in the tract tier — boundaries are
+    // expected to be visible the moment tract pins appear, not held
+    // back until z 13. Payload is fine since the bbox is small at
+    // this zoom and the API caps at 2000 rows.
+    const includePolygons = z >= TRACT_TIER_MIN
     const url = `${API_URL}/api/map/tracts?` +
       `min_lat=${b.getSouth()}&max_lat=${b.getNorth()}` +
       `&min_lng=${b.getWest()}&max_lng=${b.getEast()}` +
@@ -644,10 +680,11 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
       `
       el.appendChild(inner)
       el.addEventListener('click', () => {
-        // zoom 9.5 lands past COUNTY_TIER_MAX (9) so the county
-        // square fades out and tract pins fade in. Farther out than
-        // the prior 10.5 — neighboring counties are clearly visible.
-        map.easeTo({ center: [c.lng, c.lat], zoom: 9.5, duration: 800 })
+        // zoom 10 lands past COUNTY_TIER_MAX (9) so the county
+        // square fades out and tract pins + polygons fade in. Tight
+        // enough that individual tracts are readable; loose enough
+        // that neighboring counties stay visible.
+        map.easeTo({ center: [c.lng, c.lat], zoom: 10, duration: 800 })
       })
       const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
         .setLngLat([c.lng, c.lat])
@@ -720,6 +757,36 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tractRefresh, mapLoaded, currentTier])
+
+  // ─────────────────────────────────────────────────────────────
+  // TRACT POLYGONS — push the current tract data into the
+  // tract-polygons GeoJSON source. The fill+line layers (added in
+  // map.on('load')) are gated to TRACT_TIER_MIN, so they only
+  // render once the user is zoomed in enough.
+  // ─────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+    const src = map.getSource('tract-polygons') as
+      | maplibregl.GeoJSONSource
+      | undefined
+    if (!src) return
+    const features: GeoJSON.Feature[] = []
+    for (const t of Array.from(tractMapRef.current.values())) {
+      const ring = t.polygon_coordinates
+      if (!ring || ring.length < 3) continue
+      // GeoJSON requires the ring to be closed (first vertex == last).
+      const closed = ring[0][0] === ring[ring.length - 1][0]
+        && ring[0][1] === ring[ring.length - 1][1]
+        ? ring : [...ring, ring[0]]
+      features.push({
+        type: 'Feature',
+        geometry: { type: 'Polygon', coordinates: [closed] },
+        properties: { id: t.id, status: t.sale_status },
+      })
+    }
+    src.setData({ type: 'FeatureCollection', features })
+  }, [tractRefresh, mapLoaded])
 
   // Apply chat-driven filter args from MapChatPanel
   const handleApplyChatFilters = useCallback(
