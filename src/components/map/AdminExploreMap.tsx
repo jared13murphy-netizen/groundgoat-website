@@ -42,9 +42,9 @@ const API_URL = 'https://practical-serenity-production.up.railway.app'
 
 const STATE_TIER_MAX = 6
 const COUNTY_TIER_MIN = 6
-const COUNTY_TIER_MAX = 10
-const TRACT_TIER_MIN = 9   // lowered from 10 → tracts load when user clicks
-                            // a county and we ease to z 9.5
+const COUNTY_TIER_MAX = 9   // lowered from 10 — county-click zoom of 9.5
+                             // now lands in tract tier (z > 9)
+const TRACT_TIER_MIN = 9
 const POLYGON_TIER_MIN = 13
 const PARCEL_TIER_MIN = 13
 
@@ -644,10 +644,10 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
       `
       el.appendChild(inner)
       el.addEventListener('click', () => {
-        // zoom 10.5 lands past COUNTY_TIER_MAX (10) so the county
-        // square fades out and tract pins fade in. Close enough to
-        // see neighboring counties for context per the spec.
-        map.easeTo({ center: [c.lng, c.lat], zoom: 10.5, duration: 800 })
+        // zoom 9.5 lands past COUNTY_TIER_MAX (9) so the county
+        // square fades out and tract pins fade in. Farther out than
+        // the prior 10.5 — neighboring counties are clearly visible.
+        map.easeTo({ center: [c.lng, c.lat], zoom: 9.5, duration: 800 })
       })
       const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
         .setLngLat([c.lng, c.lat])
