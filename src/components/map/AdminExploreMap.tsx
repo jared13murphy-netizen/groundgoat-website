@@ -116,6 +116,19 @@ const INITIAL_FILTERS: FilterState = {
 // state-counts API rows (keyed by 2-letter abbr). The mapConstants
 // STATE_NAMES export only has 12 Midwest states — without this, every
 // other state would fall back to a rectangle silhouette.
+// Used to display the state name under the goat icon on each badge.
+// Built once from the full lookup below.
+let _ABBR_TO_NAME: Record<string, string> | null = null
+function abbrToName(abbr: string): string {
+  if (!_ABBR_TO_NAME) {
+    _ABBR_TO_NAME = {}
+    for (const [name, a] of Object.entries(ALL_STATE_NAME_TO_ABBR)) {
+      _ABBR_TO_NAME[a] = name
+    }
+  }
+  return _ABBR_TO_NAME[abbr] || abbr
+}
+
 const ALL_STATE_NAME_TO_ABBR: Record<string, string> = {
   Alabama: 'AL', Alaska: 'AK', Arizona: 'AZ', Arkansas: 'AR',
   California: 'CA', Colorado: 'CO', Connecticut: 'CT', Delaware: 'DE',
@@ -610,16 +623,13 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
              preserveAspectRatio="xMidYMid meet">
           ${silhouettePath ? `
             <path d="${silhouettePath}"
-                  fill="rgba(10,10,12,0.88)"
-                  stroke="#f58cde"
-                  stroke-width="2.2"
-                  stroke-linejoin="round"
-                  stroke-linecap="round"
-                  vector-effect="non-scaling-stroke" />
-          ` : '<rect x="2" y="2" width="96" height="96" rx="6" fill="rgba(10,10,12,0.88)" stroke="#f58cde" stroke-width="2"/>'}
+                  fill="rgba(10,10,12,0.62)"
+                  stroke="none" />
+          ` : '<rect x="2" y="2" width="96" height="96" rx="6" fill="rgba(10,10,12,0.62)"/>'}
         </svg>
         <div class="aem-state-overlay">
           <img src="/goat-icon-white.png" alt="" class="aem-state-goat" />
+          <div class="aem-state-name">${abbrToName(state)}</div>
           <div class="aem-state-count">${count.toLocaleString()}</div>
           <a class="aem-state-link" data-action="filter">Start Filtering →</a>
         </div>
@@ -945,10 +955,22 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
           object-fit: contain;
           filter: drop-shadow(0 1px 5px rgba(245, 140, 222, 0.9));
         }
+        .aem-state-name {
+          font-family: ui-sans-serif, system-ui, sans-serif;
+          font-weight: 600;
+          font-size: 9px;
+          color: rgba(255, 255, 255, 0.85);
+          line-height: 1;
+          margin-top: 2px;
+          letter-spacing: 0.04em;
+          text-transform: uppercase;
+          text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95);
+          white-space: nowrap;
+        }
         .aem-state-count {
           font-family: ui-sans-serif, system-ui, sans-serif;
           font-weight: 800;
-          font-size: 17px;
+          font-size: 14px;
           color: #fff;
           line-height: 1;
           margin-top: 2px;
