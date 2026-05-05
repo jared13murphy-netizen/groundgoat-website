@@ -715,23 +715,39 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
       // container to the projected bbox, the silhouette ends up over
       // the real state footprint at any zoom.
       //
-      // Shadow trick: render a SECOND path BEFORE the silhouette
-      // (z-order: behind), filled solid black at full opacity, then
-      // CSS-translate + blur it to produce the bottom-right cast.
-      // Doing this as its own element (instead of CSS drop-shadow on
-      // the silhouette) means the shadow's alpha isn't multiplied by
-      // the silhouette's 0.62 alpha — so we get a strong, visible
-      // shadow without changing the silhouette's transparency.
+      // "Hovering" shadow: render the silhouette TWICE inside one
+      // SVG. First copy is a solid-black shadow translated +3/+4 and
+      // blurred — but masked so only the part OUTSIDE the silhouette
+      // shape is drawn (the <mask> is the silhouette filled black on
+      // a white field, used as a cutout). Second copy is the regular
+      // 62%-opacity silhouette on top. Result: shadow appears only
+      // along the silhouette's bottom-right edge, the silhouette
+      // itself stays see-through, and the state appears to lift off
+      // the map. IDs include `state` so multiple <defs> in the page
+      // don't collide.
+      const maskId = `aem-cut-${state}`
+      const blurId = `aem-blur-${state}`
       inner.innerHTML = `
-        <svg class="aem-state-shadow" viewBox="0 0 100 100"
-             preserveAspectRatio="none">
-          ${silhouettePath ? `
-            <path d="${silhouettePath}" fill="#000" stroke="none" />
-          ` : '<rect x="2" y="2" width="96" height="96" rx="6" fill="#000"/>'}
-        </svg>
         <svg class="aem-state-shape" viewBox="0 0 100 100"
              preserveAspectRatio="none">
           ${silhouettePath ? `
+            <defs>
+              <mask id="${maskId}" maskUnits="userSpaceOnUse"
+                    x="-50" y="-50" width="200" height="200">
+                <rect x="-50" y="-50" width="200" height="200" fill="white"/>
+                <path d="${silhouettePath}" fill="black"/>
+              </mask>
+              <filter id="${blurId}" x="-30%" y="-30%" width="160%" height="160%">
+                <feGaussianBlur stdDeviation="1.5"/>
+              </filter>
+            </defs>
+            <g mask="url(#${maskId})" pointer-events="none">
+              <path d="${silhouettePath}"
+                    fill="rgba(0,0,0,0.92)"
+                    transform="translate(3 4)"
+                    filter="url(#${blurId})"
+                    stroke="none"/>
+            </g>
             <path d="${silhouettePath}"
                   fill="rgba(10,10,12,0.62)"
                   stroke="none" />
@@ -1065,21 +1081,6 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
           /* Pass-through on the rectangular bbox; only filled silhouette
              + overlay are clickable. Children with pointer-events
              override below still bubble events back up to the shell. */
-          pointer-events: none;
-        }
-        /* Shadow path — full-opacity black silhouette translated
-           down+right and blurred. Rendered as its own element (not
-           a CSS drop-shadow on the 62%-opacity silhouette) so the
-           shadow's alpha isn't multiplied down to invisibility. */
-        .aem-state-shadow {
-          position: absolute;
-          inset: 0;
-          width: 100%;
-          height: 100%;
-          overflow: visible;
-          transform: translate(8px, 10px);
-          filter: blur(5px);
-          opacity: 0.95;
           pointer-events: none;
         }
         .aem-state-shape {
