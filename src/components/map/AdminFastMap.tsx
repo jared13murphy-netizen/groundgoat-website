@@ -150,15 +150,19 @@ export default function AdminFastMap({ height = '700px' }: AdminFastMapProps) {
   const loadingCellsRef = useRef<Set<string>>(new Set())
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // Density tier: lightweight {lat, lng, acres} points for the
+  // heatmap. Loaded ONCE per session in a single fetch covering the
+  // continental US — fast because each row is just 3 floats.
+  const densityLoadedRef = useRef(false)
+  const densityLoadingRef = useRef(false)
+
   // DOM marker pool — only populated when zoom is high enough to need them.
   const pinMarkersRef = useRef<maplibregl.Marker[]>([])
 
-  // Push the canonical tract map into BOTH sources as a FeatureCollection.
-  // Why two sources: a clustered source aggregates points into cluster
-  // features at low zoom, so a heatmap layer reading from it would only
-  // see a handful of cluster centers — not the actual point density.
-  // We give the heatmap an UN-clustered source so it sees every tract.
-  const pushTractsToSource = useCallback(() => {
+  // Detail data (full tract rows) → tract-points-cluster source.
+  // Drives the cluster bubbles + individual dot layers + DOM pins.
+  // Loaded via the existing bbox-cell loader at z >= CLUSTER_MIN_ZOOM.
+  const pushDetailToSource = useCallback(() => {
     const map = mapRef.current
     if (!map) return
     const features: GeoJSON.Feature[] = []
@@ -184,10 +188,6 @@ export default function AdminFastMap({ height = '700px' }: AdminFastMapProps) {
           color: getStatusPinColor(t.sale_status),
           ppa: ppa || 0,
           acres: t.total_acres || 0,
-          // weight: density contribution. Tracts with bigger acreage
-          // count more on the heatmap (capped) — a single 1000-ac tract
-          // is more market-significant than a single 5-ac parcel.
-          weight: Math.min(1, (t.total_acres || 5) / 200),
         },
       })
     }
@@ -195,15 +195,61 @@ export default function AdminFastMap({ height = '700px' }: AdminFastMapProps) {
       type: 'FeatureCollection',
       features,
     }
-    const rawSource = map.getSource('tract-points-raw') as
-      | maplibregl.GeoJSONSource
-      | undefined
     const clusterSource = map.getSource('tract-points-cluster') as
       | maplibregl.GeoJSONSource
       | undefined
-    if (rawSource) rawSource.setData(fc)
     if (clusterSource) clusterSource.setData(fc)
-    setTractCount(features.length)
+  }, [])
+
+  // Density data (just lat/lng/acres) → tract-points-raw source.
+  // Drives ONLY the heatmap. Loaded ONCE in a single continental
+  // fetch — that's the whole point: at z 4 the user sees a real
+  // heatmap from the first frame, not 31 dots that trickle in.
+  const loadDensity = useCallback(async () => {
+    if (densityLoadedRef.current || densityLoadingRef.current) return
+    densityLoadingRef.current = true
+    try {
+      setLoading(true)
+      // Continental US bbox covers every state we operate in.
+      // The endpoint caps at 100K rows; 100K is more than enough
+      // for any realistic Ground Goat dataset.
+      const url =
+        `${API_URL}/api/map/tract-density?` +
+        `min_lat=20&max_lat=55&min_lng=-130&max_lng=-60&limit=100000`
+      const r = await fetchWithAuth(url)
+      if (!r.ok) {
+        console.error('[FastMap] density load failed', r.status)
+        return
+      }
+      const data: { count: number; points: Array<{ lat: number; lng: number; acres: number }> } =
+        await r.json()
+      const map = mapRef.current
+      if (!map) return
+      const features: GeoJSON.Feature[] = data.points.map(p => ({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
+        properties: {
+          // weight: density contribution. Bigger tracts count more
+          // on the heatmap, capped at 1 so a single 5000-ac parcel
+          // doesn't blow out the gradient.
+          weight: Math.min(1, (p.acres || 5) / 200),
+        },
+      }))
+      const rawSource = map.getSource('tract-points-raw') as
+        | maplibregl.GeoJSONSource
+        | undefined
+      if (rawSource) {
+        rawSource.setData({ type: 'FeatureCollection', features })
+      }
+      setTractCount(data.count)
+      densityLoadedRef.current = true
+      console.log(`[FastMap] density loaded: ${data.count} tracts in one shot`)
+    } catch (err) {
+      console.error('[FastMap] density load failed:', err)
+    } finally {
+      densityLoadingRef.current = false
+      setLoading(false)
+    }
   }, [])
 
   // Load tracts in a bbox cell. Same caching scheme as ExploreMap so a
@@ -248,7 +294,7 @@ export default function AdminFastMap({ height = '700px' }: AdminFastMapProps) {
                 tractMapRef.current.set(t.id, t)
               }
             }
-            pushTractsToSource()
+            pushDetailToSource()
           }
         }
       } catch (err) {
@@ -259,7 +305,7 @@ export default function AdminFastMap({ height = '700px' }: AdminFastMapProps) {
         setLoading(false)
       }
     },
-    [pushTractsToSource],
+    [pushDetailToSource],
   )
 
   // Init map once
@@ -483,12 +529,31 @@ export default function AdminFastMap({ height = '700px' }: AdminFastMapProps) {
     }
   }, [])
 
-  // Bbox-bound load on moveend, debounced. Same 0.5° grid as ExploreMap.
+  // ─────────────────────────────────────────────────────────────
+  // Two-tier loading strategy:
+  //   • Density tier (z 0–CLUSTER_MIN_ZOOM): one big fetch for the
+  //     whole continent on mount. The heatmap renders against this
+  //     INSTANTLY — no per-cell trickle.
+  //   • Detail tier (z >= CLUSTER_MIN_ZOOM): the existing 0.5° cell
+  //     loader fires only once the user zooms in enough to need
+  //     individual tract metadata for clusters / pins.
+  // ─────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!mapLoaded) return
+    loadDensity()
+  }, [mapLoaded, loadDensity])
+
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded) return
 
     const handleMoveEnd = () => {
+      // Below CLUSTER_MIN_ZOOM the heatmap is the only visible layer.
+      // It's already filled by the one-shot density load — fetching
+      // detail tracts here would do nothing visible AND would slam
+      // the API with hundreds of cell requests at continental view.
+      if (map.getZoom() < CLUSTER_MIN_ZOOM) return
+
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current)
       debounceTimerRef.current = setTimeout(() => {
         const bounds = map.getBounds()
@@ -513,7 +578,6 @@ export default function AdminFastMap({ height = '700px' }: AdminFastMapProps) {
     }
 
     map.on('moveend', handleMoveEnd)
-    // Kick off the initial fetch
     handleMoveEnd()
 
     return () => {
