@@ -171,16 +171,18 @@ function featureToSvgPath(feature: any): string | null {
 
 
 // Fade-out then remove a batch of markers. Adds the .aem-leaving
-// class — CSS keyframe animates opacity 1→0 + scale 1→1.15 + blur over
-// 400ms, then we call .remove() on each. This is what makes the
-// state→county transition feel like "old badges fade out, new ones
-// fade in" instead of a hard pop. Pure UI helper, no React state.
+// class to the INNER badge element (not the maplibre shell, which
+// holds the translate transform that positions the marker on the
+// map — adding a transform animation to the shell would clobber
+// maplibre's positioning and the markers would all stack at the
+// map's origin). 380ms later we call .remove().
 function fadeOutAndRemove(markers: maplibregl.Marker[]): void {
   if (!markers.length) return
   const snapshot = [...markers]
   for (const m of snapshot) {
-    const el = m.getElement()
-    if (el) el.classList.add('aem-leaving')
+    const shell = m.getElement()
+    const inner = shell?.firstElementChild as HTMLElement | null
+    if (inner) inner.classList.add('aem-leaving')
   }
   setTimeout(() => {
     for (const m of snapshot) {
@@ -488,9 +490,18 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
 
       const silhouettePath = stateSilhouettes[state]
 
+      // OUTER shell — maplibre sets transform: translate(x, y) on this
+      // to position the marker. NO css animations / transforms here
+      // (they'd clobber maplibre's positioning).
       const el = document.createElement('div')
-      el.className = 'aem-state-badge'
-      el.innerHTML = `
+      el.className = 'aem-marker-shell'
+
+      // INNER badge — animations + sizing live here. CSS keyframes
+      // can use transform: scale/blur/etc. without affecting where
+      // the marker sits on the map.
+      const inner = document.createElement('div')
+      inner.className = 'aem-state-badge'
+      inner.innerHTML = `
         <svg class="aem-state-shape" viewBox="0 0 100 100"
              preserveAspectRatio="xMidYMid meet">
           ${silhouettePath ? `
@@ -509,6 +520,7 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
           <a class="aem-state-link" data-action="filter">Start Filtering →</a>
         </div>
       `
+      el.appendChild(inner)
 
       el.addEventListener('click', (ev) => {
         const target = ev.target as HTMLElement
@@ -548,14 +560,17 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
 
     for (const c of countyCounts) {
       if (!c.count || c.lat == null || c.lng == null) continue
+      // Shell + inner pattern (see state badges above for why).
       const el = document.createElement('div')
-      el.className = 'aem-county-square'
-      el.innerHTML = `
+      el.className = 'aem-marker-shell'
+      const inner = document.createElement('div')
+      inner.className = 'aem-county-square'
+      inner.innerHTML = `
         <div class="aem-county-name">${c.county}</div>
         <div class="aem-county-count">${c.count.toLocaleString()}</div>
       `
+      el.appendChild(inner)
       el.addEventListener('click', () => {
-        // Past COUNTY_TIER_MAX so tract pins appear.
         map.easeTo({ center: [c.lng, c.lat], zoom: 9.5, duration: 800 })
       })
       const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
@@ -587,8 +602,14 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
         ? t.asking_price / t.total_acres
         : t.price_per_acre
 
+      // Shell + inner pattern: outer is maplibre-positioned, inner has
+      // the comp-marker visual + animation class. Without this the
+      // fade-in keyframe's scale transform clobbers maplibre's
+      // translate and the pin lands at the map origin.
       const el = document.createElement('div')
-      el.className = 'comp-marker aem-tract-pin'
+      el.className = 'aem-marker-shell'
+      const inner = document.createElement('div')
+      inner.className = 'comp-marker aem-tract-pin'
       const label = document.createElement('div')
       label.className = 'comp-marker-label'
       if (ppa) {
@@ -603,11 +624,12 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
         a.textContent = `${fmtAc(t.total_acres)} ac`
         label.appendChild(a)
       }
-      el.appendChild(label)
+      inner.appendChild(label)
       const pin = document.createElement('div')
       pin.className = 'comp-marker-pin comparable'
       pin.style.backgroundColor = pinColor(t.sale_status)
-      el.appendChild(pin)
+      inner.appendChild(pin)
+      el.appendChild(inner)
       el.addEventListener('click', () => {
         if (t.listing_id) window.open(`/listings/${t.listing_id}`, '_blank')
       })
@@ -723,6 +745,13 @@ export default function AdminExploreMap({ height = '700px', isAdmin = true }: Ad
             filter: blur(8px);
           }
         }
+        /* Outer shell — maplibre sets transform: translate() on this
+           to position the marker. NO transforms or animations here
+           or maplibre's positioning gets clobbered. */
+        .aem-marker-shell {
+          will-change: transform;
+        }
+        /* Inner badges get the fade-in / fade-out keyframes. */
         .aem-state-badge,
         .aem-county-square,
         .aem-tract-pin {
