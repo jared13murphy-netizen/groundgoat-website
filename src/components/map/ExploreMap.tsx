@@ -816,10 +816,17 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
     // Single wide-bbox query with the new filter set. limit=2000 caps
     // any single query — enough for almost any natural-language search.
+    // include_polygons=true is required: isAcceptableMapTract rejects
+    // any tract whose polygon_coordinates is null, and chat-search
+    // pre-marks every cell in the queried bbox as "loaded" so the
+    // cell-loader won't refetch. Without polygons here, every chat
+    // result is silently dropped and the user sees zero pins — even
+    // though the count badges (which come from a different endpoint)
+    // claim matches exist.
     const filterParams = buildFilterParams(nextFilters)
     const extra = Object.entries(filterParams)
       .map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&')
-    const url = `${API_URL}/api/map/tracts?min_lat=${qSouth}&max_lat=${qNorth}&min_lng=${qWest}&max_lng=${qEast}&limit=2000${extra ? '&' + extra : ''}`
+    const url = `${API_URL}/api/map/tracts?min_lat=${qSouth}&max_lat=${qNorth}&min_lng=${qWest}&max_lng=${qEast}&limit=2000&include_polygons=true${extra ? '&' + extra : ''}`
 
     const ac = new AbortController()
     fetchWithAuth(url, { signal: ac.signal })
