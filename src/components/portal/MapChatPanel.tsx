@@ -4,6 +4,12 @@ import { useState, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Send, Loader2, Sparkles, X } from 'lucide-react'
+import {
+  ResponsiveContainer,
+  LineChart, Line,
+  BarChart, Bar,
+  XAxis, YAxis, Tooltip, CartesianGrid,
+} from 'recharts'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
@@ -35,6 +41,15 @@ interface AnalyticsResponse {
   summary: string
   stats: { label: string; value: string }[]
   table: { columns: string[]; rows: string[][] } | null
+  /** Optional chart for time series (line) and grouped rankings (bar).
+      summary_stats / top_n omit this — they're already best-served by
+      the stats grid or table. */
+  chart?: {
+    type: 'line' | 'bar'
+    x_label: string
+    y_label: string
+    data: { label: string; value: number }[]
+  } | null
   analytics_type: string
 }
 
@@ -408,6 +423,96 @@ export default function MapChatPanel({ onApplyFilters, currentFilters, hasActive
                     <span className="text-white/85 inline-block animate-pulse">▍</span>
                   )}
                 </p>
+
+                {/* Optional chart — backend includes one for by_month
+                    (line) and group_by n>1 (bar). Skipped for
+                    summary_stats and top_n where the table/stats are
+                    already the best representation. Only render once
+                    the typed answer is complete so it doesn't visually
+                    fight the typewriter effect. */}
+                {analytics?.chart && typedChars >= fullAnswer.length && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.35 }}
+                    className="mt-6 bg-black/25 border border-white/10 rounded-xl p-3"
+                  >
+                    <ResponsiveContainer width="100%" height={200}>
+                      {analytics.chart.type === 'line' ? (
+                        <LineChart data={analytics.chart.data}>
+                          <CartesianGrid stroke="rgba(255,255,255,0.08)" />
+                          <XAxis
+                            dataKey="label"
+                            stroke="rgba(255,255,255,0.7)"
+                            tick={{ fill: 'rgba(255,255,255,0.85)', fontSize: 10 }}
+                            axisLine={{ stroke: 'rgba(255,255,255,0.2)' }}
+                            tickLine={false}
+                          />
+                          <YAxis
+                            stroke="rgba(255,255,255,0.7)"
+                            tick={{ fill: 'rgba(255,255,255,0.85)', fontSize: 10 }}
+                            axisLine={{ stroke: 'rgba(255,255,255,0.2)' }}
+                            tickLine={false}
+                          />
+                          <Tooltip
+                            contentStyle={{
+                              background: 'rgba(0,0,0,0.85)',
+                              border: '1px solid rgba(255,255,255,0.18)',
+                              borderRadius: 8,
+                              color: '#fff',
+                              fontSize: 12,
+                            }}
+                            cursor={{ stroke: 'rgba(255,255,255,0.25)' }}
+                          />
+                          <Line
+                            type="monotone"
+                            dataKey="value"
+                            stroke="#fff"
+                            strokeWidth={2.5}
+                            dot={{ fill: '#fff', r: 3 }}
+                            activeDot={{ r: 5 }}
+                          />
+                        </LineChart>
+                      ) : (
+                        <BarChart data={analytics.chart.data}>
+                          <CartesianGrid stroke="rgba(255,255,255,0.08)" />
+                          <XAxis
+                            dataKey="label"
+                            stroke="rgba(255,255,255,0.7)"
+                            tick={{ fill: 'rgba(255,255,255,0.85)', fontSize: 10 }}
+                            axisLine={{ stroke: 'rgba(255,255,255,0.2)' }}
+                            tickLine={false}
+                            interval={0}
+                            angle={-25}
+                            textAnchor="end"
+                            height={50}
+                          />
+                          <YAxis
+                            stroke="rgba(255,255,255,0.7)"
+                            tick={{ fill: 'rgba(255,255,255,0.85)', fontSize: 10 }}
+                            axisLine={{ stroke: 'rgba(255,255,255,0.2)' }}
+                            tickLine={false}
+                          />
+                          <Tooltip
+                            contentStyle={{
+                              background: 'rgba(0,0,0,0.85)',
+                              border: '1px solid rgba(255,255,255,0.18)',
+                              borderRadius: 8,
+                              color: '#fff',
+                              fontSize: 12,
+                            }}
+                            cursor={{ fill: 'rgba(255,255,255,0.06)' }}
+                          />
+                          <Bar
+                            dataKey="value"
+                            fill="rgba(255,255,255,0.85)"
+                            radius={[4, 4, 0, 0]}
+                          />
+                        </BarChart>
+                      )}
+                    </ResponsiveContainer>
+                  </motion.div>
+                )}
               </div>
             </motion.div>
           </>
