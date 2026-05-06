@@ -325,6 +325,9 @@ interface FilterState {
   nearLat: string
   nearLng: string
   radiusMiles: string
+  // Tract shape (chat-only). Polygon vertex count.
+  cornersMin: string
+  cornersMax: string
   companyName: string
   buyer: string
   seller: string
@@ -361,6 +364,8 @@ const INITIAL_FILTERS: FilterState = {
   nearLat: '',
   nearLng: '',
   radiusMiles: '',
+  cornersMin: '',
+  cornersMax: '',
   companyName: '',
   buyer: '',
   seller: '',
@@ -423,6 +428,8 @@ function buildFilterParams(filters: FilterState) {
     params.near_lng = filters.nearLng
     params.radius_miles = filters.radiusMiles
   }
+  if (filters.cornersMin) params.corners_min = filters.cornersMin
+  if (filters.cornersMax) params.corners_max = filters.cornersMax
   if (filters.companyName) params.company_name = filters.companyName
   if (filters.buyer) params.buyer = filters.buyer
   if (filters.seller) params.seller = filters.seller
