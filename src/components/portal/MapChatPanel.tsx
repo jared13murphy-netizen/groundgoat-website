@@ -252,73 +252,97 @@ export default function MapChatPanel({ onApplyFilters, currentFilters, hasActive
         </motion.button>
       </motion.form>
 
-      {/* Analytics modal — opens when the LLM picks the analytics tool
-          instead of apply_map_filters (e.g. "avg $/acre in Henry County
-          2025"). v1 = text + stats grid + table. Charts deferred to v2
-          (will use Recharts for bar/line and a server-rendered PNG for
-          mobile parity). */}
+      {/* Analytics slide-up sheet — anchors at the bottom edge of the
+          viewport and slides up over the chat pill. Pink-gradient
+          header for the brand vibe; backdrop is a subtle dark blur so
+          the map stays readable behind it. */}
       <AnimatePresence>
         {analytics && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.15 }}
-            className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
-            onClick={() => setAnalytics(null)}
-          >
+          <>
+            {/* Backdrop — click anywhere outside to close */}
             <motion.div
-              initial={{ scale: 0.96, y: 8 }}
-              animate={{ scale: 1, y: 0 }}
-              exit={{ scale: 0.96, y: 8 }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
               transition={{ duration: 0.18 }}
-              onClick={(e) => e.stopPropagation()}
-              className="bg-gg-gray-900 border border-white/10 rounded-2xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden"
+              onClick={() => setAnalytics(null)}
+              className="fixed inset-0 z-[680] bg-black/55 backdrop-blur-[2px]"
+            />
+            {/* Sheet — slides up from below */}
+            <motion.div
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 28, stiffness: 220 }}
+              className="fixed left-1/2 -translate-x-1/2 bottom-0 z-[690] w-full max-w-3xl bg-[#0d0d12] border-x border-t border-white/10 rounded-t-3xl shadow-[0_-12px_40px_rgba(0,0,0,0.55)] flex flex-col overflow-hidden"
+              style={{ maxHeight: 'min(82vh, 720px)' }}
             >
-              <div className="flex items-start justify-between gap-4 px-6 py-4 border-b border-white/10">
-                <div className="flex-1 min-w-0">
-                  <h3 className="text-base font-semibold text-white truncate">{analytics.title}</h3>
-                  <p className="text-xs text-gg-gray-400 mt-0.5 capitalize">{analytics.analytics_type.replace(/_/g, ' ')}</p>
+              {/* Pink gradient header — drag handle, title, close */}
+              <div
+                className="px-6 pt-3 pb-5"
+                style={{
+                  background: 'linear-gradient(135deg, #F58CDE 0%, #EC4899 50%, #7B2455 100%)',
+                }}
+              >
+                <div className="mx-auto h-1 w-10 rounded-full bg-white/55 mb-3" />
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    <h3 className="text-lg font-bold text-white tracking-[0.01em] leading-tight">{analytics.title}</h3>
+                    <p className="text-[10px] uppercase tracking-[0.12em] font-semibold text-white/80 mt-1">
+                      {analytics.analytics_type.replace(/_/g, ' ')}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setAnalytics(null)}
+                    className="w-8 h-8 rounded-full bg-black/25 hover:bg-black/40 text-white flex items-center justify-center transition-colors flex-shrink-0"
+                    aria-label="Close"
+                  >
+                    <X size={18} />
+                  </button>
                 </div>
-                <button
-                  onClick={() => setAnalytics(null)}
-                  className="text-gg-gray-400 hover:text-white p-1 rounded transition-colors flex-shrink-0"
-                  aria-label="Close"
-                >
-                  <X size={18} />
-                </button>
               </div>
 
-              <div className="px-6 py-4 overflow-y-auto">
+              {/* Body */}
+              <div className="px-6 py-5 overflow-y-auto">
                 <p className="text-sm text-gg-gray-200 leading-relaxed">{analytics.summary}</p>
 
                 {analytics.stats && analytics.stats.length > 0 && (
-                  <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  <div className="mt-5 grid grid-cols-2 sm:grid-cols-3 gap-3">
                     {analytics.stats.map((s) => (
-                      <div key={s.label} className="bg-black/40 border border-white/10 rounded-lg px-3 py-2">
-                        <div className="text-[11px] uppercase tracking-wide text-gg-gray-400">{s.label}</div>
-                        <div className="text-base font-semibold text-white mt-0.5">{s.value}</div>
+                      <div
+                        key={s.label}
+                        className="bg-white/[0.04] border border-white/10 rounded-xl px-3.5 py-2.5"
+                      >
+                        <div className="text-[10px] uppercase tracking-wider text-gg-pink/85 font-semibold">{s.label}</div>
+                        <div className="text-lg font-bold text-white mt-1">{s.value}</div>
                       </div>
                     ))}
                   </div>
                 )}
 
                 {analytics.table && analytics.table.rows.length > 0 && (
-                  <div className="mt-5 border border-white/10 rounded-lg overflow-hidden">
+                  <div className="mt-5 border border-white/10 rounded-xl overflow-hidden">
                     <div className="overflow-x-auto">
                       <table className="w-full text-xs">
-                        <thead className="bg-black/40 text-gg-gray-300">
+                        <thead className="bg-white/[0.05] text-gg-gray-300">
                           <tr>
                             {analytics.table.columns.map((c) => (
-                              <th key={c} className="text-left font-medium px-3 py-2 whitespace-nowrap">{c}</th>
+                              <th key={c} className="text-left font-semibold uppercase tracking-wider text-[10px] px-3.5 py-2.5 whitespace-nowrap">
+                                {c}
+                              </th>
                             ))}
                           </tr>
                         </thead>
                         <tbody>
                           {analytics.table.rows.map((row, i) => (
-                            <tr key={i} className="border-t border-white/5 text-gg-gray-200 hover:bg-white/5">
+                            <tr
+                              key={i}
+                              className={`border-t border-white/5 text-gg-gray-100 hover:bg-white/[0.03] ${
+                                i % 2 === 0 ? 'bg-white/[0.015]' : ''
+                              }`}
+                            >
                               {row.map((cell, j) => (
-                                <td key={j} className="px-3 py-2 whitespace-nowrap">{cell}</td>
+                                <td key={j} className="px-3.5 py-2.5 whitespace-nowrap">{cell}</td>
                               ))}
                             </tr>
                           ))}
@@ -328,17 +352,8 @@ export default function MapChatPanel({ onApplyFilters, currentFilters, hasActive
                   </div>
                 )}
               </div>
-
-              <div className="px-6 py-3 border-t border-white/10 flex justify-end">
-                <button
-                  onClick={() => setAnalytics(null)}
-                  className="text-xs px-4 py-1.5 rounded-full bg-gg-pink hover:bg-gg-pink-light text-white transition-colors"
-                >
-                  Close
-                </button>
-              </div>
             </motion.div>
-          </motion.div>
+          </>
         )}
       </AnimatePresence>
     </div>
