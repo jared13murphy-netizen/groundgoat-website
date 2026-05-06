@@ -478,6 +478,10 @@ interface ExploreMapProps {
       applyExternalFilters payload arrives (which can take 1-2s for the
       Claude tool-use call to come back). */
   chatSearchStartSignal?: number
+  /** Fires when the chat-filter response arrives (any shape). Needed
+      so analytics responses (which never apply filters and never run
+      the wide-bbox query) can still stop the loading animation. */
+  chatSearchEndSignal?: number
   comparableVisibleIds?: Set<string> | null
   neighborParcels?: {
     geometry: [number, number][]
@@ -508,7 +512,7 @@ interface ExploreMapProps {
   neighborsLoading?: boolean
 }
 
-export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, comparableVisibleIds, neighborParcels, neighborsLoading }: ExploreMapProps) {
+export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, chatSearchEndSignal, comparableVisibleIds, neighborParcels, neighborsLoading }: ExploreMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const stateMarkersRef = useRef<maplibregl.Marker[]>([])
@@ -556,6 +560,15 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       setChatSearching(true)
     }
   }, [chatSearchStartSignal])
+  // Stop the animation when the chat panel signals the response
+  // arrived. Filter responses ALSO stop via the wide-bbox completion
+  // path, which is fine — stopChatSearchingSoon is idempotent.
+  useEffect(() => {
+    if (chatSearchEndSignal && chatSearchEndSignal > 0) {
+      stopChatSearchingSoon()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatSearchEndSignal])
   const subjectTractIdRef = useRef<string | null>(null)
   subjectTractIdRef.current = subjectTractId || null
 

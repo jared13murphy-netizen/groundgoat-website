@@ -135,6 +135,11 @@ export default function AccessPortalPage() {
   // ~1-2s while Claude runs.
   const [chatSearchStartSignal, setChatSearchStartSignal] = useState(0)
   const handleChatSearchStart = () => setChatSearchStartSignal(Date.now())
+  // Mirror end-signal — ExploreMap stops the loading animation when this
+  // changes. Needed because analytics responses don't apply filters,
+  // so the map's own wide-bbox completion path never fires.
+  const [chatSearchEndSignal, setChatSearchEndSignal] = useState(0)
+  const handleChatSearchEnd = () => setChatSearchEndSignal(Date.now())
   // Comparables mode
   const [resetFiltersSignal, setResetFiltersSignal] = useState(0)
   const [subjectTractId, setSubjectTractId] = useState<string | null>(null)
@@ -533,6 +538,7 @@ export default function AccessPortalPage() {
           resetFiltersSignal={resetFiltersSignal}
           applyExternalFilters={chatAppliedFilters}
           chatSearchStartSignal={chatSearchStartSignal}
+          chatSearchEndSignal={chatSearchEndSignal}
           comparableVisibleIds={null}
           neighborParcels={neighborParcels}
           neighborsLoading={neighborsLoading}
@@ -764,6 +770,7 @@ export default function AccessPortalPage() {
         <MapChatPanel
           onApplyFilters={handleChatApplyFilters}
           onSearchStart={handleChatSearchStart}
+          onSearchEnd={handleChatSearchEnd}
           hasActiveFilters={
             !!chatAppliedFilters?.filters &&
             Object.keys(chatAppliedFilters.filters).length > 0

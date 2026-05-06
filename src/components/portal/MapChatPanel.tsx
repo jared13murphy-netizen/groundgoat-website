@@ -21,6 +21,12 @@ interface MapChatPanelProps {
       so the map can start its animation overlay BEFORE the chat-filter
       response comes back. The map handles turning the flag back off. */
   onSearchStart?: () => void
+  /** Fired when the chat-filter response arrives, regardless of whether
+      it's a filter response (the map will also stop on its own when
+      the wide-bbox query completes) or an analytics response (the map
+      never gets applied_filters and would otherwise leave the loading
+      animation running forever). */
+  onSearchEnd?: () => void
 }
 
 interface AnalyticsResponse {
@@ -57,7 +63,7 @@ function buildAnalyticsAnswer(a: AnalyticsResponse | null): string {
   return lines.join('\n')
 }
 
-export default function MapChatPanel({ onApplyFilters, currentFilters, hasActiveFilters, onSearchStart }: MapChatPanelProps) {
+export default function MapChatPanel({ onApplyFilters, currentFilters, hasActiveFilters, onSearchStart, onSearchEnd }: MapChatPanelProps) {
   const [open, setOpen] = useState(false)
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -167,6 +173,12 @@ export default function MapChatPanel({ onApplyFilters, currentFilters, hasActive
       setToast({ kind: 'err', text: e.message || String(e) })
     } finally {
       setLoading(false)
+      // Tell the map the search is done. The map otherwise relies on
+      // the wide-bbox /api/map/tracts query (run after applied_filters)
+      // to stop its loading animation — for analytics responses that
+      // never runs, so without this signal the pulse + rising-stars
+      // animation runs forever.
+      onSearchEnd?.()
       if (toastTimer.current) clearTimeout(toastTimer.current)
       toastTimer.current = setTimeout(() => setToast(null), 4000)
     }
