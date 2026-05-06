@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Send, Loader2, Sparkles, X } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
@@ -306,10 +307,13 @@ export default function MapChatPanel({ onApplyFilters, currentFilters, hasActive
         </motion.button>
       </motion.form>
 
-      {/* Analytics RIGHT-SIDE slide-out pane — full pink gradient
-          background, ChatGPT-style typed answer, drag-right to dismiss.
-          Same look + functionality as the mobile sheet, but anchored
-          to the right edge instead of the bottom. */}
+      {/* Analytics RIGHT-SIDE slide-out pane — PORTALED to document.body
+          because the chat-panel wrapper above has CSS transform
+          (-translate-x-1/2). Any ancestor with `transform` becomes the
+          containing block for fixed-positioned children, which made
+          the "right-side pane" render inside the small bottom-center
+          chat-pill container instead of against the viewport edge. */}
+      {typeof document !== 'undefined' && createPortal(
       <AnimatePresence>
         {analytics && (
           <>
@@ -340,14 +344,43 @@ export default function MapChatPanel({ onApplyFilters, currentFilters, hasActive
                   'linear-gradient(155deg, #F58CDE 0%, #EC4899 18%, #7B2455 55%, #2a0a1c 100%)',
               }}
             >
-              {/* Drag handle indicator on the LEFT edge — visual cue
-                  the pane is draggable horizontally */}
-              <div className="absolute left-2 top-1/2 -translate-y-1/2 cursor-grab active:cursor-grabbing">
+              {/* Rising sparkles inside the pane background — same
+                  goatSparkle vibe as the chat-search overlay. Sits
+                  between the gradient and the text. pointer-events-none
+                  so it never blocks interactions. */}
+              <div className="absolute inset-0 pointer-events-none overflow-hidden">
+                {[10, 22, 34, 46, 58, 70, 82, 94].map((leftPct, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      position: 'absolute',
+                      left: `${leftPct}%`,
+                      bottom: -10,
+                      width: 6,
+                      height: 6,
+                      background: 'rgba(255, 255, 255, 0.85)',
+                      borderRadius: '50%',
+                      boxShadow: '0 0 12px rgba(255, 255, 255, 0.7)',
+                      animation: 'paneSparkle 4.5s ease-in infinite',
+                      animationDelay: `${i * 0.5}s`,
+                      opacity: 0,
+                    }}
+                  />
+                ))}
+                <style>{`
+                  @keyframes paneSparkle {
+                    0%   { opacity: 0; transform: translateY(0) scale(0.5); }
+                    25%  { opacity: 0.9; }
+                    100% { opacity: 0; transform: translateY(-100vh) scale(0.3); }
+                  }
+                `}</style>
+              </div>
+
+              <div className="absolute left-2 top-1/2 -translate-y-1/2 cursor-grab active:cursor-grabbing z-10">
                 <div className="w-1.5 h-12 rounded-full bg-white/70" />
               </div>
 
-              {/* Header row */}
-              <div className="flex items-start justify-between gap-3 px-7 pt-7 pb-4">
+              <div className="relative flex items-start justify-between gap-3 px-7 pt-7 pb-4">
                 <div className="flex-1 min-w-0">
                   <h3 className="text-2xl font-extrabold text-white tracking-[0.01em] leading-tight drop-shadow-sm">
                     Goat Analysis
@@ -365,8 +398,7 @@ export default function MapChatPanel({ onApplyFilters, currentFilters, hasActive
                 </button>
               </div>
 
-              {/* Typed-out answer */}
-              <div className="px-7 pb-8 overflow-y-auto flex-1">
+              <div className="relative px-7 pb-8 overflow-y-auto flex-1">
                 <p
                   className="text-white text-base leading-relaxed font-medium whitespace-pre-line"
                   style={{ textShadow: '0 1px 2px rgba(0,0,0,0.25)' }}
@@ -380,7 +412,9 @@ export default function MapChatPanel({ onApplyFilters, currentFilters, hasActive
             </motion.div>
           </>
         )}
-      </AnimatePresence>
+      </AnimatePresence>,
+      document.body
+      )}
     </div>
   )
 }
