@@ -31,6 +31,32 @@ interface AnalyticsResponse {
   analytics_type: string
 }
 
+// Build a single block of natural-language text from the analytics
+// response so the modal reads like a ChatGPT answer (typed out
+// char-by-char) instead of a stats grid + table layout.
+function buildAnalyticsAnswer(a: AnalyticsResponse | null): string {
+  if (!a) return ''
+  const lines: string[] = []
+  if (a.summary) lines.push(a.summary)
+  if (a.stats?.length) {
+    lines.push('')
+    for (const s of a.stats) lines.push(`• ${s.label}: ${s.value}`)
+  }
+  if (a.table?.rows?.length) {
+    lines.push('')
+    const cols = a.table.columns
+    const rowsToShow = a.table.rows.slice(0, 10)
+    rowsToShow.forEach((r, i) => {
+      const parts = cols.map((c, j) => `${c}: ${r[j]}`)
+      lines.push(`${i + 1}. ${parts.join(' · ')}`)
+    })
+    if (a.table.rows.length > rowsToShow.length) {
+      lines.push(`…and ${a.table.rows.length - rowsToShow.length} more.`)
+    }
+  }
+  return lines.join('\n')
+}
+
 export default function MapChatPanel({ onApplyFilters, currentFilters, hasActiveFilters, onSearchStart }: MapChatPanelProps) {
   const [open, setOpen] = useState(false)
   const [input, setInput] = useState('')
@@ -38,9 +64,25 @@ export default function MapChatPanel({ onApplyFilters, currentFilters, hasActive
   /** Most recent confirmation/error to show inline. Auto-clears after 4s. */
   const [toast, setToast] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
   /** Analytics modal state — populated when the LLM picks the analytics
-      tool instead of apply_map_filters. Charts are deferred to v2 (the
-      modal renders text + stats grid + table for now). */
+      tool instead of apply_map_filters. Modal renders the answer as
+      ChatGPT-style typed text on a full pink-gradient background. */
   const [analytics, setAnalytics] = useState<AnalyticsResponse | null>(null)
+  /** Typewriter — incrementally reveals the analytics answer text */
+  const [typedChars, setTypedChars] = useState(0)
+  const fullAnswer = buildAnalyticsAnswer(analytics)
+  useEffect(() => {
+    setTypedChars(0)
+    if (!analytics) return
+    const total = fullAnswer.length
+    if (total === 0) return
+    const id = window.setInterval(() => {
+      setTypedChars((prev) => {
+        if (prev >= total) { window.clearInterval(id); return prev }
+        return Math.min(total, prev + 2)
+      })
+    }, 12)
+    return () => window.clearInterval(id)
+  }, [analytics, fullAnswer])
   const inputRef = useRef<HTMLInputElement>(null)
   const formRef = useRef<HTMLFormElement>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -252,10 +294,10 @@ export default function MapChatPanel({ onApplyFilters, currentFilters, hasActive
         </motion.button>
       </motion.form>
 
-      {/* Analytics slide-up sheet — anchors at the bottom edge of the
-          viewport and slides up over the chat pill. Pink-gradient
-          header for the brand vibe; backdrop is a subtle dark blur so
-          the map stays readable behind it. */}
+      {/* Analytics RIGHT-SIDE slide-out pane — full pink gradient
+          background, ChatGPT-style typed answer, drag-right to dismiss.
+          Same look + functionality as the mobile sheet, but anchored
+          to the right edge instead of the bottom. */}
       <AnimatePresence>
         {analytics && (
           <>
@@ -268,89 +310,60 @@ export default function MapChatPanel({ onApplyFilters, currentFilters, hasActive
               onClick={() => setAnalytics(null)}
               className="fixed inset-0 z-[680] bg-black/55 backdrop-blur-[2px]"
             />
-            {/* Sheet — slides up from below */}
+            {/* Right-side pane */}
             <motion.div
-              initial={{ y: '100%' }}
-              animate={{ y: 0 }}
-              exit={{ y: '100%' }}
-              transition={{ type: 'spring', damping: 28, stiffness: 220 }}
-              className="fixed left-1/2 -translate-x-1/2 bottom-0 z-[690] w-full max-w-3xl bg-[#0d0d12] border-x border-t border-white/10 rounded-t-3xl shadow-[0_-12px_40px_rgba(0,0,0,0.55)] flex flex-col overflow-hidden"
-              style={{ maxHeight: 'min(82vh, 720px)' }}
+              initial={{ x: '100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '100%' }}
+              transition={{ type: 'spring', damping: 30, stiffness: 240 }}
+              drag="x"
+              dragConstraints={{ left: 0, right: 0 }}
+              dragElastic={{ left: 0, right: 0.6 }}
+              onDragEnd={(_, info) => {
+                if (info.offset.x > 100 || info.velocity.x > 600) setAnalytics(null)
+              }}
+              className="fixed top-0 right-0 bottom-0 z-[690] w-full max-w-md rounded-l-3xl shadow-[-14px_0_50px_rgba(0,0,0,0.6)] flex flex-col overflow-hidden"
+              style={{
+                background:
+                  'linear-gradient(155deg, #F58CDE 0%, #EC4899 18%, #7B2455 55%, #2a0a1c 100%)',
+              }}
             >
-              {/* Pink gradient header — drag handle, title, close */}
-              <div
-                className="px-6 pt-3 pb-5"
-                style={{
-                  background: 'linear-gradient(135deg, #F58CDE 0%, #EC4899 50%, #7B2455 100%)',
-                }}
-              >
-                <div className="mx-auto h-1 w-10 rounded-full bg-white/55 mb-3" />
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex-1 min-w-0">
-                    <h3 className="text-lg font-bold text-white tracking-[0.01em] leading-tight">{analytics.title}</h3>
-                    <p className="text-[10px] uppercase tracking-[0.12em] font-semibold text-white/80 mt-1">
-                      {analytics.analytics_type.replace(/_/g, ' ')}
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => setAnalytics(null)}
-                    className="w-8 h-8 rounded-full bg-black/25 hover:bg-black/40 text-white flex items-center justify-center transition-colors flex-shrink-0"
-                    aria-label="Close"
-                  >
-                    <X size={18} />
-                  </button>
-                </div>
+              {/* Drag handle indicator on the LEFT edge — visual cue
+                  the pane is draggable horizontally */}
+              <div className="absolute left-2 top-1/2 -translate-y-1/2 cursor-grab active:cursor-grabbing">
+                <div className="w-1.5 h-12 rounded-full bg-white/70" />
               </div>
 
-              {/* Body */}
-              <div className="px-6 py-5 overflow-y-auto">
-                <p className="text-sm text-gg-gray-200 leading-relaxed">{analytics.summary}</p>
+              {/* Header row */}
+              <div className="flex items-start justify-between gap-3 px-7 pt-7 pb-4">
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-2xl font-extrabold text-white tracking-[0.01em] leading-tight drop-shadow-sm">
+                    Goat Analysis
+                  </h3>
+                  <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-white/85 mt-1">
+                    Goat Search
+                  </p>
+                </div>
+                <button
+                  onClick={() => setAnalytics(null)}
+                  className="w-9 h-9 rounded-full bg-black/30 hover:bg-black/45 text-white flex items-center justify-center transition-colors flex-shrink-0"
+                  aria-label="Close"
+                >
+                  <X size={20} />
+                </button>
+              </div>
 
-                {analytics.stats && analytics.stats.length > 0 && (
-                  <div className="mt-5 grid grid-cols-2 sm:grid-cols-3 gap-3">
-                    {analytics.stats.map((s) => (
-                      <div
-                        key={s.label}
-                        className="bg-white/[0.04] border border-white/10 rounded-xl px-3.5 py-2.5"
-                      >
-                        <div className="text-[10px] uppercase tracking-wider text-gg-pink/85 font-semibold">{s.label}</div>
-                        <div className="text-lg font-bold text-white mt-1">{s.value}</div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {analytics.table && analytics.table.rows.length > 0 && (
-                  <div className="mt-5 border border-white/10 rounded-xl overflow-hidden">
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-xs">
-                        <thead className="bg-white/[0.05] text-gg-gray-300">
-                          <tr>
-                            {analytics.table.columns.map((c) => (
-                              <th key={c} className="text-left font-semibold uppercase tracking-wider text-[10px] px-3.5 py-2.5 whitespace-nowrap">
-                                {c}
-                              </th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {analytics.table.rows.map((row, i) => (
-                            <tr
-                              key={i}
-                              className={`border-t border-white/5 text-gg-gray-100 hover:bg-white/[0.03] ${
-                                i % 2 === 0 ? 'bg-white/[0.015]' : ''
-                              }`}
-                            >
-                              {row.map((cell, j) => (
-                                <td key={j} className="px-3.5 py-2.5 whitespace-nowrap">{cell}</td>
-                              ))}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )}
+              {/* Typed-out answer */}
+              <div className="px-7 pb-8 overflow-y-auto flex-1">
+                <p
+                  className="text-white text-base leading-relaxed font-medium whitespace-pre-line"
+                  style={{ textShadow: '0 1px 2px rgba(0,0,0,0.25)' }}
+                >
+                  {fullAnswer.slice(0, typedChars)}
+                  {typedChars < fullAnswer.length && (
+                    <span className="text-white/85 inline-block animate-pulse">▍</span>
+                  )}
+                </p>
               </div>
             </motion.div>
           </>
