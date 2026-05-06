@@ -23,12 +23,24 @@ interface MapChatPanelProps {
   onSearchStart?: () => void
 }
 
+interface AnalyticsResponse {
+  title: string
+  summary: string
+  stats: { label: string; value: string }[]
+  table: { columns: string[]; rows: string[][] } | null
+  analytics_type: string
+}
+
 export default function MapChatPanel({ onApplyFilters, currentFilters, hasActiveFilters, onSearchStart }: MapChatPanelProps) {
   const [open, setOpen] = useState(false)
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   /** Most recent confirmation/error to show inline. Auto-clears after 4s. */
   const [toast, setToast] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
+  /** Analytics modal state — populated when the LLM picks the analytics
+      tool instead of apply_map_filters. Charts are deferred to v2 (the
+      modal renders text + stats grid + table for now). */
+  const [analytics, setAnalytics] = useState<AnalyticsResponse | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const formRef = useRef<HTMLFormElement>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -92,14 +104,23 @@ export default function MapChatPanel({ onApplyFilters, currentFilters, hasActive
         setToast({ kind: 'err', text: body.detail || `HTTP ${res.status}` })
         return
       }
-      const af = body.applied_filters || {}
-      if (af && Object.keys(af).length > 0) {
-        onApplyFilters(af, !!body.clear_unspecified)
+      // Two response shapes: filter (existing) or analytics (new).
+      // Analytics opens a modal; filter applies to the map as before.
+      if (body.analytics_response) {
+        setAnalytics(body.analytics_response as AnalyticsResponse)
+        setInput('')
+        setToast(null)
+        setOpen(false)
+      } else {
+        const af = body.applied_filters || {}
+        if (af && Object.keys(af).length > 0) {
+          onApplyFilters(af, !!body.clear_unspecified)
+        }
+        setInput('')
+        setToast({ kind: 'ok', text: body.reply || 'Filters applied.' })
+        // Auto-collapse after a successful filter so the pill gets out of the way
+        setTimeout(() => setOpen(false), 600)
       }
-      setInput('')
-      setToast({ kind: 'ok', text: body.reply || 'Filters applied.' })
-      // Auto-collapse after a successful filter so the pill gets out of the way
-      setTimeout(() => setOpen(false), 600)
     } catch (e: any) {
       setToast({ kind: 'err', text: e.message || String(e) })
     } finally {
@@ -230,6 +251,96 @@ export default function MapChatPanel({ onApplyFilters, currentFilters, hasActive
           {loading ? <Loader2 className="animate-spin" size={16} /> : <Send size={15} />}
         </motion.button>
       </motion.form>
+
+      {/* Analytics modal — opens when the LLM picks the analytics tool
+          instead of apply_map_filters (e.g. "avg $/acre in Henry County
+          2025"). v1 = text + stats grid + table. Charts deferred to v2
+          (will use Recharts for bar/line and a server-rendered PNG for
+          mobile parity). */}
+      <AnimatePresence>
+        {analytics && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+            onClick={() => setAnalytics(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.96, y: 8 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.96, y: 8 }}
+              transition={{ duration: 0.18 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-gg-gray-900 border border-white/10 rounded-2xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden"
+            >
+              <div className="flex items-start justify-between gap-4 px-6 py-4 border-b border-white/10">
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-base font-semibold text-white truncate">{analytics.title}</h3>
+                  <p className="text-xs text-gg-gray-400 mt-0.5 capitalize">{analytics.analytics_type.replace(/_/g, ' ')}</p>
+                </div>
+                <button
+                  onClick={() => setAnalytics(null)}
+                  className="text-gg-gray-400 hover:text-white p-1 rounded transition-colors flex-shrink-0"
+                  aria-label="Close"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="px-6 py-4 overflow-y-auto">
+                <p className="text-sm text-gg-gray-200 leading-relaxed">{analytics.summary}</p>
+
+                {analytics.stats && analytics.stats.length > 0 && (
+                  <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    {analytics.stats.map((s) => (
+                      <div key={s.label} className="bg-black/40 border border-white/10 rounded-lg px-3 py-2">
+                        <div className="text-[11px] uppercase tracking-wide text-gg-gray-400">{s.label}</div>
+                        <div className="text-base font-semibold text-white mt-0.5">{s.value}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {analytics.table && analytics.table.rows.length > 0 && (
+                  <div className="mt-5 border border-white/10 rounded-lg overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead className="bg-black/40 text-gg-gray-300">
+                          <tr>
+                            {analytics.table.columns.map((c) => (
+                              <th key={c} className="text-left font-medium px-3 py-2 whitespace-nowrap">{c}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {analytics.table.rows.map((row, i) => (
+                            <tr key={i} className="border-t border-white/5 text-gg-gray-200 hover:bg-white/5">
+                              {row.map((cell, j) => (
+                                <td key={j} className="px-3 py-2 whitespace-nowrap">{cell}</td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="px-6 py-3 border-t border-white/10 flex justify-end">
+                <button
+                  onClick={() => setAnalytics(null)}
+                  className="text-xs px-4 py-1.5 rounded-full bg-gg-pink hover:bg-gg-pink-light text-white transition-colors"
+                >
+                  Close
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }
