@@ -1130,6 +1130,15 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   }) => {
     const { min_lat, max_lat, min_lng, max_lng } = bounds
 
+    // Skip the tract API call if we're below the tract-pin zoom.
+    // Tract pins / polygons don't render below z=9 (TRACT_TIER_MIN),
+    // so loading them at state/county tier is wasted Railway compute,
+    // wasted bandwidth, and a stalled "Loading…" affordance for data
+    // the user can't see yet. 8.5 = small preload margin so the data
+    // is already in the local cache the instant pins appear at z=9.
+    const map = mapRef.current
+    if (map && map.getZoom() < 8.5) return
+
     // Use precise bounds rounded to 0.5 degrees for cache keys
     const r = (v: number) => Math.round(v * 2) / 2
     const gridKey = `${r(min_lat)},${r(min_lng)},${r(max_lat)},${r(max_lng)}`
