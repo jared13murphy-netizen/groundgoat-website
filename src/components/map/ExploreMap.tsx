@@ -1719,10 +1719,18 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         layout: {
           'text-field': [
             'format',
-            ['get', 'owner'], {
+            // Owner name (bold, full size). Parcels without an
+            // owner_name in state_parcels fall back to "Coming Soon"
+            // so the label communicates "we know about this parcel,
+            // we just don't have the owner yet" instead of an empty
+            // tile.
+            ['coalesce', ['get', 'owner'], 'Coming Soon'], {
               'font-scale': 1.0,
               'text-font': ['literal', ['Open Sans Bold']],
             },
+            // Acres on its own line below the owner. Always shown
+            // when present (matches user expectation: "I want acres
+            // to show directly on the map under the owner name").
             [
               'case',
               ['has', 'acres'],
@@ -1792,7 +1800,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         )
       }
 
-      const owner = props.owner || 'Unknown'
+      const owner = props.owner || 'Coming Soon'
       const rows: string[] = []
       if (props.owner_2) rows.push(`<div style="color:#444;font-size:11px;">${props.owner_2}</div>`)
       if (props.acres != null) rows.push(`<div style="color:#6b7280;">${Number(props.acres).toFixed(2)} ac</div>`)
