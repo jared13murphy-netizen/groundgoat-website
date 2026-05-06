@@ -321,6 +321,10 @@ interface FilterState {
   askingPriceMax: string
   pricePerSoilRatingMin: string
   pricePerSoilRatingMax: string
+  // Radius search (chat-only). Set together; partial values are ignored.
+  nearLat: string
+  nearLng: string
+  radiusMiles: string
   companyName: string
   buyer: string
   seller: string
@@ -354,6 +358,9 @@ const INITIAL_FILTERS: FilterState = {
   askingPriceMax: '',
   pricePerSoilRatingMin: '',
   pricePerSoilRatingMax: '',
+  nearLat: '',
+  nearLng: '',
+  radiusMiles: '',
   companyName: '',
   buyer: '',
   seller: '',
@@ -410,6 +417,12 @@ function buildFilterParams(filters: FilterState) {
   if (filters.askingPriceMax) params.asking_price_max = filters.askingPriceMax
   if (filters.pricePerSoilRatingMin) params.price_per_soil_rating_min = filters.pricePerSoilRatingMin
   if (filters.pricePerSoilRatingMax) params.price_per_soil_rating_max = filters.pricePerSoilRatingMax
+  // Radius search: only forward when all three are present
+  if (filters.nearLat && filters.nearLng && filters.radiusMiles) {
+    params.near_lat = filters.nearLat
+    params.near_lng = filters.nearLng
+    params.radius_miles = filters.radiusMiles
+  }
   if (filters.companyName) params.company_name = filters.companyName
   if (filters.buyer) params.buyer = filters.buyer
   if (filters.seller) params.seller = filters.seller
