@@ -42,6 +42,47 @@ function buildPolyGeo(points: Pt[]) {
   } as any
 }
 
+function buildVertexGeo(points: Pt[]) {
+  return {
+    type: 'FeatureCollection',
+    features: points.map((p, i) => ({
+      type: 'Feature',
+      properties: { idx: i },
+      geometry: { type: 'Point', coordinates: p },
+    })),
+  } as any
+}
+
+// Find the closest edge of `polygon` to point (lng, lat) and return the
+// pixel-space insert index + the projected lat/lng on that edge.
+// Used for click-on-edge to insert a new vertex at the clicked location.
+function findClosestEdgeInsert(
+  polygon: Pt[], lng: number, lat: number, project: (p: Pt) => { x: number; y: number }
+): { insertAt: number; point: Pt } | null {
+  if (polygon.length < 2) return null
+  const tgt = project([lng, lat])
+  let best = { insertAt: -1, dist: Infinity, point: [lng, lat] as Pt }
+  for (let i = 0; i < polygon.length; i++) {
+    const a = project(polygon[i])
+    const b = project(polygon[(i + 1) % polygon.length])
+    const dx = b.x - a.x, dy = b.y - a.y
+    const len2 = dx * dx + dy * dy
+    if (len2 === 0) continue
+    let t = ((tgt.x - a.x) * dx + (tgt.y - a.y) * dy) / len2
+    t = Math.max(0, Math.min(1, t))
+    const px = a.x + t * dx, py = a.y + t * dy
+    const d = Math.hypot(tgt.x - px, tgt.y - py)
+    if (d < best.dist) {
+      // Project the midpoint back to lng/lat by linear interp on the polygon points
+      const lng_i = polygon[i][0] + t * (polygon[(i + 1) % polygon.length][0] - polygon[i][0])
+      const lat_i = polygon[i][1] + t * (polygon[(i + 1) % polygon.length][1] - polygon[i][1])
+      best = { insertAt: i + 1, dist: d, point: [lng_i, lat_i] }
+    }
+  }
+  if (best.insertAt < 0 || best.dist > 12) return null  // 12px snap radius
+  return { insertAt: best.insertAt, point: best.point }
+}
+
 function gisAcres(points: Pt[]): number {
   if (points.length < 3) return 0
   let area = 0
@@ -70,6 +111,10 @@ export default function UploadBoundaryTractPage() {
   const [error, setError] = useState<string | null>(null)
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null)
   const [polygon, setPolygon] = useState<Pt[]>([])
+  // Polygon edit history for Cmd+Z undo. Push the polygon BEFORE each
+  // mutation; pop on undo. Capped at 50 to avoid unbounded growth.
+  const polygonHistoryRef = useRef<Pt[][]>([])
+  const draggingVertexRef = useRef<number | null>(null)
   const [extracting, setExtracting] = useState(false)
   const [saving, setSaving] = useState(false)
   const [statusMsg, setStatusMsg] = useState<string | null>(null)
@@ -133,10 +178,123 @@ export default function UploadBoundaryTractPage() {
         id: 'vision-line', type: 'line', source: 'vision-poly',
         paint: { 'line-color': '#E91E8C', 'line-width': 2.5 },
       })
+      // Draggable vertex handles
+      map.addSource('vision-vertices', { type: 'geojson', data: buildVertexGeo([]) })
+      map.addLayer({
+        id: 'vision-vertex', type: 'circle', source: 'vision-vertices',
+        paint: {
+          'circle-radius': 6,
+          'circle-color': '#ffffff',
+          'circle-stroke-color': '#E91E8C',
+          'circle-stroke-width': 2,
+        },
+      })
+
+      // Vertex drag: mousedown on a vertex starts a drag; the
+      // window-level move/up handlers (registered in a separate effect)
+      // do the actual movement so the cursor can leave the canvas.
+      map.on('mousedown', 'vision-vertex', (e) => {
+        e.preventDefault()
+        const f = e.features?.[0]
+        const idx = f?.properties?.idx
+        if (typeof idx === 'number') {
+          draggingVertexRef.current = idx
+          map.getCanvas().style.cursor = 'grabbing'
+          // Push to history before mutating
+          polygonHistoryRef.current.push(polygonRef.current)
+          if (polygonHistoryRef.current.length > 50) polygonHistoryRef.current.shift()
+        }
+      })
+      map.on('mouseenter', 'vision-vertex', () => { map.getCanvas().style.cursor = 'grab' })
+      map.on('mouseleave', 'vision-vertex', () => {
+        if (draggingVertexRef.current === null) map.getCanvas().style.cursor = ''
+      })
+
+      // Click on the polygon line to INSERT a new vertex at the click
+      // location. Alt-click on a vertex DELETES it.
+      map.on('click', 'vision-line', (e) => {
+        const poly = polygonRef.current
+        if (poly.length < 2) return
+        const proj = (p: Pt) => {
+          const px = map.project([p[0], p[1]])
+          return { x: px.x, y: px.y }
+        }
+        const ins = findClosestEdgeInsert(poly, e.lngLat.lng, e.lngLat.lat, proj)
+        if (!ins) return
+        polygonHistoryRef.current.push(poly)
+        if (polygonHistoryRef.current.length > 50) polygonHistoryRef.current.shift()
+        const next = [...poly]
+        next.splice(ins.insertAt, 0, [e.lngLat.lng, e.lngLat.lat])
+        setPolygon(next)
+      })
+      map.on('click', 'vision-vertex', (e) => {
+        if (!(e.originalEvent as MouseEvent).altKey) return
+        const f = e.features?.[0]
+        const idx = f?.properties?.idx
+        if (typeof idx !== 'number') return
+        const poly = polygonRef.current
+        if (poly.length <= 3) return  // never let it drop below a triangle
+        polygonHistoryRef.current.push(poly)
+        if (polygonHistoryRef.current.length > 50) polygonHistoryRef.current.shift()
+        setPolygon(poly.filter((_, i) => i !== idx))
+      })
     })
     mapRef.current = map
     return () => { map.remove(); mapRef.current = null }
   }, [tract])
+
+  // Mirror polygon state into a ref so the map event handlers above
+  // (which close over the initial empty array) always see the live
+  // polygon. Without this, drag/click handlers would always operate
+  // on the polygon-state-at-map-init time.
+  const polygonRef = useRef<Pt[]>([])
+  useEffect(() => { polygonRef.current = polygon }, [polygon])
+
+  // Window-level mousemove/mouseup to handle drag even when the cursor
+  // leaves the vertex (which fires too quickly to track via mapbox events).
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    const onMove = (e: MouseEvent) => {
+      const idx = draggingVertexRef.current
+      if (idx === null) return
+      const rect = map.getCanvas().getBoundingClientRect()
+      const ll = map.unproject([e.clientX - rect.left, e.clientY - rect.top])
+      const next = [...polygonRef.current]
+      if (idx < next.length) {
+        next[idx] = [ll.lng, ll.lat]
+        setPolygon(next)
+      }
+    }
+    const onUp = () => {
+      if (draggingVertexRef.current !== null) {
+        draggingVertexRef.current = null
+        map.getCanvas().style.cursor = ''
+      }
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+  }, [tract])
+
+  // Cmd/Ctrl + Z = undo
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
+        const hist = polygonHistoryRef.current
+        if (hist.length > 0) {
+          e.preventDefault()
+          const prev = hist.pop()!
+          setPolygon(prev)
+        }
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   // Update polygon overlay
   useEffect(() => {
@@ -144,6 +302,8 @@ export default function UploadBoundaryTractPage() {
     if (!map) return
     const src = map.getSource('vision-poly') as maplibregl.GeoJSONSource | undefined
     if (src) src.setData(buildPolyGeo(polygon))
+    const vsrc = map.getSource('vision-vertices') as maplibregl.GeoJSONSource | undefined
+    if (vsrc) vsrc.setData(buildVertexGeo(polygon))
     if (polygon.length >= 3) {
       const lngs = polygon.map(p => p[0])
       const lats = polygon.map(p => p[1])
@@ -189,6 +349,7 @@ export default function UploadBoundaryTractPage() {
   const extract = async () => {
     if (!imageDataUrl) return
     setExtracting(true); setStatusMsg(null); setPolygon([]); setExtractMeta(null)
+    polygonHistoryRef.current = []  // clear undo history on a fresh extract
     try {
       // POST the uploaded image to the per-tract extraction endpoint.
       // The scraper's existing path (when given a real tract UUID) does:
@@ -482,6 +643,15 @@ export default function UploadBoundaryTractPage() {
                 : `${polygon.length} vertices · ${computedAcres.toFixed(1)} ac`}
             </div>
           </div>
+          {polygon.length > 0 && (
+            <div className="absolute bottom-3 left-3 bg-gg-gray-900/85 backdrop-blur rounded-lg px-3 py-2 z-10 pointer-events-none text-[11px] text-gg-gray-300 leading-relaxed">
+              <div className="text-[10px] text-gg-gray-400 uppercase tracking-wider font-semibold mb-1">Edit</div>
+              <div>Drag a vertex to move</div>
+              <div>Click on the line to add a vertex</div>
+              <div>Alt+click a vertex to delete</div>
+              <div>⌘Z to undo</div>
+            </div>
+          )}
           <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
         </div>
       </div>
