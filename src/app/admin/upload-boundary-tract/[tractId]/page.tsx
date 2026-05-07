@@ -190,18 +190,18 @@ export default function UploadBoundaryTractPage() {
     if (!imageDataUrl) return
     setExtracting(true); setStatusMsg(null); setPolygon([]); setExtractMeta(null)
     try {
-      // Use the tract_id=upload sentinel so the scraper takes the
-      // nightly-scraper extraction path (Sonnet aerial trace +
-      // acreage-derived scale anchored on tract centroid). The original
-      // per-tract path uses Opus + scale-bar measurement which produces
-      // 100-200% area errors on Surety maps.
+      // Calls boundary_lookup.get_boundary on the scraper — the same
+      // function the nightly scraper uses for tracts without Land ID
+      // iframes. Tries county ArcGIS, Regrid, SAM2 in priority order.
+      // The polygon comes from cadastral data (not the uploaded image);
+      // the image stays on screen as visual reference.
       const t = tract || {}
       const tractLat = t.latitude ?? t.lat
       const tractLng = t.longitude ?? t.lng
       const tractAcres = t.total_acres ?? t.acres
       if (tractLat == null || tractLng == null || !tractAcres) {
         throw new Error(
-          'Tract is missing lat/lng/acres — needed to derive scale. ' +
+          'Tract is missing lat/lng/acres — needed for boundary lookup. ' +
           'Set those on the tract first, then retry.'
         )
       }
@@ -215,6 +215,9 @@ export default function UploadBoundaryTractPage() {
             lat: Number(tractLat),
             lng: Number(tractLng),
             acres: Number(tractAcres),
+            county: t.county || null,
+            state: t.state || null,
+            pin: t.pin || null,
           }),
         }
       )
