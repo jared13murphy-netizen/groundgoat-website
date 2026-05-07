@@ -190,34 +190,24 @@ export default function UploadBoundaryTractPage() {
     if (!imageDataUrl) return
     setExtracting(true); setStatusMsg(null); setPolygon([]); setExtractMeta(null)
     try {
-      // Calls boundary_lookup.get_boundary on the scraper — the same
-      // function the nightly scraper uses for tracts without Land ID
-      // iframes. Tries county ArcGIS, Regrid, SAM2 in priority order.
-      // The polygon comes from cadastral data (not the uploaded image);
-      // the image stays on screen as visual reference.
-      const t = tract || {}
-      const tractLat = t.latitude ?? t.lat
-      const tractLng = t.longitude ?? t.lng
-      const tractAcres = t.total_acres ?? t.acres
-      if (tractLat == null || tractLng == null || !tractAcres) {
-        throw new Error(
-          'Tract is missing lat/lng/acres — needed for boundary lookup. ' +
-          'Set those on the tract first, then retry.'
-        )
-      }
+      // POST the uploaded image to the per-tract extraction endpoint.
+      // The scraper's existing path (when given a real tract UUID) does:
+      //   1. Vision reads Boundary Center DMS + scale bar + PLSS label
+      //      from the auction image's footer (single Opus call).
+      //   2. OpenCV color-extracts the highlighted boundary line for
+      //      the actual drawn polygon shape.
+      //   3. Snap-to-line refinement walks along the drawn pixels.
+      //   4. Pixel→lat/lng projection anchored on the printed Boundary
+      //      Center, scaled by the scale bar (or acreage as fallback).
+      // This produces accurate polygons that match the auctioneer's
+      // hand-drawn boundary (Surety, Wheeler, Halderman, etc.).
       const res = await fetch(
-        `${SCRAPER_URL}/api/admin/tracts/upload/extract-boundary-from-image`,
+        `${SCRAPER_URL}/api/admin/tracts/${tractId}/extract-boundary-from-image`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             image_base64: imageDataUrl,
-            lat: Number(tractLat),
-            lng: Number(tractLng),
-            acres: Number(tractAcres),
-            county: t.county || null,
-            state: t.state || null,
-            pin: t.pin || null,
           }),
         }
       )
