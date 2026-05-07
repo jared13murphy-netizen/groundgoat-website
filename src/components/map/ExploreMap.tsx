@@ -1628,9 +1628,19 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       const attribution = src.includes('regrid')
         ? `<div style="color:#9ca3af;font-size:10px;margin-top:6px;padding-top:6px;border-top:1px solid #e5e7eb;">Parcel data by <a href="https://regrid.com" target="_blank" rel="noopener noreferrer" style="color:#6b7280;text-decoration:underline;">Regrid</a></div>`
         : ''
-      // Popup content: owner + acres only. Per user spec.
+      // Popup content: owner, acres, plus county and township when
+      // available (nice-to-have — they often won't be populated for
+      // parcels coming from local cache rather than a live Regrid call).
       const rows: string[] = []
       if (props.acres) rows.push(`<div style="color:#6b7280;">${props.acres} ac</div>`)
+      if (props.county) {
+        const cs = `${props.county} County${props.state ? `, ${props.state}` : ''}`
+        rows.push(`<div style="color:#6b7280;">${cs}</div>`)
+      }
+      if (props.township) {
+        const tw = /township/i.test(props.township) ? props.township : `${props.township} Township`
+        rows.push(`<div style="color:#6b7280;">${tw}</div>`)
+      }
 
       popup
         .setLngLat(e.lngLat)
@@ -1827,12 +1837,20 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         )
       }
 
-      // Popup: owner + acres only (per user spec). No owner_2,
-      // no county, no PID — those add noise without value at the
-      // hover-popup zoom level.
+      // Popup: owner, acres, plus county and township when available.
+      // No owner_2 or PID — those add noise. County/township are
+      // nice-to-haves: render only if the tile actually carries them.
       const owner = props.owner || 'Coming Soon'
       const rows: string[] = []
       if (props.acres != null) rows.push(`<div style="color:#6b7280;">${Number(props.acres).toFixed(2)} ac</div>`)
+      if (props.county) {
+        const cs = `${props.county} County${props.state ? `, ${props.state}` : ''}`
+        rows.push(`<div style="color:#6b7280;">${cs}</div>`)
+      }
+      if (props.township) {
+        const tw = /township/i.test(props.township) ? props.township : `${props.township} Township`
+        rows.push(`<div style="color:#6b7280;">${tw}</div>`)
+      }
 
       popup
         .setLngLat(e.lngLat)
