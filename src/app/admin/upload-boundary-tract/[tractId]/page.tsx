@@ -190,12 +190,32 @@ export default function UploadBoundaryTractPage() {
     if (!imageDataUrl) return
     setExtracting(true); setStatusMsg(null); setPolygon([]); setExtractMeta(null)
     try {
+      // Use the tract_id=upload sentinel so the scraper takes the
+      // nightly-scraper extraction path (Sonnet aerial trace +
+      // acreage-derived scale anchored on tract centroid). The original
+      // per-tract path uses Opus + scale-bar measurement which produces
+      // 100-200% area errors on Surety maps.
+      const t = tract || {}
+      const tractLat = t.latitude ?? t.lat
+      const tractLng = t.longitude ?? t.lng
+      const tractAcres = t.total_acres ?? t.acres
+      if (tractLat == null || tractLng == null || !tractAcres) {
+        throw new Error(
+          'Tract is missing lat/lng/acres — needed to derive scale. ' +
+          'Set those on the tract first, then retry.'
+        )
+      }
       const res = await fetch(
-        `${SCRAPER_URL}/api/admin/tracts/${tractId}/extract-boundary-from-image`,
+        `${SCRAPER_URL}/api/admin/tracts/upload/extract-boundary-from-image`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ image_base64: imageDataUrl }),
+          body: JSON.stringify({
+            image_base64: imageDataUrl,
+            lat: Number(tractLat),
+            lng: Number(tractLng),
+            acres: Number(tractAcres),
+          }),
         }
       )
       const body = await res.json()
