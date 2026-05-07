@@ -115,6 +115,9 @@ export default function UploadBoundaryTractPage() {
   // mutation; pop on undo. Capped at 50 to avoid unbounded growth.
   const polygonHistoryRef = useRef<Pt[][]>([])
   const draggingVertexRef = useRef<number | null>(null)
+  // Polygon-body drag: when non-null, holds the lng/lat of the cursor
+  // at the previous mousemove tick so we can compute deltas.
+  const draggingPolygonRef = useRef<{ lng: number; lat: number } | null>(null)
   const [extracting, setExtracting] = useState(false)
   const [saving, setSaving] = useState(false)
   const [statusMsg, setStatusMsg] = useState<string | null>(null)
@@ -200,14 +203,45 @@ export default function UploadBoundaryTractPage() {
         if (typeof idx === 'number') {
           draggingVertexRef.current = idx
           map.getCanvas().style.cursor = 'grabbing'
-          // Push to history before mutating
+          map.dragPan.disable()  // don't pan the map while dragging vertex
           polygonHistoryRef.current.push(polygonRef.current)
           if (polygonHistoryRef.current.length > 50) polygonHistoryRef.current.shift()
         }
       })
       map.on('mouseenter', 'vision-vertex', () => { map.getCanvas().style.cursor = 'grab' })
       map.on('mouseleave', 'vision-vertex', () => {
-        if (draggingVertexRef.current === null) map.getCanvas().style.cursor = ''
+        if (draggingVertexRef.current === null
+            && draggingPolygonRef.current === null) {
+          map.getCanvas().style.cursor = ''
+        }
+      })
+
+      // Polygon body drag: mousedown on the FILL (anywhere inside the
+      // polygon, but not on a vertex) starts a translation drag. All
+      // vertices move together by the lat/lng delta of cursor movement.
+      map.on('mousedown', 'vision-fill', (e) => {
+        // Skip if mousedown is also on a vertex — vertex drag wins
+        const vertexHits = map.queryRenderedFeatures(e.point, { layers: ['vision-vertex'] })
+        if (vertexHits.length > 0) return
+        e.preventDefault()
+        draggingPolygonRef.current = { lng: e.lngLat.lng, lat: e.lngLat.lat }
+        map.getCanvas().style.cursor = 'grabbing'
+        map.dragPan.disable()
+        polygonHistoryRef.current.push(polygonRef.current)
+        if (polygonHistoryRef.current.length > 50) polygonHistoryRef.current.shift()
+      })
+      map.on('mouseenter', 'vision-fill', (e) => {
+        // Don't override the vertex-grab cursor
+        const vertexHits = map.queryRenderedFeatures(e.point, { layers: ['vision-vertex'] })
+        if (vertexHits.length === 0 && draggingVertexRef.current === null) {
+          map.getCanvas().style.cursor = 'move'
+        }
+      })
+      map.on('mouseleave', 'vision-fill', () => {
+        if (draggingVertexRef.current === null
+            && draggingPolygonRef.current === null) {
+          map.getCanvas().style.cursor = ''
+        }
       })
 
       // Click on the polygon line to INSERT a new vertex at the click
@@ -256,20 +290,37 @@ export default function UploadBoundaryTractPage() {
     const map = mapRef.current
     if (!map) return
     const onMove = (e: MouseEvent) => {
-      const idx = draggingVertexRef.current
-      if (idx === null) return
       const rect = map.getCanvas().getBoundingClientRect()
       const ll = map.unproject([e.clientX - rect.left, e.clientY - rect.top])
-      const next = [...polygonRef.current]
-      if (idx < next.length) {
-        next[idx] = [ll.lng, ll.lat]
+
+      // Vertex drag: move just one vertex
+      const idx = draggingVertexRef.current
+      if (idx !== null) {
+        const next = [...polygonRef.current]
+        if (idx < next.length) {
+          next[idx] = [ll.lng, ll.lat]
+          setPolygon(next)
+        }
+        return
+      }
+
+      // Polygon-body drag: translate every vertex by the lat/lng delta
+      const start = draggingPolygonRef.current
+      if (start !== null) {
+        const dLng = ll.lng - start.lng
+        const dLat = ll.lat - start.lat
+        const next = polygonRef.current.map(([x, y]) => [x + dLng, y + dLat] as Pt)
+        draggingPolygonRef.current = { lng: ll.lng, lat: ll.lat }
         setPolygon(next)
       }
     }
     const onUp = () => {
-      if (draggingVertexRef.current !== null) {
+      if (draggingVertexRef.current !== null
+          || draggingPolygonRef.current !== null) {
         draggingVertexRef.current = null
+        draggingPolygonRef.current = null
         map.getCanvas().style.cursor = ''
+        map.dragPan.enable()
       }
     }
     window.addEventListener('mousemove', onMove)
@@ -646,7 +697,8 @@ export default function UploadBoundaryTractPage() {
           {polygon.length > 0 && (
             <div className="absolute bottom-3 left-3 bg-gg-gray-900/85 backdrop-blur rounded-lg px-3 py-2 z-10 pointer-events-none text-[11px] text-gg-gray-300 leading-relaxed">
               <div className="text-[10px] text-gg-gray-400 uppercase tracking-wider font-semibold mb-1">Edit</div>
-              <div>Drag a vertex to move</div>
+              <div>Drag a vertex to move it</div>
+              <div>Drag inside the polygon to move all of it</div>
               <div>Click on the line to add a vertex</div>
               <div>Alt+click a vertex to delete</div>
               <div>⌘Z to undo</div>
