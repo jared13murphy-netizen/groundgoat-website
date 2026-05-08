@@ -110,6 +110,8 @@ export default function UploadBoundaryTractPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null)
+  const [urlInput, setUrlInput] = useState<string>('')
+  const [extractingUrl, setExtractingUrl] = useState<boolean>(false)
   const [polygon, setPolygon] = useState<Pt[]>([])
   // Polygon edit history for Cmd+Z undo. Push the polygon BEFORE each
   // mutation; pop on undo. Capped at 50 to avoid unbounded growth.
@@ -450,6 +452,54 @@ export default function UploadBoundaryTractPage() {
     }
   }
 
+  const extractFromUrl = async () => {
+    const url = urlInput.trim()
+    if (!url) return
+    if (!/^https?:\/\//.test(url)) {
+      setStatusMsg('✗ URL must start with http:// or https://')
+      return
+    }
+    setExtractingUrl(true); setStatusMsg(null); setPolygon([]); setExtractMeta(null)
+    polygonHistoryRef.current = []
+    try {
+      // Backend fetches the URL, scans the HTML for a Land ID iframe,
+      // pulls the GeoJSON via Land ID's API, and picks the polygon
+      // whose acreage best matches this tract's expected total.
+      const res = await fetch(
+        `${SCRAPER_URL}/api/admin/tracts/${tractId}/extract-boundary-from-url`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url }),
+        }
+      )
+      const body = await res.json()
+      if (!res.ok || !body.success) {
+        throw new Error(body.error || `HTTP ${res.status}`)
+      }
+      const poly: Pt[] = (body.polygon || []).map((p: any) => [Number(p[0]), Number(p[1])])
+      if (poly.length < 3) throw new Error('Land ID returned an empty polygon')
+      setPolygon(poly)
+      setExtractMeta({
+        extracted_acres: body.extracted_acres,
+        expected_acres: body.expected_acres,
+        acreage_match: body.acreage_match,
+        confidence: body.vision_confidence,
+        notes: body.vision_notes,
+        tract_label_matched: body.tract_label_matched,
+        projection_method: body.projection_method,
+        polygon_source: body.polygon_source,
+        boundary_color: body.boundary_color,
+        boundary_center_from_image: body.boundary_center_from_image,
+      })
+      setStatusMsg(null)
+    } catch (e: any) {
+      setStatusMsg(`✗ URL extract failed: ${e.message || e}`)
+    } finally {
+      setExtractingUrl(false)
+    }
+  }
+
   const save = async () => {
     if (polygon.length < 3) return
     setSaving(true); setStatusMsg(null)
@@ -538,6 +588,40 @@ export default function UploadBoundaryTractPage() {
       <div className="flex flex-1 min-h-0">
         {/* Left: image upload + controls */}
         <div className="flex-1 min-w-0 border-r border-gg-gray-800 flex flex-col p-4 gap-3 overflow-y-auto">
+          {/* URL extract — for auction listings with a Land ID iframe.
+              Backend fetches the page, finds the Land ID map hash, pulls
+              the GeoJSON, and returns the polygon whose acreage best
+              matches this tract. Skips the image upload entirely. */}
+          <div className="text-xs text-gg-gray-400 uppercase tracking-wider font-semibold">
+            Or paste an auction URL with a Land ID map
+          </div>
+          <div className="flex gap-2">
+            <input
+              type="url"
+              value={urlInput}
+              onChange={(e) => setUrlInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !extractingUrl && urlInput.trim()) {
+                  extractFromUrl()
+                }
+              }}
+              placeholder="https://www.trophypa.com/p/..."
+              disabled={extractingUrl}
+              className="flex-1 min-w-0 px-3 py-2 bg-gg-gray-900 border border-gg-gray-800 rounded-lg text-sm text-white placeholder-gg-gray-500 focus:outline-none focus:border-gg-pink disabled:opacity-50"
+            />
+            <button
+              onClick={extractFromUrl}
+              disabled={extractingUrl || !urlInput.trim()}
+              className="flex items-center justify-center gap-2 px-4 py-2 bg-gg-pink hover:bg-gg-pink/85 disabled:opacity-50 text-white font-semibold rounded-lg transition flex-shrink-0"
+              title="Fetch the page, find the Land ID map, extract the polygon"
+            >
+              {extractingUrl ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+              {extractingUrl ? 'Fetching…' : 'Extract'}
+            </button>
+          </div>
+
+          <div className="border-t border-gg-gray-800 my-1" />
+
           <div className="text-xs text-gg-gray-400 uppercase tracking-wider font-semibold">
             1. Paste auction-website image
           </div>
