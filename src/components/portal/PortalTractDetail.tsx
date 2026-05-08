@@ -321,21 +321,48 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
                 value={formatAuctionDate(tract.auctionDate, tract.state)}
               />
             )}
-            {/* Private-treaty asking-price rows replace the Date for PT listings */}
-            {isPrivateTreaty && tract.askingPrice ? (
-              <DetailRow
-                label="Listing Total Price"
-                value={formatCurrency(tract.askingPrice)}
-                highlight
-              />
-            ) : null}
-            {isPrivateTreaty && askingPpa ? (
-              <DetailRow
-                label="Listing Price/Acre"
-                value={formatCurrency(askingPpa) + '/ac'}
-                highlight
-              />
-            ) : null}
+            {/* Price rows — labels reflect the tract's sale_status:
+                  sold     → "Sold Price"          + "Sold Price/Acre"
+                  no_sale  → "Final Bid Price"     + "Final Bid Price/Acre"
+                  PT       → "Listing Total Price" + "Listing Price/Acre" */}
+            {(() => {
+              const status = (tract.saleStatus || '').toLowerCase()
+              const ppa = (val: number) => tract.totalAcres ? val / tract.totalAcres : null
+
+              if (status === 'sold' && tract.salePrice) {
+                const p = ppa(tract.salePrice)
+                return (
+                  <>
+                    <DetailRow label="Sold Price" value={formatCurrency(tract.salePrice)} highlight />
+                    {p != null ? (
+                      <DetailRow label="Sold Price/Acre" value={formatCurrency(p) + '/ac'} highlight />
+                    ) : null}
+                  </>
+                )
+              }
+              if (status === 'no_sale' && tract.salePrice) {
+                const p = ppa(tract.salePrice)
+                return (
+                  <>
+                    <DetailRow label="Final Bid Price" value={formatCurrency(tract.salePrice)} highlight />
+                    {p != null ? (
+                      <DetailRow label="Final Bid Price/Acre" value={formatCurrency(p) + '/ac'} highlight />
+                    ) : null}
+                  </>
+                )
+              }
+              if (isPrivateTreaty && tract.askingPrice) {
+                return (
+                  <>
+                    <DetailRow label="Listing Total Price" value={formatCurrency(tract.askingPrice)} highlight />
+                    {askingPpa ? (
+                      <DetailRow label="Listing Price/Acre" value={formatCurrency(askingPpa) + '/ac'} highlight />
+                    ) : null}
+                  </>
+                )
+              }
+              return null
+            })()}
             {tract.companyName && <DetailRow label="Listing Company" value={tract.companyName} />}
             <DetailRow label="County" value={tract.county || '—'} />
             <DetailRow label="State" value={tract.state || '—'} />
