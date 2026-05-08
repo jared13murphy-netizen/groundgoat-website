@@ -2258,7 +2258,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         <div class="aem-state-overlay">
           <img src="/goat-icon-white.png" alt="" class="aem-state-goat" />
           <div class="aem-state-name">${abbrToName(state)}</div>
-          <div class="aem-state-count">${count.toLocaleString()}</div>
           <a class="aem-state-link" data-action="filter">Filter</a>
         </div>
       `
@@ -2320,7 +2319,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       inner.className = 'aem-county-square'
       inner.innerHTML = `
         <div class="aem-county-name">${c.county}</div>
-        <div class="aem-county-count">${c.count.toLocaleString()}</div>
       `
       el.appendChild(inner)
       el.addEventListener('click', () => {

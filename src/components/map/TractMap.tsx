@@ -280,7 +280,6 @@ export default function TractMap({ listings, height = '600px', filters }: TractM
       el.innerHTML = `
         <div class="state-card">
           <div class="state-card-name">${agg.state}</div>
-          <div class="state-card-count">${agg.count} tract${agg.count !== 1 ? 's' : ''}</div>
         </div>
       `
       el.addEventListener('click', () => {
