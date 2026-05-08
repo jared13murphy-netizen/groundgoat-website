@@ -2204,11 +2204,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // not just states that have tracts in the DB. Once the Regrid API
     // is wired up we'll have data for every state, so badges should
     // appear nationwide regardless of current tract count.
-    const allStates = new Set<string>([
+    const allStates = Array.from(new Set<string>([
       ...Object.keys(stateSilhouettes),
       ...Object.keys(stateCentroids),
       ...stateCounts.map(s => s.state),
-    ])
+    ]))
     for (const state of allStates) {
       let lng: number | undefined
       let lat: number | undefined
