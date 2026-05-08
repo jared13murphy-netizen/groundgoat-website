@@ -200,14 +200,13 @@ export default function Home() {
             sizes="100vw"
           />
 
-          {/* Layered gradient overlays:
-              1) Solid 55% black baseline so text is always readable.
-              2) Left-to-right darkening pulls focus to the headline area.
-              3) Top-and-bottom fades blend the map into the page header
-                 and the next section's dark background. */}
-          <div className="absolute inset-0 bg-black/55" />
-          <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/40 to-black/20" />
-          <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-transparent to-black/95" />
+          {/* Layered gradient overlays — kept light so the map shows
+              through clearly. Dark anchor on the left for headline
+              readability, soft fade at top + bottom into the dark
+              page chrome. */}
+          <div className="absolute inset-0 bg-black/15" />
+          <div className="absolute inset-0 bg-gradient-to-r from-black/65 via-black/15 to-transparent" />
+          <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-transparent to-black/80" />
         </div>
 
         {/* Content Overlay */}

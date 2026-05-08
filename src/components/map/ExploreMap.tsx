@@ -587,6 +587,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const [countyCounts, setCountyCounts] = useState<
     Array<{ state: string; county: string; count: number; lat: number; lng: number }>
   >([])
+  // Full nationwide county centroid list (3,221 entries). Loaded once
+  // from /data/county-centroids.json so we can render a badge for every
+  // county, not just counties returned by the tract-counts API.
+  const [allCountyCentroids, setAllCountyCentroids] = useState<
+    Array<{ state: string; county: string; lng: number; lat: number }>
+  >([])
   const [stateSilhouettes, setStateSilhouettes] = useState<Record<string, string>>({})
   const [stateCentroids, setStateCentroids] = useState<Record<string, [number, number]>>({})
   const [stateBboxes, setStateBboxes] = useState<
@@ -623,6 +629,20 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   }, [filters])
 
   const currentTier = currentZoomTier(currentZoom)
+
+  // Load nationwide county centroids ONCE so the county-tier badges
+  // can render for every U.S. county.
+  useEffect(() => {
+    let cancelled = false
+    fetch('/data/county-centroids.json')
+      .then(r => (r.ok ? r.json() : []))
+      .then((data: any) => {
+        if (cancelled || !Array.isArray(data)) return
+        setAllCountyCentroids(data)
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
 
   // Load state silhouettes + bboxes ONCE on mount from us-states.json.
   // Used to render the silhouette badges with bbox-projected sizing.
@@ -2311,39 +2331,81 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   }, [stateCounts, mapLoaded, currentTier, stateSilhouettes, stateBboxes])
 
   // COUNTY SQUARES — only built when in county tier.
+  // Renders a badge for EVERY county in the visible viewport (not just
+  // counties returned by the tract-counts API). Re-clipped to viewport
+  // on every map move so we never have more than ~hundreds of DOM
+  // markers at a time even though the full dataset has ~3,221.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded) return
-
-    fadeOutAndRemove(countyMarkersRef.current)
-    countyMarkersRef.current = []
-    if (currentTier !== 'county') return
-
-    for (const c of countyCounts) {
-      if (!c.count || c.lat == null || c.lng == null) continue
-      const el = document.createElement('div')
-      el.className = 'aem-marker-shell'
-      const inner = document.createElement('div')
-      inner.className = 'aem-county-square'
-      inner.innerHTML = `
-        <div class="aem-county-name">${c.county}</div>
-      `
-      el.appendChild(inner)
-      el.addEventListener('click', () => {
-        map.easeTo({ center: [c.lng, c.lat], zoom: 10, duration: 800 })
-      })
-      const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
-        .setLngLat([c.lng, c.lat])
-        .addTo(map)
-      countyMarkersRef.current.push(marker)
+    if (currentTier !== 'county' || allCountyCentroids.length === 0) {
+      fadeOutAndRemove(countyMarkersRef.current)
+      countyMarkersRef.current = []
+      return
     }
 
+    // Track currently-rendered counties by `STATE-COUNTY` key so we
+    // can incrementally add/remove on pan instead of full rebuild.
+    const rendered = new Map<string, maplibregl.Marker>()
+
+    const renderForBounds = () => {
+      const bounds = map.getBounds()
+      const w = bounds.getWest(), e = bounds.getEast()
+      const s = bounds.getSouth(), n = bounds.getNorth()
+      // Small margin so badges that are partly off-screen still attach.
+      const mw = (e - w) * 0.05
+      const mh = (n - s) * 0.05
+      const visibleKeys = new Set<string>()
+
+      for (const c of allCountyCentroids) {
+        if (c.lng < w - mw || c.lng > e + mw) continue
+        if (c.lat < s - mh || c.lat > n + mh) continue
+        const key = `${c.state}-${c.county}`
+        visibleKeys.add(key)
+        if (rendered.has(key)) continue
+        const el = document.createElement('div')
+        el.className = 'aem-marker-shell'
+        const inner = document.createElement('div')
+        inner.className = 'aem-county-square'
+        inner.innerHTML = `<div class="aem-county-name">${c.county}</div>`
+        el.appendChild(inner)
+        el.addEventListener('click', () => {
+          map.easeTo({ center: [c.lng, c.lat], zoom: 10, duration: 800 })
+        })
+        const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
+          .setLngLat([c.lng, c.lat])
+          .addTo(map)
+        rendered.set(key, marker)
+      }
+
+      // Remove any rendered markers no longer visible.
+      const keysToRemove: string[] = []
+      rendered.forEach((marker, key) => {
+        if (!visibleKeys.has(key)) {
+          marker.remove()
+          keysToRemove.push(key)
+        }
+      })
+      keysToRemove.forEach(k => rendered.delete(k))
+      // Keep the ref in sync for cleanup + fade-out helpers.
+      const stillVisible: maplibregl.Marker[] = []
+      rendered.forEach(m => stillVisible.push(m))
+      countyMarkersRef.current = stillVisible
+    }
+
+    renderForBounds()
+    map.on('moveend', renderForBounds)
+
     return () => {
-      fadeOutAndRemove(countyMarkersRef.current)
+      map.off('moveend', renderForBounds)
+      const all: maplibregl.Marker[] = []
+      rendered.forEach(m => all.push(m))
+      fadeOutAndRemove(all)
+      rendered.clear()
       countyMarkersRef.current = []
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [countyCounts, mapLoaded, currentTier])
+  }, [allCountyCentroids, mapLoaded, currentTier])
 
   // TRACT PIN VISIBILITY — toggle existing tract pins by tier.
   // Pins are created/maintained by their own effect (downstream);
