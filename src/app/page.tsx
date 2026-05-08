@@ -189,20 +189,25 @@ export default function Home() {
     <>
       {/* Hero Section with Full-Screen Carousel */}
       <section className="relative min-h-[calc(100vh-80px)] mt-20 flex items-center overflow-hidden">
-        {/* Static Background Image */}
+        {/* Static Background Image — Explore-map screenshot */}
         <div className="absolute inset-0">
           <Image
-            src="https://images.unsplash.com/photo-1560493676-04071c5f467b?w=1920&q=80"
-            alt="Farmland"
+            src="/hero-explore-map.png"
+            alt="Ground Goat Explore Map — every U.S. state covered"
             fill
-            className="object-cover"
+            className="object-cover object-center"
             priority
             sizes="100vw"
           />
-          
-          {/* Gradient overlays for text readability */}
-          <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/50 to-transparent" />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/30" />
+
+          {/* Layered gradient overlays:
+              1) Solid 55% black baseline so text is always readable.
+              2) Left-to-right darkening pulls focus to the headline area.
+              3) Top-and-bottom fades blend the map into the page header
+                 and the next section's dark background. */}
+          <div className="absolute inset-0 bg-black/55" />
+          <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/40 to-black/20" />
+          <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-transparent to-black/95" />
         </div>
 
         {/* Content Overlay */}
