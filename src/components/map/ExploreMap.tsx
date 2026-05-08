@@ -2200,8 +2200,16 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       inner.style.height = `${h}px`
     }
 
-    for (const { state, count } of stateCounts) {
-      if (count === 0) continue
+    // Render a badge for EVERY state with a known silhouette/centroid,
+    // not just states that have tracts in the DB. Once the Regrid API
+    // is wired up we'll have data for every state, so badges should
+    // appear nationwide regardless of current tract count.
+    const allStates = new Set<string>([
+      ...Object.keys(stateSilhouettes),
+      ...Object.keys(stateCentroids),
+      ...stateCounts.map(s => s.state),
+    ])
+    for (const state of allStates) {
       let lng: number | undefined
       let lat: number | undefined
       const c = stateCentroids[state]
