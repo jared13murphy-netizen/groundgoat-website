@@ -160,7 +160,12 @@ export default function MapChatPanel({ onApplyFilters, currentFilters, hasActive
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: text,
-          current_filters: currentFilters || {},
+          // Per user spec 2026-05-08: every new search is FRESH, not a
+          // refinement of the previous results. Sending {} means the
+          // LLM has no prior-filter context to inherit — queries like
+          // "Steffes Dec 2025 auctions" don't get intersected with a
+          // previous "Iowa CSR2 70+" filter.
+          current_filters: {},
         }),
       })
       const body = await res.json().catch(() => ({} as any))
