@@ -53,7 +53,10 @@ export default function LandIdBatchFixPage() {
   const [error, setError] = useState<string | null>(null)
   const [stateFilter, setStateFilter] = useState<string>('IA')
   const [statusFilter, setStatusFilter] = useState<string>('success')
-  const [reviewFilter, setReviewFilter] = useState<string>('pending')
+  // After a run, we want to see the auto-applied fixes by default —
+  // those have review_status='approved'. Switch to 'rejected' to see
+  // anything the user already flagged as wrong.
+  const [reviewFilter, setReviewFilter] = useState<string>('approved')
   const [limit, setLimit] = useState<number>(20)
   const [runResult, setRunResult] = useState<any>(null)
   const [busyProposal, setBusyProposal] = useState<string | null>(null)
@@ -97,23 +100,9 @@ export default function LandIdBatchFixPage() {
     }
   }
 
-  async function approve(p: Proposal) {
-    setBusyProposal(p.id)
-    try {
-      const r = await fetch(`${SCRAPER_URL}/api/admin/landid-batch-fix/proposal/${p.id}/apply`, {
-        method: 'POST',
-      })
-      const data = await r.json()
-      if (!r.ok || !data.success) throw new Error(data.error || `HTTP ${r.status}`)
-      await load()
-    } catch (e: any) {
-      alert(`Apply failed: ${e.message || e}`)
-    } finally {
-      setBusyProposal(null)
-    }
-  }
-
-  async function reject(p: Proposal) {
+  async function markWrong(p: Proposal) {
+    if (!confirm('Mark this Land ID polygon as wrong? The tract will go back on the missing-boundaries dashboard for manual fixing.'))
+      return
     setBusyProposal(p.id)
     try {
       const r = await fetch(`${SCRAPER_URL}/api/admin/landid-batch-fix/proposal/${p.id}/reject`, {
@@ -123,7 +112,7 @@ export default function LandIdBatchFixPage() {
       if (!r.ok || !data.success) throw new Error(data.error || `HTTP ${r.status}`)
       await load()
     } catch (e: any) {
-      alert(`Reject failed: ${e.message || e}`)
+      alert(`Mark-wrong failed: ${e.message || e}`)
     } finally {
       setBusyProposal(null)
     }
@@ -135,11 +124,16 @@ export default function LandIdBatchFixPage() {
         <div className="mb-4">
           <h1 className="text-2xl font-bold">Land ID Batch Fix</h1>
           <p className="text-sm text-gg-gray-400 mt-1">
-            For single-tract listings flagged as missing or wrong, fetches the
-            source URL HTML, extracts the Land ID embed, and stages a polygon
-            proposal. Review each proposal here — approving it triggers a
-            full re-enrichment (state-aware soil rating, tillable acres,
-            tract image).
+            Automated fixer for single-tract listings flagged as missing or
+            wrong. Pick a state, hit <strong>Run batch</strong>, and the
+            scraper will fetch each source URL, find a Land ID embed, pull
+            the polygon, and — when the polygon's acreage matches the
+            scraped acres within 1 ac — auto-apply the fix and run full
+            re-enrichment (state-aware soil rating, tillable acres, tract
+            image, listing primary image). Review the results below; click
+            <strong> Mark wrong</strong> on anything that doesn't look right
+            and that tract goes back on the missing-boundaries dashboard
+            for manual fixing.
           </p>
         </div>
 
@@ -167,7 +161,7 @@ export default function LandIdBatchFixPage() {
           <button onClick={runBatch} disabled={running}
                   className="ml-2 px-3 py-1.5 rounded bg-gg-pink hover:bg-gg-pink/80 text-white text-sm flex items-center gap-1.5 disabled:opacity-50">
             {running ? <Loader2 className="animate-spin" size={14} /> : <Play size={14} />}
-            {running ? 'Running…' : `Run preview (${limit})`}
+            {running ? 'Running…' : `Run batch (${limit})`}
           </button>
           <button onClick={load}
                   className="px-3 py-1.5 rounded border border-gg-gray-700 hover:bg-gg-gray-800 text-sm flex items-center gap-1.5">
@@ -178,7 +172,9 @@ export default function LandIdBatchFixPage() {
         {runResult && (
           <div className="bg-gg-gray-900 border border-emerald-700/40 rounded p-3 mb-4 text-sm">
             <div className="font-semibold text-emerald-300 mb-1">
-              Run {runResult.run_id?.slice(0, 8)} — {runResult.total_attempted} attempted
+              Run {runResult.run_id?.slice(0, 8)} — {runResult.total_attempted} attempted,
+              {' '}<span className="text-emerald-200">{runResult.auto_applied || 0} auto-applied</span>
+              {runResult.apply_errors ? <span className="text-rose-300"> · {runResult.apply_errors} apply errors</span> : null}
             </div>
             <div className="flex flex-wrap gap-3 text-xs text-gg-gray-300">
               {Object.entries(runResult.counts || {}).map(([k, v]) => (
@@ -257,15 +253,26 @@ export default function LandIdBatchFixPage() {
                     <div className="text-xs text-rose-400 mt-1">{p.error_message}</div>
                   )}
                 </div>
-                {p.status === 'success' && p.review_status === 'pending' && (
+                {p.status === 'success' && p.review_status === 'approved' && (
                   <div className="flex items-center gap-2 flex-shrink-0">
-                    <button onClick={() => approve(p)} disabled={busyProposal === p.id}
-                            className="px-3 py-1.5 rounded text-xs flex items-center gap-1 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 disabled:opacity-50">
-                      <Check size={12} /> Approve
+                    <span className="text-[11px] text-emerald-300 flex items-center gap-1">
+                      <Check size={12} /> Auto-applied
+                    </span>
+                    <button onClick={() => markWrong(p)} disabled={busyProposal === p.id}
+                            className="px-3 py-1.5 rounded text-xs flex items-center gap-1 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 disabled:opacity-50"
+                            title="Send this tract back to the missing-boundaries dashboard for manual fixing">
+                      <X size={12} /> Mark wrong
                     </button>
-                    <button onClick={() => reject(p)} disabled={busyProposal === p.id}
+                  </div>
+                )}
+                {p.status === 'success' && p.review_status === 'pending' && (
+                  // Auto-apply failed (rare). Surface it so admin can retry
+                  // or send to manual queue.
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <span className="text-[11px] text-amber-300">Apply failed — see error</span>
+                    <button onClick={() => markWrong(p)} disabled={busyProposal === p.id}
                             className="px-3 py-1.5 rounded text-xs flex items-center gap-1 bg-gg-gray-800 hover:bg-gg-gray-700 text-gg-gray-300 border border-gg-gray-700 disabled:opacity-50">
-                      <X size={12} /> Reject
+                      <X size={12} /> Send to manual queue
                     </button>
                   </div>
                 )}
@@ -300,7 +307,7 @@ export default function LandIdBatchFixPage() {
                   </div>
                 </div>
               )}
-              {p.review_status === 'pending' && (
+              {(p.review_status === 'rejected' || p.review_status === 'pending') && (
                 <div className="px-4 py-2 bg-gg-gray-950 border-t border-gg-gray-800 flex items-center gap-2 text-xs">
                   <Link href={`/admin/upload-boundary-tract/${p.tract_id}`}
                         className="text-gg-pink hover:underline">
