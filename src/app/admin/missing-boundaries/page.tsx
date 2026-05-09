@@ -21,7 +21,10 @@ type Item = {
   brochure_url: string | null
   source_url: string | null
   company_name: string | null
+  boundary_status?: 'missing' | 'wrong'
 }
+
+type StateCount = { state: string; total: number; missing: number; wrong: number }
 
 function formatDate(iso: string | null) {
   if (!iso) return '—'
@@ -35,6 +38,9 @@ function formatDate(iso: string | null) {
 
 export default function MissingBoundariesPage() {
   const [items, setItems] = useState<Item[]>([])
+  const [byState, setByState] = useState<StateCount[]>([])
+  const [stateFilter, setStateFilter] = useState<string>('')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'missing' | 'wrong'>('all')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [geocodeStatus, setGeocodeStatus] = useState<string | null>(null)
@@ -43,10 +49,18 @@ export default function MissingBoundariesPage() {
     let cancelled = false
     async function load() {
       try {
-        const res = await fetch(`${SCRAPER_URL}/api/admin/missing-boundary-tracts`)
+        const qs = new URLSearchParams()
+        if (stateFilter) qs.set('state', stateFilter)
+        if (statusFilter !== 'all') qs.set('status', statusFilter)
+        const url = `${SCRAPER_URL}/api/admin/missing-boundary-tracts${qs.toString() ? '?' + qs.toString() : ''}`
+        setLoading(true)
+        const res = await fetch(url)
         const data = await res.json()
         if (!res.ok || !data.success) throw new Error(data.error || `HTTP ${res.status}`)
-        if (!cancelled) setItems(data.items || [])
+        if (!cancelled) {
+          setItems(data.items || [])
+          if (Array.isArray(data.by_state)) setByState(data.by_state)
+        }
       } catch (e: any) {
         if (!cancelled) setError(e.message || String(e))
       } finally {
@@ -72,7 +86,7 @@ export default function MissingBoundariesPage() {
         if (!cancelled) setGeocodeStatus(`Geocode failed: ${e.message || e}`)
       })
     return () => { cancelled = true }
-  }, [])
+  }, [stateFilter, statusFilter])
 
   // Group by listing_id so multiple tracts on the same auction show together
   const grouped: Record<string, Item[]> = {}
@@ -103,6 +117,35 @@ export default function MissingBoundariesPage() {
             {geocodeStatus && (
               <div className="text-xs text-gg-gray-500 mt-1">{geocodeStatus}</div>
             )}
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3 mb-4">
+          <label className="text-xs text-gg-gray-400 uppercase tracking-wide">State:</label>
+          <select
+            value={stateFilter}
+            onChange={(e) => setStateFilter(e.target.value)}
+            className="bg-gg-gray-900 border border-gg-gray-700 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-gg-pink"
+          >
+            <option value="">All states ({byState.reduce((s, x) => s + x.total, 0)})</option>
+            {byState.map((s) => (
+              <option key={s.state} value={s.state}>
+                {s.state} ({s.total} — {s.missing} missing, {s.wrong} wrong)
+              </option>
+            ))}
+          </select>
+
+          <label className="text-xs text-gg-gray-400 uppercase tracking-wide ml-2">Type:</label>
+          <div className="inline-flex rounded overflow-hidden border border-gg-gray-700">
+            {(['all', 'missing', 'wrong'] as const).map((opt) => (
+              <button
+                key={opt}
+                onClick={() => setStatusFilter(opt)}
+                className={`px-3 py-1 text-xs ${statusFilter === opt ? 'bg-gg-pink/30 text-gg-pink' : 'bg-gg-gray-900 text-gg-gray-300 hover:bg-gg-gray-800'}`}
+              >
+                {opt === 'all' ? 'All' : opt === 'missing' ? 'Missing' : 'Wrong'}
+              </button>
+            ))}
           </div>
         </div>
 
@@ -175,6 +218,22 @@ export default function MissingBoundariesPage() {
                         <span className="text-sm text-gg-gray-300">
                           {t.total_acres != null ? `${t.total_acres} ac` : 'acres unknown'}
                         </span>
+                        {t.boundary_status === 'wrong' && (
+                          <span
+                            className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-red-500/20 text-red-300 border border-red-500/40"
+                            title="Polygon area differs from scraped acres by > 1 ac — boundary is likely wrong"
+                          >
+                            Wrong
+                          </span>
+                        )}
+                        {t.boundary_status === 'missing' && (
+                          <span
+                            className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40"
+                            title="No boundary on file"
+                          >
+                            Missing
+                          </span>
+                        )}
                         {t.land_type && (
                           <span className="text-xs text-gg-pink">{t.land_type}</span>
                         )}
