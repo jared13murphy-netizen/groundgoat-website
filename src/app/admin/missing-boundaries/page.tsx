@@ -23,7 +23,7 @@ type Item = {
   brochure_url: string | null
   source_url: string | null
   company_name: string | null
-  boundary_status?: 'missing' | 'wrong'
+  boundary_status?: 'missing' | 'wrong' | 'ok'
 }
 
 type StateCount = { state: string; total: number; missing: number; wrong: number }
@@ -47,7 +47,7 @@ export default function MissingBoundariesPage() {
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const [stateFilter, setStateFilter] = useState<string>('')
   const [companyFilter, setCompanyFilter] = useState<string>('')
-  const [statusFilter, setStatusFilter] = useState<'all' | 'missing' | 'wrong'>('all')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'missing' | 'wrong' | 'ok'>('all')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [geocodeStatus, setGeocodeStatus] = useState<string | null>(null)
@@ -157,9 +157,11 @@ export default function MissingBoundariesPage() {
           <div>
             <h1 className="text-2xl font-bold">Missing Boundaries</h1>
             <p className="text-sm text-gg-gray-400 mt-1">
-              Production auction tracts without polygon_coordinates, scoped to
-              upcoming auctions. Use this screen to test the boundary drawing
-              tool — pick a tract and draw its polygon.
+              Lists every tract on any listing that has at least one missing
+              or wrong boundary. Tracts that pass validation get a green
+              <span className="text-emerald-300"> Correct</span> badge —
+              spot-check those too, since if one tract on a listing is wrong
+              the others often are.
             </p>
           </div>
           <div className="text-sm text-gg-gray-400 text-right">
@@ -203,13 +205,13 @@ export default function MissingBoundariesPage() {
 
           <label className="text-xs text-gg-gray-400 uppercase tracking-wide ml-2">Type:</label>
           <div className="inline-flex rounded overflow-hidden border border-gg-gray-700">
-            {(['all', 'missing', 'wrong'] as const).map((opt) => (
+            {(['all', 'missing', 'wrong', 'ok'] as const).map((opt) => (
               <button
                 key={opt}
                 onClick={() => setStatusFilter(opt)}
                 className={`px-3 py-1 text-xs ${statusFilter === opt ? 'bg-gg-pink/30 text-gg-pink' : 'bg-gg-gray-900 text-gg-gray-300 hover:bg-gg-gray-800'}`}
               >
-                {opt === 'all' ? 'All' : opt === 'missing' ? 'Missing' : 'Wrong'}
+                {opt === 'all' ? 'All' : opt === 'missing' ? 'Missing' : opt === 'wrong' ? 'Wrong' : 'Correct'}
               </button>
             ))}
           </div>
@@ -334,6 +336,14 @@ export default function MissingBoundariesPage() {
                             title="No boundary on file"
                           >
                             Missing
+                          </span>
+                        )}
+                        {t.boundary_status === 'ok' && (
+                          <span
+                            className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+                            title="Boundary passes auto-validation. Spot-check anyway — if other tracts on this listing are wrong, this one might be too."
+                          >
+                            Correct
                           </span>
                         )}
                         {t.land_type && (
