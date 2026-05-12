@@ -2282,18 +2282,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           }
         })
 
-        // Anchor at the BOTTOM of the element with a half-pin offset so
-        // the green pin's center always sits at the lat/lng pixel — NOT
-        // the geometric center of the (label + pin) stack. With the old
-        // default 'center' anchor, the pin was rendered ~12 px below the
-        // lat/lng pixel; at country zoom that 12 px = ~150 km, so dots
-        // appeared a degree+ south of their real position and visibly
-        // "drifted north" as the user zoomed in.
-        const marker = new maplibregl.Marker({
-          element: el,
-          anchor: 'bottom',
-          offset: [0, 7],  // 7 = half of the 14 px pin diameter
-        })
+        // Default 'center' anchor is now correct because createMarkerElement
+        // returns a 14×14 element with the pin centered inside it. The label
+        // floats absolutely above the pin and the pulse ring floats absolutely
+        // around it — neither pushes the element's geometric center off of
+        // the pin's center.
+        const marker = new maplibregl.Marker({ element: el })
           .setLngLat([centerLng, centerLat])
           .addTo(map)
         todayMarkersRef.current.push(marker)
@@ -3697,14 +3691,40 @@ function createMarkerElement(
   status: string | null,
   isAuctionToday: boolean,
 ): HTMLDivElement {
+  // The marker element is sized EXACTLY to the pin (14×14), with the label
+  // absolute-positioned ABOVE it. That way the element's geometric center
+  // equals the pin's center, and MapLibre's default 'center' anchor lands
+  // the pin precisely on the lat/lng pixel — regardless of label height
+  // or zoom level.
+  //
+  // The previous flex-column layout (label on top, pin on bottom) put
+  // the element's center between the label and the pin, so the pin ended
+  // up ~12 px BELOW the lat/lng pixel. At country zoom 12 px = 100+ km,
+  // making today's-auction dots drift south of their real position and
+  // visibly "move north" as the user zoomed in.
+  const isLive = isAuctionToday
+  const pinColor = isLive ? '#22c55e' : getStatusPinColor(status)
+
   const container = document.createElement('div')
   container.className = 'comp-marker'
-  // The visual treatment named "live" historically (green pin + pulsing
-  // ring) now lights up for any tract whose auction is happening today.
-  const isLive = isAuctionToday
+  container.style.cssText = [
+    'position: relative',
+    'width: 14px',
+    'height: 14px',
+    'cursor: pointer',
+  ].join(';')
 
+  // ── Label (absolute, above the pin) ─────────────────────────────────
   const label = document.createElement('div')
   label.className = 'comp-marker-label'
+  label.style.cssText = [
+    'position: absolute',
+    'bottom: 100%',
+    'left: 50%',
+    'transform: translateX(-50%)',
+    'margin-bottom: 6px',
+    'pointer-events: none',
+  ].join(';')
 
   if (pricePerAcre) {
     const priceEl = document.createElement('div')
@@ -3718,43 +3738,53 @@ function createMarkerElement(
     acresEl.textContent = `${formatAcres(acres)} ac`
     label.appendChild(acresEl)
   }
+  if (label.childElementCount > 0) {
+    container.appendChild(label)
+  }
 
-  container.appendChild(label)
-
-  // Pulsing ring for live auctions
+  // ── Pulse ring (absolute, centered on the pin) ──────────────────────
   if (isLive) {
     const pulseRing = document.createElement('div')
-    pulseRing.style.cssText = `
-      position: absolute;
-      bottom: -6px;
-      left: 50%;
-      transform: translateX(-50%);
-      width: 24px;
-      height: 24px;
-      border-radius: 50%;
-      border: 2px solid #22c55e;
-      animation: livePulse 1.5s ease-out infinite;
-    `
+    pulseRing.style.cssText = [
+      'position: absolute',
+      'top: 50%',
+      'left: 50%',
+      'width: 24px',
+      'height: 24px',
+      'border-radius: 50%',
+      'border: 2px solid #22c55e',
+      'animation: livePulse 1.5s ease-out infinite',
+      // Initial transform — the keyframe will scale on top of it.
+      'transform: translate(-50%, -50%)',
+    ].join(';')
     container.appendChild(pulseRing)
-    container.style.position = 'relative'
 
-    // Add CSS animation if not already present
     if (!document.getElementById('live-pulse-style')) {
       const style = document.createElement('style')
       style.id = 'live-pulse-style'
       style.textContent = `
         @keyframes livePulse {
-          0% { transform: translateX(-50%) scale(1); opacity: 0.8; }
-          100% { transform: translateX(-50%) scale(2.5); opacity: 0; }
+          0%   { transform: translate(-50%, -50%) scale(1);   opacity: 0.8; }
+          100% { transform: translate(-50%, -50%) scale(2.5); opacity: 0; }
         }
       `
       document.head.appendChild(style)
     }
   }
 
+  // ── Pin (fills the entire container) ────────────────────────────────
   const pin = document.createElement('div')
   pin.className = 'comp-marker-pin comparable'
-  pin.style.backgroundColor = isLive ? '#22c55e' : getStatusPinColor(status)
+  pin.style.cssText = [
+    'position: absolute',
+    'inset: 0',
+    'width: 14px',
+    'height: 14px',
+    'border-radius: 50%',
+    'border: 2px solid #ffffff',
+    `background-color: ${pinColor}`,
+    'box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4)',
+  ].join(';')
   container.appendChild(pin)
 
   return container
