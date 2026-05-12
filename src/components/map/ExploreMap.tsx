@@ -2123,143 +2123,26 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // need to drop today tracts from the DOM-marker render.
   }, [mapLoaded, tracts, todayTracts])
 
-  // Refs to today tracts so click-handlers inside the GeoJSON layer can
-  // look them up by id (the layer only carries the id in feature
-  // properties — payloads have to stay small for GPU rendering).
+  // Quick lookup of today's tracts by id for cluster-click handling.
   const todayTractsByIdRef = useRef<Map<string, ApiMapTract>>(new Map())
   useEffect(() => {
     todayTractsByIdRef.current = new Map(todayTracts.map(t => [t.id, t]))
   }, [todayTracts])
 
-  // Always-on today's-auctions layer. Native MapLibre GeoJSON source
-  // (instead of DOM markers) so MapLibre's built-in clustering can merge
-  // close-together dots into ONE visual dot at low zoom and split them
-  // back out as the user zooms in — exactly the behavior the user asked
-  // for. Rendered at every zoom level so the green dots stay visible
-  // even from country view, where the regular tract loader doesn't fetch.
+  // DOM-marker refs so we can tear down between renders.
+  const todayMarkersRef = useRef<maplibregl.Marker[]>([])
+
+  // Always-on today's-auctions DOM markers, with JS-side proximity
+  // clustering. We use DOM markers (not a native GeoJSON layer) so the
+  // pulsing dots can sit ABOVE the state-badge DOM markers via z-index —
+  // a native canvas layer would paint UNDER the badges. Clustering is
+  // done in JS: at each map view we group tracts within a pixel radius
+  // and render one marker per group. Click a multi-tract cluster to
+  // zoom into it; click a single-tract marker to open the tract modal.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded) return
 
-    const SOURCE_ID = 'today-tracts-src'
-    const PULSE_LAYER = 'today-tracts-pulse'
-    const DOT_LAYER = 'today-tracts-dot'
-    const LABEL_LAYER = 'today-tracts-label'
-
-    // Only add source/layers once per map instance.
-    if (!map.getSource(SOURCE_ID)) {
-      map.addSource(SOURCE_ID, {
-        type: 'geojson',
-        data: { type: 'FeatureCollection', features: [] },
-        cluster: true,
-        clusterRadius: 60,    // pixels — close-by dots merge inside this radius
-        clusterMaxZoom: 11,   // clusters dissolve into individual points above 11
-      })
-
-      map.addLayer({
-        id: PULSE_LAYER,
-        type: 'circle',
-        source: SOURCE_ID,
-        paint: {
-          'circle-radius': [
-            'interpolate', ['linear'], ['zoom'],
-            3, 8, 6, 10, 10, 14, 14, 18,
-          ],
-          'circle-color': '#22c55e',
-          'circle-opacity': 0.55,
-          'circle-stroke-width': 0,
-        },
-      })
-      map.addLayer({
-        id: DOT_LAYER,
-        type: 'circle',
-        source: SOURCE_ID,
-        paint: {
-          'circle-radius': [
-            'interpolate', ['linear'], ['zoom'],
-            3, 5, 6, 6, 10, 7, 14, 9,
-          ],
-          'circle-color': '#22c55e',
-          'circle-stroke-color': '#ffffff',
-          'circle-stroke-width': 2,
-        },
-      })
-      map.addLayer({
-        id: LABEL_LAYER,
-        type: 'symbol',
-        source: SOURCE_ID,
-        // Only render labels for unclustered individual tracts —
-        // clusters don't carry a single tract's acres/price.
-        filter: ['!', ['has', 'point_count']],
-        minzoom: 11,
-        layout: {
-          'text-field': ['get', 'label'],
-          'text-font': ['Open Sans Bold'],
-          'text-size': 11,
-          'text-anchor': 'bottom',
-          'text-offset': [0, -1.2],
-          'text-allow-overlap': true,
-          'text-ignore-placement': true,
-        },
-        paint: {
-          'text-color': '#ffffff',
-          'text-halo-color': 'rgba(0,0,0,0.85)',
-          'text-halo-width': 1.5,
-        },
-      })
-
-      // Cursor + click handlers
-      const cursorEnter = () => { map.getCanvas().style.cursor = 'pointer' }
-      const cursorLeave = () => { map.getCanvas().style.cursor = '' }
-      map.on('mouseenter', DOT_LAYER, cursorEnter)
-      map.on('mouseleave', DOT_LAYER, cursorLeave)
-
-      map.on('click', DOT_LAYER, (e) => {
-        const f = e.features?.[0]
-        if (!f) return
-        const coords = (f.geometry as GeoJSON.Point).coordinates as [number, number]
-        if (f.properties?.cluster) {
-          // Zoom in to break apart the cluster.
-          map.easeTo({ center: coords, zoom: Math.max(map.getZoom() + 2, 12), duration: 500 })
-          return
-        }
-        const id = f.properties?.id as string | undefined
-        const tract = id ? todayTractsByIdRef.current.get(id) : undefined
-        if (!tract) return
-        const saleData: SaleDetail = {
-          id: tract.id,
-          listingId: tract.listing_id,
-          tractId: tract.id,
-          auctionDate: tract.auction_date,
-          totalAcres: tract.total_acres,
-          tillableAcres: tract.tillable_acres,
-          companyName: tract.company_name,
-          salePrice: tract.sale_price,
-          pricePerAcre: tract.price_per_acre,
-          county: tract.county,
-          state: tract.state,
-          township: tract.township,
-          soilRating: tract.soil_rating,
-          polygonCoordinates: tract.polygon_coordinates,
-          saleStatus: tract.sale_status,
-          listingType: tract.listing_type,
-          askingPrice: tract.asking_price,
-          landType: tract.land_type,
-          landTypes: tract.land_types,
-          pctTillable: tract.pct_tillable,
-          pricePerTillableAcre: tract.price_per_tillable_acre,
-          pricePerSoilRating: tract.price_per_soil_rating,
-          sourceUrl: tract.source_url,
-        }
-        if (portalMode && onTractSelected) {
-          onTractSelected(saleData)
-        } else {
-          setSelectedSale(saleData)
-        }
-      })
-    }
-
-    // Build feature collection and push to the source.
     const getPolygonCentroid = (coords: [number, number][]): [number, number] | null => {
       if (!coords || coords.length < 3) return null
       let sumLng = 0, sumLat = 0
@@ -2269,56 +2152,147 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       }
       return [sumLng / coords.length, sumLat / coords.length]
     }
-    const features = todayTracts
-      .map(tract => {
-        let lng = tract.longitude as number | null
-        let lat = tract.latitude as number | null
-        if (tract.polygon_coordinates && tract.polygon_coordinates.length > 2) {
-          const c = getPolygonCentroid(tract.polygon_coordinates as [number, number][])
-          if (c) { lng = c[0]; lat = c[1] }
+
+    type PreparedTract = {
+      tract: ApiMapTract
+      lng: number
+      lat: number
+      ppa: number | null
+    }
+
+    // Pre-compute geographic coords + price-per-acre for every today tract.
+    const prepared: PreparedTract[] = []
+    for (const tract of todayTracts) {
+      let lng = tract.longitude as number | null
+      let lat = tract.latitude as number | null
+      if (tract.polygon_coordinates && tract.polygon_coordinates.length > 2) {
+        const c = getPolygonCentroid(tract.polygon_coordinates as [number, number][])
+        if (c) { lng = c[0]; lat = c[1] }
+      }
+      if (lat == null || lng == null) continue
+      const isPrivateTreaty = (tract.listing_type || '').toLowerCase() === 'private_treaty'
+      const isPending = (tract.sale_status || '').toLowerCase() === 'pending'
+      const ppa = (isPrivateTreaty || isPending) && tract.asking_price && tract.total_acres
+        ? tract.asking_price / tract.total_acres
+        : tract.price_per_acre ?? null
+      prepared.push({ tract, lng, lat, ppa: ppa ?? null })
+    }
+
+    const CLUSTER_RADIUS_PX = 60
+
+    const render = () => {
+      // Tear down old markers before each re-render.
+      todayMarkersRef.current.forEach(m => m.remove())
+      todayMarkersRef.current = []
+
+      // Project all tracts to screen pixels at the current view.
+      const points = prepared.map(p => ({
+        ...p,
+        screen: map.project([p.lng, p.lat]),
+      }))
+
+      // Greedy proximity grouping: walk in order, group any later point
+      // within CLUSTER_RADIUS_PX of an already-chosen seed.
+      const used = new Set<string>()
+      const groups: PreparedTract[][] = []
+      const r2 = CLUSTER_RADIUS_PX * CLUSTER_RADIUS_PX
+      for (const seed of points) {
+        if (used.has(seed.tract.id)) continue
+        const group: PreparedTract[] = [seed]
+        used.add(seed.tract.id)
+        for (const other of points) {
+          if (used.has(other.tract.id)) continue
+          const dx = other.screen.x - seed.screen.x
+          const dy = other.screen.y - seed.screen.y
+          if (dx * dx + dy * dy <= r2) {
+            group.push(other)
+            used.add(other.tract.id)
+          }
         }
-        if (lat == null || lng == null) return null
-        const isPrivateTreaty = (tract.listing_type || '').toLowerCase() === 'private_treaty'
-        const isPending = (tract.sale_status || '').toLowerCase() === 'pending'
-        const ppa = (isPrivateTreaty || isPending) && tract.asking_price && tract.total_acres
-          ? tract.asking_price / tract.total_acres
-          : tract.price_per_acre
-        const labelParts: string[] = []
-        if (ppa) labelParts.push(`${formatCurrency(ppa)}/ac`)
-        if (tract.total_acres) labelParts.push(`${formatAcres(tract.total_acres)} ac`)
-        return {
-          type: 'Feature' as const,
-          geometry: { type: 'Point' as const, coordinates: [lng, lat] },
-          properties: {
+        groups.push(group)
+      }
+
+      for (const group of groups) {
+        // Geographic center of the group — single tract uses its own coord.
+        let centerLng = 0, centerLat = 0
+        for (const g of group) { centerLng += g.lng; centerLat += g.lat }
+        centerLng /= group.length
+        centerLat /= group.length
+
+        const lead = group[0]
+        const isCluster = group.length > 1
+
+        // Marker visuals stay the same as before; cluster uses the lead
+        // tract's data for the label (acres of the first tract in the
+        // group) so users at least see SOMETHING.
+        const el = createMarkerElement(
+          lead.ppa,
+          lead.tract.total_acres,
+          lead.tract.sale_status,
+          true,
+        )
+        const statusZ = String(getStatusPinZ(lead.tract.sale_status, true))
+        el.dataset.statusZ = statusZ
+        el.style.zIndex = statusZ
+        el.dataset.tractId = lead.tract.id
+
+        el.addEventListener('click', () => {
+          if (isCluster) {
+            // Zoom in by ~2 levels (capped at 13) so the cluster breaks.
+            const next = Math.min(map.getZoom() + 2.5, 13)
+            map.easeTo({ center: [centerLng, centerLat], zoom: next, duration: 500 })
+            return
+          }
+          const tract = lead.tract
+          const saleData: SaleDetail = {
             id: tract.id,
-            label: labelParts.join('\n'),
-          },
-        }
-      })
-      .filter((f): f is NonNullable<typeof f> => f !== null)
-    const src = map.getSource(SOURCE_ID) as maplibregl.GeoJSONSource | undefined
-    if (src) src.setData({ type: 'FeatureCollection', features })
+            listingId: tract.listing_id,
+            tractId: tract.id,
+            auctionDate: tract.auction_date,
+            totalAcres: tract.total_acres,
+            tillableAcres: tract.tillable_acres,
+            companyName: tract.company_name,
+            salePrice: tract.sale_price,
+            pricePerAcre: tract.price_per_acre,
+            county: tract.county,
+            state: tract.state,
+            township: tract.township,
+            soilRating: tract.soil_rating,
+            polygonCoordinates: tract.polygon_coordinates,
+            saleStatus: tract.sale_status,
+            listingType: tract.listing_type,
+            askingPrice: tract.asking_price,
+            landType: tract.land_type,
+            landTypes: tract.land_types,
+            pctTillable: tract.pct_tillable,
+            pricePerTillableAcre: tract.price_per_tillable_acre,
+            pricePerSoilRating: tract.price_per_soil_rating,
+            sourceUrl: tract.source_url,
+          }
+          if (portalMode && onTractSelected) {
+            onTractSelected(saleData)
+          } else {
+            setSelectedSale(saleData)
+          }
+        })
 
-    return undefined
+        const marker = new maplibregl.Marker({ element: el })
+          .setLngLat([centerLng, centerLat])
+          .addTo(map)
+        todayMarkersRef.current.push(marker)
+      }
+    }
+
+    render()
+    map.on('moveend', render)
+    map.on('zoomend', render)
+    return () => {
+      map.off('moveend', render)
+      map.off('zoomend', render)
+      todayMarkersRef.current.forEach(m => m.remove())
+      todayMarkersRef.current = []
+    }
   }, [mapLoaded, todayTracts, portalMode, onTractSelected])
-
-  // Pulse animation — toggle the halo's opacity/radius on a timer so the
-  // dots literally pulse. Cheap: two setPaintProperty calls per tick.
-  useEffect(() => {
-    const map = mapRef.current
-    if (!map || !mapLoaded) return
-    let phase = 0
-    const PULSE_LAYER = 'today-tracts-pulse'
-    const interval = setInterval(() => {
-      if (!map.getLayer(PULSE_LAYER)) return
-      phase = phase === 0 ? 1 : 0
-      map.setPaintProperty(PULSE_LAYER, 'circle-radius', phase === 0
-        ? ['interpolate', ['linear'], ['zoom'], 3, 8, 6, 10, 10, 14, 14, 18]
-        : ['interpolate', ['linear'], ['zoom'], 3, 14, 6, 16, 10, 22, 14, 28])
-      map.setPaintProperty(PULSE_LAYER, 'circle-opacity', phase === 0 ? 0.55 : 0.0)
-    }, 750)
-    return () => clearInterval(interval)
-  }, [mapLoaded])
 
   // Highlight report-selected markers in portal mode
   useEffect(() => {
