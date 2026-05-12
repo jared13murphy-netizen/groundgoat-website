@@ -550,6 +550,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const countyMarkersRef = useRef<maplibregl.Marker[]>([])
   const tractMarkersRef = useRef<maplibregl.Marker[]>([])
   const tractMarkerElementsRef = useRef<Map<string, HTMLDivElement>>(new Map())
+  // Markers for today's auctions live in their own ref so they survive the
+  // bounds-based loader's clear cycles and remain visible at every zoom.
+  const todayMarkersRef = useRef<maplibregl.Marker[]>([])
+  const todayMarkerElementsRef = useRef<Map<string, HTMLDivElement>>(new Map())
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Cells we've FULLY loaded (got all matching tracts back, didn't hit
   // the per-cell 1000 cap). Future moveends won't re-fetch these.
@@ -604,6 +608,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   subjectTractIdRef.current = subjectTractId || null
 
   const [tracts, setTracts] = useState<ApiMapTract[]>([])
+  // Today's auction tracts — kept in a SEPARATE state from the bounds-based
+  // `tracts` because:
+  //   - the bounds loader doesn't fetch below z≈8.5 (TRACT_TIER_MIN), so
+  //     at country/state zoom there'd be no green dots without this
+  //   - filter changes and chat-search wipe `tractMapRef`, but today's
+  //     auctions should stay visible regardless of filters
+  // Rendered as separate markers in their own useEffect below.
+  const [todayTracts, setTodayTracts] = useState<ApiMapTract[]>([])
   const [currentZoom, setCurrentZoom] = useState(MAP_INITIAL_ZOOM)
   const [mapLoaded, setMapLoaded] = useState(false)
 
@@ -644,6 +656,32 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       .then(r => r.ok ? r.json() : null)
       .then(data => { if (data) setFilterOptions(data) })
       .catch(() => {})
+  }, [])
+
+  // Fetch today's auction tracts on mount and re-fetch every 10 minutes so
+  // the dots roll over correctly when the user keeps the tab open past
+  // midnight (Central Time).
+  useEffect(() => {
+    let cancelled = false
+    const fetchToday = async () => {
+      try {
+        const res = await fetchWithAuth(`${API_URL}/api/map/tracts/today`)
+        if (!res.ok) return
+        const data: { count: number; tracts: ApiMapTract[] } = await res.json()
+        if (!cancelled && Array.isArray(data?.tracts)) {
+          setTodayTracts(data.tracts)
+        }
+      } catch {
+        // Silent: this is a non-critical enrichment layer. If it fails the
+        // map still renders everything else.
+      }
+    }
+    fetchToday()
+    const interval = setInterval(fetchToday, 10 * 60 * 1000)
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+    }
   }, [])
 
   // Filter state
@@ -1980,6 +2018,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const coordCounts: Record<string, number> = {}
 
     for (const tract of tracts) {
+      // Skip tracts already rendered by the always-on today-auctions
+      // layer — duplicate markers at the same lat/lng would just stack.
+      if (todayMarkerElementsRef.current.has(tract.id)) continue
+
       // Get marker position
       let markerLng = tract.longitude
       let markerLat = tract.latitude
@@ -2079,6 +2121,114 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       tractMarkersRef.current.push(marker)
     }
   }, [mapLoaded, tracts])
+
+  // Always-on today's-auctions markers. Rendered independently of the
+  // viewport-based loader so the green pulses are visible at every zoom
+  // — including country/state view, where the regular tract loader
+  // doesn't fetch anything (it short-circuits below z≈8.5).
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+
+    // Tear down existing today markers before rebuilding.
+    todayMarkersRef.current.forEach(m => m.remove())
+    todayMarkersRef.current = []
+    todayMarkerElementsRef.current.clear()
+
+    const getPolygonCentroid = (coords: [number, number][]): [number, number] | null => {
+      if (!coords || coords.length < 3) return null
+      let sumLng = 0, sumLat = 0
+      for (const [lng, lat] of coords) {
+        sumLng += lng
+        sumLat += lat
+      }
+      return [sumLng / coords.length, sumLat / coords.length]
+    }
+
+    const coordCounts: Record<string, number> = {}
+
+    for (const tract of todayTracts) {
+      let markerLng = tract.longitude
+      let markerLat = tract.latitude
+      if (tract.polygon_coordinates && tract.polygon_coordinates.length > 2) {
+        const centroid = getPolygonCentroid(tract.polygon_coordinates)
+        if (centroid) {
+          markerLng = centroid[0]
+          markerLat = centroid[1]
+        }
+      }
+      if (!markerLat || !markerLng) continue
+
+      // Spread co-located today markers so they don't stack into one blob.
+      const coordKey = `${markerLat.toFixed(4)},${markerLng.toFixed(4)}`
+      const index = coordCounts[coordKey] || 0
+      coordCounts[coordKey] = index + 1
+      if (index > 0) {
+        const offset = 0.003
+        const angle = index * (2 * Math.PI / 6)
+        markerLng += offset * Math.cos(angle)
+        markerLat += offset * Math.sin(angle)
+      }
+
+      const isPrivateTreaty = (tract.listing_type || '').toLowerCase() === 'private_treaty'
+      const isPending = (tract.sale_status || '').toLowerCase() === 'pending'
+      const markerPpa = (isPrivateTreaty || isPending) && tract.asking_price && tract.total_acres
+        ? tract.asking_price / tract.total_acres
+        : tract.price_per_acre
+
+      // All members of this list are by definition auctioning today.
+      const el = createMarkerElement(
+        markerPpa,
+        tract.total_acres,
+        tract.sale_status,
+        true,
+      )
+
+      const statusZ = String(getStatusPinZ(tract.sale_status, true))
+      el.dataset.statusZ = statusZ
+      el.style.zIndex = statusZ
+      el.dataset.tractId = tract.id
+
+      el.addEventListener('click', () => {
+        const saleData: SaleDetail = {
+          id: tract.id,
+          listingId: tract.listing_id,
+          tractId: tract.id,
+          auctionDate: tract.auction_date,
+          totalAcres: tract.total_acres,
+          tillableAcres: tract.tillable_acres,
+          companyName: tract.company_name,
+          salePrice: tract.sale_price,
+          pricePerAcre: tract.price_per_acre,
+          county: tract.county,
+          state: tract.state,
+          township: tract.township,
+          soilRating: tract.soil_rating,
+          polygonCoordinates: tract.polygon_coordinates,
+          saleStatus: tract.sale_status,
+          listingType: tract.listing_type,
+          askingPrice: tract.asking_price,
+          landType: tract.land_type,
+          landTypes: tract.land_types,
+          pctTillable: tract.pct_tillable,
+          pricePerTillableAcre: tract.price_per_tillable_acre,
+          pricePerSoilRating: tract.price_per_soil_rating,
+          sourceUrl: tract.source_url,
+        }
+        if (portalMode && onTractSelected) {
+          onTractSelected(saleData)
+        } else {
+          setSelectedSale(saleData)
+        }
+      })
+
+      todayMarkerElementsRef.current.set(tract.id, el)
+      const marker = new maplibregl.Marker({ element: el })
+        .setLngLat([markerLng, markerLat])
+        .addTo(map)
+      todayMarkersRef.current.push(marker)
+    }
+  }, [mapLoaded, todayTracts, portalMode, onTractSelected])
 
   // Highlight report-selected markers in portal mode
   useEffect(() => {
