@@ -2145,8 +2145,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       return [sumLng / coords.length, sumLat / coords.length]
     }
 
-    const coordCounts: Record<string, number> = {}
-
     for (const tract of todayTracts) {
       let markerLng = tract.longitude
       let markerLat = tract.latitude
@@ -2159,16 +2157,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       }
       if (!markerLat || !markerLng) continue
 
-      // Spread co-located today markers so they don't stack into one blob.
-      const coordKey = `${markerLat.toFixed(4)},${markerLng.toFixed(4)}`
-      const index = coordCounts[coordKey] || 0
-      coordCounts[coordKey] = index + 1
-      if (index > 0) {
-        const offset = 0.003
-        const angle = index * (2 * Math.PI / 6)
-        markerLng += offset * Math.cos(angle)
-        markerLat += offset * Math.sin(angle)
-      }
+      // Intentionally NO co-located offset here. These markers are visible at
+      // every zoom — including country view — and a 0.003° offset that looks
+      // tidy at z=10 reads as a "spread line" at z=4. Adjacent tracts in the
+      // same auction should overlap into a single visual dot when zoomed out;
+      // the user can zoom in to disambiguate.
 
       const isPrivateTreaty = (tract.listing_type || '').toLowerCase() === 'private_treaty'
       const isPending = (tract.sale_status || '').toLowerCase() === 'pending'
