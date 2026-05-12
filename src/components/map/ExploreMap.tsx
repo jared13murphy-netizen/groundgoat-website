@@ -2001,20 +2001,15 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     tractMarkersRef.current = []
     tractMarkerElementsRef.current.clear()
 
-    // Bounding-box center (NOT vertex-average) so the pin lands in the
-    // visual middle of the parcel regardless of how many vertices each
-    // side of the polygon has.
+    // Helper: polygon centroid
     const getPolygonCentroid = (coords: [number, number][]): [number, number] | null => {
       if (!coords || coords.length < 3) return null
-      let minLng = Infinity, maxLng = -Infinity
-      let minLat = Infinity, maxLat = -Infinity
+      let sumLng = 0, sumLat = 0
       for (const [lng, lat] of coords) {
-        if (lng < minLng) minLng = lng
-        if (lng > maxLng) maxLng = lng
-        if (lat < minLat) minLat = lat
-        if (lat > maxLat) maxLat = lat
+        sumLng += lng
+        sumLat += lat
       }
-      return [(minLng + maxLng) / 2, (minLat + maxLat) / 2]
+      return [sumLng / coords.length, sumLat / coords.length]
     }
 
     // Track co-located tracts for offset spacing
@@ -2240,14 +2235,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         const lead = group[0]
         const isCluster = group.length > 1
 
-        // Marker visuals stay the same as before; cluster uses the lead
-        // tract's data for the label (acres of the first tract in the
-        // group) so users at least see SOMETHING.
-        const el = createMarkerElement(
+        // Today's-auction marker — pin fills the element so MapLibre's
+        // default 'center' anchor lands the green dot exactly on the
+        // lat/lng pixel at every zoom.
+        const el = createTodayMarkerElement(
           lead.ppa,
           lead.tract.total_acres,
-          lead.tract.sale_status,
-          true,
         )
         const statusZ = String(getStatusPinZ(lead.tract.sale_status, true))
         el.dataset.statusZ = statusZ
@@ -3703,20 +3696,82 @@ function createMarkerElement(
   status: string | null,
   isAuctionToday: boolean,
 ): HTMLDivElement {
-  // The marker element is sized EXACTLY to the pin (14×14), with the label
-  // absolute-positioned ABOVE it. That way the element's geometric center
-  // equals the pin's center, and MapLibre's default 'center' anchor lands
-  // the pin precisely on the lat/lng pixel — regardless of label height
-  // or zoom level.
-  //
-  // The previous flex-column layout (label on top, pin on bottom) put
-  // the element's center between the label and the pin, so the pin ended
-  // up ~12 px BELOW the lat/lng pixel. At country zoom 12 px = 100+ km,
-  // making today's-auction dots drift south of their real position and
-  // visibly "move north" as the user zoomed in.
+  const container = document.createElement('div')
+  container.className = 'comp-marker'
   const isLive = isAuctionToday
-  const pinColor = isLive ? '#22c55e' : getStatusPinColor(status)
 
+  const label = document.createElement('div')
+  label.className = 'comp-marker-label'
+
+  if (pricePerAcre) {
+    const priceEl = document.createElement('div')
+    priceEl.className = 'comp-marker-price'
+    priceEl.textContent = `${formatCurrency(pricePerAcre)}/ac`
+    label.appendChild(priceEl)
+  }
+  if (acres) {
+    const acresEl = document.createElement('div')
+    acresEl.className = 'comp-marker-acres'
+    acresEl.textContent = `${formatAcres(acres)} ac`
+    label.appendChild(acresEl)
+  }
+
+  container.appendChild(label)
+
+  // Pulsing ring for live auctions
+  if (isLive) {
+    const pulseRing = document.createElement('div')
+    pulseRing.style.cssText = `
+      position: absolute;
+      bottom: -6px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      border: 2px solid #22c55e;
+      animation: livePulse 1.5s ease-out infinite;
+    `
+    container.appendChild(pulseRing)
+    container.style.position = 'relative'
+
+    // Add CSS animation if not already present
+    if (!document.getElementById('live-pulse-style')) {
+      const style = document.createElement('style')
+      style.id = 'live-pulse-style'
+      style.textContent = `
+        @keyframes livePulse {
+          0% { transform: translateX(-50%) scale(1); opacity: 0.8; }
+          100% { transform: translateX(-50%) scale(2.5); opacity: 0; }
+        }
+      `
+      document.head.appendChild(style)
+    }
+  }
+
+  const pin = document.createElement('div')
+  pin.className = 'comp-marker-pin comparable'
+  pin.style.backgroundColor = isLive ? '#22c55e' : getStatusPinColor(status)
+  container.appendChild(pin)
+
+  return container
+}
+
+/**
+ * Specialized marker for the always-on "today's auctions" green dots.
+ * Returns a 14×14 element where the pin fills the entire box and the
+ * label is absolute-positioned ABOVE it. This makes the element's
+ * geometric center IDENTICAL to the pin's center, so MapLibre's default
+ * 'center' anchor lands the green dot exactly at the lat/lng pixel —
+ * no more constant-pixel-offset south of the real position at low zoom.
+ *
+ * Kept SEPARATE from createMarkerElement so the regular sales pins keep
+ * their original flex-column layout untouched.
+ */
+function createTodayMarkerElement(
+  pricePerAcre: number | null,
+  acres: number | null,
+): HTMLDivElement {
   const container = document.createElement('div')
   container.className = 'comp-marker'
   container.style.cssText = [
@@ -3726,7 +3781,6 @@ function createMarkerElement(
     'cursor: pointer',
   ].join(';')
 
-  // ── Label (absolute, above the pin) ─────────────────────────────────
   const label = document.createElement('div')
   label.className = 'comp-marker-label'
   label.style.cssText = [
@@ -3754,37 +3808,34 @@ function createMarkerElement(
     container.appendChild(label)
   }
 
-  // ── Pulse ring (absolute, centered on the pin) ──────────────────────
-  if (isLive) {
-    const pulseRing = document.createElement('div')
-    pulseRing.style.cssText = [
-      'position: absolute',
-      'top: 50%',
-      'left: 50%',
-      'width: 24px',
-      'height: 24px',
-      'border-radius: 50%',
-      'border: 2px solid #22c55e',
-      'animation: livePulse 1.5s ease-out infinite',
-      // Initial transform — the keyframe will scale on top of it.
-      'transform: translate(-50%, -50%)',
-    ].join(';')
-    container.appendChild(pulseRing)
+  // Pulse ring — centered on the pin.
+  const pulseRing = document.createElement('div')
+  pulseRing.style.cssText = [
+    'position: absolute',
+    'top: 50%',
+    'left: 50%',
+    'width: 24px',
+    'height: 24px',
+    'border-radius: 50%',
+    'border: 2px solid #22c55e',
+    'animation: livePulseToday 1.5s ease-out infinite',
+    'transform: translate(-50%, -50%)',
+  ].join(';')
+  container.appendChild(pulseRing)
 
-    if (!document.getElementById('live-pulse-style')) {
-      const style = document.createElement('style')
-      style.id = 'live-pulse-style'
-      style.textContent = `
-        @keyframes livePulse {
-          0%   { transform: translate(-50%, -50%) scale(1);   opacity: 0.8; }
-          100% { transform: translate(-50%, -50%) scale(2.5); opacity: 0; }
-        }
-      `
-      document.head.appendChild(style)
-    }
+  if (!document.getElementById('live-pulse-today-style')) {
+    const style = document.createElement('style')
+    style.id = 'live-pulse-today-style'
+    style.textContent = `
+      @keyframes livePulseToday {
+        0%   { transform: translate(-50%, -50%) scale(1);   opacity: 0.8; }
+        100% { transform: translate(-50%, -50%) scale(2.5); opacity: 0; }
+      }
+    `
+    document.head.appendChild(style)
   }
 
-  // ── Pin (fills the entire container) ────────────────────────────────
+  // Pin fills the entire container so the element's center == pin's center.
   const pin = document.createElement('div')
   pin.className = 'comp-marker-pin comparable'
   pin.style.cssText = [
@@ -3794,7 +3845,7 @@ function createMarkerElement(
     'height: 14px',
     'border-radius: 50%',
     'border: 2px solid #ffffff',
-    `background-color: ${pinColor}`,
+    'background-color: #22c55e',
     'box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4)',
   ].join(';')
   container.appendChild(pin)
