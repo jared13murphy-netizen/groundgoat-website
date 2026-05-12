@@ -2178,7 +2178,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       prepared.push({ tract, lng, lat, ppa: ppa ?? null })
     }
 
-    const CLUSTER_RADIUS_PX = 60
+    // Tight cluster radius — tracts that are genuinely close on screen merge,
+    // but tracts hundreds of km apart never merge into a single cluster.
+    // A 4-tract auction within ~1 km of itself stays merged at every zoom
+    // up to ~12 (where 1 km projects to ~14 px); tracts in different states
+    // never merge because their pixel distance is always > 25 at any zoom
+    // you'd actually browse.
+    const CLUSTER_RADIUS_PX = 25
 
     const render = () => {
       // Tear down old markers before each re-render.
