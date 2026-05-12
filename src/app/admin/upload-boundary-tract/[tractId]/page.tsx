@@ -132,10 +132,18 @@ export default function UploadBoundaryTractPage() {
     confidence?: 'high' | 'medium' | 'low'
     notes?: string
     tract_label_matched?: string | null
-    projection_method?: 'auction_image_georeference' | 'reference_satellite_match' | null
-    polygon_source?: 'opencv_color_extraction' | 'vision_polygon' | 'vision_snapped_to_line' | null
+    projection_method?: string | null
+    polygon_source?: string | null
     boundary_color?: string | null
     boundary_center_from_image?: [number, number] | null
+    // Surety pipeline classification
+    map_type?: 'per_tract_tillable' | 'per_tract_full' | 'multi_tract_overview' | 'unknown'
+    polygon_kind?: 'tillable' | 'full' | 'multi' | 'unknown'
+    anchor_method?: 'map_center_dms' | 'section_center' | null
+    listing_tillable_acres?: number | null
+    listing_total_acres?: number | null
+    acreage_delta_tillable?: number | null
+    acreage_delta_total?: number | null
   } | null>(null)
 
   // Load tract details. The scraper endpoint wraps the row under a
@@ -536,6 +544,13 @@ export default function UploadBoundaryTractPage() {
         notes: body.notes,
         projection_method: body.projection_method,
         polygon_source: body.polygon_source,
+        map_type: body.map_type,
+        polygon_kind: body.polygon_kind,
+        anchor_method: body.anchor_method,
+        listing_tillable_acres: body.listing_tillable_acres,
+        listing_total_acres: body.listing_total_acres,
+        acreage_delta_tillable: body.acreage_delta_tillable,
+        acreage_delta_total: body.acreage_delta_total,
       })
       // Center map on the new polygon
       const map = mapRef.current
@@ -547,9 +562,15 @@ export default function UploadBoundaryTractPage() {
           { padding: 60, duration: 300 }
         )
       }
+      const kindLabel =
+        body.polygon_kind === 'tillable' ? 'TILLABLE polygon' :
+        body.polygon_kind === 'full' ? 'FULL TRACT polygon' :
+        body.polygon_kind === 'multi' ? 'MULTI-TRACT polygon (overview)' :
+        'polygon (kind unknown)'
       setStatusMsg(
-        `✓ Surety extraction ${body.confidence}-confidence (snap cost ${body.snap_cost?.toFixed(2)}). ` +
-        `Drag vertices to fix any drift, then Save.`
+        `✓ Surety extracted a ${kindLabel} — ${body.confidence}-confidence, ` +
+        `snap cost ${body.snap_cost?.toFixed(2)}, anchor: ${body.anchor_method}. ` +
+        `Drag vertices to fix drift, then Save.`
       )
     } catch (e: any) {
       setStatusMsg(`✗ Surety extract failed: ${e.message || e}`)
@@ -562,22 +583,36 @@ export default function UploadBoundaryTractPage() {
     if (polygon.length < 3) return
     setSaving(true); setStatusMsg(null)
     try {
-      const res = await fetch(
-        `${SCRAPER_URL}/api/admin/tracts/${tractId}/save-boundary`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ polygon }),
-        }
-      )
+      // Route based on polygon_kind: tillable polygon goes to a
+      // separate column + recomputes soil rating. Full-tract polygon
+      // (or unknown) goes through the legacy save-boundary endpoint
+      // which writes polygon_coordinates.
+      const isTillable = extractMeta?.polygon_kind === 'tillable'
+      const endpoint = isTillable
+        ? `${SCRAPER_URL}/api/admin/tracts/${tractId}/save-tillable-polygon`
+        : `${SCRAPER_URL}/api/admin/tracts/${tractId}/save-boundary`
+      const payload: any = { polygon }
+      if (isTillable) {
+        payload.map_type = extractMeta?.map_type
+        payload.confidence = extractMeta?.confidence
+      }
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
       const body = await res.json()
       if (!res.ok || !body.success) throw new Error(body.error || 'save failed')
-      setStatusMsg(
-        `✓ Saved! GIS acres: ${body.gis_acres}` +
-        (body.nccpi != null ? ` · NCCPI: ${body.nccpi}` : '') +
-        (body.tillable_acres != null ? ` · Tillable: ${body.tillable_acres}` : '') +
-        '. Returning…'
-      )
+      const detail = isTillable
+        ? (`✓ Tillable polygon saved! ${body.tillable_acres}ac` +
+           (body.soil_rating != null
+             ? ` · ${body.soil_rating_type}: ${body.soil_rating}` : '') +
+           '. Returning…')
+        : (`✓ Saved! GIS acres: ${body.gis_acres}` +
+           (body.nccpi != null ? ` · NCCPI: ${body.nccpi}` : '') +
+           (body.tillable_acres != null ? ` · Tillable: ${body.tillable_acres}` : '') +
+           '. Returning…')
+      setStatusMsg(detail)
       setTimeout(() => router.push('/admin/missing-boundaries'), 1800)
     } catch (e: any) {
       setStatusMsg(`✗ Save failed: ${e.message || e}`)
