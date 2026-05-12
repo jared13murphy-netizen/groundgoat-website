@@ -112,6 +112,8 @@ export default function UploadBoundaryTractPage() {
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null)
   const [urlInput, setUrlInput] = useState<string>('')
   const [extractingUrl, setExtractingUrl] = useState<boolean>(false)
+  const [suretyUrlInput, setSuretyUrlInput] = useState<string>('')
+  const [extractingSurety, setExtractingSurety] = useState<boolean>(false)
   const [polygon, setPolygon] = useState<Pt[]>([])
   // Polygon edit history for Cmd+Z undo. Push the polygon BEFORE each
   // mutation; pop on undo. Capped at 50 to avoid unbounded growth.
@@ -500,6 +502,62 @@ export default function UploadBoundaryTractPage() {
     }
   }
 
+  const extractFromSurety = async () => {
+    const url = suretyUrlInput.trim()
+    if (!url) return
+    if (!/^https?:\/\//.test(url)) {
+      setStatusMsg('✗ URL must start with http:// or https://')
+      return
+    }
+    setExtractingSurety(true); setStatusMsg(null); setPolygon([]); setExtractMeta(null)
+    polygonHistoryRef.current = []
+    try {
+      // Backend fetches the Surety per-tract JPG, OCRs the composition
+      // table via Claude Vision, traces the outer boundary, snaps to
+      // SSURGO via composition matching, and returns the polygon.
+      const res = await fetch(
+        `${SCRAPER_URL}/api/admin/tracts/${tractId}/extract-boundary-from-surety`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image_url: url }),
+        }
+      )
+      const body = await res.json()
+      if (!res.ok || !body.success) throw new Error(body.error || `HTTP ${res.status}`)
+      const poly: Pt[] = (body.polygon || []).map((p: any) => [Number(p[0]), Number(p[1])])
+      if (poly.length < 3) throw new Error('Surety pipeline returned empty polygon')
+      setPolygon(poly)
+      setExtractMeta({
+        extracted_acres: body.extracted_acres,
+        expected_acres: body.expected_acres,
+        acreage_match: body.acreage_match,
+        confidence: body.confidence,
+        notes: body.notes,
+        projection_method: body.projection_method,
+        polygon_source: body.polygon_source,
+      })
+      // Center map on the new polygon
+      const map = mapRef.current
+      if (map && poly.length >= 3) {
+        const lngs = poly.map(p => p[0])
+        const lats = poly.map(p => p[1])
+        map.fitBounds(
+          [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
+          { padding: 60, duration: 300 }
+        )
+      }
+      setStatusMsg(
+        `✓ Surety extraction ${body.confidence}-confidence (snap cost ${body.snap_cost?.toFixed(2)}). ` +
+        `Drag vertices to fix any drift, then Save.`
+      )
+    } catch (e: any) {
+      setStatusMsg(`✗ Surety extract failed: ${e.message || e}`)
+    } finally {
+      setExtractingSurety(false)
+    }
+  }
+
   const save = async () => {
     if (polygon.length < 3) return
     setSaving(true); setStatusMsg(null)
@@ -588,6 +646,41 @@ export default function UploadBoundaryTractPage() {
       <div className="flex flex-1 min-h-0">
         {/* Left: image upload + controls */}
         <div className="flex-1 min-w-0 border-r border-gg-gray-800 flex flex-col p-4 gap-3 overflow-y-auto">
+          {/* Surety per-tract soil-map URL — the 5-step pipeline.
+              Backend fetches the JPG, runs Vision composition OCR,
+              traces the outer polygon, snaps to SSURGO via composition
+              matching. Returns the polygon for drag-correct. Use this
+              for Sullivan / AgriData / Surety-style soil maps. */}
+          <div className="text-xs text-gg-gray-400 uppercase tracking-wider font-semibold">
+            Surety per-tract soil-map image URL
+          </div>
+          <div className="flex gap-2">
+            <input
+              type="url"
+              value={suretyUrlInput}
+              onChange={(e) => setSuretyUrlInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !extractingSurety && suretyUrlInput.trim()) {
+                  extractFromSurety()
+                }
+              }}
+              placeholder="https://...Surety...Tract_1_Soils...jpg"
+              disabled={extractingSurety}
+              className="flex-1 min-w-0 px-3 py-2 bg-gg-gray-900 border border-gg-gray-800 rounded-lg text-sm text-white placeholder-gg-gray-500 focus:outline-none focus:border-gg-pink disabled:opacity-50"
+            />
+            <button
+              onClick={extractFromSurety}
+              disabled={extractingSurety || !suretyUrlInput.trim()}
+              className="flex items-center justify-center gap-2 px-4 py-2 bg-gg-pink hover:bg-gg-pink/85 disabled:opacity-50 text-white font-semibold rounded-lg transition flex-shrink-0"
+              title="Run the 5-step Surety pipeline on this image"
+            >
+              {extractingSurety ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+              {extractingSurety ? 'Extracting…' : 'Surety Extract'}
+            </button>
+          </div>
+
+          <div className="border-t border-gg-gray-800 my-1" />
+
           {/* URL extract — for auction listings with a Land ID iframe.
               Backend fetches the page, finds the Land ID map hash, pulls
               the GeoJSON, and returns the polygon whose acreage best
