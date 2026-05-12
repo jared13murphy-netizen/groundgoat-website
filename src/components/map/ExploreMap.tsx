@@ -2001,15 +2001,20 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     tractMarkersRef.current = []
     tractMarkerElementsRef.current.clear()
 
-    // Helper: polygon centroid
+    // Bounding-box center (NOT vertex-average) so the pin lands in the
+    // visual middle of the parcel regardless of how many vertices each
+    // side of the polygon has.
     const getPolygonCentroid = (coords: [number, number][]): [number, number] | null => {
       if (!coords || coords.length < 3) return null
-      let sumLng = 0, sumLat = 0
+      let minLng = Infinity, maxLng = -Infinity
+      let minLat = Infinity, maxLat = -Infinity
       for (const [lng, lat] of coords) {
-        sumLng += lng
-        sumLat += lat
+        if (lng < minLng) minLng = lng
+        if (lng > maxLng) maxLng = lng
+        if (lat < minLat) minLat = lat
+        if (lat > maxLat) maxLat = lat
       }
-      return [sumLng / coords.length, sumLat / coords.length]
+      return [(minLng + maxLng) / 2, (minLat + maxLat) / 2]
     }
 
     // Track co-located tracts for offset spacing
@@ -2143,14 +2148,21 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const map = mapRef.current
     if (!map || !mapLoaded) return
 
+    // Bounding-box center, not vertex-average. Vertex-average gets biased
+    // toward whichever side of the polygon has more vertices — for these
+    // parcels it ends up ~80 m north of the visual middle. Bbox center
+    // lands the dot squarely in the visual middle of each parcel.
     const getPolygonCentroid = (coords: [number, number][]): [number, number] | null => {
       if (!coords || coords.length < 3) return null
-      let sumLng = 0, sumLat = 0
+      let minLng = Infinity, maxLng = -Infinity
+      let minLat = Infinity, maxLat = -Infinity
       for (const [lng, lat] of coords) {
-        sumLng += lng
-        sumLat += lat
+        if (lng < minLng) minLng = lng
+        if (lng > maxLng) maxLng = lng
+        if (lat < minLat) minLat = lat
+        if (lat > maxLat) maxLat = lat
       }
-      return [sumLng / coords.length, sumLat / coords.length]
+      return [(minLng + maxLng) / 2, (minLat + maxLat) / 2]
     }
 
     type PreparedTract = {
