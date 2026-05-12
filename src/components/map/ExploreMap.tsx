@@ -2145,10 +2145,48 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       return [sumLng / coords.length, sumLat / coords.length]
     }
 
+    // Group by listing_id so all tracts in the SAME auction share one map
+    // position and visually stack into a single dot at every zoom. Without
+    // this, multi-tract auctions show as a "line" of centroids stretched
+    // across however far apart the parcels happen to be — even when the
+    // user thinks of them as one auction at one farm.
+    const positionByListing = new Map<string, [number, number]>()
+    {
+      const groups = new Map<string, ApiMapTract[]>()
+      for (const t of todayTracts) {
+        if (!t.listing_id) continue
+        const arr = groups.get(t.listing_id) || []
+        arr.push(t)
+        groups.set(t.listing_id, arr)
+      }
+      groups.forEach((group, lid) => {
+        let sumLng = 0, sumLat = 0, n = 0
+        for (const t of group) {
+          let lng = t.longitude
+          let lat = t.latitude
+          if (t.polygon_coordinates && t.polygon_coordinates.length > 2) {
+            const c = getPolygonCentroid(t.polygon_coordinates)
+            if (c) { lng = c[0]; lat = c[1] }
+          }
+          if (lat != null && lng != null) {
+            sumLng += lng
+            sumLat += lat
+            n++
+          }
+        }
+        if (n > 0) positionByListing.set(lid, [sumLng / n, sumLat / n])
+      })
+    }
+
     for (const tract of todayTracts) {
       let markerLng = tract.longitude
       let markerLat = tract.latitude
-      if (tract.polygon_coordinates && tract.polygon_coordinates.length > 2) {
+      const grouped = tract.listing_id ? positionByListing.get(tract.listing_id) : null
+      if (grouped) {
+        // Share one position across the whole auction's tracts.
+        markerLng = grouped[0]
+        markerLat = grouped[1]
+      } else if (tract.polygon_coordinates && tract.polygon_coordinates.length > 2) {
         const centroid = getPolygonCentroid(tract.polygon_coordinates)
         if (centroid) {
           markerLng = centroid[0]
@@ -2156,12 +2194,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         }
       }
       if (!markerLat || !markerLng) continue
-
-      // Intentionally NO co-located offset here. These markers are visible at
-      // every zoom — including country view — and a 0.003° offset that looks
-      // tidy at z=10 reads as a "spread line" at z=4. Adjacent tracts in the
-      // same auction should overlap into a single visual dot when zoomed out;
-      // the user can zoom in to disambiguate.
 
       const isPrivateTreaty = (tract.listing_type || '').toLowerCase() === 'private_treaty'
       const isPending = (tract.sale_status || '').toLowerCase() === 'pending'
