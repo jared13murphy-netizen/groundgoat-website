@@ -45,12 +45,17 @@ export default function MissingBoundariesPage() {
   const [byCompany, setByCompany] = useState<CompanyCount[]>([])
   const [deletingListingId, setDeletingListingId] = useState<string | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
-  // Per-listing Surety overview extract state. Keyed by listing_id.
-  const [overviewUrlByListing, setOverviewUrlByListing] = useState<Record<string, string>>({})
-  const [overviewRunningId, setOverviewRunningId] = useState<string | null>(null)
-  const [overviewResultByListing, setOverviewResultByListing] = useState<
-    Record<string, { tracts: any[]; unmatched_polygons: any[]; notes?: string; error?: string }>
+  // Per-listing auto-extract state. Keyed by listing_id.
+  const [autoExtractRunningId, setAutoExtractRunningId] = useState<string | null>(null)
+  const [autoExtractResultByListing, setAutoExtractResultByListing] = useState<
+    Record<string, {
+      succeeded: any[]; failed: any[]; image_url?: string;
+      image_url_reason?: string; map_type?: string;
+      anchor_method?: string; error?: string;
+    }>
   >({})
+  const [approvingTractId, setApprovingTractId] = useState<string | null>(null)
+  const [approveAllRunningId, setApproveAllRunningId] = useState<string | null>(null)
   const [stateFilter, setStateFilter] = useState<string>('')
   const [companyFilter, setCompanyFilter] = useState<string>('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'missing' | 'wrong' | 'ok'>('all')
@@ -144,47 +149,95 @@ export default function MissingBoundariesPage() {
     }
   }
 
-  const runOverviewExtract = async (listingId: string) => {
-    const url = (overviewUrlByListing[listingId] || '').trim()
-    if (!url) return
-    setOverviewRunningId(listingId)
-    setOverviewResultByListing(prev => {
-      const next = { ...prev }
-      delete next[listingId]
-      return next
+  const runAutoExtract = async (listingId: string, force = false) => {
+    setAutoExtractRunningId(listingId)
+    setAutoExtractResultByListing(prev => {
+      const next = { ...prev }; delete next[listingId]; return next
     })
     try {
       const res = await fetch(
-        `${SCRAPER_URL}/api/admin/listings/${listingId}/extract-boundaries-from-surety-overview`,
+        `${SCRAPER_URL}/api/admin/listings/${listingId}/auto-extract`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ image_url: url }),
+          body: JSON.stringify({ force }),
         }
       )
       const body = await res.json()
       if (!res.ok || !body.success) {
-        setOverviewResultByListing(prev => ({
-          ...prev,
-          [listingId]: { tracts: [], unmatched_polygons: [], error: body.error || `HTTP ${res.status}` },
-        }))
-      } else {
-        setOverviewResultByListing(prev => ({
+        setAutoExtractResultByListing(prev => ({
           ...prev,
           [listingId]: {
-            tracts: body.tracts || [],
-            unmatched_polygons: body.unmatched_polygons || [],
-            notes: body.notes,
+            succeeded: [], failed: [],
+            error: body.error || `HTTP ${res.status}`,
+            image_url: body.image_url,
+          },
+        }))
+      } else {
+        setAutoExtractResultByListing(prev => ({
+          ...prev,
+          [listingId]: {
+            succeeded: body.succeeded || [],
+            failed: body.failed || [],
+            image_url: body.image_url,
+            image_url_reason: body.image_url_reason,
+            map_type: body.map_type,
+            anchor_method: body.anchor_method,
           },
         }))
       }
     } catch (e: any) {
-      setOverviewResultByListing(prev => ({
+      setAutoExtractResultByListing(prev => ({
         ...prev,
-        [listingId]: { tracts: [], unmatched_polygons: [], error: e.message || String(e) },
+        [listingId]: { succeeded: [], failed: [], error: e.message || String(e) },
       }))
     } finally {
-      setOverviewRunningId(null)
+      setAutoExtractRunningId(null)
+    }
+  }
+
+  const approveTract = async (tractId: string, listingId: string) => {
+    setApprovingTractId(tractId)
+    try {
+      const res = await fetch(
+        `${SCRAPER_URL}/api/admin/tracts/${tractId}/approve-proposed`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }
+      )
+      const body = await res.json()
+      if (res.ok && body.success) {
+        // Remove this tract from the local list so admin sees progress
+        setItems(prev => prev.filter(it => it.tract_id !== tractId))
+      } else {
+        alert(`Approve failed: ${body.error || `HTTP ${res.status}`}`)
+      }
+    } catch (e: any) {
+      alert(`Approve error: ${e.message || e}`)
+    } finally {
+      setApprovingTractId(null)
+    }
+  }
+
+  const approveAllTracts = async (listingId: string) => {
+    setApproveAllRunningId(listingId)
+    try {
+      const res = await fetch(
+        `${SCRAPER_URL}/api/admin/listings/${listingId}/approve-all-proposed`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }
+      )
+      const body = await res.json()
+      if (res.ok && body.success) {
+        const approvedIds = new Set((body.approved || []).map((x: any) => x.tract_id))
+        setItems(prev => prev.filter(it => !approvedIds.has(it.tract_id)))
+        if (body.errors && body.errors.length > 0) {
+          alert(`Approved ${body.n_approved}; ${body.errors.length} failed (check those tracts).`)
+        }
+      } else {
+        alert(`Approve-all failed: ${body.error || `HTTP ${res.status}`}`)
+      }
+    } catch (e: any) {
+      alert(`Approve-all error: ${e.message || e}`)
+    } finally {
+      setApproveAllRunningId(null)
     }
   }
 
@@ -365,80 +418,102 @@ export default function MissingBoundariesPage() {
                   </button>
                 </div>
 
-                {/* Surety overview map extract — one image populates ALL
-                    tracts on this listing (polygons + tillable + soil
-                    rating). Returns results inline; admin reviews and
-                    saves each tract via the per-tract editor. */}
+                {/* Auto-extract: the software finds the Surety overview
+                    image, runs the multi-tract pipeline, derives tillable
+                    via CDL, and computes soil rating — all in one click.
+                    Admin reviews the results and approves per-tract (or
+                    Approve All for the whole listing). */}
                 <div className="px-4 py-3 border-b border-gg-gray-800 bg-gg-gray-950/40">
                   <div className="flex items-start gap-2">
                     <div className="flex-1 min-w-0">
                       <div className="text-[10px] uppercase tracking-wide text-gg-gray-400 mb-1.5">
-                        Surety Overview Map (extract all {tracts.length} tract{tracts.length === 1 ? '' : 's'} at once)
+                        Auto-Extract Boundaries
+                      </div>
+                      <div className="text-[11px] text-gg-gray-400 mb-2">
+                        Software fetches the listing source, finds the Surety overview map,
+                        extracts polygons + tillable + soil rating for all tracts. You review and approve.
                       </div>
                       <div className="flex gap-2">
-                        <input
-                          type="url"
-                          value={overviewUrlByListing[lid] || ''}
-                          onChange={(e) => setOverviewUrlByListing(prev => ({ ...prev, [lid]: e.target.value }))}
-                          placeholder="Paste Surety overview map URL (shows all tracts with boundary lines)"
-                          disabled={overviewRunningId === lid}
-                          className="flex-1 min-w-0 px-2 py-1.5 bg-gg-gray-900 border border-gg-gray-800 rounded text-xs text-white placeholder-gg-gray-500 focus:outline-none focus:border-gg-pink disabled:opacity-50"
-                        />
                         <button
-                          onClick={() => runOverviewExtract(lid)}
-                          disabled={overviewRunningId === lid || !(overviewUrlByListing[lid] || '').trim()}
-                          className="px-3 py-1.5 text-xs rounded bg-gg-pink/30 hover:bg-gg-pink/50 disabled:opacity-50 text-gg-pink border border-gg-pink/40 flex-shrink-0"
-                          title="Run Vision + OpenCV pipeline on the overview map. Returns proposed polygons + tillable + soil rating for each tract."
+                          onClick={() => runAutoExtract(lid)}
+                          disabled={autoExtractRunningId === lid}
+                          className="px-3 py-1.5 text-xs rounded bg-gg-pink/30 hover:bg-gg-pink/50 disabled:opacity-50 text-gg-pink border border-gg-pink/40"
                         >
-                          {overviewRunningId === lid ? 'Extracting…' : 'Extract All Tracts'}
+                          {autoExtractRunningId === lid ? 'Extracting…' : 'Auto-Extract'}
                         </button>
+                        {autoExtractResultByListing[lid]?.succeeded?.length > 0 && (
+                          <button
+                            onClick={() => approveAllTracts(lid)}
+                            disabled={approveAllRunningId === lid}
+                            className="px-3 py-1.5 text-xs rounded bg-emerald-500/25 hover:bg-emerald-500/40 disabled:opacity-50 text-emerald-200 border border-emerald-500/40"
+                          >
+                            {approveAllRunningId === lid ? 'Approving All…' : `✓ Approve All (${autoExtractResultByListing[lid].succeeded.length})`}
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
 
-                  {overviewResultByListing[lid] && (
+                  {autoExtractResultByListing[lid] && (
                     <div className="mt-3 text-xs">
-                      {overviewResultByListing[lid].error && (
+                      {autoExtractResultByListing[lid].error && (
                         <div className="bg-red-900/30 border border-red-700 rounded p-2 text-red-300">
-                          ✗ {overviewResultByListing[lid].error}
+                          ✗ {autoExtractResultByListing[lid].error}
+                          {autoExtractResultByListing[lid].image_url && (
+                            <div className="mt-1 text-[10px] text-gg-gray-400">
+                              Tried image: <a href={autoExtractResultByListing[lid].image_url} target="_blank" rel="noreferrer" className="text-gg-pink hover:underline">{autoExtractResultByListing[lid].image_url}</a>
+                            </div>
+                          )}
                         </div>
                       )}
-                      {overviewResultByListing[lid].tracts.length > 0 && (
+                      {autoExtractResultByListing[lid].succeeded?.length > 0 && (
                         <div>
                           <div className="text-emerald-300 mb-1.5">
-                            ✓ Extracted {overviewResultByListing[lid].tracts.length} polygon{overviewResultByListing[lid].tracts.length === 1 ? '' : 's'}.
-                            {overviewResultByListing[lid].notes && (
-                              <span className="text-gg-gray-400"> {overviewResultByListing[lid].notes}</span>
+                            ✓ Extracted {autoExtractResultByListing[lid].succeeded.length} tract{autoExtractResultByListing[lid].succeeded.length === 1 ? '' : 's'} via {autoExtractResultByListing[lid].anchor_method} anchor
+                            {autoExtractResultByListing[lid].image_url && (
+                              <>
+                                {' '}from{' '}
+                                <a href={autoExtractResultByListing[lid].image_url} target="_blank" rel="noreferrer" className="underline hover:no-underline">overview map</a>
+                              </>
                             )}
                           </div>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                            {overviewResultByListing[lid].tracts.map((t: any) => (
+                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-1.5">
+                            {autoExtractResultByListing[lid].succeeded.map((t: any) => (
                               <div key={t.tract_id} className="bg-gg-gray-900 border border-gg-gray-800 rounded px-2 py-1.5">
                                 <div className="flex items-center justify-between gap-2">
                                   <span className="font-medium">Tract {t.tract_number ?? '?'}</span>
                                   <span className="text-[10px] text-gg-gray-400">{t.identification_method}</span>
                                 </div>
                                 <div className="text-gg-gray-300 text-[11px] mt-0.5">
-                                  Polygon: {t.polygon_acres?.toFixed?.(2) ?? '—'} ac
+                                  Polygon: {t.acres?.toFixed?.(2) ?? '—'} ac
                                   {' · '}
                                   Tillable: {t.tillable_acres ?? '—'} ac
                                   {' · '}
                                   {t.soil_rating_type || '—'}: {t.soil_rating ?? '—'}
                                 </div>
-                                <Link
-                                  href={`/admin/upload-boundary-tract/${t.tract_id}`}
-                                  className="text-[11px] text-gg-pink hover:underline mt-0.5 inline-block"
-                                >
-                                  Review on map →
-                                </Link>
+                                <div className="flex items-center gap-2 mt-1">
+                                  <button
+                                    onClick={() => approveTract(t.tract_id, lid)}
+                                    disabled={approvingTractId === t.tract_id}
+                                    className="text-[11px] px-2 py-0.5 rounded bg-emerald-500/25 hover:bg-emerald-500/40 disabled:opacity-50 text-emerald-200 border border-emerald-500/40"
+                                  >
+                                    {approvingTractId === t.tract_id ? 'Approving…' : '✓ Approve'}
+                                  </button>
+                                  <Link
+                                    href={`/admin/upload-boundary-tract/${t.tract_id}`}
+                                    className="text-[11px] text-gg-pink hover:underline"
+                                  >
+                                    Review on map →
+                                  </Link>
+                                </div>
                               </div>
                             ))}
                           </div>
-                          {overviewResultByListing[lid].unmatched_polygons.length > 0 && (
-                            <div className="mt-2 text-amber-300">
-                              ⚠ {overviewResultByListing[lid].unmatched_polygons.length} polygon{overviewResultByListing[lid].unmatched_polygons.length === 1 ? '' : 's'} could not be matched to a listing tract.
-                            </div>
-                          )}
+                        </div>
+                      )}
+                      {autoExtractResultByListing[lid].failed?.length > 0 && (
+                        <div className="mt-2 bg-amber-900/30 border border-amber-700 rounded p-2 text-amber-200">
+                          ⚠ {autoExtractResultByListing[lid].failed.length} tract{autoExtractResultByListing[lid].failed.length === 1 ? '' : 's'} could not be matched. Use Upload Image / Draw Boundary for those.
                         </div>
                       )}
                     </div>
