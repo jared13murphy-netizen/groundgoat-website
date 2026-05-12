@@ -157,6 +157,25 @@ export default function UploadBoundaryTractPage() {
         if (cancelled) return
         if (!body.success) throw new Error(body.error)
         setTract(body.tract)
+
+        // Pre-populate the editor with the Auto-Extract proposed
+        // polygon when one is waiting for review. Admin can drag-
+        // correct it and Save — no need to re-paste image URLs.
+        const proposed = body.tract?.proposed_polygon
+        if (Array.isArray(proposed) && proposed.length >= 3
+            && body.tract?.proposed_status === 'ready_for_review') {
+          const pts: Pt[] = proposed.map((p: any) => [Number(p[0]), Number(p[1])])
+          setPolygon(pts)
+          polygonHistoryRef.current = [[...pts]]
+          setExtractMeta({
+            extracted_acres: body.tract.proposed_acres,
+            expected_acres: body.tract.total_acres,
+            confidence: 'medium',
+            notes: 'Pre-loaded from Auto-Extract proposed polygon. Drag to correct any drift, then Save.',
+            polygon_source: 'auto_extract',
+            projection_method: (body.tract.proposed_extraction_meta || {}).anchor_method,
+          })
+        }
       })
       .catch(e => { if (!cancelled) setError(String(e.message || e)) })
       .finally(() => { if (!cancelled) setLoading(false) })
@@ -168,8 +187,22 @@ export default function UploadBoundaryTractPage() {
   // listing's coordinates so the map still has something to center on.
   useEffect(() => {
     if (!tract || !containerRef.current || mapRef.current) return
-    const lat = Number(tract.latitude ?? tract.listing_latitude)
-    const lng = Number(tract.longitude ?? tract.listing_longitude)
+    // Centroid resolution order:
+    //   1. tract.latitude/longitude (already-saved tract)
+    //   2. centroid of proposed_polygon (Auto-Extract waiting for review)
+    //   3. listing centroid (parent fall-back)
+    let lat = Number(tract.latitude)
+    let lng = Number(tract.longitude)
+    const proposed = tract.proposed_polygon
+    if ((!Number.isFinite(lat) || !lat) && Array.isArray(proposed) && proposed.length >= 3) {
+      const cy = proposed.reduce((s: number, p: any) => s + Number(p[1]), 0) / proposed.length
+      const cx = proposed.reduce((s: number, p: any) => s + Number(p[0]), 0) / proposed.length
+      if (Number.isFinite(cy) && Number.isFinite(cx)) { lat = cy; lng = cx }
+    }
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || (!lat && !lng)) {
+      lat = Number(tract.listing_latitude)
+      lng = Number(tract.listing_longitude)
+    }
     if (!Number.isFinite(lat) || !Number.isFinite(lng) || (!lat && !lng)) return
 
     const map = new maplibregl.Map({
@@ -184,6 +217,17 @@ export default function UploadBoundaryTractPage() {
     })
     map.addControl(new maplibregl.NavigationControl(), 'top-right')
     map.on('load', () => {
+      // If we pre-populated the editor with a proposed polygon, fit
+      // the map to it instead of showing a tight zoom at the centroid.
+      const pre = polygonRef.current
+      if (pre && pre.length >= 3) {
+        const lngs = pre.map(p => p[0])
+        const lats = pre.map(p => p[1])
+        map.fitBounds(
+          [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
+          { padding: 60, duration: 0 },
+        )
+      }
       map.addSource('vision-poly', { type: 'geojson', data: buildPolyGeo([]) })
       map.addLayer({
         id: 'vision-fill', type: 'fill', source: 'vision-poly',

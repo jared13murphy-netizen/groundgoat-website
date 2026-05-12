@@ -1,12 +1,161 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { Loader2, ExternalLink, MapPin, Trash2 } from 'lucide-react'
+import maplibregl from 'maplibre-gl'
+import 'maplibre-gl/dist/maplibre-gl.css'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 
 const SCRAPER_URL = 'https://ground-goat-scraper-production.up.railway.app'
 const API_URL = 'https://practical-serenity-production.up.railway.app'
+const TILE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+const TILE_ATTRIBUTION = '© Esri, Maxar, Earthstar Geographics'
+
+// Per-tract colors for full polygon outline. Cycled in tract_number order.
+const TRACT_COLORS = ['#ff3b3b', '#3b9fff', '#ffd83b', '#a83bff', '#3bffa8', '#ff7a3b']
+
+type ExtractedTract = {
+  tract_id: string
+  tract_number: number | null
+  acres?: number
+  tillable_acres?: number | null
+  soil_rating?: number | null
+  soil_rating_type?: string | null
+  identification_method?: string
+  polygon_coordinates?: number[][] | null
+  tillable_polygon?: number[][] | null
+}
+
+function InlineExtractMap({ tracts }: { tracts: ExtractedTract[] }) {
+  // Renders the listing's extracted polygons (full + tillable) on a
+  // satellite map inline. Mounts only when tracts array has polygon data.
+  const containerRef = useRef<HTMLDivElement | null>(null)
+  const mapRef = useRef<maplibregl.Map | null>(null)
+
+  useEffect(() => {
+    if (!containerRef.current) return
+    const usable = tracts.filter(t => t.polygon_coordinates && t.polygon_coordinates.length >= 3)
+    if (usable.length === 0) return
+
+    // Bbox over all tract full-polygons
+    let minLng = Infinity, maxLng = -Infinity, minLat = Infinity, maxLat = -Infinity
+    for (const t of usable) {
+      for (const [lng, lat] of t.polygon_coordinates!) {
+        if (lng < minLng) minLng = lng
+        if (lng > maxLng) maxLng = lng
+        if (lat < minLat) minLat = lat
+        if (lat > maxLat) maxLat = lat
+      }
+    }
+    const centerLng = (minLng + maxLng) / 2
+    const centerLat = (minLat + maxLat) / 2
+
+    const map = new maplibregl.Map({
+      container: containerRef.current,
+      style: {
+        version: 8,
+        sources: {
+          imagery: {
+            type: 'raster',
+            tiles: [TILE_URL],
+            tileSize: 256,
+            attribution: TILE_ATTRIBUTION,
+          },
+        },
+        layers: [{ id: 'imagery', type: 'raster', source: 'imagery' }],
+      },
+      center: [centerLng, centerLat],
+      zoom: 14,
+      attributionControl: false,
+    })
+    mapRef.current = map
+    map.addControl(new maplibregl.NavigationControl(), 'top-right')
+
+    map.on('load', () => {
+      const labels: any[] = []
+      for (let i = 0; i < usable.length; i++) {
+        const t = usable[i]
+        const color = TRACT_COLORS[i % TRACT_COLORS.length]
+        const fullId = `full_${t.tract_id}`
+        const tilId = `til_${t.tract_id}`
+        const closed = [...t.polygon_coordinates!]
+        if (JSON.stringify(closed[0]) !== JSON.stringify(closed[closed.length - 1])) {
+          closed.push(closed[0])
+        }
+        map.addSource(fullId, {
+          type: 'geojson',
+          data: { type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [closed] } } as any,
+        })
+        map.addLayer({
+          id: `${fullId}_line`, type: 'line', source: fullId,
+          paint: { 'line-color': color, 'line-width': 3 },
+        })
+        map.addLayer({
+          id: `${fullId}_fill`, type: 'fill', source: fullId,
+          paint: { 'fill-color': color, 'fill-opacity': 0.08 },
+        })
+
+        if (t.tillable_polygon && t.tillable_polygon.length >= 3) {
+          const tilClosed = [...t.tillable_polygon]
+          if (JSON.stringify(tilClosed[0]) !== JSON.stringify(tilClosed[tilClosed.length - 1])) {
+            tilClosed.push(tilClosed[0])
+          }
+          map.addSource(tilId, {
+            type: 'geojson',
+            data: { type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [tilClosed] } } as any,
+          })
+          map.addLayer({
+            id: `${tilId}_fill`, type: 'fill', source: tilId,
+            paint: { 'fill-color': '#22c55e', 'fill-opacity': 0.30 },
+          })
+        }
+
+        // Centroid label
+        const cx = t.polygon_coordinates!.reduce((s, p) => s + p[0], 0) / t.polygon_coordinates!.length
+        const cy = t.polygon_coordinates!.reduce((s, p) => s + p[1], 0) / t.polygon_coordinates!.length
+        labels.push({ type: 'Feature',
+          properties: { label: `T${t.tract_number ?? '?'}`, color },
+          geometry: { type: 'Point', coordinates: [cx, cy] } })
+      }
+      map.addSource('labels', { type: 'geojson', data: { type: 'FeatureCollection', features: labels } as any })
+      map.addLayer({
+        id: 'labels', type: 'symbol', source: 'labels',
+        layout: {
+          'text-field': ['get', 'label'],
+          'text-size': 16, 'text-anchor': 'center',
+          'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+        },
+        paint: {
+          'text-color': '#ffffff',
+          'text-halo-color': '#000000',
+          'text-halo-width': 2,
+        },
+      })
+
+      // Pad the bbox slightly
+      const padLng = (maxLng - minLng) * 0.1
+      const padLat = (maxLat - minLat) * 0.1
+      map.fitBounds(
+        [[minLng - padLng, minLat - padLat], [maxLng + padLng, maxLat + padLat]],
+        { padding: 30, duration: 0 },
+      )
+    })
+
+    return () => { map.remove(); mapRef.current = null }
+  }, [tracts])
+
+  return (
+    <div className="relative">
+      <div ref={containerRef} className="w-full h-[360px] rounded border border-gg-gray-700 overflow-hidden bg-black" />
+      <div className="absolute bottom-1.5 left-1.5 text-[10px] text-white bg-black/60 px-2 py-1 rounded pointer-events-none">
+        <span className="inline-block w-2.5 h-2.5 align-middle mr-1" style={{ background: '#ff3b3b' }} /> tract boundary
+        {' · '}
+        <span className="inline-block w-2.5 h-2.5 align-middle mr-1" style={{ background: '#22c55e', opacity: 0.6 }} /> tillable
+      </div>
+    </div>
+  )
+}
 
 type Item = {
   tract_id: string
@@ -477,6 +626,12 @@ export default function MissingBoundariesPage() {
                               </>
                             )}
                           </div>
+
+                          {/* Inline satellite map of every extracted polygon */}
+                          <div className="mb-2">
+                            <InlineExtractMap tracts={autoExtractResultByListing[lid].succeeded as any} />
+                          </div>
+
                           <div className="grid grid-cols-1 lg:grid-cols-2 gap-1.5">
                             {autoExtractResultByListing[lid].succeeded.map((t: any) => (
                               <div key={t.tract_id} className="bg-gg-gray-900 border border-gg-gray-800 rounded px-2 py-1.5">
