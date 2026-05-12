@@ -45,6 +45,12 @@ export default function MissingBoundariesPage() {
   const [byCompany, setByCompany] = useState<CompanyCount[]>([])
   const [deletingListingId, setDeletingListingId] = useState<string | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  // Per-listing Surety overview extract state. Keyed by listing_id.
+  const [overviewUrlByListing, setOverviewUrlByListing] = useState<Record<string, string>>({})
+  const [overviewRunningId, setOverviewRunningId] = useState<string | null>(null)
+  const [overviewResultByListing, setOverviewResultByListing] = useState<
+    Record<string, { tracts: any[]; unmatched_polygons: any[]; notes?: string; error?: string }>
+  >({})
   const [stateFilter, setStateFilter] = useState<string>('')
   const [companyFilter, setCompanyFilter] = useState<string>('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'missing' | 'wrong' | 'ok'>('all')
@@ -135,6 +141,50 @@ export default function MissingBoundariesPage() {
       setDeleteError(`Delete failed: ${e.message || e}`)
     } finally {
       setDeletingListingId(null)
+    }
+  }
+
+  const runOverviewExtract = async (listingId: string) => {
+    const url = (overviewUrlByListing[listingId] || '').trim()
+    if (!url) return
+    setOverviewRunningId(listingId)
+    setOverviewResultByListing(prev => {
+      const next = { ...prev }
+      delete next[listingId]
+      return next
+    })
+    try {
+      const res = await fetch(
+        `${SCRAPER_URL}/api/admin/listings/${listingId}/extract-boundaries-from-surety-overview`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image_url: url }),
+        }
+      )
+      const body = await res.json()
+      if (!res.ok || !body.success) {
+        setOverviewResultByListing(prev => ({
+          ...prev,
+          [listingId]: { tracts: [], unmatched_polygons: [], error: body.error || `HTTP ${res.status}` },
+        }))
+      } else {
+        setOverviewResultByListing(prev => ({
+          ...prev,
+          [listingId]: {
+            tracts: body.tracts || [],
+            unmatched_polygons: body.unmatched_polygons || [],
+            notes: body.notes,
+          },
+        }))
+      }
+    } catch (e: any) {
+      setOverviewResultByListing(prev => ({
+        ...prev,
+        [listingId]: { tracts: [], unmatched_polygons: [], error: e.message || String(e) },
+      }))
+    } finally {
+      setOverviewRunningId(null)
     }
   }
 
@@ -313,6 +363,86 @@ export default function MissingBoundariesPage() {
                       </>
                     )}
                   </button>
+                </div>
+
+                {/* Surety overview map extract — one image populates ALL
+                    tracts on this listing (polygons + tillable + soil
+                    rating). Returns results inline; admin reviews and
+                    saves each tract via the per-tract editor. */}
+                <div className="px-4 py-3 border-b border-gg-gray-800 bg-gg-gray-950/40">
+                  <div className="flex items-start gap-2">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[10px] uppercase tracking-wide text-gg-gray-400 mb-1.5">
+                        Surety Overview Map (extract all {tracts.length} tract{tracts.length === 1 ? '' : 's'} at once)
+                      </div>
+                      <div className="flex gap-2">
+                        <input
+                          type="url"
+                          value={overviewUrlByListing[lid] || ''}
+                          onChange={(e) => setOverviewUrlByListing(prev => ({ ...prev, [lid]: e.target.value }))}
+                          placeholder="Paste Surety overview map URL (shows all tracts with boundary lines)"
+                          disabled={overviewRunningId === lid}
+                          className="flex-1 min-w-0 px-2 py-1.5 bg-gg-gray-900 border border-gg-gray-800 rounded text-xs text-white placeholder-gg-gray-500 focus:outline-none focus:border-gg-pink disabled:opacity-50"
+                        />
+                        <button
+                          onClick={() => runOverviewExtract(lid)}
+                          disabled={overviewRunningId === lid || !(overviewUrlByListing[lid] || '').trim()}
+                          className="px-3 py-1.5 text-xs rounded bg-gg-pink/30 hover:bg-gg-pink/50 disabled:opacity-50 text-gg-pink border border-gg-pink/40 flex-shrink-0"
+                          title="Run Vision + OpenCV pipeline on the overview map. Returns proposed polygons + tillable + soil rating for each tract."
+                        >
+                          {overviewRunningId === lid ? 'Extracting…' : 'Extract All Tracts'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {overviewResultByListing[lid] && (
+                    <div className="mt-3 text-xs">
+                      {overviewResultByListing[lid].error && (
+                        <div className="bg-red-900/30 border border-red-700 rounded p-2 text-red-300">
+                          ✗ {overviewResultByListing[lid].error}
+                        </div>
+                      )}
+                      {overviewResultByListing[lid].tracts.length > 0 && (
+                        <div>
+                          <div className="text-emerald-300 mb-1.5">
+                            ✓ Extracted {overviewResultByListing[lid].tracts.length} polygon{overviewResultByListing[lid].tracts.length === 1 ? '' : 's'}.
+                            {overviewResultByListing[lid].notes && (
+                              <span className="text-gg-gray-400"> {overviewResultByListing[lid].notes}</span>
+                            )}
+                          </div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                            {overviewResultByListing[lid].tracts.map((t: any) => (
+                              <div key={t.tract_id} className="bg-gg-gray-900 border border-gg-gray-800 rounded px-2 py-1.5">
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="font-medium">Tract {t.tract_number ?? '?'}</span>
+                                  <span className="text-[10px] text-gg-gray-400">{t.identification_method}</span>
+                                </div>
+                                <div className="text-gg-gray-300 text-[11px] mt-0.5">
+                                  Polygon: {t.polygon_acres?.toFixed?.(2) ?? '—'} ac
+                                  {' · '}
+                                  Tillable: {t.tillable_acres ?? '—'} ac
+                                  {' · '}
+                                  {t.soil_rating_type || '—'}: {t.soil_rating ?? '—'}
+                                </div>
+                                <Link
+                                  href={`/admin/upload-boundary-tract/${t.tract_id}`}
+                                  className="text-[11px] text-gg-pink hover:underline mt-0.5 inline-block"
+                                >
+                                  Review on map →
+                                </Link>
+                              </div>
+                            ))}
+                          </div>
+                          {overviewResultByListing[lid].unmatched_polygons.length > 0 && (
+                            <div className="mt-2 text-amber-300">
+                              ⚠ {overviewResultByListing[lid].unmatched_polygons.length} polygon{overviewResultByListing[lid].unmatched_polygons.length === 1 ? '' : 's'} could not be matched to a listing tract.
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div className="divide-y divide-gg-gray-800">
                   {tracts.map((t) => (
