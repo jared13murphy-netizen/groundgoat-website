@@ -2282,7 +2282,18 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           }
         })
 
-        const marker = new maplibregl.Marker({ element: el })
+        // Anchor at the BOTTOM of the element with a half-pin offset so
+        // the green pin's center always sits at the lat/lng pixel — NOT
+        // the geometric center of the (label + pin) stack. With the old
+        // default 'center' anchor, the pin was rendered ~12 px below the
+        // lat/lng pixel; at country zoom that 12 px = ~150 km, so dots
+        // appeared a degree+ south of their real position and visibly
+        // "drifted north" as the user zoomed in.
+        const marker = new maplibregl.Marker({
+          element: el,
+          anchor: 'bottom',
+          offset: [0, 7],  // 7 = half of the 14 px pin diameter
+        })
           .setLngLat([centerLng, centerLat])
           .addTo(map)
         todayMarkersRef.current.push(marker)
