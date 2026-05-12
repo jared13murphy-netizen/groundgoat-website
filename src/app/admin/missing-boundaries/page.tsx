@@ -25,6 +25,7 @@ type Item = {
 }
 
 type StateCount = { state: string; total: number; missing: number; wrong: number }
+type CompanyCount = { company: string; total: number; missing: number; wrong: number }
 
 function formatDate(iso: string | null) {
   if (!iso) return '—'
@@ -39,7 +40,9 @@ function formatDate(iso: string | null) {
 export default function MissingBoundariesPage() {
   const [items, setItems] = useState<Item[]>([])
   const [byState, setByState] = useState<StateCount[]>([])
+  const [byCompany, setByCompany] = useState<CompanyCount[]>([])
   const [stateFilter, setStateFilter] = useState<string>('')
+  const [companyFilter, setCompanyFilter] = useState<string>('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'missing' | 'wrong'>('all')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -52,6 +55,7 @@ export default function MissingBoundariesPage() {
         const qs = new URLSearchParams()
         if (stateFilter) qs.set('state', stateFilter)
         if (statusFilter !== 'all') qs.set('status', statusFilter)
+        if (companyFilter) qs.set('company', companyFilter)
         const url = `${SCRAPER_URL}/api/admin/missing-boundary-tracts${qs.toString() ? '?' + qs.toString() : ''}`
         setLoading(true)
         const res = await fetch(url)
@@ -60,6 +64,7 @@ export default function MissingBoundariesPage() {
         if (!cancelled) {
           setItems(data.items || [])
           if (Array.isArray(data.by_state)) setByState(data.by_state)
+          if (Array.isArray(data.by_company)) setByCompany(data.by_company)
         }
       } catch (e: any) {
         if (!cancelled) setError(e.message || String(e))
@@ -86,7 +91,7 @@ export default function MissingBoundariesPage() {
         if (!cancelled) setGeocodeStatus(`Geocode failed: ${e.message || e}`)
       })
     return () => { cancelled = true }
-  }, [stateFilter, statusFilter])
+  }, [stateFilter, statusFilter, companyFilter])
 
   // Group by listing_id so multiple tracts on the same auction show together
   const grouped: Record<string, Item[]> = {}
@@ -135,6 +140,22 @@ export default function MissingBoundariesPage() {
             ))}
           </select>
 
+          <label className="text-xs text-gg-gray-400 uppercase tracking-wide ml-2">Company:</label>
+          <select
+            value={companyFilter}
+            onChange={(e) => setCompanyFilter(e.target.value)}
+            className="bg-gg-gray-900 border border-gg-gray-700 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-gg-pink max-w-xs"
+          >
+            <option value="">
+              All companies ({byCompany.reduce((s, x) => s + x.total, 0)})
+            </option>
+            {byCompany.map((c) => (
+              <option key={c.company} value={c.company}>
+                {c.company} ({c.total})
+              </option>
+            ))}
+          </select>
+
           <label className="text-xs text-gg-gray-400 uppercase tracking-wide ml-2">Type:</label>
           <div className="inline-flex rounded overflow-hidden border border-gg-gray-700">
             {(['all', 'missing', 'wrong'] as const).map((opt) => (
@@ -147,6 +168,15 @@ export default function MissingBoundariesPage() {
               </button>
             ))}
           </div>
+
+          {companyFilter && (
+            <button
+              onClick={() => setCompanyFilter('')}
+              className="text-xs text-gg-pink underline hover:no-underline"
+            >
+              Clear company filter
+            </button>
+          )}
         </div>
 
         {loading && (
