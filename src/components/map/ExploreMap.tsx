@@ -42,10 +42,11 @@ const PIN_COLORS: Record<string, string> = {
 const DEFAULT_PIN_COLOR = '#eab308' // Yellow for NULL/unknown status (= listed)
 
 // Draw order on the map — higher value = drawn on top.
-// Live auctions sit above upcoming auctions, which sit above finalized and
-// listed tracts so the most time-sensitive pins are never obscured.
+// "live" here means "auctioning today" — those pins sit above EVERYTHING
+// (including the state + county badges) so the pulsing dots are always
+// the most prominent thing on the map.
 const PIN_Z_ORDER: Record<string, number> = {
-  live:    50,
+  live:    10000,
   auction: 40,
   sold:    30,
   no_sale: 20,
@@ -54,6 +55,36 @@ const PIN_Z_ORDER: Record<string, number> = {
   pending: 10,
 }
 const DEFAULT_PIN_Z = 10
+
+/**
+ * Return true when the tract's auction is happening on the current local
+ * date. Used to decide whether to render the green pulsing dot. We compare
+ * by Y/M/D in the user's local timezone so a tract auctioning in any zone
+ * "today" lights up while the user is browsing today.
+ *
+ * Plain YYYY-MM-DD strings are intentionally parsed as local dates — the
+ * default `new Date('YYYY-MM-DD')` parses as UTC midnight, which silently
+ * shifts to the previous day for western timezones.
+ */
+function isAuctionDateToday(d: unknown): boolean {
+  if (!d) return false
+  const s = String(d).trim()
+  if (!s) return false
+  let date: Date
+  const plain = s.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (plain) {
+    date = new Date(Number(plain[1]), Number(plain[2]) - 1, Number(plain[3]))
+  } else {
+    date = new Date(s)
+  }
+  if (isNaN(date.getTime())) return false
+  const now = new Date()
+  return (
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate()
+  )
+}
 
 function getStatusPinColor(status: string | null): string {
   if (!status) return DEFAULT_PIN_COLOR
@@ -1981,17 +2012,24 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         ? tract.asking_price / tract.total_acres
         : tract.price_per_acre
 
+      // "Auctioning today" — green pin + pulsing ring + top-of-stack z-order.
+      // Replaces the older listing_status === 'live' rule so the prominent
+      // visual treatment reflects WHEN the auction is, not the realtime
+      // status flag (which was noisy).
+      const isAuctionToday = isAuctionDateToday(tract.auction_date)
+
       const el = createMarkerElement(
         markerPpa,
         tract.total_acres,
         tract.sale_status,
-        tract.listing_status
+        isAuctionToday,
       )
 
-      // Z-order by status: live > auction > sold > no_sale > listed.
-      // Ensures the most time-sensitive pins stay on top as the map gets busy.
+      // Z-order by status: live (today) > auction > sold > no_sale > listed.
+      // The live tier is set to a very high z so the pulse sits above the
+      // state + county badges and any other pin.
       // Stashed in a dataset so the report-highlight effect can restore it.
-      const isLive = tract.listing_status === 'live'
+      const isLive = isAuctionToday
       const statusZ = String(getStatusPinZ(tract.sale_status, isLive))
       el.dataset.statusZ = statusZ
       el.style.zIndex = statusZ
@@ -3426,11 +3464,13 @@ function createMarkerElement(
   pricePerAcre: number | null,
   acres: number | null,
   status: string | null,
-  listingStatus?: string | null,
+  isAuctionToday: boolean,
 ): HTMLDivElement {
   const container = document.createElement('div')
   container.className = 'comp-marker'
-  const isLive = listingStatus === 'live'
+  // The visual treatment named "live" historically (green pin + pulsing
+  // ring) now lights up for any tract whose auction is happening today.
+  const isLive = isAuctionToday
 
   const label = document.createElement('div')
   label.className = 'comp-marker-label'
