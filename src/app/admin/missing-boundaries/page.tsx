@@ -201,6 +201,7 @@ export default function MissingBoundariesPage() {
       succeeded: any[]; failed: any[]; image_url?: string;
       image_url_reason?: string; map_type?: string;
       anchor_method?: string; error?: string;
+      skipped?: boolean; skipped_reason?: string;
     }>
   >({})
   const [approvingTractId, setApprovingTractId] = useState<string | null>(null)
@@ -322,6 +323,18 @@ export default function MissingBoundariesPage() {
             image_url: body.image_url,
           },
         }))
+      } else if (body.skipped) {
+        // Endpoint refused to re-run because tracts already have
+        // proposed_* values waiting for review. Surface this clearly
+        // and offer a Force button.
+        setAutoExtractResultByListing(prev => ({
+          ...prev,
+          [listingId]: {
+            succeeded: [], failed: [],
+            skipped: true,
+            skipped_reason: body.reason || 'already extracted',
+          },
+        }))
       } else {
         setAutoExtractResultByListing(prev => ({
           ...prev,
@@ -403,7 +416,7 @@ export default function MissingBoundariesPage() {
   })
 
   return (
-    <div className="min-h-screen bg-gg-gray-950 text-white p-6">
+    <div className="min-h-screen bg-gg-gray-950 text-white pt-24 pb-12 px-6">
       <div className="max-w-6xl mx-auto">
         <div className="flex items-center justify-between mb-6">
           <div>
@@ -582,7 +595,7 @@ export default function MissingBoundariesPage() {
                         Software fetches the listing source, finds the Surety overview map,
                         extracts polygons + tillable + soil rating for all tracts. You review and approve.
                       </div>
-                      <div className="flex gap-2">
+                      <div className="flex gap-2 flex-wrap">
                         <button
                           onClick={() => runAutoExtract(lid)}
                           disabled={autoExtractRunningId === lid}
@@ -590,6 +603,15 @@ export default function MissingBoundariesPage() {
                         >
                           {autoExtractRunningId === lid ? 'Extracting…' : 'Auto-Extract'}
                         </button>
+                        {autoExtractResultByListing[lid]?.skipped && (
+                          <button
+                            onClick={() => runAutoExtract(lid, true)}
+                            disabled={autoExtractRunningId === lid}
+                            className="px-3 py-1.5 text-xs rounded bg-amber-500/25 hover:bg-amber-500/40 disabled:opacity-50 text-amber-200 border border-amber-500/40"
+                          >
+                            {autoExtractRunningId === lid ? 'Re-extracting…' : '↻ Force Re-Extract'}
+                          </button>
+                        )}
                         {autoExtractResultByListing[lid]?.succeeded?.length > 0 && (
                           <button
                             onClick={() => approveAllTracts(lid)}
@@ -613,6 +635,14 @@ export default function MissingBoundariesPage() {
                               Tried image: <a href={autoExtractResultByListing[lid].image_url} target="_blank" rel="noreferrer" className="text-gg-pink hover:underline">{autoExtractResultByListing[lid].image_url}</a>
                             </div>
                           )}
+                        </div>
+                      )}
+                      {autoExtractResultByListing[lid].skipped && (
+                        <div className="bg-amber-900/30 border border-amber-700 rounded p-2 text-amber-200">
+                          ⚠ Already extracted previously. Click <strong>Force Re-Extract</strong> to run again, or open each tract via the "Review on map" link to approve.
+                          <div className="text-[10px] text-gg-gray-400 mt-1">
+                            {autoExtractResultByListing[lid].skipped_reason}
+                          </div>
                         </div>
                       )}
                       {autoExtractResultByListing[lid].succeeded?.length > 0 && (
