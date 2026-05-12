@@ -3159,7 +3159,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           { label: 'Sold', color: '#f58cde' },
           { label: 'Auction', color: '#2563eb' },
           { label: 'Listed', color: '#eab308' },
-          { label: 'Live', color: '#22c55e' },
+          { label: "Today's Auctions", color: '#22c55e' },
           { label: 'No Sale', color: '#9ca3af' },
         ].map(({ label, color }) => (
           <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
