@@ -206,6 +206,7 @@ export default function MissingBoundariesPage() {
   >({})
   const [approvingTractId, setApprovingTractId] = useState<string | null>(null)
   const [approveAllRunningId, setApproveAllRunningId] = useState<string | null>(null)
+  const [rejectingTractId, setRejectingTractId] = useState<string | null>(null)
   const [stateFilter, setStateFilter] = useState<string>('')
   const [companyFilter, setCompanyFilter] = useState<string>('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'missing' | 'wrong' | 'ok'>('all')
@@ -376,6 +377,38 @@ export default function MissingBoundariesPage() {
       alert(`Approve error: ${e.message || e}`)
     } finally {
       setApprovingTractId(null)
+    }
+  }
+
+  const rejectProposed = async (tractId: string, listingId: string) => {
+    if (!window.confirm('Reject this proposed boundary? It will be discarded. Live data is NOT changed; tract stays on the list so you can re-extract / upload / draw.')) return
+    setRejectingTractId(tractId)
+    try {
+      const res = await fetch(
+        `${SCRAPER_URL}/api/admin/tracts/${tractId}/reject-proposed`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }
+      )
+      const body = await res.json()
+      if (res.ok && body.success) {
+        // Remove this tract from the local extracted-results list
+        setAutoExtractResultByListing(prev => {
+          const cur = prev[listingId]
+          if (!cur) return prev
+          return {
+            ...prev,
+            [listingId]: {
+              ...cur,
+              succeeded: cur.succeeded.filter((t: any) => t.tract_id !== tractId),
+            },
+          }
+        })
+      } else {
+        alert(`Reject failed: ${body.error || `HTTP ${res.status}`}`)
+      }
+    } catch (e: any) {
+      alert(`Reject error: ${e.message || e}`)
+    } finally {
+      setRejectingTractId(null)
     }
   }
 
@@ -676,13 +709,21 @@ export default function MissingBoundariesPage() {
                                   {' · '}
                                   {t.soil_rating_type || '—'}: {t.soil_rating ?? '—'}
                                 </div>
-                                <div className="flex items-center gap-2 mt-1">
+                                <div className="flex items-center gap-2 mt-1 flex-wrap">
                                   <button
                                     onClick={() => approveTract(t.tract_id, lid)}
-                                    disabled={approvingTractId === t.tract_id}
+                                    disabled={approvingTractId === t.tract_id || rejectingTractId === t.tract_id}
                                     className="text-[11px] px-2 py-0.5 rounded bg-emerald-500/25 hover:bg-emerald-500/40 disabled:opacity-50 text-emerald-200 border border-emerald-500/40"
                                   >
                                     {approvingTractId === t.tract_id ? 'Approving…' : '✓ Approve'}
+                                  </button>
+                                  <button
+                                    onClick={() => rejectProposed(t.tract_id, lid)}
+                                    disabled={approvingTractId === t.tract_id || rejectingTractId === t.tract_id}
+                                    className="text-[11px] px-2 py-0.5 rounded bg-red-500/20 hover:bg-red-500/35 disabled:opacity-50 text-red-300 border border-red-500/40"
+                                    title="Discard this proposed boundary. Tract stays on the list for re-extraction or manual draw."
+                                  >
+                                    {rejectingTractId === t.tract_id ? 'Rejecting…' : '✗ Reject'}
                                   </button>
                                   <Link
                                     href={`/admin/upload-boundary-tract/${t.tract_id}`}
