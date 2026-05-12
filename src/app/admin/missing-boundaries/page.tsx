@@ -2,9 +2,11 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { Loader2, ExternalLink, MapPin } from 'lucide-react'
+import { Loader2, ExternalLink, MapPin, Trash2 } from 'lucide-react'
+import fetchWithAuth from '@/lib/fetchWithAuth'
 
 const SCRAPER_URL = 'https://ground-goat-scraper-production.up.railway.app'
+const API_URL = 'https://practical-serenity-production.up.railway.app'
 
 type Item = {
   tract_id: string
@@ -41,6 +43,8 @@ export default function MissingBoundariesPage() {
   const [items, setItems] = useState<Item[]>([])
   const [byState, setByState] = useState<StateCount[]>([])
   const [byCompany, setByCompany] = useState<CompanyCount[]>([])
+  const [deletingListingId, setDeletingListingId] = useState<string | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
   const [stateFilter, setStateFilter] = useState<string>('')
   const [companyFilter, setCompanyFilter] = useState<string>('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'missing' | 'wrong'>('all')
@@ -92,6 +96,47 @@ export default function MissingBoundariesPage() {
       })
     return () => { cancelled = true }
   }, [stateFilter, statusFilter, companyFilter])
+
+  // Delete a listing (cascades to tracts via FK ON DELETE CASCADE).
+  // Triple-checks before issuing the DELETE — accidental click is a
+  // hard-to-undo destructive operation. The native window.confirm
+  // requires explicit user assent and blocks the UI thread until
+  // the user clicks Cancel or OK.
+  const deleteListing = async (listingId: string, title: string | null,
+                                company: string | null,
+                                tractCount: number) => {
+    const niceTitle = (title || '(untitled)').slice(0, 80)
+    const msg = (
+      `Delete this listing PERMANENTLY?\n\n` +
+      `Title: ${niceTitle}\n` +
+      `Company: ${company || '—'}\n` +
+      `${tractCount} tract${tractCount === 1 ? '' : 's'} will also be deleted.\n\n` +
+      `This cannot be undone.`
+    )
+    if (!window.confirm(msg)) return
+    setDeletingListingId(listingId)
+    setDeleteError(null)
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/listings/${listingId}`, {
+        method: 'DELETE',
+      })
+      if (!res.ok) {
+        let detail = `HTTP ${res.status}`
+        try {
+          const body = await res.json()
+          detail = body.detail || body.message || detail
+        } catch {}
+        throw new Error(detail)
+      }
+      // Remove from local state immediately so the UI updates without
+      // needing a full reload.
+      setItems(prev => prev.filter(it => it.listing_id !== listingId))
+    } catch (e: any) {
+      setDeleteError(`Delete failed: ${e.message || e}`)
+    } finally {
+      setDeletingListingId(null)
+    }
+  }
 
   // Group by listing_id so multiple tracts on the same auction show together
   const grouped: Record<string, Item[]> = {}
@@ -189,6 +234,17 @@ export default function MissingBoundariesPage() {
             {error}
           </div>
         )}
+        {deleteError && (
+          <div className="bg-red-900/40 border border-red-600 rounded p-3 text-red-300 mb-3 flex items-center justify-between gap-3">
+            <span>{deleteError}</span>
+            <button
+              onClick={() => setDeleteError(null)}
+              className="text-xs px-2 py-1 text-red-200 hover:text-white"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
 
         {!loading && !error && items.length === 0 && (
           <div className="bg-gg-gray-900 border border-gg-gray-800 rounded-lg p-6 text-gg-gray-400">
@@ -239,6 +295,22 @@ export default function MissingBoundariesPage() {
                       )}
                     </div>
                   </div>
+                  <button
+                    onClick={() => deleteListing(lid, head.title, head.company_name, tracts.length)}
+                    disabled={deletingListingId === lid}
+                    className="text-xs px-3 py-1.5 rounded bg-red-500/15 hover:bg-red-500/25 disabled:opacity-50 text-red-300 border border-red-500/40 transition-colors flex items-center gap-1.5 flex-shrink-0 self-start"
+                    title="Delete this listing and all its tracts. Confirmation required."
+                  >
+                    {deletingListingId === lid ? (
+                      <>
+                        <Loader2 size={12} className="animate-spin" /> Deleting…
+                      </>
+                    ) : (
+                      <>
+                        <Trash2 size={12} /> Delete Listing
+                      </>
+                    )}
+                  </button>
                 </div>
                 <div className="divide-y divide-gg-gray-800">
                   {tracts.map((t) => (
