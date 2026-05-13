@@ -653,6 +653,11 @@ export default function MissingBoundariesPage() {
   const [approvingTractId, setApprovingTractId] = useState<string | null>(null)
   const [approveAllRunningId, setApproveAllRunningId] = useState<string | null>(null)
   const [rejectingTractId, setRejectingTractId] = useState<string | null>(null)
+  // Tracks which tracts have been approved IN THIS SESSION so the card
+  // can show a green "Approved" badge instead of just disappearing
+  // from the bottom list. The card stays visible so admin sees what
+  // they just confirmed.
+  const [approvedTractIds, setApprovedTractIds] = useState<Set<string>>(new Set())
   // Edit state per tract: current_polygon = whatever the admin has dragged
   // it to. current_tillable_polygons/acres/soil_rating = last result from
   // Calculate. The approve call ships these as overrides.
@@ -852,6 +857,15 @@ export default function MissingBoundariesPage() {
       )
       const body = await res.json()
       if (res.ok && body.success) {
+        // Mark approved (card shows green Approved badge) AND remove
+        // from the bottom missing-boundaries list. Keeping the card
+        // visible gives admin clear visual confirmation of what just
+        // got committed.
+        setApprovedTractIds(prev => {
+          const next = new Set(prev)
+          next.add(tractId)
+          return next
+        })
         setItems(prev => prev.filter(it => it.tract_id !== tractId))
       } else {
         alert(`Approve failed: ${body.error || `HTTP ${res.status}`}`)
@@ -1261,7 +1275,15 @@ export default function MissingBoundariesPage() {
       )
       const body = await res.json()
       if (res.ok && body.success) {
-        const approvedIds = new Set((body.approved || []).map((x: any) => x.tract_id))
+        const approvedIds = new Set<string>(
+          (body.approved || []).map((x: any) => x.tract_id as string),
+        )
+        // Mark each card so it shows the green Approved badge
+        setApprovedTractIds(prev => {
+          const next = new Set(prev)
+          approvedIds.forEach(id => next.add(id))
+          return next
+        })
         setItems(prev => prev.filter(it => !approvedIds.has(it.tract_id)))
         if (body.errors && body.errors.length > 0) {
           alert(`Approved ${body.n_approved}; ${body.errors.length} failed (check those tracts).`)
@@ -1551,10 +1573,28 @@ export default function MissingBoundariesPage() {
                               const needsCalc = e && e.current_tillable_acres == null
                               const listingTract = tracts.find(it => it.tract_id === t.tract_id)
                               const computedTotal = e?.current_polygon_acres ?? t.acres
+                              const isApproved = approvedTractIds.has(t.tract_id)
                               return (
-                                <div key={t.tract_id} className="bg-gg-gray-900 border border-gg-gray-800 rounded px-2 py-2">
+                                <div
+                                  key={t.tract_id}
+                                  className={`rounded px-2 py-2 border transition-colors ${
+                                    isApproved
+                                      ? 'bg-emerald-900/30 border-emerald-600/60'
+                                      : 'bg-gg-gray-900 border-gg-gray-800'
+                                  }`}
+                                >
                                   <div className="flex items-center justify-between gap-2 mb-1">
-                                    <span className="font-medium">Tract {t.tract_number ?? '?'}</span>
+                                    <span className="font-medium flex items-center gap-1.5">
+                                      Tract {t.tract_number ?? '?'}
+                                      {isApproved && (
+                                        <span
+                                          className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-emerald-500/30 text-emerald-200 border border-emerald-500/60"
+                                          title="Saved to the live database. The tract has been removed from the missing-boundaries list."
+                                        >
+                                          ✓ Approved
+                                        </span>
+                                      )}
+                                    </span>
                                     <span className="text-[10px] text-gg-gray-400">{t.identification_method}</span>
                                   </div>
 
@@ -1672,26 +1712,31 @@ export default function MissingBoundariesPage() {
                                       ⚠ Drag detected — click Calculate to refresh tillable + rating
                                     </div>
                                   )}
+                                  {isApproved && (
+                                    <div className="text-[11px] text-emerald-300 mt-1 mb-1">
+                                      ✓ Saved to live database — this tract is no longer in the missing-boundaries queue.
+                                    </div>
+                                  )}
                                   <div className="flex items-center gap-2 mt-1 flex-wrap">
                                     <button
                                       onClick={() => calculateTract(t.tract_id)}
-                                      disabled={calculatingTractId === t.tract_id}
-                                      className="text-[11px] px-2 py-0.5 rounded bg-blue-500/25 hover:bg-blue-500/40 disabled:opacity-50 text-blue-200 border border-blue-500/40"
+                                      disabled={isApproved || calculatingTractId === t.tract_id}
+                                      className="text-[11px] px-2 py-0.5 rounded bg-blue-500/25 hover:bg-blue-500/40 disabled:opacity-30 disabled:cursor-not-allowed text-blue-200 border border-blue-500/40"
                                       title="Compute tillable polygon, tillable acres, and soil rating from the current dragged polygon."
                                     >
                                       {calculatingTractId === t.tract_id ? 'Calculating…' : '↻ Calculate'}
                                     </button>
                                     <button
                                       onClick={() => approveTract(t.tract_id, lid)}
-                                      disabled={approvingTractId === t.tract_id || rejectingTractId === t.tract_id || calculatingTractId === t.tract_id}
-                                      className="text-[11px] px-2 py-0.5 rounded bg-emerald-500/25 hover:bg-emerald-500/40 disabled:opacity-50 text-emerald-200 border border-emerald-500/40"
+                                      disabled={isApproved || approvingTractId === t.tract_id || rejectingTractId === t.tract_id || calculatingTractId === t.tract_id}
+                                      className="text-[11px] px-2 py-0.5 rounded bg-emerald-500/25 hover:bg-emerald-500/40 disabled:opacity-30 disabled:cursor-not-allowed text-emerald-200 border border-emerald-500/40"
                                     >
-                                      {approvingTractId === t.tract_id ? 'Approving…' : '✓ Approve'}
+                                      {isApproved ? '✓ Approved' : (approvingTractId === t.tract_id ? 'Approving…' : '✓ Approve')}
                                     </button>
                                     <button
                                       onClick={() => rejectProposed(t.tract_id, lid)}
-                                      disabled={approvingTractId === t.tract_id || rejectingTractId === t.tract_id}
-                                      className="text-[11px] px-2 py-0.5 rounded bg-red-500/20 hover:bg-red-500/35 disabled:opacity-50 text-red-300 border border-red-500/40"
+                                      disabled={isApproved || approvingTractId === t.tract_id || rejectingTractId === t.tract_id}
+                                      className="text-[11px] px-2 py-0.5 rounded bg-red-500/20 hover:bg-red-500/35 disabled:opacity-30 disabled:cursor-not-allowed text-red-300 border border-red-500/40"
                                       title="Discard this proposed boundary. Tract stays on the list."
                                     >
                                       {rejectingTractId === t.tract_id ? 'Rejecting…' : '✗ Reject'}
