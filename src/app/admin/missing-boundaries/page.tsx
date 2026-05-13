@@ -976,7 +976,11 @@ export default function MissingBoundariesPage() {
   // own centroid by the SAME factor so their combined area matches
   // override_tillable_acres exactly. Each sub-polygon keeps its
   // relative size/shape — only the global size is corrected.
-  const alignTillableAcres = (tractId: string) => {
+  // Align Tillable Acres: scale every sub-polygon around its own
+  // centroid by the same factor so combined GIS acres == target,
+  // then call the backend to refresh soil rating against the new
+  // tillable shape (admin no longer has to click Calculate again).
+  const alignTillableAcres = async (tractId: string) => {
     const edit = editStateByTract[tractId]
     const tils = edit?.current_tillable_polygons || []
     if (tils.length === 0) {
@@ -1004,15 +1008,53 @@ export default function MissingBoundariesPage() {
         cy + (y - cy) * scale,
       ])
     })
+    // Update the map shape immediately so admin sees the scaled rings,
+    // and mark rating as recomputing.
     setEditStateByTract(prev => ({
       ...prev, [tractId]: {
         ...prev[tractId],
         current_tillable_polygons: scaledTils,
         current_tillable_acres: target,
-        // Tillable shape changed → soil rating stale
         current_soil_rating: null,
       },
     }))
+    if (!edit.current_polygon) return
+    // Re-derive soil rating against the new tillable. Reuse the
+    // calculate-from-polygon endpoint, sending the scaled polygons
+    // directly so the backend skips CDL re-derivation.
+    setCalculatingTractId(tractId)
+    try {
+      const payload: any = { polygon: edit.current_polygon }
+      if (scaledTils.length === 1) payload.tillable_polygon = scaledTils[0]
+      else payload.tillable_polygons = scaledTils
+      const res = await fetch(
+        `${SCRAPER_URL}/api/admin/tracts/${tractId}/recalculate-from-polygon`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        }
+      )
+      const body = await res.json()
+      if (!res.ok || !body.success) {
+        alert(`Soil rating recalc failed: ${body.error || `HTTP ${res.status}`}`)
+        return
+      }
+      setEditStateByTract(prev => ({
+        ...prev,
+        [tractId]: {
+          ...prev[tractId],
+          // Keep the scaled tillable + target acres (don't overwrite
+          // with backend-rounded values that may drift from `target`).
+          current_soil_rating: body.soil_rating ?? null,
+          current_soil_rating_type: body.soil_rating_type ?? null,
+        },
+      }))
+    } catch (e: any) {
+      alert(`Soil rating recalc error: ${e.message || e}`)
+    } finally {
+      setCalculatingTractId(null)
+    }
   }
 
   // Move-All: translate EVERY tract polygon (and its tillable, if any)
@@ -1553,10 +1595,11 @@ export default function MissingBoundariesPage() {
                                     </span>
                                     <button
                                       onClick={() => alignTillableAcres(t.tract_id)}
-                                      className="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 hover:bg-blue-500/35 text-blue-200 border border-blue-500/40"
-                                      title="Scale tillable polygon to match Tillable ac exactly (run Calculate first)"
+                                      disabled={calculatingTractId === t.tract_id}
+                                      className="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 hover:bg-blue-500/35 disabled:opacity-50 text-blue-200 border border-blue-500/40"
+                                      title="Scale tillable polygon(s) to match Tillable ac, then re-compute soil rating"
                                     >
-                                      Align
+                                      {calculatingTractId === t.tract_id ? '…' : 'Align'}
                                     </button>
                                   </div>
 
