@@ -377,6 +377,10 @@ type Item = {
   source_url: string | null
   company_name: string | null
   boundary_status?: 'missing' | 'wrong' | 'ok'
+  // Scraped values from the auction listing (ground truth for verification)
+  scraped_tillable_acres?: number | null
+  scraped_soil_rating?: number | null
+  scraped_soil_rating_type?: string | null
 }
 
 type StateCount = { state: string; total: number; missing: number; wrong: number }
@@ -1017,6 +1021,8 @@ export default function MissingBoundariesPage() {
                             {autoExtractResultByListing[lid].succeeded.map((t: any) => {
                               const e = editStateByTract[t.tract_id]
                               const needsCalc = e && e.current_tillable_acres == null
+                              // Find the scraped listing values for this tract
+                              const listingTract = tracts.find(it => it.tract_id === t.tract_id)
                               return (
                                 <div key={t.tract_id} className="bg-gg-gray-900 border border-gg-gray-800 rounded px-2 py-1.5">
                                   <div className="flex items-center justify-between gap-2">
@@ -1024,12 +1030,25 @@ export default function MissingBoundariesPage() {
                                     <span className="text-[10px] text-gg-gray-400">{t.identification_method}</span>
                                   </div>
                                   <div className="text-gg-gray-300 text-[11px] mt-0.5">
+                                    <span className="text-gg-gray-500">Calc:</span>{' '}
                                     Polygon: <span className={needsCalc ? 'text-amber-300' : ''}>{(e?.current_polygon_acres ?? t.acres)?.toFixed?.(2) ?? '—'} ac</span>
                                     {' · '}
                                     Tillable: <span className={needsCalc ? 'text-amber-300' : ''}>{e?.current_tillable_acres ?? '—'} ac</span>
                                     {' · '}
                                     {e?.current_soil_rating_type || t.soil_rating_type || '—'}: <span className={needsCalc ? 'text-amber-300' : ''}>{e?.current_soil_rating ?? '—'}</span>
                                   </div>
+                                  {listingTract && (listingTract.total_acres != null || listingTract.scraped_tillable_acres != null || listingTract.scraped_soil_rating != null) && (
+                                    <div className="text-[11px] mt-0.5">
+                                      <span className="text-gg-gray-500">Scraped:</span>{' '}
+                                      <span className="text-gg-gray-400">
+                                        Polygon: {listingTract.total_acres != null ? `${listingTract.total_acres} ac` : '—'}
+                                        {' · '}
+                                        Tillable: {listingTract.scraped_tillable_acres != null ? `${listingTract.scraped_tillable_acres} ac` : '—'}
+                                        {' · '}
+                                        {listingTract.scraped_soil_rating_type || '—'}: {listingTract.scraped_soil_rating != null ? listingTract.scraped_soil_rating : '—'}
+                                      </span>
+                                    </div>
+                                  )}
                                   {needsCalc && (
                                     <div className="text-[10px] text-amber-300 mt-0.5">
                                       ⚠ Drag detected — click Calculate to refresh tillable + rating
