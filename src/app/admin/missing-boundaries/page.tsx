@@ -27,6 +27,50 @@ type ExtractedTract = {
   tillable_polygon?: number[][] | null
 }
 
+// Ramer-Douglas-Peucker line simplification for [lng, lat] coords.
+// Removes near-collinear vertices so dragging straight-edge boundaries
+// works (a rectangular tract shouldn't have 80 vertex handles).
+function _perpDistance(p: number[], a: number[], b: number[]): number {
+  const [px, py] = p, [ax, ay] = a, [bx, by] = b
+  const dx = bx - ax, dy = by - ay
+  if (dx === 0 && dy === 0) {
+    return Math.hypot(px - ax, py - ay)
+  }
+  const t = ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)
+  const cx = ax + t * dx, cy = ay + t * dy
+  return Math.hypot(px - cx, py - cy)
+}
+function simplifyPolygon(points: number[][], epsilon = 0.00008): number[][] {
+  // epsilon in degrees ≈ 9m at mid-US latitudes. Big enough to
+  // collapse near-collinear noise, small enough to preserve real
+  // corners (>30° bends).
+  if (points.length < 4) return points
+  // Detect closed-ring: drop trailing duplicate before simplifying,
+  // re-close after.
+  const closed = points[0][0] === points[points.length - 1][0]
+              && points[0][1] === points[points.length - 1][1]
+  const open = closed ? points.slice(0, -1) : points
+  // Iterative DP via stack
+  const keep = new Array(open.length).fill(false)
+  keep[0] = true
+  keep[open.length - 1] = true
+  const stack: [number, number][] = [[0, open.length - 1]]
+  while (stack.length) {
+    const [s, e] = stack.pop()!
+    let maxDist = 0, maxIdx = -1
+    for (let i = s + 1; i < e; i++) {
+      const d = _perpDistance(open[i], open[s], open[e])
+      if (d > maxDist) { maxDist = d; maxIdx = i }
+    }
+    if (maxDist > epsilon && maxIdx > 0) {
+      keep[maxIdx] = true
+      stack.push([s, maxIdx], [maxIdx, e])
+    }
+  }
+  const result = open.filter((_, i) => keep[i])
+  return closed ? [...result, result[0]] : result
+}
+
 type EditableTract = ExtractedTract & {
   // Current polygon state — mutated by vertex drag / body drag
   current_polygon?: number[][]
@@ -271,7 +315,10 @@ function EditableExtractMap({
   useEffect(() => {
     const map = mapRef.current
     if (!map || !map.isStyleLoaded()) return
-    for (const t of tracts) {
+    const labels: any[] = []
+    for (let i = 0; i < tracts.length; i++) {
+      const t = tracts[i]
+      const color = TRACT_COLORS[i % TRACT_COLORS.length]
       const fullSrc = map.getSource(`full_${t.tract_id}`) as maplibregl.GeoJSONSource | undefined
       const tilSrc = map.getSource(`til_${t.tract_id}`) as maplibregl.GeoJSONSource | undefined
       const vertSrc = map.getSource(`vert_${t.tract_id}`) as maplibregl.GeoJSONSource | undefined
@@ -282,6 +329,21 @@ function EditableExtractMap({
           ? buildPolyGeo(t.current_tillable_polygon)
           : { type: 'FeatureCollection', features: [] } as any)
       }
+      // Re-compute label centroid from the CURRENT polygon so labels
+      // move with the polygon when admin drags it.
+      if (t.current_polygon && t.current_polygon.length >= 3) {
+        const cx = t.current_polygon.reduce((s, p) => s + p[0], 0) / t.current_polygon.length
+        const cy = t.current_polygon.reduce((s, p) => s + p[1], 0) / t.current_polygon.length
+        labels.push({
+          type: 'Feature',
+          properties: { label: `T${t.tract_number ?? '?'}`, color },
+          geometry: { type: 'Point', coordinates: [cx, cy] },
+        })
+      }
+    }
+    const labelsSrc = map.getSource('labels') as maplibregl.GeoJSONSource | undefined
+    if (labelsSrc) {
+      labelsSrc.setData({ type: 'FeatureCollection', features: labels } as any)
     }
   }, [tracts])
 
@@ -550,9 +612,15 @@ export default function MissingBoundariesPage() {
       const result = autoExtractResultByListing[lid]
       for (const t of result.succeeded || []) {
         if (!editStateByTract[t.tract_id]) {
+          // Simplify the auto-extracted polygon so admin sees ~5-15
+          // vertex handles instead of 80+ near-collinear ones. Real
+          // corners (e.g. field bends >30°) are preserved.
+          const simplified = t.polygon_coordinates
+            ? simplifyPolygon(t.polygon_coordinates)
+            : undefined
           updates[t.tract_id] = {
             ...t,
-            current_polygon: t.polygon_coordinates ? [...t.polygon_coordinates] : undefined,
+            current_polygon: simplified,
             current_tillable_polygon: t.tillable_polygon ?? null,
             current_tillable_acres: t.tillable_acres ?? null,
             current_soil_rating: t.soil_rating ?? null,
