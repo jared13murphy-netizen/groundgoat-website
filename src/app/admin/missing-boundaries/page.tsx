@@ -72,22 +72,38 @@ function simplifyPolygon(points: number[][], epsilon = 0.00008): number[][] {
 }
 
 type EditableTract = ExtractedTract & {
-  // Current polygon state — mutated by vertex drag / body drag
+  // Current tract polygon — mutated by vertex/body drag
   current_polygon?: number[][]
-  // Last-calculated tillable polygon + values (from /recalculate-from-polygon)
-  current_tillable_polygon?: number[][] | null
+  // Tillable polygons — ARRAY of rings. Sometimes a tract has
+  // multiple discrete cropland fields with timber between them.
+  // Each entry is a closed ring [[lng,lat], ...].
+  current_tillable_polygons?: number[][][]
   current_tillable_acres?: number | null
   current_soil_rating?: number | null
   current_soil_rating_type?: string | null
   current_polygon_acres?: number | null
-  // True when Calculate ran and the polygon contains no CDL cropland
   current_no_cropland?: boolean
-  // Admin-verified acres (against auction URL) — these get persisted
-  // on Approve regardless of polygon GIS area
   override_total_acres?: number | null
   override_tillable_acres?: number | null
-  // Admin override for soil rating (typed value wins over computed)
   override_soil_rating?: number | null
+}
+
+// Normalize an arbitrary "tillable_polygon" field (from backend or
+// existing DB) into the unified array-of-rings shape.
+//   New format:        [[[lng,lat],...], [[lng,lat],...]]  (array of rings)
+//   Legacy single:     [[lng,lat], ...]                    (one ring)
+//   null / empty:      []
+function normalizeTillablePolygons(tp: any): number[][][] {
+  if (!tp) return []
+  if (!Array.isArray(tp) || tp.length === 0) return []
+  // Detect: if tp[0] is itself a ring of points (its first element is
+  // also an array of 2 numbers), then tp is the new multi-ring shape.
+  // Otherwise tp itself is a single ring → wrap it.
+  const first = tp[0]
+  if (Array.isArray(first) && first.length > 0 && Array.isArray(first[0])) {
+    return tp as number[][][]
+  }
+  return [tp as number[][]]
 }
 
 // Cosine-corrected GIS acreage from a lng/lat polygon. Same math as
@@ -129,26 +145,26 @@ function scalePolygonToAcres(polygon: number[][], targetAcres: number): number[]
 function EditableExtractMap({
   tracts,
   onPolygonChange,
-  onTillablePolygonChange,
+  onTillableSubpolygonChange,
   onMoveAllTractPolygons,
 }: {
   tracts: EditableTract[]
   onPolygonChange: (tractId: string, newPolygon: number[][]) => void
-  onTillablePolygonChange: (tractId: string, newTillablePolygon: number[][]) => void
+  // tillableIdx = which sub-polygon (0..N-1) is being edited
+  onTillableSubpolygonChange: (tractId: string, tillableIdx: number, newRing: number[][]) => void
   onMoveAllTractPolygons: (deltaLng: number, deltaLat: number) => void
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const [moveAllMode, setMoveAllMode] = useState(false)
-  // Ref-mirrored state for drag handlers (avoid stale closures)
   const tractsRef = useRef(tracts)
   const onChangeRef = useRef(onPolygonChange)
-  const onTillableChangeRef = useRef(onTillablePolygonChange)
+  const onTillableSubChangeRef = useRef(onTillableSubpolygonChange)
   const onMoveAllRef = useRef(onMoveAllTractPolygons)
   const moveAllModeRef = useRef(moveAllMode)
   tractsRef.current = tracts
   onChangeRef.current = onPolygonChange
-  onTillableChangeRef.current = onTillablePolygonChange
+  onTillableSubChangeRef.current = onTillableSubpolygonChange
   onMoveAllRef.current = onMoveAllTractPolygons
   moveAllModeRef.current = moveAllMode
 
@@ -163,8 +179,9 @@ function EditableExtractMap({
     type: 'vertex' | 'body' | 'move_all'
     kind: 'tract' | 'tillable' | 'all_tracts'
     tractId?: string
-    vertexIdx?: number  // for vertex drag
-    lastLng?: number    // for body drag
+    tillableIdx?: number  // which sub-polygon (only for kind='tillable')
+    vertexIdx?: number
+    lastLng?: number
     lastLat?: number
   } | null>(null)
 
@@ -192,6 +209,38 @@ function EditableExtractMap({
       geometry: { type: 'Point', coordinates: p },
     })),
   } as any)
+
+  // Multi-polygon variants for tillable. Each sub-polygon becomes one
+  // Feature with a tillable_idx property so the mousedown/drag
+  // handlers know which sub-polygon to mutate.
+  const buildMultiTillableGeo = (tillables: number[][][]) => ({
+    type: 'FeatureCollection',
+    features: tillables.map((ring, idx) => {
+      if (!ring || ring.length < 3) return null
+      const closed = [...ring]
+      if (JSON.stringify(closed[0]) !== JSON.stringify(closed[closed.length - 1])) {
+        closed.push(closed[0])
+      }
+      return {
+        type: 'Feature',
+        properties: { tillable_idx: idx },
+        geometry: { type: 'Polygon', coordinates: [closed] },
+      }
+    }).filter(Boolean),
+  } as any)
+  const buildMultiTillableVertexGeo = (tillables: number[][][], tractId: string) => {
+    const features: any[] = []
+    tillables.forEach((ring, tIdx) => {
+      ring.forEach((p, vIdx) => {
+        features.push({
+          type: 'Feature',
+          properties: { idx: vIdx, tractId, tillable_idx: tIdx },
+          geometry: { type: 'Point', coordinates: p },
+        })
+      })
+    })
+    return { type: 'FeatureCollection', features } as any
+  }
 
   // Trigger map init when tracts first arrives with polygon data.
   // Previously the dep array was [] so the effect only ran once on
@@ -250,13 +299,13 @@ function EditableExtractMap({
         map.addLayer({ id: `${fullId}_line`, type: 'line', source: fullId,
           paint: { 'line-color': color, 'line-width': 3 } })
 
-        // Tillable polygon (rendered only when current_tillable_polygon is set)
-        map.addSource(tilId, {
-          type: 'geojson',
-          data: t.current_tillable_polygon
-            ? buildPolyGeo(t.current_tillable_polygon)
-            : { type: 'FeatureCollection', features: [] } as any,
-        })
+        // Tillable polygons (array — tract may have multiple cropland
+        // sub-areas separated by timber). All sub-polygons live in one
+        // source; each feature has a tillable_idx property.
+        const tilGeo = t.current_tillable_polygons && t.current_tillable_polygons.length
+          ? buildMultiTillableGeo(t.current_tillable_polygons)
+          : { type: 'FeatureCollection', features: [] } as any
+        map.addSource(tilId, { type: 'geojson', data: tilGeo })
         map.addLayer({ id: `${tilId}_fill`, type: 'fill', source: tilId,
           paint: { 'fill-color': '#22c55e', 'fill-opacity': 0.40 } })
 
@@ -270,16 +319,13 @@ function EditableExtractMap({
           },
         })
 
-        // Vertex handles for the TILLABLE polygon — slightly smaller,
-        // green stroke. Initially empty until Calculate populates it
-        // (or the auto-extract returned one).
+        // Vertex handles for ALL tillable sub-polygons (one source,
+        // each vertex has tillable_idx + vertex idx).
         const tilVertId = `tilvert_${t.tract_id}`
-        map.addSource(tilVertId, {
-          type: 'geojson',
-          data: t.current_tillable_polygon
-            ? buildVertexGeo(t.current_tillable_polygon, t.tract_id)
-            : { type: 'FeatureCollection', features: [] } as any,
-        })
+        const tilVertGeo = t.current_tillable_polygons && t.current_tillable_polygons.length
+          ? buildMultiTillableVertexGeo(t.current_tillable_polygons, t.tract_id)
+          : { type: 'FeatureCollection', features: [] } as any
+        map.addSource(tilVertId, { type: 'geojson', data: tilVertGeo })
         map.addLayer({
           id: `${tilVertId}_circle`, type: 'circle', source: tilVertId,
           paint: {
@@ -313,7 +359,9 @@ function EditableExtractMap({
           if (!draggingRef.current) map.getCanvas().style.cursor = ''
         })
 
-        // Wire TILLABLE vertex drag (green vertices)
+        // Wire TILLABLE vertex drag (green vertices). Each vertex
+        // feature carries tillable_idx (which sub-polygon) + idx
+        // (which vertex within that sub-polygon).
         map.on('mousedown', `${tilVertId}_circle`, (e: any) => {
           e.preventDefault()
           const f = e.features?.[0]
@@ -321,6 +369,7 @@ function EditableExtractMap({
           draggingRef.current = {
             type: 'vertex', kind: 'tillable',
             tractId: f.properties.tractId,
+            tillableIdx: f.properties.tillable_idx,
             vertexIdx: f.properties.idx,
           }
           map.getCanvas().style.cursor = 'grabbing'
@@ -349,16 +398,21 @@ function EditableExtractMap({
           map.dragPan.disable()
         })
 
-        // Wire tillable polygon body drag (mousedown on tillable fill)
+        // Wire tillable polygon body drag (mousedown on tillable
+        // fill). The clicked feature carries tillable_idx so only the
+        // sub-polygon under the cursor moves.
         map.on('mousedown', `${tilId}_fill`, (e: any) => {
           // Skip if on any vertex
           const vertexHits = map.queryRenderedFeatures(e.point, {
             layers: [`${vertId}_circle`, `${tilVertId}_circle`],
           })
           if (vertexHits.length > 0) return
+          const f = e.features?.[0]
+          if (!f) return
           e.preventDefault()
           draggingRef.current = {
             type: 'body', kind: 'tillable', tractId: t.tract_id,
+            tillableIdx: f.properties.tillable_idx,
             lastLng: e.lngLat.lng, lastLat: e.lngLat.lat,
           }
           map.getCanvas().style.cursor = 'grabbing'
@@ -424,9 +478,16 @@ function EditableExtractMap({
       const t = allTracts.find(x => x.tract_id === drag.tractId)
       if (!t) return
 
-      const sourcePoly = drag.kind === 'tract'
-        ? t.current_polygon
-        : t.current_tillable_polygon
+      // Pick the source ring based on which polygon was grabbed. For
+      // tillable, drag.tillableIdx narrows down WHICH sub-polygon.
+      let sourcePoly: number[][] | undefined | null = null
+      if (drag.kind === 'tract') {
+        sourcePoly = t.current_polygon
+      } else if (drag.kind === 'tillable') {
+        const tils = t.current_tillable_polygons || []
+        if (drag.tillableIdx == null || drag.tillableIdx >= tils.length) return
+        sourcePoly = tils[drag.tillableIdx]
+      }
       if (!sourcePoly) return
 
       let newPoly: number[][] | null = null
@@ -443,8 +504,8 @@ function EditableExtractMap({
       if (!newPoly) return
       if (drag.kind === 'tract') {
         onChangeRef.current(drag.tractId, newPoly)
-      } else {
-        onTillableChangeRef.current(drag.tractId, newPoly)
+      } else if (drag.kind === 'tillable' && drag.tillableIdx != null) {
+        onTillableSubChangeRef.current(drag.tractId, drag.tillableIdx, newPoly)
       }
     }
     const onMouseUp = () => {
@@ -479,14 +540,15 @@ function EditableExtractMap({
       const tilVertSrc = map.getSource(`tilvert_${t.tract_id}`) as maplibregl.GeoJSONSource | undefined
       if (fullSrc && t.current_polygon) fullSrc.setData(buildPolyGeo(t.current_polygon))
       if (vertSrc && t.current_polygon) vertSrc.setData(buildVertexGeo(t.current_polygon, t.tract_id))
+      const tils = t.current_tillable_polygons || []
       if (tilSrc) {
-        tilSrc.setData(t.current_tillable_polygon
-          ? buildPolyGeo(t.current_tillable_polygon)
+        tilSrc.setData(tils.length
+          ? buildMultiTillableGeo(tils)
           : { type: 'FeatureCollection', features: [] } as any)
       }
       if (tilVertSrc) {
-        tilVertSrc.setData(t.current_tillable_polygon
-          ? buildVertexGeo(t.current_tillable_polygon, t.tract_id)
+        tilVertSrc.setData(tils.length
+          ? buildMultiTillableVertexGeo(tils, t.tract_id)
           : { type: 'FeatureCollection', features: [] } as any)
       }
       // Re-compute label centroid from the CURRENT polygon so labels
@@ -592,7 +654,7 @@ export default function MissingBoundariesPage() {
   const [approveAllRunningId, setApproveAllRunningId] = useState<string | null>(null)
   const [rejectingTractId, setRejectingTractId] = useState<string | null>(null)
   // Edit state per tract: current_polygon = whatever the admin has dragged
-  // it to. current_tillable_polygon/acres/soil_rating = last result from
+  // it to. current_tillable_polygons/acres/soil_rating = last result from
   // Calculate. The approve call ships these as overrides.
   const [editStateByTract, setEditStateByTract] = useState<Record<string, EditableTract>>({})
   const [calculatingTractId, setCalculatingTractId] = useState<string | null>(null)
@@ -764,7 +826,14 @@ export default function MissingBoundariesPage() {
     try {
       const payload: any = {}
       if (edit?.current_polygon) payload.polygon = edit.current_polygon
-      if (edit?.current_tillable_polygon) payload.tillable_polygon = edit.current_tillable_polygon
+      // Multi-tillable: send array. Backend stores it as JSONB and
+      // unions all rings when computing soil rating.
+      const tils = edit?.current_tillable_polygons || []
+      if (tils.length === 1) {
+        payload.tillable_polygon = tils[0]  // legacy single-ring shape
+      } else if (tils.length > 1) {
+        payload.tillable_polygons = tils
+      }
       // Admin-verified acres OVERRIDE polygon-derived values when set
       // — per user 2026-05-12: 'tract/tillable acres must EXACTLY
       // match the auction URL.'
@@ -796,7 +865,7 @@ export default function MissingBoundariesPage() {
 
   // Initialize edit state when Auto-Extract returns results for a listing.
   // Each tract's current_polygon starts as the auto-extracted polygon;
-  // current_tillable_polygon starts as the auto-extracted tillable.
+  // current_tillable_polygons starts empty — Calculate populates it.
   // Admin drags + clicks Calculate to update these.
   useEffect(() => {
     const updates: Record<string, EditableTract> = {}
@@ -813,7 +882,7 @@ export default function MissingBoundariesPage() {
           updates[t.tract_id] = {
             ...t,
             current_polygon: simplified,
-            current_tillable_polygon: null,
+            current_tillable_polygons: [],
             current_tillable_acres: null,
             current_soil_rating: null,
             current_soil_rating_type: null,
@@ -841,7 +910,7 @@ export default function MissingBoundariesPage() {
           current_polygon: newPolygon,
           // Tract polygon drag invalidates everything (tillable will be
           // re-derived from this new shape on next Calculate)
-          current_tillable_polygon: null,
+          current_tillable_polygons: [],
           current_tillable_acres: null,
           current_soil_rating: null,
           current_polygon_acres: null,
@@ -895,7 +964,7 @@ export default function MissingBoundariesPage() {
         current_polygon: newPoly,
         current_polygon_acres: target,
         // Tract changed → tillable + soil rating stale
-        current_tillable_polygon: null,
+        current_tillable_polygons: [],
         current_tillable_acres: null,
         current_soil_rating: null,
         current_no_cropland: false,
@@ -903,22 +972,42 @@ export default function MissingBoundariesPage() {
     }))
   }
 
+  // Align Tillable across N sub-polygons: scale each ring around its
+  // own centroid by the SAME factor so their combined area matches
+  // override_tillable_acres exactly. Each sub-polygon keeps its
+  // relative size/shape — only the global size is corrected.
   const alignTillableAcres = (tractId: string) => {
     const edit = editStateByTract[tractId]
-    if (!edit?.current_tillable_polygon) {
-      alert('Click Calculate first to generate the tillable polygon, then align.')
+    const tils = edit?.current_tillable_polygons || []
+    if (tils.length === 0) {
+      alert('Click Calculate first (or add a tillable area), then align.')
       return
     }
-    const target = edit.override_tillable_acres
+    const target = edit?.override_tillable_acres
     if (target == null || !Number.isFinite(target) || target <= 0) {
       alert('Set the target Tillable Acres before clicking Align.')
       return
     }
-    const newTil = scalePolygonToAcres(edit.current_tillable_polygon, target)
+    // Sum current GIS acres across all sub-polygons
+    let totalCurrent = 0
+    for (const ring of tils) totalCurrent += gisAcres(ring)
+    if (totalCurrent <= 0) {
+      alert('Tillable polygons have no area — can\'t scale.')
+      return
+    }
+    const scale = Math.sqrt(target / totalCurrent)
+    const scaledTils = tils.map(ring => {
+      const cx = ring.reduce((s, p) => s + p[0], 0) / ring.length
+      const cy = ring.reduce((s, p) => s + p[1], 0) / ring.length
+      return ring.map(([x, y]) => [
+        cx + (x - cx) * scale,
+        cy + (y - cy) * scale,
+      ])
+    })
     setEditStateByTract(prev => ({
       ...prev, [tractId]: {
         ...prev[tractId],
-        current_tillable_polygon: newTil,
+        current_tillable_polygons: scaledTils,
         current_tillable_acres: target,
         // Tillable shape changed → soil rating stale
         current_soil_rating: null,
@@ -943,9 +1032,10 @@ export default function MissingBoundariesPage() {
         next[key] = {
           ...e,
           current_polygon: e.current_polygon.map(p => [p[0] + dLng, p[1] + dLat]),
-          current_tillable_polygon: e.current_tillable_polygon
-            ? e.current_tillable_polygon.map(p => [p[0] + dLng, p[1] + dLat])
-            : null,
+          // Translate every tillable sub-polygon by the same delta
+          current_tillable_polygons: (e.current_tillable_polygons || []).map(
+            ring => ring.map(p => [p[0] + dLng, p[1] + dLat]),
+          ),
           current_tillable_acres: null,
           current_soil_rating: null,
           current_no_cropland: false,
@@ -955,19 +1045,84 @@ export default function MissingBoundariesPage() {
     })
   }
 
-  const onTractTillablePolygonChange = (tractId: string, newTillable: number[][]) => {
+  // Admin dragged one sub-polygon of the tillable. Replace that index
+  // in current_tillable_polygons and invalidate downstream values.
+  const onTillableSubpolygonChange = (tractId: string, tillableIdx: number, newRing: number[][]) => {
     setEditStateByTract(prev => {
       const existing = prev[tractId]
       if (!existing) return prev
+      const tils = (existing.current_tillable_polygons || []).slice()
+      if (tillableIdx < 0 || tillableIdx >= tils.length) return prev
+      tils[tillableIdx] = newRing
       return {
         ...prev,
         [tractId]: {
           ...existing,
-          current_tillable_polygon: newTillable,
-          // Soil rating goes stale because tillable polygon changed
+          current_tillable_polygons: tils,
+          // Soil rating goes stale because tillable shape changed
           current_soil_rating: null,
           // Tillable acres go stale too (admin will see ⚠ until Calculate)
           current_tillable_acres: null,
+        },
+      }
+    })
+  }
+
+  // Delete one sub-polygon (e.g. admin decides one of the auto-detected
+  // tillable areas is actually timber). Invalidates downstream values.
+  const deleteTillableSubpolygon = (tractId: string, tillableIdx: number) => {
+    setEditStateByTract(prev => {
+      const existing = prev[tractId]
+      if (!existing) return prev
+      const tils = (existing.current_tillable_polygons || []).slice()
+      if (tillableIdx < 0 || tillableIdx >= tils.length) return prev
+      tils.splice(tillableIdx, 1)
+      return {
+        ...prev,
+        [tractId]: {
+          ...existing,
+          current_tillable_polygons: tils,
+          current_soil_rating: null,
+          current_tillable_acres: null,
+        },
+      }
+    })
+  }
+
+  // Add a new tillable sub-polygon as a small square around the tract
+  // centroid. Admin then drags vertices to shape it. Invalidates
+  // downstream values.
+  const addTillableSubpolygon = (tractId: string) => {
+    setEditStateByTract(prev => {
+      const existing = prev[tractId]
+      if (!existing || !existing.current_polygon) return prev
+      const poly = existing.current_polygon
+      const cx = poly.reduce((s, p) => s + p[0], 0) / poly.length
+      const cy = poly.reduce((s, p) => s + p[1], 0) / poly.length
+      // Size the seed square at ~10% of the tract bbox so the new area
+      // is visible but easy to drag into place.
+      const minLng = Math.min(...poly.map(p => p[0]))
+      const maxLng = Math.max(...poly.map(p => p[0]))
+      const minLat = Math.min(...poly.map(p => p[1]))
+      const maxLat = Math.max(...poly.map(p => p[1]))
+      const hLng = (maxLng - minLng) * 0.1
+      const hLat = (maxLat - minLat) * 0.1
+      const seedRing: number[][] = [
+        [cx - hLng, cy - hLat],
+        [cx + hLng, cy - hLat],
+        [cx + hLng, cy + hLat],
+        [cx - hLng, cy + hLat],
+      ]
+      const tils = (existing.current_tillable_polygons || []).slice()
+      tils.push(seedRing)
+      return {
+        ...prev,
+        [tractId]: {
+          ...existing,
+          current_tillable_polygons: tils,
+          current_soil_rating: null,
+          current_tillable_acres: null,
+          current_no_cropland: false,
         },
       }
     })
@@ -978,14 +1133,15 @@ export default function MissingBoundariesPage() {
     if (!edit?.current_polygon) return
     setCalculatingTractId(tractId)
     try {
-      // If admin has hand-edited the tillable polygon, send it along so
-      // the backend uses it directly (no CDL re-derivation). Otherwise
-      // the backend re-runs CDL from the tract polygon.
+      // If admin has hand-edited the tillable polygon(s), send them
+      // along so the backend uses them directly (no CDL re-derivation).
+      // Otherwise the backend re-runs CDL from the tract polygon.
       const payload: any = { polygon: edit.current_polygon }
-      if (edit.current_tillable_polygon
-          && Array.isArray(edit.current_tillable_polygon)
-          && edit.current_tillable_polygon.length >= 3) {
-        payload.tillable_polygon = edit.current_tillable_polygon
+      const tils = edit.current_tillable_polygons || []
+      if (tils.length === 1) {
+        payload.tillable_polygon = tils[0]  // legacy single shape
+      } else if (tils.length > 1) {
+        payload.tillable_polygons = tils
       }
       const res = await fetch(
         `${SCRAPER_URL}/api/admin/tracts/${tractId}/recalculate-from-polygon`,
@@ -1005,7 +1161,10 @@ export default function MissingBoundariesPage() {
         [tractId]: {
           ...prev[tractId],
           current_polygon_acres: body.polygon_acres ?? null,
-          current_tillable_polygon: body.tillable_polygon ?? null,
+          // Backend may return single polygon (legacy) or array. Normalize.
+          current_tillable_polygons: normalizeTillablePolygons(
+            body.tillable_polygons ?? body.tillable_polygon,
+          ),
           current_tillable_acres: body.tillable_acres ?? null,
           current_soil_rating: body.soil_rating ?? null,
           current_soil_rating_type: body.soil_rating_type ?? null,
@@ -1339,7 +1498,7 @@ export default function MissingBoundariesPage() {
                                 .map(t => editStateByTract[t.tract_id])
                                 .filter(Boolean) as EditableTract[]}
                               onPolygonChange={onTractPolygonChange}
-                              onTillablePolygonChange={onTractTillablePolygonChange}
+                              onTillableSubpolygonChange={onTillableSubpolygonChange}
                               onMoveAllTractPolygons={(dLng, dLat) => onMoveAllTractPolygons(lid, dLng, dLat)}
                             />
                           </div>
@@ -1399,6 +1558,47 @@ export default function MissingBoundariesPage() {
                                     >
                                       Align
                                     </button>
+                                  </div>
+
+                                  {/* Multi-tillable: show each sub-area
+                                      with a Delete button + an "Add
+                                      Area" button. Use when the tract
+                                      has separate cropland fields split
+                                      by timber. */}
+                                  {(e?.current_tillable_polygons?.length ?? 0) > 1 && (
+                                    <div className="flex items-center flex-wrap gap-1 text-[10px] mb-1 pl-[68px]">
+                                      <span className="text-gg-gray-500">Areas:</span>
+                                      {(e?.current_tillable_polygons || []).map((_, idx) => (
+                                        <span key={idx} className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded bg-green-500/15 border border-green-500/40 text-green-300">
+                                          #{idx + 1}
+                                          <button
+                                            onClick={() => deleteTillableSubpolygon(t.tract_id, idx)}
+                                            className="ml-0.5 hover:text-red-300"
+                                            title={`Remove tillable area #${idx + 1}`}
+                                          >
+                                            ✕
+                                          </button>
+                                        </span>
+                                      ))}
+                                    </div>
+                                  )}
+                                  <div className="flex items-center gap-1.5 text-[10px] mb-1 pl-[68px]">
+                                    <button
+                                      onClick={() => addTillableSubpolygon(t.tract_id)}
+                                      className="px-1.5 py-0.5 rounded bg-green-500/15 hover:bg-green-500/30 text-green-300 border border-green-500/40"
+                                      title="Add a new tillable area as a small box near the tract center — drag its vertices into shape"
+                                    >
+                                      + Add Tillable Area
+                                    </button>
+                                    {(e?.current_tillable_polygons?.length ?? 0) === 1 && (
+                                      <button
+                                        onClick={() => deleteTillableSubpolygon(t.tract_id, 0)}
+                                        className="px-1.5 py-0.5 rounded bg-red-500/15 hover:bg-red-500/30 text-red-300 border border-red-500/40"
+                                        title="Remove the tillable polygon (use if this tract has no cropland)"
+                                      >
+                                        ✕ Remove
+                                      </button>
+                                    )}
                                   </div>
 
                                   {/* Editable Soil Rating row */}
