@@ -1097,6 +1097,25 @@ export default function MissingBoundariesPage() {
                   {tracts.map((t) => (
                     <div key={t.tract_id} className="px-4 py-3 flex items-center justify-between gap-4">
                       <div className="flex items-center gap-3 min-w-0">
+                        {/* Tract thumbnail — current image_base64 if any.
+                            Image endpoint returns 404 when not yet stored,
+                            in which case onError swaps in a placeholder. */}
+                        {t.has_image ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={`${SCRAPER_URL}/api/admin/tracts/${t.tract_id}/image`}
+                            alt={`Tract ${t.tract_number ?? '?'}`}
+                            className="w-16 h-16 object-cover rounded border border-gg-gray-700 flex-shrink-0"
+                            onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+                          />
+                        ) : (
+                          <div
+                            className="w-16 h-16 rounded border border-gg-gray-800 bg-gg-gray-900 flex-shrink-0 flex items-center justify-center text-gg-gray-600 text-[10px]"
+                            title="No tract image stored yet"
+                          >
+                            no image
+                          </div>
+                        )}
                         <span className="text-white font-medium">Tract {t.tract_number ?? '?'}</span>
                         <span className="text-sm text-gg-gray-300">
                           {t.total_acres != null ? `${t.total_acres} ac` : 'acres unknown'}
