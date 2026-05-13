@@ -87,6 +87,13 @@ function EditableExtractMap({
     })),
   } as any)
 
+  // Trigger map init when tracts first arrives with polygon data.
+  // Previously the dep array was [] so the effect only ran once on
+  // mount — at that moment editStateByTract was still empty (it gets
+  // synced from autoExtractResultByListing in a separate effect that
+  // fires later), so the map saw 0 tracts and bailed.
+  const hasData = tracts.some(t => t.current_polygon && t.current_polygon.length >= 3)
+
   useEffect(() => {
     if (!containerRef.current) return
     if (mapRef.current) return  // Only init once
@@ -258,7 +265,7 @@ function EditableExtractMap({
       map.remove(); mapRef.current = null
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [hasData])
 
   // Re-render layers when polygons change (without remounting the map)
   useEffect(() => {
