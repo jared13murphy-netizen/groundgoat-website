@@ -90,29 +90,39 @@ function EditableExtractMap({
   tracts,
   onPolygonChange,
   onTillablePolygonChange,
+  onMoveAllTractPolygons,
 }: {
   tracts: EditableTract[]
   onPolygonChange: (tractId: string, newPolygon: number[][]) => void
   onTillablePolygonChange: (tractId: string, newTillablePolygon: number[][]) => void
+  onMoveAllTractPolygons: (deltaLng: number, deltaLat: number) => void
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
+  const [moveAllMode, setMoveAllMode] = useState(false)
   // Ref-mirrored state for drag handlers (avoid stale closures)
   const tractsRef = useRef(tracts)
   const onChangeRef = useRef(onPolygonChange)
   const onTillableChangeRef = useRef(onTillablePolygonChange)
+  const onMoveAllRef = useRef(onMoveAllTractPolygons)
+  const moveAllModeRef = useRef(moveAllMode)
   tractsRef.current = tracts
   onChangeRef.current = onPolygonChange
   onTillableChangeRef.current = onTillablePolygonChange
+  onMoveAllRef.current = onMoveAllTractPolygons
+  moveAllModeRef.current = moveAllMode
 
   // Drag state. The 'kind' field distinguishes which of the TWO
   // polygons per tract is being dragged: the full tract polygon
   // (red border, white vertex circles) or the tillable polygon
   // (green fill, green-stroke vertex circles).
+  // 'kind: all_tracts' is the Move-All mode: dragging the map
+  // translates every tract polygon together (used when there's a
+  // consistent offset across all tracts).
   const draggingRef = useRef<{
-    type: 'vertex' | 'body'
-    kind: 'tract' | 'tillable'
-    tractId: string
+    type: 'vertex' | 'body' | 'move_all'
+    kind: 'tract' | 'tillable' | 'all_tracts'
+    tractId?: string
     vertexIdx?: number  // for vertex drag
     lastLng?: number    // for body drag
     lastLat?: number
@@ -333,6 +343,22 @@ function EditableExtractMap({
         [[minLng - padLng, minLat - padLat], [maxLng + padLng, maxLat + padLat]],
         { padding: 30, duration: 0 },
       )
+
+      // MOVE-ALL mode: any mousedown on the map background (not on a
+      // vertex) starts a translation that moves ALL tract polygons
+      // together. The map's built-in pan stays disabled while in this
+      // mode.
+      map.on('mousedown', (e: any) => {
+        if (!moveAllModeRef.current) return
+        if (draggingRef.current) return
+        e.preventDefault()
+        draggingRef.current = {
+          type: 'move_all', kind: 'all_tracts',
+          lastLng: e.lngLat.lng, lastLat: e.lngLat.lat,
+        }
+        map.getCanvas().style.cursor = 'grabbing'
+        map.dragPan.disable()
+      })
     })
 
     // Window-level mousemove/mouseup so the drag works even if cursor
@@ -343,6 +369,17 @@ function EditableExtractMap({
       if (!drag || !mapRef.current) return
       const rect = (mapRef.current.getCanvas() as any).getBoundingClientRect()
       const lngLat = mapRef.current.unproject([ev.clientX - rect.left, ev.clientY - rect.top])
+
+      // Move-All: translate every tract polygon by the same delta
+      if (drag.type === 'move_all' && drag.lastLng !== undefined && drag.lastLat !== undefined) {
+        const dLng = lngLat.lng - drag.lastLng
+        const dLat = lngLat.lat - drag.lastLat
+        draggingRef.current = { ...drag, lastLng: lngLat.lng, lastLat: lngLat.lat }
+        onMoveAllRef.current(dLng, dLat)
+        return
+      }
+
+      if (!drag.tractId) return
       const allTracts = tractsRef.current
       const t = allTracts.find(x => x.tract_id === drag.tractId)
       if (!t) return
@@ -433,14 +470,26 @@ function EditableExtractMap({
   return (
     <div className="relative">
       <div ref={containerRef} className="w-full h-[450px] rounded border border-gg-gray-700 overflow-hidden bg-black" />
+      {/* Move-All toggle — top-left over the map */}
+      <button
+        onClick={() => setMoveAllMode(v => !v)}
+        className={`absolute top-1.5 left-1.5 text-[11px] px-2 py-1 rounded border transition-colors ${
+          moveAllMode
+            ? 'bg-amber-500/40 border-amber-400 text-amber-100'
+            : 'bg-black/70 border-gg-gray-700 text-white hover:bg-black/85'
+        }`}
+        title="When on, dragging anywhere on the map moves ALL tract polygons together by the same offset. Use this when every tract is off by the same amount (consistent N/S/E/W drift)."
+      >
+        {moveAllMode ? '⊕ Move-All ON (drag map)' : '⊕ Move All Tracts'}
+      </button>
       <div className="absolute bottom-1.5 left-1.5 text-[10px] text-white bg-black/60 px-2 py-1 rounded pointer-events-none">
-        <strong>Drag</strong> any circle to move a vertex · drag inside polygon to move whole shape · scroll to zoom
+        <strong>Drag</strong> any circle to move a vertex · drag inside polygon to move it · scroll to zoom
         <br />
         <span className="inline-block w-2.5 h-2.5 align-middle mr-1 rounded-full bg-white border-2" style={{ borderColor: '#ff3b3b' }} /> tract vertex
         {' · '}
         <span className="inline-block w-2.5 h-2.5 align-middle mr-1 rounded-full" style={{ background: '#dcfce7', border: '2px solid #15803d' }} /> tillable vertex
         {' · '}
-        <span className="inline-block w-2.5 h-2.5 align-middle mr-1" style={{ background: '#ff3b3b' }} /> tract boundary
+        <span className="inline-block w-2.5 h-2.5 align-middle mr-1" style={{ background: '#ff3b3b' }} /> tract
         {' · '}
         <span className="inline-block w-2.5 h-2.5 align-middle mr-1" style={{ background: '#22c55e', opacity: 0.6 }} /> tillable
       </div>
@@ -764,6 +813,35 @@ export default function MissingBoundariesPage() {
   // Invalidates only the SOIL RATING — tract polygon + tract acres stay.
   // Calculate uses this admin-edited tillable directly instead of
   // re-deriving from CDL.
+  // Move-All: translate EVERY tract polygon (and its tillable, if any)
+  // SCOPED TO THIS LISTING by the same (dLng, dLat). Invalidates the
+  // soil rating + computed tillable values since the shape moved.
+  const onMoveAllTractPolygons = (listingId: string, dLng: number, dLat: number) => {
+    const tractIdsInListing = new Set(
+      (autoExtractResultByListing[listingId]?.succeeded || [])
+        .map((t: any) => t.tract_id),
+    )
+    setEditStateByTract(prev => {
+      const next = { ...prev }
+      for (const key of Object.keys(next)) {
+        if (!tractIdsInListing.has(key)) continue
+        const e = next[key]
+        if (!e.current_polygon) continue
+        next[key] = {
+          ...e,
+          current_polygon: e.current_polygon.map(p => [p[0] + dLng, p[1] + dLat]),
+          current_tillable_polygon: e.current_tillable_polygon
+            ? e.current_tillable_polygon.map(p => [p[0] + dLng, p[1] + dLat])
+            : null,
+          current_tillable_acres: null,
+          current_soil_rating: null,
+          current_no_cropland: false,
+        }
+      }
+      return next
+    })
+  }
+
   const onTractTillablePolygonChange = (tractId: string, newTillable: number[][]) => {
     setEditStateByTract(prev => {
       const existing = prev[tractId]
@@ -1149,6 +1227,7 @@ export default function MissingBoundariesPage() {
                                 .filter(Boolean) as EditableTract[]}
                               onPolygonChange={onTractPolygonChange}
                               onTillablePolygonChange={onTractTillablePolygonChange}
+                              onMoveAllTractPolygons={(dLng, dLat) => onMoveAllTractPolygons(lid, dLng, dLat)}
                             />
                           </div>
 
