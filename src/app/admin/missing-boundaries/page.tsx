@@ -85,21 +85,29 @@ type EditableTract = ExtractedTract & {
 function EditableExtractMap({
   tracts,
   onPolygonChange,
+  onTillablePolygonChange,
 }: {
   tracts: EditableTract[]
   onPolygonChange: (tractId: string, newPolygon: number[][]) => void
+  onTillablePolygonChange: (tractId: string, newTillablePolygon: number[][]) => void
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   // Ref-mirrored state for drag handlers (avoid stale closures)
   const tractsRef = useRef(tracts)
   const onChangeRef = useRef(onPolygonChange)
+  const onTillableChangeRef = useRef(onTillablePolygonChange)
   tractsRef.current = tracts
   onChangeRef.current = onPolygonChange
+  onTillableChangeRef.current = onTillablePolygonChange
 
-  // Drag state
+  // Drag state. The 'kind' field distinguishes which of the TWO
+  // polygons per tract is being dragged: the full tract polygon
+  // (red border, white vertex circles) or the tillable polygon
+  // (green fill, green-stroke vertex circles).
   const draggingRef = useRef<{
     type: 'vertex' | 'body'
+    kind: 'tract' | 'tillable'
     tractId: string
     vertexIdx?: number  // for vertex drag
     lastLng?: number    // for body drag
@@ -198,13 +206,31 @@ function EditableExtractMap({
         map.addLayer({ id: `${tilId}_fill`, type: 'fill', source: tilId,
           paint: { 'fill-color': '#22c55e', 'fill-opacity': 0.40 } })
 
-        // Vertex handles for drag
+        // Vertex handles for drag — tract polygon (white fill, tract-color stroke)
         map.addSource(vertId, { type: 'geojson', data: buildVertexGeo(t.current_polygon!, t.tract_id) })
         map.addLayer({
           id: `${vertId}_circle`, type: 'circle', source: vertId,
           paint: {
             'circle-radius': 6, 'circle-color': '#ffffff',
             'circle-stroke-color': color, 'circle-stroke-width': 2,
+          },
+        })
+
+        // Vertex handles for the TILLABLE polygon — slightly smaller,
+        // green stroke. Initially empty until Calculate populates it
+        // (or the auto-extract returned one).
+        const tilVertId = `tilvert_${t.tract_id}`
+        map.addSource(tilVertId, {
+          type: 'geojson',
+          data: t.current_tillable_polygon
+            ? buildVertexGeo(t.current_tillable_polygon, t.tract_id)
+            : { type: 'FeatureCollection', features: [] } as any,
+        })
+        map.addLayer({
+          id: `${tilVertId}_circle`, type: 'circle', source: tilVertId,
+          paint: {
+            'circle-radius': 5, 'circle-color': '#dcfce7',
+            'circle-stroke-color': '#15803d', 'circle-stroke-width': 2,
           },
         })
 
@@ -215,13 +241,13 @@ function EditableExtractMap({
           properties: { label: `T${t.tract_number ?? '?'}`, color },
           geometry: { type: 'Point', coordinates: [cx, cy] } })
 
-        // Wire vertex drag
+        // Wire TRACT vertex drag
         map.on('mousedown', `${vertId}_circle`, (e: any) => {
           e.preventDefault()
           const f = e.features?.[0]
           if (!f) return
           draggingRef.current = {
-            type: 'vertex',
+            type: 'vertex', kind: 'tract',
             tractId: f.properties.tractId,
             vertexIdx: f.properties.idx,
           }
@@ -233,16 +259,52 @@ function EditableExtractMap({
           if (!draggingRef.current) map.getCanvas().style.cursor = ''
         })
 
-        // Wire polygon body drag (mousedown on FILL, not vertex)
+        // Wire TILLABLE vertex drag (green vertices)
+        map.on('mousedown', `${tilVertId}_circle`, (e: any) => {
+          e.preventDefault()
+          const f = e.features?.[0]
+          if (!f) return
+          draggingRef.current = {
+            type: 'vertex', kind: 'tillable',
+            tractId: f.properties.tractId,
+            vertexIdx: f.properties.idx,
+          }
+          map.getCanvas().style.cursor = 'grabbing'
+          map.dragPan.disable()
+        })
+        map.on('mouseenter', `${tilVertId}_circle`, () => { map.getCanvas().style.cursor = 'grab' })
+        map.on('mouseleave', `${tilVertId}_circle`, () => {
+          if (!draggingRef.current) map.getCanvas().style.cursor = ''
+        })
+
+        // Wire tract polygon body drag (mousedown on FILL, not on any vertex)
         map.on('mousedown', `${fullId}_fill`, (e: any) => {
-          // Skip if mousedown is on a vertex
-          const vertexHits = map.queryRenderedFeatures(e.point, { layers: [`${vertId}_circle`] })
+          // Skip if mousedown is on a vertex of EITHER polygon
+          const vertexHits = map.queryRenderedFeatures(e.point, {
+            layers: [`${vertId}_circle`, `${tilVertId}_circle`],
+          })
           if (vertexHits.length > 0) return
           e.preventDefault()
           const f = e.features?.[0]
           if (!f) return
           draggingRef.current = {
-            type: 'body', tractId: t.tract_id,
+            type: 'body', kind: 'tract', tractId: t.tract_id,
+            lastLng: e.lngLat.lng, lastLat: e.lngLat.lat,
+          }
+          map.getCanvas().style.cursor = 'grabbing'
+          map.dragPan.disable()
+        })
+
+        // Wire tillable polygon body drag (mousedown on tillable fill)
+        map.on('mousedown', `${tilId}_fill`, (e: any) => {
+          // Skip if on any vertex
+          const vertexHits = map.queryRenderedFeatures(e.point, {
+            layers: [`${vertId}_circle`, `${tilVertId}_circle`],
+          })
+          if (vertexHits.length > 0) return
+          e.preventDefault()
+          draggingRef.current = {
+            type: 'body', kind: 'tillable', tractId: t.tract_id,
             lastLng: e.lngLat.lng, lastLat: e.lngLat.lat,
           }
           map.getCanvas().style.cursor = 'grabbing'
@@ -270,7 +332,8 @@ function EditableExtractMap({
     })
 
     // Window-level mousemove/mouseup so the drag works even if cursor
-    // leaves the map briefly.
+    // leaves the map briefly. Dispatches to the tract or tillable
+    // change callback based on which polygon's handles were grabbed.
     const onMouseMove = (ev: MouseEvent) => {
       const drag = draggingRef.current
       if (!drag || !mapRef.current) return
@@ -278,19 +341,29 @@ function EditableExtractMap({
       const lngLat = mapRef.current.unproject([ev.clientX - rect.left, ev.clientY - rect.top])
       const allTracts = tractsRef.current
       const t = allTracts.find(x => x.tract_id === drag.tractId)
-      if (!t || !t.current_polygon) return
+      if (!t) return
 
+      const sourcePoly = drag.kind === 'tract'
+        ? t.current_polygon
+        : t.current_tillable_polygon
+      if (!sourcePoly) return
+
+      let newPoly: number[][] | null = null
       if (drag.type === 'vertex' && drag.vertexIdx !== undefined) {
-        const newPoly = t.current_polygon.map((p, i) =>
+        newPoly = sourcePoly.map((p, i) =>
           i === drag.vertexIdx ? [lngLat.lng, lngLat.lat] : p
         )
-        onChangeRef.current(drag.tractId, newPoly)
       } else if (drag.type === 'body' && drag.lastLng !== undefined && drag.lastLat !== undefined) {
         const dLng = lngLat.lng - drag.lastLng
         const dLat = lngLat.lat - drag.lastLat
-        const newPoly = t.current_polygon.map(p => [p[0] + dLng, p[1] + dLat])
+        newPoly = sourcePoly.map(p => [p[0] + dLng, p[1] + dLat])
         draggingRef.current = { ...drag, lastLng: lngLat.lng, lastLat: lngLat.lat }
+      }
+      if (!newPoly) return
+      if (drag.kind === 'tract') {
         onChangeRef.current(drag.tractId, newPoly)
+      } else {
+        onTillableChangeRef.current(drag.tractId, newPoly)
       }
     }
     const onMouseUp = () => {
@@ -322,11 +395,17 @@ function EditableExtractMap({
       const fullSrc = map.getSource(`full_${t.tract_id}`) as maplibregl.GeoJSONSource | undefined
       const tilSrc = map.getSource(`til_${t.tract_id}`) as maplibregl.GeoJSONSource | undefined
       const vertSrc = map.getSource(`vert_${t.tract_id}`) as maplibregl.GeoJSONSource | undefined
+      const tilVertSrc = map.getSource(`tilvert_${t.tract_id}`) as maplibregl.GeoJSONSource | undefined
       if (fullSrc && t.current_polygon) fullSrc.setData(buildPolyGeo(t.current_polygon))
       if (vertSrc && t.current_polygon) vertSrc.setData(buildVertexGeo(t.current_polygon, t.tract_id))
       if (tilSrc) {
         tilSrc.setData(t.current_tillable_polygon
           ? buildPolyGeo(t.current_tillable_polygon)
+          : { type: 'FeatureCollection', features: [] } as any)
+      }
+      if (tilVertSrc) {
+        tilVertSrc.setData(t.current_tillable_polygon
+          ? buildVertexGeo(t.current_tillable_polygon, t.tract_id)
           : { type: 'FeatureCollection', features: [] } as any)
       }
       // Re-compute label centroid from the CURRENT polygon so labels
@@ -351,11 +430,15 @@ function EditableExtractMap({
     <div className="relative">
       <div ref={containerRef} className="w-full h-[450px] rounded border border-gg-gray-700 overflow-hidden bg-black" />
       <div className="absolute bottom-1.5 left-1.5 text-[10px] text-white bg-black/60 px-2 py-1 rounded pointer-events-none">
-        <strong>Drag</strong> any white circle to move a vertex · drag inside polygon to move it · scroll to zoom
+        <strong>Drag</strong> any circle to move a vertex · drag inside polygon to move whole shape · scroll to zoom
         <br />
+        <span className="inline-block w-2.5 h-2.5 align-middle mr-1 rounded-full bg-white border-2" style={{ borderColor: '#ff3b3b' }} /> tract vertex
+        {' · '}
+        <span className="inline-block w-2.5 h-2.5 align-middle mr-1 rounded-full" style={{ background: '#dcfce7', border: '2px solid #15803d' }} /> tillable vertex
+        {' · '}
         <span className="inline-block w-2.5 h-2.5 align-middle mr-1" style={{ background: '#ff3b3b' }} /> tract boundary
         {' · '}
-        <span className="inline-block w-2.5 h-2.5 align-middle mr-1" style={{ background: '#22c55e', opacity: 0.6 }} /> tillable (after Calculate)
+        <span className="inline-block w-2.5 h-2.5 align-middle mr-1" style={{ background: '#22c55e', opacity: 0.6 }} /> tillable
       </div>
     </div>
   )
@@ -648,11 +731,34 @@ export default function MissingBoundariesPage() {
         [tractId]: {
           ...existing,
           current_polygon: newPolygon,
-          // Drag invalidates the calculated values until admin clicks Calculate again
+          // Tract polygon drag invalidates everything (tillable will be
+          // re-derived from this new shape on next Calculate)
           current_tillable_polygon: null,
           current_tillable_acres: null,
           current_soil_rating: null,
           current_polygon_acres: null,
+        },
+      }
+    })
+  }
+
+  // Admin-edited tillable polygon (separate green vertex handles).
+  // Invalidates only the SOIL RATING — tract polygon + tract acres stay.
+  // Calculate uses this admin-edited tillable directly instead of
+  // re-deriving from CDL.
+  const onTractTillablePolygonChange = (tractId: string, newTillable: number[][]) => {
+    setEditStateByTract(prev => {
+      const existing = prev[tractId]
+      if (!existing) return prev
+      return {
+        ...prev,
+        [tractId]: {
+          ...existing,
+          current_tillable_polygon: newTillable,
+          // Soil rating goes stale because tillable polygon changed
+          current_soil_rating: null,
+          // Tillable acres go stale too (admin will see ⚠ until Calculate)
+          current_tillable_acres: null,
         },
       }
     })
@@ -663,12 +769,21 @@ export default function MissingBoundariesPage() {
     if (!edit?.current_polygon) return
     setCalculatingTractId(tractId)
     try {
+      // If admin has hand-edited the tillable polygon, send it along so
+      // the backend uses it directly (no CDL re-derivation). Otherwise
+      // the backend re-runs CDL from the tract polygon.
+      const payload: any = { polygon: edit.current_polygon }
+      if (edit.current_tillable_polygon
+          && Array.isArray(edit.current_tillable_polygon)
+          && edit.current_tillable_polygon.length >= 3) {
+        payload.tillable_polygon = edit.current_tillable_polygon
+      }
       const res = await fetch(
         `${SCRAPER_URL}/api/admin/tracts/${tractId}/recalculate-from-polygon`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ polygon: edit.current_polygon }),
+          body: JSON.stringify(payload),
         }
       )
       const body = await res.json()
@@ -1014,6 +1129,7 @@ export default function MissingBoundariesPage() {
                                 .map(t => editStateByTract[t.tract_id])
                                 .filter(Boolean) as EditableTract[]}
                               onPolygonChange={onTractPolygonChange}
+                              onTillablePolygonChange={onTractTillablePolygonChange}
                             />
                           </div>
 
