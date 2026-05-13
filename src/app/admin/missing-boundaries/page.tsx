@@ -81,9 +81,49 @@ type EditableTract = ExtractedTract & {
   current_soil_rating_type?: string | null
   current_polygon_acres?: number | null
   // True when Calculate ran and the polygon contains no CDL cropland
-  // (timber/water/built-up tract). Distinct from current_tillable_acres
-  // being null (= calc didn't run yet).
   current_no_cropland?: boolean
+  // Admin-verified acres (against auction URL) — these get persisted
+  // on Approve regardless of polygon GIS area
+  override_total_acres?: number | null
+  override_tillable_acres?: number | null
+  // Admin override for soil rating (typed value wins over computed)
+  override_soil_rating?: number | null
+}
+
+// Cosine-corrected GIS acreage from a lng/lat polygon. Same math as
+// the upload-boundary-tract page uses for boundary validation.
+function gisAcres(points: number[][]): number {
+  if (points.length < 3) return 0
+  let area = 0
+  const n = points.length
+  for (let i = 0; i < n; i++) {
+    const [x1, y1] = points[i]
+    const [x2, y2] = points[(i + 1) % n]
+    area += x1 * y2 - x2 * y1
+  }
+  area = Math.abs(area) / 2
+  const centerLat = points.reduce((s, p) => s + p[1], 0) / n
+  const latMiles = 69.0
+  const lngMiles = 69.0 * Math.cos(centerLat * Math.PI / 180)
+  return area * latMiles * lngMiles * 640
+}
+
+// Scale a polygon's vertices around its centroid so its GIS area
+// becomes targetAcres. Returns the new polygon. Uses uniform linear
+// scaling (sqrt(target/current)). Cosine-corrected math matches
+// gisAcres() above.
+function scalePolygonToAcres(polygon: number[][], targetAcres: number): number[][] {
+  if (polygon.length < 3 || targetAcres <= 0) return polygon
+  const currentAcres = gisAcres(polygon)
+  if (currentAcres <= 0) return polygon
+  const scale = Math.sqrt(targetAcres / currentAcres)
+  if (!Number.isFinite(scale) || scale <= 0) return polygon
+  const cx = polygon.reduce((s, p) => s + p[0], 0) / polygon.length
+  const cy = polygon.reduce((s, p) => s + p[1], 0) / polygon.length
+  return polygon.map(([x, y]) => [
+    cx + (x - cx) * scale,
+    cy + (y - cy) * scale,
+  ])
 }
 
 function EditableExtractMap({
@@ -725,12 +765,16 @@ export default function MissingBoundariesPage() {
       const payload: any = {}
       if (edit?.current_polygon) payload.polygon = edit.current_polygon
       if (edit?.current_tillable_polygon) payload.tillable_polygon = edit.current_tillable_polygon
-      if (edit?.current_tillable_acres != null) payload.tillable_acres = edit.current_tillable_acres
-      if (edit?.current_soil_rating != null) payload.soil_rating = edit.current_soil_rating
+      // Admin-verified acres OVERRIDE polygon-derived values when set
+      // — per user 2026-05-12: 'tract/tillable acres must EXACTLY
+      // match the auction URL.'
+      const finalTotal = edit?.override_total_acres ?? null
+      const finalTillable = edit?.override_tillable_acres ?? edit?.current_tillable_acres ?? null
+      const finalRating = edit?.override_soil_rating ?? edit?.current_soil_rating ?? null
+      if (finalTotal != null) payload.total_acres = finalTotal
+      if (finalTillable != null) payload.tillable_acres = finalTillable
+      if (finalRating != null) payload.soil_rating = finalRating
       if (edit?.current_soil_rating_type) payload.soil_rating_type = edit.current_soil_rating_type
-      // No-cropland flag → backend writes tillable=0 + soil_rating=NULL
-      // explicitly (instead of COALESCEing to whatever stale value
-      // was already there).
       if (edit?.current_no_cropland) payload.no_cropland = true
 
       const res = await fetch(
@@ -760,25 +804,23 @@ export default function MissingBoundariesPage() {
       const result = autoExtractResultByListing[lid]
       for (const t of result.succeeded || []) {
         if (!editStateByTract[t.tract_id]) {
-          // Simplify the auto-extracted polygon so admin sees ~5-15
-          // vertex handles instead of 80+ near-collinear ones. Real
-          // corners (e.g. field bends >30°) are preserved.
           const simplified = t.polygon_coordinates
             ? simplifyPolygon(t.polygon_coordinates)
             : undefined
+          // Pre-populate override fields from scraped values. Admin
+          // verifies/corrects these against the auction URL.
+          const listingTract = items.find(it => it.tract_id === t.tract_id)
           updates[t.tract_id] = {
             ...t,
             current_polygon: simplified,
-            // Tillable polygon is hidden until admin clicks Calculate.
-            // Two-stage workflow per user 2026-05-12:
-            //   1. Drag the red tract polygon into the right position
-            //   2. Click Calculate → tillable polygon appears
-            //   3. Drag green vertices to refine the tillable shape
             current_tillable_polygon: null,
             current_tillable_acres: null,
             current_soil_rating: null,
             current_soil_rating_type: null,
             current_polygon_acres: t.acres ?? null,
+            override_total_acres: listingTract?.total_acres ?? null,
+            override_tillable_acres: listingTract?.scraped_tillable_acres ?? null,
+            override_soil_rating: null,
           }
         }
       }
@@ -813,6 +855,77 @@ export default function MissingBoundariesPage() {
   // Invalidates only the SOIL RATING — tract polygon + tract acres stay.
   // Calculate uses this admin-edited tillable directly instead of
   // re-deriving from CDL.
+  // Admin types a new total/tillable acres or soil rating. We just
+  // record the override — it gets applied on Approve (and used by the
+  // Align buttons to scale the polygon to match).
+  const onOverrideTotalAcres = (tractId: string, val: string) => {
+    const num = val === '' ? null : Number(val)
+    setEditStateByTract(prev => ({
+      ...prev, [tractId]: { ...prev[tractId], override_total_acres: num },
+    }))
+  }
+  const onOverrideTillableAcres = (tractId: string, val: string) => {
+    const num = val === '' ? null : Number(val)
+    setEditStateByTract(prev => ({
+      ...prev, [tractId]: { ...prev[tractId], override_tillable_acres: num },
+    }))
+  }
+  const onOverrideSoilRating = (tractId: string, val: string) => {
+    const num = val === '' ? null : Number(val)
+    setEditStateByTract(prev => ({
+      ...prev, [tractId]: { ...prev[tractId], override_soil_rating: num },
+    }))
+  }
+
+  // Scale the tract polygon around its centroid so its GIS acres
+  // matches override_total_acres exactly. Invalidates tillable
+  // (admin needs to re-Calculate after the tract resize).
+  const alignTractAcres = (tractId: string) => {
+    const edit = editStateByTract[tractId]
+    if (!edit?.current_polygon) return
+    const target = edit.override_total_acres
+    if (target == null || !Number.isFinite(target) || target <= 0) {
+      alert('Set the target Total Acres before clicking Align.')
+      return
+    }
+    const newPoly = scalePolygonToAcres(edit.current_polygon, target)
+    setEditStateByTract(prev => ({
+      ...prev, [tractId]: {
+        ...prev[tractId],
+        current_polygon: newPoly,
+        current_polygon_acres: target,
+        // Tract changed → tillable + soil rating stale
+        current_tillable_polygon: null,
+        current_tillable_acres: null,
+        current_soil_rating: null,
+        current_no_cropland: false,
+      },
+    }))
+  }
+
+  const alignTillableAcres = (tractId: string) => {
+    const edit = editStateByTract[tractId]
+    if (!edit?.current_tillable_polygon) {
+      alert('Click Calculate first to generate the tillable polygon, then align.')
+      return
+    }
+    const target = edit.override_tillable_acres
+    if (target == null || !Number.isFinite(target) || target <= 0) {
+      alert('Set the target Tillable Acres before clicking Align.')
+      return
+    }
+    const newTil = scalePolygonToAcres(edit.current_tillable_polygon, target)
+    setEditStateByTract(prev => ({
+      ...prev, [tractId]: {
+        ...prev[tractId],
+        current_tillable_polygon: newTil,
+        current_tillable_acres: target,
+        // Tillable shape changed → soil rating stale
+        current_soil_rating: null,
+      },
+    }))
+  }
+
   // Move-All: translate EVERY tract polygon (and its tillable, if any)
   // SCOPED TO THIS LISTING by the same (dLng, dLat). Invalidates the
   // soil rating + computed tillable values since the shape moved.
@@ -1235,40 +1348,84 @@ export default function MissingBoundariesPage() {
                             {autoExtractResultByListing[lid].succeeded.map((t: any) => {
                               const e = editStateByTract[t.tract_id]
                               const needsCalc = e && e.current_tillable_acres == null
-                              // Find the scraped listing values for this tract
                               const listingTract = tracts.find(it => it.tract_id === t.tract_id)
+                              const computedTotal = e?.current_polygon_acres ?? t.acres
                               return (
-                                <div key={t.tract_id} className="bg-gg-gray-900 border border-gg-gray-800 rounded px-2 py-1.5">
-                                  <div className="flex items-center justify-between gap-2">
+                                <div key={t.tract_id} className="bg-gg-gray-900 border border-gg-gray-800 rounded px-2 py-2">
+                                  <div className="flex items-center justify-between gap-2 mb-1">
                                     <span className="font-medium">Tract {t.tract_number ?? '?'}</span>
                                     <span className="text-[10px] text-gg-gray-400">{t.identification_method}</span>
                                   </div>
-                                  <div className="text-gg-gray-300 text-[11px] mt-0.5">
-                                    <span className="text-gg-gray-500">Calc:</span>{' '}
-                                    Polygon: <span className={needsCalc ? 'text-amber-300' : ''}>{(e?.current_polygon_acres ?? t.acres)?.toFixed?.(2) ?? '—'} ac</span>
-                                    {' · '}
-                                    Tillable: <span className={needsCalc ? 'text-amber-300' : (e?.current_no_cropland ? 'text-gg-gray-500 italic' : '')}>
-                                      {e?.current_no_cropland
-                                        ? '0 ac (no cropland)'
-                                        : (e?.current_tillable_acres != null ? `${e.current_tillable_acres} ac` : '— ac')}
+
+                                  {/* Editable Total Acres row */}
+                                  <div className="flex items-center gap-1.5 text-[11px] mb-1">
+                                    <label className="text-gg-gray-400 w-16 flex-shrink-0">Total ac:</label>
+                                    <input
+                                      type="number" step="0.01"
+                                      value={e?.override_total_acres ?? ''}
+                                      onChange={(ev) => onOverrideTotalAcres(t.tract_id, ev.target.value)}
+                                      className="w-20 px-1 py-0.5 bg-gg-gray-950 border border-gg-gray-700 rounded text-white text-[11px] focus:outline-none focus:border-gg-pink"
+                                      placeholder="—"
+                                    />
+                                    <span className="text-gg-gray-500 text-[10px]">
+                                      (drawn: {computedTotal != null ? Number(computedTotal).toFixed(2) : '—'})
                                     </span>
-                                    {' · '}
-                                    {e?.current_soil_rating_type || t.soil_rating_type || '—'}: <span className={needsCalc ? 'text-amber-300' : ''}>{e?.current_no_cropland ? 'N/A' : (e?.current_soil_rating ?? '—')}</span>
+                                    <button
+                                      onClick={() => alignTractAcres(t.tract_id)}
+                                      className="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 hover:bg-blue-500/35 text-blue-200 border border-blue-500/40"
+                                      title="Scale tract polygon to match Total ac exactly"
+                                    >
+                                      Align
+                                    </button>
                                   </div>
+
+                                  {/* Editable Tillable Acres row */}
+                                  <div className="flex items-center gap-1.5 text-[11px] mb-1">
+                                    <label className="text-gg-gray-400 w-16 flex-shrink-0">Tillable:</label>
+                                    <input
+                                      type="number" step="0.01"
+                                      value={e?.override_tillable_acres ?? ''}
+                                      onChange={(ev) => onOverrideTillableAcres(t.tract_id, ev.target.value)}
+                                      className="w-20 px-1 py-0.5 bg-gg-gray-950 border border-gg-gray-700 rounded text-white text-[11px] focus:outline-none focus:border-gg-pink"
+                                      placeholder="—"
+                                    />
+                                    <span className={`text-[10px] ${e?.current_no_cropland ? 'text-gg-gray-500 italic' : 'text-gg-gray-500'}`}>
+                                      (calc: {e?.current_no_cropland ? '0 (no cropland)' : (e?.current_tillable_acres != null ? `${e.current_tillable_acres}` : '—')})
+                                    </span>
+                                    <button
+                                      onClick={() => alignTillableAcres(t.tract_id)}
+                                      className="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 hover:bg-blue-500/35 text-blue-200 border border-blue-500/40"
+                                      title="Scale tillable polygon to match Tillable ac exactly (run Calculate first)"
+                                    >
+                                      Align
+                                    </button>
+                                  </div>
+
+                                  {/* Editable Soil Rating row */}
+                                  <div className="flex items-center gap-1.5 text-[11px] mb-1">
+                                    <label className="text-gg-gray-400 w-16 flex-shrink-0">
+                                      {e?.current_soil_rating_type || t.soil_rating_type || 'Rating'}:
+                                    </label>
+                                    <input
+                                      type="number" step="0.1"
+                                      value={e?.override_soil_rating ?? ''}
+                                      onChange={(ev) => onOverrideSoilRating(t.tract_id, ev.target.value)}
+                                      className="w-20 px-1 py-0.5 bg-gg-gray-950 border border-gg-gray-700 rounded text-white text-[11px] focus:outline-none focus:border-gg-pink"
+                                      placeholder="—"
+                                    />
+                                    <span className="text-gg-gray-500 text-[10px]">
+                                      (calc: {e?.current_no_cropland ? 'N/A' : (e?.current_soil_rating ?? '—')})
+                                    </span>
+                                  </div>
+
                                   {listingTract && (listingTract.total_acres != null || listingTract.scraped_tillable_acres != null || listingTract.scraped_soil_rating != null) && (
-                                    <div className="text-[11px] mt-0.5">
-                                      <span className="text-gg-gray-500">Scraped:</span>{' '}
-                                      <span className="text-gg-gray-400">
-                                        Polygon: {listingTract.total_acres != null ? `${listingTract.total_acres} ac` : '—'}
-                                        {' · '}
-                                        Tillable: {listingTract.scraped_tillable_acres != null ? `${listingTract.scraped_tillable_acres} ac` : '—'}
-                                        {' · '}
-                                        {listingTract.scraped_soil_rating_type || '—'}: {listingTract.scraped_soil_rating != null ? listingTract.scraped_soil_rating : '—'}
-                                      </span>
+                                    <div className="text-[10px] text-gg-gray-500 mb-1">
+                                      Scraped: {listingTract.total_acres != null ? `${listingTract.total_acres}ac` : '—'} · {listingTract.scraped_tillable_acres != null ? `${listingTract.scraped_tillable_acres}ac till` : '—'} · {listingTract.scraped_soil_rating ?? '—'} {listingTract.scraped_soil_rating_type || ''}
                                     </div>
                                   )}
+
                                   {needsCalc && (
-                                    <div className="text-[10px] text-amber-300 mt-0.5">
+                                    <div className="text-[10px] text-amber-300 mb-1">
                                       ⚠ Drag detected — click Calculate to refresh tillable + rating
                                     </div>
                                   )}
