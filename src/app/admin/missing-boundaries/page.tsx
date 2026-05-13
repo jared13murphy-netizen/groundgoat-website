@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { Loader2, ExternalLink, MapPin, Trash2 } from 'lucide-react'
 import maplibregl from 'maplibre-gl'
@@ -144,14 +144,21 @@ function scalePolygonToAcres(polygon: number[][], targetAcres: number): number[]
 
 function EditableExtractMap({
   tracts,
+  lockedTractIds,
   onPolygonChange,
   onTillableSubpolygonChange,
+  onTillableDragEnd,
   onMoveAllTractPolygons,
 }: {
   tracts: EditableTract[]
+  // Tracts whose tract polygon is locked — vertex circles hide,
+  // mousedown is ignored. Used after Align Total Acres.
+  lockedTractIds: Set<string>
   onPolygonChange: (tractId: string, newPolygon: number[][]) => void
   // tillableIdx = which sub-polygon (0..N-1) is being edited
   onTillableSubpolygonChange: (tractId: string, tillableIdx: number, newRing: number[][]) => void
+  // Fires once on mouseup after a tillable drag — used to auto-Calculate
+  onTillableDragEnd: (tractId: string) => void
   onMoveAllTractPolygons: (deltaLng: number, deltaLat: number) => void
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -160,13 +167,17 @@ function EditableExtractMap({
   const tractsRef = useRef(tracts)
   const onChangeRef = useRef(onPolygonChange)
   const onTillableSubChangeRef = useRef(onTillableSubpolygonChange)
+  const onTillableDragEndRef = useRef(onTillableDragEnd)
   const onMoveAllRef = useRef(onMoveAllTractPolygons)
   const moveAllModeRef = useRef(moveAllMode)
+  const lockedRef = useRef(lockedTractIds)
   tractsRef.current = tracts
   onChangeRef.current = onPolygonChange
   onTillableSubChangeRef.current = onTillableSubpolygonChange
+  onTillableDragEndRef.current = onTillableDragEnd
   onMoveAllRef.current = onMoveAllTractPolygons
   moveAllModeRef.current = moveAllMode
+  lockedRef.current = lockedTractIds
 
   // Drag state. The 'kind' field distinguishes which of the TWO
   // polygons per tract is being dragged: the full tract polygon
@@ -308,6 +319,10 @@ function EditableExtractMap({
         map.addSource(tilId, { type: 'geojson', data: tilGeo })
         map.addLayer({ id: `${tilId}_fill`, type: 'fill', source: tilId,
           paint: { 'fill-color': '#22c55e', 'fill-opacity': 0.40 } })
+        // Line layer for tillable so admin can click an edge to add a
+        // vertex (same pattern as the tract polygon).
+        map.addLayer({ id: `${tilId}_line`, type: 'line', source: tilId,
+          paint: { 'line-color': '#16a34a', 'line-width': 2 } })
 
         // Vertex handles for drag — tract polygon (white fill, tract-color stroke)
         map.addSource(vertId, { type: 'geojson', data: buildVertexGeo(t.current_polygon!, t.tract_id) })
@@ -341,11 +356,24 @@ function EditableExtractMap({
           properties: { label: `T${t.tract_number ?? '?'}`, color },
           geometry: { type: 'Point', coordinates: [cx, cy] } })
 
-        // Wire TRACT vertex drag
+        // Wire TRACT vertex drag (right-click → delete vertex when not locked)
         map.on('mousedown', `${vertId}_circle`, (e: any) => {
-          e.preventDefault()
           const f = e.features?.[0]
           if (!f) return
+          if (lockedRef.current.has(f.properties.tractId)) return
+          // Right-click (button=2) deletes the vertex instead of dragging.
+          // Requires the polygon to retain at least 3 vertices.
+          if (e.originalEvent && e.originalEvent.button === 2) {
+            e.preventDefault()
+            const tract = tractsRef.current.find(x => x.tract_id === f.properties.tractId)
+            if (!tract?.current_polygon) return
+            if (tract.current_polygon.length <= 3) return
+            const idx = f.properties.idx
+            const newPoly = tract.current_polygon.filter((_, i) => i !== idx)
+            onChangeRef.current(f.properties.tractId, newPoly)
+            return
+          }
+          e.preventDefault()
           draggingRef.current = {
             type: 'vertex', kind: 'tract',
             tractId: f.properties.tractId,
@@ -362,10 +390,23 @@ function EditableExtractMap({
         // Wire TILLABLE vertex drag (green vertices). Each vertex
         // feature carries tillable_idx (which sub-polygon) + idx
         // (which vertex within that sub-polygon).
+        // Right-click → delete vertex (polygon needs ≥3 remaining).
         map.on('mousedown', `${tilVertId}_circle`, (e: any) => {
-          e.preventDefault()
           const f = e.features?.[0]
           if (!f) return
+          if (e.originalEvent && e.originalEvent.button === 2) {
+            e.preventDefault()
+            const tract = tractsRef.current.find(x => x.tract_id === f.properties.tractId)
+            const tIdx = f.properties.tillable_idx
+            const ring = tract?.current_tillable_polygons?.[tIdx]
+            if (!ring || ring.length <= 3) return
+            const idx = f.properties.idx
+            const newRing = ring.filter((_, i) => i !== idx)
+            onTillableSubChangeRef.current(f.properties.tractId, tIdx, newRing)
+            onTillableDragEndRef.current(f.properties.tractId)
+            return
+          }
+          e.preventDefault()
           draggingRef.current = {
             type: 'vertex', kind: 'tillable',
             tractId: f.properties.tractId,
@@ -381,7 +422,9 @@ function EditableExtractMap({
         })
 
         // Wire tract polygon body drag (mousedown on FILL, not on any vertex)
+        // Locked tracts ignore body drag.
         map.on('mousedown', `${fullId}_fill`, (e: any) => {
+          if (lockedRef.current.has(t.tract_id)) return
           // Skip if mousedown is on a vertex of EITHER polygon
           const vertexHits = map.queryRenderedFeatures(e.point, {
             layers: [`${vertId}_circle`, `${tilVertId}_circle`],
@@ -396,6 +439,46 @@ function EditableExtractMap({
           }
           map.getCanvas().style.cursor = 'grabbing'
           map.dragPan.disable()
+        })
+
+        // Click on tract polygon LINE (edge) inserts a new vertex at
+        // the click point — only when not locked. Skipped if the click
+        // is on an existing vertex (which already handles its own logic).
+        map.on('click', `${fullId}_line`, (e: any) => {
+          if (lockedRef.current.has(t.tract_id)) return
+          const vertexHits = map.queryRenderedFeatures(e.point, {
+            layers: [`${vertId}_circle`],
+          })
+          if (vertexHits.length > 0) return
+          const tract = tractsRef.current.find(x => x.tract_id === t.tract_id)
+          if (!tract?.current_polygon) return
+          const click = [e.lngLat.lng, e.lngLat.lat]
+          // Find which edge is closest to the click — insert vertex
+          // between its two endpoints.
+          const poly = tract.current_polygon
+          let bestIdx = 0
+          let bestDist = Infinity
+          for (let i = 0; i < poly.length; i++) {
+            const a = poly[i]
+            const b = poly[(i + 1) % poly.length]
+            // Distance from click to segment a-b (planar approx is fine here)
+            const ax = a[0], ay = a[1], bx = b[0], by = b[1]
+            const dx = bx - ax, dy = by - ay
+            const len2 = dx * dx + dy * dy
+            const tParam = len2 > 0
+              ? Math.max(0, Math.min(1, ((click[0] - ax) * dx + (click[1] - ay) * dy) / len2))
+              : 0
+            const px = ax + tParam * dx
+            const py = ay + tParam * dy
+            const d = Math.hypot(click[0] - px, click[1] - py)
+            if (d < bestDist) { bestDist = d; bestIdx = i }
+          }
+          const newPoly = [
+            ...poly.slice(0, bestIdx + 1),
+            click,
+            ...poly.slice(bestIdx + 1),
+          ]
+          onChangeRef.current(t.tract_id, newPoly)
         })
 
         // Wire tillable polygon body drag (mousedown on tillable
@@ -417,6 +500,45 @@ function EditableExtractMap({
           }
           map.getCanvas().style.cursor = 'grabbing'
           map.dragPan.disable()
+        })
+
+        // Click on tillable polygon LINE inserts a vertex into the
+        // clicked sub-polygon (same pattern as the tract polygon).
+        map.on('click', `${tilId}_line`, (e: any) => {
+          const vertexHits = map.queryRenderedFeatures(e.point, {
+            layers: [`${tilVertId}_circle`],
+          })
+          if (vertexHits.length > 0) return
+          const f = e.features?.[0]
+          if (!f) return
+          const tIdx = f.properties.tillable_idx
+          const tract = tractsRef.current.find(x => x.tract_id === t.tract_id)
+          const ring = tract?.current_tillable_polygons?.[tIdx]
+          if (!ring) return
+          const click = [e.lngLat.lng, e.lngLat.lat]
+          let bestIdx = 0
+          let bestDist = Infinity
+          for (let i = 0; i < ring.length; i++) {
+            const a = ring[i]
+            const b = ring[(i + 1) % ring.length]
+            const ax = a[0], ay = a[1], bx = b[0], by = b[1]
+            const dx = bx - ax, dy = by - ay
+            const len2 = dx * dx + dy * dy
+            const tParam = len2 > 0
+              ? Math.max(0, Math.min(1, ((click[0] - ax) * dx + (click[1] - ay) * dy) / len2))
+              : 0
+            const px = ax + tParam * dx
+            const py = ay + tParam * dy
+            const d = Math.hypot(click[0] - px, click[1] - py)
+            if (d < bestDist) { bestDist = d; bestIdx = i }
+          }
+          const newRing = [
+            ...ring.slice(0, bestIdx + 1),
+            click,
+            ...ring.slice(bestIdx + 1),
+          ]
+          onTillableSubChangeRef.current(t.tract_id, tIdx, newRing)
+          onTillableDragEndRef.current(t.tract_id)
         })
       }
 
@@ -509,18 +631,35 @@ function EditableExtractMap({
       }
     }
     const onMouseUp = () => {
-      if (draggingRef.current && mapRef.current) {
+      const drag = draggingRef.current
+      if (drag && mapRef.current) {
         mapRef.current.getCanvas().style.cursor = ''
         mapRef.current.dragPan.enable()
+        // After a tillable drag ends, fire the auto-Calculate callback
+        // so the parent can recompute acres + soil rating without admin
+        // clicking Calculate.
+        if (drag.kind === 'tillable' && drag.tractId) {
+          onTillableDragEndRef.current(drag.tractId)
+        }
       }
       draggingRef.current = null
     }
+    // Suppress browser context menu so right-click can be used to
+    // delete vertices without showing a menu.
+    const onContextMenu = (e: MouseEvent) => {
+      const target = e.target as HTMLElement
+      if (containerRef.current && containerRef.current.contains(target)) {
+        e.preventDefault()
+      }
+    }
+    window.addEventListener('contextmenu', onContextMenu)
     window.addEventListener('mousemove', onMouseMove)
     window.addEventListener('mouseup', onMouseUp)
 
     return () => {
       window.removeEventListener('mousemove', onMouseMove)
       window.removeEventListener('mouseup', onMouseUp)
+      window.removeEventListener('contextmenu', onContextMenu)
       map.remove(); mapRef.current = null
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -539,7 +678,14 @@ function EditableExtractMap({
       const vertSrc = map.getSource(`vert_${t.tract_id}`) as maplibregl.GeoJSONSource | undefined
       const tilVertSrc = map.getSource(`tilvert_${t.tract_id}`) as maplibregl.GeoJSONSource | undefined
       if (fullSrc && t.current_polygon) fullSrc.setData(buildPolyGeo(t.current_polygon))
-      if (vertSrc && t.current_polygon) vertSrc.setData(buildVertexGeo(t.current_polygon, t.tract_id))
+      // Locked tracts hide their vertex circles so admin can't drag
+      // them. They're still drawn (red border + fill) for reference.
+      const isLocked = lockedTractIds.has(t.tract_id)
+      if (vertSrc && t.current_polygon) {
+        vertSrc.setData(isLocked
+          ? { type: 'FeatureCollection', features: [] } as any
+          : buildVertexGeo(t.current_polygon, t.tract_id))
+      }
       const tils = t.current_tillable_polygons || []
       if (tilSrc) {
         tilSrc.setData(tils.length
@@ -567,7 +713,7 @@ function EditableExtractMap({
     if (labelsSrc) {
       labelsSrc.setData({ type: 'FeatureCollection', features: labels } as any)
     }
-  }, [tracts])
+  }, [tracts, lockedTractIds])
 
   return (
     <div className="relative">
@@ -663,6 +809,36 @@ export default function MissingBoundariesPage() {
   // Calculate. The approve call ships these as overrides.
   const [editStateByTract, setEditStateByTract] = useState<Record<string, EditableTract>>({})
   const [calculatingTractId, setCalculatingTractId] = useState<string | null>(null)
+  // Tracts whose tract polygon is LOCKED — vertex handles hide,
+  // mousedown handlers ignore. Toggled on by Align Total Acres click
+  // (so an admin doesn't accidentally drag a perfectly-aligned tract);
+  // toggled off via the Unlock button.
+  const [lockedTractIds, setLockedTractIds] = useState<Set<string>>(new Set())
+  // Debounced save-draft timers keyed by tract_id. Each drag/edit
+  // bumps the timer; whichever edit lands last gets persisted ~800ms
+  // after the admin stops touching it.
+  const saveDraftTimersRef = useRef<Record<string, any>>({})
+  // POST current edit state to the backend so refresh/device switch
+  // doesn't lose work. Best-effort — failures log but don't alert.
+  const saveDraftNow = useCallback(async (tractId: string, fields: any) => {
+    try {
+      await fetch(`${SCRAPER_URL}/api/admin/tracts/${tractId}/save-draft`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(fields),
+      })
+    } catch (e) {
+      console.warn('save-draft failed for', tractId, e)
+    }
+  }, [])
+  const scheduleSaveDraft = useCallback((tractId: string, fields: any) => {
+    const timers = saveDraftTimersRef.current
+    if (timers[tractId]) clearTimeout(timers[tractId])
+    timers[tractId] = setTimeout(() => {
+      saveDraftNow(tractId, fields)
+      delete timers[tractId]
+    }, 800)
+  }, [saveDraftNow])
   const [stateFilter, setStateFilter] = useState<string>('')
   const [companyFilter, setCompanyFilter] = useState<string>('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'missing' | 'wrong' | 'ok'>('all')
@@ -932,6 +1108,11 @@ export default function MissingBoundariesPage() {
         },
       }
     })
+    // Debounced persist so refresh doesn't lose in-progress drag work.
+    scheduleSaveDraft(tractId, {
+      polygon: newPolygon,
+      tillable_polygons: [],  // explicitly clear stale tillable
+    })
   }
 
   // Admin-edited tillable polygon (separate green vertex handles).
@@ -984,6 +1165,35 @@ export default function MissingBoundariesPage() {
         current_no_cropland: false,
       },
     }))
+    // Auto-lock the tract polygon after Align — admin's signal that
+    // the tract shape is final. Vertex circles hide, drag is blocked.
+    setLockedTractIds(prev => {
+      const next = new Set(prev)
+      next.add(tractId)
+      return next
+    })
+    // Persist immediately (no debounce) — Align is an explicit user
+    // commit, not a drag delta.
+    saveDraftNow(tractId, {
+      polygon: newPoly,
+      total_acres: target,
+      tillable_polygons: [],
+    })
+  }
+
+  const lockTract = (tractId: string) => {
+    setLockedTractIds(prev => {
+      const next = new Set(prev)
+      next.add(tractId)
+      return next
+    })
+  }
+  const unlockTract = (tractId: string) => {
+    setLockedTractIds(prev => {
+      const next = new Set(prev)
+      next.delete(tractId)
+      return next
+    })
   }
 
   // Align Tillable across N sub-polygons: scale each ring around its
@@ -1064,6 +1274,13 @@ export default function MissingBoundariesPage() {
           current_soil_rating_type: body.soil_rating_type ?? null,
         },
       }))
+      // Persist tillable + recomputed rating to proposed_* — refresh-safe.
+      saveDraftNow(tractId, {
+        tillable_polygons: scaledTils,
+        tillable_acres: target,
+        soil_rating: body.soil_rating ?? null,
+        soil_rating_type: body.soil_rating_type ?? null,
+      })
     } catch (e: any) {
       alert(`Soil rating recalc error: ${e.message || e}`)
     } finally {
@@ -1103,6 +1320,8 @@ export default function MissingBoundariesPage() {
 
   // Admin dragged one sub-polygon of the tillable. Replace that index
   // in current_tillable_polygons and invalidate downstream values.
+  // Fires once per mousemove during a drag — debounced auto-Calculate
+  // + save-draft below handle the persist + recompute on mouseup.
   const onTillableSubpolygonChange = (tractId: string, tillableIdx: number, newRing: number[][]) => {
     setEditStateByTract(prev => {
       const existing = prev[tractId]
@@ -1124,6 +1343,61 @@ export default function MissingBoundariesPage() {
     })
   }
 
+  // Auto-Calculate-on-mouseup: when admin finishes dragging a tillable
+  // polygon (vertex, body, or via add/delete), recompute tillable acres
+  // + soil rating against the new shape so they see results without
+  // clicking Calculate. Also persists the result to proposed_*.
+  const autoCalculateTillable = useCallback(async (tractId: string) => {
+    // Read the LATEST edit state (post-drag) instead of capturing stale
+    // closure values.
+    setEditStateByTract(prev => {
+      const e = prev[tractId]
+      if (!e?.current_polygon) return prev
+      const tils = e.current_tillable_polygons || []
+      if (tils.length === 0) return prev
+      // Fire and forget the recalc + persist
+      ;(async () => {
+        setCalculatingTractId(tractId)
+        try {
+          const payload: any = { polygon: e.current_polygon }
+          if (tils.length === 1) payload.tillable_polygon = tils[0]
+          else payload.tillable_polygons = tils
+          const res = await fetch(
+            `${SCRAPER_URL}/api/admin/tracts/${tractId}/recalculate-from-polygon`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+            }
+          )
+          const body = await res.json()
+          if (res.ok && body.success) {
+            setEditStateByTract(prev2 => ({
+              ...prev2,
+              [tractId]: {
+                ...prev2[tractId],
+                current_tillable_acres: body.tillable_acres ?? null,
+                current_soil_rating: body.soil_rating ?? null,
+                current_soil_rating_type: body.soil_rating_type ?? null,
+              },
+            }))
+            saveDraftNow(tractId, {
+              tillable_polygons: tils,
+              tillable_acres: body.tillable_acres ?? null,
+              soil_rating: body.soil_rating ?? null,
+              soil_rating_type: body.soil_rating_type ?? null,
+            })
+          }
+        } catch (e2) {
+          console.warn('auto-calc tillable failed:', e2)
+        } finally {
+          setCalculatingTractId(null)
+        }
+      })()
+      return prev
+    })
+  }, [saveDraftNow])
+
   // Delete one sub-polygon (e.g. admin decides one of the auto-detected
   // tillable areas is actually timber). Invalidates downstream values.
   const deleteTillableSubpolygon = (tractId: string, tillableIdx: number) => {
@@ -1143,6 +1417,19 @@ export default function MissingBoundariesPage() {
         },
       }
     })
+    // Persist the deletion so it survives refresh
+    setTimeout(() => {
+      setEditStateByTract(prev => {
+        const e = prev[tractId]
+        if (e) {
+          saveDraftNow(tractId, {
+            tillable_polygons: e.current_tillable_polygons || [],
+            tillable_acres: null,
+          })
+        }
+        return prev
+      })
+    }, 0)
   }
 
   // Add a new tillable sub-polygon as a small square around the tract
@@ -1155,14 +1442,14 @@ export default function MissingBoundariesPage() {
       const poly = existing.current_polygon
       const cx = poly.reduce((s, p) => s + p[0], 0) / poly.length
       const cy = poly.reduce((s, p) => s + p[1], 0) / poly.length
-      // Size the seed square at ~10% of the tract bbox so the new area
-      // is visible but easy to drag into place.
+      // Size the seed at ~30% of the tract bbox so the new area is
+      // immediately visible (10% was too small to spot in practice).
       const minLng = Math.min(...poly.map(p => p[0]))
       const maxLng = Math.max(...poly.map(p => p[0]))
       const minLat = Math.min(...poly.map(p => p[1]))
       const maxLat = Math.max(...poly.map(p => p[1]))
-      const hLng = (maxLng - minLng) * 0.1
-      const hLat = (maxLat - minLat) * 0.1
+      const hLng = (maxLng - minLng) * 0.3
+      const hLat = (maxLat - minLat) * 0.3
       const seedRing: number[][] = [
         [cx - hLng, cy - hLat],
         [cx + hLng, cy - hLat],
@@ -1182,6 +1469,19 @@ export default function MissingBoundariesPage() {
         },
       }
     })
+    // Persist immediately so the new seed survives refresh
+    setTimeout(() => {
+      setEditStateByTract(prev => {
+        const e = prev[tractId]
+        if (e?.current_tillable_polygons) {
+          saveDraftNow(tractId, {
+            tillable_polygons: e.current_tillable_polygons,
+            tillable_acres: null,
+          })
+        }
+        return prev
+      })
+    }, 0)
   }
 
   const calculateTract = async (tractId: string) => {
@@ -1227,6 +1527,16 @@ export default function MissingBoundariesPage() {
           current_no_cropland: !!body.no_cropland,
         },
       }))
+      // Persist Calculate result so refresh shows the latest tillable
+      saveDraftNow(tractId, {
+        polygon: edit.current_polygon,
+        tillable_polygons: normalizeTillablePolygons(
+          body.tillable_polygons ?? body.tillable_polygon,
+        ),
+        tillable_acres: body.tillable_acres ?? null,
+        soil_rating: body.soil_rating ?? null,
+        soil_rating_type: body.soil_rating_type ?? null,
+      })
     } catch (e: any) {
       alert(`Calculate error: ${e.message || e}`)
     } finally {
@@ -1561,8 +1871,10 @@ export default function MissingBoundariesPage() {
                               tracts={(autoExtractResultByListing[lid].succeeded as any[])
                                 .map(t => editStateByTract[t.tract_id])
                                 .filter(Boolean) as EditableTract[]}
+                              lockedTractIds={lockedTractIds}
                               onPolygonChange={onTractPolygonChange}
                               onTillableSubpolygonChange={onTillableSubpolygonChange}
+                              onTillableDragEnd={autoCalculateTillable}
                               onMoveAllTractPolygons={(dLng, dLat) => onMoveAllTractPolygons(lid, dLng, dLat)}
                             />
                           </div>
@@ -1613,11 +1925,29 @@ export default function MissingBoundariesPage() {
                                     </span>
                                     <button
                                       onClick={() => alignTractAcres(t.tract_id)}
-                                      className="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 hover:bg-blue-500/35 text-blue-200 border border-blue-500/40"
-                                      title="Scale tract polygon to match Total ac exactly"
+                                      disabled={lockedTractIds.has(t.tract_id)}
+                                      className="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 hover:bg-blue-500/35 disabled:opacity-30 text-blue-200 border border-blue-500/40"
+                                      title="Scale tract polygon to match Total ac exactly, then lock it"
                                     >
                                       Align
                                     </button>
+                                    {lockedTractIds.has(t.tract_id) ? (
+                                      <button
+                                        onClick={() => unlockTract(t.tract_id)}
+                                        className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/25 hover:bg-amber-500/40 text-amber-200 border border-amber-500/40"
+                                        title="Unlock so you can re-shape the tract polygon"
+                                      >
+                                        🔓 Unlock
+                                      </button>
+                                    ) : (
+                                      <button
+                                        onClick={() => lockTract(t.tract_id)}
+                                        className="text-[10px] px-1.5 py-0.5 rounded bg-gg-gray-800 hover:bg-gg-gray-700 text-gg-gray-300 border border-gg-gray-700"
+                                        title="Lock the tract polygon to prevent accidental edits"
+                                      >
+                                        🔒 Lock
+                                      </button>
+                                    )}
                                   </div>
 
                                   {/* Editable Tillable Acres row */}
