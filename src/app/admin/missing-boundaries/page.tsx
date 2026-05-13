@@ -708,10 +708,15 @@ export default function MissingBoundariesPage() {
           updates[t.tract_id] = {
             ...t,
             current_polygon: simplified,
-            current_tillable_polygon: t.tillable_polygon ?? null,
-            current_tillable_acres: t.tillable_acres ?? null,
-            current_soil_rating: t.soil_rating ?? null,
-            current_soil_rating_type: t.soil_rating_type ?? null,
+            // Tillable polygon is hidden until admin clicks Calculate.
+            // Two-stage workflow per user 2026-05-12:
+            //   1. Drag the red tract polygon into the right position
+            //   2. Click Calculate → tillable polygon appears
+            //   3. Drag green vertices to refine the tillable shape
+            current_tillable_polygon: null,
+            current_tillable_acres: null,
+            current_soil_rating: null,
+            current_soil_rating_type: null,
             current_polygon_acres: t.acres ?? null,
           }
         }
