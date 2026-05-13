@@ -27,45 +27,94 @@ type ExtractedTract = {
   tillable_polygon?: number[][] | null
 }
 
-function InlineExtractMap({ tracts }: { tracts: ExtractedTract[] }) {
-  // Renders the listing's extracted polygons (full + tillable) on a
-  // satellite map inline. Mounts only when tracts array has polygon data.
+type EditableTract = ExtractedTract & {
+  // Current polygon state — mutated by vertex drag / body drag
+  current_polygon?: number[][]
+  // Last-calculated tillable polygon + values (from /recalculate-from-polygon)
+  current_tillable_polygon?: number[][] | null
+  current_tillable_acres?: number | null
+  current_soil_rating?: number | null
+  current_soil_rating_type?: string | null
+  current_polygon_acres?: number | null
+}
+
+function EditableExtractMap({
+  tracts,
+  onPolygonChange,
+}: {
+  tracts: EditableTract[]
+  onPolygonChange: (tractId: string, newPolygon: number[][]) => void
+}) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
+  // Ref-mirrored state for drag handlers (avoid stale closures)
+  const tractsRef = useRef(tracts)
+  const onChangeRef = useRef(onPolygonChange)
+  tractsRef.current = tracts
+  onChangeRef.current = onPolygonChange
+
+  // Drag state
+  const draggingRef = useRef<{
+    type: 'vertex' | 'body'
+    tractId: string
+    vertexIdx?: number  // for vertex drag
+    lastLng?: number    // for body drag
+    lastLat?: number
+  } | null>(null)
+
+  // Build features for a tract's polygon + vertex handles
+  const buildPolyGeo = (polygon: number[][]) => {
+    if (polygon.length < 3) return { type: 'FeatureCollection', features: [] }
+    const closed = [...polygon]
+    if (JSON.stringify(closed[0]) !== JSON.stringify(closed[closed.length - 1])) {
+      closed.push(closed[0])
+    }
+    return {
+      type: 'FeatureCollection',
+      features: [{
+        type: 'Feature',
+        properties: {},
+        geometry: { type: 'Polygon', coordinates: [closed] },
+      }],
+    } as any
+  }
+  const buildVertexGeo = (polygon: number[][], tractId: string) => ({
+    type: 'FeatureCollection',
+    features: polygon.map((p, i) => ({
+      type: 'Feature',
+      properties: { idx: i, tractId },
+      geometry: { type: 'Point', coordinates: p },
+    })),
+  } as any)
 
   useEffect(() => {
     if (!containerRef.current) return
-    const usable = tracts.filter(t => t.polygon_coordinates && t.polygon_coordinates.length >= 3)
+    if (mapRef.current) return  // Only init once
+    const usable = tractsRef.current.filter(
+      t => t.current_polygon && t.current_polygon.length >= 3
+    )
     if (usable.length === 0) return
 
-    // Bbox over all tract full-polygons
     let minLng = Infinity, maxLng = -Infinity, minLat = Infinity, maxLat = -Infinity
     for (const t of usable) {
-      for (const [lng, lat] of t.polygon_coordinates!) {
+      for (const [lng, lat] of t.current_polygon!) {
         if (lng < minLng) minLng = lng
         if (lng > maxLng) maxLng = lng
         if (lat < minLat) minLat = lat
         if (lat > maxLat) maxLat = lat
       }
     }
-    const centerLng = (minLng + maxLng) / 2
-    const centerLat = (minLat + maxLat) / 2
 
     const map = new maplibregl.Map({
       container: containerRef.current,
       style: {
         version: 8,
         sources: {
-          imagery: {
-            type: 'raster',
-            tiles: [TILE_URL],
-            tileSize: 256,
-            attribution: TILE_ATTRIBUTION,
-          },
+          imagery: { type: 'raster', tiles: [TILE_URL], tileSize: 256, attribution: TILE_ATTRIBUTION },
         },
         layers: [{ id: 'imagery', type: 'raster', source: 'imagery' }],
       },
-      center: [centerLng, centerLat],
+      center: [(minLng + maxLng) / 2, (minLat + maxLat) / 2],
       zoom: 14,
       attributionControl: false,
     })
@@ -79,45 +128,77 @@ function InlineExtractMap({ tracts }: { tracts: ExtractedTract[] }) {
         const color = TRACT_COLORS[i % TRACT_COLORS.length]
         const fullId = `full_${t.tract_id}`
         const tilId = `til_${t.tract_id}`
-        const closed = [...t.polygon_coordinates!]
-        if (JSON.stringify(closed[0]) !== JSON.stringify(closed[closed.length - 1])) {
-          closed.push(closed[0])
-        }
-        map.addSource(fullId, {
+        const vertId = `vert_${t.tract_id}`
+
+        // Full polygon — fill + line + vertex handles
+        map.addSource(fullId, { type: 'geojson', data: buildPolyGeo(t.current_polygon!) })
+        map.addLayer({ id: `${fullId}_fill`, type: 'fill', source: fullId,
+          paint: { 'fill-color': color, 'fill-opacity': 0.12 } })
+        map.addLayer({ id: `${fullId}_line`, type: 'line', source: fullId,
+          paint: { 'line-color': color, 'line-width': 3 } })
+
+        // Tillable polygon (rendered only when current_tillable_polygon is set)
+        map.addSource(tilId, {
           type: 'geojson',
-          data: { type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [closed] } } as any,
+          data: t.current_tillable_polygon
+            ? buildPolyGeo(t.current_tillable_polygon)
+            : { type: 'FeatureCollection', features: [] } as any,
         })
+        map.addLayer({ id: `${tilId}_fill`, type: 'fill', source: tilId,
+          paint: { 'fill-color': '#22c55e', 'fill-opacity': 0.40 } })
+
+        // Vertex handles for drag
+        map.addSource(vertId, { type: 'geojson', data: buildVertexGeo(t.current_polygon!, t.tract_id) })
         map.addLayer({
-          id: `${fullId}_line`, type: 'line', source: fullId,
-          paint: { 'line-color': color, 'line-width': 3 },
-        })
-        map.addLayer({
-          id: `${fullId}_fill`, type: 'fill', source: fullId,
-          paint: { 'fill-color': color, 'fill-opacity': 0.08 },
+          id: `${vertId}_circle`, type: 'circle', source: vertId,
+          paint: {
+            'circle-radius': 6, 'circle-color': '#ffffff',
+            'circle-stroke-color': color, 'circle-stroke-width': 2,
+          },
         })
 
-        if (t.tillable_polygon && t.tillable_polygon.length >= 3) {
-          const tilClosed = [...t.tillable_polygon]
-          if (JSON.stringify(tilClosed[0]) !== JSON.stringify(tilClosed[tilClosed.length - 1])) {
-            tilClosed.push(tilClosed[0])
-          }
-          map.addSource(tilId, {
-            type: 'geojson',
-            data: { type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [tilClosed] } } as any,
-          })
-          map.addLayer({
-            id: `${tilId}_fill`, type: 'fill', source: tilId,
-            paint: { 'fill-color': '#22c55e', 'fill-opacity': 0.30 },
-          })
-        }
-
-        // Centroid label
-        const cx = t.polygon_coordinates!.reduce((s, p) => s + p[0], 0) / t.polygon_coordinates!.length
-        const cy = t.polygon_coordinates!.reduce((s, p) => s + p[1], 0) / t.polygon_coordinates!.length
+        // Label
+        const cx = t.current_polygon!.reduce((s, p) => s + p[0], 0) / t.current_polygon!.length
+        const cy = t.current_polygon!.reduce((s, p) => s + p[1], 0) / t.current_polygon!.length
         labels.push({ type: 'Feature',
           properties: { label: `T${t.tract_number ?? '?'}`, color },
           geometry: { type: 'Point', coordinates: [cx, cy] } })
+
+        // Wire vertex drag
+        map.on('mousedown', `${vertId}_circle`, (e: any) => {
+          e.preventDefault()
+          const f = e.features?.[0]
+          if (!f) return
+          draggingRef.current = {
+            type: 'vertex',
+            tractId: f.properties.tractId,
+            vertexIdx: f.properties.idx,
+          }
+          map.getCanvas().style.cursor = 'grabbing'
+          map.dragPan.disable()
+        })
+        map.on('mouseenter', `${vertId}_circle`, () => { map.getCanvas().style.cursor = 'grab' })
+        map.on('mouseleave', `${vertId}_circle`, () => {
+          if (!draggingRef.current) map.getCanvas().style.cursor = ''
+        })
+
+        // Wire polygon body drag (mousedown on FILL, not vertex)
+        map.on('mousedown', `${fullId}_fill`, (e: any) => {
+          // Skip if mousedown is on a vertex
+          const vertexHits = map.queryRenderedFeatures(e.point, { layers: [`${vertId}_circle`] })
+          if (vertexHits.length > 0) return
+          e.preventDefault()
+          const f = e.features?.[0]
+          if (!f) return
+          draggingRef.current = {
+            type: 'body', tractId: t.tract_id,
+            lastLng: e.lngLat.lng, lastLat: e.lngLat.lat,
+          }
+          map.getCanvas().style.cursor = 'grabbing'
+          map.dragPan.disable()
+        })
       }
+
       map.addSource('labels', { type: 'geojson', data: { type: 'FeatureCollection', features: labels } as any })
       map.addLayer({
         id: 'labels', type: 'symbol', source: 'labels',
@@ -126,32 +207,86 @@ function InlineExtractMap({ tracts }: { tracts: ExtractedTract[] }) {
           'text-size': 16, 'text-anchor': 'center',
           'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
         },
-        paint: {
-          'text-color': '#ffffff',
-          'text-halo-color': '#000000',
-          'text-halo-width': 2,
-        },
+        paint: { 'text-color': '#ffffff', 'text-halo-color': '#000000', 'text-halo-width': 2 },
       })
 
-      // Pad the bbox slightly
-      const padLng = (maxLng - minLng) * 0.1
-      const padLat = (maxLat - minLat) * 0.1
+      const padLng = (maxLng - minLng) * 0.15
+      const padLat = (maxLat - minLat) * 0.15
       map.fitBounds(
         [[minLng - padLng, minLat - padLat], [maxLng + padLng, maxLat + padLat]],
         { padding: 30, duration: 0 },
       )
     })
 
-    return () => { map.remove(); mapRef.current = null }
+    // Window-level mousemove/mouseup so the drag works even if cursor
+    // leaves the map briefly.
+    const onMouseMove = (ev: MouseEvent) => {
+      const drag = draggingRef.current
+      if (!drag || !mapRef.current) return
+      const rect = (mapRef.current.getCanvas() as any).getBoundingClientRect()
+      const lngLat = mapRef.current.unproject([ev.clientX - rect.left, ev.clientY - rect.top])
+      const allTracts = tractsRef.current
+      const t = allTracts.find(x => x.tract_id === drag.tractId)
+      if (!t || !t.current_polygon) return
+
+      if (drag.type === 'vertex' && drag.vertexIdx !== undefined) {
+        const newPoly = t.current_polygon.map((p, i) =>
+          i === drag.vertexIdx ? [lngLat.lng, lngLat.lat] : p
+        )
+        onChangeRef.current(drag.tractId, newPoly)
+      } else if (drag.type === 'body' && drag.lastLng !== undefined && drag.lastLat !== undefined) {
+        const dLng = lngLat.lng - drag.lastLng
+        const dLat = lngLat.lat - drag.lastLat
+        const newPoly = t.current_polygon.map(p => [p[0] + dLng, p[1] + dLat])
+        draggingRef.current = { ...drag, lastLng: lngLat.lng, lastLat: lngLat.lat }
+        onChangeRef.current(drag.tractId, newPoly)
+      }
+    }
+    const onMouseUp = () => {
+      if (draggingRef.current && mapRef.current) {
+        mapRef.current.getCanvas().style.cursor = ''
+        mapRef.current.dragPan.enable()
+      }
+      draggingRef.current = null
+    }
+    window.addEventListener('mousemove', onMouseMove)
+    window.addEventListener('mouseup', onMouseUp)
+
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('mouseup', onMouseUp)
+      map.remove(); mapRef.current = null
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Re-render layers when polygons change (without remounting the map)
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !map.isStyleLoaded()) return
+    for (const t of tracts) {
+      const fullSrc = map.getSource(`full_${t.tract_id}`) as maplibregl.GeoJSONSource | undefined
+      const tilSrc = map.getSource(`til_${t.tract_id}`) as maplibregl.GeoJSONSource | undefined
+      const vertSrc = map.getSource(`vert_${t.tract_id}`) as maplibregl.GeoJSONSource | undefined
+      if (fullSrc && t.current_polygon) fullSrc.setData(buildPolyGeo(t.current_polygon))
+      if (vertSrc && t.current_polygon) vertSrc.setData(buildVertexGeo(t.current_polygon, t.tract_id))
+      if (tilSrc) {
+        tilSrc.setData(t.current_tillable_polygon
+          ? buildPolyGeo(t.current_tillable_polygon)
+          : { type: 'FeatureCollection', features: [] } as any)
+      }
+    }
   }, [tracts])
 
   return (
     <div className="relative">
-      <div ref={containerRef} className="w-full h-[360px] rounded border border-gg-gray-700 overflow-hidden bg-black" />
+      <div ref={containerRef} className="w-full h-[450px] rounded border border-gg-gray-700 overflow-hidden bg-black" />
       <div className="absolute bottom-1.5 left-1.5 text-[10px] text-white bg-black/60 px-2 py-1 rounded pointer-events-none">
+        <strong>Drag</strong> any white circle to move a vertex · drag inside polygon to move it · scroll to zoom
+        <br />
         <span className="inline-block w-2.5 h-2.5 align-middle mr-1" style={{ background: '#ff3b3b' }} /> tract boundary
         {' · '}
-        <span className="inline-block w-2.5 h-2.5 align-middle mr-1" style={{ background: '#22c55e', opacity: 0.6 }} /> tillable
+        <span className="inline-block w-2.5 h-2.5 align-middle mr-1" style={{ background: '#22c55e', opacity: 0.6 }} /> tillable (after Calculate)
       </div>
     </div>
   )
@@ -207,6 +342,11 @@ export default function MissingBoundariesPage() {
   const [approvingTractId, setApprovingTractId] = useState<string | null>(null)
   const [approveAllRunningId, setApproveAllRunningId] = useState<string | null>(null)
   const [rejectingTractId, setRejectingTractId] = useState<string | null>(null)
+  // Edit state per tract: current_polygon = whatever the admin has dragged
+  // it to. current_tillable_polygon/acres/soil_rating = last result from
+  // Calculate. The approve call ships these as overrides.
+  const [editStateByTract, setEditStateByTract] = useState<Record<string, EditableTract>>({})
+  const [calculatingTractId, setCalculatingTractId] = useState<string | null>(null)
   const [stateFilter, setStateFilter] = useState<string>('')
   const [companyFilter, setCompanyFilter] = useState<string>('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'missing' | 'wrong' | 'ok'>('all')
@@ -360,15 +500,28 @@ export default function MissingBoundariesPage() {
   }
 
   const approveTract = async (tractId: string, listingId: string) => {
+    // Require admin to have clicked Calculate first — otherwise we'd
+    // be saving stale tillable/rating values that don't match the
+    // drag-corrected polygon.
+    const edit = editStateByTract[tractId]
+    if (edit && edit.current_polygon && edit.current_tillable_acres == null) {
+      if (!window.confirm('Calculate has not been run since the last drag. Approve anyway with no tillable/soil rating?')) return
+    }
     setApprovingTractId(tractId)
     try {
+      const payload: any = {}
+      if (edit?.current_polygon) payload.polygon = edit.current_polygon
+      if (edit?.current_tillable_polygon) payload.tillable_polygon = edit.current_tillable_polygon
+      if (edit?.current_tillable_acres != null) payload.tillable_acres = edit.current_tillable_acres
+      if (edit?.current_soil_rating != null) payload.soil_rating = edit.current_soil_rating
+      if (edit?.current_soil_rating_type) payload.soil_rating_type = edit.current_soil_rating_type
+
       const res = await fetch(
         `${SCRAPER_URL}/api/admin/tracts/${tractId}/approve-proposed`,
-        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }
       )
       const body = await res.json()
       if (res.ok && body.success) {
-        // Remove this tract from the local list so admin sees progress
         setItems(prev => prev.filter(it => it.tract_id !== tractId))
       } else {
         alert(`Approve failed: ${body.error || `HTTP ${res.status}`}`)
@@ -377,6 +530,88 @@ export default function MissingBoundariesPage() {
       alert(`Approve error: ${e.message || e}`)
     } finally {
       setApprovingTractId(null)
+    }
+  }
+
+  // Initialize edit state when Auto-Extract returns results for a listing.
+  // Each tract's current_polygon starts as the auto-extracted polygon;
+  // current_tillable_polygon starts as the auto-extracted tillable.
+  // Admin drags + clicks Calculate to update these.
+  useEffect(() => {
+    const updates: Record<string, EditableTract> = {}
+    for (const lid of Object.keys(autoExtractResultByListing)) {
+      const result = autoExtractResultByListing[lid]
+      for (const t of result.succeeded || []) {
+        if (!editStateByTract[t.tract_id]) {
+          updates[t.tract_id] = {
+            ...t,
+            current_polygon: t.polygon_coordinates ? [...t.polygon_coordinates] : undefined,
+            current_tillable_polygon: t.tillable_polygon ?? null,
+            current_tillable_acres: t.tillable_acres ?? null,
+            current_soil_rating: t.soil_rating ?? null,
+            current_soil_rating_type: t.soil_rating_type ?? null,
+            current_polygon_acres: t.acres ?? null,
+          }
+        }
+      }
+    }
+    if (Object.keys(updates).length > 0) {
+      setEditStateByTract(prev => ({ ...prev, ...updates }))
+    }
+  }, [autoExtractResultByListing, editStateByTract])
+
+  const onTractPolygonChange = (tractId: string, newPolygon: number[][]) => {
+    setEditStateByTract(prev => {
+      const existing = prev[tractId]
+      if (!existing) return prev
+      return {
+        ...prev,
+        [tractId]: {
+          ...existing,
+          current_polygon: newPolygon,
+          // Drag invalidates the calculated values until admin clicks Calculate again
+          current_tillable_polygon: null,
+          current_tillable_acres: null,
+          current_soil_rating: null,
+          current_polygon_acres: null,
+        },
+      }
+    })
+  }
+
+  const calculateTract = async (tractId: string) => {
+    const edit = editStateByTract[tractId]
+    if (!edit?.current_polygon) return
+    setCalculatingTractId(tractId)
+    try {
+      const res = await fetch(
+        `${SCRAPER_URL}/api/admin/tracts/${tractId}/recalculate-from-polygon`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ polygon: edit.current_polygon }),
+        }
+      )
+      const body = await res.json()
+      if (!res.ok || !body.success) {
+        alert(`Calculate failed: ${body.error || `HTTP ${res.status}`}`)
+        return
+      }
+      setEditStateByTract(prev => ({
+        ...prev,
+        [tractId]: {
+          ...prev[tractId],
+          current_polygon_acres: body.polygon_acres ?? null,
+          current_tillable_polygon: body.tillable_polygon ?? null,
+          current_tillable_acres: body.tillable_acres ?? null,
+          current_soil_rating: body.soil_rating ?? null,
+          current_soil_rating_type: body.soil_rating_type ?? null,
+        },
+      }))
+    } catch (e: any) {
+      alert(`Calculate error: ${e.message || e}`)
+    } finally {
+      setCalculatingTractId(null)
     }
   }
 
@@ -690,50 +925,69 @@ export default function MissingBoundariesPage() {
                             )}
                           </div>
 
-                          {/* Inline satellite map of every extracted polygon */}
+                          {/* Editable inline map — drag vertices or
+                              the polygon body to align. The map source
+                              comes from editStateByTract (admin-mutable),
+                              not the auto-extract result (immutable). */}
                           <div className="mb-2">
-                            <InlineExtractMap tracts={autoExtractResultByListing[lid].succeeded as any} />
+                            <EditableExtractMap
+                              tracts={(autoExtractResultByListing[lid].succeeded as any[])
+                                .map(t => editStateByTract[t.tract_id])
+                                .filter(Boolean) as EditableTract[]}
+                              onPolygonChange={onTractPolygonChange}
+                            />
                           </div>
 
                           <div className="grid grid-cols-1 lg:grid-cols-2 gap-1.5">
-                            {autoExtractResultByListing[lid].succeeded.map((t: any) => (
-                              <div key={t.tract_id} className="bg-gg-gray-900 border border-gg-gray-800 rounded px-2 py-1.5">
-                                <div className="flex items-center justify-between gap-2">
-                                  <span className="font-medium">Tract {t.tract_number ?? '?'}</span>
-                                  <span className="text-[10px] text-gg-gray-400">{t.identification_method}</span>
+                            {autoExtractResultByListing[lid].succeeded.map((t: any) => {
+                              const e = editStateByTract[t.tract_id]
+                              const needsCalc = e && e.current_tillable_acres == null
+                              return (
+                                <div key={t.tract_id} className="bg-gg-gray-900 border border-gg-gray-800 rounded px-2 py-1.5">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="font-medium">Tract {t.tract_number ?? '?'}</span>
+                                    <span className="text-[10px] text-gg-gray-400">{t.identification_method}</span>
+                                  </div>
+                                  <div className="text-gg-gray-300 text-[11px] mt-0.5">
+                                    Polygon: <span className={needsCalc ? 'text-amber-300' : ''}>{(e?.current_polygon_acres ?? t.acres)?.toFixed?.(2) ?? '—'} ac</span>
+                                    {' · '}
+                                    Tillable: <span className={needsCalc ? 'text-amber-300' : ''}>{e?.current_tillable_acres ?? '—'} ac</span>
+                                    {' · '}
+                                    {e?.current_soil_rating_type || t.soil_rating_type || '—'}: <span className={needsCalc ? 'text-amber-300' : ''}>{e?.current_soil_rating ?? '—'}</span>
+                                  </div>
+                                  {needsCalc && (
+                                    <div className="text-[10px] text-amber-300 mt-0.5">
+                                      ⚠ Drag detected — click Calculate to refresh tillable + rating
+                                    </div>
+                                  )}
+                                  <div className="flex items-center gap-2 mt-1 flex-wrap">
+                                    <button
+                                      onClick={() => calculateTract(t.tract_id)}
+                                      disabled={calculatingTractId === t.tract_id}
+                                      className="text-[11px] px-2 py-0.5 rounded bg-blue-500/25 hover:bg-blue-500/40 disabled:opacity-50 text-blue-200 border border-blue-500/40"
+                                      title="Compute tillable polygon, tillable acres, and soil rating from the current dragged polygon."
+                                    >
+                                      {calculatingTractId === t.tract_id ? 'Calculating…' : '↻ Calculate'}
+                                    </button>
+                                    <button
+                                      onClick={() => approveTract(t.tract_id, lid)}
+                                      disabled={approvingTractId === t.tract_id || rejectingTractId === t.tract_id || calculatingTractId === t.tract_id}
+                                      className="text-[11px] px-2 py-0.5 rounded bg-emerald-500/25 hover:bg-emerald-500/40 disabled:opacity-50 text-emerald-200 border border-emerald-500/40"
+                                    >
+                                      {approvingTractId === t.tract_id ? 'Approving…' : '✓ Approve'}
+                                    </button>
+                                    <button
+                                      onClick={() => rejectProposed(t.tract_id, lid)}
+                                      disabled={approvingTractId === t.tract_id || rejectingTractId === t.tract_id}
+                                      className="text-[11px] px-2 py-0.5 rounded bg-red-500/20 hover:bg-red-500/35 disabled:opacity-50 text-red-300 border border-red-500/40"
+                                      title="Discard this proposed boundary. Tract stays on the list."
+                                    >
+                                      {rejectingTractId === t.tract_id ? 'Rejecting…' : '✗ Reject'}
+                                    </button>
+                                  </div>
                                 </div>
-                                <div className="text-gg-gray-300 text-[11px] mt-0.5">
-                                  Polygon: {t.acres?.toFixed?.(2) ?? '—'} ac
-                                  {' · '}
-                                  Tillable: {t.tillable_acres ?? '—'} ac
-                                  {' · '}
-                                  {t.soil_rating_type || '—'}: {t.soil_rating ?? '—'}
-                                </div>
-                                <div className="flex items-center gap-2 mt-1 flex-wrap">
-                                  <button
-                                    onClick={() => approveTract(t.tract_id, lid)}
-                                    disabled={approvingTractId === t.tract_id || rejectingTractId === t.tract_id}
-                                    className="text-[11px] px-2 py-0.5 rounded bg-emerald-500/25 hover:bg-emerald-500/40 disabled:opacity-50 text-emerald-200 border border-emerald-500/40"
-                                  >
-                                    {approvingTractId === t.tract_id ? 'Approving…' : '✓ Approve'}
-                                  </button>
-                                  <button
-                                    onClick={() => rejectProposed(t.tract_id, lid)}
-                                    disabled={approvingTractId === t.tract_id || rejectingTractId === t.tract_id}
-                                    className="text-[11px] px-2 py-0.5 rounded bg-red-500/20 hover:bg-red-500/35 disabled:opacity-50 text-red-300 border border-red-500/40"
-                                    title="Discard this proposed boundary. Tract stays on the list for re-extraction or manual draw."
-                                  >
-                                    {rejectingTractId === t.tract_id ? 'Rejecting…' : '✗ Reject'}
-                                  </button>
-                                  <Link
-                                    href={`/admin/upload-boundary-tract/${t.tract_id}`}
-                                    className="text-[11px] text-gg-pink hover:underline"
-                                  >
-                                    Review on map →
-                                  </Link>
-                                </div>
-                              </div>
-                            ))}
+                              )
+                            })}
                           </div>
                         </div>
                       )}
