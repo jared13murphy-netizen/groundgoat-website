@@ -80,6 +80,10 @@ type EditableTract = ExtractedTract & {
   current_soil_rating?: number | null
   current_soil_rating_type?: string | null
   current_polygon_acres?: number | null
+  // True when Calculate ran and the polygon contains no CDL cropland
+  // (timber/water/built-up tract). Distinct from current_tillable_acres
+  // being null (= calc didn't run yet).
+  current_no_cropland?: boolean
 }
 
 function EditableExtractMap({
@@ -658,9 +662,13 @@ export default function MissingBoundariesPage() {
   const approveTract = async (tractId: string, listingId: string) => {
     // Require admin to have clicked Calculate first — otherwise we'd
     // be saving stale tillable/rating values that don't match the
-    // drag-corrected polygon.
+    // drag-corrected polygon. Exception: no_cropland flag means
+    // Calculate DID run and found zero cropland — that's a valid
+    // state (tillable_acres == 0, not NULL).
     const edit = editStateByTract[tractId]
-    if (edit && edit.current_polygon && edit.current_tillable_acres == null) {
+    if (edit && edit.current_polygon
+        && edit.current_tillable_acres == null
+        && !edit.current_no_cropland) {
       if (!window.confirm('Calculate has not been run since the last drag. Approve anyway with no tillable/soil rating?')) return
     }
     setApprovingTractId(tractId)
@@ -671,6 +679,10 @@ export default function MissingBoundariesPage() {
       if (edit?.current_tillable_acres != null) payload.tillable_acres = edit.current_tillable_acres
       if (edit?.current_soil_rating != null) payload.soil_rating = edit.current_soil_rating
       if (edit?.current_soil_rating_type) payload.soil_rating_type = edit.current_soil_rating_type
+      // No-cropland flag → backend writes tillable=0 + soil_rating=NULL
+      // explicitly (instead of COALESCEing to whatever stale value
+      // was already there).
+      if (edit?.current_no_cropland) payload.no_cropland = true
 
       const res = await fetch(
         `${SCRAPER_URL}/api/admin/tracts/${tractId}/approve-proposed`,
@@ -742,6 +754,7 @@ export default function MissingBoundariesPage() {
           current_tillable_acres: null,
           current_soil_rating: null,
           current_polygon_acres: null,
+          current_no_cropland: false,
         },
       }
     })
@@ -805,6 +818,7 @@ export default function MissingBoundariesPage() {
           current_tillable_acres: body.tillable_acres ?? null,
           current_soil_rating: body.soil_rating ?? null,
           current_soil_rating_type: body.soil_rating_type ?? null,
+          current_no_cropland: !!body.no_cropland,
         },
       }))
     } catch (e: any) {
@@ -1154,9 +1168,13 @@ export default function MissingBoundariesPage() {
                                     <span className="text-gg-gray-500">Calc:</span>{' '}
                                     Polygon: <span className={needsCalc ? 'text-amber-300' : ''}>{(e?.current_polygon_acres ?? t.acres)?.toFixed?.(2) ?? '—'} ac</span>
                                     {' · '}
-                                    Tillable: <span className={needsCalc ? 'text-amber-300' : ''}>{e?.current_tillable_acres ?? '—'} ac</span>
+                                    Tillable: <span className={needsCalc ? 'text-amber-300' : (e?.current_no_cropland ? 'text-gg-gray-500 italic' : '')}>
+                                      {e?.current_no_cropland
+                                        ? '0 ac (no cropland)'
+                                        : (e?.current_tillable_acres != null ? `${e.current_tillable_acres} ac` : '— ac')}
+                                    </span>
                                     {' · '}
-                                    {e?.current_soil_rating_type || t.soil_rating_type || '—'}: <span className={needsCalc ? 'text-amber-300' : ''}>{e?.current_soil_rating ?? '—'}</span>
+                                    {e?.current_soil_rating_type || t.soil_rating_type || '—'}: <span className={needsCalc ? 'text-amber-300' : ''}>{e?.current_no_cropland ? 'N/A' : (e?.current_soil_rating ?? '—')}</span>
                                   </div>
                                   {listingTract && (listingTract.total_acres != null || listingTract.scraped_tillable_acres != null || listingTract.scraped_soil_rating != null) && (
                                     <div className="text-[11px] mt-0.5">
