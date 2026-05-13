@@ -542,6 +542,27 @@ function EditableExtractMap({
         })
       }
 
+      // Layer ordering: by default each tract's layers were added in
+      // sequence, so tract N's fill is drawn ON TOP of tract (N-1)'s
+      // tillable. That makes a freshly-added tillable area invisible /
+      // unclickable when it overlaps a neighbor's fill. Promote ALL
+      // tillable + vertex layers to the top in this order:
+      //   tract fills (bottom — already there)
+      //   tract lines (already there)
+      //   tillable fills/lines (next, above all tract fills)
+      //   tract + tillable vertex circles (top — grabable)
+      for (const t of usable) {
+        const tilId = `til_${t.tract_id}`
+        if (map.getLayer(`${tilId}_fill`)) map.moveLayer(`${tilId}_fill`)
+        if (map.getLayer(`${tilId}_line`)) map.moveLayer(`${tilId}_line`)
+      }
+      for (const t of usable) {
+        const vertId = `vert_${t.tract_id}`
+        const tilVertId = `tilvert_${t.tract_id}`
+        if (map.getLayer(`${vertId}_circle`)) map.moveLayer(`${vertId}_circle`)
+        if (map.getLayer(`${tilVertId}_circle`)) map.moveLayer(`${tilVertId}_circle`)
+      }
+
       map.addSource('labels', { type: 'geojson', data: { type: 'FeatureCollection', features: labels } as any })
       map.addLayer({
         id: 'labels', type: 'symbol', source: 'labels',
@@ -1880,7 +1901,16 @@ export default function MissingBoundariesPage() {
                           </div>
 
                           <div className="grid grid-cols-1 lg:grid-cols-2 gap-1.5">
-                            {autoExtractResultByListing[lid].succeeded.map((t: any) => {
+                            {[...autoExtractResultByListing[lid].succeeded]
+                              .sort((a: any, b: any) => {
+                                // Sort by tract_number ascending so cards
+                                // match the order admin expects (1, 2, 3, ...).
+                                // Tracts without a number sink to the bottom.
+                                const an = a.tract_number ?? 9999
+                                const bn = b.tract_number ?? 9999
+                                return an - bn
+                              })
+                              .map((t: any) => {
                               const e = editStateByTract[t.tract_id]
                               const needsCalc = e && e.current_tillable_acres == null
                               const listingTract = tracts.find(it => it.tract_id === t.tract_id)
@@ -1889,10 +1919,10 @@ export default function MissingBoundariesPage() {
                               return (
                                 <div
                                   key={t.tract_id}
-                                  className={`rounded px-2 py-2 border transition-colors ${
+                                  className={`rounded-md px-2.5 py-2 border-2 shadow-sm transition-colors ${
                                     isApproved
-                                      ? 'bg-emerald-900/30 border-emerald-600/60'
-                                      : 'bg-gg-gray-900 border-gg-gray-800'
+                                      ? 'bg-emerald-900/30 border-emerald-500/70 shadow-emerald-900/30'
+                                      : 'bg-gg-gray-900 border-gg-gray-500 shadow-black/40'
                                   }`}
                                 >
                                   <div className="flex items-center justify-between gap-2 mb-1">
