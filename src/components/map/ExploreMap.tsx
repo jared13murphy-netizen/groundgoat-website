@@ -783,14 +783,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     process.env.NEXT_PUBLIC_TILES_URL ||
     'https://ground-goat-tiles-production.up.railway.app'
   const [isAdmin, setIsAdmin] = useState(false)
-  // Default ON for admins — parcels show automatically when zoomed in
-  // past z13. Toggle preference is persisted in localStorage so a
-  // deliberate "hide" stays hidden on the next visit.
-  const [adminParcelOverlay, setAdminParcelOverlay] = useState(() => {
-    if (typeof window === 'undefined') return true
-    const v = localStorage.getItem('gg_admin_parcel_overlay')
-    return v == null ? true : v === '1'
-  })
+  // Force-OFF: the legacy state_parcels pmtiles overlay (with its own
+  // hover popups) is superseded by the always-on Regrid layer. We keep
+  // the code path around for emergency fallback, but hard-disable the
+  // toggle so the noisy hover popups never show.
+  const [adminParcelOverlay, setAdminParcelOverlay] = useState(false)
   // List of state codes that have a .pmtiles file on the tile server.
   // Populated from the tile server's listing endpoint; hydrated from
   // localStorage immediately for instant button render on subsequent
@@ -3113,12 +3110,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         </div>
       )}
 
-      {/* Admin Parcel Overlay Toggle — appears only for groundgoat_admin
-          users when zoomed in past the parcel-detail threshold. Shows
-          every parcel (boundary + owner + acres) sourced from free state
-          GIS clearinghouses. Bottom-right placement (per user) so it's
-          out of the way of the filter button group. */}
-      {isAdmin && currentZoom >= ADMIN_PARCEL_MIN_ZOOM && (
+      {/* Admin Parcel Overlay Toggle — DISABLED. Superseded by the
+          always-on Regrid layer. Set the JSX gate to `false` so the
+          button never renders, but keep the surrounding code intact in
+          case we ever need to re-enable a state_parcels fallback. */}
+      {false && isAdmin && currentZoom >= ADMIN_PARCEL_MIN_ZOOM && (
         <button
           onClick={() => setAdminParcelOverlay(v => {
             const next = !v
@@ -4219,25 +4215,28 @@ function _regridPopupHTML(record: any): string {
   const state = record?.state2 || record?.state || ''
   const countyState = [county, state].filter(Boolean).join(', ')
 
+  // The Last Sale section always renders — even when Regrid doesn't
+  // have a price/date for this parcel, we show "—" so the user knows
+  // the data is missing rather than wondering whether we forgot to
+  // surface it. Same rule applies to acres in the header.
   return `
     <div class="regrid-popup">
       ${_regridHeaderHTML({
         owner: record?.owner || 'Unknown',
-        acres: gisacre ? _fmtAcres(gisacre) : null,
+        acres: _fmtAcres(gisacre),
         address: record?.address || '',
         countyState,
       })}
+      <div class="regrid-popup-section">
+        <div class="regrid-popup-section-title">Last Sale</div>
+        ${row('Price', _fmtMoney(saleprice))}
+        ${row('Date', _fmtDate(saledate))}
+      </div>
       ${(deeded && deeded !== gisacre) || usedesc || zoning ? `
         <div class="regrid-popup-section">
           ${deeded && deeded !== gisacre ? row('Deeded Acres', _fmtAcres(deeded)) : ''}
           ${usedesc ? row('Use', usedesc) : ''}
           ${zoning ? row('Zoning', zoning) : ''}
-        </div>` : ''}
-      ${(saleprice || saledate) ? `
-        <div class="regrid-popup-section">
-          <div class="regrid-popup-section-title">Last Sale</div>
-          ${saleprice ? row('Price', _fmtMoney(saleprice)) : ''}
-          ${saledate ? row('Date', _fmtDate(saledate)) : ''}
         </div>` : ''}
       ${(parval || landval || improvval) ? `
         <div class="regrid-popup-section">
