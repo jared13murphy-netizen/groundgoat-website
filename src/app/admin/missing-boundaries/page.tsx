@@ -1075,9 +1075,11 @@ export default function MissingBoundariesPage() {
   }
 
   // Initialize edit state when Auto-Extract returns results for a listing.
-  // Each tract's current_polygon starts as the auto-extracted polygon;
-  // current_tillable_polygons starts empty — Calculate populates it.
-  // Admin drags + clicks Calculate to update these.
+  // Each tract's current_polygon starts as the auto-extracted polygon.
+  // current_tillable_polygons NOW seeds from the backend response so the
+  // pre-computed Surety/CSB/CDL tillable polygon is visible on first
+  // render (admin then verifies + Aligns + Approves). Previously empty
+  // here, which hid the polygon until admin clicked Align Total Acres.
   useEffect(() => {
     const updates: Record<string, EditableTract> = {}
     for (const lid of Object.keys(autoExtractResultByListing)) {
@@ -1090,13 +1092,19 @@ export default function MissingBoundariesPage() {
           // Pre-populate override fields from scraped values. Admin
           // verifies/corrects these against the auction URL.
           const listingTract = items.find(it => it.tract_id === t.tract_id)
+          // Seed the tillable polygon array from whichever shape the
+          // backend returned — multi-ring (`tillable_polygons`) takes
+          // priority, single ring (`tillable_polygon`) is wrapped.
+          const seedTillables = normalizeTillablePolygons(
+            (t as any).tillable_polygons ?? (t as any).tillable_polygon,
+          )
           updates[t.tract_id] = {
             ...t,
             current_polygon: simplified,
-            current_tillable_polygons: [],
-            current_tillable_acres: null,
-            current_soil_rating: null,
-            current_soil_rating_type: null,
+            current_tillable_polygons: seedTillables,
+            current_tillable_acres: t.tillable_acres ?? null,
+            current_soil_rating: t.soil_rating ?? null,
+            current_soil_rating_type: t.soil_rating_type ?? null,
             current_polygon_acres: t.acres ?? null,
             override_total_acres: listingTract?.total_acres ?? null,
             override_tillable_acres: listingTract?.scraped_tillable_acres ?? null,
