@@ -4149,39 +4149,55 @@ function _esc(s: any): string {
   }[c]!))
 }
 
+// Header block: owner (bold), acres directly beneath, then optional
+// situs + county/state lines. Used by all three popup states.
+function _regridHeaderHTML(opts: {
+  owner: string
+  acres: string | null
+  address: string
+  countyState: string
+}): string {
+  const { owner, acres, address, countyState } = opts
+  return `
+    <div class="regrid-popup-owner">${_esc(owner)}</div>
+    ${acres ? `<div class="regrid-popup-acres">${acres}</div>` : ''}
+    ${address ? `<div class="regrid-popup-addr">${_esc(address)}</div>` : ''}
+    ${countyState ? `<div class="regrid-popup-addr regrid-popup-addr-sub">${_esc(countyState)}</div>` : ''}
+  `
+}
+
 function _regridLoadingHTML(tileProps: any): string {
-  const owner = _esc(tileProps?.owner || 'Loading…')
-  const address = _esc(tileProps?.address || '')
+  // Tile fields don't carry acres — header just has owner + address
+  // until the API call lands.
   return `
     <div class="regrid-popup">
-      <div class="regrid-popup-owner">${owner}</div>
-      ${address ? `<div class="regrid-popup-addr">${address}</div>` : ''}
+      ${_regridHeaderHTML({
+        owner: tileProps?.owner || 'Loading…',
+        acres: null,
+        address: tileProps?.address || '',
+        countyState: '',
+      })}
       <div class="regrid-popup-loading">Loading parcel details…</div>
-      <div class="regrid-popup-attribution">Data © Regrid</div>
     </div>
   `
 }
 
 function _regridFallbackHTML(tileProps: any): string {
-  const owner = _esc(tileProps?.owner || 'Unknown')
-  const address = _esc(tileProps?.address || '')
-  const parcelnumb = _esc(tileProps?.parcelnumb || '')
+  // API failed — show just what the tile carried. No parcel-ID row,
+  // no attribution line (those live in the map's attribution control).
   return `
     <div class="regrid-popup">
-      <div class="regrid-popup-owner">${owner}</div>
-      ${address ? `<div class="regrid-popup-addr">${address}</div>` : ''}
-      ${parcelnumb ? `<div class="regrid-popup-row"><span>Parcel #</span><span>${parcelnumb}</span></div>` : ''}
-      <div class="regrid-popup-attribution">Data © Regrid</div>
+      ${_regridHeaderHTML({
+        owner: tileProps?.owner || 'Unknown',
+        acres: null,
+        address: tileProps?.address || '',
+        countyState: '',
+      })}
     </div>
   `
 }
 
 function _regridPopupHTML(record: any): string {
-  const owner = _esc(record?.owner || 'Unknown')
-  const address = _esc(record?.address || '')
-  const county = _esc(record?.county || '')
-  const state = _esc(record?.state2 || record?.state || '')
-  const parcelnumb = _esc(record?.parcelnumb || '')
   const gisacre = record?.ll_gisacre ?? record?.gisacre
   const deeded = record?.deeded_acres
   const saleprice = record?.saleprice
@@ -4199,20 +4215,24 @@ function _regridPopupHTML(record: any): string {
   const row = (label: string, value: string) =>
     `<div class="regrid-popup-row"><span>${label}</span><span>${value}</span></div>`
 
-  const subAddr = [county, state].filter(Boolean).join(', ')
+  const county = record?.county || ''
+  const state = record?.state2 || record?.state || ''
+  const countyState = [county, state].filter(Boolean).join(', ')
 
   return `
     <div class="regrid-popup">
-      <div class="regrid-popup-owner">${owner}</div>
-      ${address ? `<div class="regrid-popup-addr">${address}</div>` : ''}
-      ${subAddr ? `<div class="regrid-popup-addr regrid-popup-addr-sub">${subAddr}</div>` : ''}
-      <div class="regrid-popup-section">
-        ${gisacre ? row('Acres', _fmtAcres(gisacre)) : ''}
-        ${deeded && deeded !== gisacre ? row('Deeded Acres', _fmtAcres(deeded)) : ''}
-        ${parcelnumb ? row('Parcel #', parcelnumb) : ''}
-        ${usedesc ? row('Use', usedesc) : ''}
-        ${zoning ? row('Zoning', zoning) : ''}
-      </div>
+      ${_regridHeaderHTML({
+        owner: record?.owner || 'Unknown',
+        acres: gisacre ? _fmtAcres(gisacre) : null,
+        address: record?.address || '',
+        countyState,
+      })}
+      ${(deeded && deeded !== gisacre) || usedesc || zoning ? `
+        <div class="regrid-popup-section">
+          ${deeded && deeded !== gisacre ? row('Deeded Acres', _fmtAcres(deeded)) : ''}
+          ${usedesc ? row('Use', usedesc) : ''}
+          ${zoning ? row('Zoning', zoning) : ''}
+        </div>` : ''}
       ${(saleprice || saledate) ? `
         <div class="regrid-popup-section">
           <div class="regrid-popup-section-title">Last Sale</div>
@@ -4238,7 +4258,6 @@ function _regridPopupHTML(record: any): string {
           <div class="regrid-popup-section-title">Mailing Address</div>
           <div class="regrid-popup-mailadd">${mailadd}</div>
         </div>` : ''}
-      <div class="regrid-popup-attribution">Data © Regrid</div>
     </div>
   `
 }
