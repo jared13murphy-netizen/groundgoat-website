@@ -223,3 +223,78 @@
   border: 1px solid rgba(220, 38, 38, 0.3);
   color: #DC2626;
 }
+
+/* ── Regrid parcel popup ──────────────────────────────────────────
+   Triggered by clicking a Regrid vector-tile parcel on the Explore
+   map. Dark-mode card matching the existing .comp-popup style. */
+.regrid-parcel-popup .maplibregl-popup-content {
+  background: #1a1a1a;
+  color: #fff;
+  border-radius: 10px;
+  padding: 14px 16px;
+  font-size: 13px;
+  max-width: 320px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.regrid-parcel-popup .maplibregl-popup-tip { border-top-color: #1a1a1a; }
+.regrid-parcel-popup .maplibregl-popup-close-button {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 18px;
+  padding: 4px 8px;
+}
+.regrid-popup-owner {
+  font-weight: 700;
+  font-size: 14px;
+  line-height: 1.3;
+  margin-bottom: 2px;
+  word-wrap: break-word;
+}
+.regrid-popup-addr {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 12px;
+  line-height: 1.35;
+}
+.regrid-popup-addr-sub { color: rgba(255, 255, 255, 0.5); }
+.regrid-popup-section {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+.regrid-popup-section-title {
+  color: #f58cde;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+.regrid-popup-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.regrid-popup-row > span:first-child { color: rgba(255, 255, 255, 0.6); }
+.regrid-popup-row > span:last-child { font-weight: 600; text-align: right; }
+.regrid-popup-mailadd {
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.regrid-popup-loading {
+  margin-top: 10px;
+  font-style: italic;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 12px;
+}
+.regrid-popup-attribution {
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 10.5px;
+  text-align: right;
+}
+

@@ -1991,6 +1991,267 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
   }, [mapLoaded, isAdmin, adminParcelOverlay, adminParcelStates, TILES_BASE_URL])
 
+  // ─────────────────────────────────────────────────────────────────
+  // Regrid nationwide parcels — vector tiles from tiles.regrid.com.
+  //
+  // Replaces the per-state pmtiles overlay for all logged-in users:
+  // boundaries, owner name, and acreage labels render at zoom ≥ 14
+  // (REGRID_MIN_ZOOM) for every parcel in the country. Clicking a
+  // parcel pops a panel with the full Premium Schema record from our
+  // /api/regrid/parcel cache.
+  //
+  // Cost-shape:
+  //  - Vector tiles: cheap (~$0.00075 each pre-paid), MapLibre caches
+  //    them client-side so panning is mostly free.
+  //  - Record fetches on click: expensive (~$0.1125 each pre-paid) —
+  //    handled by the backend cache so repeat clicks within 30 days
+  //    are free.
+  //
+  // The tile URL template (with token baked in) comes from the
+  // /api/regrid/config endpoint; we fetch it on map mount so the
+  // token never appears in the frontend bundle.
+  // ─────────────────────────────────────────────────────────────────
+  const REGRID_MIN_ZOOM = 14
+  const [regridConfig, setRegridConfig] = useState<{
+    tile_url_template: string
+    is_sandbox: boolean
+    has_token: boolean
+    attribution: string
+  } | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    const fetchConfig = async () => {
+      try {
+        const res = await fetchWithAuth(`${API_URL}/api/regrid/config`)
+        if (!res.ok) return
+        const data = await res.json()
+        if (!cancelled && data?.tile_url_template && data?.has_token) {
+          setRegridConfig(data)
+        }
+      } catch {
+        // Silent — Regrid is enrichment. The map still works without it.
+      }
+    }
+    fetchConfig()
+    return () => { cancelled = true }
+  }, [])
+
+  // Register the Regrid source + layers when both the map and the
+  // config are ready. Tear down on unmount.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded || !regridConfig?.tile_url_template) return
+
+    const SOURCE_ID = 'regrid-parcels'
+    const FILL_LAYER = 'regrid-parcels-fill'
+    const LINE_LAYER = 'regrid-parcels-line'
+    const LABEL_LAYER = 'regrid-parcels-label'
+
+    if (map.getSource(SOURCE_ID)) return
+
+    map.addSource(SOURCE_ID, {
+      type: 'vector',
+      tiles: [regridConfig.tile_url_template],
+      minzoom: REGRID_MIN_ZOOM,
+      maxzoom: 21,
+      // ll_uuid is the stable Regrid parcel UUID we want to use for
+      // setFeatureState (hover highlight) and click → API lookup.
+      promoteId: { parcels: 'll_uuid' },
+      // Required attribution per Schedule A §7. Surfaces in the
+      // built-in attribution control at the bottom of the map.
+      attribution: 'Parcel data &copy; <a href="https://regrid.com" target="_blank" rel="noopener">Regrid</a>',
+    } as any)
+
+    // Insert Regrid BELOW the existing tract polygons (the auction /
+    // sold listings) so those remain visually on top — per product
+    // requirement. If the tract-polygon layer isn't present yet (it
+    // mounts lazily when bounds tracts arrive), we fall back to
+    // appending at the top of the stack and it'll get the right order
+    // on the next re-render of either effect.
+    const beforeId = map.getLayer('tract-polygon-fill') ? 'tract-polygon-fill' : undefined
+
+    // Fill: nearly-invisible, exists purely so clicks register on the
+    // parcel polygon. State_parcels uses pink @ 6%; we'll match.
+    map.addLayer({
+      id: FILL_LAYER,
+      type: 'fill',
+      source: SOURCE_ID,
+      'source-layer': 'parcels',
+      minzoom: REGRID_MIN_ZOOM,
+      paint: {
+        'fill-color': '#EC4899',
+        'fill-opacity': [
+          'case',
+          ['boolean', ['feature-state', 'hover'], false], 0.22,
+          0.06,
+        ],
+      },
+    }, beforeId)
+
+    // Boundary lines — match the state_parcel look exactly: solid
+    // black, slightly thicker than 1px so they read at all zooms.
+    map.addLayer({
+      id: LINE_LAYER,
+      type: 'line',
+      source: SOURCE_ID,
+      'source-layer': 'parcels',
+      minzoom: REGRID_MIN_ZOOM,
+      paint: {
+        'line-color': '#000000',
+        'line-width': 2.2,
+        'line-opacity': 0.85,
+      },
+    }, beforeId)
+
+    // Owner + acres label — same composition as state_parcels: owner
+    // bold on top, acres in smaller text below, white text with a
+    // black halo so it reads on both satellite and street basemaps.
+    map.addLayer({
+      id: LABEL_LAYER,
+      type: 'symbol',
+      source: SOURCE_ID,
+      'source-layer': 'parcels',
+      minzoom: REGRID_MIN_ZOOM,
+      layout: {
+        'text-field': [
+          'format',
+          ['coalesce', ['get', 'owner'], 'Coming Soon'], {
+            'font-scale': 1.0,
+            'text-font': ['literal', ['Open Sans Bold']],
+          },
+          [
+            'case',
+            ['has', 'll_gisacre'],
+            ['concat', '\n', ['concat',
+              ['number-format', ['get', 'll_gisacre'], {
+                'min-fraction-digits': 1, 'max-fraction-digits': 1,
+              }],
+              ' ac',
+            ]],
+            ['case',
+              ['has', 'gisacre'],
+              ['concat', '\n', ['concat',
+                ['number-format', ['get', 'gisacre'], {
+                  'min-fraction-digits': 1, 'max-fraction-digits': 1,
+                }],
+                ' ac',
+              ]],
+              '',
+            ],
+          ],
+          { 'font-scale': 0.85 },
+        ],
+        'text-font': ['Open Sans Regular'],
+        'text-size': [
+          'interpolate', ['linear'], ['zoom'],
+          14, 10,
+          16, 12,
+          18, 14,
+        ],
+        'text-anchor': 'center',
+        'text-justify': 'center',
+        'text-max-width': 9,
+        'text-line-height': 1.15,
+        'text-allow-overlap': false,
+        'text-ignore-placement': false,
+        'text-padding': 2,
+      },
+      paint: {
+        'text-color': '#ffffff',
+        'text-halo-color': 'rgba(0,0,0,0.85)',
+        'text-halo-width': 1.4,
+        'text-halo-blur': 0.4,
+      },
+    }, beforeId)
+
+    // Hover highlight — track which feature is under the cursor so
+    // the fill brightens on hover. ll_uuid promotion above means
+    // setFeatureState targets the parcel reliably even across tiles.
+    let hoveredUuid: string | null = null
+    const onMove = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
+      if (!e.features?.length) return
+      map.getCanvas().style.cursor = 'pointer'
+      const newUuid = (e.features[0].properties as any)?.ll_uuid as string | undefined
+      if (!newUuid || newUuid === hoveredUuid) return
+      if (hoveredUuid) {
+        map.setFeatureState(
+          { source: SOURCE_ID, sourceLayer: 'parcels', id: hoveredUuid },
+          { hover: false },
+        )
+      }
+      hoveredUuid = newUuid
+      map.setFeatureState(
+        { source: SOURCE_ID, sourceLayer: 'parcels', id: hoveredUuid },
+        { hover: true },
+      )
+    }
+    const onLeave = () => {
+      map.getCanvas().style.cursor = ''
+      if (hoveredUuid) {
+        map.setFeatureState(
+          { source: SOURCE_ID, sourceLayer: 'parcels', id: hoveredUuid },
+          { hover: false },
+        )
+        hoveredUuid = null
+      }
+    }
+
+    // Click — fetch the full Premium Schema record from our backend
+    // cache (which calls Regrid only on cache miss) and open a popup.
+    const onClick = async (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
+      const f = e.features?.[0]
+      if (!f) return
+      const props: any = f.properties || {}
+      const ll_uuid = props.ll_uuid as string | undefined
+      const lng = e.lngLat.lng
+      const lat = e.lngLat.lat
+
+      // Loading popup so the user sees immediate feedback.
+      const popup = new maplibregl.Popup({
+        closeButton: true, closeOnClick: true, maxWidth: '320px',
+        className: 'regrid-parcel-popup',
+      })
+        .setLngLat(e.lngLat)
+        .setHTML(_regridLoadingHTML(props))
+        .addTo(map)
+
+      try {
+        const qs = new URLSearchParams()
+        if (ll_uuid) qs.set('ll_uuid', ll_uuid)
+        else { qs.set('lat', String(lat)); qs.set('lng', String(lng)) }
+        const res = await fetchWithAuth(`${API_URL}/api/regrid/parcel?${qs.toString()}`)
+        if (!res.ok) {
+          popup.setHTML(_regridFallbackHTML(props))
+          return
+        }
+        const data = await res.json()
+        popup.setHTML(_regridPopupHTML(data?.parcel || props))
+      } catch {
+        popup.setHTML(_regridFallbackHTML(props))
+      }
+    }
+
+    map.on('mousemove', FILL_LAYER, onMove)
+    map.on('mouseleave', FILL_LAYER, onLeave)
+    map.on('click', FILL_LAYER, onClick)
+
+    return () => {
+      try {
+        if (!map.getStyle()) return
+        map.off('mousemove', FILL_LAYER, onMove)
+        map.off('mouseleave', FILL_LAYER, onLeave)
+        map.off('click', FILL_LAYER, onClick)
+        for (const id of [LABEL_LAYER, LINE_LAYER, FILL_LAYER]) {
+          if (map.getLayer(id)) map.removeLayer(id)
+        }
+        if (map.getSource(SOURCE_ID)) map.removeSource(SOURCE_ID)
+      } catch {
+        // map already torn down
+      }
+    }
+  }, [mapLoaded, regridConfig])
+
   // Create/update HTML markers for tracts
   useEffect(() => {
     const map = mapRef.current
@@ -3851,4 +4112,133 @@ function createTodayMarkerElement(
   container.appendChild(pin)
 
   return container
+}
+
+// ── Regrid parcel popup helpers ─────────────────────────────────────
+// The popup renders inside a MapLibre Popup, so we build HTML strings
+// instead of React. Three states:
+//  - LOADING: skeleton showing the values we already have from the
+//    vector tile (owner, address, parcelnumb) while the full record
+//    streams in.
+//  - SUCCESS: the rich Premium Schema record.
+//  - FALLBACK: tile-only data when the API call fails.
+
+function _fmtMoney(n: any): string {
+  const v = typeof n === 'number' ? n : (n ? Number(n) : NaN)
+  if (!isFinite(v)) return '—'
+  return '$' + Math.round(v).toLocaleString('en-US')
+}
+
+function _fmtAcres(n: any): string {
+  const v = typeof n === 'number' ? n : (n ? Number(n) : NaN)
+  if (!isFinite(v)) return '—'
+  return v.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 2 }) + ' ac'
+}
+
+function _fmtDate(s: any): string {
+  if (!s) return '—'
+  const d = new Date(String(s))
+  if (isNaN(d.getTime())) return String(s)
+  return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+}
+
+function _esc(s: any): string {
+  if (s === null || s === undefined) return ''
+  return String(s).replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]!))
+}
+
+function _regridLoadingHTML(tileProps: any): string {
+  const owner = _esc(tileProps?.owner || 'Loading…')
+  const address = _esc(tileProps?.address || '')
+  return `
+    <div class="regrid-popup">
+      <div class="regrid-popup-owner">${owner}</div>
+      ${address ? `<div class="regrid-popup-addr">${address}</div>` : ''}
+      <div class="regrid-popup-loading">Loading parcel details…</div>
+      <div class="regrid-popup-attribution">Data © Regrid</div>
+    </div>
+  `
+}
+
+function _regridFallbackHTML(tileProps: any): string {
+  const owner = _esc(tileProps?.owner || 'Unknown')
+  const address = _esc(tileProps?.address || '')
+  const parcelnumb = _esc(tileProps?.parcelnumb || '')
+  return `
+    <div class="regrid-popup">
+      <div class="regrid-popup-owner">${owner}</div>
+      ${address ? `<div class="regrid-popup-addr">${address}</div>` : ''}
+      ${parcelnumb ? `<div class="regrid-popup-row"><span>Parcel #</span><span>${parcelnumb}</span></div>` : ''}
+      <div class="regrid-popup-attribution">Data © Regrid</div>
+    </div>
+  `
+}
+
+function _regridPopupHTML(record: any): string {
+  const owner = _esc(record?.owner || 'Unknown')
+  const address = _esc(record?.address || '')
+  const county = _esc(record?.county || '')
+  const state = _esc(record?.state2 || record?.state || '')
+  const parcelnumb = _esc(record?.parcelnumb || '')
+  const gisacre = record?.ll_gisacre ?? record?.gisacre
+  const deeded = record?.deeded_acres
+  const saleprice = record?.saleprice
+  const saledate = record?.saledate
+  const parval = record?.parval
+  const landval = record?.landval
+  const improvval = record?.improvval
+  const yearbuilt = record?.yearbuilt
+  const usedesc = _esc(record?.usedesc || record?.usecode || '')
+  const zoning = _esc(record?.zoning_description || record?.zoning || '')
+  const buildings = record?.ll_bldg_count
+  const bldgSqft = record?.ll_bldg_footprint_sqft
+  const mailadd = _esc(record?.mailadd || '')
+
+  const row = (label: string, value: string) =>
+    `<div class="regrid-popup-row"><span>${label}</span><span>${value}</span></div>`
+
+  const subAddr = [county, state].filter(Boolean).join(', ')
+
+  return `
+    <div class="regrid-popup">
+      <div class="regrid-popup-owner">${owner}</div>
+      ${address ? `<div class="regrid-popup-addr">${address}</div>` : ''}
+      ${subAddr ? `<div class="regrid-popup-addr regrid-popup-addr-sub">${subAddr}</div>` : ''}
+      <div class="regrid-popup-section">
+        ${gisacre ? row('Acres', _fmtAcres(gisacre)) : ''}
+        ${deeded && deeded !== gisacre ? row('Deeded Acres', _fmtAcres(deeded)) : ''}
+        ${parcelnumb ? row('Parcel #', parcelnumb) : ''}
+        ${usedesc ? row('Use', usedesc) : ''}
+        ${zoning ? row('Zoning', zoning) : ''}
+      </div>
+      ${(saleprice || saledate) ? `
+        <div class="regrid-popup-section">
+          <div class="regrid-popup-section-title">Last Sale</div>
+          ${saleprice ? row('Price', _fmtMoney(saleprice)) : ''}
+          ${saledate ? row('Date', _fmtDate(saledate)) : ''}
+        </div>` : ''}
+      ${(parval || landval || improvval) ? `
+        <div class="regrid-popup-section">
+          <div class="regrid-popup-section-title">Assessed Value</div>
+          ${parval ? row('Total', _fmtMoney(parval)) : ''}
+          ${landval ? row('Land', _fmtMoney(landval)) : ''}
+          ${improvval ? row('Improvements', _fmtMoney(improvval)) : ''}
+        </div>` : ''}
+      ${(buildings || bldgSqft || yearbuilt) ? `
+        <div class="regrid-popup-section">
+          <div class="regrid-popup-section-title">Buildings</div>
+          ${buildings ? row('Count', String(buildings)) : ''}
+          ${bldgSqft ? row('Footprint', `${Math.round(bldgSqft).toLocaleString()} sq ft`) : ''}
+          ${yearbuilt ? row('Year Built', String(yearbuilt)) : ''}
+        </div>` : ''}
+      ${mailadd ? `
+        <div class="regrid-popup-section">
+          <div class="regrid-popup-section-title">Mailing Address</div>
+          <div class="regrid-popup-mailadd">${mailadd}</div>
+        </div>` : ''}
+      <div class="regrid-popup-attribution">Data © Regrid</div>
+    </div>
+  `
 }
