@@ -4145,8 +4145,9 @@ function _esc(s: any): string {
   }[c]!))
 }
 
-// Header block: owner (bold), acres directly beneath, then optional
-// situs + county/state lines. Used by all three popup states.
+// Header block: owner (bold), then situs address directly beneath when
+// Regrid has one for the parcel, then acres, then county/state. Used
+// by all three popup states.
 function _regridHeaderHTML(opts: {
   owner: string
   acres: string | null
@@ -4156,8 +4157,8 @@ function _regridHeaderHTML(opts: {
   const { owner, acres, address, countyState } = opts
   return `
     <div class="regrid-popup-owner">${_esc(owner)}</div>
-    ${acres ? `<div class="regrid-popup-acres">${acres}</div>` : ''}
     ${address ? `<div class="regrid-popup-addr">${_esc(address)}</div>` : ''}
+    ${acres ? `<div class="regrid-popup-acres">${acres}</div>` : ''}
     ${countyState ? `<div class="regrid-popup-addr regrid-popup-addr-sub">${_esc(countyState)}</div>` : ''}
   `
 }
