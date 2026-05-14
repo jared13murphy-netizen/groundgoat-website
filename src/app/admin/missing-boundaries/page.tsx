@@ -1022,7 +1022,7 @@ export default function MissingBoundariesPage() {
     if (edit && edit.current_polygon
         && edit.current_tillable_acres == null
         && !edit.current_no_cropland) {
-      if (!window.confirm('Calculate has not been run since the last drag. Approve anyway with no tillable/soil rating?')) return
+      if (!window.confirm('Tillable acres are blank — Align Total Acres first (or Align Tillable). Approve anyway with no tillable / soil rating?')) return
     }
     setApprovingTractId(tractId)
     try {
@@ -1165,7 +1165,13 @@ export default function MissingBoundariesPage() {
   // Scale the tract polygon around its centroid so its GIS acres
   // matches override_total_acres exactly. Invalidates tillable
   // (admin needs to re-Calculate after the tract resize).
-  const alignTractAcres = (tractId: string) => {
+  // Align Total Acres: scale the tract polygon to the target acres,
+  // lock it, then AUTO-derive the tillable polygon + tillable acres
+  // from CDL. Admin no longer has to click Calculate — the tillable
+  // appears as soon as Align finishes. Soil rating is left blank
+  // until the admin clicks Align on the Tillable row (so the rating
+  // matches the listing's published tillable acres exactly).
+  const alignTractAcres = async (tractId: string) => {
     const edit = editStateByTract[tractId]
     if (!edit?.current_polygon) return
     const target = edit.override_total_acres
@@ -1179,27 +1185,76 @@ export default function MissingBoundariesPage() {
         ...prev[tractId],
         current_polygon: newPoly,
         current_polygon_acres: target,
-        // Tract changed → tillable + soil rating stale
+        // Tract changed → tillable + soil rating stale (will be
+        // refreshed by the recalc call below).
         current_tillable_polygons: [],
         current_tillable_acres: null,
         current_soil_rating: null,
         current_no_cropland: false,
       },
     }))
-    // Auto-lock the tract polygon after Align — admin's signal that
-    // the tract shape is final. Vertex circles hide, drag is blocked.
+    // Auto-lock — admin's signal that the tract shape is final.
     setLockedTractIds(prev => {
       const next = new Set(prev)
       next.add(tractId)
       return next
     })
-    // Persist immediately (no debounce) — Align is an explicit user
-    // commit, not a drag delta.
-    saveDraftNow(tractId, {
-      polygon: newPoly,
-      total_acres: target,
-      tillable_polygons: [],
-    })
+    // Auto-derive tillable polygon + acres from CDL. Reuses the
+    // /recalculate-from-polygon endpoint (no admin tillable in body,
+    // so backend runs the CDL inverse-mask pipeline).
+    setCalculatingTractId(tractId)
+    try {
+      const res = await fetch(
+        `${SCRAPER_URL}/api/admin/tracts/${tractId}/recalculate-from-polygon`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ polygon: newPoly }),
+        }
+      )
+      const body = await res.json()
+      if (res.ok && body.success) {
+        const newTils = normalizeTillablePolygons(
+          body.tillable_polygons ?? body.tillable_polygon,
+        )
+        setEditStateByTract(prev => ({
+          ...prev, [tractId]: {
+            ...prev[tractId],
+            current_tillable_polygons: newTils,
+            current_tillable_acres: body.tillable_acres ?? null,
+            // Soil rating left null on purpose — admin should Align
+            // Tillable (which uses the published tillable acres) before
+            // we compute it, so the rating matches the auction URL.
+            current_soil_rating: null,
+            current_soil_rating_type: body.soil_rating_type ?? null,
+            current_no_cropland: !!body.no_cropland,
+          },
+        }))
+        saveDraftNow(tractId, {
+          polygon: newPoly,
+          total_acres: target,
+          tillable_polygons: newTils,
+          tillable_acres: body.tillable_acres ?? null,
+        })
+      } else {
+        // Save the tract polygon even if CDL fails — admin can still
+        // proceed with Add Tillable Area manually.
+        saveDraftNow(tractId, {
+          polygon: newPoly,
+          total_acres: target,
+          tillable_polygons: [],
+        })
+      }
+    } catch (e) {
+      console.warn('alignTractAcres CDL fetch failed:', e)
+      saveDraftNow(tractId, {
+        polygon: newPoly,
+        total_acres: target,
+        tillable_polygons: [],
+      })
+    } finally {
+      setCalculatingTractId(null)
+    }
   }
 
   const lockTract = (tractId: string) => {
@@ -1505,65 +1560,10 @@ export default function MissingBoundariesPage() {
     }, 0)
   }
 
-  const calculateTract = async (tractId: string) => {
-    const edit = editStateByTract[tractId]
-    if (!edit?.current_polygon) return
-    setCalculatingTractId(tractId)
-    try {
-      // If admin has hand-edited the tillable polygon(s), send them
-      // along so the backend uses them directly (no CDL re-derivation).
-      // Otherwise the backend re-runs CDL from the tract polygon.
-      const payload: any = { polygon: edit.current_polygon }
-      const tils = edit.current_tillable_polygons || []
-      if (tils.length === 1) {
-        payload.tillable_polygon = tils[0]  // legacy single shape
-      } else if (tils.length > 1) {
-        payload.tillable_polygons = tils
-      }
-      const res = await fetch(
-        `${SCRAPER_URL}/api/admin/tracts/${tractId}/recalculate-from-polygon`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        }
-      )
-      const body = await res.json()
-      if (!res.ok || !body.success) {
-        alert(`Calculate failed: ${body.error || `HTTP ${res.status}`}`)
-        return
-      }
-      setEditStateByTract(prev => ({
-        ...prev,
-        [tractId]: {
-          ...prev[tractId],
-          current_polygon_acres: body.polygon_acres ?? null,
-          // Backend may return single polygon (legacy) or array. Normalize.
-          current_tillable_polygons: normalizeTillablePolygons(
-            body.tillable_polygons ?? body.tillable_polygon,
-          ),
-          current_tillable_acres: body.tillable_acres ?? null,
-          current_soil_rating: body.soil_rating ?? null,
-          current_soil_rating_type: body.soil_rating_type ?? null,
-          current_no_cropland: !!body.no_cropland,
-        },
-      }))
-      // Persist Calculate result so refresh shows the latest tillable
-      saveDraftNow(tractId, {
-        polygon: edit.current_polygon,
-        tillable_polygons: normalizeTillablePolygons(
-          body.tillable_polygons ?? body.tillable_polygon,
-        ),
-        tillable_acres: body.tillable_acres ?? null,
-        soil_rating: body.soil_rating ?? null,
-        soil_rating_type: body.soil_rating_type ?? null,
-      })
-    } catch (e: any) {
-      alert(`Calculate error: ${e.message || e}`)
-    } finally {
-      setCalculatingTractId(null)
-    }
-  }
+  // (calculateTract removed 2026-05-14 — Align Total Acres auto-derives
+  // the tillable polygon, Align Tillable auto-derives the soil rating,
+  // and the drag-end handler auto-Calculates on tillable changes. No
+  // manual Calculate button is needed in the new workflow.)
 
   const rejectProposed = async (tractId: string, listingId: string) => {
     if (!window.confirm('Reject this proposed boundary? It will be discarded. Live data is NOT changed; tract stays on the list so you can re-extract / upload / draw.')) return
@@ -1912,7 +1912,6 @@ export default function MissingBoundariesPage() {
                               })
                               .map((t: any) => {
                               const e = editStateByTract[t.tract_id]
-                              const needsCalc = e && e.current_tillable_acres == null
                               const listingTract = tracts.find(it => it.tract_id === t.tract_id)
                               const computedTotal = e?.current_polygon_acres ?? t.acres
                               const isApproved = approvedTractIds.has(t.tract_id)
@@ -2067,9 +2066,9 @@ export default function MissingBoundariesPage() {
                                     </div>
                                   )}
 
-                                  {needsCalc && (
-                                    <div className="text-[10px] text-amber-300 mb-1">
-                                      ⚠ Drag detected — click Calculate to refresh tillable + rating
+                                  {calculatingTractId === t.tract_id && (
+                                    <div className="text-[10px] text-blue-300 mb-1">
+                                      ↻ Recalculating tillable + rating…
                                     </div>
                                   )}
                                   {isApproved && (
@@ -2078,14 +2077,6 @@ export default function MissingBoundariesPage() {
                                     </div>
                                   )}
                                   <div className="flex items-center gap-2 mt-1 flex-wrap">
-                                    <button
-                                      onClick={() => calculateTract(t.tract_id)}
-                                      disabled={isApproved || calculatingTractId === t.tract_id}
-                                      className="text-[11px] px-2 py-0.5 rounded bg-blue-500/25 hover:bg-blue-500/40 disabled:opacity-30 disabled:cursor-not-allowed text-blue-200 border border-blue-500/40"
-                                      title="Compute tillable polygon, tillable acres, and soil rating from the current dragged polygon."
-                                    >
-                                      {calculatingTractId === t.tract_id ? 'Calculating…' : '↻ Calculate'}
-                                    </button>
                                     <button
                                       onClick={() => approveTract(t.tract_id, lid)}
                                       disabled={isApproved || approvingTractId === t.tract_id || rejectingTractId === t.tract_id || calculatingTractId === t.tract_id}
