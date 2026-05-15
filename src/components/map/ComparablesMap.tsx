@@ -8,6 +8,7 @@ import { TILE_URL, TILE_ATTRIBUTION, GLYPH_URL, LABEL_TILE_URL } from './mapCons
 import { countyCentroids } from '@/data/countyCentroids'
 import { normalizeTownship } from '../../utils/normalizeTownship'
 import Tract3DModal from '@/components/Tract3DModal'
+import { addRegridLayer, fetchRegridConfig, type RegridConfig } from './regridLayer'
 
 interface ComparablePin {
   id: string
@@ -115,6 +116,35 @@ export default function ComparablesMap({
   const markerElementsRef = useRef<Map<string, HTMLDivElement>>(new Map())
   const [selectedSale, setSelectedSale] = useState<SaleDetail | null>(null)
   const [show3DViewer, setShow3DViewer] = useState(false)
+  const [regridConfig, setRegridConfig] = useState<RegridConfig | null>(null)
+  // Tracks when the map's `load` event has fired so we can mount the
+  // Regrid layer after the basemap is ready (separate from the main
+  // map-build useEffect which is concerned with comp markers + tract
+  // polygons).
+  const [mapReady, setMapReady] = useState(false)
+
+  // Fetch Regrid tile-URL config once on mount.
+  useEffect(() => {
+    let cancelled = false
+    fetchRegridConfig().then(cfg => {
+      if (!cancelled && cfg) setRegridConfig(cfg)
+    })
+    return () => { cancelled = true }
+  }, [])
+
+  // Mount the Regrid vector-tile layer once both the map and the
+  // config are ready. Cleanup on unmount.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapReady || !regridConfig) return
+    // Tract polygons paint ON TOP of Regrid so the auction / sold
+    // outlines remain visible.
+    const cleanup = addRegridLayer(map, regridConfig, {
+      beforeId: 'tract-polygon-fill',
+      minZoom: 14,
+    })
+    return cleanup
+  }, [mapReady, regridConfig])
 
   useEffect(() => {
     if (!mapContainerRef.current) return
@@ -180,6 +210,7 @@ export default function ComparablesMap({
     mapRef.current = map
 
     map.on('load', () => {
+      setMapReady(true)
       // Add county boundaries
       map.addSource('counties', {
         type: 'geojson',
