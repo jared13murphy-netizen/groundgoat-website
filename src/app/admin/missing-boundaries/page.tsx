@@ -1081,11 +1081,13 @@ export default function MissingBoundariesPage() {
   }
 
   // Initialize edit state when Auto-Extract returns results for a listing.
-  // Each tract's current_polygon starts as the auto-extracted polygon.
-  // current_tillable_polygons NOW seeds from the backend response so the
-  // pre-computed Surety/CSB/CDL tillable polygon is visible on first
-  // render (admin then verifies + Aligns + Approves). Previously empty
-  // here, which hid the polygon until admin clicked Align Total Acres.
+  // current_tillable_polygons is INTENTIONALLY left empty so the map
+  // shows ONLY the tract polygon on first load. Admin verifies the
+  // tract shape first, then clicks Align Total Acres — that handler
+  // calls /recalculate-from-polygon which derives the tillable
+  // (Surety per-tract image → CSB → CDL) and populates it.
+  // Per user 2026-05-15: prefers this two-stage flow so the tillable
+  // polygon doesn't get in the way of verifying the tract boundary.
   useEffect(() => {
     const updates: Record<string, EditableTract> = {}
     for (const lid of Object.keys(autoExtractResultByListing)) {
@@ -1095,22 +1097,14 @@ export default function MissingBoundariesPage() {
           const simplified = t.polygon_coordinates
             ? simplifyPolygon(t.polygon_coordinates)
             : undefined
-          // Pre-populate override fields from scraped values. Admin
-          // verifies/corrects these against the auction URL.
           const listingTract = items.find(it => it.tract_id === t.tract_id)
-          // Seed the tillable polygon array from whichever shape the
-          // backend returned — multi-ring (`tillable_polygons`) takes
-          // priority, single ring (`tillable_polygon`) is wrapped.
-          const seedTillables = normalizeTillablePolygons(
-            (t as any).tillable_polygons ?? (t as any).tillable_polygon,
-          )
           updates[t.tract_id] = {
             ...t,
             current_polygon: simplified,
-            current_tillable_polygons: seedTillables,
-            current_tillable_acres: t.tillable_acres ?? null,
-            current_soil_rating: t.soil_rating ?? null,
-            current_soil_rating_type: t.soil_rating_type ?? null,
+            current_tillable_polygons: [],
+            current_tillable_acres: null,
+            current_soil_rating: null,
+            current_soil_rating_type: null,
             current_polygon_acres: t.acres ?? null,
             override_total_acres: listingTract?.total_acres ?? null,
             override_tillable_acres: listingTract?.scraped_tillable_acres ?? null,
