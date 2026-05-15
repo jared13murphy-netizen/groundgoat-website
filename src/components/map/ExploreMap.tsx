@@ -4121,7 +4121,12 @@ function createTodayMarkerElement(
 
 function _fmtMoney(n: any): string {
   const v = typeof n === 'number' ? n : (n ? Number(n) : NaN)
-  if (!isFinite(v)) return '—'
+  // Treat $0 the same as missing — a recorded $0 deed (family
+  // transfer, LLC restructure, inheritance, quitclaim) isn't a market
+  // sale price the user actually wants to see. Regrid stores many
+  // farmland transfers as $0 consideration; showing "$0" reads as
+  // "we don't have the price" anyway.
+  if (!isFinite(v) || v === 0) return '—'
   return '$' + Math.round(v).toLocaleString('en-US')
 }
 
