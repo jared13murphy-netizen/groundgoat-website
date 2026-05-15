@@ -1963,6 +1963,12 @@ export default function MissingBoundariesPage() {
                                       className="w-20 px-1 py-0.5 bg-gg-gray-950 border border-gg-gray-700 rounded text-white text-[11px] focus:outline-none focus:border-gg-pink"
                                       placeholder="—"
                                     />
+                                    {/* Match indicator — green ✓ when the input value equals
+                                        the GIS-drawn area within 0.05 ac. */}
+                                    {e?.override_total_acres != null && computedTotal != null &&
+                                     Math.abs(Number(e.override_total_acres) - Number(computedTotal)) <= 0.05 && (
+                                      <span className="text-emerald-400 font-bold text-[12px]" title="Drawn polygon matches the target acreage">✓</span>
+                                    )}
                                     <span className="text-gg-gray-500 text-[10px]">
                                       (drawn: {computedTotal != null ? Number(computedTotal).toFixed(2) : '—'})
                                     </span>
@@ -2003,6 +2009,12 @@ export default function MissingBoundariesPage() {
                                       className="w-20 px-1 py-0.5 bg-gg-gray-950 border border-gg-gray-700 rounded text-white text-[11px] focus:outline-none focus:border-gg-pink"
                                       placeholder="—"
                                     />
+                                    {/* Match indicator — within 0.05 ac. Also fires when
+                                        both are 0 (admin set "0" and tract has no cropland). */}
+                                    {e?.override_tillable_acres != null && e?.current_tillable_acres != null &&
+                                     Math.abs(Number(e.override_tillable_acres) - Number(e.current_tillable_acres)) <= 0.05 && (
+                                      <span className="text-emerald-400 font-bold text-[12px]" title="Drawn tillable polygon matches the target acreage">✓</span>
+                                    )}
                                     <span className={`text-[10px] ${e?.current_no_cropland ? 'text-gg-gray-500 italic' : 'text-gg-gray-500'}`}>
                                       (calc: {e?.current_no_cropland ? '0 (no cropland)' : (e?.current_tillable_acres != null ? `${e.current_tillable_acres}` : '—')})
                                     </span>
@@ -2069,6 +2081,13 @@ export default function MissingBoundariesPage() {
                                       className="w-20 px-1 py-0.5 bg-gg-gray-950 border border-gg-gray-700 rounded text-white text-[11px] focus:outline-none focus:border-gg-pink"
                                       placeholder="—"
                                     />
+                                    {/* Match indicator — soil rating tolerance ±0.5 since
+                                        PI/CSR2 are integers in practice and our calc rounds
+                                        to 1 decimal. */}
+                                    {e?.override_soil_rating != null && e?.current_soil_rating != null &&
+                                     Math.abs(Number(e.override_soil_rating) - Number(e.current_soil_rating)) <= 0.5 && (
+                                      <span className="text-emerald-400 font-bold text-[12px]" title="Computed rating matches the target value">✓</span>
+                                    )}
                                     <span className="text-gg-gray-500 text-[10px]">
                                       (calc: {e?.current_no_cropland ? 'N/A' : (e?.current_soil_rating ?? '—')})
                                     </span>
