@@ -303,7 +303,8 @@ export default function ComparablesMap({
           source: 'tract-polygons',
           paint: {
             'fill-color': '#E91E8C',
-            'fill-opacity': 0.08,
+            // Bumped 0.08 → 0.20 for visibility against Regrid parcels
+            'fill-opacity': 0.20,
           },
         })
         map.addLayer({
@@ -312,10 +313,17 @@ export default function ComparablesMap({
           source: 'tract-polygons',
           paint: {
             'line-color': '#E91E8C',
-            'line-width': ['case', ['==', ['get', 'isSubject'], true], 3, 2],
-            'line-opacity': 0.8,
+            'line-width': ['case', ['==', ['get', 'isSubject'], true], 4, 3],
+            'line-opacity': 1.0,
           },
         })
+        // Push tract polygon layers to top after Regrid loads (Regrid
+        // uses beforeId='tract-polygon-fill' on init, but if Regrid
+        // attached first that no-ops; this fixes either ordering).
+        if (map.getLayer('regrid-parcels-fill')) {
+          map.moveLayer('tract-polygon-fill')
+          map.moveLayer('tract-polygon-line')
+        }
       }
 
       // Bounds: fit to comparable pins + subject (not all state sales)

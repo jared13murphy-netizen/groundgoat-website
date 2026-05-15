@@ -1534,7 +1534,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         minzoom: TRACT_TIER_MIN,
         paint: {
           'fill-color': '#E91E8C',
-          'fill-opacity': 0.08,
+          // Bumped 0.08 → 0.20 per user 2026-05-15 — when zoomed in
+          // far enough to see Regrid parcel borders, the tract pink
+          // was barely visible against the black grid.
+          'fill-opacity': 0.20,
         },
       })
       map.addLayer({
@@ -1544,10 +1547,17 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         minzoom: TRACT_TIER_MIN,
         paint: {
           'line-color': '#E91E8C',
-          'line-width': 2,
-          'line-opacity': 0.8,
+          'line-width': 3,
+          'line-opacity': 1.0,
         },
       })
+      // Always push the tract polygon to the TOP of the layer stack
+      // after creation, even if Regrid was added after us (its
+      // beforeId guard misses when Regrid mounts first).
+      if (map.getLayer('regrid-parcels-fill')) {
+        map.moveLayer('tract-polygon-fill')
+        map.moveLayer('tract-polygon-line')
+      }
     }
   }, [mapLoaded, polygonGeoJSON])
 
@@ -2161,6 +2171,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         'text-halo-blur': 0.4,
       },
     }, beforeId)
+
+    // Push tract polygons to the TOP of the layer stack — if Regrid
+    // arrived after tract-polygon-* mounted, beforeId above missed
+    // and Regrid landed on top. moveLayer (no second arg) lifts the
+    // tract layers above everything.
+    if (map.getLayer('tract-polygon-fill')) map.moveLayer('tract-polygon-fill')
+    if (map.getLayer('tract-polygon-line')) map.moveLayer('tract-polygon-line')
 
     // Hover highlight — track which feature is under the cursor so
     // the fill brightens on hover. ll_uuid promotion above means

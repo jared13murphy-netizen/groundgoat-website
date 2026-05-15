@@ -273,6 +273,13 @@ export function addRegridLayer(
     },
   }, beforeId)
 
+  // Push the host's tract polygon layers to the TOP of the layer
+  // stack — beforeId='tract-polygon-fill' above only works when the
+  // tract layer mounted first. If Regrid loaded first, the tract gets
+  // covered. moveLayer w/o second arg lifts the layer to the top.
+  if (map.getLayer('tract-polygon-fill')) map.moveLayer('tract-polygon-fill')
+  if (map.getLayer('tract-polygon-line')) map.moveLayer('tract-polygon-line')
+
   // Hover highlight (toggles fill-opacity via feature-state).
   let hoveredUuid: string | null = null
   const onMove = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
