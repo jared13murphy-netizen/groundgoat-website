@@ -1,5 +1,11 @@
 'use client'
 
+// Force dynamic rendering — without this, Next.js statically generates
+// the HTML at build time and caches it with a 1-year TTL, so even after
+// a redeploy the served HTML references the OLD JS bundle hash. Admin
+// pages should never be cached at the edge.
+export const dynamic = 'force-dynamic'
+
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { Loader2, ExternalLink, MapPin, Trash2 } from 'lucide-react'
