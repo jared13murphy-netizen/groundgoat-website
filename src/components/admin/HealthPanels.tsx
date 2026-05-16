@@ -55,11 +55,21 @@ interface SubscriptionData {
   trial_conversion_pct: number
 }
 
+interface RegridSummary {
+  totals_24h: {
+    calls: number
+    parcels: number
+    cache_hits: number
+    errors: number
+  }
+}
+
 interface DashboardPayload {
   services?: ServiceStatus[]
   jobs?: JobRun[]
   external_apis?: ExternalApi[]
   subscription?: SubscriptionData
+  regrid?: RegridSummary
 }
 
 // Shared fetch hook so the four panels make ONE network request between them.
@@ -154,10 +164,93 @@ export default function HealthPanels() {
   return (
     <>
       <ServiceHealthPanel services={data.services || []} />
+      <RegridUsagePanel regrid={data.regrid} />
       <SubscriptionPanel subs={data.subscription} />
       <JobsPanel jobs={data.jobs || []} />
       <ExternalApisPanel apis={data.external_apis || []} />
     </>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Regrid usage — top-of-page summary so admin can spot a runaway
+// spend at a glance without scrolling to the Usage Metrics panel.
+// Status indicator turns yellow when error_rate > 5%, red when > 20%.
+// ─────────────────────────────────────────────────────────────────────
+function RegridUsagePanel({ regrid }: { regrid?: RegridSummary }) {
+  if (!regrid) return null
+  const t = regrid.totals_24h
+  const calls = t.calls || 0
+  const cacheHits = t.cache_hits || 0
+  const errors = t.errors || 0
+  const parcels = t.parcels || 0
+  // Cache hit rate is meaningful only when there are calls
+  const cachePct = calls > 0 ? Math.round((cacheHits / calls) * 100) : 0
+  const errorPct = calls > 0 ? (errors / calls) * 100 : 0
+  const status = errorPct > 20 ? 'down' : errorPct > 5 ? 'degraded' : 'up'
+  const statusLabel = status === 'down' ? 'Elevated errors' :
+                      status === 'degraded' ? 'Some errors' : 'Healthy'
+  // Cost estimate (rough): non-cache-hit lookups @ ~$0.02/parcel; the
+  // user's earlier Regrid spend audit memory notes this number is
+  // approximate. Surfaces a $ at a glance for runaway-spend detection.
+  const nonCached = Math.max(0, calls - cacheHits)
+  const estCost = (nonCached * 0.02).toFixed(2)
+  return (
+    <div className="card mt-6">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+        <div>
+          <h2 className="text-xl font-semibold text-white flex items-center gap-2">
+            <Activity size={20} className="text-gg-pink" />
+            Regrid Usage (last 24h)
+          </h2>
+          <p className="text-sm text-gg-gray-400 mt-0.5">
+            At-a-glance counters. Full breakdown + hourly chart in the
+            Usage Metrics panel below.
+          </p>
+        </div>
+        <div className={`text-xs px-3 py-1 rounded-full border ${
+          status === 'up' ? 'bg-green-900/20 border-green-500/30 text-green-300' :
+          status === 'degraded' ? 'bg-yellow-900/20 border-yellow-500/30 text-yellow-300' :
+          'bg-red-900/20 border-red-500/30 text-red-300'
+        }`}>
+          {statusLabel}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <RegridStat label="API calls" value={calls.toLocaleString()} />
+        <RegridStat label="Parcels returned" value={parcels.toLocaleString()} />
+        <RegridStat
+          label="Cache hit rate"
+          value={`${cachePct}%`}
+          accent={cachePct >= 50 ? 'good' : cachePct >= 20 ? 'ok' : 'bad'}
+        />
+        <RegridStat
+          label="Errors"
+          value={`${errors.toLocaleString()}${errorPct > 0 ? ` (${errorPct.toFixed(1)}%)` : ''}`}
+          accent={errorPct > 20 ? 'bad' : errorPct > 5 ? 'ok' : 'good'}
+        />
+        <RegridStat
+          label="Est. spend"
+          value={`$${estCost}`}
+          accent={Number(estCost) > 50 ? 'bad' : Number(estCost) > 20 ? 'ok' : 'good'}
+        />
+      </div>
+    </div>
+  )
+}
+
+function RegridStat({
+  label, value, accent = 'good',
+}: { label: string; value: string; accent?: 'good' | 'ok' | 'bad' }) {
+  const valueColor =
+    accent === 'good' ? 'text-white' :
+    accent === 'ok' ? 'text-yellow-300' : 'text-red-300'
+  return (
+    <div className="rounded-xl p-3 border bg-white/[0.03] border-white/5">
+      <div className="text-[11px] uppercase tracking-wide text-gg-gray-500">{label}</div>
+      <div className={`text-xl font-semibold mt-1 ${valueColor}`}>{value}</div>
+    </div>
   )
 }
 
