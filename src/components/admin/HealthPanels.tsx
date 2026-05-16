@@ -61,6 +61,7 @@ interface RegridSummary {
     parcels: number
     cache_hits: number
     errors: number
+    tiles?: number  // populated once the tile-proxy is wired
   }
 }
 
@@ -190,11 +191,7 @@ function RegridUsagePanel({ regrid }: { regrid?: RegridSummary }) {
   const status = errorPct > 20 ? 'down' : errorPct > 5 ? 'degraded' : 'up'
   const statusLabel = status === 'down' ? 'Elevated errors' :
                       status === 'degraded' ? 'Some errors' : 'Healthy'
-  // Cost estimate (rough): non-cache-hit lookups @ ~$0.02/parcel; the
-  // user's earlier Regrid spend audit memory notes this number is
-  // approximate. Surfaces a $ at a glance for runaway-spend detection.
-  const nonCached = Math.max(0, calls - cacheHits)
-  const estCost = (nonCached * 0.02).toFixed(2)
+  const tiles = t.tiles ?? null
   return (
     <div className="card mt-6">
       <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
@@ -231,9 +228,8 @@ function RegridUsagePanel({ regrid }: { regrid?: RegridSummary }) {
           accent={errorPct > 20 ? 'bad' : errorPct > 5 ? 'ok' : 'good'}
         />
         <RegridStat
-          label="Est. spend"
-          value={`$${estCost}`}
-          accent={Number(estCost) > 50 ? 'bad' : Number(estCost) > 20 ? 'ok' : 'good'}
+          label="Map tiles loaded"
+          value={tiles == null ? '—' : tiles.toLocaleString()}
         />
       </div>
     </div>
