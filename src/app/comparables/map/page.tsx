@@ -29,7 +29,13 @@ function MapComparablesPage() {
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column', background: '#0a0a0c' }}>
+    // Sits ABOVE the global GroundGoat nav (which has its own
+    // fixed/sticky position at z-index ~50). Without z-index:100 the
+    // Back-button row would be hidden under the global nav.
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 100,
+      display: 'flex', flexDirection: 'column', background: '#0a0a0c',
+    }}>
       {/* Slim top bar — back button + title */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: 10,

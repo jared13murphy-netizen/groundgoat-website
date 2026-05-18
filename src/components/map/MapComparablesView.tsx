@@ -458,15 +458,28 @@ function ComparableSaleHoverPopup({
   const ratingLabel = rating != null
     ? `${sale.soil_rating_type || 'Soil'}: ${FMT_NUM(rating)}`
     : null
+  // Decide whether to anchor the popup ABOVE the pin (default — most
+  // intuitive) or BELOW (when the pin is near the top of the viewport
+  // and an above-anchored popup would clip off-screen).
+  const POPUP_HEIGHT_EST = 300  // conservative — actual is ~220-280
+  const POPUP_WIDTH = 280
+  const showBelow = pos.y < POPUP_HEIGHT_EST
+  // Horizontal clamp — keep the popup inside the viewport.
+  const clampedX = Math.max(
+    POPUP_WIDTH / 2 + 8,
+    Math.min(pos.x, window.innerWidth - POPUP_WIDTH / 2 - 8),
+  )
   return (
     <div
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
       style={{
         position: 'absolute',
-        left: pos.x,
+        left: clampedX,
         top: pos.y,
-        transform: 'translate(-50%, calc(-100% - 14px))',  // anchor above the pin
+        transform: showBelow
+          ? 'translate(-50%, 14px)'
+          : 'translate(-50%, calc(-100% - 14px))',
         background: '#fff',
         color: '#111',
         borderRadius: 12,
