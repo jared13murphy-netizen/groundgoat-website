@@ -4361,15 +4361,23 @@ function _popupShell(inner: string): string {
 }
 
 function _popupHeader(opts: {
-  label: string; owner: string; address: string; countyState: string
+  label: string
+  owner: string
+  // Up to 3 subhead lines. Caller composes them (street, city/state/zip,
+  // township, county) and passes only the non-empty ones.
+  subheadLines: string[]
 }): string {
-  const { label, owner, address, countyState } = opts
+  const { label, owner, subheadLines } = opts
   return `
     <div style="padding:14px 38px 12px 16px;background:linear-gradient(135deg,#1f1f23 0%,#2a2a30 100%);color:#fff;">
       <div style="font-size:10px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#F58CDE;margin-bottom:4px;">${_esc(label)}</div>
       <div style="font-size:14px;font-weight:700;line-height:1.3;color:#fff;word-wrap:break-word;">${_esc(owner)}</div>
-      ${address ? `<div style="font-size:12px;color:rgba(255,255,255,0.65);margin-top:4px;line-height:1.3;">${_esc(address)}</div>` : ''}
-      ${countyState ? `<div style="font-size:11px;color:rgba(255,255,255,0.45);margin-top:2px;">${_esc(countyState)}</div>` : ''}
+      ${subheadLines.map((line, i) => {
+        const isLast = i === subheadLines.length - 1
+        const color = isLast ? 'rgba(255,255,255,0.45)' : 'rgba(255,255,255,0.65)'
+        const sz = isLast ? 11 : 12
+        return `<div style="font-size:${sz}px;color:${color};margin-top:${i === 0 ? 4 : 2}px;line-height:1.3;">${_esc(line)}</div>`
+      }).join('')}
     </div>
   `
 }
@@ -4394,24 +4402,37 @@ function _section(title: string, rows: string[]): string {
 }
 
 function _regridLoadingHTML(tileProps: any): string {
+  const sub = tileProps?.address ? [tileProps.address] : []
   return _popupShell(
     _popupHeader({
       label: 'Parcel',
       owner: tileProps?.owner || 'Loading…',
-      address: tileProps?.address || '',
-      countyState: '',
+      subheadLines: sub,
     }) +
     `<div style="padding:14px 16px;font-style:italic;color:rgba(0,0,0,0.5);font-size:12px;">Loading parcel details…</div>`,
   )
 }
 
 function _regridFallbackHTML(tileProps: any): string {
+  const sub = tileProps?.address ? [tileProps.address] : []
   return _popupShell(_popupHeader({
     label: 'Parcel',
     owner: tileProps?.owner || 'Unknown',
-    address: tileProps?.address || '',
-    countyState: '',
+    subheadLines: sub,
   }))
+}
+
+// Regrid puts the civil township as the 4th segment of the `path`
+// property: "/us/<state>/<county>/<TOWNSHIP_SLUG>/<id>". Pull it
+// out + title-case so "barnett" → "Barnett".
+function _extractTownship(record: any): string {
+  const path: unknown = record?.path
+  if (typeof path !== 'string') return ''
+  const parts = path.split('/').filter(Boolean)  // ['us','il','de-witt','barnett','5630']
+  if (parts.length < 5) return ''
+  const slug = parts[3] || ''
+  if (!slug || slug === parts[2]) return ''  // avoid duplicating county
+  return _titleCase(slug.replace(/-/g, ' '))
 }
 
 function _regridPopupHTML(record: any): string {
@@ -4466,6 +4487,31 @@ function _regridPopupHTML(record: any): string {
   const countyState = county
     ? `${county} County${state ? ', ' + state : ''}`
     : (state || '')
+
+  // Township — extracted from the Regrid `path` field (more reliable
+  // than the `city` slug, which Regrid sometimes reuses for the
+  // township in rural areas but not consistently).
+  const township = _extractTownship(record)
+
+  // Build address subhead lines:
+  //   - line 1: street address (when present)
+  //   - line 2: "City, ST ZIP" using situs city (scity) → falls back
+  //             to city slug → falls back to township
+  //   - line 3: "<Township> Township" (when we have a township and
+  //             it's NOT already the city we just printed)
+  //   - line 4: "<County> County, ST"
+  const street = (typeof record?.address === 'string' && record.address.trim())
+    ? record.address.trim() : ''
+  const cityRaw = record?.scity || record?.city || ''
+  const cityLabel = typeof cityRaw === 'string' && cityRaw.trim()
+    ? _titleCase(cityRaw.trim().replace(/-/g, ' '))
+    : ''
+  const zip = record?.szip5 || record?.szip || ''
+  const cityLine = [cityLabel, state, zip].filter(Boolean).join(cityLabel && state ? ', ' : ' ')
+    .replace(`${state}, ${zip}`, `${state} ${zip}`)  // "City, ST ZIP" not "City, ST, ZIP"
+  const townshipLine = (township && township !== cityLabel) ? `${township} Township` : ''
+  const subheadLines = [street, cityLine, townshipLine, countyState]
+    .filter(s => s && s.trim())
 
   // Hero stat strip — only cells with values render
   const acresLabel = _fmtAcres(gisacre)
@@ -4537,8 +4583,7 @@ function _regridPopupHTML(record: any): string {
     _popupHeader({
       label: 'Parcel',
       owner: record?.owner || 'Unknown',
-      address: record?.address || '',
-      countyState,
+      subheadLines,
     }) +
     heroHTML +
     _section('Last Sale', lastSaleRows) +
