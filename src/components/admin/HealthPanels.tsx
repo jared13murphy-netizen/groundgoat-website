@@ -229,7 +229,10 @@ function RegridUsagePanel({ regrid }: { regrid?: RegridSummary }) {
         />
         <RegridStat
           label="Map tiles loaded"
-          value={tiles == null ? '—' : tiles.toLocaleString()}
+          // Reverted 2026-05-18: the tile-counting proxy was making
+          // the parcel layer slow to paint. Tiles go direct to Regrid's
+          // CDN again so we can't count them. Stat shown as N/A.
+          value="N/A"
         />
       </div>
     </div>
