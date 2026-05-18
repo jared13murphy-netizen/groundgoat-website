@@ -21,7 +21,6 @@ import {
   STATUS_COLORS,
 } from './mapConstants'
 import fetchWithAuth from '@/lib/fetchWithAuth'
-import { FIND_COMPARABLES_MAP_ENABLED } from '@/lib/featureFlags'
 import Tract3DModal from '@/components/Tract3DModal'
 import GroundTruthPanel from '@/components/portal/GroundTruthPanel'
 import NdviPanel from '@/components/portal/NdviPanel'
@@ -642,7 +641,55 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   >({})
   const [loading, setLoading] = useState(false)
   const [selectedSale, setSelectedSale] = useState<SaleDetail | null>(null)
+  // Inline popup ON THE MAP (comparables mode only). Click a + marker
+  // opens this; click outside (anywhere else on the map) or the X /
+  // Esc closes it. Distinct from `selectedSale` (the sidebar/modal flow
+  // used outside comp mode). See createMarkerElement asPlusButton.
+  const [compPopup, setCompPopup] = useState<{
+    sale: SaleDetail
+    pos: { x: number; y: number }
+  } | null>(null)
   const [show3DViewer, setShow3DViewer] = useState(false)
+
+  // Comp-mode popup lifecycle effects: map-click closes (clicks on a
+  // + marker DOM don't bubble to the canvas, so this only fires for
+  // empty-map clicks). Pan/zoom re-projects the lat/lng so the popup
+  // tracks its anchor pin. Both are gated on compPopup being open so
+  // they're a no-op outside comp mode.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !compPopup) return
+    const onMapClick = () => setCompPopup(null)
+    const onMove = () => {
+      setCompPopup(prev => {
+        if (!prev) return prev
+        // Re-project from sale's lat/lng. SaleDetail's polygonCoordinates
+        // can be missing — fall back to the lng/lat we projected from
+        // originally by reading off the marker element (kept in
+        // tractMarkerElementsRef). Simpler: use the polygon centroid
+        // or the lat/lng we stored when opening.
+        const tid = prev.sale.tractId
+        if (!tid) return prev
+        // Read the marker's lng/lat by querying MapLibre's marker — we
+        // stashed elements keyed by tract id earlier. Resolve from the
+        // current tractMarkers list.
+        const marker = tractMarkersRef.current.find(m => {
+          const el = m.getElement() as HTMLDivElement
+          return el.dataset.tractId === tid
+        })
+        if (!marker) return prev
+        const ll = marker.getLngLat()
+        const p = map.project(ll)
+        return { sale: prev.sale, pos: { x: p.x, y: p.y } }
+      })
+    }
+    map.on('click', onMapClick)
+    map.on('move', onMove)
+    return () => {
+      map.off('click', onMapClick)
+      map.off('move', onMove)
+    }
+  }, [compPopup])
   const [soilData, setSoilData] = useState<{ map_units: any[]; avg_slope?: number } | null>(null)
   const [elevationData, setElevationData] = useState<{ min_ft: number; max_ft: number; relief_ft: number; avg_slope_pct: number } | null>(null)
   const [soilLoading, setSoilLoading] = useState(false)
@@ -2339,11 +2386,16 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // status flag (which was noisy).
       const isAuctionToday = isAuctionDateToday(tract.auction_date)
 
+      // In comparables mode (subjectTractId set), render every comparable
+      // tract as a "+" button instead of the regular labeled pin so
+      // admin can scan the area and click in for sale details.
+      const inCompMode = !!subjectTractIdRef.current
       const el = createMarkerElement(
         markerPpa,
         tract.total_acres,
         tract.sale_status,
         isAuctionToday,
+        inCompMode,
       )
 
       // Z-order by status: live (today) > auction > sold > no_sale > listed.
@@ -2355,8 +2407,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       el.dataset.statusZ = statusZ
       el.style.zIndex = statusZ
 
-      // Click to open modal or slide-out (portal mode)
-      el.addEventListener('click', () => {
+      // Click to open modal / slide-out (regular mode) or inline
+      // popup on the map (comparables mode).
+      el.addEventListener('click', (e) => {
         const saleData: SaleDetail = {
           id: tract.id,
           listingId: tract.listing_id,
@@ -2382,7 +2435,16 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           pricePerSoilRating: tract.price_per_soil_rating,
           sourceUrl: tract.source_url,
         }
-        if (portalMode && onTractSelected) {
+        if (subjectTractIdRef.current) {
+          // Comp mode: inline popup on the map, anchored at marker
+          // pixel position. Stop propagation so the map's click
+          // doesn't immediately close the popup we just opened.
+          e.stopPropagation()
+          const map = mapRef.current
+          if (!map) return
+          const point = map.project([markerLng, markerLat])
+          setCompPopup({ sale: saleData, pos: { x: point.x, y: point.y } })
+        } else if (portalMode && onTractSelected) {
           onTractSelected(saleData)
         } else {
           setSelectedSale(saleData)
@@ -2985,6 +3047,35 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   return (
     <div className="comparables-map-container" style={{ height }}>
       <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+
+      {/* Comparables-mode inline popup — click a + marker → opens here.
+          Sits absolutely positioned over the map. Closes on map click
+          (handled in the marker-loop effect), Esc, or the X button. */}
+      {compPopup && (
+        <CompInlinePopup
+          sale={compPopup.sale}
+          pos={compPopup.pos}
+          isSelected={!!(reportIds && reportIds.has(compPopup.sale.id))}
+          onClose={() => setCompPopup(null)}
+          onView3D={() => {
+            if (onView3DTerrain && compPopup.sale.tractId) {
+              const tractName = `${compPopup.sale.county || ''}${compPopup.sale.state ? ', ' + compPopup.sale.state : ''}`.trim() || 'Tract'
+              onView3DTerrain(compPopup.sale.tractId, tractName)
+            }
+          }}
+          onViewDetails={() => {
+            if (compPopup.sale.listingId) {
+              window.open(`/listings/${compPopup.sale.listingId}`, '_blank', 'noopener,noreferrer')
+            } else if (compPopup.sale.sourceUrl) {
+              window.open(compPopup.sale.sourceUrl, '_blank', 'noopener,noreferrer')
+            }
+          }}
+          onAddToReport={() => {
+            if (onToggleReport) onToggleReport(compPopup.sale as any)
+            setCompPopup(null)
+          }}
+        />
+      )}
 
       {/* Goat Search animation overlay — renders while a chat-driven
           search is in flight. Pure visual sugar; pointer-events:none so
@@ -3841,29 +3932,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               </div>
             )}
 
-            {/* Find Comparables — Phase 1 entry point. Gated by
-                FIND_COMPARABLES_MAP_ENABLED so we can flip the new
-                view off without touching the rest of the popup. */}
-            {FIND_COMPARABLES_MAP_ENABLED && selectedSale.tractId && (
-              <a
-                href={`/comparables/map?tractId=${selectedSale.tractId}`}
-                className="sale-modal-action-btn"
-                style={{
-                  textDecoration: 'none',
-                  marginBottom: '8px',
-                  backgroundColor: 'rgba(233,30,140,0.08)',
-                  color: '#E91E8C',
-                  border: '1px solid #E91E8C',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 6,
-                }}
-              >
-                🔍 Find Comparables
-              </a>
-            )}
-
             {/* View Listing */}
             {selectedSale.listingId && (
               portalMode && onViewListing ? (
@@ -3998,28 +4066,34 @@ function createMarkerElement(
   acres: number | null,
   status: string | null,
   isAuctionToday: boolean,
+  // When true, render the marker as a + button instead of a colored
+  // dot — used in comparables mode (subjectTractId set). Click opens
+  // the inline sale-info popup instead of the sidebar.
+  asPlusButton: boolean = false,
 ): HTMLDivElement {
   const container = document.createElement('div')
   container.className = 'comp-marker'
   const isLive = isAuctionToday
 
-  const label = document.createElement('div')
-  label.className = 'comp-marker-label'
+  // In comp-mode + button: skip the price/acres label (popup shows it).
+  if (!asPlusButton) {
+    const label = document.createElement('div')
+    label.className = 'comp-marker-label'
 
-  if (pricePerAcre) {
-    const priceEl = document.createElement('div')
-    priceEl.className = 'comp-marker-price'
-    priceEl.textContent = `${formatCurrency(pricePerAcre)}/ac`
-    label.appendChild(priceEl)
+    if (pricePerAcre) {
+      const priceEl = document.createElement('div')
+      priceEl.className = 'comp-marker-price'
+      priceEl.textContent = `${formatCurrency(pricePerAcre)}/ac`
+      label.appendChild(priceEl)
+    }
+    if (acres) {
+      const acresEl = document.createElement('div')
+      acresEl.className = 'comp-marker-acres'
+      acresEl.textContent = `${formatAcres(acres)} ac`
+      label.appendChild(acresEl)
+    }
+    container.appendChild(label)
   }
-  if (acres) {
-    const acresEl = document.createElement('div')
-    acresEl.className = 'comp-marker-acres'
-    acresEl.textContent = `${formatAcres(acres)} ac`
-    label.appendChild(acresEl)
-  }
-
-  container.appendChild(label)
 
   // Pulsing ring for live auctions
   if (isLive) {
@@ -4054,7 +4128,20 @@ function createMarkerElement(
 
   const pin = document.createElement('div')
   pin.className = 'comp-marker-pin comparable'
-  pin.style.backgroundColor = isLive ? '#22c55e' : getStatusPinColor(status)
+  if (asPlusButton) {
+    // Larger pink button with a centered "+" — comp mode visual.
+    pin.style.cssText = `
+      width: 22px; height: 22px; border-radius: 50%;
+      background: #E91E8C; border: 2px solid #fff;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+      display: flex; align-items: center; justify-content: center;
+      color: #fff; font-weight: 800; font-size: 16px; line-height: 1;
+      cursor: pointer;
+    `
+    pin.textContent = '+'
+  } else {
+    pin.style.backgroundColor = isLive ? '#22c55e' : getStatusPinColor(status)
+  }
   container.appendChild(pin)
 
   return container
@@ -4311,4 +4398,162 @@ function _regridPopupHTML(record: any): string {
         </div>` : ''}
     </div>
   `
+}
+
+
+// =====================================================================
+// CompInlinePopup — Click-driven popup that opens when admin taps a "+"
+// marker in comparables mode. Anchored at pixel-position of the marker
+// (caller projects lat/lng → pixels). Three horizontal action buttons.
+// X closes; Esc closes; 3D/Details stay open; Add to Report closes.
+// =====================================================================
+
+const FMT_USD_COMP = (n: number | null | undefined) =>
+  n == null ? '—' : n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
+const FMT_NUM_COMP = (n: number | null | undefined, digits = 1) =>
+  n == null ? '—' : n.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits })
+const FMT_DATE_COMP = (iso: string | null | undefined) => {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  return isNaN(d.getTime()) ? '—' : d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+}
+
+function CompInlinePopup({
+  sale, pos, isSelected,
+  onClose, onView3D, onViewDetails, onAddToReport,
+}: {
+  sale: SaleDetail
+  pos: { x: number; y: number }
+  isSelected: boolean
+  onClose: () => void
+  onView3D: () => void
+  onViewDetails: () => void
+  onAddToReport: () => void
+}) {
+  // Esc closes the popup
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  // Anchor above the pin unless near the top of the viewport, then
+  // anchor below. Clamp horizontally too.
+  const POPUP_WIDTH = 300
+  const ABOVE_HEIGHT = 340
+  const showBelow = pos.y < ABOVE_HEIGHT
+  const clampedX = typeof window !== 'undefined' ? Math.max(
+    POPUP_WIDTH / 2 + 8,
+    Math.min(pos.x, window.innerWidth - POPUP_WIDTH / 2 - 8),
+  ) : pos.x
+
+  const ppa = sale.pricePerAcre
+  const rating = sale.soilRating
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        left: clampedX,
+        top: pos.y,
+        transform: showBelow
+          ? 'translate(-50%, 22px)'
+          : 'translate(-50%, calc(-100% - 22px))',
+        background: '#fff',
+        color: '#111',
+        borderRadius: 12,
+        boxShadow: '0 12px 36px rgba(0,0,0,0.45)',
+        width: POPUP_WIDTH,
+        zIndex: 1000,
+      }}
+      // Stop clicks inside the popup from bubbling to the map and
+      // triggering the close-on-map-click handler.
+      onMouseDown={(e) => e.stopPropagation()}
+    >
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '10px 12px 6px',
+        borderBottom: '1px solid rgba(0,0,0,0.06)',
+      }}>
+        <strong style={{ fontSize: 13, color: '#555' }}>Tract sale</strong>
+        <button
+          onClick={onClose}
+          aria-label="Close"
+          style={{
+            background: 'transparent', border: 'none', cursor: 'pointer',
+            fontSize: 22, lineHeight: 1, color: '#666', padding: 0,
+            width: 28, height: 28, borderRadius: 14,
+          }}
+        >×</button>
+      </div>
+
+      <div style={{ padding: '8px 14px 12px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 4, fontSize: 13 }}>
+          <span style={{ color: '#666' }}>Sale date</span>
+          <span style={{ fontWeight: 600 }}>{FMT_DATE_COMP(sale.auctionDate)}</span>
+
+          <span style={{ color: '#666' }}>Total acres</span>
+          <span style={{ fontWeight: 600 }}>{FMT_NUM_COMP(sale.totalAcres)}</span>
+
+          <span style={{ color: '#666' }}>Sale price</span>
+          <span style={{ fontWeight: 600 }}>{FMT_USD_COMP(sale.salePrice)}</span>
+
+          <span style={{ color: '#666' }}>Price / acre</span>
+          <span style={{ fontWeight: 600 }}>{ppa != null ? `$${FMT_NUM_COMP(ppa, 0)}/ac` : '—'}</span>
+
+          {rating != null && <>
+            <span style={{ color: '#666' }}>Soil rating</span>
+            <span style={{ fontWeight: 600 }}>{FMT_NUM_COMP(rating)}</span>
+          </>}
+
+          <span style={{ color: '#666' }}>County</span>
+          <span style={{ fontWeight: 600 }}>{sale.county || '—'}</span>
+
+          {sale.township && <>
+            <span style={{ color: '#666' }}>Township</span>
+            <span style={{ fontWeight: 600 }}>{sale.township}</span>
+          </>}
+
+          <span style={{ color: '#666' }}>Owner</span>
+          <span style={{ fontWeight: 600, textAlign: 'right' }}>{sale.companyName || '—'}</span>
+        </div>
+      </div>
+
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: '1fr 1fr 1fr',
+        borderTop: '1px solid rgba(0,0,0,0.08)',
+        background: '#fafafa',
+        borderRadius: '0 0 12px 12px',
+      }}>
+        <button onClick={onView3D} style={compPopupBtnStyle('left')} title="View 3D terrain map">🏔 3D</button>
+        <button onClick={onViewDetails} style={compPopupBtnStyle('mid')} title="See more details">🔎 Details</button>
+        <button
+          onClick={onAddToReport}
+          style={{
+            ...compPopupBtnStyle('right'),
+            color: isSelected ? '#E91E8C' : '#111',
+            background: isSelected ? 'rgba(233,30,140,0.08)' : 'transparent',
+          }}
+          title={isSelected ? 'Remove from report' : 'Add to report'}
+        >
+          {isSelected ? '✓ Added' : '＋ Report'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function compPopupBtnStyle(pos: 'left' | 'mid' | 'right'): React.CSSProperties {
+  return {
+    border: 'none',
+    background: 'transparent',
+    padding: '10px 8px',
+    fontSize: 13,
+    fontWeight: 600,
+    cursor: 'pointer',
+    color: '#111',
+    borderRight: pos !== 'right' ? '1px solid rgba(0,0,0,0.08)' : 'none',
+    borderRadius:
+      pos === 'left' ? '0 0 0 12px' : pos === 'right' ? '0 0 12px 0' : 0,
+  }
 }
