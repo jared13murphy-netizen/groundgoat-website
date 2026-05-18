@@ -1,26 +1,27 @@
 'use client'
 
 /**
- * Find Comparables — map view (Phase 1).
+ * Find Comparables — map view (Phase 1, click-based redesign).
  *
- * Renders ALL sold tracts + private-treaty / MyDec / ATTOM listings in
- * the viewport for a given subject tract. Hover a pin → popup with
- * sale data + 3 horizontal action buttons (3D / Details / Add to
- * Report). Popup stays open when the cursor moves onto it so admin
- * can click a button without it disappearing.
+ * Behavior (per user 2026-05-18 redesign):
+ *   - NO hover. Pins/parcels with sales render as click-target "+"
+ *     icons. Click → popup opens. Popup has explicit X to close
+ *     (and click-outside-to-close). Stays open while admin reads /
+ *     clicks 3D / Details. Closes when Add-to-Report is clicked.
+ *   - All tract sales from /api/comparables/map-view show a + icon.
+ *   - Regrid parcels with cached sale data ALSO show a + icon (from
+ *     the same response's `parcels_with_sales` array — sparse but
+ *     real). The full Regrid parcel layer is rendered underneath as
+ *     normal (every parcel boundary visible).
  *
- * ISOLATED FROM the existing ComparablesMap.tsx — that one powers the
- * /listings/[id]/comparables similarity-ranked report and stays
- * unchanged. This is a separate, purely-visual map view.
- *
- * Data source: GET /api/comparables/map-view?subject_tract_id=…
- * (added 2026-05-16 — viewport-bounded GeoJSON of sales).
+ * Subject highlight = blue ring at the focal tract. Sale polygons
+ * stay rendered as semi-transparent pink fills for visual context.
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import { TILE_URL, TILE_ATTRIBUTION } from './mapConstants'
+import { TILE_URL, TILE_ATTRIBUTION, GLYPH_URL } from './mapConstants'
 import { addRegridLayer, fetchRegridConfig, type RegridConfig } from './regridLayer'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import Tract3DModal from '@/components/Tract3DModal'
@@ -49,6 +50,22 @@ interface MapSale {
   source_url: string | null
 }
 
+interface ParcelWithSale {
+  ll_uuid: string
+  lat: number | null
+  lng: number | null
+  polygon_coordinates: number[][] | null
+  sale_date: string | null
+  sale_price: number | null
+  price_per_acre: number | null
+  total_acres: number | null
+  owner: string | null
+  address: string | null
+  county: string | null
+  state: string | null
+  parcelnumb: string | null
+}
+
 interface Subject {
   tract_id: string
   lat: number
@@ -63,34 +80,56 @@ interface MapViewResponse {
   subject: Subject | null
   bbox: { min_lat: number; max_lat: number; min_lng: number; max_lng: number }
   sales: MapSale[]
-  count: number
+  parcels_with_sales: ParcelWithSale[]
+}
+
+// A normalized record that the popup renders. Either kind of source
+// (tract sale OR Regrid parcel with sale) maps onto this shape.
+interface PopupRecord {
+  kind: 'tract' | 'parcel'
+  id: string
+  tract_id?: string
+  listing_id?: string
+  lat: number
+  lng: number
+  polygon: number[][] | null
+  sale_date: string | null
+  sale_price: number | null
+  price_per_acre: number | null
+  total_acres: number | null
+  tillable_acres: number | null
+  soil_rating: number | null
+  soil_rating_type: string | null
+  county: string | null
+  township: string | null
+  owner: string | null
+  source_url: string | null
 }
 
 const FMT_USD = (n: number | null | undefined) =>
   n == null ? '—' : n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
-
 const FMT_NUM = (n: number | null | undefined, digits = 1) =>
   n == null ? '—' : n.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits })
-
-const FMT_DATE = (iso: string | null | undefined) =>
-  iso ? new Date(iso).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '—'
-
-type AddToReportFn = (sale: MapSale) => void
+const FMT_DATE = (iso: string | null | undefined) => {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  return isNaN(d.getTime()) ? '—' : d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+}
 
 export default function MapComparablesView({ subjectTractId }: { subjectTractId: string }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
-  const [mapReady, setMapReady] = useState(false)  // flips true on map.on('load')
+  const [mapReady, setMapReady] = useState(false)
   const [data, setData] = useState<MapViewResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
-  const [hovered, setHovered] = useState<{ sale: MapSale; pos: { x: number; y: number } } | null>(null)
-  const closeTimerRef = useRef<number | null>(null)
+  // Currently-open popup. Click a + → set this. Close = set null.
+  const [openRecord, setOpenRecord] = useState<{ rec: PopupRecord; pos: { x: number; y: number } } | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [show3D, setShow3D] = useState<{ tractId: string } | null>(null)
   const [regridConfig, setRegridConfig] = useState<RegridConfig | null>(null)
 
-  // Fetch the comparables payload
+  // --- Data fetch -----------------------------------------------------
   useEffect(() => {
     let cancelled = false
     const load = async () => {
@@ -115,15 +154,14 @@ export default function MapComparablesView({ subjectTractId }: { subjectTractId:
     return () => { cancelled = true }
   }, [subjectTractId])
 
-  // Regrid tile config (parcel layer)
   useEffect(() => {
     let cancelled = false
     fetchRegridConfig().then(cfg => { if (!cancelled) setRegridConfig(cfg) })
     return () => { cancelled = true }
   }, [])
 
-  // Build GeoJSON for pins + polygons
-  const pinsGeo = useMemo(() => {
+  // --- Memoized GeoJSON sources --------------------------------------
+  const tractPinsGeo = useMemo(() => {
     if (!data) return { type: 'FeatureCollection', features: [] } as any
     return {
       type: 'FeatureCollection',
@@ -131,13 +169,27 @@ export default function MapComparablesView({ subjectTractId }: { subjectTractId:
         .filter(s => s.lat != null && s.lng != null)
         .map(s => ({
           type: 'Feature',
-          properties: { tract_id: s.tract_id, kind: s.kind },
+          properties: { id: s.tract_id, source: 'tract' },
           geometry: { type: 'Point', coordinates: [s.lng, s.lat] },
         })),
     } as any
   }, [data])
 
-  const polysGeo = useMemo(() => {
+  const parcelPinsGeo = useMemo(() => {
+    if (!data) return { type: 'FeatureCollection', features: [] } as any
+    return {
+      type: 'FeatureCollection',
+      features: (data.parcels_with_sales || [])
+        .filter(p => p.lat != null && p.lng != null)
+        .map(p => ({
+          type: 'Feature',
+          properties: { id: p.ll_uuid, source: 'parcel' },
+          geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
+        })),
+    } as any
+  }, [data])
+
+  const tractPolysGeo = useMemo(() => {
     if (!data) return { type: 'FeatureCollection', features: [] } as any
     return {
       type: 'FeatureCollection',
@@ -150,34 +202,31 @@ export default function MapComparablesView({ subjectTractId }: { subjectTractId:
           }
           return {
             type: 'Feature',
-            properties: { tract_id: s.tract_id, kind: s.kind },
+            properties: { id: s.tract_id },
             geometry: { type: 'Polygon', coordinates: [coords] },
           }
         }),
     } as any
   }, [data])
 
-  const saleById = useMemo(() => {
+  // Lookup tables — referenced in click handlers via refs so they
+  // see the latest data without re-registering events.
+  const tractById = useMemo(() => {
     const m = new Map<string, MapSale>()
     if (data) for (const s of data.sales) m.set(s.tract_id, s)
     return m
   }, [data])
+  const parcelById = useMemo(() => {
+    const m = new Map<string, ParcelWithSale>()
+    if (data) for (const p of data.parcels_with_sales || []) m.set(p.ll_uuid, p)
+    return m
+  }, [data])
+  const tractByIdRef = useRef(tractById)
+  const parcelByIdRef = useRef(parcelById)
+  useEffect(() => { tractByIdRef.current = tractById }, [tractById])
+  useEffect(() => { parcelByIdRef.current = parcelById }, [parcelById])
 
-  // Keep a ref to saleById so the map event handlers see the latest
-  // value without needing to re-register handlers on every render.
-  const saleByIdRef = useRef(saleById)
-  useEffect(() => { saleByIdRef.current = saleById }, [saleById])
-
-  // ------------------------------------------------------------------
-  // EFFECT 1: Create the map ONCE (after data first arrives). Flip
-  // `mapReady` true on the 'load' event so every downstream effect
-  // (layer setup, regrid overlay, source updates) can gate on a
-  // single reliable readiness signal — previously we used
-  // map.isStyleLoaded() inline, which returned false during the
-  // brief window between map creation and style load, causing the
-  // layer-setup effect to bail and never re-run. That's why hover
-  // popups stopped working (sale-pins-circle layer never got added).
-  // ------------------------------------------------------------------
+  // --- Map init (once, on first data arrival) ------------------------
   useEffect(() => {
     if (!containerRef.current || mapRef.current || !data) return
     const center: [number, number] = data.subject
@@ -187,6 +236,7 @@ export default function MapComparablesView({ subjectTractId }: { subjectTractId:
       container: containerRef.current,
       style: {
         version: 8,
+        glyphs: GLYPH_URL,  // required for symbol-layer text rendering (the + icons)
         sources: { imagery: { type: 'raster', tiles: [TILE_URL], tileSize: 256, attribution: TILE_ATTRIBUTION } },
         layers: [{ id: 'imagery', type: 'raster', source: 'imagery' }],
       },
@@ -199,18 +249,16 @@ export default function MapComparablesView({ subjectTractId }: { subjectTractId:
 
     map.on('load', () => setMapReady(true))
 
-    // Reposition popup when map pans/zooms — safe to register early
-    // since it only mutates state when there's already a hovered pin.
+    // Reposition open popup when the map pans/zooms.
     map.on('move', () => {
-      setHovered(h => {
-        if (!h) return h
-        const p = map.project([h.sale.lng!, h.sale.lat!])
-        return { sale: h.sale, pos: { x: p.x, y: p.y } }
+      setOpenRecord(prev => {
+        if (!prev) return prev
+        const p = map.project([prev.rec.lng, prev.rec.lat])
+        return { rec: prev.rec, pos: { x: p.x, y: p.y } }
       })
     })
 
     return () => {
-      if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current)
       map.remove()
       mapRef.current = null
       setMapReady(false)
@@ -218,45 +266,81 @@ export default function MapComparablesView({ subjectTractId }: { subjectTractId:
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data])
 
-  // ------------------------------------------------------------------
-  // EFFECT 2: Add sale polys/pins + subject + hover handlers once the
-  // map is ready. Gated on mapReady so we know addSource/addLayer
-  // will succeed even if 'load' fired before this effect first
-  // scheduled. Idempotent — guards against re-running by checking
-  // if the source already exists.
-  // ------------------------------------------------------------------
+  // --- Layers + click handlers (after map ready + data) --------------
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapReady || !data) return
-    if (map.getSource('sale-pins')) return  // already wired
+    if (map.getSource('tract-pins')) return  // already wired
 
-    // Sale POLYGONS — pink, semi-transparent
-    map.addSource('sale-polys', { type: 'geojson', data: polysGeo })
+    // Sale POLYGONS (pink fill behind everything)
+    map.addSource('tract-polys', { type: 'geojson', data: tractPolysGeo })
     map.addLayer({
-      id: 'sale-polys-fill',
+      id: 'tract-polys-fill',
       type: 'fill',
-      source: 'sale-polys',
+      source: 'tract-polys',
       paint: { 'fill-color': '#E91E8C', 'fill-opacity': 0.18 },
     })
     map.addLayer({
-      id: 'sale-polys-line',
+      id: 'tract-polys-line',
       type: 'line',
-      source: 'sale-polys',
+      source: 'tract-polys',
       paint: { 'line-color': '#E91E8C', 'line-width': 2, 'line-opacity': 1.0 },
     })
 
-    // Sale PINS — circle markers
-    map.addSource('sale-pins', { type: 'geojson', data: pinsGeo })
+    // Tract sale PINS — circle background
+    map.addSource('tract-pins', { type: 'geojson', data: tractPinsGeo })
     map.addLayer({
-      id: 'sale-pins-circle',
+      id: 'tract-pins-bg',
       type: 'circle',
-      source: 'sale-pins',
+      source: 'tract-pins',
       paint: {
-        'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 6, 14, 12],
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 9, 14, 14],
         'circle-color': '#E91E8C',
         'circle-stroke-color': '#ffffff',
         'circle-stroke-width': 2,
       },
+    })
+    // The + symbol on top of the circle
+    map.addLayer({
+      id: 'tract-pins-plus',
+      type: 'symbol',
+      source: 'tract-pins',
+      layout: {
+        'text-field': '+',
+        'text-font': ['Open Sans Bold'],
+        'text-size': ['interpolate', ['linear'], ['zoom'], 8, 14, 14, 20],
+        'text-allow-overlap': true,
+        'text-ignore-placement': true,
+      },
+      paint: { 'text-color': '#ffffff' },
+    })
+
+    // Parcel sale PINS — same look, separate source so we can route
+    // clicks to the parcel popup branch.
+    map.addSource('parcel-pins', { type: 'geojson', data: parcelPinsGeo })
+    map.addLayer({
+      id: 'parcel-pins-bg',
+      type: 'circle',
+      source: 'parcel-pins',
+      paint: {
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 9, 14, 14],
+        'circle-color': '#E91E8C',
+        'circle-stroke-color': '#ffffff',
+        'circle-stroke-width': 2,
+      },
+    })
+    map.addLayer({
+      id: 'parcel-pins-plus',
+      type: 'symbol',
+      source: 'parcel-pins',
+      layout: {
+        'text-field': '+',
+        'text-font': ['Open Sans Bold'],
+        'text-size': ['interpolate', ['linear'], ['zoom'], 8, 14, 14, 20],
+        'text-allow-overlap': true,
+        'text-ignore-placement': true,
+      },
+      paint: { 'text-color': '#ffffff' },
     })
 
     // Subject highlight — blue ring at the focal tract
@@ -270,7 +354,7 @@ export default function MapComparablesView({ subjectTractId }: { subjectTractId:
         type: 'circle',
         source: 'subject',
         paint: {
-          'circle-radius': 14,
+          'circle-radius': 16,
           'circle-color': '#2563EB',
           'circle-stroke-color': '#ffffff',
           'circle-stroke-width': 3,
@@ -294,25 +378,45 @@ export default function MapComparablesView({ subjectTractId }: { subjectTractId:
       }
     }
 
-    // Pin hover handlers
-    const onPinMove = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
+    // Click handlers — open popup. Pointer cursor on hover too so the
+    // UI feels clickable (NO popup on hover; just cursor change).
+    const setPointer = () => { map.getCanvas().style.cursor = 'pointer' }
+    const clearPointer = () => { map.getCanvas().style.cursor = '' }
+    map.on('mouseenter', 'tract-pins-bg', setPointer)
+    map.on('mouseleave', 'tract-pins-bg', clearPointer)
+    map.on('mouseenter', 'parcel-pins-bg', setPointer)
+    map.on('mouseleave', 'parcel-pins-bg', clearPointer)
+
+    const onTractClick = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
       const f = e.features?.[0]
       if (!f) return
-      map.getCanvas().style.cursor = 'pointer'
-      const tid = (f.properties as any)?.tract_id as string
-      const sale = saleByIdRef.current.get(tid)
-      if (!sale) return
-      const point = map.project([sale.lng!, sale.lat!])
-      if (closeTimerRef.current) { window.clearTimeout(closeTimerRef.current); closeTimerRef.current = null }
-      setHovered({ sale, pos: { x: point.x, y: point.y } })
+      const id = (f.properties as any)?.id as string
+      const s = tractByIdRef.current.get(id)
+      if (!s || s.lat == null || s.lng == null) return
+      const p = map.project([s.lng, s.lat])
+      setOpenRecord({
+        rec: tractToPopupRecord(s),
+        pos: { x: p.x, y: p.y },
+      })
+      e.preventDefault?.()  // suppress map click below
     }
-    const onPinLeave = () => {
-      map.getCanvas().style.cursor = ''
-      if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current)
-      closeTimerRef.current = window.setTimeout(() => setHovered(null), 150)
+    const onParcelClick = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
+      const f = e.features?.[0]
+      if (!f) return
+      const id = (f.properties as any)?.id as string
+      const p = parcelByIdRef.current.get(id)
+      if (!p || p.lat == null || p.lng == null) return
+      const pos = map.project([p.lng, p.lat])
+      setOpenRecord({
+        rec: parcelToPopupRecord(p),
+        pos: { x: pos.x, y: pos.y },
+      })
+      e.preventDefault?.()
     }
-    map.on('mousemove', 'sale-pins-circle', onPinMove)
-    map.on('mouseleave', 'sale-pins-circle', onPinLeave)
+    map.on('click', 'tract-pins-bg', onTractClick)
+    map.on('click', 'tract-pins-plus', onTractClick)
+    map.on('click', 'parcel-pins-bg', onParcelClick)
+    map.on('click', 'parcel-pins-plus', onParcelClick)
 
     // Fit bounds to subject + sales bbox
     const padLng = (data.bbox.max_lng - data.bbox.min_lng) * 0.1
@@ -328,93 +432,95 @@ export default function MapComparablesView({ subjectTractId }: { subjectTractId:
     } catch {}
 
     return () => {
-      map.off('mousemove', 'sale-pins-circle' as any, onPinMove as any)
-      map.off('mouseleave', 'sale-pins-circle' as any, onPinLeave as any)
+      map.off('mouseenter', 'tract-pins-bg' as any, setPointer)
+      map.off('mouseleave', 'tract-pins-bg' as any, clearPointer)
+      map.off('mouseenter', 'parcel-pins-bg' as any, setPointer)
+      map.off('mouseleave', 'parcel-pins-bg' as any, clearPointer)
+      map.off('click', 'tract-pins-bg' as any, onTractClick as any)
+      map.off('click', 'tract-pins-plus' as any, onTractClick as any)
+      map.off('click', 'parcel-pins-bg' as any, onParcelClick as any)
+      map.off('click', 'parcel-pins-plus' as any, onParcelClick as any)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapReady, data])
 
-  // Update GeoJSON sources when data changes (after sources exist)
+  // Update source data when GeoJSON changes (after layers exist)
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapReady) return
-    const pinsSrc = map.getSource('sale-pins') as maplibregl.GeoJSONSource | undefined
-    if (pinsSrc) pinsSrc.setData(pinsGeo)
-    const polysSrc = map.getSource('sale-polys') as maplibregl.GeoJSONSource | undefined
-    if (polysSrc) polysSrc.setData(polysGeo)
-  }, [pinsGeo, polysGeo, mapReady])
+    ;(map.getSource('tract-pins') as maplibregl.GeoJSONSource | undefined)?.setData(tractPinsGeo)
+    ;(map.getSource('parcel-pins') as maplibregl.GeoJSONSource | undefined)?.setData(parcelPinsGeo)
+    ;(map.getSource('tract-polys') as maplibregl.GeoJSONSource | undefined)?.setData(tractPolysGeo)
+  }, [tractPinsGeo, parcelPinsGeo, tractPolysGeo, mapReady])
 
-  // Add Regrid layer after map loads + config arrives. Gated on
-  // mapReady (was the original bug — bailed on isStyleLoaded() when
-  // config arrived early; never retried).
+  // Regrid parcel layer (all parcels, no filter)
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapReady || !regridConfig?.tile_url_template) return
-    const beforeId = map.getLayer('sale-polys-fill') ? 'sale-polys-fill' : undefined
+    const beforeId = map.getLayer('tract-polys-fill') ? 'tract-polys-fill' : undefined
     const cleanup = addRegridLayer(map, regridConfig, { beforeId })
     return cleanup
   }, [regridConfig, mapReady])
 
-  // Add-to-Report behavior — closes popup after click (per spec)
-  const onAddToReport = (sale: MapSale) => {
+  // ESC closes the popup (UX nicety)
+  useEffect(() => {
+    if (!openRecord) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpenRecord(null) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [openRecord])
+
+  const closePopup = () => setOpenRecord(null)
+
+  const onAddToReport = (rec: PopupRecord) => {
     setSelectedIds(prev => {
       const next = new Set(prev)
-      if (next.has(sale.tract_id)) next.delete(sale.tract_id)
-      else next.add(sale.tract_id)
+      if (next.has(rec.id)) next.delete(rec.id); else next.add(rec.id)
       return next
     })
-    setHovered(null)
+    closePopup()  // per spec: only Add-to-Report closes the popup
   }
-
-  // 3D + Details — keep popup open per spec. For Phase 1 every sale
-  // has a tract_id (they're all from our DB), so the existing
-  // /api/tracts/{id}/elevation path is used. Phase 2 (Regrid parcel
-  // overlay) will switch to /api/elevation/polygon since those
-  // parcels won't have tract_ids — the backend endpoint is already
-  // in place.
-  const onView3D = (sale: MapSale) => {
-    setShow3D({ tractId: sale.tract_id })
+  const onView3D = (rec: PopupRecord) => {
+    // For tract records we have a tract_id → existing 3D modal works.
+    // For parcel records (no tract_id) the 3D modal would need the
+    // polygon-elevation endpoint; deferred to a follow-up so we don't
+    // ship a broken button.
+    if (rec.kind === 'tract' && rec.tract_id) {
+      setShow3D({ tractId: rec.tract_id })
+    }
   }
-  const onViewDetails = (sale: MapSale) => {
-    window.open(`/listings/${sale.listing_id}`, '_blank', 'noopener,noreferrer')
+  const onViewDetails = (rec: PopupRecord) => {
+    if (rec.kind === 'tract' && rec.listing_id) {
+      window.open(`/listings/${rec.listing_id}`, '_blank', 'noopener,noreferrer')
+    } else if (rec.kind === 'parcel' && rec.source_url) {
+      window.open(rec.source_url, '_blank', 'noopener,noreferrer')
+    }
   }
 
   if (loading) {
-    return (
-      <div style={{ padding: 40, textAlign: 'center', color: '#999' }}>
-        Loading comparables map…
-      </div>
-    )
+    return <div style={{ padding: 40, textAlign: 'center', color: '#999' }}>Loading comparables map…</div>
   }
   if (error) {
-    return (
-      <div style={{ padding: 40, textAlign: 'center', color: '#ff6b6b' }}>
-        Failed to load comparables: {error}
-      </div>
-    )
+    return <div style={{ padding: 40, textAlign: 'center', color: '#ff6b6b' }}>Failed to load comparables: {error}</div>
   }
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
       <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
-      {hovered && (
-        <ComparableSaleHoverPopup
-          sale={hovered.sale}
-          pos={hovered.pos}
-          onMouseEnter={() => {
-            if (closeTimerRef.current) {
-              window.clearTimeout(closeTimerRef.current)
-              closeTimerRef.current = null
-            }
-          }}
-          onMouseLeave={() => {
-            if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current)
-            closeTimerRef.current = window.setTimeout(() => setHovered(null), 150)
-          }}
-          onView3D={() => onView3D(hovered.sale)}
-          onViewDetails={() => onViewDetails(hovered.sale)}
-          onAddToReport={() => onAddToReport(hovered.sale)}
-          isSelected={selectedIds.has(hovered.sale.tract_id)}
+      {openRecord && (
+        <ComparablePopup
+          rec={openRecord.rec}
+          pos={openRecord.pos}
+          isSelected={selectedIds.has(openRecord.rec.id)}
+          onClose={closePopup}
+          onView3D={() => onView3D(openRecord.rec)}
+          onViewDetails={() => onViewDetails(openRecord.rec)}
+          onAddToReport={() => onAddToReport(openRecord.rec)}
+          show3DButton={openRecord.rec.kind === 'tract' && !!openRecord.rec.tract_id}
+          showDetailsButton={
+            (openRecord.rec.kind === 'tract' && !!openRecord.rec.listing_id) ||
+            (openRecord.rec.kind === 'parcel' && !!openRecord.rec.source_url)
+          }
         />
       )}
       {/* Floating count badge */}
@@ -436,115 +542,205 @@ export default function MapComparablesView({ subjectTractId }: { subjectTractId:
   )
 }
 
-/**
- * Popup that opens on pin-hover. Three horizontal action buttons.
- * The container has its own onMouseEnter/Leave so the cursor can
- * transit FROM the pin → onto the popup without the close timer firing.
- */
-function ComparableSaleHoverPopup({
-  sale, pos, onMouseEnter, onMouseLeave, onView3D, onViewDetails, onAddToReport, isSelected,
+// ---------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------
+
+function tractToPopupRecord(s: MapSale): PopupRecord {
+  return {
+    kind: 'tract',
+    id: s.tract_id,
+    tract_id: s.tract_id,
+    listing_id: s.listing_id,
+    lat: s.lat as number,
+    lng: s.lng as number,
+    polygon: s.polygon_coordinates,
+    sale_date: s.sale_date,
+    sale_price: s.sale_price,
+    price_per_acre: s.price_per_acre,
+    total_acres: s.total_acres,
+    tillable_acres: s.tillable_acres,
+    soil_rating: s.soil_rating,
+    soil_rating_type: s.soil_rating_type,
+    county: s.county,
+    township: s.township,
+    owner: s.owner || s.company_name,
+    source_url: s.source_url,
+  }
+}
+
+function parcelToPopupRecord(p: ParcelWithSale): PopupRecord {
+  return {
+    kind: 'parcel',
+    id: p.ll_uuid,
+    lat: p.lat as number,
+    lng: p.lng as number,
+    polygon: p.polygon_coordinates,
+    sale_date: p.sale_date,
+    sale_price: p.sale_price,
+    price_per_acre: p.price_per_acre,
+    total_acres: p.total_acres,
+    tillable_acres: null,
+    soil_rating: null,
+    soil_rating_type: null,
+    county: p.county,
+    township: null,
+    owner: p.owner,
+    source_url: null,
+  }
+}
+
+// ---------------------------------------------------------------------
+// Popup
+// ---------------------------------------------------------------------
+
+function ComparablePopup({
+  rec, pos, isSelected,
+  onClose, onView3D, onViewDetails, onAddToReport,
+  show3DButton, showDetailsButton,
 }: {
-  sale: MapSale
+  rec: PopupRecord
   pos: { x: number; y: number }
-  onMouseEnter: () => void
-  onMouseLeave: () => void
+  isSelected: boolean
+  onClose: () => void
   onView3D: () => void
   onViewDetails: () => void
   onAddToReport: () => void
-  isSelected: boolean
+  show3DButton: boolean
+  showDetailsButton: boolean
 }) {
-  const ppa = sale.price_per_acre
-  const rating = sale.soil_rating
-  const ratingLabel = rating != null
-    ? `${sale.soil_rating_type || 'Soil'}: ${FMT_NUM(rating)}`
-    : null
-  // Decide whether to anchor the popup ABOVE the pin (default — most
-  // intuitive) or BELOW (when the pin is near the top of the viewport
-  // and an above-anchored popup would clip off-screen).
-  const POPUP_HEIGHT_EST = 300  // conservative — actual is ~220-280
-  const POPUP_WIDTH = 280
-  const showBelow = pos.y < POPUP_HEIGHT_EST
-  // Horizontal clamp — keep the popup inside the viewport.
-  const clampedX = Math.max(
+  // Click-outside-to-close
+  const ref = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    const onDocClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        // A click on a + icon should NOT immediately close+reopen — the
+        // map's own click handler runs before this. But just in case
+        // the target is the canvas (a map click anywhere else), close.
+        const t = e.target as HTMLElement
+        if (t?.closest('.maplibregl-canvas')) {
+          // Defer so map's own click handler (which sets a new popup)
+          // wins the race.
+          setTimeout(() => onClose(), 0)
+        } else {
+          onClose()
+        }
+      }
+    }
+    // Capture-phase so we run before React's bubble-phase handlers.
+    document.addEventListener('mousedown', onDocClick, true)
+    return () => document.removeEventListener('mousedown', onDocClick, true)
+  }, [onClose])
+
+  // Position: anchor below the pin if it's close to the top of the
+  // viewport (would otherwise clip), else above. Horizontal clamp keeps
+  // popup inside left/right edges.
+  const POPUP_WIDTH = 300
+  const ABOVE_HEIGHT = 320  // conservative
+  const showBelow = pos.y < ABOVE_HEIGHT
+  const clampedX = typeof window !== 'undefined' ? Math.max(
     POPUP_WIDTH / 2 + 8,
     Math.min(pos.x, window.innerWidth - POPUP_WIDTH / 2 - 8),
-  )
+  ) : pos.x
+
+  const ratingLabel = rec.soil_rating != null
+    ? `${rec.soil_rating_type || 'Soil'}: ${FMT_NUM(rec.soil_rating)}`
+    : null
+
   return (
     <div
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
+      ref={ref}
       style={{
         position: 'absolute',
         left: clampedX,
         top: pos.y,
         transform: showBelow
-          ? 'translate(-50%, 14px)'
-          : 'translate(-50%, calc(-100% - 14px))',
+          ? 'translate(-50%, 18px)'
+          : 'translate(-50%, calc(-100% - 18px))',
         background: '#fff',
         color: '#111',
         borderRadius: 12,
-        boxShadow: '0 10px 30px rgba(0,0,0,0.35)',
-        minWidth: 260,
-        maxWidth: 320,
+        boxShadow: '0 12px 36px rgba(0,0,0,0.45)',
+        width: POPUP_WIDTH,
         zIndex: 1000,
-        pointerEvents: 'auto',
       }}
     >
-      {/* Body */}
-      <div style={{ padding: '12px 14px' }}>
+      {/* Header row with close button */}
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '10px 12px 6px',
+        borderBottom: '1px solid rgba(0,0,0,0.06)',
+      }}>
+        <strong style={{ fontSize: 13, color: '#555' }}>
+          {rec.kind === 'tract' ? 'Tract sale' : 'Parcel sale'}
+        </strong>
+        <button
+          onClick={onClose}
+          aria-label="Close"
+          style={{
+            background: 'transparent', border: 'none', cursor: 'pointer',
+            fontSize: 22, lineHeight: 1, color: '#666', padding: 0,
+            width: 28, height: 28, borderRadius: 14,
+          }}
+          onMouseOver={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(0,0,0,0.06)' }}
+          onMouseOut={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent' }}
+        >×</button>
+      </div>
+
+      <div style={{ padding: '8px 14px 12px' }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 4, fontSize: 13 }}>
           <span style={{ color: '#666' }}>Sale date</span>
-          <span style={{ fontWeight: 600 }}>{FMT_DATE(sale.sale_date)}</span>
+          <span style={{ fontWeight: 600 }}>{FMT_DATE(rec.sale_date)}</span>
 
           <span style={{ color: '#666' }}>Total acres</span>
-          <span style={{ fontWeight: 600 }}>{FMT_NUM(sale.total_acres)}</span>
+          <span style={{ fontWeight: 600 }}>{FMT_NUM(rec.total_acres)}</span>
 
           <span style={{ color: '#666' }}>Sale price</span>
-          <span style={{ fontWeight: 600 }}>{FMT_USD(sale.sale_price)}</span>
+          <span style={{ fontWeight: 600 }}>{FMT_USD(rec.sale_price)}</span>
 
           <span style={{ color: '#666' }}>Price / acre</span>
-          <span style={{ fontWeight: 600 }}>{ppa != null ? `$${FMT_NUM(ppa, 0)}/ac` : '—'}</span>
+          <span style={{ fontWeight: 600 }}>{rec.price_per_acre != null ? `$${FMT_NUM(rec.price_per_acre, 0)}/ac` : '—'}</span>
 
           {ratingLabel && <>
-            <span style={{ color: '#666' }}>{sale.soil_rating_type || 'Soil rating'}</span>
-            <span style={{ fontWeight: 600 }}>{FMT_NUM(rating)}</span>
+            <span style={{ color: '#666' }}>{rec.soil_rating_type || 'Soil rating'}</span>
+            <span style={{ fontWeight: 600 }}>{FMT_NUM(rec.soil_rating)}</span>
           </>}
 
           <span style={{ color: '#666' }}>County</span>
-          <span style={{ fontWeight: 600 }}>{sale.county || '—'}</span>
+          <span style={{ fontWeight: 600 }}>{rec.county || '—'}</span>
 
-          {sale.township && <>
+          {rec.township && <>
             <span style={{ color: '#666' }}>Township</span>
-            <span style={{ fontWeight: 600 }}>{sale.township}</span>
+            <span style={{ fontWeight: 600 }}>{rec.township}</span>
           </>}
 
           <span style={{ color: '#666' }}>Owner</span>
-          <span style={{ fontWeight: 600, textAlign: 'right' }}>{sale.owner || sale.company_name || '—'}</span>
+          <span style={{ fontWeight: 600, textAlign: 'right' }}>{rec.owner || '—'}</span>
         </div>
       </div>
 
       {/* Three horizontal action buttons */}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: '1fr 1fr 1fr',
+        gridTemplateColumns: `${show3DButton ? '1fr' : ''} ${showDetailsButton ? '1fr' : ''} 1fr`.trim(),
         borderTop: '1px solid rgba(0,0,0,0.08)',
         background: '#fafafa',
         borderRadius: '0 0 12px 12px',
       }}>
-        <button
-          onClick={onView3D}
-          style={popupBtnStyle('left')}
-          title="View 3D terrain map"
-        >
-          🏔 3D
-        </button>
-        <button
-          onClick={onViewDetails}
-          style={popupBtnStyle('mid')}
-          title="See more details"
-        >
-          🔎 Details
-        </button>
+        {show3DButton && (
+          <button onClick={onView3D} style={popupBtnStyle('left')} title="View 3D terrain map">
+            🏔 3D
+          </button>
+        )}
+        {showDetailsButton && (
+          <button
+            onClick={onViewDetails}
+            style={popupBtnStyle(show3DButton ? 'mid' : 'left')}
+            title="See more details"
+          >
+            🔎 Details
+          </button>
+        )}
         <button
           onClick={onAddToReport}
           style={{
