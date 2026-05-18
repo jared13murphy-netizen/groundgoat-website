@@ -4452,7 +4452,11 @@ function _regridPopupHTML(record: any): string {
 
   const county = _titleCase(record?.county || '')
   const state = record?.state2 || record?.state || ''
-  const countyState = [county, state].filter(Boolean).join(', ')
+  // Append "County" to the county name when both are present
+  // ("Schuyler, IL" → "Schuyler County, IL").
+  const countyState = county
+    ? `${county} County${state ? ', ' + state : ''}`
+    : (state || '')
 
   // Hero stat strip — only cells with values render
   const acresLabel = _fmtAcres(gisacre)
