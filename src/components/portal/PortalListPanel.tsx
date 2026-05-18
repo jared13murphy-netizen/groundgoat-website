@@ -173,22 +173,22 @@ function ListingCard({ listing, activeTab, onClick, isWatchlisted, onToggleWatch
         })()}
       </div>
 
-      {/* Card body — white → light-gray gradient to make the card pop
-          against the black panel. All text below the image is rendered
-          on this light surface, so colors flip to dark. */}
-      <div className="p-4 bg-gradient-to-b from-white to-gray-100 text-gray-900">
+      {/* Card body — subtle dark gradient (gg-gray-700 → gg-gray-800)
+          so the card lifts off the pure-black panel without going
+          bright. Text stays light. */}
+      <div className="p-4 bg-gradient-to-b from-gg-gray-700 to-gg-gray-800 text-white">
         {/* Title */}
         <div className={`text-sm font-semibold ${hasCompany ? 'group-hover:text-gg-pink' : ''} transition`}>
           {listing.total_acres ? Math.round(listing.total_acres) : '—'} ac — {listing.county}
         </div>
-        <div className="text-xs text-gray-600 mt-0.5 flex items-center gap-1">
+        <div className="text-xs text-gg-gray-300 mt-0.5 flex items-center gap-1">
           <MapPin size={11} />
           {listing.county}, {listing.state}
         </div>
 
         {/* Company */}
         {hasCompany && (
-          <div className="text-xs text-gray-600 flex items-center gap-1 mt-2">
+          <div className="text-xs text-gg-gray-300 flex items-center gap-1 mt-2">
             <Building2 size={11} />
             {listing.company?.name || listing.company_name}
           </div>
@@ -203,40 +203,40 @@ function ListingCard({ listing, activeTab, onClick, isWatchlisted, onToggleWatch
               </span>
             </div>
             <div className="flex flex-col">
-              <span className="text-sm font-bold text-gray-900">{formatDate(listing)}{formatTime(listing) ? ` at ${formatTime(listing)}` : ''}</span>
+              <span className="text-sm font-bold text-white">{formatDate(listing)}{formatTime(listing) ? ` at ${formatTime(listing)}` : ''}</span>
             </div>
           </div>
         )}
 
         {/* Stats row */}
-        <div className={`grid ${activeTab === 'auctions' ? 'grid-cols-4' : 'grid-cols-3'} gap-2 pt-3 mt-3 border-t border-gray-200`}>
+        <div className={`grid ${activeTab === 'auctions' ? 'grid-cols-4' : 'grid-cols-3'} gap-2 pt-3 mt-3 border-t border-white/10`}>
           <div>
-            <div className="text-[10px] text-gray-500">Acres</div>
-            <div className="text-sm font-medium text-gray-900">{listing.total_acres ? Math.round(listing.total_acres).toLocaleString() : '—'}</div>
+            <div className="text-[10px] text-gg-gray-400">Acres</div>
+            <div className="text-sm font-medium text-white">{listing.total_acres ? Math.round(listing.total_acres).toLocaleString() : '—'}</div>
           </div>
           {!listing.is_incomplete && (
             <div>
-              <div className="text-[10px] text-gray-500">Tracts</div>
-              <div className="text-sm font-medium text-gray-900">{listing.tract_count || '—'}</div>
+              <div className="text-[10px] text-gg-gray-400">Tracts</div>
+              <div className="text-sm font-medium text-white">{listing.tract_count || '—'}</div>
             </div>
           )}
           {activeTab === 'auctions' ? (
             <>
               <div>
-                <div className="text-[10px] text-gray-500">Tillable</div>
-                <div className="text-sm font-medium text-gray-900">{listing.is_incomplete ? '—' : (getListingTillableAcres(listing) ? Math.round(getListingTillableAcres(listing)!) + ' ac' : '—')}</div>
+                <div className="text-[10px] text-gg-gray-400">Tillable</div>
+                <div className="text-sm font-medium text-white">{listing.is_incomplete ? '—' : (getListingTillableAcres(listing) ? Math.round(getListingTillableAcres(listing)!) + ' ac' : '—')}</div>
               </div>
               <div>
-                <div className="text-[10px] text-gray-500">{getSoilLabel(listing.state)}</div>
-                <div className="text-sm font-medium text-gray-900">{listing.is_incomplete ? '—' : (getListingSoilRating(listing) ?? '—')}</div>
+                <div className="text-[10px] text-gg-gray-400">{getSoilLabel(listing.state)}</div>
+                <div className="text-sm font-medium text-white">{listing.is_incomplete ? '—' : (getListingSoilRating(listing) ?? '—')}</div>
               </div>
             </>
           ) : (
             <div>
-              <div className="text-[10px] text-gray-500">
+              <div className="text-[10px] text-gg-gray-400">
                 {activeTab === 'private_treaty' ? 'Asking' : 'Sold'}
               </div>
-              <div className="text-sm font-medium text-gray-900">
+              <div className="text-sm font-medium text-white">
                 {activeTab === 'private_treaty'
                   ? formatPrice(listing.asking_price)
                   : formatPrice(listing.sale_price)
@@ -250,14 +250,14 @@ function ListingCard({ listing, activeTab, onClick, isWatchlisted, onToggleWatch
         {activeTab === 'results' && (() => {
           const ppa = getListingAvgPricePerAcre(listing)
           return ppa.avg ? (
-            <div className="mt-3 pt-2 border-t border-gray-200">
+            <div className="mt-3 pt-2 border-t border-white/10">
               <div className="flex items-center gap-1.5 text-xs">
-                <DollarSign size={12} className="text-gray-500" />
+                <DollarSign size={12} className="text-gg-gray-400" />
                 <span className="text-gg-pink font-bold text-sm">{formatPrice(ppa.avg)}/ac</span>
-                <span className="text-gray-500">· {formatDate(listing)}</span>
+                <span className="text-gg-gray-400">· {formatDate(listing)}</span>
               </div>
               {ppa.isAverage && (
-                <div className="text-[10px] text-gray-500 mt-1 italic">Avg of {listing.tract_count || listing.tracts?.length} tracts</div>
+                <div className="text-[10px] text-gg-gray-400 mt-1 italic">Avg of {listing.tract_count || listing.tracts?.length} tracts</div>
               )}
             </div>
           ) : null
