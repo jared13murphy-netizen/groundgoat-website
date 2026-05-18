@@ -80,6 +80,7 @@ type AddToReportFn = (sale: MapSale) => void
 export default function MapComparablesView({ subjectTractId }: { subjectTractId: string }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
+  const [mapReady, setMapReady] = useState(false)  // flips true on map.on('load')
   const [data, setData] = useState<MapViewResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -162,7 +163,21 @@ export default function MapComparablesView({ subjectTractId }: { subjectTractId:
     return m
   }, [data])
 
-  // Initialize map once after data first arrives
+  // Keep a ref to saleById so the map event handlers see the latest
+  // value without needing to re-register handlers on every render.
+  const saleByIdRef = useRef(saleById)
+  useEffect(() => { saleByIdRef.current = saleById }, [saleById])
+
+  // ------------------------------------------------------------------
+  // EFFECT 1: Create the map ONCE (after data first arrives). Flip
+  // `mapReady` true on the 'load' event so every downstream effect
+  // (layer setup, regrid overlay, source updates) can gate on a
+  // single reliable readiness signal — previously we used
+  // map.isStyleLoaded() inline, which returned false during the
+  // brief window between map creation and style load, causing the
+  // layer-setup effect to bail and never re-run. That's why hover
+  // popups stopped working (sale-pins-circle layer never got added).
+  // ------------------------------------------------------------------
   useEffect(() => {
     if (!containerRef.current || mapRef.current || !data) return
     const center: [number, number] = data.subject
@@ -182,145 +197,163 @@ export default function MapComparablesView({ subjectTractId }: { subjectTractId:
     map.addControl(new maplibregl.NavigationControl(), 'top-right')
     mapRef.current = map
 
-    map.on('load', () => {
-      // Sale POLYGONS — pink, semi-transparent
-      map.addSource('sale-polys', { type: 'geojson', data: polysGeo })
-      map.addLayer({
-        id: 'sale-polys-fill',
-        type: 'fill',
-        source: 'sale-polys',
-        paint: { 'fill-color': '#E91E8C', 'fill-opacity': 0.18 },
-      })
-      map.addLayer({
-        id: 'sale-polys-line',
-        type: 'line',
-        source: 'sale-polys',
-        paint: { 'line-color': '#E91E8C', 'line-width': 2, 'line-opacity': 1.0 },
-      })
+    map.on('load', () => setMapReady(true))
 
-      // Sale PINS — circle markers
-      map.addSource('sale-pins', { type: 'geojson', data: pinsGeo })
-      map.addLayer({
-        id: 'sale-pins-circle',
-        type: 'circle',
-        source: 'sale-pins',
-        paint: {
-          'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 4, 14, 10],
-          'circle-color': '#E91E8C',
-          'circle-stroke-color': '#ffffff',
-          'circle-stroke-width': 2,
-        },
+    // Reposition popup when map pans/zooms — safe to register early
+    // since it only mutates state when there's already a hovered pin.
+    map.on('move', () => {
+      setHovered(h => {
+        if (!h) return h
+        const p = map.project([h.sale.lng!, h.sale.lat!])
+        return { sale: h.sale, pos: { x: p.x, y: p.y } }
       })
-
-      // Subject highlight — blue ring at the focal tract
-      if (data.subject) {
-        map.addSource('subject', {
-          type: 'geojson',
-          data: { type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [data.subject.lng, data.subject.lat] } } as any,
-        })
-        map.addLayer({
-          id: 'subject-circle',
-          type: 'circle',
-          source: 'subject',
-          paint: {
-            'circle-radius': 14,
-            'circle-color': '#2563EB',
-            'circle-stroke-color': '#ffffff',
-            'circle-stroke-width': 3,
-          },
-        })
-        if (data.subject.polygon_coordinates && data.subject.polygon_coordinates.length >= 3) {
-          let sc = data.subject.polygon_coordinates
-          if (sc[0][0] !== sc[sc.length - 1][0] || sc[0][1] !== sc[sc.length - 1][1]) {
-            sc = [...sc, sc[0]]
-          }
-          map.addSource('subject-poly', {
-            type: 'geojson',
-            data: { type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [sc] } } as any,
-          })
-          map.addLayer({
-            id: 'subject-poly-line',
-            type: 'line',
-            source: 'subject-poly',
-            paint: { 'line-color': '#2563EB', 'line-width': 3, 'line-opacity': 1.0 },
-          })
-        }
-      }
-
-      // Pin hover handlers — open popup; cancel any pending close
-      map.on('mousemove', 'sale-pins-circle', (e: any) => {
-        const f = e.features?.[0]
-        if (!f) return
-        map.getCanvas().style.cursor = 'pointer'
-        const tid = f.properties?.tract_id as string
-        const sale = saleByIdRef.current.get(tid)
-        if (!sale) return
-        const point = map.project([sale.lng!, sale.lat!])
-        if (closeTimerRef.current) { window.clearTimeout(closeTimerRef.current); closeTimerRef.current = null }
-        setHovered({ sale, pos: { x: point.x, y: point.y } })
-      })
-      map.on('mouseleave', 'sale-pins-circle', () => {
-        map.getCanvas().style.cursor = ''
-        // Short delay so the cursor can transit onto the popup
-        if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current)
-        closeTimerRef.current = window.setTimeout(() => setHovered(null), 150)
-      })
-
-      // Reposition popup when map pans/zooms
-      map.on('move', () => {
-        setHovered(h => {
-          if (!h) return h
-          const p = map.project([h.sale.lng!, h.sale.lat!])
-          return { sale: h.sale, pos: { x: p.x, y: p.y } }
-        })
-      })
-    })
-
-    // Fit bounds to subject + sales bbox
-    const padLng = (data.bbox.max_lng - data.bbox.min_lng) * 0.1
-    const padLat = (data.bbox.max_lat - data.bbox.min_lat) * 0.1
-    map.once('load', () => {
-      try {
-        map.fitBounds(
-          [
-            [data.bbox.min_lng - padLng, data.bbox.min_lat - padLat],
-            [data.bbox.max_lng + padLng, data.bbox.max_lat + padLat],
-          ],
-          { padding: 40, duration: 0 },
-        )
-      } catch {}
     })
 
     return () => {
       if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current)
       map.remove()
       mapRef.current = null
+      setMapReady(false)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data])
 
-  // Keep a ref to saleById so the map event handlers see the latest
-  // value without needing to re-register handlers on every render.
-  const saleByIdRef = useRef(saleById)
-  useEffect(() => { saleByIdRef.current = saleById }, [saleById])
-
-  // Update GeoJSON sources when data changes (after map already exists)
+  // ------------------------------------------------------------------
+  // EFFECT 2: Add sale polys/pins + subject + hover handlers once the
+  // map is ready. Gated on mapReady so we know addSource/addLayer
+  // will succeed even if 'load' fired before this effect first
+  // scheduled. Idempotent — guards against re-running by checking
+  // if the source already exists.
+  // ------------------------------------------------------------------
   useEffect(() => {
     const map = mapRef.current
-    if (!map || !map.isStyleLoaded()) return
+    if (!map || !mapReady || !data) return
+    if (map.getSource('sale-pins')) return  // already wired
+
+    // Sale POLYGONS — pink, semi-transparent
+    map.addSource('sale-polys', { type: 'geojson', data: polysGeo })
+    map.addLayer({
+      id: 'sale-polys-fill',
+      type: 'fill',
+      source: 'sale-polys',
+      paint: { 'fill-color': '#E91E8C', 'fill-opacity': 0.18 },
+    })
+    map.addLayer({
+      id: 'sale-polys-line',
+      type: 'line',
+      source: 'sale-polys',
+      paint: { 'line-color': '#E91E8C', 'line-width': 2, 'line-opacity': 1.0 },
+    })
+
+    // Sale PINS — circle markers
+    map.addSource('sale-pins', { type: 'geojson', data: pinsGeo })
+    map.addLayer({
+      id: 'sale-pins-circle',
+      type: 'circle',
+      source: 'sale-pins',
+      paint: {
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 6, 14, 12],
+        'circle-color': '#E91E8C',
+        'circle-stroke-color': '#ffffff',
+        'circle-stroke-width': 2,
+      },
+    })
+
+    // Subject highlight — blue ring at the focal tract
+    if (data.subject) {
+      map.addSource('subject', {
+        type: 'geojson',
+        data: { type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [data.subject.lng, data.subject.lat] } } as any,
+      })
+      map.addLayer({
+        id: 'subject-circle',
+        type: 'circle',
+        source: 'subject',
+        paint: {
+          'circle-radius': 14,
+          'circle-color': '#2563EB',
+          'circle-stroke-color': '#ffffff',
+          'circle-stroke-width': 3,
+        },
+      })
+      if (data.subject.polygon_coordinates && data.subject.polygon_coordinates.length >= 3) {
+        let sc = data.subject.polygon_coordinates
+        if (sc[0][0] !== sc[sc.length - 1][0] || sc[0][1] !== sc[sc.length - 1][1]) {
+          sc = [...sc, sc[0]]
+        }
+        map.addSource('subject-poly', {
+          type: 'geojson',
+          data: { type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [sc] } } as any,
+        })
+        map.addLayer({
+          id: 'subject-poly-line',
+          type: 'line',
+          source: 'subject-poly',
+          paint: { 'line-color': '#2563EB', 'line-width': 3, 'line-opacity': 1.0 },
+        })
+      }
+    }
+
+    // Pin hover handlers
+    const onPinMove = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
+      const f = e.features?.[0]
+      if (!f) return
+      map.getCanvas().style.cursor = 'pointer'
+      const tid = (f.properties as any)?.tract_id as string
+      const sale = saleByIdRef.current.get(tid)
+      if (!sale) return
+      const point = map.project([sale.lng!, sale.lat!])
+      if (closeTimerRef.current) { window.clearTimeout(closeTimerRef.current); closeTimerRef.current = null }
+      setHovered({ sale, pos: { x: point.x, y: point.y } })
+    }
+    const onPinLeave = () => {
+      map.getCanvas().style.cursor = ''
+      if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current)
+      closeTimerRef.current = window.setTimeout(() => setHovered(null), 150)
+    }
+    map.on('mousemove', 'sale-pins-circle', onPinMove)
+    map.on('mouseleave', 'sale-pins-circle', onPinLeave)
+
+    // Fit bounds to subject + sales bbox
+    const padLng = (data.bbox.max_lng - data.bbox.min_lng) * 0.1
+    const padLat = (data.bbox.max_lat - data.bbox.min_lat) * 0.1
+    try {
+      map.fitBounds(
+        [
+          [data.bbox.min_lng - padLng, data.bbox.min_lat - padLat],
+          [data.bbox.max_lng + padLng, data.bbox.max_lat + padLat],
+        ],
+        { padding: 40, duration: 0 },
+      )
+    } catch {}
+
+    return () => {
+      map.off('mousemove', 'sale-pins-circle' as any, onPinMove as any)
+      map.off('mouseleave', 'sale-pins-circle' as any, onPinLeave as any)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapReady, data])
+
+  // Update GeoJSON sources when data changes (after sources exist)
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapReady) return
     const pinsSrc = map.getSource('sale-pins') as maplibregl.GeoJSONSource | undefined
     if (pinsSrc) pinsSrc.setData(pinsGeo)
     const polysSrc = map.getSource('sale-polys') as maplibregl.GeoJSONSource | undefined
     if (polysSrc) polysSrc.setData(polysGeo)
-  }, [pinsGeo, polysGeo])
+  }, [pinsGeo, polysGeo, mapReady])
 
-  // Add Regrid layer after map loads + config arrives
+  // Add Regrid layer after map loads + config arrives. Gated on
+  // mapReady (was the original bug — bailed on isStyleLoaded() when
+  // config arrived early; never retried).
   useEffect(() => {
     const map = mapRef.current
-    if (!map || !regridConfig?.tile_url_template || !map.isStyleLoaded()) return
-    const cleanup = addRegridLayer(map, regridConfig, { beforeId: 'sale-polys-fill' })
+    if (!map || !mapReady || !regridConfig?.tile_url_template) return
+    const beforeId = map.getLayer('sale-polys-fill') ? 'sale-polys-fill' : undefined
+    const cleanup = addRegridLayer(map, regridConfig, { beforeId })
     return cleanup
-  }, [regridConfig, data])
+  }, [regridConfig, mapReady])
 
   // Add-to-Report behavior — closes popup after click (per spec)
   const onAddToReport = (sale: MapSale) => {
