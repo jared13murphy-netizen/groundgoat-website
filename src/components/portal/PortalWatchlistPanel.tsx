@@ -78,17 +78,19 @@ function WatchlistCard({ listing, onRemove, onSelect }: {
         </button>
       </div>
 
-      <div className="p-3.5">
+      {/* Card body — light gradient + dark text, matches the look of
+          the upcoming-auctions / private-treaty / results panels. */}
+      <div className="p-3.5 bg-gradient-to-b from-white to-gray-100 text-gray-900">
         <div className="text-sm font-semibold group-hover:text-gg-pink transition">
           {listing.total_acres ? Math.round(listing.total_acres) : '—'} ac — {listing.county}
         </div>
-        <div className="text-xs text-gg-gray-400 mt-0.5 flex items-center gap-1">
+        <div className="text-xs text-gray-600 mt-0.5 flex items-center gap-1">
           <MapPin size={11} />
           {listing.county}, {listing.state}
         </div>
 
         {companyName && (
-          <div className="text-xs text-gg-gray-400 flex items-center gap-1 mt-1.5">
+          <div className="text-xs text-gray-600 flex items-center gap-1 mt-1.5">
             <Building2 size={11} />
             {companyName}
           </div>
@@ -96,7 +98,7 @@ function WatchlistCard({ listing, onRemove, onSelect }: {
 
         {/* Date or price */}
         {listing.listing_type === 'auction' && formatDate(listing) ? (
-          <div className="flex items-center gap-1.5 text-xs text-gg-gray-300 mt-2">
+          <div className="flex items-center gap-1.5 text-xs text-gray-700 mt-2">
             <Calendar size={11} className="text-gg-pink" />
             {formatDate(listing)}
           </div>
