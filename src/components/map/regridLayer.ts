@@ -191,7 +191,9 @@ export function addRegridLayer(
   const FILL_LAYER = 'regrid-parcels-fill'
   const LINE_LAYER = 'regrid-parcels-line'
   const LABEL_LAYER = 'regrid-parcels-label'
-  const minzoom = options.minZoom ?? 14
+  // Default lowered 14 → 12 per user 2026-05-18 (see ExploreMap.tsx
+  // REGRID_MIN_ZOOM comment for context).
+  const minzoom = options.minZoom ?? 12
 
   if (map.getSource(SOURCE_ID)) {
     // Already mounted (HMR or duplicate caller) — no-op cleanup.

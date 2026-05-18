@@ -2019,7 +2019,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // /api/regrid/config endpoint; we fetch it on map mount so the
   // token never appears in the frontend bundle.
   // ─────────────────────────────────────────────────────────────────
-  const REGRID_MIN_ZOOM = 14
+  // Bumped down 14 → 12 per user 2026-05-18 — previously parcels
+  // didn't appear until the user was nearly fully zoomed in. Regrid's
+  // CDN serves real data at z=11+ (z=12 tiles are ~130KB vs ~8KB at
+  // z=14, so heavier but still well within budget for a single view).
+  // If this becomes too slow at scale, raise back to 13.
+  const REGRID_MIN_ZOOM = 12
   const [regridConfig, setRegridConfig] = useState<{
     tile_url_template: string
     is_sandbox: boolean
