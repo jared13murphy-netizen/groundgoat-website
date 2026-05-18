@@ -457,27 +457,6 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
           </button>
         )}
 
-        {/* Show Neighbors — only visible for testing users */}
-        {hasBoundaries && tract.tractId && onShowNeighbors && showNeighborsButton && (
-          <button
-            onClick={handleShowNeighbors}
-            disabled={neighborsLoading}
-            className={`flex items-center justify-center gap-1.5 py-3 rounded-xl font-medium transition text-xs border ${
-              neighborsLoaded
-                ? 'bg-blue-500/10 text-blue-400 border-blue-500/30'
-                : 'bg-white/5 text-white border-white/10 hover:bg-white/10'
-            }`}
-          >
-            {neighborsLoading ? (
-              <Loader2 size={14} className="animate-spin" />
-            ) : neighborsLoaded ? (
-              `Hide (${neighborCount})`
-            ) : (
-              'Neighbors'
-            )}
-          </button>
-        )}
-
         {/* Add to Report */}
         {onToggleReport && (
           <button
