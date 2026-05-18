@@ -58,9 +58,14 @@ export default function PortalNavBar({ activeTab, onTabChange, onFilterToggle, f
   ]
 
   return (
-    <div className="fixed top-4 left-0 right-0 z-[500] flex items-center justify-center">
+    // pointer-events-none on the full-width container so clicks pass
+    // through to slide-out panels behind it (e.g. the close-X on the
+    // comp report panel sits at y~32-60, exactly where this fixed bar
+    // was intercepting). Children below re-enable pointer events on
+    // their own pill / menu surfaces so the nav stays clickable.
+    <div className="fixed top-4 left-0 right-0 z-[500] flex items-center justify-center pointer-events-none">
       {/* Centered Nav Bar */}
-      <div className="bg-black/80 backdrop-blur-xl rounded-2xl px-3 py-2 flex items-center gap-1 border border-white/25 shadow-[0_8px_32px_rgba(0,0,0,0.6)]">
+      <div className="bg-black/80 backdrop-blur-xl rounded-2xl px-3 py-2 flex items-center gap-1 border border-white/25 shadow-[0_8px_32px_rgba(0,0,0,0.6)] pointer-events-auto">
         <nav className="flex items-center gap-1">
           {tabs.map(tab => (
             <button
@@ -130,7 +135,7 @@ export default function PortalNavBar({ activeTab, onTabChange, onFilterToggle, f
       </div>
 
       {/* User Menu — absolute right */}
-      <div className="absolute right-14" ref={menuRef}>
+      <div className="absolute right-14 pointer-events-auto" ref={menuRef}>
         <button
           onClick={() => setShowUserMenu(!showUserMenu)}
           className="flex items-center gap-2 bg-black/50 backdrop-blur-xl rounded-full pl-1.5 pr-3 py-1.5 border border-white/10 hover:border-gg-pink/30 transition"
