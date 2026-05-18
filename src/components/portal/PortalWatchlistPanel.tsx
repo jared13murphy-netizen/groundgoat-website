@@ -80,7 +80,7 @@ function WatchlistCard({ listing, onRemove, onSelect }: {
 
       {/* Card body — subtle dark gradient (#1a1a1a → #3a3a3a) matching
           the upcoming-auctions / private-treaty / results cards. */}
-      <div className="p-3.5 bg-gradient-to-b from-gg-gray-800 to-gg-gray-600 text-white">
+      <div className="p-3.5 bg-gradient-to-b from-gg-gray-800 to-gg-gray-700 text-white">
         <div className="text-sm font-semibold group-hover:text-gg-pink transition">
           {listing.total_acres ? Math.round(listing.total_acres) : '—'} ac — {listing.county}
         </div>
