@@ -384,6 +384,20 @@ export default function AccessPortalPage() {
   }
 
   const handleViewListingFromMap = (listingId: string) => {
+    // In comparables mode, layer the listing detail on top of the comp
+    // report panel (z-520 over z-400) instead of tearing the comp panel
+    // down. Otherwise: clicking "View Details" on a comp popup closes
+    // the comp report; Back-to-list then has no comp report to return
+    // to, and the close-on-comp-report can't exit comp mode because
+    // the panel is already gone.
+    if (showComparablesReportPanel) {
+      setShowListPanel(false)
+      setSelectedTract(null)
+      setShowWatchlistPanel(false)
+      setShowReportPanel(false)
+      setMapListingId(listingId)
+      return
+    }
     closeAllLeftPanels()
     setMapListingId(listingId)
   }

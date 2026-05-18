@@ -176,7 +176,7 @@ function ListingCard({ listing, activeTab, onClick, isWatchlisted, onToggleWatch
       {/* Card body — subtle dark gradient: #1a1a1a top → #3a3a3a
           (gg-gray-600) bottom. Enough delta to pop off the black panel
           but stays in the dark zone, so all text stays light. */}
-      <div className="p-4 bg-gradient-to-b from-gg-gray-800 to-gg-gray-700 text-white">
+      <div className="p-4 bg-gradient-to-b from-gg-gray-800 to-[#222222] text-white">
         {/* Title */}
         <div className={`text-sm font-semibold ${hasCompany ? 'group-hover:text-gg-pink' : ''} transition`}>
           {listing.total_acres ? Math.round(listing.total_acres) : '—'} ac — {listing.county}

@@ -487,7 +487,7 @@ export default function PortalListingDetail({ listingId, onBack, onTractSelected
 
                   {/* Tract body — subtle dark gradient, same as the
                       listing/watchlist cards (#1a1a1a → #3a3a3a). */}
-                  <div className="p-4 bg-gradient-to-b from-gg-gray-800 to-gg-gray-700 text-white">
+                  <div className="p-4 bg-gradient-to-b from-gg-gray-800 to-[#222222] text-white">
                     {/* Tract Header */}
                     <div className="flex items-center justify-between mb-3">
                       <span className={`text-sm font-semibold ${onTractSelected ? 'group-hover:text-gg-pink' : ''} transition`}>
