@@ -78,10 +78,11 @@ function WatchlistCard({ listing, onRemove, onSelect }: {
         </button>
       </div>
 
-      {/* Card body — subtle dark gradient on the pure-black panel.
-          Matches the upcoming-auctions / private-treaty / results
-          cards. */}
-      <div className="p-3.5 bg-gradient-to-b from-gg-gray-700 to-gg-gray-800 text-white">
+      {/* Card body — dark-top → light-bottom gradient (#1a1a1a → #888),
+          matching the upcoming-auctions / private-treaty / results
+          cards. The date/price row sits low in the gradient so its
+          text is dark for contrast on the lighter background. */}
+      <div className="p-3.5 bg-gradient-to-b from-gg-gray-800 to-[#888888] text-white">
         <div className="text-sm font-semibold group-hover:text-gg-pink transition">
           {listing.total_acres ? Math.round(listing.total_acres) : '—'} ac — {listing.county}
         </div>
@@ -97,14 +98,14 @@ function WatchlistCard({ listing, onRemove, onSelect }: {
           </div>
         )}
 
-        {/* Date or price */}
+        {/* Date or price — bottom of the card, on the lighter portion */}
         {listing.listing_type === 'auction' && formatDate(listing) ? (
-          <div className="flex items-center gap-1.5 text-xs text-gg-gray-300 mt-2">
+          <div className="flex items-center gap-1.5 text-xs text-gray-900 font-medium mt-2">
             <Calendar size={11} className="text-gg-pink" />
             {formatDate(listing)}
           </div>
         ) : listing.asking_price ? (
-          <div className="text-xs text-gg-pink font-medium mt-2">
+          <div className="text-xs text-gg-pink font-semibold mt-2">
             {formatPrice(listing.asking_price)}
           </div>
         ) : null}
