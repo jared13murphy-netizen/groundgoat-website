@@ -200,7 +200,7 @@ export default function PortalComparablesReportPanel({ subjectInfo, reportTracts
       animate={{ x: 0 }}
       exit={{ x: -420 }}
       transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-      className="fixed top-0 left-0 bottom-0 w-[400px] z-[400] bg-gg-gray-900/95 backdrop-blur-xl border-r border-white/10 shadow-2xl flex flex-col"
+      className="fixed top-0 left-0 bottom-0 w-[400px] z-[400] bg-black border-r border-white/10 shadow-2xl flex flex-col"
     >
       {/* Header */}
       <div className="pt-8 px-5 pb-4 border-b border-white/5 shrink-0">
