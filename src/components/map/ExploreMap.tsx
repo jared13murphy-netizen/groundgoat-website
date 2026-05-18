@@ -3100,8 +3100,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             }
           }}
           onViewDetails={() => {
-            if (compPopup.sale.listingId) {
-              window.open(`/listings/${compPopup.sale.listingId}`, '_blank', 'noopener,noreferrer')
+            // Open the slide-out pane on the left (same UX as the normal
+            // /access tract-pin → View Listing flow). Parent /access page
+            // wires onViewListing to its PortalTractDetail sidebar.
+            if (onViewListing && compPopup.sale.listingId) {
+              onViewListing(compPopup.sale.listingId)
+              setCompPopup(null)
             } else if (compPopup.sale.sourceUrl) {
               window.open(compPopup.sale.sourceUrl, '_blank', 'noopener,noreferrer')
             }
@@ -4478,6 +4482,14 @@ function CompInlinePopup({
 
   const ppa = sale.pricePerAcre
   const rating = sale.soilRating
+
+  // Headline = the property location/owner. Subhead = sale date.
+  const locationLine = [sale.county, sale.state].filter(Boolean).join(', ') || 'Tract sale'
+  const ownerLine = sale.companyName || null
+
+  // Pill row stats: the three numbers buyers look at first.
+  const pricePerAcreLabel = ppa != null ? `$${FMT_NUM_COMP(ppa, 0)}` : '—'
+
   return (
     <div
       style={{
@@ -4489,100 +4501,210 @@ function CompInlinePopup({
           : 'translate(-50%, calc(-100% - 22px))',
         background: '#fff',
         color: '#111',
-        borderRadius: 12,
-        boxShadow: '0 12px 36px rgba(0,0,0,0.45)',
+        borderRadius: 14,
+        boxShadow: '0 18px 48px rgba(0,0,0,0.32), 0 2px 6px rgba(0,0,0,0.08)',
         width: POPUP_WIDTH,
         zIndex: 1000,
+        overflow: 'hidden',
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
       }}
       // Stop clicks inside the popup from bubbling to the map and
       // triggering the close-on-map-click handler.
       onMouseDown={(e) => e.stopPropagation()}
     >
+      {/* Header — gradient band with location + close button. The
+          pink/charcoal palette mirrors the rest of the site. */}
       <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '10px 12px 6px',
-        borderBottom: '1px solid rgba(0,0,0,0.06)',
+        padding: '14px 16px 12px',
+        background: 'linear-gradient(135deg, #1f1f23 0%, #2a2a30 100%)',
+        color: '#fff',
+        position: 'relative',
       }}>
-        <strong style={{ fontSize: 13, color: '#555' }}>Tract sale</strong>
-        <button
-          onClick={onClose}
-          aria-label="Close"
-          style={{
-            background: 'transparent', border: 'none', cursor: 'pointer',
-            fontSize: 22, lineHeight: 1, color: '#666', padding: 0,
-            width: 28, height: 28, borderRadius: 14,
-          }}
-        >×</button>
-      </div>
-
-      <div style={{ padding: '8px 14px 12px' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 4, fontSize: 13 }}>
-          <span style={{ color: '#666' }}>Sale date</span>
-          <span style={{ fontWeight: 600 }}>{FMT_DATE_COMP(sale.auctionDate)}</span>
-
-          <span style={{ color: '#666' }}>Total acres</span>
-          <span style={{ fontWeight: 600 }}>{FMT_NUM_COMP(sale.totalAcres)}</span>
-
-          <span style={{ color: '#666' }}>Sale price</span>
-          <span style={{ fontWeight: 600 }}>{FMT_USD_COMP(sale.salePrice)}</span>
-
-          <span style={{ color: '#666' }}>Price / acre</span>
-          <span style={{ fontWeight: 600 }}>{ppa != null ? `$${FMT_NUM_COMP(ppa, 0)}/ac` : '—'}</span>
-
-          {rating != null && <>
-            <span style={{ color: '#666' }}>Soil rating</span>
-            <span style={{ fontWeight: 600 }}>{FMT_NUM_COMP(rating)}</span>
-          </>}
-
-          <span style={{ color: '#666' }}>County</span>
-          <span style={{ fontWeight: 600 }}>{sale.county || '—'}</span>
-
-          {sale.township && <>
-            <span style={{ color: '#666' }}>Township</span>
-            <span style={{ fontWeight: 600 }}>{sale.township}</span>
-          </>}
-
-          <span style={{ color: '#666' }}>Owner</span>
-          <span style={{ fontWeight: 600, textAlign: 'right' }}>{sale.companyName || '—'}</span>
+        <div style={{
+          display: 'flex', alignItems: 'flex-start',
+          justifyContent: 'space-between', gap: 12,
+        }}>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{
+              fontSize: 10, fontWeight: 700, letterSpacing: 1.2,
+              textTransform: 'uppercase', color: '#F58CDE',
+              marginBottom: 4,
+            }}>
+              Comparable sale
+            </div>
+            <div style={{
+              fontSize: 16, fontWeight: 700, lineHeight: 1.25,
+              color: '#fff',
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>
+              {locationLine}
+            </div>
+            {sale.township && (
+              <div style={{
+                fontSize: 12, color: 'rgba(255,255,255,0.65)',
+                marginTop: 2,
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }}>
+                {sale.township}
+              </div>
+            )}
+          </div>
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            style={{
+              background: 'rgba(255,255,255,0.08)', border: 'none', cursor: 'pointer',
+              fontSize: 18, lineHeight: 1, color: 'rgba(255,255,255,0.85)',
+              padding: 0, width: 26, height: 26, borderRadius: 13,
+              flexShrink: 0,
+            }}
+          >×</button>
         </div>
       </div>
 
+      {/* Hero stat — price / acre dominates. Sale price + acres flank it. */}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: '1fr 1fr 1fr',
-        borderTop: '1px solid rgba(0,0,0,0.08)',
-        background: '#fafafa',
-        borderRadius: '0 0 12px 12px',
+        gridTemplateColumns: '1fr 1.4fr 1fr',
+        padding: '14px 16px 12px',
+        borderBottom: '1px solid rgba(0,0,0,0.06)',
+        background: '#fafbfc',
       }}>
-        <button onClick={onView3D} style={compPopupBtnStyle('left')} title="View 3D terrain map">🏔 3D</button>
-        <button onClick={onViewDetails} style={compPopupBtnStyle('mid')} title="See more details">🔎 Details</button>
+        <div style={{ textAlign: 'left' }}>
+          <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase', color: '#888' }}>Acres</div>
+          <div style={{ fontSize: 15, fontWeight: 700, color: '#1a1a1a', marginTop: 2 }}>
+            {FMT_NUM_COMP(sale.totalAcres)}
+          </div>
+        </div>
+        <div style={{ textAlign: 'center', borderLeft: '1px solid rgba(0,0,0,0.06)', borderRight: '1px solid rgba(0,0,0,0.06)' }}>
+          <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase', color: '#E91E8C' }}>$ / Acre</div>
+          <div style={{ fontSize: 19, fontWeight: 800, color: '#1a1a1a', marginTop: 2, letterSpacing: -0.3 }}>
+            {pricePerAcreLabel}
+          </div>
+        </div>
+        <div style={{ textAlign: 'right' }}>
+          <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase', color: '#888' }}>Sale price</div>
+          <div style={{ fontSize: 15, fontWeight: 700, color: '#1a1a1a', marginTop: 2 }}>
+            {sale.salePrice != null
+              ? sale.salePrice >= 1_000_000
+                ? `$${(sale.salePrice / 1_000_000).toFixed(2)}M`
+                : `$${(sale.salePrice / 1000).toFixed(0)}K`
+              : '—'}
+          </div>
+        </div>
+      </div>
+
+      {/* Secondary detail grid — sale date, soil rating, owner. */}
+      <div style={{ padding: '12px 16px 14px' }}>
+        <CompPopupRow label="Sale date" value={FMT_DATE_COMP(sale.auctionDate)} />
+        {rating != null && (
+          <CompPopupRow label="Soil rating" value={FMT_NUM_COMP(rating)} />
+        )}
+        {ownerLine && (
+          <CompPopupRow label="Owner" value={ownerLine} truncate />
+        )}
+      </div>
+
+      {/* Action row — Add to Report is the primary CTA (filled pink).
+          3D and Details are subtle secondary buttons. */}
+      <div style={{
+        display: 'flex',
+        gap: 8,
+        padding: '10px 12px 12px',
+        borderTop: '1px solid rgba(0,0,0,0.06)',
+        background: '#fff',
+      }}>
+        <button
+          onClick={onView3D}
+          style={compPopupSecondaryBtn}
+          title="View 3D terrain map"
+          onMouseEnter={(e) => { e.currentTarget.style.background = '#f5f5f7'; e.currentTarget.style.borderColor = 'rgba(0,0,0,0.18)' }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = '#fff'; e.currentTarget.style.borderColor = 'rgba(0,0,0,0.12)' }}
+        >
+          <span style={{ fontSize: 14 }}>🏔</span>
+          <span>3D</span>
+        </button>
+        <button
+          onClick={onViewDetails}
+          style={compPopupSecondaryBtn}
+          title="View full listing details"
+          onMouseEnter={(e) => { e.currentTarget.style.background = '#f5f5f7'; e.currentTarget.style.borderColor = 'rgba(0,0,0,0.18)' }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = '#fff'; e.currentTarget.style.borderColor = 'rgba(0,0,0,0.12)' }}
+        >
+          <span style={{ fontSize: 14 }}>🔎</span>
+          <span>Details</span>
+        </button>
         <button
           onClick={onAddToReport}
-          style={{
-            ...compPopupBtnStyle('right'),
-            color: isSelected ? '#E91E8C' : '#111',
-            background: isSelected ? 'rgba(233,30,140,0.08)' : 'transparent',
-          }}
           title={isSelected ? 'Remove from report' : 'Add to report'}
+          style={{
+            ...compPopupPrimaryBtn,
+            background: isSelected
+              ? 'linear-gradient(135deg, #4caf50 0%, #2e7d32 100%)'
+              : 'linear-gradient(135deg, #F58CDE 0%, #E91E8C 100%)',
+            boxShadow: isSelected
+              ? '0 4px 14px rgba(46, 125, 50, 0.35)'
+              : '0 4px 14px rgba(233, 30, 140, 0.4)',
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.filter = 'brightness(1.05)' }}
+          onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.filter = 'brightness(1)' }}
         >
-          {isSelected ? '✓ Added' : '＋ Report'}
+          <span style={{ fontSize: 14 }}>{isSelected ? '✓' : '＋'}</span>
+          <span>{isSelected ? 'Added' : 'Add to Report'}</span>
         </button>
       </div>
     </div>
   )
 }
 
-function compPopupBtnStyle(pos: 'left' | 'mid' | 'right'): React.CSSProperties {
-  return {
-    border: 'none',
-    background: 'transparent',
-    padding: '10px 8px',
-    fontSize: 13,
-    fontWeight: 600,
-    cursor: 'pointer',
-    color: '#111',
-    borderRight: pos !== 'right' ? '1px solid rgba(0,0,0,0.08)' : 'none',
-    borderRadius:
-      pos === 'left' ? '0 0 0 12px' : pos === 'right' ? '0 0 12px 0' : 0,
-  }
+// One label/value row inside the popup body. Kept as a sub-component so
+// the popup JSX above stays scannable.
+function CompPopupRow({ label, value, truncate }: { label: string; value: string; truncate?: boolean }) {
+  return (
+    <div style={{
+      display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+      gap: 12, padding: '5px 0', fontSize: 12.5,
+      borderBottom: '1px solid rgba(0,0,0,0.04)',
+    }}>
+      <span style={{ color: '#888', fontWeight: 500 }}>{label}</span>
+      <span style={{
+        color: '#1a1a1a', fontWeight: 600, textAlign: 'right',
+        ...(truncate ? { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 180 } : {}),
+      }}>{value}</span>
+    </div>
+  )
+}
+
+const compPopupSecondaryBtn: React.CSSProperties = {
+  flex: '0 0 auto',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 5,
+  padding: '8px 10px',
+  border: '1px solid rgba(0,0,0,0.12)',
+  borderRadius: 8,
+  background: '#fff',
+  color: '#1a1a1a',
+  fontSize: 12.5,
+  fontWeight: 600,
+  cursor: 'pointer',
+  transition: 'background 0.15s, border-color 0.15s',
+}
+
+const compPopupPrimaryBtn: React.CSSProperties = {
+  flex: 1,
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 6,
+  padding: '8px 12px',
+  border: 'none',
+  borderRadius: 8,
+  color: '#fff',
+  fontSize: 13,
+  fontWeight: 700,
+  cursor: 'pointer',
+  transition: 'transform 0.15s, filter 0.15s, box-shadow 0.15s',
+  letterSpacing: 0.2,
 }
