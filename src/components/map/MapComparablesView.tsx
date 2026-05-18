@@ -418,6 +418,18 @@ export default function MapComparablesView({ subjectTractId }: { subjectTractId:
     map.on('click', 'parcel-pins-bg', onParcelClick)
     map.on('click', 'parcel-pins-plus', onParcelClick)
 
+    // General map click — closes the popup ONLY if the click didn't
+    // hit a + pin (and thus didn't open a new popup). MapLibre's
+    // layer-specific click handlers above call e.preventDefault(),
+    // so e.defaultPrevented is the reliable signal. Without this,
+    // the previous mousedown-capture click-outside approach raced
+    // the layer handler and closed every newly-opened popup.
+    const onMapClick = (e: maplibregl.MapMouseEvent) => {
+      if ((e as any).defaultPrevented) return
+      setOpenRecord(null)
+    }
+    map.on('click', onMapClick)
+
     // Fit bounds to subject + sales bbox
     const padLng = (data.bbox.max_lng - data.bbox.min_lng) * 0.1
     const padLat = (data.bbox.max_lat - data.bbox.min_lat) * 0.1
@@ -440,6 +452,7 @@ export default function MapComparablesView({ subjectTractId }: { subjectTractId:
       map.off('click', 'tract-pins-plus' as any, onTractClick as any)
       map.off('click', 'parcel-pins-bg' as any, onParcelClick as any)
       map.off('click', 'parcel-pins-plus' as any, onParcelClick as any)
+      map.off('click', onMapClick)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapReady, data])
@@ -609,28 +622,13 @@ function ComparablePopup({
   show3DButton: boolean
   showDetailsButton: boolean
 }) {
-  // Click-outside-to-close
+  // Click-outside-to-close is handled at the MAP level (general map
+  // click → close if no + was hit). For DOM clicks outside the map
+  // (topbar, browser chrome) we don't auto-close — the user closes
+  // with X / Esc / Add-to-Report instead. The previous mousedown-
+  // capture approach raced the map's layer-click handler and closed
+  // newly-opened popups on every consecutive pin click.
   const ref = useRef<HTMLDivElement | null>(null)
-  useEffect(() => {
-    const onDocClick = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        // A click on a + icon should NOT immediately close+reopen — the
-        // map's own click handler runs before this. But just in case
-        // the target is the canvas (a map click anywhere else), close.
-        const t = e.target as HTMLElement
-        if (t?.closest('.maplibregl-canvas')) {
-          // Defer so map's own click handler (which sets a new popup)
-          // wins the race.
-          setTimeout(() => onClose(), 0)
-        } else {
-          onClose()
-        }
-      }
-    }
-    // Capture-phase so we run before React's bubble-phase handlers.
-    document.addEventListener('mousedown', onDocClick, true)
-    return () => document.removeEventListener('mousedown', onDocClick, true)
-  }, [onClose])
 
   // Position: anchor below the pin if it's close to the top of the
   // viewport (would otherwise clip), else above. Horizontal clamp keeps
