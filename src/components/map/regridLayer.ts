@@ -45,20 +45,22 @@ async function fetchRegridParcel(qs: URLSearchParams): Promise<any | null> {
 }
 
 // ── Popup HTML helpers ──────────────────────────────────────────────
-function fmtMoney(n: any): string {
+// All formatters return `null` when the value is missing/zero, so the
+// HTML builder can simply skip the row instead of writing "—".
+function fmtMoney(n: any): string | null {
   const v = typeof n === 'number' ? n : (n ? Number(n) : NaN)
-  // $0 → "—": a recorded $0 deed isn't a market sale. (See backend
+  // $0 → null: a recorded $0 deed isn't a market sale. (See backend
   // MyDec enrichment.)
-  if (!isFinite(v) || v === 0) return '—'
+  if (!isFinite(v) || v === 0) return null
   return '$' + Math.round(v).toLocaleString('en-US')
 }
-function fmtAcres(n: any): string {
+function fmtAcres(n: any): string | null {
   const v = typeof n === 'number' ? n : (n ? Number(n) : NaN)
-  if (!isFinite(v)) return '—'
+  if (!isFinite(v) || v <= 0) return null
   return v.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 2 }) + ' ac'
 }
-function fmtDate(s: any): string {
-  if (!s) return '—'
+function fmtDate(s: any): string | null {
+  if (!s) return null
   const d = new Date(String(s))
   if (isNaN(d.getTime())) return String(s)
   return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
@@ -70,45 +72,130 @@ function esc(s: any): string {
   }[c]!))
 }
 
-function headerHTML(opts: { owner: string; acres: string | null; address: string; countyState: string }): string {
-  const { owner, acres, address, countyState } = opts
+// Common Regrid deed-instrument codes → human-readable labels. The
+// field name varies by dataset (salestype, saletype, instrument,
+// recordtype, legaldoc) — we try each in `firstNonEmpty` below. The
+// instrument tells you whether a recorded sale is an arms-length
+// market transaction or a family/legal transfer (which has no relation
+// to market price). Knowing that distinction is the whole point — a
+// $93k sale on 40 ac is almost certainly a quit-claim or trust
+// transfer, not a market comp.
+const INSTRUMENT_LABELS: Record<string, string> = {
+  WD: 'Warranty Deed',
+  SWD: 'Special Warranty Deed',
+  GWD: 'General Warranty Deed',
+  QC: 'Quit Claim',
+  QCD: 'Quit Claim Deed',
+  TR: 'Trust Transfer',
+  TRD: 'Trust Deed',
+  TRUST: 'Trust Transfer',
+  GFT: 'Gift Deed',
+  GD: 'Gift Deed',
+  TXD: 'Tax Deed',
+  TAX: 'Tax Deed',
+  CFD: 'Contract for Deed',
+  PR: 'Personal Representative Deed',
+  PRD: 'Personal Representative Deed',
+  EXE: "Executor's Deed",
+  ADM: "Administrator's Deed",
+  SHF: "Sheriff's Deed",
+  REL: 'Release',
+  CD: 'Correction Deed',
+  FORE: 'Foreclosure',
+  AUC: 'Auction',
+  ML: 'MLS',
+}
+function fmtSaleType(raw: any): string | null {
+  if (!raw) return null
+  const s = String(raw).trim()
+  if (!s) return null
+  const code = s.toUpperCase().replace(/[^A-Z]/g, '')
+  if (INSTRUMENT_LABELS[code]) return INSTRUMENT_LABELS[code]
+  // Otherwise return the original value (Regrid sometimes already
+  // gives a readable description).
+  return s
+}
+function firstNonEmpty(...vals: any[]): any {
+  for (const v of vals) {
+    if (v !== null && v !== undefined && String(v).trim() !== '') return v
+  }
+  return null
+}
+
+// ── New popup design — mirrors the comp-report popup ────────────────
+// Dark gradient header (charcoal w/ pink accent label), light hero
+// stat strip (Acres / $-per-Acre / Sale Price), then white detail
+// sections. Only renders rows whose underlying value is present.
+
+const POPUP_WIDTH = 320
+
+function popupHeader(opts: {
+  label: string
+  owner: string
+  address: string
+  countyState: string
+}): string {
+  const { label, owner, address, countyState } = opts
   return `
-    <div class="regrid-popup-owner">${esc(owner)}</div>
-    ${address ? `<div class="regrid-popup-addr">${esc(address)}</div>` : ''}
-    ${acres ? `<div class="regrid-popup-acres">${acres}</div>` : ''}
-    ${countyState ? `<div class="regrid-popup-addr regrid-popup-addr-sub">${esc(countyState)}</div>` : ''}
+    <div style="
+      padding: 14px 38px 12px 16px;
+      background: linear-gradient(135deg, #1f1f23 0%, #2a2a30 100%);
+      color: #fff;
+    ">
+      <div style="font-size:10px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#F58CDE;margin-bottom:4px;">${esc(label)}</div>
+      <div style="font-size:14px;font-weight:700;line-height:1.3;color:#fff;word-wrap:break-word;">${esc(owner)}</div>
+      ${address ? `<div style="font-size:12px;color:rgba(255,255,255,0.65);margin-top:4px;line-height:1.3;">${esc(address)}</div>` : ''}
+      ${countyState ? `<div style="font-size:11px;color:rgba(255,255,255,0.45);margin-top:2px;">${esc(countyState)}</div>` : ''}
+    </div>
+  `
+}
+
+function popupShell(inner: string): string {
+  return `<div style="background:#fff;color:#1a1a1a;width:${POPUP_WIDTH}px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">${inner}</div>`
+}
+
+function detailRow(label: string, value: string): string {
+  return `
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:5px 0;font-size:12.5px;border-bottom:1px solid rgba(0,0,0,0.04);">
+      <span style="color:#888;font-weight:500;">${esc(label)}</span>
+      <span style="color:#1a1a1a;font-weight:600;text-align:right;">${esc(value)}</span>
+    </div>
+  `
+}
+
+function section(title: string, rows: string[]): string {
+  if (!rows.length) return ''
+  return `
+    <div style="padding:12px 16px 4px;">
+      <div style="font-size:10px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;color:#E91E8C;margin-bottom:4px;">${esc(title)}</div>
+      ${rows.join('')}
+    </div>
   `
 }
 
 function regridLoadingHTML(tileProps: any): string {
-  return `
-    <div class="regrid-popup">
-      ${headerHTML({
-        owner: tileProps?.owner || 'Loading…',
-        acres: null,
-        address: tileProps?.address || '',
-        countyState: '',
-      })}
-      <div class="regrid-popup-loading">Loading parcel details…</div>
-    </div>
-  `
+  return popupShell(
+    popupHeader({
+      label: 'Parcel',
+      owner: tileProps?.owner || 'Loading…',
+      address: tileProps?.address || '',
+      countyState: '',
+    }) +
+    `<div style="padding:14px 16px;font-style:italic;color:rgba(0,0,0,0.5);font-size:12px;">Loading parcel details…</div>`,
+  )
 }
 
 function regridFallbackHTML(tileProps: any): string {
-  return `
-    <div class="regrid-popup">
-      ${headerHTML({
-        owner: tileProps?.owner || 'Unknown',
-        acres: null,
-        address: tileProps?.address || '',
-        countyState: '',
-      })}
-    </div>
-  `
+  return popupShell(popupHeader({
+    label: 'Parcel',
+    owner: tileProps?.owner || 'Unknown',
+    address: tileProps?.address || '',
+    countyState: '',
+  }))
 }
 
 function regridPopupHTML(record: any): string {
-  const gisacre = record?.ll_gisacre ?? record?.gisacre
+  const gisacre: number | null = record?.ll_gisacre ?? record?.gisacre ?? null
   const deeded = record?.deeded_acres
   const saleprice = record?.saleprice
   const saledate = record?.saledate
@@ -116,59 +203,108 @@ function regridPopupHTML(record: any): string {
   const landval = record?.landval
   const improvval = record?.improvval
   const yearbuilt = record?.yearbuilt
-  const usedesc = esc(record?.usedesc || record?.usecode || '')
-  const zoning = esc(record?.zoning_description || record?.zoning || '')
+  const usedesc = record?.usedesc || record?.usecode || ''
+  const zoning = record?.zoning_description || record?.zoning || ''
   const buildings = record?.ll_bldg_count
   const bldgSqft = record?.ll_bldg_footprint_sqft
-  const mailadd = esc(record?.mailadd || '')
+  const mailadd = record?.mailadd || ''
 
-  const row = (label: string, value: string) =>
-    `<div class="regrid-popup-row"><span>${label}</span><span>${value}</span></div>`
+  // Sale type / deed instrument — Regrid's field name varies by
+  // dataset; try all the common ones.
+  const saleType = fmtSaleType(firstNonEmpty(
+    record?.salestype, record?.saletype, record?.recordtype,
+    record?.instrument, record?.legaldoc, record?.transrec,
+    record?.deed_type,
+  ))
 
   const county = record?.county || ''
   const state = record?.state2 || record?.state || ''
   const countyState = [county, state].filter(Boolean).join(', ')
 
-  return `
-    <div class="regrid-popup">
-      ${headerHTML({
-        owner: record?.owner || 'Unknown',
-        acres: fmtAcres(gisacre),
-        address: record?.address || '',
-        countyState,
-      })}
-      <div class="regrid-popup-section">
-        <div class="regrid-popup-section-title">Last Sale</div>
-        ${row('Price', fmtMoney(saleprice))}
-        ${row('Date', fmtDate(saledate))}
-      </div>
-      ${(deeded && deeded !== gisacre) || usedesc || zoning ? `
-        <div class="regrid-popup-section">
-          ${deeded && deeded !== gisacre ? row('Deeded Acres', fmtAcres(deeded)) : ''}
-          ${usedesc ? row('Use', usedesc) : ''}
-          ${zoning ? row('Zoning', zoning) : ''}
-        </div>` : ''}
-      ${(parval || landval || improvval) ? `
-        <div class="regrid-popup-section">
-          <div class="regrid-popup-section-title">Assessed Value</div>
-          ${parval ? row('Total', fmtMoney(parval)) : ''}
-          ${landval ? row('Land', fmtMoney(landval)) : ''}
-          ${improvval ? row('Improvements', fmtMoney(improvval)) : ''}
-        </div>` : ''}
-      ${(buildings || bldgSqft || yearbuilt) ? `
-        <div class="regrid-popup-section">
-          <div class="regrid-popup-section-title">Buildings</div>
-          ${buildings ? row('Count', String(buildings)) : ''}
-          ${bldgSqft ? row('Footprint', `${Math.round(bldgSqft).toLocaleString()} sq ft`) : ''}
-          ${yearbuilt ? row('Year Built', String(yearbuilt)) : ''}
-        </div>` : ''}
-      ${mailadd ? `
-        <div class="regrid-popup-section">
-          <div class="regrid-popup-section-title">Mailing Address</div>
-          <div class="regrid-popup-mailadd">${mailadd}</div>
-        </div>` : ''}
-    </div>
-  `
+  // Hero stat strip — Acres, $/Acre, Sale Price. Each cell rendered
+  // only if its value is present; row hidden entirely if all three
+  // are missing.
+  const acresLabel = fmtAcres(gisacre)
+  const priceLabel = fmtMoney(saleprice)
+  const validSalePrice = typeof saleprice === 'number' && saleprice > 0
+  const ppa = (validSalePrice && typeof gisacre === 'number' && gisacre > 0)
+    ? saleprice / gisacre
+    : null
+  const ppaLabel = ppa != null ? '$' + Math.round(ppa).toLocaleString('en-US') : null
+
+  const heroCells: { label: string; value: string; emphasize?: boolean }[] = []
+  if (acresLabel) heroCells.push({ label: 'Acres', value: acresLabel })
+  if (ppaLabel) heroCells.push({ label: '$ / Acre', value: ppaLabel, emphasize: true })
+  if (priceLabel) heroCells.push({ label: 'Sale Price', value: priceLabel })
+
+  const heroHTML = heroCells.length === 0 ? '' : (() => {
+    const cellHTML = heroCells.map((c, i) => {
+      const isFirst = i === 0
+      const isLast = i === heroCells.length - 1
+      const align = isFirst && !c.emphasize ? 'left'
+        : isLast && !c.emphasize ? 'right'
+        : 'center'
+      return `
+        <div style="
+          flex:${c.emphasize ? 1.4 : 1};
+          text-align:${align};
+          border-left:${isFirst ? 'none' : '1px solid rgba(0,0,0,0.06)'};
+          padding-left:${isFirst ? 0 : 8}px;
+          padding-right:${isLast ? 0 : 8}px;
+        ">
+          <div style="font-size:9.5px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;color:${c.emphasize ? '#E91E8C' : '#888'};">${esc(c.label)}</div>
+          <div style="font-size:${c.emphasize ? 19 : 15}px;font-weight:${c.emphasize ? 800 : 700};color:#1a1a1a;margin-top:2px;letter-spacing:${c.emphasize ? -0.3 : 0}px;">${esc(c.value)}</div>
+        </div>
+      `
+    }).join('')
+    return `<div style="display:flex;padding:14px 16px 12px;border-bottom:1px solid rgba(0,0,0,0.06);background:#fafbfc;">${cellHTML}</div>`
+  })()
+
+  // Sections — each filtered to only include populated rows. The
+  // section header itself is hidden if no rows survive.
+  const lastSaleRows: string[] = []
+  if (saledate && fmtDate(saledate)) lastSaleRows.push(detailRow('Date', fmtDate(saledate)!))
+  if (saleType) lastSaleRows.push(detailRow('Sale Type', saleType))
+
+  const propertyRows: string[] = []
+  if (deeded && deeded !== gisacre && fmtAcres(deeded)) {
+    propertyRows.push(detailRow('Deeded Acres', fmtAcres(deeded)!))
+  }
+  if (usedesc) propertyRows.push(detailRow('Use', String(usedesc)))
+  if (zoning) propertyRows.push(detailRow('Zoning', String(zoning)))
+
+  const assessedRows: string[] = []
+  if (fmtMoney(parval)) assessedRows.push(detailRow('Total', fmtMoney(parval)!))
+  if (fmtMoney(landval)) assessedRows.push(detailRow('Land', fmtMoney(landval)!))
+  if (fmtMoney(improvval)) assessedRows.push(detailRow('Improvements', fmtMoney(improvval)!))
+
+  const buildingRows: string[] = []
+  if (buildings) buildingRows.push(detailRow('Count', String(buildings)))
+  if (bldgSqft) buildingRows.push(detailRow('Footprint', `${Math.round(bldgSqft).toLocaleString()} sq ft`))
+  if (yearbuilt) buildingRows.push(detailRow('Year Built', String(yearbuilt)))
+
+  const mailadrHTML = mailadd
+    ? `
+      <div style="padding:12px 16px 14px;">
+        <div style="font-size:10px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;color:#E91E8C;margin-bottom:4px;">Mailing Address</div>
+        <div style="color:rgba(0,0,0,0.8);font-size:12.5px;line-height:1.45;">${esc(mailadd)}</div>
+      </div>`
+    : ''
+
+  return popupShell(
+    popupHeader({
+      label: 'Parcel',
+      owner: record?.owner || 'Unknown',
+      address: record?.address || '',
+      countyState,
+    }) +
+    heroHTML +
+    section('Last Sale', lastSaleRows) +
+    section('Property', propertyRows) +
+    section('Assessed Value', assessedRows) +
+    section('Buildings', buildingRows) +
+    mailadrHTML,
+  )
 }
 
 // ── Layer mounting ──────────────────────────────────────────────────
