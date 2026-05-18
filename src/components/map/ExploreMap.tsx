@@ -4439,6 +4439,15 @@ function _regridPopupHTML(record: any): string {
   const buildings = record?.ll_bldg_count
   const bldgSqft = record?.ll_bldg_footprint_sqft
 
+  // Ownership history — Standard schema fields per Regrid Data
+  // Dictionary v16. `previous_owner` is the prior grantor;
+  // `last_ownership_transfer_date` covers any ownership change
+  // (including non-arms-length transfers that lack a recorded
+  // saleprice).
+  const previousOwner = (typeof record?.previous_owner === 'string' && record.previous_owner.trim())
+    ? record.previous_owner.trim() : ''
+  const lastTransferDate = record?.last_ownership_transfer_date
+
   // Sale type / deed instrument — Regrid field naming varies wildly
   // across datasets. Cast a wide net; map common codes to labels via
   // _fmtSaleType, and otherwise show whatever string the field has.
@@ -4491,8 +4500,17 @@ function _regridPopupHTML(record: any): string {
   // Detail sections — each filtered to populated rows only
   const lastSaleRows: string[] = []
   const dateStr = _fmtDate(saledate)
-  if (dateStr) lastSaleRows.push(_detailRow('Date', dateStr))
+  if (dateStr) lastSaleRows.push(_detailRow('Sale Date', dateStr))
   if (saleType) lastSaleRows.push(_detailRow('Sale Type', saleType))
+  // Last Transfer — only show when it's MEANINGFULLY different from
+  // the sale date (avoids "Sale Date: Feb 2016 / Last Transfer: Feb
+  // 2016" duplication). When there's no saleprice/saledate but a
+  // transfer date exists, this is the only ownership-change signal.
+  const lastTransferStr = _fmtDate(lastTransferDate)
+  if (lastTransferStr && lastTransferStr !== dateStr) {
+    lastSaleRows.push(_detailRow('Last Transfer', lastTransferStr))
+  }
+  if (previousOwner) lastSaleRows.push(_detailRow('Previous Owner', previousOwner))
 
   const propertyRows: string[] = []
   if (deeded && deeded !== gisacre && _fmtAcres(deeded)) {
