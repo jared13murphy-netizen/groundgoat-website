@@ -4285,21 +4285,26 @@ function createTodayMarkerElement(
 //  - SUCCESS: the rich Premium Schema record.
 //  - FALLBACK: tile-only data when the API call fails.
 
-function _fmtMoney(n: any): string {
+function _fmtMoney(n: any): string | null {
   const v = typeof n === 'number' ? n : (n ? Number(n) : NaN)
   // Treat $0 the same as missing — a recorded $0 deed (family
   // transfer, LLC restructure, inheritance, quitclaim) isn't a market
-  // sale price the user actually wants to see. Regrid stores many
-  // farmland transfers as $0 consideration; showing "$0" reads as
-  // "we don't have the price" anyway.
-  if (!isFinite(v) || v === 0) return '—'
+  // sale price. Returning null lets the popup builder omit the row.
+  if (!isFinite(v) || v === 0) return null
   return '$' + Math.round(v).toLocaleString('en-US')
 }
 
-function _fmtAcres(n: any): string {
+function _fmtAcres(n: any): string | null {
   const v = typeof n === 'number' ? n : (n ? Number(n) : NaN)
-  if (!isFinite(v)) return '—'
+  if (!isFinite(v) || v <= 0) return null
   return v.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 2 }) + ' ac'
+}
+
+// "schuyler" → "Schuyler". Regrid stores county names lowercase; the
+// header looks unprofessional that way.
+function _titleCase(s: string): string {
+  if (!s) return ''
+  return s.toLowerCase().replace(/\b\w/g, c => c.toUpperCase())
 }
 
 function _fmtDate(s: any): string | null {
@@ -4418,19 +4423,34 @@ function _regridPopupHTML(record: any): string {
   const landval = record?.landval
   const improvval = record?.improvval
   const yearbuilt = record?.yearbuilt
-  const usedesc = record?.usedesc || record?.usecode || ''
-  const zoning = record?.zoning_description || record?.zoning || ''
+  // Use code → readable description. Regrid's `usedesc` is the human
+  // label; `usecode` is the assessor code (numeric, useless to users).
+  // If we only have a code, skip the row entirely rather than show a
+  // mystery number. We DO accept usedesc values that happen to be
+  // numeric strings only if they aren't a bare integer (some Regrid
+  // datasets put a code there).
+  const usedescRaw = record?.usedesc
+  const usedesc = (typeof usedescRaw === 'string' && usedescRaw.trim() && !/^\d+$/.test(usedescRaw.trim()))
+    ? usedescRaw.trim() : ''
+  const zoningRaw = record?.zoning_description || record?.zoning || ''
+  // Hide non-informative zoning values like "No Zoning", "NONE", "".
+  const zoning = (typeof zoningRaw === 'string' && zoningRaw.trim() && !/^(no zoning|none|n\/a|na)$/i.test(zoningRaw.trim()))
+    ? zoningRaw.trim() : ''
   const buildings = record?.ll_bldg_count
   const bldgSqft = record?.ll_bldg_footprint_sqft
-  const mailadd = record?.mailadd || ''
 
+  // Sale type / deed instrument — Regrid field naming varies wildly
+  // across datasets. Cast a wide net; map common codes to labels via
+  // _fmtSaleType, and otherwise show whatever string the field has.
   const saleType = _fmtSaleType(_firstNonEmpty(
-    record?.salestype, record?.saletype, record?.recordtype,
-    record?.instrument, record?.legaldoc, record?.transrec,
-    record?.deed_type,
+    record?.salestype, record?.saletype, record?.sale_type,
+    record?.recordtype, record?.record_type,
+    record?.instrument, record?.instrumtyp, record?.instrumenttype,
+    record?.legaldoc, record?.transrec, record?.deed_type,
+    record?.deedtype, record?.s1deedtype, record?.deed,
   ))
 
-  const county = record?.county || ''
+  const county = _titleCase(record?.county || '')
   const state = record?.state2 || record?.state || ''
   const countyState = [county, state].filter(Boolean).join(', ')
 
@@ -4487,9 +4507,9 @@ function _regridPopupHTML(record: any): string {
   if (bldgSqft) buildingRows.push(_detailRow('Footprint', `${Math.round(bldgSqft).toLocaleString()} sq ft`))
   if (yearbuilt) buildingRows.push(_detailRow('Year Built', String(yearbuilt)))
 
-  const mailadrHTML = mailadd
-    ? `<div style="padding:12px 16px 14px;"><div style="font-size:10px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;color:#E91E8C;margin-bottom:4px;">Mailing Address</div><div style="color:rgba(0,0,0,0.8);font-size:12.5px;line-height:1.45;">${_esc(mailadd)}</div></div>`
-    : ''
+  // Add bottom padding to whatever the final visible section is so the
+  // popup doesn't end flush against the last row.
+  const bottomPad = `<div style="height:10px;"></div>`
 
   return _popupShell(
     _popupHeader({
@@ -4503,7 +4523,7 @@ function _regridPopupHTML(record: any): string {
     _section('Property', propertyRows) +
     _section('Assessed Value', assessedRows) +
     _section('Buildings', buildingRows) +
-    mailadrHTML,
+    bottomPad,
   )
 }
 

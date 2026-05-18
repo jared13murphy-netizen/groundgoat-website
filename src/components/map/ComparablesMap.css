@@ -265,6 +265,13 @@
    the popup matches the comp-report "+" popup. CSS here just teaches
    maplibre's outer wrapper to get out of the way: no padding, no bg,
    our inner container provides its own card surface. */
+/* Lift the popup above DOM-based maplibregl-marker pins. Default
+   z-order puts later-added markers on top of earlier-added popups;
+   we want the parcel popup to dominate any tract "+" pins that
+   overlap its area. */
+.regrid-parcel-popup {
+  z-index: 5;
+}
 .regrid-parcel-popup .maplibregl-popup-content {
   background: transparent;
   color: inherit;
