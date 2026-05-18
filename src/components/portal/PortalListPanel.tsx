@@ -173,12 +173,10 @@ function ListingCard({ listing, activeTab, onClick, isWatchlisted, onToggleWatch
         })()}
       </div>
 
-      {/* Card body — dark-gray (#1a1a1a) at the top fading down to
-          mid-gray (#888) at the bottom. Big enough delta that the card
-          pops against the black panel. Text in the upper half stays
-          light; text in the lower half (stats grid, results row) flips
-          dark for legibility on the lighter section. */}
-      <div className="p-4 bg-gradient-to-b from-gg-gray-800 to-[#888888] text-white">
+      {/* Card body — subtle dark gradient: #1a1a1a top → #3a3a3a
+          (gg-gray-600) bottom. Enough delta to pop off the black panel
+          but stays in the dark zone, so all text stays light. */}
+      <div className="p-4 bg-gradient-to-b from-gg-gray-800 to-gg-gray-600 text-white">
         {/* Title */}
         <div className={`text-sm font-semibold ${hasCompany ? 'group-hover:text-gg-pink' : ''} transition`}>
           {listing.total_acres ? Math.round(listing.total_acres) : '—'} ac — {listing.county}
@@ -210,36 +208,35 @@ function ListingCard({ listing, activeTab, onClick, isWatchlisted, onToggleWatch
           </div>
         )}
 
-        {/* Stats row — sits in the lighter portion of the gradient, so
-            labels and values switch to near-black for contrast. */}
-        <div className={`grid ${activeTab === 'auctions' ? 'grid-cols-4' : 'grid-cols-3'} gap-2 pt-3 mt-3 border-t border-black/20`}>
+        {/* Stats row */}
+        <div className={`grid ${activeTab === 'auctions' ? 'grid-cols-4' : 'grid-cols-3'} gap-2 pt-3 mt-3 border-t border-white/15`}>
           <div>
-            <div className="text-[10px] text-gray-900/70">Acres</div>
-            <div className="text-sm font-semibold text-gray-900">{listing.total_acres ? Math.round(listing.total_acres).toLocaleString() : '—'}</div>
+            <div className="text-[10px] text-gg-gray-300">Acres</div>
+            <div className="text-sm font-semibold text-white">{listing.total_acres ? Math.round(listing.total_acres).toLocaleString() : '—'}</div>
           </div>
           {!listing.is_incomplete && (
             <div>
-              <div className="text-[10px] text-gray-900/70">Tracts</div>
-              <div className="text-sm font-semibold text-gray-900">{listing.tract_count || '—'}</div>
+              <div className="text-[10px] text-gg-gray-300">Tracts</div>
+              <div className="text-sm font-semibold text-white">{listing.tract_count || '—'}</div>
             </div>
           )}
           {activeTab === 'auctions' ? (
             <>
               <div>
-                <div className="text-[10px] text-gray-900/70">Tillable</div>
-                <div className="text-sm font-semibold text-gray-900">{listing.is_incomplete ? '—' : (getListingTillableAcres(listing) ? Math.round(getListingTillableAcres(listing)!) + ' ac' : '—')}</div>
+                <div className="text-[10px] text-gg-gray-300">Tillable</div>
+                <div className="text-sm font-semibold text-white">{listing.is_incomplete ? '—' : (getListingTillableAcres(listing) ? Math.round(getListingTillableAcres(listing)!) + ' ac' : '—')}</div>
               </div>
               <div>
-                <div className="text-[10px] text-gray-900/70">{getSoilLabel(listing.state)}</div>
-                <div className="text-sm font-semibold text-gray-900">{listing.is_incomplete ? '—' : (getListingSoilRating(listing) ?? '—')}</div>
+                <div className="text-[10px] text-gg-gray-300">{getSoilLabel(listing.state)}</div>
+                <div className="text-sm font-semibold text-white">{listing.is_incomplete ? '—' : (getListingSoilRating(listing) ?? '—')}</div>
               </div>
             </>
           ) : (
             <div>
-              <div className="text-[10px] text-gray-900/70">
+              <div className="text-[10px] text-gg-gray-300">
                 {activeTab === 'private_treaty' ? 'Asking' : 'Sold'}
               </div>
-              <div className="text-sm font-semibold text-gray-900">
+              <div className="text-sm font-semibold text-white">
                 {activeTab === 'private_treaty'
                   ? formatPrice(listing.asking_price)
                   : formatPrice(listing.sale_price)
@@ -249,18 +246,18 @@ function ListingCard({ listing, activeTab, onClick, isWatchlisted, onToggleWatch
           )}
         </div>
 
-        {/* Results: price per acre + date — also in the lighter zone */}
+        {/* Results: price per acre + date */}
         {activeTab === 'results' && (() => {
           const ppa = getListingAvgPricePerAcre(listing)
           return ppa.avg ? (
-            <div className="mt-3 pt-2 border-t border-black/20">
+            <div className="mt-3 pt-2 border-t border-white/15">
               <div className="flex items-center gap-1.5 text-xs">
-                <DollarSign size={12} className="text-gray-900/70" />
+                <DollarSign size={12} className="text-gg-gray-300" />
                 <span className="text-gg-pink font-bold text-sm">{formatPrice(ppa.avg)}/ac</span>
-                <span className="text-gray-900/70">· {formatDate(listing)}</span>
+                <span className="text-gg-gray-300">· {formatDate(listing)}</span>
               </div>
               {ppa.isAverage && (
-                <div className="text-[10px] text-gray-900/70 mt-1 italic">Avg of {listing.tract_count || listing.tracts?.length} tracts</div>
+                <div className="text-[10px] text-gg-gray-300 mt-1 italic">Avg of {listing.tract_count || listing.tracts?.length} tracts</div>
               )}
             </div>
           ) : null

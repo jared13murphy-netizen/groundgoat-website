@@ -485,10 +485,9 @@ export default function PortalListingDetail({ listingId, onBack, onTractSelected
                     </div>
                   )}
 
-                  {/* Tract body — dark-top → light-bottom gradient,
-                      same as the listing/watchlist cards. Stats sit on
-                      the lighter portion so they use dark text. */}
-                  <div className="p-4 bg-gradient-to-b from-gg-gray-800 to-[#888888] text-white">
+                  {/* Tract body — subtle dark gradient, same as the
+                      listing/watchlist cards (#1a1a1a → #3a3a3a). */}
+                  <div className="p-4 bg-gradient-to-b from-gg-gray-800 to-gg-gray-600 text-white">
                     {/* Tract Header */}
                     <div className="flex items-center justify-between mb-3">
                       <span className={`text-sm font-semibold ${onTractSelected ? 'group-hover:text-gg-pink' : ''} transition`}>
@@ -511,28 +510,28 @@ export default function PortalListingDetail({ listingId, onBack, onTractSelected
                       </div>
                     </div>
 
-                    {/* Tract Stats — dark text on the lighter section */}
+                    {/* Tract Stats */}
                     <div className="grid grid-cols-4 gap-2 text-center">
                       <div>
-                        <div className="text-sm font-semibold text-gray-900">{formatAcres(tract.total_acres)}</div>
-                        <div className="text-[10px] text-gray-900/70">Acres</div>
+                        <div className="text-sm font-semibold text-white">{formatAcres(tract.total_acres)}</div>
+                        <div className="text-[10px] text-gg-gray-300">Acres</div>
                       </div>
                       {tract.tillable_acres ? (
                         <div>
-                          <div className="text-sm font-semibold text-gray-900">{formatAcres(tract.tillable_acres)}</div>
-                          <div className="text-[10px] text-gray-900/70">Tillable</div>
+                          <div className="text-sm font-semibold text-white">{formatAcres(tract.tillable_acres)}</div>
+                          <div className="text-[10px] text-gg-gray-300">Tillable</div>
                         </div>
                       ) : null}
                       {tract.soil_rating ? (
                         <div>
-                          <div className="text-sm font-semibold text-gray-900">{tract.soil_rating}</div>
-                          <div className="text-[10px] text-gray-900/70">Soil Rating</div>
+                          <div className="text-sm font-semibold text-white">{tract.soil_rating}</div>
+                          <div className="text-[10px] text-gg-gray-300">Soil Rating</div>
                         </div>
                       ) : null}
                       {tract.sale_price && tract.total_acres ? (
                         <div>
                           <div className="text-sm font-semibold text-gg-pink">{formatCurrency(tract.sale_price / tract.total_acres)}</div>
-                          <div className="text-[10px] text-gray-900/70">$/Acre</div>
+                          <div className="text-[10px] text-gg-gray-300">$/Acre</div>
                         </div>
                       ) : null}
                     </div>
