@@ -45,6 +45,27 @@ interface DashboardData {
     totals_24h: { calls: number; parcels: number; cache_hits: number; errors: number }
     by_endpoint: Array<{ endpoint: string; calls: number; parcels: number; cache_hits: number; errors: number }>
     series: Array<{ hour: string; calls: number; parcels: number; cache_hits: number }>
+    // Billing-cycle usage straight from Regrid's free /api/v2/usage
+    // endpoint. Null when the call fails.
+    cycle: null | {
+      cycle_dates: { begin: number; end: number }  // epoch seconds
+      cycle_usage: {
+        requests: number          // parcel API calls this cycle
+        results: number           // parcel records returned (= billable units)
+        tiles: number             // total tile requests
+        tiles_parcels: number
+        tiles_buildings: number
+        tiles_zoning: number
+        features: number
+        typeahead: number
+        addresses: number         // add-on usage
+        buildings: number
+        ownership: number
+        zoning: number
+        parcels: number
+        area: { sq_meters: number; acres: number; sq_miles: number }
+      }
+    }
   }
   generated_at: string
   hours_covered: number
@@ -298,6 +319,14 @@ export default function UsageMetricsPanel() {
                 cacheHits={data.regrid.totals_24h.cache_hits}
               />
             </div>
+
+            {/* Regrid's official billing-cycle usage (from their free
+                /api/v2/usage endpoint). Billing model per Regrid docs:
+                "Parcel API requests are tracked for billing by how many
+                Parcel Records are RETURNED in a response" — so the
+                "Records returned" tile is what counts against quota. */}
+            <RegridCycleBlock cycle={data.regrid.cycle} />
+
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
               <KpiTile
                 label="Live calls (billable)"
@@ -420,4 +449,78 @@ function RegridSavingsBadge({ calls, cacheHits }: { calls: number; cacheHits: nu
       {pct.toFixed(0)}% served from cache
     </div>
   )
+}
+
+/** Billing-cycle usage block (data straight from Regrid). The 'results'
+ *  field is the billable unit per Regrid's billing model — they charge
+ *  per parcel RECORD returned, not per request. */
+function RegridCycleBlock({ cycle }: { cycle: DashboardData['regrid']['cycle'] }) {
+  if (!cycle) return null
+  const { cycle_dates, cycle_usage } = cycle
+  const beginD = new Date(cycle_dates.begin * 1000)
+  const endD   = new Date(cycle_dates.end * 1000)
+  const fmtDate = (d: Date) =>
+    d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  const daysRemaining = Math.max(0, Math.ceil((endD.getTime() - Date.now()) / 86_400_000))
+  const cycleDays = Math.max(1, Math.round((endD.getTime() - beginD.getTime()) / 86_400_000))
+  const daysElapsed = Math.max(0, cycleDays - daysRemaining)
+  const pctElapsed = Math.min(100, (daysElapsed / cycleDays) * 100)
+
+  return (
+    <div className="mb-4 rounded-xl border border-gg-gold/15 bg-gg-gold/[0.04] p-3">
+      <div className="flex items-baseline justify-between flex-wrap gap-x-3 gap-y-1 mb-2">
+        <div className="text-xs font-semibold text-gg-gold uppercase tracking-wider">
+          Regrid billing cycle · {fmtDate(beginD)} – {fmtDate(endD)}
+        </div>
+        <div className="text-[11px] text-gg-gray-400">
+          Day {daysElapsed} of {cycleDays} · {daysRemaining} left
+        </div>
+      </div>
+      <div className="h-1 w-full bg-white/5 rounded-full overflow-hidden mb-3">
+        <div
+          className="h-full bg-gg-gold/70 rounded-full transition-all"
+          style={{ width: `${pctElapsed}%` }}
+        />
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <KpiTile
+          label="Records returned (billable)"
+          value={fmtNum(cycle_usage.results)}
+          sub={`${fmtNum(cycle_usage.requests)} requests`}
+          tone="gold"
+        />
+        <KpiTile
+          label="Parcel tiles served"
+          value={fmtNum(cycle_usage.tiles_parcels)}
+        />
+        <KpiTile
+          label="Add-ons used"
+          value={fmtNum(
+            cycle_usage.addresses + cycle_usage.buildings +
+            cycle_usage.ownership + cycle_usage.zoning,
+          )}
+          sub={addonBreakdown(cycle_usage)}
+        />
+        <KpiTile
+          label="Area searched"
+          value={
+            cycle_usage.area.acres > 0
+              ? `${fmtNum(Math.round(cycle_usage.area.acres))} ac`
+              : '0 ac'
+          }
+        />
+      </div>
+    </div>
+  )
+}
+
+function addonBreakdown(u: NonNullable<DashboardData['regrid']['cycle']>['cycle_usage']): string {
+  // Only mention add-ons that have any usage, so the row is empty for
+  // pure-Standard accounts.
+  const parts: string[] = []
+  if (u.addresses) parts.push(`${u.addresses} addr`)
+  if (u.buildings) parts.push(`${u.buildings} bldg`)
+  if (u.ownership) parts.push(`${u.ownership} own`)
+  if (u.zoning)    parts.push(`${u.zoning} zon`)
+  return parts.length ? parts.join(' · ') : 'none'
 }
