@@ -73,6 +73,41 @@
   background: #E91E8C;
 }
 
+/* Comparables-mode "+" button — replaces the labeled tract pin when
+   admin is in comp mode (subjectTractId set). The "+" is drawn with
+   two centered pseudo-element bars so it's pixel-perfectly centered
+   in the circle (text-based "+" sat too low against the baseline). */
+.comp-marker-pin.plus-btn {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #E91E8C;
+  border: 1px solid #fff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+  position: relative;
+  cursor: pointer;
+}
+.comp-marker-pin.plus-btn::before,
+.comp-marker-pin.plus-btn::after {
+  content: '';
+  position: absolute;
+  background: #fff;
+  top: 50%;
+  left: 50%;
+}
+.comp-marker-pin.plus-btn::before {
+  /* horizontal bar */
+  width: 10px;
+  height: 2px;
+  transform: translate(-50%, -50%);
+}
+.comp-marker-pin.plus-btn::after {
+  /* vertical bar */
+  width: 2px;
+  height: 10px;
+  transform: translate(-50%, -50%);
+}
+
 .comp-popup .maplibregl-popup-content {
   background: #1a1a1a;
   color: #fff;

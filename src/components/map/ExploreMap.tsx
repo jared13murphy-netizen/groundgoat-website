@@ -2373,6 +2373,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // GPU layer — duplicates would just stack on top of those dots.
       if (todayTractsByIdRef.current.has(tract.id)) continue
 
+      // In comp mode, the subject tract has its own dedicated marker
+      // (rendered separately below). Skip it here so we don't stack
+      // a "+" button on top of the subject highlight — and so the
+      // subject can't be Add-to-Report'd via this loop's click path.
+      if (subjectTractIdRef.current && tract.id === subjectTractIdRef.current) continue
+
       // Get marker position
       let markerLng = tract.longitude
       let markerLat = tract.latitude
@@ -4157,19 +4163,12 @@ function createMarkerElement(
   }
 
   const pin = document.createElement('div')
-  pin.className = 'comp-marker-pin comparable'
   if (asPlusButton) {
-    // Larger pink button with a centered "+" — comp mode visual.
-    pin.style.cssText = `
-      width: 22px; height: 22px; border-radius: 50%;
-      background: #E91E8C; border: 2px solid #fff;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.4);
-      display: flex; align-items: center; justify-content: center;
-      color: #fff; font-weight: 800; font-size: 16px; line-height: 1;
-      cursor: pointer;
-    `
-    pin.textContent = '+'
+    // Comp-mode "+" button — pseudo-element bars for pixel-perfect
+    // centering. See .comp-marker-pin.plus-btn in ComparablesMap.css.
+    pin.className = 'comp-marker-pin plus-btn'
   } else {
+    pin.className = 'comp-marker-pin comparable'
     pin.style.backgroundColor = isLive ? '#22c55e' : getStatusPinColor(status)
   }
   container.appendChild(pin)
