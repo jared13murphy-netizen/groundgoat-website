@@ -651,6 +651,31 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   } | null>(null)
   const [show3DViewer, setShow3DViewer] = useState(false)
 
+  // Entering or exiting comparables mode invalidates the bbox tract
+  // cache — the sold-only filter (and the eventual sale_status change)
+  // means previously-cached cells return different data. Without this,
+  // the user could enter comp mode but the markers still show the
+  // pre-filter set (and stay as plain pins, not + buttons).
+  useEffect(() => {
+    loadedCellsRef.current = new Set()
+    tractMapRef.current = new Map()
+    setTracts([])
+    tractMarkersRef.current.forEach(m => m.remove())
+    tractMarkersRef.current = []
+    // Trigger a re-fetch by simulating a moveend from current bounds.
+    const map = mapRef.current
+    if (map && mapLoaded) {
+      const b = map.getBounds()
+      loadTractsForBounds({
+        min_lat: b.getSouth(),
+        max_lat: b.getNorth(),
+        min_lng: b.getWest(),
+        max_lng: b.getEast(),
+      }).catch(() => {})
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subjectTractId])
+
   // Comp-mode popup lifecycle effects: map-click closes (clicks on a
   // + marker DOM don't bubble to the canvas, so this only fires for
   // empty-map clicks). Pan/zoom re-projects the lat/lng so the popup
@@ -2464,7 +2489,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // `todayTracts` is in the deps so the loop re-runs after today's
     // tracts arrive — that's when the dedup ref gets populated and we
     // need to drop today tracts from the DOM-marker render.
-  }, [mapLoaded, tracts, todayTracts])
+    // `subjectTractId` in deps so the markers re-render when admin
+    // enters/exits comparables mode — without this the effect only
+    // fires when tracts/todayTracts/mapLoaded changes, and entering
+    // comp mode (a state change with no data refetch) left every
+    // marker stuck in regular pin form.
+  }, [mapLoaded, tracts, todayTracts, subjectTractId])
 
   // Quick lookup of today's tracts by id for cluster-click handling.
   const todayTractsByIdRef = useRef<Map<string, ApiMapTract>>(new Map())
