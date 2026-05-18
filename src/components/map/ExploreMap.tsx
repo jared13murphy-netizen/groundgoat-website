@@ -21,6 +21,7 @@ import {
   STATUS_COLORS,
 } from './mapConstants'
 import fetchWithAuth from '@/lib/fetchWithAuth'
+import { FIND_COMPARABLES_MAP_ENABLED } from '@/lib/featureFlags'
 import Tract3DModal from '@/components/Tract3DModal'
 import GroundTruthPanel from '@/components/portal/GroundTruthPanel'
 import NdviPanel from '@/components/portal/NdviPanel'
@@ -3833,6 +3834,29 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               <div style={{ textAlign: 'center', padding: '12px 20px', color: '#999', fontSize: 13, fontStyle: 'italic' }}>
                 No map boundaries available
               </div>
+            )}
+
+            {/* Find Comparables — Phase 1 entry point. Gated by
+                FIND_COMPARABLES_MAP_ENABLED so we can flip the new
+                view off without touching the rest of the popup. */}
+            {FIND_COMPARABLES_MAP_ENABLED && selectedSale.tractId && (
+              <a
+                href={`/comparables/map?tractId=${selectedSale.tractId}`}
+                className="sale-modal-action-btn"
+                style={{
+                  textDecoration: 'none',
+                  marginBottom: '8px',
+                  backgroundColor: 'rgba(233,30,140,0.08)',
+                  color: '#E91E8C',
+                  border: '1px solid #E91E8C',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                }}
+              >
+                🔍 Find Comparables
+              </a>
             )}
 
             {/* View Listing */}
