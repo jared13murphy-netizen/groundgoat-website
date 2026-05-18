@@ -4487,8 +4487,22 @@ function CompInlinePopup({
   const locationLine = [sale.county, sale.state].filter(Boolean).join(', ') || 'Tract sale'
   const ownerLine = sale.companyName || null
 
-  // Pill row stats: the three numbers buyers look at first.
-  const pricePerAcreLabel = ppa != null ? `$${FMT_NUM_COMP(ppa, 0)}` : '—'
+  // Hero stats — only include cells that have a real value. The hero
+  // row collapses gracefully (1/2/3 columns) so a tract missing one
+  // figure (e.g. private sale w/ no salePrice) doesn't show a dash.
+  const heroStats: { label: string; value: string; emphasize?: boolean }[] = []
+  if (sale.totalAcres != null) {
+    heroStats.push({ label: 'Acres', value: FMT_NUM_COMP(sale.totalAcres) })
+  }
+  if (ppa != null) {
+    heroStats.push({ label: '$ / Acre', value: `$${FMT_NUM_COMP(ppa, 0)}`, emphasize: true })
+  }
+  if (sale.salePrice != null) {
+    const priceLabel = sale.salePrice >= 1_000_000
+      ? `$${(sale.salePrice / 1_000_000).toFixed(2)}M`
+      : `$${(sale.salePrice / 1000).toFixed(0)}K`
+    heroStats.push({ label: 'Sale price', value: priceLabel })
+  }
 
   return (
     <div
@@ -4562,48 +4576,64 @@ function CompInlinePopup({
         </div>
       </div>
 
-      {/* Hero stat — price / acre dominates. Sale price + acres flank it. */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: '1fr 1.4fr 1fr',
-        padding: '14px 16px 12px',
-        borderBottom: '1px solid rgba(0,0,0,0.06)',
-        background: '#fafbfc',
-      }}>
-        <div style={{ textAlign: 'left' }}>
-          <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase', color: '#888' }}>Acres</div>
-          <div style={{ fontSize: 15, fontWeight: 700, color: '#1a1a1a', marginTop: 2 }}>
-            {FMT_NUM_COMP(sale.totalAcres)}
-          </div>
+      {/* Hero stat — price / acre dominates when present. Empty cells
+          are skipped entirely so we never show a "—" placeholder. */}
+      {heroStats.length > 0 && (
+        <div style={{
+          display: 'flex',
+          padding: '14px 16px 12px',
+          borderBottom: '1px solid rgba(0,0,0,0.06)',
+          background: '#fafbfc',
+        }}>
+          {heroStats.map((stat, i) => {
+            const isFirst = i === 0
+            const isLast = i === heroStats.length - 1
+            return (
+              <div
+                key={stat.label}
+                style={{
+                  flex: stat.emphasize ? 1.4 : 1,
+                  textAlign: isFirst && !stat.emphasize ? 'left'
+                    : isLast && !stat.emphasize ? 'right'
+                    : 'center',
+                  borderLeft: isFirst ? 'none' : '1px solid rgba(0,0,0,0.06)',
+                  paddingLeft: isFirst ? 0 : 8,
+                  paddingRight: isLast ? 0 : 8,
+                }}
+              >
+                <div style={{
+                  fontSize: 9.5, fontWeight: 700, letterSpacing: 0.8,
+                  textTransform: 'uppercase',
+                  color: stat.emphasize ? '#E91E8C' : '#888',
+                }}>{stat.label}</div>
+                <div style={{
+                  fontSize: stat.emphasize ? 19 : 15,
+                  fontWeight: stat.emphasize ? 800 : 700,
+                  color: '#1a1a1a',
+                  marginTop: 2,
+                  letterSpacing: stat.emphasize ? -0.3 : 0,
+                }}>{stat.value}</div>
+              </div>
+            )
+          })}
         </div>
-        <div style={{ textAlign: 'center', borderLeft: '1px solid rgba(0,0,0,0.06)', borderRight: '1px solid rgba(0,0,0,0.06)' }}>
-          <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase', color: '#E91E8C' }}>$ / Acre</div>
-          <div style={{ fontSize: 19, fontWeight: 800, color: '#1a1a1a', marginTop: 2, letterSpacing: -0.3 }}>
-            {pricePerAcreLabel}
-          </div>
-        </div>
-        <div style={{ textAlign: 'right' }}>
-          <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase', color: '#888' }}>Sale price</div>
-          <div style={{ fontSize: 15, fontWeight: 700, color: '#1a1a1a', marginTop: 2 }}>
-            {sale.salePrice != null
-              ? sale.salePrice >= 1_000_000
-                ? `$${(sale.salePrice / 1_000_000).toFixed(2)}M`
-                : `$${(sale.salePrice / 1000).toFixed(0)}K`
-              : '—'}
-          </div>
-        </div>
-      </div>
+      )}
 
-      {/* Secondary detail grid — sale date, soil rating, owner. */}
-      <div style={{ padding: '12px 16px 14px' }}>
-        <CompPopupRow label="Sale date" value={FMT_DATE_COMP(sale.auctionDate)} />
-        {rating != null && (
-          <CompPopupRow label="Soil rating" value={FMT_NUM_COMP(rating)} />
-        )}
-        {ownerLine && (
-          <CompPopupRow label="Owner" value={ownerLine} truncate />
-        )}
-      </div>
+      {/* Secondary detail rows — each is rendered only when its value
+          is present. Hides the whole section if nothing qualifies. */}
+      {(sale.auctionDate || rating != null || ownerLine) && (
+        <div style={{ padding: '12px 16px 14px' }}>
+          {sale.auctionDate && (
+            <CompPopupRow label="Sale date" value={FMT_DATE_COMP(sale.auctionDate)} />
+          )}
+          {rating != null && (
+            <CompPopupRow label="Soil rating" value={FMT_NUM_COMP(rating)} />
+          )}
+          {ownerLine && (
+            <CompPopupRow label="Owner" value={ownerLine} truncate />
+          )}
+        </div>
+      )}
 
       {/* Action row — Add to Report is the primary CTA (filled pink).
           3D and Details are subtle secondary buttons. */}
