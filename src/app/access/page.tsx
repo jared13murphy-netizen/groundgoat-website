@@ -417,6 +417,10 @@ export default function AccessPortalPage() {
     setSelectedTract(null)
     setShowListPanel(false)
     setShowReportPanel(false)
+    // Hide the generic "main map" report panel — otherwise it would
+    // silently sit underneath the comparables panel and re-appear when
+    // the user closes comp mode, with subjectInfo=null (no subject card).
+    setShowMainReportPanel(false)
     setActiveTab('map')
     setSubjectTractId(tractId)
 
@@ -477,6 +481,11 @@ export default function AccessPortalPage() {
     setSubjectTractLocation(null)
     setComparablesSubjectInfo(null)
     setShowComparablesReportPanel(false)
+    // Clear the generic main-map report panel as well; otherwise it
+    // would slide in to replace the comp panel because both render the
+    // same component (subjectInfo=null), making "close" look broken and
+    // hiding the subject card.
+    setShowMainReportPanel(false)
     setReportIds(new Set())
     setReportTracts([])
     // Reset map cache so regular tracts reload
