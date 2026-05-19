@@ -358,9 +358,27 @@ function EditableExtractMap({
       center: [(minLng + maxLng) / 2, (minLat + maxLat) / 2],
       zoom: 14,
       attributionControl: false,
+      // Boundary-editing UX: interactions that can recenter or rotate
+      // the view fire on accidental input and ruin precise vertex
+      // placement. Permanently off so they can't surprise the admin
+      // mid-edit. dragPan/scrollZoom stay on because they're useful
+      // for navigating to the tract; they're also disabled during
+      // active drag via lockMap(). Per user 2026-05-19u: "When I am
+      // adjusting the vertices or the polygon position, stop re-
+      // centering the map/polygon."
+      doubleClickZoom: false,  // dbl-click won't zoom + re-center
+      boxZoom: false,          // shift-drag won't box-zoom
+      dragRotate: false,       // ctrl/right-drag won't rotate
+      pitchWithRotate: false,
+      touchPitch: false,
     })
     mapRef.current = map
-    map.addControl(new maplibregl.NavigationControl(), 'top-right')
+    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right')
+
+    // No coast / inertia after panning — admins want the map to stop
+    // exactly where they dropped it. Without this, a slight cursor
+    // velocity at release sent the view drifting for ~500ms after.
+    try { (map as any).dragPan?._inertia && ((map as any).dragPan._inertia = null) } catch {}
 
     map.on('load', () => {
       const labels: any[] = []

@@ -238,8 +238,16 @@ export default function UploadBoundaryTractPage() {
       },
       center: [lng, lat],
       zoom: 16,
+      // Boundary-editor UX hardening: kill interactions that can
+      // recenter/rotate the map on accidental input mid-edit.
+      // Per user 2026-05-19u.
+      doubleClickZoom: false,
+      boxZoom: false,
+      dragRotate: false,
+      pitchWithRotate: false,
+      touchPitch: false,
     })
-    map.addControl(new maplibregl.NavigationControl(), 'top-right')
+    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right')
     map.on('load', () => {
       // If we pre-populated the editor with a proposed polygon, fit
       // the map to it instead of showing a tight zoom at the centroid.
