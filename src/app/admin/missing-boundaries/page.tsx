@@ -155,11 +155,14 @@ function EditableExtractMap({
   onTillableSubpolygonChange,
   onTillableDragEnd,
   onMoveAllTractPolygons,
-  // Click-to-draw tillable polygon. When `drawingTractId` is set, map
-  // clicks call `onAppendDraftVertex(lng, lat)` instead of doing
-  // anything else. Existing vertex drags are disabled until the user
-  // clicks Finish or Cancel in the per-tract panel.
+  // Click-to-draw polygon (tract OR tillable). When `drawingTractId`
+  // is set, map clicks call `onAppendDraftVertex(lng, lat)` instead
+  // of doing anything else. `drawingKind` picks visual style + which
+  // polygon the Finish callback replaces/appends. Existing vertex
+  // drags are disabled until the user clicks Finish or Cancel in the
+  // per-tract panel.
   drawingTractId,
+  drawingKind,
   draftVertices,
   onAppendDraftVertex,
   onFinishDraw,
@@ -175,6 +178,7 @@ function EditableExtractMap({
   onTillableDragEnd: (tractId: string) => void
   onMoveAllTractPolygons: (deltaLng: number, deltaLat: number) => void
   drawingTractId: string | null
+  drawingKind: 'tract' | 'tillable' | null
   draftVertices: number[][]
   onAppendDraftVertex: (lng: number, lat: number) => void
   onFinishDraw: () => void
@@ -192,6 +196,7 @@ function EditableExtractMap({
   // Draw-mode refs — handlers attached once on map load and look at
   // these to decide whether to forward a click as a draft vertex.
   const drawingTractIdRef = useRef(drawingTractId)
+  const drawingKindRef = useRef(drawingKind)
   const onAppendDraftVertexRef = useRef(onAppendDraftVertex)
   const onFinishDrawRef = useRef(onFinishDraw)
   tractsRef.current = tracts
@@ -202,6 +207,7 @@ function EditableExtractMap({
   moveAllModeRef.current = moveAllMode
   lockedRef.current = lockedTractIds
   drawingTractIdRef.current = drawingTractId
+  drawingKindRef.current = drawingKind
   onAppendDraftVertexRef.current = onAppendDraftVertex
   onFinishDrawRef.current = onFinishDraw
 
@@ -814,10 +820,25 @@ function EditableExtractMap({
   // each time the admin places a new vertex. Draft line closes back
   // to the first vertex once there are 3+ points so the user can see
   // the polygon taking shape; below that it's just a path / a single
-  // dot for the first click.
+  // dot for the first click. Color depends on what we're drawing:
+  // red for a tract polygon redraw, yellow for tillable.
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
+    // Recolor the draft layers based on what we're drawing. Safe to
+    // call even when the layer doesn't exist yet (try/catch below).
+    try {
+      if (map.getLayer('draft_line')) {
+        const lineColor = drawingKind === 'tract' ? '#ff3b3b' : '#facc15'
+        map.setPaintProperty('draft_line', 'line-color', lineColor)
+      }
+      if (map.getLayer('draft_verts')) {
+        const fillColor = drawingKind === 'tract' ? '#ff3b3b' : '#facc15'
+        const strokeColor = drawingKind === 'tract' ? '#7f1d1d' : '#854d0e'
+        map.setPaintProperty('draft_verts', 'circle-color', fillColor)
+        map.setPaintProperty('draft_verts', 'circle-stroke-color', strokeColor)
+      }
+    } catch {}
     // Wrap source lookups + setData in try/catch — calling setData
     // mid-style-update can throw, and a thrown setData on the LINE
     // source would block the VERT source from being updated (which is
@@ -880,7 +901,7 @@ function EditableExtractMap({
       if (map.getLayer('draft_line')) map.moveLayer('draft_line')
       if (map.getLayer('draft_verts')) map.moveLayer('draft_verts')
     } catch {}
-  }, [drawingTractId, draftVertices])
+  }, [drawingTractId, drawingKind, draftVertices])
 
   return (
     <div className="relative">
@@ -900,7 +921,10 @@ function EditableExtractMap({
       <div className="absolute bottom-1.5 left-1.5 text-[10px] text-white bg-black/60 px-2 py-1 rounded pointer-events-none">
         {drawingTractId ? (
           <>
-            <strong className="text-yellow-300">DRAW MODE</strong> · click to add a vertex · double-click (or Finish) to close · ESC cancels
+            <strong className={drawingKind === 'tract' ? 'text-red-300' : 'text-yellow-300'}>
+              DRAW MODE — {drawingKind === 'tract' ? 'TRACT polygon' : 'TILLABLE polygon'}
+            </strong>{' '}
+            · click to add a vertex · double-click (or Finish) to close · ESC cancels
           </>
         ) : (
           <>
@@ -993,8 +1017,11 @@ export default function MissingBoundariesPage() {
   // is in draw mode for that tract: clicks add vertices to the draft
   // polygon (stored in `draftVertices`), existing vertex/edge handlers
   // are inert, and Finish/Cancel buttons appear in the tract panel.
-  // Finish appends the draft to that tract's current_tillable_polygons.
+  // `drawingKind` picks the target: 'tract' (replaces the tract
+  // polygon when finished) or 'tillable' (appends a new tillable
+  // sub-polygon when finished).
   const [drawingTractId, setDrawingTractId] = useState<string | null>(null)
+  const [drawingKind, setDrawingKind] = useState<'tract' | 'tillable' | null>(null)
   const [draftVertices, setDraftVertices] = useState<number[][]>([])
   // Debounced save-draft timers keyed by tract_id. Each drag/edit
   // bumps the timer; whichever edit lands last gets persisted ~800ms
@@ -1723,14 +1750,25 @@ export default function MissingBoundariesPage() {
     }, 0)
   }
 
-  // CLICK-TO-DRAW tillable polygon. The map's click handler reads
-  // `drawingTractId` (via a ref inside TractEditMap) and calls
-  // appendDraftVertex per click. Finish appends the draft polygon
-  // to the tract's current_tillable_polygons array (preserves any
-  // existing rings so multi-region tillable is possible by drawing
-  // several polygons in sequence). Cancel discards the draft.
+  // CLICK-TO-DRAW. Shared infrastructure for two kinds of polygon
+  // redraws:
+  //   'tillable' → append a new ring to current_tillable_polygons.
+  //                Preserves existing rings (multi-region tillable).
+  //   'tract'    → REPLACE current_polygon entirely. Use when
+  //                auto-extract produced a bad tract polygon (e.g.
+  //                Wheeler-style monochrome maps where the color
+  //                trace gets confused) and the admin wants to redo
+  //                the boundary from scratch.
+  // Map clicks (handled inside TractEditMap) call appendDraftVertex.
+  // Finish reads drawingKind to decide which polygon to update.
   const startDrawTillable = (tractId: string) => {
     setDrawingTractId(tractId)
+    setDrawingKind('tillable')
+    setDraftVertices([])
+  }
+  const startDrawTract = (tractId: string) => {
+    setDrawingTractId(tractId)
+    setDrawingKind('tract')
     setDraftVertices([])
   }
   const appendDraftVertex = useCallback((lng: number, lat: number) => {
@@ -1738,6 +1776,7 @@ export default function MissingBoundariesPage() {
   }, [])
   const cancelDrawTillable = useCallback(() => {
     setDrawingTractId(null)
+    setDrawingKind(null)
     setDraftVertices([])
   }, [])
   const finishDrawTillable = useCallback(() => {
@@ -1745,45 +1784,81 @@ export default function MissingBoundariesPage() {
     // gets treated as a Cancel.
     if (!drawingTractId || draftVertices.length < 3) {
       setDrawingTractId(null)
+      setDrawingKind(null)
       setDraftVertices([])
       return
     }
     const tractId = drawingTractId
+    const kind = drawingKind
     const ring = draftVertices.slice()
-    setEditStateByTract(prev => {
-      const existing = prev[tractId]
-      if (!existing) return prev
-      const tils = [...(existing.current_tillable_polygons || []), ring]
-      return {
-        ...prev,
-        [tractId]: {
-          ...existing,
-          current_tillable_polygons: tils,
-          // Drawn polygons invalidate the cached tillable acres + soil
-          // rating — admin clicks Align Tillable to recompute against
-          // the published acreage.
-          current_tillable_acres: null,
-          current_soil_rating: null,
-          current_no_cropland: false,
-        },
-      }
-    })
-    // Persist the new polygon list so it survives a refresh.
-    setTimeout(() => {
+
+    if (kind === 'tract') {
+      // REPLACE the tract polygon. Tillable + soil rating are now
+      // stale relative to the new boundary — clear them so the admin
+      // re-runs Align Total Acres / Tillable.
       setEditStateByTract(prev => {
-        const e = prev[tractId]
-        if (e) {
-          saveDraftNow(tractId, {
-            tillable_polygons: e.current_tillable_polygons || [],
-            tillable_acres: null,
-          })
+        const existing = prev[tractId]
+        if (!existing) return prev
+        return {
+          ...prev,
+          [tractId]: {
+            ...existing,
+            current_polygon: ring,
+            current_polygon_acres: null,
+            current_tillable_polygons: [],
+            current_tillable_acres: null,
+            current_soil_rating: null,
+            current_no_cropland: false,
+          },
         }
-        return prev
       })
-    }, 0)
+      setTimeout(() => {
+        setEditStateByTract(prev => {
+          const e = prev[tractId]
+          if (e) {
+            saveDraftNow(tractId, {
+              polygon: e.current_polygon,
+              tillable_polygons: [],
+              tillable_acres: null,
+            })
+          }
+          return prev
+        })
+      }, 0)
+    } else {
+      // APPEND tillable sub-polygon (multi-region tillable).
+      setEditStateByTract(prev => {
+        const existing = prev[tractId]
+        if (!existing) return prev
+        const tils = [...(existing.current_tillable_polygons || []), ring]
+        return {
+          ...prev,
+          [tractId]: {
+            ...existing,
+            current_tillable_polygons: tils,
+            current_tillable_acres: null,
+            current_soil_rating: null,
+            current_no_cropland: false,
+          },
+        }
+      })
+      setTimeout(() => {
+        setEditStateByTract(prev => {
+          const e = prev[tractId]
+          if (e) {
+            saveDraftNow(tractId, {
+              tillable_polygons: e.current_tillable_polygons || [],
+              tillable_acres: null,
+            })
+          }
+          return prev
+        })
+      }, 0)
+    }
     setDrawingTractId(null)
+    setDrawingKind(null)
     setDraftVertices([])
-  }, [drawingTractId, draftVertices, saveDraftNow])
+  }, [drawingTractId, drawingKind, draftVertices, saveDraftNow])
 
   // ESC cancels draw mode globally.
   useEffect(() => {
@@ -2134,6 +2209,7 @@ export default function MissingBoundariesPage() {
                               onTillableDragEnd={autoCalculateTillable}
                               onMoveAllTractPolygons={(dLng, dLat) => onMoveAllTractPolygons(lid, dLng, dLat)}
                               drawingTractId={drawingTractId}
+                              drawingKind={drawingKind}
                               draftVertices={draftVertices}
                               onAppendDraftVertex={appendDraftVertex}
                               onFinishDraw={finishDrawTillable}
@@ -2221,6 +2297,50 @@ export default function MissingBoundariesPage() {
                                         title="Lock the tract polygon to prevent accidental edits"
                                       >
                                         🔒 Lock
+                                      </button>
+                                    )}
+                                  </div>
+
+                                  {/* Tract-polygon redraw row — appears when
+                                      auto-extract produced a wrong polygon and
+                                      the admin wants to redo it from scratch.
+                                      Clicking ✏ Redraw enters draw mode for
+                                      this tract (existing tract polygon is
+                                      visible as a guide until Finish replaces
+                                      it). Per user 2026-05-19g: monochrome
+                                      Surety maps (Wheeler/Vock) break the
+                                      color-trace; admin needs an inline
+                                      redraw — same UX as the tillable draw. */}
+                                  <div className="flex items-center gap-1.5 text-[10px] mb-1 pl-[68px]">
+                                    {drawingTractId === t.tract_id && drawingKind === 'tract' ? (
+                                      <>
+                                        <span className="px-1.5 py-0.5 rounded bg-red-500/20 border border-red-500/50 text-red-200 font-semibold">
+                                          ✏ Drawing tract… {draftVertices.length} {draftVertices.length === 1 ? 'point' : 'points'}
+                                        </span>
+                                        <button
+                                          onClick={finishDrawTillable}
+                                          disabled={draftVertices.length < 3}
+                                          className="px-1.5 py-0.5 rounded bg-emerald-500/25 hover:bg-emerald-500/40 disabled:opacity-40 text-emerald-200 border border-emerald-500/50"
+                                          title="Close the polygon and REPLACE the tract boundary"
+                                        >
+                                          ✓ Finish
+                                        </button>
+                                        <button
+                                          onClick={cancelDrawTillable}
+                                          className="px-1.5 py-0.5 rounded bg-gg-gray-700/40 hover:bg-gg-gray-700/70 text-gg-gray-300 border border-gg-gray-600"
+                                          title="Discard the in-progress drawing (ESC also works)"
+                                        >
+                                          ✕ Cancel
+                                        </button>
+                                      </>
+                                    ) : (
+                                      <button
+                                        onClick={() => startDrawTract(t.tract_id)}
+                                        disabled={drawingTractId != null}
+                                        className="px-1.5 py-0.5 rounded bg-red-500/15 hover:bg-red-500/30 disabled:opacity-40 text-red-300 border border-red-500/40"
+                                        title="Click on the map to trace a new tract boundary. The current polygon stays visible as a guide until you click Finish, which REPLACES it. Use when auto-extract got the shape wrong (common on Wheeler-style monochrome maps)."
+                                      >
+                                        ✏ Redraw Tract
                                       </button>
                                     )}
                                   </div>
