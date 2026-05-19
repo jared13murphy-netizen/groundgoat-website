@@ -2311,19 +2311,26 @@ export default function MissingBoundariesPage() {
                               .map((t: any) => {
                               const e = editStateByTract[t.tract_id]
                               const listingTract = tracts.find(it => it.tract_id === t.tract_id)
-                              // ALWAYS prefer live GIS acres of the
-                              // current polygon over any cached value.
-                              // The cached `current_polygon_acres` /
-                              // `t.acres` can be stale after a delete +
-                              // redraw (per user 2026-05-19k: Align
-                              // shrunk the polygon because the (drawn:)
-                              // value was lying — showing the OLD
-                              // auto-extracted area, not the newly-
-                              // drawn one).
-                              const computedTotal =
-                                e?.current_polygon && e.current_polygon.length >= 3
-                                  ? gisAcres(e.current_polygon)
-                                  : (e?.current_polygon_acres ?? t.acres)
+                              // ALWAYS prefer live GIS acres over any
+                              // cached value. Priority:
+                              //   1. While drawing a TRACT polygon for
+                              //      this tract: the in-progress draft
+                              //      (so admin sees acres update as they
+                              //      place each vertex — per user
+                              //      2026-05-19m: "Drawn doesn't auto-
+                              //      calculate correctly as I draw").
+                              //   2. The committed current_polygon.
+                              //   3. Cached current_polygon_acres OR
+                              //      t.acres (stale fallbacks).
+                              const isDrawingThisTract =
+                                drawingTractId === t.tract_id
+                                && drawingKind === 'tract'
+                                && draftVertices.length >= 3
+                              const computedTotal = isDrawingThisTract
+                                ? gisAcres(draftVertices)
+                                : (e?.current_polygon && e.current_polygon.length >= 3
+                                    ? gisAcres(e.current_polygon)
+                                    : (e?.current_polygon_acres ?? t.acres))
                               const isApproved = approvedTractIds.has(t.tract_id)
                               return (
                                 <div
