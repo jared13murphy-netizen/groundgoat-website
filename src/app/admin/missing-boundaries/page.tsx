@@ -1143,25 +1143,40 @@ export default function MissingBoundariesPage() {
       }
     }
     load()
-    // Fire-and-forget: ensure every listing on this screen has a
-    // geocoded lat/lng so the boundary editor opens with the map
-    // already centered on the correct township.
-    setGeocodeStatus('Geocoding listings…')
-    fetch(`${SCRAPER_URL}/api/admin/geocode-missing-listings`, { method: 'POST' })
-      .then(r => r.json())
-      .then(body => {
-        if (cancelled) return
-        if (body.success) {
-          setGeocodeStatus(`Geocoded ${body.geocoded}/${body.processed} listings`)
-        } else {
-          setGeocodeStatus(`Geocode failed: ${body.error || 'unknown'}`)
-        }
-      })
-      .catch(e => {
-        if (!cancelled) setGeocodeStatus(`Geocode failed: ${e.message || e}`)
-      })
     return () => { cancelled = true }
   }, [stateFilter, statusFilter, companyFilter, assigneeFilter, listingIdFilter])
+
+  // Geocode pass: ensure every active listing has a lat/lng so the
+  // boundary editor opens centered on the right township. This runs
+  // ONCE on mount, DEFERRED 8 seconds AFTER mount so the items list
+  // renders first and the scraper's single gunicorn worker isn't
+  // hogged while the admin is just trying to see their queue.
+  //
+  // Was firing on every filter change which blocked the worker for
+  // 30s+ on slow geocode crawls and the missing-boundary-tracts
+  // fetch queued behind it. Per user 2026-05-19s: "When I sort IL
+  // and then Isaac, it takes over 30 seconds to load."
+  useEffect(() => {
+    let cancelled = false
+    const timer = setTimeout(() => {
+      if (cancelled) return
+      setGeocodeStatus('Geocoding listings in background…')
+      fetch(`${SCRAPER_URL}/api/admin/geocode-missing-listings`, { method: 'POST' })
+        .then(r => r.json())
+        .then(body => {
+          if (cancelled) return
+          if (body.success) {
+            setGeocodeStatus(`Geocoded ${body.geocoded}/${body.processed} listings`)
+          } else {
+            setGeocodeStatus(`Geocode failed: ${body.error || 'unknown'}`)
+          }
+        })
+        .catch(e => {
+          if (!cancelled) setGeocodeStatus(`Geocode failed: ${e.message || e}`)
+        })
+    }, 8000)
+    return () => { cancelled = true; clearTimeout(timer) }
+  }, [])
 
   // After items load, auto-scroll to the focus_tract card if one was
   // requested via the URL (boundary-draw-tract redirects here with
