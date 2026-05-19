@@ -290,7 +290,18 @@ function EditableExtractMap({
   // mount — at that moment editStateByTract was still empty (it gets
   // synced from autoExtractResultByListing in a separate effect that
   // fires later), so the map saw 0 tracts and bailed.
-  const hasData = tracts.some(t => t.current_polygon && t.current_polygon.length >= 3)
+  //
+  // STICKY hasData: once true, never flips back to false. Without
+  // this, deleting the LAST tract polygon would re-run the [hasData]
+  // useEffect with hasData=false, the cleanup would call map.remove()
+  // and the entire map would disappear (black canvas) — even though
+  // we want the admin to keep working in that map (e.g. about to
+  // draw a replacement polygon). Per user 2026-05-19i: "the entire
+  // map goes black after I click OK on the confirmation pop up."
+  const hasAnyDataNow = tracts.some(t => t.current_polygon && t.current_polygon.length >= 3)
+  const hasDataRef = useRef(false)
+  if (hasAnyDataNow) hasDataRef.current = true
+  const hasData = hasDataRef.current || hasAnyDataNow
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -778,14 +789,18 @@ function EditableExtractMap({
       const tilSrc = map.getSource(`til_${t.tract_id}`) as maplibregl.GeoJSONSource | undefined
       const vertSrc = map.getSource(`vert_${t.tract_id}`) as maplibregl.GeoJSONSource | undefined
       const tilVertSrc = map.getSource(`tilvert_${t.tract_id}`) as maplibregl.GeoJSONSource | undefined
-      if (fullSrc && t.current_polygon) fullSrc.setData(buildPolyGeo(t.current_polygon))
+      if (fullSrc) {
+        fullSrc.setData(t.current_polygon
+          ? buildPolyGeo(t.current_polygon)
+          : { type: 'FeatureCollection', features: [] } as any)
+      }
       // Locked tracts hide their vertex circles so admin can't drag
       // them. They're still drawn (red border + fill) for reference.
       const isLocked = lockedTractIds.has(t.tract_id)
-      if (vertSrc && t.current_polygon) {
-        vertSrc.setData(isLocked
-          ? { type: 'FeatureCollection', features: [] } as any
-          : buildVertexGeo(t.current_polygon, t.tract_id))
+      if (vertSrc) {
+        vertSrc.setData(t.current_polygon && !isLocked
+          ? buildVertexGeo(t.current_polygon, t.tract_id)
+          : { type: 'FeatureCollection', features: [] } as any)
       }
       const tils = t.current_tillable_polygons || []
       if (tilSrc) {
