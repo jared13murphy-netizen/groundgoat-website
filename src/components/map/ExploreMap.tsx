@@ -1497,7 +1497,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       },
       center: initialCenter,
       zoom: initialZoom,
-      maxZoom: 18,
+      // Esri World Imagery serves real tiles to z19; we allow z20 so
+      // users can pull in one step closer (tiles overzoom from z19 —
+      // slightly blurry but still useful for spotting structures).
+      maxZoom: 20,
     })
 
     map.addControl(new maplibregl.NavigationControl(), 'top-right')
