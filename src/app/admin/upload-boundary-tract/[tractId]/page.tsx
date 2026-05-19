@@ -439,7 +439,17 @@ export default function UploadBoundaryTractPage() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  // Update polygon overlay
+  // Update polygon overlay. The setData calls are cheap — they just
+  // refresh the GeoJSON in the source. The fitBounds is the expensive
+  // one and it ONLY fires when a brand-new polygon arrives (empty →
+  // non-empty), NOT on every edit. Per user 2026-05-19v: the map
+  // was "trying to always keep the polygon centered" as vertices
+  // got dragged — which is exactly what this useEffect was doing
+  // before. After a new polygon lands (e.g. Surety extract success,
+  // upload-image extract success, prior boundary loaded from the
+  // tract details), we refit ONCE; subsequent vertex / body drags
+  // just update the GeoJSON and leave the camera alone.
+  const prevPolygonLenRef = useRef(0)
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
@@ -447,7 +457,10 @@ export default function UploadBoundaryTractPage() {
     if (src) src.setData(buildPolyGeo(polygon))
     const vsrc = map.getSource('vision-vertices') as maplibregl.GeoJSONSource | undefined
     if (vsrc) vsrc.setData(buildVertexGeo(polygon))
-    if (polygon.length >= 3) {
+    // Refit only when transitioning from "no polygon" to "polygon".
+    const wasEmpty = prevPolygonLenRef.current === 0
+    const nowHas = polygon.length >= 3
+    if (wasEmpty && nowHas) {
       const lngs = polygon.map(p => p[0])
       const lats = polygon.map(p => p[1])
       map.fitBounds([
@@ -455,6 +468,7 @@ export default function UploadBoundaryTractPage() {
         [Math.max(...lngs), Math.max(...lats)],
       ], { padding: 60, duration: 600, maxZoom: 17 })
     }
+    prevPolygonLenRef.current = polygon.length
   }, [polygon])
 
   // Listen for paste anywhere on the page
@@ -591,26 +605,41 @@ export default function UploadBoundaryTractPage() {
   }
 
   const extractFromSurety = async () => {
+    console.log('[SuretyExtract] clicked, url:', suretyUrlInput)
     const url = suretyUrlInput.trim()
-    if (!url) return
+    if (!url) {
+      setStatusMsg('✗ Paste a Surety image URL first')
+      return
+    }
     if (!/^https?:\/\//.test(url)) {
       setStatusMsg('✗ URL must start with http:// or https://')
       return
     }
-    setExtractingSurety(true); setStatusMsg(null); setPolygon([]); setExtractMeta(null)
+    setExtractingSurety(true)
+    setStatusMsg('⟳ Surety extract: sending request to backend…')
+    setPolygon([])
+    setExtractMeta(null)
     polygonHistoryRef.current = []
+    // 90-second client-side timeout so a hung backend doesn't leave
+    // the UI in "Extracting…" forever (per user 2026-05-19w: "I just
+    // click the button and nothing happens").
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 90_000)
     try {
       // Backend fetches the Surety per-tract JPG, OCRs the composition
       // table via Claude Vision, traces the outer boundary, snaps to
       // SSURGO via composition matching, and returns the polygon.
+      console.log('[SuretyExtract] POST', `${SCRAPER_URL}/api/admin/tracts/${tractId}/extract-boundary-from-surety`)
       const res = await fetch(
         `${SCRAPER_URL}/api/admin/tracts/${tractId}/extract-boundary-from-surety`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ image_url: url }),
+          signal: controller.signal,
         }
       )
+      console.log('[SuretyExtract] response status:', res.status)
       const body = await res.json()
       if (!res.ok || !body.success) throw new Error(body.error || `HTTP ${res.status}`)
       const poly: Pt[] = (body.polygon || []).map((p: any) => [Number(p[0]), Number(p[1])])
@@ -632,16 +661,8 @@ export default function UploadBoundaryTractPage() {
         acreage_delta_tillable: body.acreage_delta_tillable,
         acreage_delta_total: body.acreage_delta_total,
       })
-      // Center map on the new polygon
-      const map = mapRef.current
-      if (map && poly.length >= 3) {
-        const lngs = poly.map(p => p[0])
-        const lats = poly.map(p => p[1])
-        map.fitBounds(
-          [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
-          { padding: 60, duration: 300 }
-        )
-      }
+      // No need to fitBounds here — the polygon-overlay useEffect
+      // sees the empty→non-empty transition and fits automatically.
       const kindLabel =
         body.polygon_kind === 'tillable' ? 'TILLABLE polygon' :
         body.polygon_kind === 'full' ? 'FULL TRACT polygon' :
@@ -653,8 +674,13 @@ export default function UploadBoundaryTractPage() {
         `Drag vertices to fix drift, then Save.`
       )
     } catch (e: any) {
-      setStatusMsg(`✗ Surety extract failed: ${e.message || e}`)
+      console.error('[SuretyExtract] error:', e)
+      const msg = e?.name === 'AbortError'
+        ? '✗ Surety extract timed out after 90s — backend hung. Check Railway logs.'
+        : `✗ Surety extract failed: ${e.message || e}`
+      setStatusMsg(msg)
     } finally {
+      clearTimeout(timeoutId)
       setExtractingSurety(false)
     }
   }
