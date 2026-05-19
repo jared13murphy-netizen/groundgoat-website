@@ -442,15 +442,20 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
           processed this tract). */}
       {tract.tractId && <NdviPanel tractId={tract.tractId} />}
 
-      {/* Action Buttons — sticky at bottom. 2-column grid so 4 buttons
-          (3D Map / Neighbors / Report / Find Comparables) don't crowd
-          and labels never wrap to a second line. */}
-      <div className="grid grid-cols-2 gap-2 pt-3 pb-2 sticky bottom-0 bg-gg-gray-900/95 backdrop-blur-sm border-t border-white/5 -mx-5 px-5 mt-4">
+      {/* Action Buttons — sticky at the bottom of the pane on a single
+          horizontal row. Above the row, a transparent → black vertical
+          gradient lets scrolling content fade out behind the buttons
+          instead of being clipped by a hard edge.
+
+          Each button is flex-1 so 3 share the row evenly (or 4, if
+          View Listing is rendered). Labels stay short ("3D Map",
+          "+ Report", "View Listing", "Find Comps") to avoid wrap. */}
+      <div className="flex gap-2 sticky bottom-0 -mx-5 px-5 pt-10 pb-4 bg-gradient-to-b from-transparent via-black/70 to-black mt-4">
         {/* 3D Map (only if tract has boundaries) */}
         {hasBoundaries && tract.tractId && onView3DTerrain && (
           <button
             onClick={() => onView3DTerrain(tract.tractId!, `${tract.county}, ${tract.state}`)}
-            className="flex items-center justify-center gap-1.5 py-3 bg-gg-pink text-white font-semibold rounded-xl hover:bg-gg-pink/80 transition text-xs"
+            className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-gg-pink text-white font-semibold rounded-xl hover:bg-gg-pink/80 transition text-xs"
           >
             <Mountain size={14} />
             3D Map
@@ -461,7 +466,7 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
         {onToggleReport && (
           <button
             onClick={() => onToggleReport(tract)}
-            className={`flex items-center justify-center gap-1.5 py-3 rounded-xl font-medium transition text-xs border ${
+            className={`flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl font-medium transition text-xs border ${
               isInReport
                 ? 'bg-gg-pink/10 text-gg-pink border-gg-pink/30'
                 : 'bg-white/5 text-white border-white/10 hover:bg-white/10'
@@ -475,7 +480,7 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
         {tract.listingId && tract.companyName && onViewListing && (
           <button
             onClick={() => onViewListing(tract.listingId!)}
-            className="flex items-center justify-center gap-1.5 py-3 bg-white/5 border border-white/10 text-white font-medium rounded-xl hover:bg-white/10 transition text-xs"
+            className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-white/5 border border-white/10 text-white font-medium rounded-xl hover:bg-white/10 transition text-xs"
           >
             View Listing
           </button>
@@ -487,10 +492,10 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
         {onFindComparables && (
           <button
             onClick={() => onFindComparables(tract.id, tract.county, tract.state)}
-            className="flex items-center justify-center gap-1.5 py-3 bg-gg-pink/10 text-gg-pink border border-gg-pink/30 rounded-xl hover:bg-gg-pink/20 transition text-xs font-medium"
+            className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-gg-pink/10 text-gg-pink border border-gg-pink/30 rounded-xl hover:bg-gg-pink/20 transition text-xs font-medium"
           >
             <BarChart3 size={14} />
-            Find Comparables
+            Find Comps
           </button>
         )}
       </div>
