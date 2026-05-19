@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { ArrowLeft, Loader2, Mountain, BarChart3 } from 'lucide-react'
+import { Loader2, Mountain, BarChart3 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { formatAuctionDate } from '@/lib/auctionTime'
 import GroundTruthPanel from './GroundTruthPanel'
@@ -201,20 +201,11 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
       transition={{ duration: 0.2 }}
       className="space-y-4"
     >
-      {/* Back button */}
-      <button
-        onClick={onBack}
-        className="flex items-center gap-2 text-sm text-gg-gray-400 hover:text-white transition group"
-      >
-        <ArrowLeft size={16} className="group-hover:-translate-x-0.5 transition-transform" />
-        Back
-      </button>
-
-      {/* Header */}
-      <div>
-        <h2 className="text-xl font-bold">Tract Sale</h2>
-        <p className="text-xs text-gg-gray-400 mt-0.5">{tract.county}, {tract.state}</p>
-      </div>
+      {/* The pane title, back button, and "<County> County, <ST>"
+          subtitle are now rendered by the slide-out shell in
+          /access/page.tsx — not here. This keeps the in-pane content
+          consistent with how the Listing Detail / Comp Report panes
+          are laid out (single header bar at the top of the pane). */}
 
       {/* Status + land-type badges. Multi-badge: every land_type the
           tract qualifies for shows up — a 50/50 farm-and-trees parcel
