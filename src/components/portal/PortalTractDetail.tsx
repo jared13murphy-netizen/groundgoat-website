@@ -442,25 +442,47 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
           processed this tract). */}
       {tract.tractId && <NdviPanel tractId={tract.tractId} />}
 
-      {/* Action Buttons — sticky at the bottom of the pane on a single
-          horizontal row. Above the row, a transparent → black vertical
-          gradient lets scrolling content fade out behind the buttons
-          instead of being clipped by a hard edge.
+      {/* Action buttons are rendered OUTSIDE this component, as a
+          separate footer in the slide-out pane (see <TractDetailActionBar/>
+          and /access/page.tsx). Lifting them out is the only way to
+          truly pin them to the pane bottom — `sticky bottom-0` inside
+          the scrollable area can't escape the parent's py-4 padding. */}
+    </motion.div>
+  )
+}
 
-          Each button is flex-1 so 3 share the row evenly (or 4, if
-          View Listing is rendered). Labels stay short ("3D Map",
-          "+ Report", "View Listing", "Find Comps") to avoid wrap. */}
-      <div
-        className="flex gap-2 sticky bottom-0 -mx-5 px-5 pt-10 pb-4 mt-4"
-        // Gradient finishes at the start of the button row (40%) and
-        // stays solid black from there down. Tailwind's via-/from-/to-
-        // syntax distributes stops evenly across the box; using a raw
-        // linear-gradient lets us anchor "solid black" right where the
-        // buttons begin so they sit on a true #000 backdrop.
-        style={{
-          background: 'linear-gradient(to bottom, rgba(0,0,0,0) 0%, #000 40%, #000 100%)',
-        }}
-      >
+// ─────────────────────────────────────────────────────────────────────
+// TractDetailActionBar — rendered by the slide-out pane as a footer
+// below the scrollable content. Pinned to the pane bottom; a gradient
+// overlay above the buttons lets scrolling content fade out behind it.
+// ─────────────────────────────────────────────────────────────────────
+export interface TractDetailActionBarProps {
+  tract: TractSaleData
+  onView3DTerrain?: (tractId: string, tractName: string) => void
+  onToggleReport?: (tract: TractSaleData) => void
+  isInReport?: boolean
+  onViewListing?: (listingId: string) => void
+  onFindComparables?: (tractId: string, county: string, state: string) => void
+}
+
+export function TractDetailActionBar({
+  tract,
+  onView3DTerrain,
+  onToggleReport,
+  isInReport,
+  onViewListing,
+  onFindComparables,
+}: TractDetailActionBarProps) {
+  const hasBoundaries = !!(tract.polygonCoordinates && tract.polygonCoordinates.length > 0)
+  return (
+    // shrink-0 keeps the row at its natural height; the parent scroll
+    // area (flex-1) absorbs the remaining space. The ::before overlay
+    // (a 40px tall transparent→black gradient anchored to this bar's
+    // top edge) bleeds UP into the scroll area so its bottom content
+    // fades out behind the buttons instead of getting hard-clipped.
+    <div className="shrink-0 relative bg-black">
+      <div className="absolute -top-10 left-0 right-0 h-10 pointer-events-none bg-gradient-to-b from-transparent to-black" />
+      <div className="flex gap-2 px-5 py-4">
         {/* 3D Map (only if tract has boundaries) */}
         {hasBoundaries && tract.tractId && onView3DTerrain && (
           <button
@@ -509,7 +531,7 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
           </button>
         )}
       </div>
-    </motion.div>
+    </div>
   )
 }
 

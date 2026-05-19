@@ -14,7 +14,7 @@ import PortalKPICards from '@/components/portal/PortalKPICards'
 import PortalListPanel from '@/components/portal/PortalListPanel'
 import PortalAnalyticsPanel from '@/components/portal/PortalAnalyticsPanel'
 import PortalListingDetail from '@/components/portal/PortalListingDetail'
-import PortalTractDetail from '@/components/portal/PortalTractDetail'
+import PortalTractDetail, { TractDetailActionBar } from '@/components/portal/PortalTractDetail'
 import PortalComparablesReportPanel from '@/components/portal/PortalComparablesReportPanel'
 import PortalReportPanel from '@/components/portal/PortalReportPanel'
 import MapChatPanel from '@/components/portal/MapChatPanel'
@@ -676,7 +676,9 @@ export default function AccessPortalPage() {
             <div className="pt-8 px-5 pb-4 border-b border-white/5 shrink-0">
               <h2 className="text-lg font-semibold">Tract Detail</h2>
             </div>
-            <div className="flex-1 overflow-y-auto px-5 py-4">
+            {/* Scrollable content. pb-0 lets the action-bar's gradient
+                overlay reach right to the buttons without an extra gap. */}
+            <div className="flex-1 overflow-y-auto px-5 pt-4 pb-0">
               <PortalTractDetail
                 tract={selectedTract}
                 onBack={() => setSelectedTract(null)}
@@ -697,6 +699,22 @@ export default function AccessPortalPage() {
                 onFindComparables={handleFindComparables}
               />
             </div>
+            {/* Action buttons as a TRUE footer of the slide-out — outside
+                the scroll area, pinned to the bottom of the pane. */}
+            <TractDetailActionBar
+              tract={selectedTract}
+              onView3DTerrain={handleView3DTerrain}
+              onToggleReport={(tract) => {
+                handleToggleReport(tract)
+                setSelectedTract(null)
+              }}
+              isInReport={reportIds.has(selectedTract.id)}
+              onViewListing={(listingId) => {
+                setSelectedTract(null)
+                setMapListingId(listingId)
+              }}
+              onFindComparables={handleFindComparables}
+            />
           </motion.div>
         )}
       </AnimatePresence>
