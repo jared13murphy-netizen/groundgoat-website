@@ -939,7 +939,7 @@ function EditableExtractMap({
             <strong className={drawingKind === 'tract' ? 'text-red-300' : 'text-yellow-300'}>
               DRAW MODE — {drawingKind === 'tract' ? 'TRACT polygon' : 'TILLABLE polygon'}
             </strong>{' '}
-            · click to add a vertex · double-click (or Finish) to close · ESC cancels
+            · click to add a vertex · ⌘/Ctrl-Z to undo · Enter/dbl-click/Finish to close · ESC cancels
           </>
         ) : (
           <>
@@ -1834,6 +1834,12 @@ export default function MissingBoundariesPage() {
   const appendDraftVertex = useCallback((lng: number, lat: number) => {
     setDraftVertices(v => [...v, [lng, lat]])
   }, [])
+  // Pop the LAST vertex off the draft. Used by the ↩ Undo button +
+  // Ctrl/Cmd-Z shortcut so the admin can take back a misplaced click
+  // without restarting the whole polygon.
+  const undoLastDraftVertex = useCallback(() => {
+    setDraftVertices(v => v.length > 0 ? v.slice(0, -1) : v)
+  }, [])
   const cancelDrawTillable = useCallback(() => {
     setDrawingTractId(null)
     setDrawingKind(null)
@@ -1920,16 +1926,32 @@ export default function MissingBoundariesPage() {
     setDraftVertices([])
   }, [drawingTractId, drawingKind, draftVertices, saveDraftNow])
 
-  // ESC cancels draw mode globally.
+  // Draw-mode keyboard shortcuts:
+  //   ESC          → cancel current draw
+  //   Ctrl/Cmd-Z   → undo last placed vertex
+  //   Enter        → finish (when ≥3 verts)
+  // Only active while a tract is being drawn so they don't interfere
+  // with normal page input (e.g. typing in the Total ac field).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && drawingTractId) {
+      if (!drawingTractId) return
+      // Ignore when focus is in a form field so typing isn't hijacked.
+      const tag = (document.activeElement?.tagName || '').toLowerCase()
+      if (tag === 'input' || tag === 'textarea' || tag === 'select') return
+      if (e.key === 'Escape') {
+        e.preventDefault()
         cancelDrawTillable()
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault()
+        undoLastDraftVertex()
+      } else if (e.key === 'Enter' && draftVertices.length >= 3) {
+        e.preventDefault()
+        finishDrawTillable()
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [drawingTractId, cancelDrawTillable])
+  }, [drawingTractId, draftVertices.length, cancelDrawTillable, undoLastDraftVertex, finishDrawTillable])
 
   // (calculateTract removed 2026-05-14 — Align Total Acres auto-derives
   // the tillable polygon, Align Tillable auto-derives the soil rating,
@@ -2390,10 +2412,18 @@ export default function MissingBoundariesPage() {
                                           ✏ Drawing tract… {draftVertices.length} {draftVertices.length === 1 ? 'point' : 'points'}
                                         </span>
                                         <button
+                                          onClick={undoLastDraftVertex}
+                                          disabled={draftVertices.length === 0}
+                                          className="px-1.5 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/40 disabled:opacity-40 text-amber-200 border border-amber-500/40"
+                                          title="Remove the last placed vertex (Ctrl/Cmd-Z also works)"
+                                        >
+                                          ↩ Undo
+                                        </button>
+                                        <button
                                           onClick={finishDrawTillable}
                                           disabled={draftVertices.length < 3}
                                           className="px-1.5 py-0.5 rounded bg-emerald-500/25 hover:bg-emerald-500/40 disabled:opacity-40 text-emerald-200 border border-emerald-500/50"
-                                          title="Close the polygon and REPLACE the tract boundary"
+                                          title="Close the polygon and REPLACE the tract boundary (Enter also works)"
                                         >
                                           ✓ Finish
                                         </button>
@@ -2489,10 +2519,18 @@ export default function MissingBoundariesPage() {
                                           ✏ Drawing… {draftVertices.length} {draftVertices.length === 1 ? 'point' : 'points'}
                                         </span>
                                         <button
+                                          onClick={undoLastDraftVertex}
+                                          disabled={draftVertices.length === 0}
+                                          className="px-1.5 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/40 disabled:opacity-40 text-amber-200 border border-amber-500/40"
+                                          title="Remove the last placed vertex (Ctrl/Cmd-Z also works)"
+                                        >
+                                          ↩ Undo
+                                        </button>
+                                        <button
                                           onClick={finishDrawTillable}
                                           disabled={draftVertices.length < 3}
                                           className="px-1.5 py-0.5 rounded bg-emerald-500/25 hover:bg-emerald-500/40 disabled:opacity-40 text-emerald-200 border border-emerald-500/50"
-                                          title="Close the polygon and add it to this tract's tillable area(s). Then click Align Tillable to scale to the published acres."
+                                          title="Close the polygon and add it to this tract's tillable area(s). Then click Align Tillable to scale to the published acres. (Enter also works)"
                                         >
                                           ✓ Finish
                                         </button>
