@@ -228,6 +228,31 @@ function EditableExtractMap({
     lastLat?: number
   } | null>(null)
 
+  // Lock down ALL map interactions during a polygon / vertex drag.
+  // Just disabling dragPan isn't enough — scrollZoom, doubleClick-
+  // Zoom, boxZoom, touchZoomRotate, and dragRotate can still fire
+  // and cause the map to pan/zoom while the admin is trying to drag
+  // a vertex precisely. Per user 2026-05-19r: "the map zooms and
+  // moves around so it's impossible to get it right."
+  const lockMap = (m: maplibregl.Map) => {
+    try { m.dragPan.disable() } catch {}
+    try { m.scrollZoom.disable() } catch {}
+    try { m.boxZoom.disable() } catch {}
+    try { m.doubleClickZoom.disable() } catch {}
+    try { (m as any).touchZoomRotate?.disable?.() } catch {}
+    try { (m as any).dragRotate?.disable?.() } catch {}
+    try { (m as any).keyboard?.disable?.() } catch {}
+  }
+  const unlockMap = (m: maplibregl.Map) => {
+    try { m.dragPan.enable() } catch {}
+    try { m.scrollZoom.enable() } catch {}
+    try { m.boxZoom.enable() } catch {}
+    try { m.doubleClickZoom.enable() } catch {}
+    try { (m as any).touchZoomRotate?.enable?.() } catch {}
+    try { (m as any).dragRotate?.enable?.() } catch {}
+    try { (m as any).keyboard?.enable?.() } catch {}
+  }
+
   // Build features for a tract's polygon + vertex handles
   const buildPolyGeo = (polygon: number[][]) => {
     if (polygon.length < 3) return { type: 'FeatureCollection', features: [] }
@@ -424,7 +449,7 @@ function EditableExtractMap({
             vertexIdx: f.properties.idx,
           }
           map.getCanvas().style.cursor = 'grabbing'
-          map.dragPan.disable()
+          lockMap(map)
         })
         map.on('mouseenter', `${vertId}_circle`, () => { map.getCanvas().style.cursor = 'grab' })
         map.on('mouseleave', `${vertId}_circle`, () => {
@@ -459,7 +484,7 @@ function EditableExtractMap({
             vertexIdx: f.properties.idx,
           }
           map.getCanvas().style.cursor = 'grabbing'
-          map.dragPan.disable()
+          lockMap(map)
         })
         map.on('mouseenter', `${tilVertId}_circle`, () => { map.getCanvas().style.cursor = 'grab' })
         map.on('mouseleave', `${tilVertId}_circle`, () => {
@@ -484,7 +509,7 @@ function EditableExtractMap({
             lastLng: e.lngLat.lng, lastLat: e.lngLat.lat,
           }
           map.getCanvas().style.cursor = 'grabbing'
-          map.dragPan.disable()
+          lockMap(map)
         })
 
         // Click on tract polygon LINE (edge) inserts a new vertex at
@@ -547,7 +572,7 @@ function EditableExtractMap({
             lastLng: e.lngLat.lng, lastLat: e.lngLat.lat,
           }
           map.getCanvas().style.cursor = 'grabbing'
-          map.dragPan.disable()
+          lockMap(map)
         })
 
         // Click on tillable polygon LINE inserts a vertex into the
@@ -685,7 +710,7 @@ function EditableExtractMap({
           lastLng: e.lngLat.lng, lastLat: e.lngLat.lat,
         }
         map.getCanvas().style.cursor = 'grabbing'
-        map.dragPan.disable()
+        lockMap(map)
       })
     })
 
@@ -746,7 +771,7 @@ function EditableExtractMap({
       const drag = draggingRef.current
       if (drag && mapRef.current) {
         mapRef.current.getCanvas().style.cursor = ''
-        mapRef.current.dragPan.enable()
+        unlockMap(mapRef.current)
         // After a tillable drag ends, fire the auto-Calculate callback
         // so the parent can recompute acres + soil rating without admin
         // clicking Calculate.

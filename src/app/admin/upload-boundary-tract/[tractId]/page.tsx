@@ -122,6 +122,30 @@ export default function UploadBoundaryTractPage() {
   // Polygon-body drag: when non-null, holds the lng/lat of the cursor
   // at the previous mousemove tick so we can compute deltas.
   const draggingPolygonRef = useRef<{ lng: number; lat: number } | null>(null)
+  // Lock down ALL map interactions during a drag — just disabling
+  // dragPan wasn't enough (per user 2026-05-19r: "the map zooms and
+  // moves around so it's impossible to get it right"). Trackpad
+  // gestures, scrollZoom, doubleClickZoom, boxZoom, dragRotate, and
+  // keyboard all need to be off so the canvas stays put while the
+  // admin precisely places a vertex.
+  const lockMapForDrag = (m: maplibregl.Map) => {
+    try { m.dragPan.disable() } catch {}
+    try { m.scrollZoom.disable() } catch {}
+    try { m.boxZoom.disable() } catch {}
+    try { m.doubleClickZoom.disable() } catch {}
+    try { (m as any).touchZoomRotate?.disable?.() } catch {}
+    try { (m as any).dragRotate?.disable?.() } catch {}
+    try { (m as any).keyboard?.disable?.() } catch {}
+  }
+  const unlockMapAfterDrag = (m: maplibregl.Map) => {
+    try { m.dragPan.enable() } catch {}
+    try { m.scrollZoom.enable() } catch {}
+    try { m.boxZoom.enable() } catch {}
+    try { m.doubleClickZoom.enable() } catch {}
+    try { (m as any).touchZoomRotate?.enable?.() } catch {}
+    try { (m as any).dragRotate?.enable?.() } catch {}
+    try { (m as any).keyboard?.enable?.() } catch {}
+  }
   const [extracting, setExtracting] = useState(false)
   const [saving, setSaving] = useState(false)
   const [statusMsg, setStatusMsg] = useState<string | null>(null)
@@ -259,7 +283,11 @@ export default function UploadBoundaryTractPage() {
         if (typeof idx === 'number') {
           draggingVertexRef.current = idx
           map.getCanvas().style.cursor = 'grabbing'
-          map.dragPan.disable()  // don't pan the map while dragging vertex
+          // Lock down every map interaction so the canvas can't pan,
+          // zoom, or scroll-zoom out from under the cursor while the
+          // admin is precisely positioning a vertex. Per user 2026-
+          // 05-19r.
+          lockMapForDrag(map)
           polygonHistoryRef.current.push(polygonRef.current)
           if (polygonHistoryRef.current.length > 50) polygonHistoryRef.current.shift()
         }
@@ -282,7 +310,7 @@ export default function UploadBoundaryTractPage() {
         e.preventDefault()
         draggingPolygonRef.current = { lng: e.lngLat.lng, lat: e.lngLat.lat }
         map.getCanvas().style.cursor = 'grabbing'
-        map.dragPan.disable()
+        lockMapForDrag(map)
         polygonHistoryRef.current.push(polygonRef.current)
         if (polygonHistoryRef.current.length > 50) polygonHistoryRef.current.shift()
       })
@@ -376,7 +404,7 @@ export default function UploadBoundaryTractPage() {
         draggingVertexRef.current = null
         draggingPolygonRef.current = null
         map.getCanvas().style.cursor = ''
-        map.dragPan.enable()
+        unlockMapAfterDrag(map)
       }
     }
     window.addEventListener('mousemove', onMove)
