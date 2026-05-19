@@ -117,6 +117,22 @@ export default function UploadBoundaryTractPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null)
+  // When backend extract returns 422 needs_precise_anchor we surface
+  // an inline form for the admin to enter the right street address or
+  // direct lat/lng. Per user 2026-05-19: never silently fall back to a
+  // city/ZIP centroid — fail loudly so the admin can fix it.
+  const [needsAnchor, setNeedsAnchor] = useState<{
+    listing_title?: string
+    listing_source_url?: string
+    listing_county?: string
+    listing_state?: string
+    listing_address?: string
+    message?: string
+  } | null>(null)
+  const [anchorAddress, setAnchorAddress] = useState<string>('')
+  const [anchorLat, setAnchorLat] = useState<string>('')
+  const [anchorLng, setAnchorLng] = useState<string>('')
+  const [savingAnchor, setSavingAnchor] = useState<boolean>(false)
   const [urlInput, setUrlInput] = useState<string>('')
   const [extractingUrl, setExtractingUrl] = useState<boolean>(false)
   const [suretyUrlInput, setSuretyUrlInput] = useState<string>('')
@@ -537,6 +553,23 @@ export default function UploadBoundaryTractPage() {
         }
       )
       const body = await res.json()
+      // Special case: backend refused to project because it has no
+      // precise anchor. Show the inline address/lat-lng form instead
+      // of an error toast — this is the recoverable case where the
+      // admin can supply the correct location.
+      if (res.status === 422 && body?.error_code === 'needs_precise_anchor') {
+        setNeedsAnchor({
+          listing_title: body.listing_title,
+          listing_source_url: body.listing_source_url,
+          listing_county: body.listing_county,
+          listing_state: body.listing_state,
+          listing_address: body.listing_address,
+          message: body.error,
+        })
+        setAnchorAddress(body.listing_address || '')
+        setStatusMsg(null)
+        return
+      }
       if (!res.ok || !body.success) {
         throw new Error(body.error || `HTTP ${res.status}`)
       }
@@ -560,6 +593,54 @@ export default function UploadBoundaryTractPage() {
       setStatusMsg(`✗ Extract failed: ${e.message || e}`)
     } finally {
       setExtracting(false)
+    }
+  }
+
+  // Admin submits the anchor (address OR explicit lat/lng) when the
+  // backend refused to project for lack of precise location data.
+  const saveAnchor = async () => {
+    setSavingAnchor(true); setStatusMsg(null)
+    try {
+      const body: any = {}
+      const addr = anchorAddress.trim()
+      const lat = anchorLat.trim()
+      const lng = anchorLng.trim()
+      if (lat && lng) {
+        body.latitude = Number(lat)
+        body.longitude = Number(lng)
+        if (!Number.isFinite(body.latitude) || !Number.isFinite(body.longitude)) {
+          setStatusMsg('✗ Latitude / longitude must be numeric')
+          setSavingAnchor(false)
+          return
+        }
+      } else if (addr) {
+        body.address = addr
+      } else {
+        setStatusMsg('✗ Enter a street address OR lat/lng')
+        setSavingAnchor(false)
+        return
+      }
+      const res = await fetch(
+        `${SCRAPER_URL}/api/admin/tracts/${tractId}/set-anchor`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        },
+      )
+      const data = await res.json()
+      if (!res.ok || !data.success) {
+        setStatusMsg(`✗ ${data.error || `HTTP ${res.status}`}`)
+        return
+      }
+      setNeedsAnchor(null)
+      setStatusMsg(`✓ Anchor set to (${data.latitude.toFixed(5)}, ${data.longitude.toFixed(5)}). Re-running extract…`)
+      // Re-run extraction now that the anchor is fixed
+      setTimeout(() => extract(), 400)
+    } catch (e: any) {
+      setStatusMsg(`✗ Set-anchor failed: ${e.message || e}`)
+    } finally {
+      setSavingAnchor(false)
     }
   }
 
@@ -938,6 +1019,77 @@ export default function UploadBoundaryTractPage() {
                   <RotateCcw size={16} />
                 </button>
               </div>
+
+              {/* Needs-precise-anchor prompt — appears when backend
+                  refuses to project because it can't tell where the
+                  property is. Admin enters a street address or
+                  explicit lat/lng; clicking Save geocodes, persists,
+                  and re-runs Vision. */}
+              {needsAnchor && (
+                <div className="rounded-lg border border-amber-500/60 bg-amber-500/10 p-3 flex flex-col gap-2 text-sm">
+                  <div className="font-semibold text-amber-300">
+                    ⚠ Precise location required
+                  </div>
+                  <div className="text-amber-100/80 text-xs leading-snug">
+                    We don&apos;t have a verified street address or lat/lng
+                    for this {needsAnchor.listing_county
+                      ? `tract in ${needsAnchor.listing_county} County, ${needsAnchor.listing_state}`
+                      : 'tract'}.
+                    Enter the address from the listing page (the
+                    geocoder needs a specific street — city or ZIP
+                    centroids are not accepted because they drop the
+                    polygon miles from the actual farm).
+                  </div>
+                  {needsAnchor.listing_source_url && (
+                    <a
+                      href={needsAnchor.listing_source_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-xs text-amber-200 underline truncate"
+                    >
+                      Open listing page →
+                    </a>
+                  )}
+                  <input
+                    value={anchorAddress}
+                    onChange={(e) => setAnchorAddress(e.target.value)}
+                    placeholder={`e.g. "Wood Station Road, ${needsAnchor.listing_county || 'X'} County, ${needsAnchor.listing_state || 'ST'}"`}
+                    className="bg-black border border-gg-gray-700 rounded px-2 py-1.5 text-white text-sm"
+                  />
+                  <div className="text-xs text-gg-gray-400">
+                    — or supply lat/lng directly:
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      value={anchorLat}
+                      onChange={(e) => setAnchorLat(e.target.value)}
+                      placeholder="lat (e.g. 38.9446)"
+                      className="flex-1 bg-black border border-gg-gray-700 rounded px-2 py-1.5 text-white text-sm"
+                    />
+                    <input
+                      value={anchorLng}
+                      onChange={(e) => setAnchorLng(e.target.value)}
+                      placeholder="lng (e.g. -90.1254)"
+                      className="flex-1 bg-black border border-gg-gray-700 rounded px-2 py-1.5 text-white text-sm"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={saveAnchor}
+                      disabled={savingAnchor}
+                      className="flex-1 py-2 bg-emerald-500 hover:bg-emerald-500/85 disabled:opacity-50 text-white text-sm rounded font-semibold"
+                    >
+                      {savingAnchor ? 'Saving…' : 'Save anchor & re-extract'}
+                    </button>
+                    <button
+                      onClick={() => setNeedsAnchor(null)}
+                      className="px-3 py-2 bg-gg-gray-800 hover:bg-gg-gray-700 text-gg-gray-300 text-sm rounded"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
