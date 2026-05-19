@@ -1066,6 +1066,20 @@ export default function MissingBoundariesPage() {
   const [stateFilter, setStateFilter] = useState<string>('')
   const [companyFilter, setCompanyFilter] = useState<string>('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'missing' | 'wrong' | 'ok'>('all')
+  // URL query support: ?listing_id=xxx (focus on one listing) and
+  // ?focus_tract=xxx (auto-scroll to that tract's card). Used by the
+  // boundary-draw-tract redirect so an admin lands here with the full
+  // Align / Tillable / Soil Rating workflow available for one tract.
+  const [listingIdFilter, setListingIdFilter] = useState<string>('')
+  const [focusTractId, setFocusTractId] = useState<string>('')
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const params = new URLSearchParams(window.location.search)
+    const lid = params.get('listing_id') || ''
+    const ftid = params.get('focus_tract') || ''
+    if (lid) setListingIdFilter(lid)
+    if (ftid) setFocusTractId(ftid)
+  }, [])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [geocodeStatus, setGeocodeStatus] = useState<string | null>(null)
@@ -1078,6 +1092,7 @@ export default function MissingBoundariesPage() {
         if (stateFilter) qs.set('state', stateFilter)
         if (statusFilter !== 'all') qs.set('status', statusFilter)
         if (companyFilter) qs.set('company', companyFilter)
+        if (listingIdFilter) qs.set('listing_id', listingIdFilter)
         const url = `${SCRAPER_URL}/api/admin/missing-boundary-tracts${qs.toString() ? '?' + qs.toString() : ''}`
         setLoading(true)
         const res = await fetch(url)
@@ -1113,7 +1128,23 @@ export default function MissingBoundariesPage() {
         if (!cancelled) setGeocodeStatus(`Geocode failed: ${e.message || e}`)
       })
     return () => { cancelled = true }
-  }, [stateFilter, statusFilter, companyFilter])
+  }, [stateFilter, statusFilter, companyFilter, listingIdFilter])
+
+  // After items load, auto-scroll to the focus_tract card if one was
+  // requested via the URL (boundary-draw-tract redirects here with
+  // ?focus_tract=xxx). The DOM element is keyed by `tract-card-{id}`.
+  useEffect(() => {
+    if (!focusTractId || loading) return
+    const el = document.getElementById(`tract-card-${focusTractId}`)
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      // Brief flash to draw the eye
+      el.classList.add('ring-2', 'ring-yellow-400', 'ring-offset-2', 'ring-offset-black')
+      setTimeout(() => {
+        el.classList.remove('ring-2', 'ring-yellow-400', 'ring-offset-2', 'ring-offset-black')
+      }, 2500)
+    }
+  }, [focusTractId, loading, items])
 
   // Delete a listing (cascades to tracts via FK ON DELETE CASCADE).
   // Triple-checks before issuing the DELETE — accidental click is a
@@ -2335,7 +2366,8 @@ export default function MissingBoundariesPage() {
                               return (
                                 <div
                                   key={t.tract_id}
-                                  className={`rounded-md px-2.5 py-2 border-2 shadow-sm transition-colors ${
+                                  id={`tract-card-${t.tract_id}`}
+                                  className={`rounded-md px-2.5 py-2 border-2 shadow-sm transition-all ${
                                     isApproved
                                       ? 'bg-emerald-900/30 border-emerald-500/70 shadow-emerald-900/30'
                                       : 'bg-gg-gray-900 border-gg-gray-500 shadow-black/40'
