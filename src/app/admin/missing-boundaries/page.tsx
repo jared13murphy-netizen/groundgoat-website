@@ -813,44 +813,73 @@ function EditableExtractMap({
   // Re-render the draft polygon (the in-progress click-to-draw shape)
   // each time the admin places a new vertex. Draft line closes back
   // to the first vertex once there are 3+ points so the user can see
-  // the polygon taking shape; below that it's just a path.
+  // the polygon taking shape; below that it's just a path / a single
+  // dot for the first click.
   useEffect(() => {
     const map = mapRef.current
-    if (!map || !map.isStyleLoaded()) return
-    const lineSrc = map.getSource('draft_line') as maplibregl.GeoJSONSource | undefined
-    const vertSrc = map.getSource('draft_verts') as maplibregl.GeoJSONSource | undefined
+    if (!map) return
+    // Wrap source lookups + setData in try/catch — calling setData
+    // mid-style-update can throw, and a thrown setData on the LINE
+    // source would block the VERT source from being updated (which is
+    // exactly the bug user reported: count was incrementing but no
+    // circles or line appeared).
+    let lineSrc: maplibregl.GeoJSONSource | undefined
+    let vertSrc: maplibregl.GeoJSONSource | undefined
+    try {
+      lineSrc = map.getSource('draft_line') as maplibregl.GeoJSONSource | undefined
+      vertSrc = map.getSource('draft_verts') as maplibregl.GeoJSONSource | undefined
+    } catch {
+      return
+    }
     if (!lineSrc || !vertSrc) return
 
     if (!drawingTractId || draftVertices.length === 0) {
-      lineSrc.setData({ type: 'FeatureCollection', features: [] } as any)
-      vertSrc.setData({ type: 'FeatureCollection', features: [] } as any)
+      try { lineSrc.setData({ type: 'FeatureCollection', features: [] } as any) } catch {}
+      try { vertSrc.setData({ type: 'FeatureCollection', features: [] } as any) } catch {}
       return
     }
 
     const pts = draftVertices.slice()
-    // Close the ring back to the first point so the polygon-in-progress
-    // is visible. (3+ vertices means the shape is closeable.)
-    const closed = pts.length >= 3 ? [...pts, pts[0]] : pts
-    lineSrc.setData({
-      type: 'FeatureCollection',
-      features: [{
-        type: 'Feature',
-        properties: {},
-        geometry: { type: 'LineString', coordinates: closed },
-      }],
-    } as any)
-    vertSrc.setData({
-      type: 'FeatureCollection',
-      features: pts.map((p, i) => ({
-        type: 'Feature',
-        properties: { idx: i },
-        geometry: { type: 'Point', coordinates: p },
-      })),
-    } as any)
+
+    // LINE: only renderable with 2+ vertices. A 1-vertex LineString
+    // is invalid GeoJSON; setData() will throw and abort this whole
+    // effect, leaving the vertex circles un-rendered. So we ONLY set
+    // the line when there are 2+ pts. With 3+ pts we also close back
+    // to the first vertex so the in-progress polygon is visible.
+    try {
+      if (pts.length >= 2) {
+        const closed = pts.length >= 3 ? [...pts, pts[0]] : pts
+        lineSrc.setData({
+          type: 'FeatureCollection',
+          features: [{
+            type: 'Feature',
+            properties: {},
+            geometry: { type: 'LineString', coordinates: closed },
+          }],
+        } as any)
+      } else {
+        // 1 point — clear any prior line
+        lineSrc.setData({ type: 'FeatureCollection', features: [] } as any)
+      }
+    } catch {}
+
+    // VERTEX CIRCLES: render for every placed point (even the first).
+    try {
+      vertSrc.setData({
+        type: 'FeatureCollection',
+        features: pts.map((p, i) => ({
+          type: 'Feature',
+          properties: { idx: i },
+          geometry: { type: 'Point', coordinates: p },
+        })),
+      } as any)
+    } catch {}
 
     // Make sure draft layers paint on top of everything else.
-    if (map.getLayer('draft_line')) map.moveLayer('draft_line')
-    if (map.getLayer('draft_verts')) map.moveLayer('draft_verts')
+    try {
+      if (map.getLayer('draft_line')) map.moveLayer('draft_line')
+      if (map.getLayer('draft_verts')) map.moveLayer('draft_verts')
+    } catch {}
   }, [drawingTractId, draftVertices])
 
   return (
