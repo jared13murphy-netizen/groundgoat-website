@@ -450,7 +450,17 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
           Each button is flex-1 so 3 share the row evenly (or 4, if
           View Listing is rendered). Labels stay short ("3D Map",
           "+ Report", "View Listing", "Find Comps") to avoid wrap. */}
-      <div className="flex gap-2 sticky bottom-0 -mx-5 px-5 pt-10 pb-4 bg-gradient-to-b from-transparent via-black/70 to-black mt-4">
+      <div
+        className="flex gap-2 sticky bottom-0 -mx-5 px-5 pt-10 pb-4 mt-4"
+        // Gradient finishes at the start of the button row (40%) and
+        // stays solid black from there down. Tailwind's via-/from-/to-
+        // syntax distributes stops evenly across the box; using a raw
+        // linear-gradient lets us anchor "solid black" right where the
+        // buttons begin so they sit on a true #000 backdrop.
+        style={{
+          background: 'linear-gradient(to bottom, rgba(0,0,0,0) 0%, #000 40%, #000 100%)',
+        }}
+      >
         {/* 3D Map (only if tract has boundaries) */}
         {hasBoundaries && tract.tractId && onView3DTerrain && (
           <button
