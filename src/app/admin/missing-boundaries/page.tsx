@@ -1771,6 +1771,51 @@ export default function MissingBoundariesPage() {
     setDrawingKind('tract')
     setDraftVertices([])
   }
+
+  // Delete the tract polygon WITHOUT entering draw mode. Useful when
+  // the admin wants the wrong polygon off the screen first, then
+  // decides separately whether to draw / upload / abandon.
+  // Per user 2026-05-19h: "I need to be able to delete it prior to
+  // drawing a new one."
+  const deleteTractPolygon = (tractId: string) => {
+    if (!window.confirm(
+      'Delete this tract polygon? You can draw a new one or upload an '
+      + 'image afterwards. This clears the tillable + soil rating too '
+      + 'since they only make sense relative to a tract.'
+    )) return
+    setEditStateByTract(prev => {
+      const existing = prev[tractId]
+      if (!existing) return prev
+      return {
+        ...prev,
+        [tractId]: {
+          ...existing,
+          current_polygon: undefined,
+          current_polygon_acres: null,
+          current_tillable_polygons: [],
+          current_tillable_acres: null,
+          current_soil_rating: null,
+          current_no_cropland: false,
+        },
+      }
+    })
+    // Lock state is per-tract — make sure the tract is unlocked so
+    // the admin can re-shape after re-drawing.
+    setLockedTractIds(prev => {
+      const next = new Set(prev)
+      next.delete(tractId)
+      return next
+    })
+    // Persist immediately so a refresh doesn't bring the old polygon
+    // back from the saved draft.
+    setTimeout(() => {
+      saveDraftNow(tractId, {
+        polygon: null,
+        tillable_polygons: [],
+        tillable_acres: null,
+      })
+    }, 0)
+  }
   const appendDraftVertex = useCallback((lng: number, lat: number) => {
     setDraftVertices(v => [...v, [lng, lat]])
   }, [])
@@ -2334,14 +2379,28 @@ export default function MissingBoundariesPage() {
                                         </button>
                                       </>
                                     ) : (
-                                      <button
-                                        onClick={() => startDrawTract(t.tract_id)}
-                                        disabled={drawingTractId != null}
-                                        className="px-1.5 py-0.5 rounded bg-red-500/15 hover:bg-red-500/30 disabled:opacity-40 text-red-300 border border-red-500/40"
-                                        title="Click on the map to trace a new tract boundary. The current polygon stays visible as a guide until you click Finish, which REPLACES it. Use when auto-extract got the shape wrong (common on Wheeler-style monochrome maps)."
-                                      >
-                                        ✏ Redraw Tract
-                                      </button>
+                                      <>
+                                        {e?.current_polygon && (
+                                          <button
+                                            onClick={() => deleteTractPolygon(t.tract_id)}
+                                            disabled={drawingTractId != null}
+                                            className="px-1.5 py-0.5 rounded bg-red-600/15 hover:bg-red-600/35 disabled:opacity-40 text-red-200 border border-red-600/50"
+                                            title="Delete the current tract polygon. Use this when auto-extract drew the wrong boundary — clear it out, then click Draw Tract / Upload Image / etc. to start fresh."
+                                          >
+                                            🗑 Delete
+                                          </button>
+                                        )}
+                                        <button
+                                          onClick={() => startDrawTract(t.tract_id)}
+                                          disabled={drawingTractId != null}
+                                          className="px-1.5 py-0.5 rounded bg-red-500/15 hover:bg-red-500/30 disabled:opacity-40 text-red-300 border border-red-500/40"
+                                          title={e?.current_polygon
+                                            ? "Click on the map to trace a new tract boundary. The current polygon stays visible as a guide; clicking Finish REPLACES it. (Use Delete first if you want a clean slate.)"
+                                            : "Click on the map to trace the tract boundary."}
+                                        >
+                                          ✏ {e?.current_polygon ? 'Redraw' : 'Draw'} Tract
+                                        </button>
+                                      </>
                                     )}
                                   </div>
 
