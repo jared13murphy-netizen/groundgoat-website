@@ -33,6 +33,7 @@ type ProbeResult = {
   stage_4_features?: any
   stage_2_resolve?: any
   stage_3_validate?: any
+  stage_1c_subpages?: any
   elapsed_ms?: number
   note?: string
   error?: string
@@ -158,6 +159,7 @@ export default function MagicLabPage() {
             <StageBlock title="Stage 1 — Acquire" data={result.stage_1_acquire} />
             <StageBlock title="Stage 4 — Features (Claude-extracted)" data={result.stage_4_features} />
             <StageBlock title="Stage 2 — Resolve" data={result.stage_2_resolve} />
+            <StageBlock title="Stage 1c — Sub-page recursion" data={result.stage_1c_subpages} />
             <StageBlock title="Stage 3 — Validate" data={result.stage_3_validate} />
             {result.error && (
               <div className="text-sm text-red-300 bg-red-500/10 border border-red-500/30 rounded p-2 mt-3">
