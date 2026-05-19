@@ -979,10 +979,14 @@ type Item = {
   scraped_tillable_acres?: number | null
   scraped_soil_rating?: number | null
   scraped_soil_rating_type?: string | null
+  // Team member this listing has been assigned to (Isaac/Haley/Truly/
+  // Brandt/Jared). Null/empty when unassigned.
+  assigned_to?: string | null
 }
 
 type StateCount = { state: string; total: number; missing: number; wrong: number }
 type CompanyCount = { company: string; total: number; missing: number; wrong: number }
+type AssigneeCount = { person: string; listings: number }
 
 function formatDate(iso: string | null) {
   if (!iso) return '—'
@@ -998,6 +1002,7 @@ export default function MissingBoundariesPage() {
   const [items, setItems] = useState<Item[]>([])
   const [byState, setByState] = useState<StateCount[]>([])
   const [byCompany, setByCompany] = useState<CompanyCount[]>([])
+  const [byAssignee, setByAssignee] = useState<AssigneeCount[]>([])
   const [deletingListingId, setDeletingListingId] = useState<string | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
   // Per-listing auto-extract state. Keyed by listing_id.
@@ -1065,6 +1070,7 @@ export default function MissingBoundariesPage() {
   }, [saveDraftNow])
   const [stateFilter, setStateFilter] = useState<string>('')
   const [companyFilter, setCompanyFilter] = useState<string>('')
+  const [assigneeFilter, setAssigneeFilter] = useState<string>('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'missing' | 'wrong' | 'ok'>('all')
   // URL query support: ?listing_id=xxx (focus on one listing) and
   // ?focus_tract=xxx (auto-scroll to that tract's card). Used by the
@@ -1092,6 +1098,7 @@ export default function MissingBoundariesPage() {
         if (stateFilter) qs.set('state', stateFilter)
         if (statusFilter !== 'all') qs.set('status', statusFilter)
         if (companyFilter) qs.set('company', companyFilter)
+        if (assigneeFilter) qs.set('assigned_to', assigneeFilter)
         if (listingIdFilter) qs.set('listing_id', listingIdFilter)
         const url = `${SCRAPER_URL}/api/admin/missing-boundary-tracts${qs.toString() ? '?' + qs.toString() : ''}`
         setLoading(true)
@@ -1102,6 +1109,7 @@ export default function MissingBoundariesPage() {
           setItems(data.items || [])
           if (Array.isArray(data.by_state)) setByState(data.by_state)
           if (Array.isArray(data.by_company)) setByCompany(data.by_company)
+          if (Array.isArray(data.by_assignee)) setByAssignee(data.by_assignee)
         }
       } catch (e: any) {
         if (!cancelled) setError(e.message || String(e))
@@ -1128,7 +1136,7 @@ export default function MissingBoundariesPage() {
         if (!cancelled) setGeocodeStatus(`Geocode failed: ${e.message || e}`)
       })
     return () => { cancelled = true }
-  }, [stateFilter, statusFilter, companyFilter, listingIdFilter])
+  }, [stateFilter, statusFilter, companyFilter, assigneeFilter, listingIdFilter])
 
   // After items load, auto-scroll to the focus_tract card if one was
   // requested via the URL (boundary-draw-tract redirects here with
@@ -2137,6 +2145,27 @@ export default function MissingBoundariesPage() {
             ))}
           </select>
 
+          {/* Team assignment filter — each missing-boundaries listing
+              is assigned to one of Isaac / Haley / Truly / Brandt /
+              Jared so the work splits across the team (Jared gets
+              roughly half what the others get). Pick a name to see
+              only that admin's queue. Per user 2026-05-19p. */}
+          <label className="text-xs text-gg-gray-400 uppercase tracking-wide ml-2">Assigned:</label>
+          <select
+            value={assigneeFilter}
+            onChange={(e) => setAssigneeFilter(e.target.value)}
+            className="bg-gg-gray-900 border border-gg-gray-700 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-gg-pink"
+          >
+            <option value="">
+              All ({byAssignee.reduce((s, x) => s + x.listings, 0)})
+            </option>
+            {byAssignee.map((a) => (
+              <option key={a.person} value={a.person === 'Unassigned' ? 'unassigned' : a.person}>
+                {a.person} ({a.listings})
+              </option>
+            ))}
+          </select>
+
           <label className="text-xs text-gg-gray-400 uppercase tracking-wide ml-2">Type:</label>
           <div className="inline-flex rounded overflow-hidden border border-gg-gray-700">
             {(['all', 'missing', 'wrong', 'ok'] as const).map((opt) => (
@@ -2204,7 +2233,24 @@ export default function MissingBoundariesPage() {
                     />
                   )}
                   <div className="flex-1 min-w-0">
-                    <h2 className="font-semibold text-white truncate">{head.title || '(untitled)'}</h2>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <h2 className="font-semibold text-white truncate">{head.title || '(untitled)'}</h2>
+                      {head.assigned_to ? (
+                        <span
+                          className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full bg-gg-pink/20 text-gg-pink border border-gg-pink/40 flex-shrink-0"
+                          title={`Assigned to ${head.assigned_to}`}
+                        >
+                          {head.assigned_to}
+                        </span>
+                      ) : (
+                        <span
+                          className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full bg-gg-gray-800 text-gg-gray-400 border border-gg-gray-700 flex-shrink-0"
+                          title="No assignee yet"
+                        >
+                          Unassigned
+                        </span>
+                      )}
+                    </div>
                     <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1 text-xs text-gg-gray-400">
                       {head.company_name && <span>{head.company_name}</span>}
                       <span className="flex items-center gap-1"><MapPin size={11} />{head.county}, {head.state}</span>
