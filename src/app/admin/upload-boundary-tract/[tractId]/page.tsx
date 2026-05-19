@@ -739,7 +739,6 @@ export default function UploadBoundaryTractPage() {
             polygon,
             total_acres: gisAcres(polygon),
             source: 'upload_image',
-            image_url: extractMeta?.image_url || null,
           }),
         }
       )
