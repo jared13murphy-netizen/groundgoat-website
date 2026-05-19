@@ -1146,6 +1146,25 @@ export default function MissingBoundariesPage() {
     }
   }, [focusTractId, loading, items])
 
+  // When admin lands here via the boundary-draw-tract redirect (URL
+  // carries ?focus_tract=xxx&listing_id=lid), the per-listing map
+  // doesn't render until Auto-Extract has been triggered for that
+  // listing — so the admin sees no map and reports "no map pops up."
+  // Auto-trigger Auto-Extract ONCE per listing in this case. The
+  // backend path is idempotent: when proposed_polygon already exists
+  // it returns the saved drafts, otherwise it runs fresh extraction.
+  // Either way the inline map appears so the admin can immediately
+  // Delete / Redraw / Draw a new tract.
+  const autoExtractedListingsRef = useRef(new Set<string>())
+  useEffect(() => {
+    if (!focusTractId || !listingIdFilter || loading) return
+    if (autoExtractedListingsRef.current.has(listingIdFilter)) return
+    if (autoExtractResultByListing[listingIdFilter]) return  // already done
+    autoExtractedListingsRef.current.add(listingIdFilter)
+    runAutoExtract(listingIdFilter)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusTractId, listingIdFilter, loading, items])
+
   // Delete a listing (cascades to tracts via FK ON DELETE CASCADE).
   // Triple-checks before issuing the DELETE — accidental click is a
   // hard-to-undo destructive operation. The native window.confirm
