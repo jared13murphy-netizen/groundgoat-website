@@ -7,14 +7,21 @@
  * Flow:
  *   1. Page loads tract context (acres, county, lat/lng)
  *   2. Admin pastes/drops/picks an image with the boundary highlighted
- *   3. Click "Extract with Claude Vision"
+ *   3. Click "Extract with Claude Vision" (or Surety Extract / inline Draw)
  *   4. Backend calls Vision, returns lat/lng polygon
  *   5. Polygon renders on satellite map with acreage check
- *   6. Click Save → existing /save-boundary endpoint persists the
- *      polygon, generates a thumbnail, runs enrichment
+ *   6. Click Save Boundary → POST /save-draft writes the polygon to
+ *      proposed_polygon + proposed_status='ready_for_review', then we
+ *      redirect to /admin/missing-boundaries?listing_id=…&focus_tract=…
+ *      so the admin can finish Align → Tillable → Align Tillable →
+ *      Soil Rating → Approve using the same workflow as Auto-Extract.
+ *      (Per user 2026-05-19: upload-image and draw-boundary should
+ *      produce a DRAFT and route through missing-boundaries for the
+ *      rest of the steps, not commit to live data here.)
  *
- * This page is the auto path. The existing /admin/boundary-draw-tract/[id]
- * page is the manual fallback for when Vision can't find the boundary.
+ * This page is the auto path. The standalone /admin/boundary-draw-tract/[id]
+ * route now redirects straight to /admin/missing-boundaries with the
+ * tract focused — see that page for the click-to-draw fallback.
  */
 import { useEffect, useRef, useState } from 'react'
 import { useRouter, useParams } from 'next/navigation'
@@ -689,37 +696,65 @@ export default function UploadBoundaryTractPage() {
     if (polygon.length < 3) return
     setSaving(true); setStatusMsg(null)
     try {
-      // Route based on polygon_kind: tillable polygon goes to a
-      // separate column + recomputes soil rating. Full-tract polygon
-      // (or unknown) goes through the legacy save-boundary endpoint
-      // which writes polygon_coordinates.
       const isTillable = extractMeta?.polygon_kind === 'tillable'
-      const endpoint = isTillable
-        ? `${SCRAPER_URL}/api/admin/tracts/${tractId}/save-tillable-polygon`
-        : `${SCRAPER_URL}/api/admin/tracts/${tractId}/save-boundary`
-      const payload: any = { polygon }
+
+      // Tillable polygon: legacy path — write to tillable column + recompute
+      // soil rating immediately. (Rare on this page; tillable is normally
+      // drawn from the missing-boundaries screen.)
       if (isTillable) {
-        payload.map_type = extractMeta?.map_type
-        payload.confidence = extractMeta?.confidence
+        const res = await fetch(
+          `${SCRAPER_URL}/api/admin/tracts/${tractId}/save-tillable-polygon`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              polygon,
+              map_type: extractMeta?.map_type,
+              confidence: extractMeta?.confidence,
+            }),
+          }
+        )
+        const body = await res.json()
+        if (!res.ok || !body.success) throw new Error(body.error || 'save failed')
+        setStatusMsg(
+          `✓ Tillable polygon saved! ${body.tillable_acres}ac` +
+          (body.soil_rating != null
+            ? ` · ${body.soil_rating_type}: ${body.soil_rating}` : '') +
+          '. Returning…'
+        )
+        setTimeout(() => router.push('/admin/missing-boundaries'), 1500)
+        return
       }
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
+
+      // Full-tract polygon: save as a DRAFT (proposed_polygon) and bounce
+      // back to /admin/missing-boundaries with the tract focused, so the
+      // admin can Align → draw Tillable → Align Tillable → Soil Rating →
+      // Approve using the same workflow as Auto-Extract.
+      const res = await fetch(
+        `${SCRAPER_URL}/api/admin/tracts/${tractId}/save-draft`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            polygon,
+            total_acres: gisAcres(polygon),
+            source: 'upload_image',
+            image_url: extractMeta?.image_url || null,
+          }),
+        }
+      )
       const body = await res.json()
       if (!res.ok || !body.success) throw new Error(body.error || 'save failed')
-      const detail = isTillable
-        ? (`✓ Tillable polygon saved! ${body.tillable_acres}ac` +
-           (body.soil_rating != null
-             ? ` · ${body.soil_rating_type}: ${body.soil_rating}` : '') +
-           '. Returning…')
-        : (`✓ Saved! GIS acres: ${body.gis_acres}` +
-           (body.nccpi != null ? ` · NCCPI: ${body.nccpi}` : '') +
-           (body.tillable_acres != null ? ` · Tillable: ${body.tillable_acres}` : '') +
-           '. Returning…')
-      setStatusMsg(detail)
-      setTimeout(() => router.push('/admin/missing-boundaries'), 1800)
+
+      const listingId = tract?.listing_id
+      const qs = new URLSearchParams()
+      if (listingId) qs.set('listing_id', String(listingId))
+      qs.set('focus_tract', String(tractId))
+
+      setStatusMsg(`✓ Draft saved (${gisAcres(polygon).toFixed(1)}ac). Returning to missing-boundaries to finish…`)
+      setTimeout(() => {
+        router.push(`/admin/missing-boundaries?${qs.toString()}`)
+      }, 900)
     } catch (e: any) {
       setStatusMsg(`✗ Save failed: ${e.message || e}`)
     } finally {
