@@ -298,16 +298,24 @@ const handleResendVerification = async () => {
             href="/account/profile"
           />
           
-          {/* Subscription & Areas - Only for individual users */}
-          {user?.account_type === 'individual' && (
-            <>
-              <MenuItem
-                icon={<CreditCard size={20} />}
-                label="Subscription"
-                description="Manage your plan, states, and billing"
-                href="/account/subscription"
-              />
-            </>
+          {/* Subscription & Areas — for individuals AND firm admins.
+              Both account types need access to the Stripe billing
+              portal (update card / view invoices / cancel) and to see
+              what plan they're on. Firm admins were previously missing
+              from this gate, which left them no way to update their
+              card from the website — they could only navigate to
+              Team Management. */}
+          {(user?.account_type === 'individual' || user?.account_type === 'firm_admin') && (
+            <MenuItem
+              icon={<CreditCard size={20} />}
+              label="Subscription"
+              description={
+                user?.account_type === 'firm_admin'
+                  ? 'Manage your firm plan, billing, and payment method'
+                  : 'Manage your plan, states, and billing'
+              }
+              href="/account/subscription"
+            />
           )}
 
           {/* Team Management - Only for Firm Admins */}

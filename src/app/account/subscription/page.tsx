@@ -458,14 +458,32 @@ export default function SubscriptionPage() {
         {/* Unlimited Access Banner */}
         {subscriptionData?.unlimited && !isFirmMember() && (
           <div className="card bg-gradient-to-r from-gg-pink/20 to-purple-500/20 border-gg-pink/30 mb-8">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-gg-pink/20 rounded-xl flex items-center justify-center">
-                <Crown className="text-gg-pink" size={24} />
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 bg-gg-pink/20 rounded-xl flex items-center justify-center shrink-0">
+                  <Crown className="text-gg-pink" size={24} />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-white">Management Firm - Unlimited Access</h3>
+                  <p className="text-gg-gray-400 text-sm">You have access to all states and counties.</p>
+                </div>
               </div>
-              <div>
-                <h3 className="font-semibold text-white">Management Firm - Unlimited Access</h3>
-                <p className="text-gg-gray-400 text-sm">You have access to all states and counties.</p>
-              </div>
+              {/* Firm admins need a way to update their card / view
+                  invoices / cancel even though the "Plan Overview" card
+                  is hidden for unlimited accounts. Backend
+                  /api/subscriptions/billing-portal already handles
+                  firm admins via management_firm_id. Staff (admin/sales)
+                  fall into unlimited too but aren't paying customers,
+                  so we only surface the button for firm_admin. */}
+              {user?.account_type === 'firm_admin' && (
+                <button
+                  onClick={handleManageBilling}
+                  className="bg-gg-pink hover:bg-gg-pink/80 text-white font-semibold py-2.5 px-4 rounded-lg flex items-center gap-2 transition"
+                >
+                  Manage Billing
+                  <ExternalLink size={14} />
+                </button>
+              )}
             </div>
           </div>
         )}
