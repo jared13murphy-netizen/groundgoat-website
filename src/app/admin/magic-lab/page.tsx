@@ -30,6 +30,7 @@ type ProbeResult = {
   success: boolean
   url?: string
   stage_1_acquire?: any
+  stage_4_features?: any
   stage_2_resolve?: any
   stage_3_validate?: any
   elapsed_ms?: number
@@ -155,6 +156,7 @@ export default function MagicLabPage() {
               </div>
             )}
             <StageBlock title="Stage 1 — Acquire" data={result.stage_1_acquire} />
+            <StageBlock title="Stage 4 — Features (Claude-extracted)" data={result.stage_4_features} />
             <StageBlock title="Stage 2 — Resolve" data={result.stage_2_resolve} />
             <StageBlock title="Stage 3 — Validate" data={result.stage_3_validate} />
             {result.error && (
