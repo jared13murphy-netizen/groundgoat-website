@@ -2289,7 +2289,19 @@ export default function MissingBoundariesPage() {
                               .map((t: any) => {
                               const e = editStateByTract[t.tract_id]
                               const listingTract = tracts.find(it => it.tract_id === t.tract_id)
-                              const computedTotal = e?.current_polygon_acres ?? t.acres
+                              // ALWAYS prefer live GIS acres of the
+                              // current polygon over any cached value.
+                              // The cached `current_polygon_acres` /
+                              // `t.acres` can be stale after a delete +
+                              // redraw (per user 2026-05-19k: Align
+                              // shrunk the polygon because the (drawn:)
+                              // value was lying — showing the OLD
+                              // auto-extracted area, not the newly-
+                              // drawn one).
+                              const computedTotal =
+                                e?.current_polygon && e.current_polygon.length >= 3
+                                  ? gisAcres(e.current_polygon)
+                                  : (e?.current_polygon_acres ?? t.acres)
                               const isApproved = approvedTractIds.has(t.tract_id)
                               return (
                                 <div
