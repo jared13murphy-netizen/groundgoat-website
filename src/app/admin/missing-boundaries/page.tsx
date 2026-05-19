@@ -2471,7 +2471,7 @@ export default function MissingBoundariesPage() {
                                     </div>
                                   )}
                                   <div className="flex items-center gap-1.5 text-[10px] mb-1 pl-[68px]">
-                                    {drawingTractId === t.tract_id ? (
+                                    {drawingTractId === t.tract_id && drawingKind === 'tillable' ? (
                                       <>
                                         <span className="px-1.5 py-0.5 rounded bg-yellow-500/20 border border-yellow-500/50 text-yellow-200 font-semibold">
                                           ✏ Drawing… {draftVertices.length} {draftVertices.length === 1 ? 'point' : 'points'}
