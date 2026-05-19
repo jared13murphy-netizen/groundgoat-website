@@ -155,6 +155,14 @@ function EditableExtractMap({
   onTillableSubpolygonChange,
   onTillableDragEnd,
   onMoveAllTractPolygons,
+  // Click-to-draw tillable polygon. When `drawingTractId` is set, map
+  // clicks call `onAppendDraftVertex(lng, lat)` instead of doing
+  // anything else. Existing vertex drags are disabled until the user
+  // clicks Finish or Cancel in the per-tract panel.
+  drawingTractId,
+  draftVertices,
+  onAppendDraftVertex,
+  onFinishDraw,
 }: {
   tracts: EditableTract[]
   // Tracts whose tract polygon is locked — vertex circles hide,
@@ -166,6 +174,10 @@ function EditableExtractMap({
   // Fires once on mouseup after a tillable drag — used to auto-Calculate
   onTillableDragEnd: (tractId: string) => void
   onMoveAllTractPolygons: (deltaLng: number, deltaLat: number) => void
+  drawingTractId: string | null
+  draftVertices: number[][]
+  onAppendDraftVertex: (lng: number, lat: number) => void
+  onFinishDraw: () => void
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
@@ -177,6 +189,11 @@ function EditableExtractMap({
   const onMoveAllRef = useRef(onMoveAllTractPolygons)
   const moveAllModeRef = useRef(moveAllMode)
   const lockedRef = useRef(lockedTractIds)
+  // Draw-mode refs — handlers attached once on map load and look at
+  // these to decide whether to forward a click as a draft vertex.
+  const drawingTractIdRef = useRef(drawingTractId)
+  const onAppendDraftVertexRef = useRef(onAppendDraftVertex)
+  const onFinishDrawRef = useRef(onFinishDraw)
   tractsRef.current = tracts
   onChangeRef.current = onPolygonChange
   onTillableSubChangeRef.current = onTillableSubpolygonChange
@@ -184,6 +201,9 @@ function EditableExtractMap({
   onMoveAllRef.current = onMoveAllTractPolygons
   moveAllModeRef.current = moveAllMode
   lockedRef.current = lockedTractIds
+  drawingTractIdRef.current = drawingTractId
+  onAppendDraftVertexRef.current = onAppendDraftVertex
+  onFinishDrawRef.current = onFinishDraw
 
   // Drag state. The 'kind' field distinguishes which of the TWO
   // polygons per tract is being dragged: the full tract polygon
@@ -364,6 +384,7 @@ function EditableExtractMap({
 
         // Wire TRACT vertex drag (right-click → delete vertex when not locked)
         map.on('mousedown', `${vertId}_circle`, (e: any) => {
+          if (drawingTractIdRef.current) return  // draw mode locks out editing
           const f = e.features?.[0]
           if (!f) return
           if (lockedRef.current.has(f.properties.tractId)) return
@@ -398,6 +419,7 @@ function EditableExtractMap({
         // (which vertex within that sub-polygon).
         // Right-click → delete vertex (polygon needs ≥3 remaining).
         map.on('mousedown', `${tilVertId}_circle`, (e: any) => {
+          if (drawingTractIdRef.current) return  // draw mode locks out editing
           const f = e.features?.[0]
           if (!f) return
           if (e.originalEvent && e.originalEvent.button === 2) {
@@ -430,6 +452,7 @@ function EditableExtractMap({
         // Wire tract polygon body drag (mousedown on FILL, not on any vertex)
         // Locked tracts ignore body drag.
         map.on('mousedown', `${fullId}_fill`, (e: any) => {
+          if (drawingTractIdRef.current) return  // draw mode locks out editing
           if (lockedRef.current.has(t.tract_id)) return
           // Skip if mousedown is on a vertex of EITHER polygon
           const vertexHits = map.queryRenderedFeatures(e.point, {
@@ -451,6 +474,7 @@ function EditableExtractMap({
         // the click point — only when not locked. Skipped if the click
         // is on an existing vertex (which already handles its own logic).
         map.on('click', `${fullId}_line`, (e: any) => {
+          if (drawingTractIdRef.current) return  // draw mode handles clicks
           if (lockedRef.current.has(t.tract_id)) return
           const vertexHits = map.queryRenderedFeatures(e.point, {
             layers: [`${vertId}_circle`],
@@ -491,6 +515,7 @@ function EditableExtractMap({
         // fill). The clicked feature carries tillable_idx so only the
         // sub-polygon under the cursor moves.
         map.on('mousedown', `${tilId}_fill`, (e: any) => {
+          if (drawingTractIdRef.current) return  // draw mode locks out editing
           // Skip if on any vertex
           const vertexHits = map.queryRenderedFeatures(e.point, {
             layers: [`${vertId}_circle`, `${tilVertId}_circle`],
@@ -511,6 +536,7 @@ function EditableExtractMap({
         // Click on tillable polygon LINE inserts a vertex into the
         // clicked sub-polygon (same pattern as the tract polygon).
         map.on('click', `${tilId}_line`, (e: any) => {
+          if (drawingTractIdRef.current) return  // draw mode handles clicks
           const vertexHits = map.queryRenderedFeatures(e.point, {
             layers: [`${tilVertId}_circle`],
           })
@@ -578,6 +604,48 @@ function EditableExtractMap({
           'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
         },
         paint: { 'text-color': '#ffffff', 'text-halo-color': '#000000', 'text-halo-width': 2 },
+      })
+
+      // Draft-polygon sources: rendered while the admin is in
+      // click-to-draw mode for a tillable polygon. The draft has TWO
+      // visual layers: a dashed line connecting the placed vertices
+      // (closes back to the first vertex), and lime-yellow circles
+      // marking each placed vertex. Filled re-renders happen in the
+      // separate `drawingTractId / draftVertices` effect below.
+      map.addSource('draft_line', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } as any })
+      map.addLayer({
+        id: 'draft_line', type: 'line', source: 'draft_line',
+        paint: {
+          'line-color': '#facc15', 'line-width': 2.5,
+          'line-dasharray': [2, 2],
+        },
+      })
+      map.addSource('draft_verts', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } as any })
+      map.addLayer({
+        id: 'draft_verts', type: 'circle', source: 'draft_verts',
+        paint: {
+          'circle-radius': 6, 'circle-color': '#facc15',
+          'circle-stroke-color': '#854d0e', 'circle-stroke-width': 2,
+        },
+      })
+
+      // Map-wide click handler — only fires when in draw mode. Click
+      // adds a vertex. The handler is wired ONCE on map load and uses
+      // refs to read the latest draw state on each click.
+      map.on('click', (e: any) => {
+        if (!drawingTractIdRef.current) return
+        // If the click hit an existing polygon layer it would also
+        // fire the layer-specific click handlers above — but those
+        // all early-return on `drawingTractIdRef.current`, so the
+        // click here is the only one that mutates state.
+        onAppendDraftVertexRef.current(e.lngLat.lng, e.lngLat.lat)
+      })
+      map.on('dblclick', (e: any) => {
+        if (!drawingTractIdRef.current) return
+        // MapLibre will also have just registered the dblclick as a
+        // zoom — disable that here.
+        e.preventDefault()
+        onFinishDrawRef.current()
       })
 
       const padLng = (maxLng - minLng) * 0.15
@@ -742,9 +810,52 @@ function EditableExtractMap({
     }
   }, [tracts, lockedTractIds])
 
+  // Re-render the draft polygon (the in-progress click-to-draw shape)
+  // each time the admin places a new vertex. Draft line closes back
+  // to the first vertex once there are 3+ points so the user can see
+  // the polygon taking shape; below that it's just a path.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !map.isStyleLoaded()) return
+    const lineSrc = map.getSource('draft_line') as maplibregl.GeoJSONSource | undefined
+    const vertSrc = map.getSource('draft_verts') as maplibregl.GeoJSONSource | undefined
+    if (!lineSrc || !vertSrc) return
+
+    if (!drawingTractId || draftVertices.length === 0) {
+      lineSrc.setData({ type: 'FeatureCollection', features: [] } as any)
+      vertSrc.setData({ type: 'FeatureCollection', features: [] } as any)
+      return
+    }
+
+    const pts = draftVertices.slice()
+    // Close the ring back to the first point so the polygon-in-progress
+    // is visible. (3+ vertices means the shape is closeable.)
+    const closed = pts.length >= 3 ? [...pts, pts[0]] : pts
+    lineSrc.setData({
+      type: 'FeatureCollection',
+      features: [{
+        type: 'Feature',
+        properties: {},
+        geometry: { type: 'LineString', coordinates: closed },
+      }],
+    } as any)
+    vertSrc.setData({
+      type: 'FeatureCollection',
+      features: pts.map((p, i) => ({
+        type: 'Feature',
+        properties: { idx: i },
+        geometry: { type: 'Point', coordinates: p },
+      })),
+    } as any)
+
+    // Make sure draft layers paint on top of everything else.
+    if (map.getLayer('draft_line')) map.moveLayer('draft_line')
+    if (map.getLayer('draft_verts')) map.moveLayer('draft_verts')
+  }, [drawingTractId, draftVertices])
+
   return (
     <div className="relative">
-      <div ref={containerRef} className="w-full h-[450px] rounded border border-gg-gray-700 overflow-hidden bg-black" />
+      <div ref={containerRef} className="w-full h-[650px] rounded border border-gg-gray-700 overflow-hidden bg-black" />
       {/* Move-All toggle — top-left over the map */}
       <button
         onClick={() => setMoveAllMode(v => !v)}
@@ -758,15 +869,23 @@ function EditableExtractMap({
         {moveAllMode ? '⊕ Move-All ON (drag map)' : '⊕ Move All Tracts'}
       </button>
       <div className="absolute bottom-1.5 left-1.5 text-[10px] text-white bg-black/60 px-2 py-1 rounded pointer-events-none">
-        <strong>Drag</strong> any circle to move a vertex · drag inside polygon to move it · scroll to zoom
-        <br />
-        <span className="inline-block w-2.5 h-2.5 align-middle mr-1 rounded-full bg-white border-2" style={{ borderColor: '#ff3b3b' }} /> tract vertex
-        {' · '}
-        <span className="inline-block w-2.5 h-2.5 align-middle mr-1 rounded-full" style={{ background: '#dcfce7', border: '2px solid #15803d' }} /> tillable vertex
-        {' · '}
-        <span className="inline-block w-2.5 h-2.5 align-middle mr-1" style={{ background: '#ff3b3b' }} /> tract
-        {' · '}
-        <span className="inline-block w-2.5 h-2.5 align-middle mr-1" style={{ background: '#22c55e', opacity: 0.6 }} /> tillable
+        {drawingTractId ? (
+          <>
+            <strong className="text-yellow-300">DRAW MODE</strong> · click to add a vertex · double-click (or Finish) to close · ESC cancels
+          </>
+        ) : (
+          <>
+            <strong>Drag</strong> any circle to move a vertex · drag inside polygon to move it · scroll to zoom
+            <br />
+            <span className="inline-block w-2.5 h-2.5 align-middle mr-1 rounded-full bg-white border-2" style={{ borderColor: '#ff3b3b' }} /> tract vertex
+            {' · '}
+            <span className="inline-block w-2.5 h-2.5 align-middle mr-1 rounded-full" style={{ background: '#dcfce7', border: '2px solid #15803d' }} /> tillable vertex
+            {' · '}
+            <span className="inline-block w-2.5 h-2.5 align-middle mr-1" style={{ background: '#ff3b3b' }} /> tract
+            {' · '}
+            <span className="inline-block w-2.5 h-2.5 align-middle mr-1" style={{ background: '#22c55e', opacity: 0.6 }} /> tillable
+          </>
+        )}
       </div>
     </div>
   )
@@ -841,6 +960,13 @@ export default function MissingBoundariesPage() {
   // (so an admin doesn't accidentally drag a perfectly-aligned tract);
   // toggled off via the Unlock button.
   const [lockedTractIds, setLockedTractIds] = useState<Set<string>>(new Set())
+  // CLICK-TO-DRAW state. When `drawingTractId` is non-null, the map
+  // is in draw mode for that tract: clicks add vertices to the draft
+  // polygon (stored in `draftVertices`), existing vertex/edge handlers
+  // are inert, and Finish/Cancel buttons appear in the tract panel.
+  // Finish appends the draft to that tract's current_tillable_polygons.
+  const [drawingTractId, setDrawingTractId] = useState<string | null>(null)
+  const [draftVertices, setDraftVertices] = useState<number[][]>([])
   // Debounced save-draft timers keyed by tract_id. Each drag/edit
   // bumps the timer; whichever edit lands last gets persisted ~800ms
   // after the admin stops touching it.
@@ -1568,6 +1694,79 @@ export default function MissingBoundariesPage() {
     }, 0)
   }
 
+  // CLICK-TO-DRAW tillable polygon. The map's click handler reads
+  // `drawingTractId` (via a ref inside TractEditMap) and calls
+  // appendDraftVertex per click. Finish appends the draft polygon
+  // to the tract's current_tillable_polygons array (preserves any
+  // existing rings so multi-region tillable is possible by drawing
+  // several polygons in sequence). Cancel discards the draft.
+  const startDrawTillable = (tractId: string) => {
+    setDrawingTractId(tractId)
+    setDraftVertices([])
+  }
+  const appendDraftVertex = useCallback((lng: number, lat: number) => {
+    setDraftVertices(v => [...v, [lng, lat]])
+  }, [])
+  const cancelDrawTillable = useCallback(() => {
+    setDrawingTractId(null)
+    setDraftVertices([])
+  }, [])
+  const finishDrawTillable = useCallback(() => {
+    // Need at least 3 vertices to make a polygon. Anything less
+    // gets treated as a Cancel.
+    if (!drawingTractId || draftVertices.length < 3) {
+      setDrawingTractId(null)
+      setDraftVertices([])
+      return
+    }
+    const tractId = drawingTractId
+    const ring = draftVertices.slice()
+    setEditStateByTract(prev => {
+      const existing = prev[tractId]
+      if (!existing) return prev
+      const tils = [...(existing.current_tillable_polygons || []), ring]
+      return {
+        ...prev,
+        [tractId]: {
+          ...existing,
+          current_tillable_polygons: tils,
+          // Drawn polygons invalidate the cached tillable acres + soil
+          // rating — admin clicks Align Tillable to recompute against
+          // the published acreage.
+          current_tillable_acres: null,
+          current_soil_rating: null,
+          current_no_cropland: false,
+        },
+      }
+    })
+    // Persist the new polygon list so it survives a refresh.
+    setTimeout(() => {
+      setEditStateByTract(prev => {
+        const e = prev[tractId]
+        if (e) {
+          saveDraftNow(tractId, {
+            tillable_polygons: e.current_tillable_polygons || [],
+            tillable_acres: null,
+          })
+        }
+        return prev
+      })
+    }, 0)
+    setDrawingTractId(null)
+    setDraftVertices([])
+  }, [drawingTractId, draftVertices, saveDraftNow])
+
+  // ESC cancels draw mode globally.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && drawingTractId) {
+        cancelDrawTillable()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [drawingTractId, cancelDrawTillable])
+
   // (calculateTract removed 2026-05-14 — Align Total Acres auto-derives
   // the tillable polygon, Align Tillable auto-derives the soil rating,
   // and the drag-end handler auto-Calculates on tillable changes. No
@@ -1905,6 +2104,10 @@ export default function MissingBoundariesPage() {
                               onTillableSubpolygonChange={onTillableSubpolygonChange}
                               onTillableDragEnd={autoCalculateTillable}
                               onMoveAllTractPolygons={(dLng, dLat) => onMoveAllTractPolygons(lid, dLng, dLat)}
+                              drawingTractId={drawingTractId}
+                              draftVertices={draftVertices}
+                              onAppendDraftVertex={appendDraftVertex}
+                              onFinishDraw={finishDrawTillable}
                             />
                           </div>
 
@@ -2045,21 +2248,56 @@ export default function MissingBoundariesPage() {
                                     </div>
                                   )}
                                   <div className="flex items-center gap-1.5 text-[10px] mb-1 pl-[68px]">
-                                    <button
-                                      onClick={() => addTillableSubpolygon(t.tract_id)}
-                                      className="px-1.5 py-0.5 rounded bg-green-500/15 hover:bg-green-500/30 text-green-300 border border-green-500/40"
-                                      title="Add a new tillable area as a small box near the tract center — drag its vertices into shape"
-                                    >
-                                      + Add Tillable Area
-                                    </button>
-                                    {(e?.current_tillable_polygons?.length ?? 0) === 1 && (
-                                      <button
-                                        onClick={() => deleteTillableSubpolygon(t.tract_id, 0)}
-                                        className="px-1.5 py-0.5 rounded bg-red-500/15 hover:bg-red-500/30 text-red-300 border border-red-500/40"
-                                        title="Remove the tillable polygon (use if this tract has no cropland)"
-                                      >
-                                        ✕ Remove
-                                      </button>
+                                    {drawingTractId === t.tract_id ? (
+                                      <>
+                                        <span className="px-1.5 py-0.5 rounded bg-yellow-500/20 border border-yellow-500/50 text-yellow-200 font-semibold">
+                                          ✏ Drawing… {draftVertices.length} {draftVertices.length === 1 ? 'point' : 'points'}
+                                        </span>
+                                        <button
+                                          onClick={finishDrawTillable}
+                                          disabled={draftVertices.length < 3}
+                                          className="px-1.5 py-0.5 rounded bg-emerald-500/25 hover:bg-emerald-500/40 disabled:opacity-40 text-emerald-200 border border-emerald-500/50"
+                                          title="Close the polygon and add it to this tract's tillable area(s). Then click Align Tillable to scale to the published acres."
+                                        >
+                                          ✓ Finish
+                                        </button>
+                                        <button
+                                          onClick={cancelDrawTillable}
+                                          className="px-1.5 py-0.5 rounded bg-gg-gray-700/40 hover:bg-gg-gray-700/70 text-gg-gray-300 border border-gg-gray-600"
+                                          title="Discard the in-progress drawing (ESC also works)"
+                                        >
+                                          ✕ Cancel
+                                        </button>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <button
+                                          onClick={() => startDrawTillable(t.tract_id)}
+                                          disabled={drawingTractId != null}
+                                          className="px-1.5 py-0.5 rounded bg-yellow-500/15 hover:bg-yellow-500/30 disabled:opacity-40 text-yellow-200 border border-yellow-500/40"
+                                          title="Click on the map to place vertices of a new tillable polygon. Double-click (or Finish) to close it. Can be repeated to add multi-region tillable."
+                                        >
+                                          ✏ Draw Tillable
+                                        </button>
+                                        <button
+                                          onClick={() => addTillableSubpolygon(t.tract_id)}
+                                          disabled={drawingTractId != null}
+                                          className="px-1.5 py-0.5 rounded bg-green-500/15 hover:bg-green-500/30 disabled:opacity-40 text-green-300 border border-green-500/40"
+                                          title="Add a default-rectangle tillable area near the tract center — drag its vertices into shape"
+                                        >
+                                          + Add Box
+                                        </button>
+                                        {(e?.current_tillable_polygons?.length ?? 0) === 1 && (
+                                          <button
+                                            onClick={() => deleteTillableSubpolygon(t.tract_id, 0)}
+                                            disabled={drawingTractId != null}
+                                            className="px-1.5 py-0.5 rounded bg-red-500/15 hover:bg-red-500/30 disabled:opacity-40 text-red-300 border border-red-500/40"
+                                            title="Remove the tillable polygon (use if this tract has no cropland)"
+                                          >
+                                            ✕ Remove
+                                          </button>
+                                        )}
+                                      </>
                                     )}
                                   </div>
 
