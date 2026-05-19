@@ -133,18 +133,6 @@ export default function UploadBoundaryTractPage() {
   const [anchorLat, setAnchorLat] = useState<string>('')
   const [anchorLng, setAnchorLng] = useState<string>('')
   const [savingAnchor, setSavingAnchor] = useState<boolean>(false)
-  // Click-to-set-anchor mode. When true, the next click on the
-  // satellite map is treated as the property's true location: we
-  // call /set-anchor with that lat/lng and immediately re-extract.
-  // This is the bulletproof fallback when geocoding got the road
-  // midpoint but not the actual property.
-  const [pickAnchorMode, setPickAnchorMode] = useState<boolean>(false)
-  const pickAnchorModeRef = useRef<boolean>(false)
-  useEffect(() => { pickAnchorModeRef.current = pickAnchorMode }, [pickAnchorMode])
-  // Ref to the latest extract() so the map click handler (registered
-  // once at mount time, before extract is defined) can still invoke
-  // the current version of the function.
-  const extractRef = useRef<() => Promise<void> | void>(() => {})
   const [urlInput, setUrlInput] = useState<string>('')
   const [extractingUrl, setExtractingUrl] = useState<boolean>(false)
   const [suretyUrlInput, setSuretyUrlInput] = useState<string>('')
@@ -399,45 +387,6 @@ export default function UploadBoundaryTractPage() {
         if (polygonHistoryRef.current.length > 50) polygonHistoryRef.current.shift()
         setPolygon(poly.filter((_, i) => i !== idx))
       })
-
-      // Pick-anchor mode: a top-level click handler (no layer filter)
-      // so the admin can click anywhere on the satellite to anchor.
-      // We check the ref-backed flag because the map's event handlers
-      // close over component state at mount-time and won't otherwise
-      // see toggles.
-      map.on('click', (e) => {
-        if (!pickAnchorModeRef.current) return
-        const { lng, lat } = e.lngLat
-        setPickAnchorMode(false)
-        setAnchorLat(String(lat.toFixed(6)))
-        setAnchorLng(String(lng.toFixed(6)))
-        // Immediately save + re-extract — that's the whole point of
-        // the click-anchor mode (one click to fix a bad polygon).
-        ;(async () => {
-          setSavingAnchor(true); setStatusMsg(null)
-          try {
-            const res = await fetch(
-              `${SCRAPER_URL}/api/admin/tracts/${tractId}/set-anchor`,
-              {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ latitude: lat, longitude: lng }),
-              },
-            )
-            const body = await res.json()
-            if (!res.ok || !body.success) {
-              setStatusMsg(`✗ ${body.error || `HTTP ${res.status}`}`)
-              return
-            }
-            setStatusMsg(`✓ Anchor set to (${lat.toFixed(5)}, ${lng.toFixed(5)}). Re-extracting…`)
-            setTimeout(() => extractRef.current?.(), 400)
-          } catch (err: any) {
-            setStatusMsg(`✗ Set-anchor failed: ${err.message || err}`)
-          } finally {
-            setSavingAnchor(false)
-          }
-        })()
-      })
     })
     mapRef.current = map
     return () => { map.remove(); mapRef.current = null }
@@ -579,7 +528,6 @@ export default function UploadBoundaryTractPage() {
 
   const extract = async () => {
     if (!imageDataUrl) return
-    setPickAnchorMode(false)  // exit click-mode if extract starts
     setExtracting(true); setStatusMsg(null); setPolygon([]); setExtractMeta(null)
     polygonHistoryRef.current = []  // clear undo history on a fresh extract
     try {
@@ -688,7 +636,7 @@ export default function UploadBoundaryTractPage() {
       setNeedsAnchor(null)
       setStatusMsg(`✓ Anchor set to (${data.latitude.toFixed(5)}, ${data.longitude.toFixed(5)}). Re-running extract…`)
       // Re-run extraction now that the anchor is fixed
-      setTimeout(() => extractRef.current?.(), 400)
+      setTimeout(() => extract(), 400)
     } catch (e: any) {
       setStatusMsg(`✗ Set-anchor failed: ${e.message || e}`)
     } finally {
@@ -897,29 +845,6 @@ export default function UploadBoundaryTractPage() {
   const reset = () => {
     setImageDataUrl(null); setPolygon([]); setExtractMeta(null); setStatusMsg(null)
   }
-
-  // Sync the latest extract() into a ref so map event handlers
-  // registered at mount time can call the up-to-date version.
-  useEffect(() => { extractRef.current = extract })
-
-  // Show a crosshair cursor and a status banner while we're in
-  // "click on the satellite map to set the anchor" mode.
-  useEffect(() => {
-    const m = mapRef.current
-    if (!m) return
-    try {
-      m.getCanvas().style.cursor = pickAnchorMode ? 'crosshair' : ''
-    } catch {}
-  }, [pickAnchorMode])
-  // ESC exits pick-anchor mode without setting one
-  useEffect(() => {
-    if (!pickAnchorMode) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setPickAnchorMode(false)
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [pickAnchorMode])
 
   if (loading) return (
     <div className="min-h-screen bg-black text-white flex items-center justify-center">
@@ -1272,30 +1197,6 @@ export default function UploadBoundaryTractPage() {
                 ? 'Boundary will appear here after extraction'
                 : `${polygon.length} vertices · ${computedAcres.toFixed(1)} ac`}
             </div>
-          </div>
-          {/* Anchor-fix button. Per user 2026-05-19: when geocoding
-              gets the road midpoint but the actual property is along
-              that road somewhere else, Vision projects against the
-              wrong frame and the polygon lands on the wrong field.
-              One-click fix: admin clicks the property on the
-              satellite, we re-anchor + re-extract. */}
-          <div className="absolute top-3 right-14 z-10 flex flex-col items-end gap-1">
-            <button
-              onClick={() => setPickAnchorMode(v => !v)}
-              className={`px-3 py-1.5 text-xs rounded font-semibold border transition-colors ${
-                pickAnchorMode
-                  ? 'bg-amber-500 text-black border-amber-300 hover:bg-amber-400'
-                  : 'bg-gg-gray-900/85 backdrop-blur text-gg-gray-200 border-gg-gray-700 hover:bg-gg-gray-800'
-              }`}
-              title="Polygon in the wrong place? Click here, then click the actual property on the satellite map. We'll re-anchor and re-extract."
-            >
-              {pickAnchorMode ? '✱ Click property on map' : '📍 Wrong location? Fix anchor'}
-            </button>
-            {pickAnchorMode && (
-              <div className="text-[11px] bg-amber-500/90 text-black px-2 py-1 rounded font-medium max-w-[280px] text-right">
-                Click anywhere on the satellite to set the anchor. Map clicks are disabled until you click or press Esc.
-              </div>
-            )}
           </div>
           {polygon.length > 0 && (
             <div className="absolute bottom-3 left-3 bg-gg-gray-900/85 backdrop-blur rounded-lg px-3 py-2 z-10 pointer-events-none text-[11px] text-gg-gray-300 leading-relaxed">
