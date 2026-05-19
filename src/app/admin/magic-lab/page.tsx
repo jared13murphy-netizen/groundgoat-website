@@ -18,9 +18,9 @@
  */
 export const dynamic = 'force-dynamic'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Loader2, Play, FileJson } from 'lucide-react'
+import { Loader2, Play, FileJson, CheckCircle2, XCircle } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 
 const SCRAPER_URL = 'https://ground-goat-scraper-production.up.railway.app'
@@ -47,6 +47,14 @@ export default function MagicLabPage() {
   const [running, setRunning] = useState(false)
   const [result, setResult] = useState<ProbeResult | null>(null)
   const [history, setHistory] = useState<{ url: string; result: ProbeResult; at: string }[]>([])
+  // Streaming UX state — each stage shows a pending spinner until its
+  // event arrives, then renders the result.
+  type StageStatus = 'idle' | 'pending' | 'done' | 'error'
+  const [stageStatus, setStageStatus] = useState<Record<string, StageStatus>>({})
+  const [streamLog, setStreamLog] = useState<string[]>([])
+  const [stage1cSubs, setStage1cSubs] = useState<any[]>([])
+  const [subpageProgress, setSubpageProgress] = useState<{i: number; total: number; url?: string} | null>(null)
+  const abortRef = useRef<AbortController | null>(null)
 
   // Auth gate — same pattern as other admin pages
   useEffect(() => {
@@ -76,20 +84,109 @@ export default function MagicLabPage() {
       setResult({ success: false, error: 'URL must start with http:// or https://' })
       return
     }
-    setRunning(true); setResult(null)
+    // Cancel any in-flight stream
+    abortRef.current?.abort()
+    const ac = new AbortController()
+    abortRef.current = ac
+
+    setRunning(true)
+    setResult({ success: true, url: trimmed })  // shell — gets filled in by events
+    setStreamLog([`▶ Started probe of ${trimmed}`])
+    setStage1cSubs([])
+    setSubpageProgress(null)
+    setStageStatus({
+      '1_acquire': 'pending',
+      '4_features': 'pending',
+      '2_resolve': 'pending',
+      '3_validate': 'pending',
+    })
+    let cumResult: any = { success: true, url: trimmed, stage_1c_subpages: [] }
+
     try {
-      const res = await fetch(`${SCRAPER_URL}/api/admin/magic-lab/probe`, {
+      const res = await fetch(`${SCRAPER_URL}/api/admin/magic-lab/probe-stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: trimmed }),
+        signal: ac.signal,
       })
-      const body = await res.json()
-      setResult(body)
-      setHistory(h => [{ url: trimmed, result: body, at: new Date().toLocaleTimeString() }, ...h].slice(0, 20))
+      if (!res.ok || !res.body) {
+        throw new Error(`HTTP ${res.status}`)
+      }
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buf = ''
+      while (true) {
+        const { value, done } = await reader.read()
+        if (done) break
+        buf += decoder.decode(value, { stream: true })
+        const blocks = buf.split('\n\n')
+        buf = blocks.pop() ?? ''
+        for (const block of blocks) {
+          if (!block.startsWith('data: ')) continue
+          let evt: any
+          try { evt = JSON.parse(block.slice(6)) } catch { continue }
+
+          const ts = new Date().toLocaleTimeString()
+          if (evt.event === 'started') {
+            // already logged
+          } else if (evt.event === 'stage_done') {
+            const k = evt.stage as string
+            setStageStatus(s => ({ ...s, [k]: 'done' }))
+            const keyMap: Record<string,string> = {
+              '1_acquire': 'stage_1_acquire',
+              '4_features': 'stage_4_features',
+              '2_resolve': 'stage_2_resolve',
+              '3_validate': 'stage_3_validate',
+            }
+            const cumKey = keyMap[k]
+            if (cumKey) {
+              cumResult = { ...cumResult, [cumKey]: evt.result }
+              setResult({ ...cumResult })
+            }
+            setStreamLog(l => [...l, `[${ts}] ✓ Stage ${k} done`])
+          } else if (evt.event === 'subpage_starting') {
+            setSubpageProgress({ i: evt.index, total: evt.total, url: evt.url })
+            setStreamLog(l => [...l, `[${ts}] → Sub-page ${evt.index+1}/${evt.total}: ${evt.url}`])
+          } else if (evt.event === 'subpage_done') {
+            const got = evt.result?.polygon ? '✓ polygon' : (evt.result?.error ? `✗ ${evt.result.error}` : '— no polygon')
+            setStage1cSubs(s => {
+              const next = [...s]; next[evt.index] = evt.result; return next
+            })
+            setStreamLog(l => [...l, `[${ts}]   ${got}`])
+            cumResult.stage_1c_subpages = [...(cumResult.stage_1c_subpages || [])]
+            cumResult.stage_1c_subpages[evt.index] = evt.result
+            setResult({ ...cumResult })
+          } else if (evt.event === 'stage_promoted') {
+            cumResult.stage_2_resolve = evt.stage_2
+            cumResult.stage_3_validate = evt.stage_3
+            setResult({ ...cumResult })
+            setStreamLog(l => [...l, `[${ts}] ↑ Promoted sub-page polygon → stage_2`])
+          } else if (evt.event === 'all_done') {
+            cumResult.elapsed_ms = evt.elapsed_ms
+            cumResult.stage_1c_subpages = evt.stage_1c_subpages
+            setResult({ ...cumResult })
+            setSubpageProgress(null)
+            setStreamLog(l => [...l, `[${ts}] ✓ Complete (${evt.elapsed_ms}ms)`])
+          } else if (evt.event === 'subpage_error') {
+            setStreamLog(l => [...l, `[${ts}] ✗ Sub-page error: ${evt.error}`])
+          }
+        }
+      }
+      setHistory(h => [{ url: trimmed, result: cumResult, at: new Date().toLocaleTimeString() }, ...h].slice(0, 20))
     } catch (e: any) {
-      setResult({ success: false, error: e.message || String(e) })
+      if (e.name === 'AbortError') {
+        setStreamLog(l => [...l, `[${new Date().toLocaleTimeString()}] ✗ Aborted`])
+      } else {
+        setResult({ success: false, error: e.message || String(e) })
+        setStreamLog(l => [...l, `[${new Date().toLocaleTimeString()}] ✗ ${e.message || e}`])
+      }
     } finally {
       setRunning(false)
+      setStageStatus(s => {
+        const next = { ...s }
+        for (const k of Object.keys(next)) if (next[k] === 'pending') next[k] = 'error'
+        return next
+      })
     }
   }
 
@@ -135,6 +232,18 @@ export default function MagicLabPage() {
           </div>
         </div>
 
+        {running && streamLog.length > 0 && (
+          <div className="bg-black border border-gg-pink/40 rounded-lg p-3 mb-4 max-h-48 overflow-y-auto">
+            <div className="text-[10px] text-gg-pink uppercase tracking-wider font-semibold mb-1">
+              Live stream {subpageProgress
+                ? ` · sub-page ${subpageProgress.i + 1}/${subpageProgress.total}`
+                : ''}
+            </div>
+            <pre className="text-[11px] font-mono text-gg-gray-200 leading-snug whitespace-pre-wrap">
+{streamLog.join('\n')}
+            </pre>
+          </div>
+        )}
         {result && (
           <div className="bg-gg-gray-900 border border-gg-gray-800 rounded-lg p-4 mb-6">
             <div className="flex items-center gap-2 mb-3">
@@ -156,11 +265,11 @@ export default function MagicLabPage() {
                 ℹ {result.note}
               </div>
             )}
-            <StageBlock title="Stage 1 — Acquire" data={result.stage_1_acquire} />
-            <StageBlock title="Stage 4 — Features (Claude-extracted)" data={result.stage_4_features} />
-            <StageBlock title="Stage 2 — Resolve" data={result.stage_2_resolve} />
+            <StageBlock title="Stage 1 — Acquire" data={result.stage_1_acquire} status={stageStatus['1_acquire']} />
+            <StageBlock title="Stage 4 — Features (Claude-extracted)" data={result.stage_4_features} status={stageStatus['4_features']} />
+            <StageBlock title="Stage 2 — Resolve" data={result.stage_2_resolve} status={stageStatus['2_resolve']} />
             <StageBlock title="Stage 1c — Sub-page recursion" data={result.stage_1c_subpages} />
-            <StageBlock title="Stage 3 — Validate" data={result.stage_3_validate} />
+            <StageBlock title="Stage 3 — Validate" data={result.stage_3_validate} status={stageStatus['3_validate']} />
             {result.error && (
               <div className="text-sm text-red-300 bg-red-500/10 border border-red-500/30 rounded p-2 mt-3">
                 ✗ {result.error}
@@ -208,22 +317,42 @@ export default function MagicLabPage() {
   )
 }
 
-function StageBlock({ title, data }: { title: string; data: any }) {
-  if (!data) return null
-  const isStub = data._status && String(data._status).startsWith('stub')
+type StageStatus = 'idle' | 'pending' | 'done' | 'error' | undefined
+function StageBlock({ title, data, status }: { title: string; data: any; status?: StageStatus }) {
+  const isStub = data?._status && String(data._status).startsWith('stub')
+  const isPending = status === 'pending'
+  const isError = status === 'error' || data?._status === 'error'
+  if (!data && !isPending) return null
   return (
     <div className="mb-3 last:mb-0">
       <div className="flex items-center gap-2 mb-1">
         <span className="text-xs font-semibold text-gg-gray-200">{title}</span>
+        {isPending && (
+          <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center gap-1">
+            <Loader2 size={9} className="animate-spin" /> running
+          </span>
+        )}
+        {!isPending && status === 'done' && (
+          <CheckCircle2 size={12} className="text-emerald-400" />
+        )}
+        {!isPending && isError && (
+          <XCircle size={12} className="text-red-400" />
+        )}
         {isStub && (
           <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-gg-gray-800 text-gg-gray-500">
             stub
           </span>
         )}
       </div>
-      <pre className="text-xs bg-black border border-gg-gray-800 rounded p-2 overflow-x-auto font-mono text-gg-gray-400">
+      {data ? (
+        <pre className="text-xs bg-black border border-gg-gray-800 rounded p-2 overflow-x-auto font-mono text-gg-gray-400">
 {JSON.stringify(data, null, 2)}
-      </pre>
+        </pre>
+      ) : isPending ? (
+        <div className="text-xs bg-black border border-gg-gray-800 rounded p-2 font-mono text-gg-gray-500 italic">
+          waiting for stage to complete…
+        </div>
+      ) : null}
     </div>
   )
 }
