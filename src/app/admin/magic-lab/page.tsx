@@ -780,10 +780,9 @@ function ResultVisuals({ result }: { result: any }) {
               <img src={srcImg.url} alt="source aerial"
                 className="object-contain max-h-[340px] w-full" />
             ) : srcImg.url && srcImg.kind === 'land_id' ? (
-              // Land ID public viewer — iframe their canonical
-              // rendering so the admin can compare it to our polygon
-              // pixel-for-pixel. If they match, we copied the data
-              // correctly; if they don't, our pipeline has a bug.
+              // Land ID public viewer — iframe Land ID's canonical
+              // rendering so the admin can pixel-compare it to our
+              // polygon. If they match, we copied correctly.
               <div className="flex flex-col gap-1">
                 <iframe src={srcImg.url} className="w-full"
                   style={{ height: 340, border: 'none' }}
@@ -795,15 +794,42 @@ function ResultVisuals({ result }: { result: any }) {
                 </a>
               </div>
             ) : srcImg.url && srcImg.kind === 'pdf' ? (
-              <div className="p-4 flex flex-col gap-2">
-                <p className="text-xs text-gg-gray-300">{srcImg.note}</p>
+              // Browsers natively render PDFs in iframes. Embed the
+              // PDF inline so the admin sees the brochure aerial
+              // page with its drawn boundary side-by-side with our
+              // projected polygon.
+              <div className="flex flex-col gap-1">
+                <iframe src={srcImg.url} className="w-full"
+                  style={{ height: 340, border: 'none' }}
+                  title="Source PDF brochure" />
                 <a href={srcImg.url} target="_blank" rel="noreferrer"
-                  className="text-xs text-gg-pink underline break-all">
-                  {srcImg.url}
+                  className="text-[10px] text-gg-pink hover:underline px-2 pb-1">
+                  Open PDF in new tab ↗
                 </a>
-                <p className="text-[11px] text-gg-gray-500 italic">
-                  PDF preview not embedded — open the link to inspect.
-                </p>
+              </div>
+            ) : srcImg.url && (srcImg.kind === 'listing_iframe' || srcImg.kind === 'parcel_db') ? (
+              // Iframe the listing URL itself — most auction sites
+              // include their own map widget, which is the natural
+              // comparison source for polygons that came from page
+              // JS or county GIS. If the site sets X-Frame-Options:
+              // DENY the iframe will be blank; the "open in new tab"
+              // link below is the always-works fallback.
+              <div className="flex flex-col gap-1">
+                <iframe src={srcImg.url} className="w-full"
+                  style={{ height: 340, border: 'none' }}
+                  sandbox="allow-scripts allow-same-origin allow-popups"
+                  title="Listing page (comparison view)" />
+                <div className="px-2 pb-1 flex items-center gap-2">
+                  <a href={srcImg.url} target="_blank" rel="noreferrer"
+                    className="text-[10px] text-gg-pink hover:underline">
+                    Open in new tab ↗
+                  </a>
+                  {srcImg.note && (
+                    <span className="text-[10px] text-gg-gray-500 truncate">
+                      {srcImg.note}
+                    </span>
+                  )}
+                </div>
               </div>
             ) : (
               <div className="p-4 text-xs text-gg-gray-400">{srcImg.note}</div>
@@ -812,8 +838,7 @@ function ResultVisuals({ result }: { result: any }) {
         ) : (
           <div className="rounded border border-gg-gray-800 bg-black p-4 text-xs text-gg-gray-500 italic"
             style={{ minHeight: 360 }}>
-            No source image — polygon came from page data (JS array,
-            embedded GeoJSON, etc.) without a visual reference.
+            No source available — couldn&apos;t resolve a comparison image.
           </div>
         )}
       </div>
