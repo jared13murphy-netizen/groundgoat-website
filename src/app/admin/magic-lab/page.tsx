@@ -69,7 +69,8 @@ type ServerProbe = {
   won_path?: string | null
   won_via?: string | null
   tried_summary?: { path?: string; status?: string }[]
-  source_image?: { kind: string; url?: string | null; note?: string; page?: number; via?: string } | null
+  source_image?: { kind: string; url?: string | null; note?: string; page?: number; via?: string;
+                   hash?: string; image_b64?: string; image_media_type?: string } | null
 }
 
 export default function MagicLabPage() {
@@ -451,6 +452,9 @@ export default function MagicLabPage() {
                               detail: p.source_image && t.path === p.won_path
                                 ? { url: p.source_image.url, page: p.source_image.page,
                                     via: p.source_image.via, kind: p.source_image.kind,
+                                    hash: p.source_image.hash,
+                                    image_b64: p.source_image.image_b64,
+                                    image_media_type: p.source_image.image_media_type,
                                     anchor_source: p.anchor?.source }
                                 : {},
                             })),
@@ -660,6 +664,15 @@ function extractSourceImage(result: any): { url: string; kind: string; note?: st
       note: `${detail.vertices ?? '?'} vertices · ${detail.anchor_source ?? 'unknown anchor'}` }
   }
   if (last.path === 'land_id_hash') {
+    // Server captures a Playwright screenshot of the id.land embed
+    // and embeds it as a base64 JPEG. Use that whenever present so
+    // the right pane shows the actual Land ID rendering — the iframe
+    // fallback is blocked by id.land's X-Frame-Options DENY.
+    if (detail.image_b64) {
+      return { url: `data:${detail.image_media_type || 'image/jpeg'};base64,${detail.image_b64}`,
+        kind: 'land_id_image',
+        note: `Land ID viewer snapshot (hash ${(detail.hash || '').slice(0, 8)}…) — compare to our polygon on the left` }
+    }
     return { url: '', kind: 'land_id',
       note: `Land ID hash: ${detail.hash ?? '?'} (no source image — polygon came from API)` }
   }
@@ -775,7 +788,7 @@ function ResultVisuals({ result }: { result: any }) {
         {srcImg ? (
           <div className="rounded border border-gg-gray-800 bg-black flex flex-col"
             style={{ minHeight: 360 }}>
-            {srcImg.url && srcImg.kind === 'aerial' ? (
+            {srcImg.url && (srcImg.kind === 'aerial' || srcImg.kind === 'land_id_image') ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={srcImg.url} alt="source aerial"
                 className="object-contain max-h-[340px] w-full" />
