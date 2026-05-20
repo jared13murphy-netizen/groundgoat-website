@@ -63,7 +63,7 @@ type ServerProbe = {
   expected_acres?: number | null
   expected_state?: string | null
   confidence?: 'high' | 'medium' | 'low' | 'none' | null
-  shape_provenance?: 'real_data' | 'pdf_printed_coords' | 'vision_traced' | null
+  shape_provenance?: 'real_data' | 'pdf_printed_coords' | 'vision_traced' | 'georef' | 'parcel_db' | null
   acreage_match?: 'good' | 'loose' | 'off' | null
   per_tract_validation?: any[] | null
   won_path?: string | null
@@ -381,12 +381,14 @@ export default function MagicLabPage() {
           ) : (
             <div className="flex flex-col gap-4">
               {serverProbes.map((p) => {
-                const provColor = p.shape_provenance === 'real_data'
+                const provColor = p.shape_provenance === 'parcel_db'
+                  ? 'text-emerald-300 border-emerald-500/40 bg-emerald-500/10'
+                  : p.shape_provenance === 'georef'
+                  ? 'text-emerald-300 border-emerald-500/40 bg-emerald-500/10'
+                  : p.shape_provenance === 'real_data'
                   ? 'text-emerald-300 border-emerald-500/40 bg-emerald-500/10'
                   : p.shape_provenance === 'pdf_printed_coords'
                   ? 'text-blue-300 border-blue-500/40 bg-blue-500/10'
-                  : p.shape_provenance === 'georef'
-                  ? 'text-emerald-300 border-emerald-500/40 bg-emerald-500/10'
                   : p.shape_provenance === 'vision_traced'
                   ? 'text-amber-300 border-amber-500/40 bg-amber-500/10'
                   : 'text-gg-gray-500 border-gg-gray-700 bg-gg-gray-800'
