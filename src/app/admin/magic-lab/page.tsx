@@ -46,6 +46,32 @@ type ProbeResult = {
   error?: string
 }
 
+// Server-side recent probes — persisted on the scraper so probes run
+// by anyone (the admin, an iterating engineer via curl, CI) show up
+// for everyone. Polled every 5s while no probe is running.
+type ServerProbe = {
+  id: string
+  url: string
+  at: number
+  elapsed_ms: number
+  polygon: [number, number][] | null
+  all_polygons?: any[] | null
+  tract_polygon_matches?: any[] | null
+  stage_1c_subpages?: any[] | null
+  acres?: number | null
+  anchor?: { lat: number; lng: number; source?: string } | null
+  expected_acres?: number | null
+  expected_state?: string | null
+  confidence?: 'high' | 'medium' | 'low' | 'none' | null
+  shape_provenance?: 'real_data' | 'pdf_printed_coords' | 'vision_traced' | null
+  acreage_match?: 'good' | 'loose' | 'off' | null
+  per_tract_validation?: any[] | null
+  won_path?: string | null
+  won_via?: string | null
+  tried_summary?: { path?: string; status?: string }[]
+  source_image?: { kind: string; url?: string | null; note?: string; page?: number; via?: string } | null
+}
+
 export default function MagicLabPage() {
   const router = useRouter()
   const [user, setUser] = useState<any>(null)
@@ -54,6 +80,9 @@ export default function MagicLabPage() {
   const [running, setRunning] = useState(false)
   const [result, setResult] = useState<ProbeResult | null>(null)
   const [history, setHistory] = useState<{ url: string; result: ProbeResult; at: string }[]>([])
+  const [serverProbes, setServerProbes] = useState<ServerProbe[]>([])
+  const [serverProbesError, setServerProbesError] = useState<string | null>(null)
+  const [expandedProbe, setExpandedProbe] = useState<string | null>(null)
   // Streaming UX state — each stage shows a pending spinner until its
   // event arrives, then renders the result.
   type StageStatus = 'idle' | 'pending' | 'done' | 'error'
@@ -62,6 +91,30 @@ export default function MagicLabPage() {
   const [stage1cSubs, setStage1cSubs] = useState<any[]>([])
   const [subpageProgress, setSubpageProgress] = useState<{i: number; total: number; url?: string} | null>(null)
   const abortRef = useRef<AbortController | null>(null)
+
+  // Poll the server-side persisted probe log every 5s (only when no
+  // probe is currently in flight, to avoid jitter). Server keeps the
+  // last 200 probes; we render the newest 20 here.
+  useEffect(() => {
+    if (running) return
+    let cancelled = false
+    const fetchRecent = async () => {
+      try {
+        const r = await fetch(`${SCRAPER_URL}/api/admin/magic-lab/recent-probes?limit=20`)
+        if (!r.ok) throw new Error(`HTTP ${r.status}`)
+        const data = await r.json()
+        if (!cancelled) {
+          setServerProbes(Array.isArray(data?.items) ? data.items : [])
+          setServerProbesError(null)
+        }
+      } catch (e: any) {
+        if (!cancelled) setServerProbesError(e?.message || String(e))
+      }
+    }
+    fetchRecent()
+    const id = setInterval(fetchRecent, 5000)
+    return () => { cancelled = true; clearInterval(id) }
+  }, [running])
 
   // Auth gate — same pattern as other admin pages
   useEffect(() => {
@@ -297,6 +350,132 @@ export default function MagicLabPage() {
             </details>
           </div>
         )}
+
+        {/* Server-side recent probes — visible across sessions / users.
+            Updates every 5 seconds when no probe is in flight, so probes
+            run via curl by an iterating engineer show up here for human
+            review. Click a row to load it into the result panel above. */}
+        <div className="bg-gg-gray-900 border border-gg-gray-800 rounded-lg p-4 mb-6">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="text-xs text-gg-gray-400 uppercase tracking-wider font-semibold">
+              Recent probes (server-side · last {Math.min(serverProbes.length, 20)})
+            </div>
+            <span className="text-[10px] text-gg-gray-600">
+              {running ? 'paused while running' : 'auto-refreshes every 5s'}
+            </span>
+            {serverProbesError && (
+              <span className="text-[10px] text-red-400">err: {serverProbesError}</span>
+            )}
+          </div>
+          {serverProbes.length === 0 ? (
+            <div className="text-xs text-gg-gray-500 italic">
+              No probes logged yet. Run one above to populate this list.
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {serverProbes.map((p) => {
+                const isOpen = expandedProbe === p.id
+                const provColor = p.shape_provenance === 'real_data'
+                  ? 'text-emerald-300 border-emerald-500/40 bg-emerald-500/10'
+                  : p.shape_provenance === 'pdf_printed_coords'
+                  ? 'text-blue-300 border-blue-500/40 bg-blue-500/10'
+                  : p.shape_provenance === 'vision_traced'
+                  ? 'text-amber-300 border-amber-500/40 bg-amber-500/10'
+                  : 'text-gg-gray-500 border-gg-gray-700 bg-gg-gray-800'
+                const confColor = p.confidence === 'high'
+                  ? 'text-emerald-300'
+                  : p.confidence === 'medium'
+                  ? 'text-amber-300'
+                  : p.confidence === 'low'
+                  ? 'text-red-300'
+                  : 'text-gg-gray-500'
+                const ts = new Date((p.at || 0) * 1000).toLocaleString()
+                const nt = p.tract_polygon_matches?.length || 0
+                return (
+                  <div key={p.id} className="bg-black border border-gg-gray-800 rounded">
+                    <button
+                      onClick={() => setExpandedProbe(isOpen ? null : p.id)}
+                      className="w-full p-2 text-left hover:bg-gg-gray-900 transition flex items-start gap-2"
+                    >
+                      <div className="flex flex-col gap-0.5 min-w-[120px]">
+                        <span className="text-[10px] text-gg-gray-500">{ts}</span>
+                        <span className={`text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded border w-fit ${provColor}`}>
+                          {p.shape_provenance || '—'}
+                        </span>
+                      </div>
+                      <div className="flex flex-col gap-0.5 flex-1 min-w-0">
+                        <span className="text-xs text-gg-gray-200 font-mono truncate" title={p.url}>
+                          {p.url}
+                        </span>
+                        <span className="text-[11px] text-gg-gray-400">
+                          {p.won_path || 'unresolved'}
+                          {p.won_via ? ` · ${p.won_via}` : ''}
+                          {p.acres != null ? ` · ${(+p.acres).toFixed(1)}ac` : ''}
+                          {p.expected_acres != null ? ` of ${(+p.expected_acres).toFixed(1)}ac` : ''}
+                          {nt > 0 ? ` · ${nt} tract${nt > 1 ? 's' : ''}` : ''}
+                          {p.elapsed_ms ? ` · ${(p.elapsed_ms / 1000).toFixed(1)}s` : ''}
+                        </span>
+                      </div>
+                      <span className={`text-xs font-semibold ${confColor} shrink-0`}>
+                        {p.confidence || '—'}
+                      </span>
+                    </button>
+                    {isOpen && (
+                      <div className="border-t border-gg-gray-800 p-3">
+                        <ResultVisuals result={{
+                          success: true,
+                          stage_2_resolve: {
+                            polygon: p.polygon,
+                            all_polygons: p.all_polygons,
+                            tract_polygon_matches: p.tract_polygon_matches,
+                            tried: (p.tried_summary || []).map(t => ({
+                              path: t.path, status: t.status,
+                              detail: p.source_image && t.path === p.won_path
+                                ? { url: p.source_image.url, page: p.source_image.page,
+                                    via: p.source_image.via, kind: p.source_image.kind,
+                                    anchor_source: p.anchor?.source }
+                                : {},
+                            })),
+                          },
+                          stage_1c_subpages: p.stage_1c_subpages,
+                        }} />
+                        <div className="grid grid-cols-2 gap-2 text-[11px] font-mono text-gg-gray-300 mt-2">
+                          <div>
+                            <span className="text-gg-gray-500">confidence:</span>{' '}
+                            <span className={confColor}>{p.confidence || '—'}</span>
+                          </div>
+                          <div>
+                            <span className="text-gg-gray-500">shape:</span>{' '}
+                            {p.shape_provenance || '—'}
+                          </div>
+                          <div>
+                            <span className="text-gg-gray-500">acreage_match:</span>{' '}
+                            {p.acreage_match || '—'}
+                          </div>
+                          <div>
+                            <span className="text-gg-gray-500">won:</span>{' '}
+                            {p.won_path || '—'}
+                            {p.won_via ? ` (${p.won_via})` : ''}
+                          </div>
+                        </div>
+                        {p.per_tract_validation && p.per_tract_validation.length > 0 && (
+                          <div className="text-[11px] font-mono mt-2">
+                            <div className="text-gg-gray-500 mb-1">Per-tract:</div>
+                            {p.per_tract_validation.map((v, i) => (
+                              <div key={i} className="text-gg-gray-300">
+                                T{v.tract_number}: {v.status} · tract={v.tract_acres}ac · poly={v.polygon_acres}ac · {v.match || 'none'} ({v.diff_pct ?? '?'}%)
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
 
         {history.length > 0 && (
           <div className="bg-gg-gray-900 border border-gg-gray-800 rounded-lg p-4">
