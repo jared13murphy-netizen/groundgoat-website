@@ -354,31 +354,39 @@ export default function MagicLabPage() {
         {/* Server-side recent probes — visible across sessions / users.
             Updates every 5 seconds when no probe is in flight, so probes
             run via curl by an iterating engineer show up here for human
-            review. Click a row to load it into the result panel above. */}
-        <div className="bg-gg-gray-900 border border-gg-gray-800 rounded-lg p-4 mb-6">
-          <div className="flex items-center gap-2 mb-3">
-            <div className="text-xs text-gg-gray-400 uppercase tracking-wider font-semibold">
-              Recent probes (server-side · last {Math.min(serverProbes.length, 20)})
+            review. EVERY probe shows its polygon on a satellite map
+            auto-expanded — that's the whole point of this panel. */}
+        <div className="bg-gg-gray-900 border-2 border-gg-pink/40 rounded-lg p-4 mb-6">
+          <div className="flex items-center gap-3 mb-4 flex-wrap">
+            <div className="text-sm text-gg-pink uppercase tracking-wider font-bold">
+              🛰  Live probe stream {serverProbes.length > 0 && `(${serverProbes.length})`}
             </div>
-            <span className="text-[10px] text-gg-gray-600">
-              {running ? 'paused while running' : 'auto-refreshes every 5s'}
+            <span className="text-[11px] text-gg-gray-400">
+              {running
+                ? '⏸ paused (a probe is running above)'
+                : '● auto-refreshes every 5s — polygons shown live below'}
             </span>
             {serverProbesError && (
-              <span className="text-[10px] text-red-400">err: {serverProbesError}</span>
+              <span className="text-[11px] text-red-400 font-mono">
+                fetch error: {serverProbesError}
+              </span>
             )}
           </div>
           {serverProbes.length === 0 ? (
-            <div className="text-xs text-gg-gray-500 italic">
-              No probes logged yet. Run one above to populate this list.
+            <div className="text-sm text-gg-gray-300 italic p-6 text-center border border-dashed border-gg-gray-700 rounded">
+              No probes logged yet on the server. Run one above (or wait
+              for an engineer to run one via curl) — it will appear here
+              within 5 seconds with the polygon rendered on satellite.
             </div>
           ) : (
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-4">
               {serverProbes.map((p) => {
-                const isOpen = expandedProbe === p.id
                 const provColor = p.shape_provenance === 'real_data'
                   ? 'text-emerald-300 border-emerald-500/40 bg-emerald-500/10'
                   : p.shape_provenance === 'pdf_printed_coords'
                   ? 'text-blue-300 border-blue-500/40 bg-blue-500/10'
+                  : p.shape_provenance === 'georef'
+                  ? 'text-emerald-300 border-emerald-500/40 bg-emerald-500/10'
                   : p.shape_provenance === 'vision_traced'
                   ? 'text-amber-300 border-amber-500/40 bg-amber-500/10'
                   : 'text-gg-gray-500 border-gg-gray-700 bg-gg-gray-800'
@@ -391,37 +399,45 @@ export default function MagicLabPage() {
                   : 'text-gg-gray-500'
                 const ts = new Date((p.at || 0) * 1000).toLocaleString()
                 const nt = p.tract_polygon_matches?.length || 0
+                const hasPoly = !!(p.polygon || (p.all_polygons && p.all_polygons.length)
+                                    || (p.tract_polygon_matches && p.tract_polygon_matches.length))
                 return (
-                  <div key={p.id} className="bg-black border border-gg-gray-800 rounded">
-                    <button
-                      onClick={() => setExpandedProbe(isOpen ? null : p.id)}
-                      className="w-full p-2 text-left hover:bg-gg-gray-900 transition flex items-start gap-2"
-                    >
-                      <div className="flex flex-col gap-0.5 min-w-[120px]">
+                  <div key={p.id} className="bg-black border border-gg-gray-800 rounded overflow-hidden">
+                    {/* Header row */}
+                    <div className="px-3 py-2 border-b border-gg-gray-800 flex items-start gap-3 flex-wrap">
+                      <div className="flex flex-col gap-0.5 min-w-[140px]">
                         <span className="text-[10px] text-gg-gray-500">{ts}</span>
                         <span className={`text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded border w-fit ${provColor}`}>
-                          {p.shape_provenance || '—'}
+                          {p.shape_provenance || 'no-source'}
                         </span>
                       </div>
                       <div className="flex flex-col gap-0.5 flex-1 min-w-0">
-                        <span className="text-xs text-gg-gray-200 font-mono truncate" title={p.url}>
+                        <a href={p.url} target="_blank" rel="noreferrer"
+                          className="text-xs text-gg-pink hover:underline font-mono truncate"
+                          title={p.url}>
                           {p.url}
-                        </span>
+                        </a>
                         <span className="text-[11px] text-gg-gray-400">
                           {p.won_path || 'unresolved'}
                           {p.won_via ? ` · ${p.won_via}` : ''}
                           {p.acres != null ? ` · ${(+p.acres).toFixed(1)}ac` : ''}
-                          {p.expected_acres != null ? ` of ${(+p.expected_acres).toFixed(1)}ac` : ''}
+                          {p.expected_acres != null ? ` (listing ${(+p.expected_acres).toFixed(1)}ac)` : ''}
                           {nt > 0 ? ` · ${nt} tract${nt > 1 ? 's' : ''}` : ''}
                           {p.elapsed_ms ? ` · ${(p.elapsed_ms / 1000).toFixed(1)}s` : ''}
                         </span>
                       </div>
-                      <span className={`text-xs font-semibold ${confColor} shrink-0`}>
-                        {p.confidence || '—'}
-                      </span>
-                    </button>
-                    {isOpen && (
-                      <div className="border-t border-gg-gray-800 p-3">
+                      <div className="flex flex-col items-end gap-0.5 shrink-0">
+                        <span className={`text-sm font-bold uppercase ${confColor}`}>
+                          {p.confidence || '—'}
+                        </span>
+                        {p.acreage_match && (
+                          <span className="text-[10px] text-gg-gray-500">{p.acreage_match}</span>
+                        )}
+                      </div>
+                    </div>
+                    {/* Map + source image — ALWAYS VISIBLE */}
+                    {hasPoly ? (
+                      <div className="p-2">
                         <ResultVisuals result={{
                           success: true,
                           stage_2_resolve: {
@@ -439,35 +455,30 @@ export default function MagicLabPage() {
                           },
                           stage_1c_subpages: p.stage_1c_subpages,
                         }} />
-                        <div className="grid grid-cols-2 gap-2 text-[11px] font-mono text-gg-gray-300 mt-2">
-                          <div>
-                            <span className="text-gg-gray-500">confidence:</span>{' '}
-                            <span className={confColor}>{p.confidence || '—'}</span>
+                      </div>
+                    ) : (
+                      <div className="p-4 text-xs text-amber-300 italic">
+                        ⚠ No polygon was produced — the probe ran but Stage 2
+                        couldn&apos;t find a boundary (no usable PDF, no aerial
+                        with anchor, no Land ID hash, oblique image). The
+                        listing needs a different acquisition strategy or
+                        manual review.
+                      </div>
+                    )}
+                    {/* Per-tract validation */}
+                    {p.per_tract_validation && p.per_tract_validation.length > 0 && (
+                      <div className="px-3 py-2 border-t border-gg-gray-800 text-[11px] font-mono">
+                        {p.per_tract_validation.map((v, i) => (
+                          <div key={i} className={
+                            v.match === 'good' ? 'text-emerald-300'
+                            : v.match === 'loose' ? 'text-amber-300'
+                            : 'text-gg-gray-400'
+                          }>
+                            T{v.tract_number}: tract={v.tract_acres}ac ·
+                            poly={v.polygon_acres ?? '—'}ac
+                            {v.diff_pct != null ? ` (${v.diff_pct}% off)` : ''} · {v.match || v.status}
                           </div>
-                          <div>
-                            <span className="text-gg-gray-500">shape:</span>{' '}
-                            {p.shape_provenance || '—'}
-                          </div>
-                          <div>
-                            <span className="text-gg-gray-500">acreage_match:</span>{' '}
-                            {p.acreage_match || '—'}
-                          </div>
-                          <div>
-                            <span className="text-gg-gray-500">won:</span>{' '}
-                            {p.won_path || '—'}
-                            {p.won_via ? ` (${p.won_via})` : ''}
-                          </div>
-                        </div>
-                        {p.per_tract_validation && p.per_tract_validation.length > 0 && (
-                          <div className="text-[11px] font-mono mt-2">
-                            <div className="text-gg-gray-500 mb-1">Per-tract:</div>
-                            {p.per_tract_validation.map((v, i) => (
-                              <div key={i} className="text-gg-gray-300">
-                                T{v.tract_number}: {v.status} · tract={v.tract_acres}ac · poly={v.polygon_acres}ac · {v.match || 'none'} ({v.diff_pct ?? '?'}%)
-                              </div>
-                            ))}
-                          </div>
-                        )}
+                        ))}
                       </div>
                     )}
                   </div>
