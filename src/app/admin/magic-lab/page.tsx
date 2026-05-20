@@ -779,6 +779,21 @@ function ResultVisuals({ result }: { result: any }) {
               // eslint-disable-next-line @next/next/no-img-element
               <img src={srcImg.url} alt="source aerial"
                 className="object-contain max-h-[340px] w-full" />
+            ) : srcImg.url && srcImg.kind === 'land_id' ? (
+              // Land ID public viewer — iframe their canonical
+              // rendering so the admin can compare it to our polygon
+              // pixel-for-pixel. If they match, we copied the data
+              // correctly; if they don't, our pipeline has a bug.
+              <div className="flex flex-col gap-1">
+                <iframe src={srcImg.url} className="w-full"
+                  style={{ height: 340, border: 'none' }}
+                  sandbox="allow-scripts allow-same-origin"
+                  title="Land ID viewer" />
+                <a href={srcImg.url} target="_blank" rel="noreferrer"
+                  className="text-[10px] text-gg-pink hover:underline px-2 pb-1">
+                  Open in new tab ↗
+                </a>
+              </div>
             ) : srcImg.url && srcImg.kind === 'pdf' ? (
               <div className="p-4 flex flex-col gap-2">
                 <p className="text-xs text-gg-gray-300">{srcImg.note}</p>
@@ -797,8 +812,8 @@ function ResultVisuals({ result }: { result: any }) {
         ) : (
           <div className="rounded border border-gg-gray-800 bg-black p-4 text-xs text-gg-gray-500 italic"
             style={{ minHeight: 360 }}>
-            No source image — polygon came from page data (Land ID API,
-            JS array, etc.) without a visual reference.
+            No source image — polygon came from page data (JS array,
+            embedded GeoJSON, etc.) without a visual reference.
           </div>
         )}
       </div>
