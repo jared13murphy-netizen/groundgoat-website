@@ -20,11 +20,18 @@ export const dynamic = 'force-dynamic'
 
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Loader2, Play, FileJson, CheckCircle2, XCircle } from 'lucide-react'
+import { Loader2, Play, FileJson, CheckCircle2, XCircle, MapIcon, ImageIcon } from 'lucide-react'
+import maplibregl from 'maplibre-gl'
+import 'maplibre-gl/dist/maplibre-gl.css'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 
 const SCRAPER_URL = 'https://ground-goat-scraper-production.up.railway.app'
 const API_URL = 'https://practical-serenity-production.up.railway.app'
+const TILE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+const TILE_ATTRIBUTION = '© Esri, Maxar, Earthstar Geographics'
+// Per-tract polygon colors, cycled in order. Same palette as
+// /admin/missing-boundaries for consistency across the admin UI.
+const TRACT_COLORS = ['#ff3b3b','#3b9fff','#ffd83b','#a83bff','#3bffa8','#ff7a3b','#ff8b3b','#3b3bff']
 
 type ProbeResult = {
   success: boolean
@@ -265,6 +272,11 @@ export default function MagicLabPage() {
                 ℹ {result.note}
               </div>
             )}
+
+            {/* ▼▼ Visual panels — map + source image ▼▼ */}
+            <ResultVisuals result={result} />
+            {/* ▲▲ End visual panels ▲▲ */}
+
             <StageBlock title="Stage 1 — Acquire" data={result.stage_1_acquire} status={stageStatus['1_acquire']} />
             <StageBlock title="Stage 4 — Features (Claude-extracted)" data={result.stage_4_features} status={stageStatus['4_features']} />
             <StageBlock title="Stage 2 — Resolve" data={result.stage_2_resolve} status={stageStatus['2_resolve']} />
@@ -353,6 +365,251 @@ function StageBlock({ title, data, status }: { title: string; data: any; status?
           waiting for stage to complete…
         </div>
       ) : null}
+    </div>
+  )
+}
+
+
+// =============================================================================
+// ResultVisuals — renders polygons on a satellite map + shows the source
+// image (PDF page / aerial / etc.) that Stage 2 used to derive each polygon.
+// =============================================================================
+
+type PolyEntry = {
+  polygon: [number, number][]
+  label: string
+  acres?: number | null
+  color: string
+  source?: string
+}
+
+function extractPolygons(result: any): PolyEntry[] {
+  if (!result) return []
+  const out: PolyEntry[] = []
+  const s2 = result.stage_2_resolve || {}
+  let idx = 0
+
+  // Multi-tract matches take priority — each tract gets its own labeled polygon
+  const matches = s2.tract_polygon_matches
+  if (Array.isArray(matches) && matches.length > 0) {
+    for (const m of matches) {
+      if (m && Array.isArray(m.polygon) && m.polygon.length >= 3) {
+        out.push({
+          polygon: m.polygon as [number, number][],
+          label: `T${m.tract_number ?? '?'}`,
+          acres: m.polygon_acres ?? m.tract_acres,
+          color: TRACT_COLORS[(m.tract_number ?? idx) % TRACT_COLORS.length],
+          source: `match: ${m.matched_via}`,
+        })
+        idx++
+      }
+    }
+    if (out.length > 0) return out
+  }
+
+  // Primary polygon
+  if (Array.isArray(s2.polygon) && s2.polygon.length >= 3) {
+    out.push({
+      polygon: s2.polygon as [number, number][],
+      label: 'Primary',
+      acres: s2.acres,
+      color: TRACT_COLORS[0],
+      source: 'stage_2.polygon',
+    })
+  }
+  // Other polygons (multi-tract land_id without matching)
+  if (Array.isArray(s2.all_polygons)) {
+    s2.all_polygons.forEach((p: any, i: number) => {
+      if (p && Array.isArray(p.polygon) && p.polygon.length >= 3
+          && JSON.stringify(p.polygon) !== JSON.stringify(s2.polygon)) {
+        out.push({
+          polygon: p.polygon as [number, number][],
+          label: p.name || `Poly ${i + 1}`,
+          acres: p.acres,
+          color: TRACT_COLORS[(i + 1) % TRACT_COLORS.length],
+          source: `all_polygons[${i}]`,
+        })
+      }
+    })
+  }
+  // Sub-page polygons
+  const subs = result.stage_1c_subpages
+  if (Array.isArray(subs)) {
+    subs.forEach((s: any, i: number) => {
+      if (s && Array.isArray(s.polygon) && s.polygon.length >= 3) {
+        const hint = s.hint || {}
+        const tn = hint.tract_hint?.tract_number
+        out.push({
+          polygon: s.polygon as [number, number][],
+          label: tn ? `T${tn}` : `Sub ${i + 1}`,
+          acres: s.acres,
+          color: TRACT_COLORS[(tn ?? out.length + i) % TRACT_COLORS.length],
+          source: 'sub-page',
+        })
+      }
+    })
+  }
+  return out
+}
+
+function extractSourceImage(result: any): { url: string; kind: string; note?: string } | null {
+  const s2 = result?.stage_2_resolve
+  if (!s2) return null
+  const triedOk = (s2.tried || []).filter((t: any) => t.status === 'OK')
+  if (triedOk.length === 0) return null
+  const last = triedOk[triedOk.length - 1]
+  const detail = last.detail || {}
+  if (last.path === 'pdf_vision') {
+    return { url: detail.url, kind: 'pdf',
+      note: `PDF page ${detail.page ?? '?'} via ${detail.via ?? 'vision'}` }
+  }
+  if (last.path === 'vision_aerial') {
+    return { url: detail.url, kind: 'aerial',
+      note: `${detail.vertices ?? '?'} vertices · ${detail.anchor_source ?? 'unknown anchor'}` }
+  }
+  if (last.path === 'land_id_hash') {
+    return { url: '', kind: 'land_id',
+      note: `Land ID hash: ${detail.hash ?? '?'} (no source image — polygon came from API)` }
+  }
+  if (last.path === 'js_array_literal') {
+    return { url: '', kind: 'js',
+      note: 'Polygon extracted from page JavaScript — no source image' }
+  }
+  return null
+}
+
+function ResultVisuals({ result }: { result: any }) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const mapRef = useRef<maplibregl.Map | null>(null)
+  const polys = extractPolygons(result)
+  const srcImg = extractSourceImage(result)
+  const hasMap = polys.length > 0
+
+  useEffect(() => {
+    if (!hasMap || !containerRef.current) return
+    let minLng = Infinity, maxLng = -Infinity
+    let minLat = Infinity, maxLat = -Infinity
+    for (const p of polys) {
+      for (const [lng, lat] of p.polygon) {
+        if (lng < minLng) minLng = lng
+        if (lng > maxLng) maxLng = lng
+        if (lat < minLat) minLat = lat
+        if (lat > maxLat) maxLat = lat
+      }
+    }
+    const map = new maplibregl.Map({
+      container: containerRef.current,
+      style: { version: 8,
+        sources: { imagery: { type: 'raster', tiles: [TILE_URL], tileSize: 256,
+                              attribution: TILE_ATTRIBUTION } },
+        layers: [{ id: 'imagery', type: 'raster', source: 'imagery' }],
+      },
+      center: [(minLng + maxLng) / 2, (minLat + maxLat) / 2],
+      zoom: 12, attributionControl: false,
+    })
+    mapRef.current = map
+    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right')
+    map.on('load', () => {
+      for (let i = 0; i < polys.length; i++) {
+        const p = polys[i]
+        const id = `poly_${i}`
+        map.addSource(id, {
+          type: 'geojson',
+          data: { type: 'Feature', properties: { label: p.label },
+            geometry: { type: 'Polygon',
+                        coordinates: [[...p.polygon, p.polygon[0]]] } } as any,
+        })
+        map.addLayer({ id: `${id}_fill`, type: 'fill', source: id,
+          paint: { 'fill-color': p.color, 'fill-opacity': 0.18 } })
+        map.addLayer({ id: `${id}_line`, type: 'line', source: id,
+          paint: { 'line-color': p.color, 'line-width': 2.5 } })
+      }
+      try {
+        map.fitBounds([[minLng, minLat], [maxLng, maxLat]],
+          { padding: 40, duration: 0, maxZoom: 16 })
+      } catch {}
+    })
+    return () => { try { map.remove() } catch {}; mapRef.current = null }
+  }, [hasMap, JSON.stringify(polys.map(p => p.polygon[0]))])
+
+  if (!hasMap && !srcImg) {
+    return (
+      <div className="mb-3 p-3 bg-black border border-gg-gray-800 rounded text-xs text-gg-gray-500 italic">
+        No polygon resolved yet — nothing to render on the map.
+      </div>
+    )
+  }
+
+  return (
+    <div className="mb-4 grid grid-cols-1 lg:grid-cols-2 gap-3">
+      <div className="flex flex-col gap-1">
+        <div className="flex items-center gap-2 flex-wrap">
+          <MapIcon size={14} className="text-gg-pink" />
+          <span className="text-xs font-semibold text-gg-gray-200">
+            Polygons {polys.length > 0 && `(${polys.length})`}
+          </span>
+          {polys.length > 0 && (
+            <div className="flex flex-wrap gap-1 ml-auto">
+              {polys.map((p, i) => (
+                <span key={i} className="text-[10px] px-1.5 py-0.5 rounded"
+                  style={{ backgroundColor: p.color + '33', color: p.color,
+                           border: `1px solid ${p.color}88` }}>
+                  {p.label}{p.acres != null && ` · ${(+p.acres).toFixed(1)}ac`}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+        {hasMap ? (
+          <div ref={containerRef} className="rounded border border-gg-gray-800 bg-black"
+            style={{ width: '100%', height: 360 }} />
+        ) : (
+          <div className="rounded border border-gg-gray-800 bg-black p-4 text-xs text-gg-gray-500 italic">
+            No polygon to render.
+          </div>
+        )}
+      </div>
+
+      <div className="flex flex-col gap-1">
+        <div className="flex items-center gap-2">
+          <ImageIcon size={14} className="text-gg-pink" />
+          <span className="text-xs font-semibold text-gg-gray-200">Source</span>
+          {srcImg?.kind && (
+            <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-gg-gray-800 text-gg-gray-400">
+              {srcImg.kind}
+            </span>
+          )}
+        </div>
+        {srcImg ? (
+          <div className="rounded border border-gg-gray-800 bg-black flex flex-col"
+            style={{ minHeight: 360 }}>
+            {srcImg.url && srcImg.kind === 'aerial' ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={srcImg.url} alt="source aerial"
+                className="object-contain max-h-[340px] w-full" />
+            ) : srcImg.url && srcImg.kind === 'pdf' ? (
+              <div className="p-4 flex flex-col gap-2">
+                <p className="text-xs text-gg-gray-300">{srcImg.note}</p>
+                <a href={srcImg.url} target="_blank" rel="noreferrer"
+                  className="text-xs text-gg-pink underline break-all">
+                  {srcImg.url}
+                </a>
+                <p className="text-[11px] text-gg-gray-500 italic">
+                  PDF preview not embedded — open the link to inspect.
+                </p>
+              </div>
+            ) : (
+              <div className="p-4 text-xs text-gg-gray-400">{srcImg.note}</div>
+            )}
+          </div>
+        ) : (
+          <div className="rounded border border-gg-gray-800 bg-black p-4 text-xs text-gg-gray-500 italic"
+            style={{ minHeight: 360 }}>
+            No source image — polygon came from page data (Land ID API,
+            JS array, etc.) without a visual reference.
+          </div>
+        )}
+      </div>
     </div>
   )
 }
