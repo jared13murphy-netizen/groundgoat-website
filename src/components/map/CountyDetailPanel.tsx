@@ -119,11 +119,13 @@ export default function CountyDetailPanel({
             <h3 className="text-xl font-bold text-white">{county} County, {state}</h3>
             <p className="text-gg-gray-400 text-sm">Sales Analytics</p>
           </div>
+          {/* Canonical pane close button — match PortalListPanel etc. */}
           <button
             onClick={onClose}
-            className="text-gg-gray-400 hover:text-white transition-colors p-1"
+            aria-label="Close"
+            className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center hover:bg-white/10 transition shrink-0"
           >
-            <X size={24} />
+            <X size={16} className="text-gg-gray-400" />
           </button>
         </div>
 

@@ -3363,9 +3363,23 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             borderBottom: '1px solid rgba(255,255,255,0.1)',
           }}>
             <span style={{ color: '#fff', fontSize: 18, fontWeight: 700 }}>Filters</span>
+            {/* Match the canonical pane close-button style used by
+                PortalListPanel etc. — 32×32 rounded square with
+                bg-white/5 + hover-white/10. Inline-styled because the
+                Filters pane doesn't use Tailwind. */}
             <button
               onClick={() => setFilterOpen(false)}
-              style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.6)', fontSize: 22, cursor: 'pointer' }}
+              aria-label="Close"
+              style={{
+                width: 32, height: 32, borderRadius: 8,
+                background: 'rgba(255,255,255,0.05)',
+                border: 'none', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                color: '#888', fontSize: 18, lineHeight: 1,
+                transition: 'background 0.15s',
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.10)' }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)' }}
             >
               ✕
             </button>
