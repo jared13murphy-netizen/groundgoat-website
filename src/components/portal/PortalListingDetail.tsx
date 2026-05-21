@@ -262,10 +262,9 @@ export default function PortalListingDetail({ listingId, onBack, onTractSelected
         </div>
       </div>
 
-      {/* Title */}
-      <h2 className="text-xl font-bold mb-1">
-        {listing.county} County, {listing.state}
-      </h2>
+      {/* Title (county/state) lives in the pane header now — see
+          /access/page.tsx slide-out shell. Company name still shown
+          here as a sub-header beneath the hero image. */}
       {getCompanyName() && (
         <p className="text-gg-pink text-sm flex items-center gap-1.5 mb-4">
           <Building2 size={14} />

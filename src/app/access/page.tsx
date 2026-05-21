@@ -104,7 +104,18 @@ export default function AccessPortalPage() {
   // if the tract's status would otherwise be filtered out by the
   // current view (e.g. a sold tract inside an upcoming-auction listing).
   const [pinnedTractPolygon, setPinnedTractPolygon] = useState<{ id: string; coords: [number, number][] } | null>(null)
+  // Listing meta (county + state) captured when PortalListingDetail
+  // finishes its async fetch — used to render the "<County> County,
+  // <ST>" subtitle in the slide-out pane header. Cleared whenever
+  // mapListingId changes so the subtitle doesn't stale on the next
+  // listing's load.
+  const [mapListingMeta, setMapListingMeta] = useState<{ county: string; state: string } | null>(null)
+  useEffect(() => { setMapListingMeta(null) }, [mapListingId])
   const zoomToFirstTractWithBoundary = (listing: any) => {
+    // Also capture county/state for the pane header subtitle.
+    if (listing?.county || listing?.state) {
+      setMapListingMeta({ county: listing.county || '', state: listing.state || '' })
+    }
     const tract = (listing?.tracts || []).find((t: any) =>
       Array.isArray(t?.polygon_coordinates) && t.polygon_coordinates.length >= 3
     )
@@ -642,7 +653,11 @@ export default function AccessPortalPage() {
             className="fixed top-0 left-0 bottom-0 w-[480px] z-[520] bg-black border-r border-white/10 shadow-2xl flex flex-col"
           >
             {/* Header matches the Tract Detail pane: Back button left
-                of a bold "Listing Detail" title. */}
+                of a bold "Listing Detail" title with the listing's
+                "<County> County, <ST>" subtitle underneath. The
+                subtitle appears once the async fetch in
+                PortalListingDetail fires onListingLoaded (~300ms
+                after open); until then it's blank. */}
             <div className="pt-8 px-5 pb-4 border-b border-white/5 shrink-0">
               <div className="flex items-center gap-3">
                 <button
@@ -654,6 +669,11 @@ export default function AccessPortalPage() {
                 </button>
                 <h2 className="text-lg font-bold text-white">Listing Detail</h2>
               </div>
+              {mapListingMeta?.county && (
+                <p className="text-sm text-white mt-1 ml-11">
+                  {mapListingMeta.county} County{mapListingMeta.state ? `, ${mapListingMeta.state}` : ''}
+                </p>
+              )}
             </div>
             <div className="flex-1 overflow-y-auto px-5 py-4">
               <PortalListingDetail
