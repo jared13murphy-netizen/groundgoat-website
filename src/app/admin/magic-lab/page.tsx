@@ -250,6 +250,7 @@ export default function MagicLabPage() {
               '4_features': 'stage_4_features',
               '2_resolve': 'stage_2_resolve',
               '3_validate': 'stage_3_validate',
+              '5_tillable': 'stage_5_tillable',
             }
             const cumKey = keyMap[k]
             if (cumKey) {
