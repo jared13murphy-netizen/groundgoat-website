@@ -75,7 +75,13 @@ type ServerProbe = {
   won_via?: string | null
   tried_summary?: { path?: string; status?: string }[]
   source_image?: { kind: string; url?: string | null; note?: string; page?: number; via?: string;
-                   hash?: string; image_b64?: string; image_media_type?: string } | null
+                   hash?: string; image_b64?: string; image_media_type?: string;
+                   // Server-rendered polygon over Esri satellite. ALWAYS present
+                   // when Stage 2 produced any polygon — bulletproof comparison
+                   // image immune to X-Frame-blocking, dead URLs, etc.
+                   polygon_render_b64?: string;
+                   polygon_render_media_type?: string;
+                   polygon_render_note?: string } | null
 }
 
 export default function MagicLabPage() {
@@ -479,6 +485,9 @@ export default function MagicLabPage() {
                                     hash: p.source_image.hash,
                                     image_b64: p.source_image.image_b64,
                                     image_media_type: p.source_image.image_media_type,
+                                    polygon_render_b64: p.source_image.polygon_render_b64,
+                                    polygon_render_media_type: p.source_image.polygon_render_media_type,
+                                    polygon_render_note: p.source_image.polygon_render_note,
                                     anchor_source: p.anchor?.source }
                                 : {},
                             })),
@@ -688,6 +697,17 @@ function extractSourceImage(result: any): { url: string; kind: string; note?: st
   if (triedOk.length === 0) return null
   const last = triedOk[triedOk.length - 1]
   const detail = last.detail || {}
+  // PRIMARY: server-rendered polygon-over-satellite. Always works,
+  // no iframe issues. Per user 2026-05-20 evening: "give me an image
+  // on the right every time!!!"
+  if (detail.polygon_render_b64) {
+    return {
+      url: `data:${detail.polygon_render_media_type || 'image/jpeg'};base64,${detail.polygon_render_b64}`,
+      kind: 'polygon_render',
+      note: detail.polygon_render_note
+        || 'Our polygon rendered over Esri satellite imagery.',
+    }
+  }
   if (last.path === 'pdf_vision') {
     return { url: detail.url, kind: 'pdf',
       note: `PDF page ${detail.page ?? '?'} via ${detail.via ?? 'vision'}` }
@@ -843,7 +863,8 @@ function ResultVisuals({ result }: { result: any }) {
         {srcImg ? (
           <div className="rounded border border-gg-gray-800 bg-black flex flex-col"
             style={{ minHeight: 360 }}>
-            {srcImg.url && (srcImg.kind === 'aerial' || srcImg.kind === 'land_id_image') ? (
+            {srcImg.url && (srcImg.kind === 'aerial' || srcImg.kind === 'land_id_image'
+                            || srcImg.kind === 'polygon_render') ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={srcImg.url} alt="source aerial"
                 className="object-contain max-h-[340px] w-full" />
