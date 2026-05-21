@@ -641,8 +641,19 @@ export default function AccessPortalPage() {
             transition={{ type: 'spring', damping: 28, stiffness: 300 }}
             className="fixed top-0 left-0 bottom-0 w-[480px] z-[520] bg-black border-r border-white/10 shadow-2xl flex flex-col"
           >
+            {/* Header matches the Tract Detail pane: Back button left
+                of a bold "Listing Detail" title. */}
             <div className="pt-8 px-5 pb-4 border-b border-white/5 shrink-0">
-              <h2 className="text-lg font-semibold">Listing Detail</h2>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setMapListingId(null)}
+                  aria-label="Back"
+                  className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center text-gg-gray-300 hover:text-white transition shrink-0"
+                >
+                  <ArrowLeft size={16} />
+                </button>
+                <h2 className="text-lg font-bold text-white">Listing Detail</h2>
+              </div>
             </div>
             <div className="flex-1 overflow-y-auto px-5 py-4">
               <PortalListingDetail

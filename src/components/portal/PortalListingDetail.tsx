@@ -5,7 +5,7 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { motion } from 'framer-motion'
 import {
-  ArrowLeft, MapPin, Calendar, Clock, Building2,
+  MapPin, Calendar, Clock, Building2,
   DollarSign, ExternalLink, Share2, BarChart3, Loader2, RefreshCw, Bookmark
 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
@@ -216,14 +216,9 @@ export default function PortalListingDetail({ listingId, onBack, onTractSelected
       animate={{ opacity: 1, x: 0 }}
       transition={{ duration: 0.2 }}
     >
-      {/* Back button */}
-      <button
-        onClick={onBack}
-        className="flex items-center gap-2 text-sm text-gg-gray-400 hover:text-white transition mb-4 group"
-      >
-        <ArrowLeft size={16} className="group-hover:-translate-x-0.5 transition-transform" />
-        Back to list
-      </button>
+      {/* Back button is now rendered by the slide-out shell in
+          /access/page.tsx, left of the "Listing Detail" pane title
+          (same pattern as the Tract Detail pane). */}
 
       {/* Hero Image */}
       <div className="relative h-48 bg-gg-gray-800 rounded-xl overflow-hidden mb-4">
