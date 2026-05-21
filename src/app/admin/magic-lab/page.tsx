@@ -57,6 +57,11 @@ type ServerProbe = {
   polygon: [number, number][] | null
   all_polygons?: any[] | null
   tract_polygon_matches?: any[] | null
+  // Stage 4 detected this many tracts on the listing. When the
+  // polygon count comes back smaller, the scraper produced an
+  // incomplete result and the UI flags it as MISSING.
+  expected_tract_count?: number | null
+  is_multi_tract_listing?: boolean
   stage_1c_subpages?: any[] | null
   acres?: number | null
   anchor?: { lat: number; lng: number; source?: string } | null
@@ -402,6 +407,19 @@ export default function MagicLabPage() {
                   : 'text-gg-gray-500'
                 const ts = new Date((p.at || 0) * 1000).toLocaleString()
                 const nt = p.tract_polygon_matches?.length || 0
+                // How many polygons did Stage 2 actually return (with
+                // a non-null polygon field)? Used to flag listings
+                // where the scraper KNOWS there are N tracts but
+                // produced fewer polygons — those are wrong by
+                // definition. farmersnational 2026-05-20: 3-tract
+                // listing returned 2 polygons → display "2 / 3
+                // tracts" so user knows we're short.
+                const npResolved = (p.tract_polygon_matches || [])
+                  .filter((m: any) => m && m.polygon).length
+                const expectedTracts = (p as any).expected_tract_count
+                  ?? nt
+                const tractCountMismatch =
+                  expectedTracts > 1 && npResolved < expectedTracts
                 const hasPoly = !!(p.polygon || (p.all_polygons && p.all_polygons.length)
                                     || (p.tract_polygon_matches && p.tract_polygon_matches.length))
                 return (
@@ -425,7 +443,12 @@ export default function MagicLabPage() {
                           {p.won_via ? ` · ${p.won_via}` : ''}
                           {p.acres != null ? ` · ${(+p.acres).toFixed(1)}ac` : ''}
                           {p.expected_acres != null ? ` (listing ${(+p.expected_acres).toFixed(1)}ac)` : ''}
-                          {nt > 0 ? ` · ${nt} tract${nt > 1 ? 's' : ''}` : ''}
+                          {expectedTracts > 1 ? (
+                            <span className={tractCountMismatch ? 'text-red-400 font-bold' : ''}>
+                              {' · '}{npResolved} / {expectedTracts} tracts
+                              {tractCountMismatch ? ' ⚠ MISSING' : ''}
+                            </span>
+                          ) : nt > 0 ? ` · ${nt} tract${nt > 1 ? 's' : ''}` : ''}
                           {p.elapsed_ms ? ` · ${(p.elapsed_ms / 1000).toFixed(1)}s` : ''}
                         </span>
                       </div>
@@ -452,6 +475,7 @@ export default function MagicLabPage() {
                               detail: p.source_image && t.path === p.won_path
                                 ? { url: p.source_image.url, page: p.source_image.page,
                                     via: p.source_image.via, kind: p.source_image.kind,
+                                    note: p.source_image.note,
                                     hash: p.source_image.hash,
                                     image_b64: p.source_image.image_b64,
                                     image_media_type: p.source_image.image_media_type,
@@ -688,6 +712,15 @@ function extractSourceImage(result: any): { url: string; kind: string; note?: st
   if (last.path === 'js_array_literal') {
     return { url: '', kind: 'js',
       note: 'Polygon extracted from page JavaScript — no source image' }
+  }
+  // Fallback: trust whatever the server's source_image hint produced.
+  // The server has _magic_lab_source_image_hint which handles every
+  // path (including newer ones like regrid_parcel_lookup that this
+  // function doesn't enumerate). The recent-probes synthesizer copies
+  // p.source_image.url / kind / note into the detail of the won tried
+  // entry. If detail has a url + kind, we have something to render.
+  if (detail.url && detail.kind) {
+    return { url: detail.url, kind: detail.kind, note: detail.note }
   }
   return null
 }
