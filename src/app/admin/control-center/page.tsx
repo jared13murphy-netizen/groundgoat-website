@@ -48,7 +48,15 @@ interface Listing {
 }
 
 interface TractState {
-  pricePerAcre: number
+  // The exact string the user typed in the price input — source of truth.
+  // We DO NOT derive this from a back-and-forth division and multiplication,
+  // because that's what corrupted the saved prices on prior versions of
+  // this page (e.g. 1,200,000 in Lump Sum became 1,199,999.999999... after
+  // round-tripping through state.pricePerAcre). Save handlers parse this
+  // string ONCE and send rounded integer dollars to the backend.
+  enteredPriceStr: string
+  originalEnteredPriceStr: string
+
   bidIncrement: number
   status: string
   saving: boolean
@@ -58,7 +66,6 @@ interface TractState {
   tillableAcres: number
   soilRating: number | null
   // Track original values to detect changes
-  originalPricePerAcre: number
   originalStatus: string
   originalTotalAcres: number
   originalTillableAcres: number
@@ -133,10 +140,16 @@ export default function ControlCenterPage() {
         const expandedIds: string[] = []
         listingsWithTracts.forEach((listing: Listing) => {
           listing.tracts?.forEach((tract: Tract) => {
-            const pricePerAcre = tract.price_per_acre || 0
+            const ppa = tract.price_per_acre || 0
+            // Display dollars-only by default — no cents. Auctions are
+            // never priced in fractions of a cent, but our DB used to
+            // contain 99999.99999998 because of float division. Round
+            // hard so the input field shows a clean integer string.
+            const initialStr = ppa > 0 ? Math.round(ppa).toString() : ''
             const status = normalizeStatus(tract.sale_status || 'listed')
             initialStates[tract.id] = {
-              pricePerAcre,
+              enteredPriceStr: initialStr,
+              originalEnteredPriceStr: initialStr,
               bidIncrement: 1000,
               status,
               saving: false,
@@ -144,7 +157,6 @@ export default function ControlCenterPage() {
               totalAcres: tract.total_acres || 0,
               tillableAcres: tract.tillable_acres || 0,
               soilRating: tract.soil_rating,
-              originalPricePerAcre: pricePerAcre,
               originalStatus: status,
               originalTotalAcres: tract.total_acres || 0,
               originalTillableAcres: tract.tillable_acres || 0,
@@ -238,31 +250,19 @@ export default function ControlCenterPage() {
     }))
   }
 
-  const handlePricePerAcreChange = (tractId: string, price: string) => {
-    const numPrice = parseFloat(price) || 0
-    updateTractState(tractId, { pricePerAcre: numPrice })
-  }
-
-  const handleLumpSumChange = (tractId: string, totalPrice: string, acres: number) => {
-    const numPrice = parseFloat(totalPrice) || 0
-    const pricePerAcre = acres > 0 ? numPrice / acres : 0
-    updateTractState(tractId, { pricePerAcre })
+  // The single price-input change handler — stores whatever the user
+  // typed verbatim. No division, no derived values. Per-acre vs Lump-Sum
+  // is just a label on the same field.
+  const handlePriceInputChange = (tractId: string, value: string) => {
+    updateTractState(tractId, { enteredPriceStr: value })
   }
 
   const handleAddBid = (tractId: string, acres: number) => {
     const state = tractStates[tractId]
-    if (state) {
-      if (state.bidMode === 'per_acre') {
-        // Add increment to price per acre
-        updateTractState(tractId, { pricePerAcre: state.pricePerAcre + state.bidIncrement })
-      } else {
-        // Add increment to total price, then convert to price per acre
-        const currentTotal = state.pricePerAcre * acres
-        const newTotal = currentTotal + state.bidIncrement
-        const newPricePerAcre = acres > 0 ? newTotal / acres : 0
-        updateTractState(tractId, { pricePerAcre: newPricePerAcre })
-      }
-    }
+    if (!state) return
+    const current = parseFloat(state.enteredPriceStr) || 0
+    const next = Math.round(current + state.bidIncrement)
+    updateTractState(tractId, { enteredPriceStr: next.toString() })
   }
 
   const handleSetIncrement = (tractId: string, increment: number) => {
@@ -273,13 +273,24 @@ export default function ControlCenterPage() {
     updateTractState(tractId, { status })
   }
 
-  const handleToggleBidMode = (tractId: string) => {
+  // Toggle between Per-Acre and Lump-Sum interpretation of the input.
+  // The number in the field gets re-scaled by acres so the user's
+  // economic intent is preserved (e.g. $2,950/acre × 152ac ↔ $448,400
+  // lump sum). Rounded to whole dollars on conversion.
+  const handleToggleBidMode = (tractId: string, acres: number) => {
     const state = tractStates[tractId]
-    if (state) {
-      updateTractState(tractId, { 
-        bidMode: state.bidMode === 'per_acre' ? 'lump_sum' : 'per_acre' 
-      })
+    if (!state) return
+    const current = parseFloat(state.enteredPriceStr) || 0
+    let converted = current
+    if (state.bidMode === 'per_acre' && acres > 0) {
+      converted = Math.round(current * acres)
+    } else if (state.bidMode === 'lump_sum' && acres > 0) {
+      converted = Math.round(current / acres)
     }
+    updateTractState(tractId, {
+      bidMode: state.bidMode === 'per_acre' ? 'lump_sum' : 'per_acre',
+      enteredPriceStr: current > 0 ? converted.toString() : '',
+    })
   }
 
   const handleSetListingStatus = async (listingId: string, status: string) => {
@@ -347,35 +358,112 @@ export default function ControlCenterPage() {
     }, 0)
   }
 
+  // Compute the canonical {sale_price, price_per_acre} pair from what
+  // the user actually typed in the active mode + the tract's acres.
+  // All math is in JS floats but the final values are rounded to whole
+  // dollars before going to the backend — preventing the 99999.99998
+  // and similar artifacts that have corrupted saved prices.
+  const computePrices = (state: TractState, acres: number): { salePrice: number; pricePerAcre: number } => {
+    const parsed = parseFloat(state.enteredPriceStr) || 0
+    if (parsed <= 0) return { salePrice: 0, pricePerAcre: 0 }
+    if (state.bidMode === 'lump_sum') {
+      const salePrice = Math.round(parsed)
+      const pricePerAcre = acres > 0 ? Math.round(salePrice / acres) : 0
+      return { salePrice, pricePerAcre }
+    } else {
+      // per_acre
+      const pricePerAcre = Math.round(parsed)
+      const salePrice = acres > 0 ? Math.round(pricePerAcre * acres) : 0
+      return { salePrice, pricePerAcre }
+    }
+  }
+
+  // Backwards-compat alias so other code can ask "what's the total?"
+  // without knowing the mode. Returns 0 if no entry / no acres.
   const getTotalPrice = (tractId: string, acres: number): number => {
     const state = tractStates[tractId]
     if (!state) return 0
-    return state.pricePerAcre * acres
+    return computePrices(state, acres).salePrice
   }
 
+  // Shared helper: build the listing-level aggregated body from a
+  // fully up-to-date tractStates map. Uses computePrices() so every
+  // tract's salePrice is rounded to whole dollars — no float cruft
+  // hits the backend.
+  const buildListingUpdateBody = (
+    listing: Listing,
+    tractStatesNow: Record<string, TractState>,
+  ) => {
+    const allTracts = listing.tracts || []
+    let totalSalePrice = 0
+    let newListingTotalAcres = 0
+    let totalTillableAcres = 0
+    let weightedSoilRatingSum = 0
+    let soilRatingAcresSum = 0
+    allTracts.forEach(t => {
+      const tState = tractStatesNow[t.id]
+      const tractAcres = tState?.totalAcres || t.total_acres || 0
+      const tractTillable = tState?.tillableAcres || t.tillable_acres || 0
+      const tractSoilRating = tState?.soilRating ?? t.soil_rating ?? null
+      newListingTotalAcres += tractAcres
+      totalTillableAcres += tractTillable
+      if (tractSoilRating && tractSoilRating > 0 && tractAcres > 0) {
+        weightedSoilRatingSum += tractSoilRating * tractAcres
+        soilRatingAcresSum += tractAcres
+      }
+      const tractSalePrice = tState
+        ? computePrices(tState, tractAcres).salePrice
+        : Number(t.sale_price || 0)
+      totalSalePrice += tractSalePrice
+    })
+    const listingStatus = calculateListingStatus(allTracts, tractStatesNow, listing.status)
+    const soldAcres = calculateSoldAcres(allTracts, tractStatesNow)
+    const listingPricePerAcre = newListingTotalAcres > 0 ? Math.round(totalSalePrice / newListingTotalAcres) : null
+    const listingPPTA = totalTillableAcres > 0 ? Math.round(totalSalePrice / totalTillableAcres) : null
+    const weightedAvgSoilRating = soilRatingAcresSum > 0 ? weightedSoilRatingSum / soilRatingAcresSum : null
+    const listingPPSR = totalSalePrice && weightedAvgSoilRating ? Math.round(totalSalePrice / weightedAvgSoilRating) : null
+    return {
+      body: {
+        sale_price: totalSalePrice,
+        price_per_acre: listingPricePerAcre,
+        price_per_tillable_acre: listingPPTA,
+        price_per_soil_rating: listingPPSR,
+        status: toDbStatus(listingStatus),
+        sold_acres: soldAcres,
+        total_acres: newListingTotalAcres,
+      },
+      listingStatus,
+      newListingTotalAcres,
+    }
+  }
+
+  // Save one tract + the listing's aggregated totals. CRITICAL: checks
+  // response.ok on every PATCH. If anything fails, we surface the error
+  // and leave the "originals" un-promoted so hasTractChanges still says
+  // "unsaved." Prior version silently barreled past 5xxs and let the
+  // user think a save had landed when it hadn't.
   const handleSaveTract = async (tractId: string, listingId: string) => {
     const state = tractStates[tractId]
     if (!state) return
 
     updateTractState(tractId, { saving: true })
+    setError('')
     const token = localStorage.getItem('auth_token')
 
     try {
       const listing = listings.find(l => l.id === listingId)
-      const totalPrice = state.totalAcres ? state.pricePerAcre * state.totalAcres : 0
-      const tractPPTA = state.tillableAcres > 0 ? totalPrice / state.tillableAcres : null
-      const tractPPSR = state.soilRating && state.soilRating > 0 && totalPrice ? totalPrice / state.soilRating : null
+      if (!listing) return
+      const { salePrice, pricePerAcre } = computePrices(state, state.totalAcres)
+      const tractPPTA = state.tillableAcres > 0 ? Math.round(salePrice / state.tillableAcres) : null
+      const tractPPSR = state.soilRating && state.soilRating > 0 && salePrice ? Math.round(salePrice / state.soilRating) : null
 
-      // Update tract
-      const response = await fetch(`${API_URL}/api/tracts/${tractId}`, {
+      // 1) Tract PATCH
+      const tractRes = await fetch(`${API_URL}/api/tracts/${tractId}`, {
         method: 'PATCH',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          sale_price: totalPrice,
-          price_per_acre: state.pricePerAcre,
+          sale_price: salePrice,
+          price_per_acre: pricePerAcre,
           price_per_tillable_acre: tractPPTA,
           price_per_soil_rating: tractPPSR,
           sale_status: toDbStatus(state.status),
@@ -384,203 +472,164 @@ export default function ControlCenterPage() {
           soil_rating: state.soilRating,
         }),
       })
-
-      if (response.ok) {
-        // Calculate total sale price from all tracts for this listing
-        const allTracts = listing?.tracts || []
-        let totalSalePrice = 0
-        let newListingTotalAcres = 0
-        let totalTillableAcres = 0
-        let weightedSoilRatingSum = 0
-        let soilRatingAcresSum = 0
-        allTracts.forEach(t => {
-          const tState = tractStates[t.id]
-          const tractAcres = t.id === tractId ? state.totalAcres : (tState?.totalAcres || t.total_acres || 0)
-          const tractTillable = t.id === tractId ? state.tillableAcres : (tState?.tillableAcres || t.tillable_acres || 0)
-          const tractSoilRating = t.id === tractId ? state.soilRating : (tState?.soilRating ?? t.soil_rating ?? null)
-          newListingTotalAcres += tractAcres
-          totalTillableAcres += tractTillable
-          if (tractSoilRating && tractSoilRating > 0 && tractAcres > 0) {
-            weightedSoilRatingSum += tractSoilRating * tractAcres
-            soilRatingAcresSum += tractAcres
-          }
-          if (t.id === tractId) {
-            totalSalePrice += totalPrice
-          } else {
-            totalSalePrice += tState ? tState.pricePerAcre * tractAcres : (t.sale_price || 0)
-          }
-        })
-
-        // Calculate listing status and sold acres. Pass listing.status
-        // so an in-progress 'Live' auction stays Live until all tracts
-        // are final (instead of getting overwritten to Listed mid-bid).
-        const listingStatus = calculateListingStatus(allTracts, { ...tractStates, [tractId]: state }, listing?.status)
-        const soldAcres = calculateSoldAcres(allTracts, { ...tractStates, [tractId]: state })
-
-        // Update listing with aggregated metrics
-        const listingPricePerAcre = newListingTotalAcres > 0 ? totalSalePrice / newListingTotalAcres : null
-        const listingPPTA = totalTillableAcres > 0 ? totalSalePrice / totalTillableAcres : null
-        const weightedAvgSoilRating = soilRatingAcresSum > 0 ? weightedSoilRatingSum / soilRatingAcresSum : null
-        const listingPPSR = totalSalePrice && weightedAvgSoilRating ? totalSalePrice / weightedAvgSoilRating : null
-
-        await fetch(`${API_URL}/api/listings/${listingId}`, {
-          method: 'PATCH',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            sale_price: totalSalePrice,
-            price_per_acre: listingPricePerAcre,
-            price_per_tillable_acre: listingPPTA,
-            price_per_soil_rating: listingPPSR,
-            status: toDbStatus(listingStatus),
-            sold_acres: soldAcres,
-            total_acres: newListingTotalAcres,
-          }),
-        })
-
-        // Update local state
-        setListings(prev => prev.map(l => {
-          if (l.id === listingId) {
-            return {
-              ...l,
-              status: toDbStatus(listingStatus),
-              total_acres: newListingTotalAcres,
-              tracts: l.tracts.map(t => {
-                if (t.id === tractId) {
-                  return { ...t, sale_price: totalPrice, sale_status: toDbStatus(state.status), price_per_acre: state.pricePerAcre, total_acres: state.totalAcres, tillable_acres: state.tillableAcres, soil_rating: state.soilRating }
-                }
-                return t
-              })
-            }
-          }
-          return l
-        }))
-
-        // Update original values so button shows "Up-to-Date"
-        updateTractState(tractId, {
-          originalPricePerAcre: state.pricePerAcre,
-          originalStatus: state.status,
-          originalTotalAcres: state.totalAcres,
-          originalTillableAcres: state.tillableAcres,
-          originalSoilRating: state.soilRating,
-        })
-      } else {
-        setError('Failed to save tract')
+      if (!tractRes.ok) {
+        const b = await tractRes.json().catch(() => ({}))
+        setError(`Tract save failed: ${b.detail || `HTTP ${tractRes.status}`}`)
+        return
       }
+
+      // 2) Listing-level aggregate PATCH
+      const { body, listingStatus, newListingTotalAcres } = buildListingUpdateBody(
+        listing,
+        { ...tractStates, [tractId]: state },
+      )
+      const listingRes = await fetch(`${API_URL}/api/listings/${listingId}`, {
+        method: 'PATCH',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (!listingRes.ok) {
+        const b = await listingRes.json().catch(() => ({}))
+        setError(`Listing aggregate save failed: ${b.detail || `HTTP ${listingRes.status}`}`)
+        return
+      }
+
+      // Update local state — only after BOTH PATCHes succeeded
+      setListings(prev => prev.map(l => {
+        if (l.id === listingId) {
+          return {
+            ...l,
+            status: toDbStatus(listingStatus),
+            total_acres: newListingTotalAcres,
+            tracts: l.tracts.map(t =>
+              t.id === tractId
+                ? { ...t, sale_price: salePrice, sale_status: toDbStatus(state.status), price_per_acre: pricePerAcre, total_acres: state.totalAcres, tillable_acres: state.tillableAcres, soil_rating: state.soilRating }
+                : t
+            ),
+          }
+        }
+        return l
+      }))
+
+      // Promote originals so the button reads "Up-to-Date"
+      updateTractState(tractId, {
+        originalEnteredPriceStr: state.enteredPriceStr,
+        originalStatus: state.status,
+        originalTotalAcres: state.totalAcres,
+        originalTillableAcres: state.tillableAcres,
+        originalSoilRating: state.soilRating,
+      })
     } catch (err) {
-      setError('Failed to save tract')
+      setError(`Tract save failed: ${err instanceof Error ? err.message : String(err)}`)
     } finally {
       updateTractState(tractId, { saving: false })
     }
   }
 
+  // SAVE & NOTIFY: the high-stakes button. This is the path that has
+  // been firing wrong prices to customers in production. Hard rules:
+  //  1) Refuse to fire if ANY tract is mid-edit with no price (Save & Notify
+  //     used to clear tract 2's input and send a notification with the
+  //     wrong price — never again).
+  //  2) Every PATCH response.ok is checked; on the FIRST failure we abort
+  //     without sending the notification. Prior version barreled past
+  //     500s and sent notifications based on un-persisted state.
+  //  3) Notification only fires if BOTH the tract saves AND the listing
+  //     aggregate save succeeded.
+  //  4) Once notify succeeds, lock is mirrored locally so the UI flips
+  //     to "Locked" without a refresh.
   const handleSaveAndNotify = async (listingId: string) => {
     setSavingListing(listingId)
+    setError('')
     const token = localStorage.getItem('auth_token')
     const listing = listings.find(l => l.id === listingId)
 
-    if (!listing) return
+    if (!listing) {
+      setSavingListing(null)
+      return
+    }
 
     try {
-      // Save all tracts first
-      for (const tract of listing.tracts || []) {
-        const tState = tractStates[tract.id]
-        if (tState) {
-          const totalPrice = tState.totalAcres ? tState.pricePerAcre * tState.totalAcres : 0
-          const tractPPTA = tState.tillableAcres > 0 ? totalPrice / tState.tillableAcres : null
-          const tractPPSR = tState.soilRating && tState.soilRating > 0 && totalPrice ? totalPrice / tState.soilRating : null
-          await fetch(`${API_URL}/api/tracts/${tract.id}`, {
-            method: 'PATCH',
-            headers: {
-              'Authorization': `Bearer ${token}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              sale_price: totalPrice,
-              price_per_acre: tState.pricePerAcre,
-              price_per_tillable_acre: tractPPTA,
-              price_per_soil_rating: tractPPSR,
-              sale_status: toDbStatus(tState.status),
-              total_acres: tState.totalAcres,
-              tillable_acres: tState.tillableAcres,
-              soil_rating: tState.soilRating,
-            }),
-          })
+      // Preflight: a tract with a final status (Sold / Pending) MUST have
+      // a price. If the user has somehow set status=Sold with an empty
+      // price input, refuse to notify and tell them which tracts to fix.
+      const allTracts = listing.tracts || []
+      const missingPriceTracts: number[] = []
+      for (const t of allTracts) {
+        const ts = tractStates[t.id]
+        if (!ts) continue
+        const parsed = parseFloat(ts.enteredPriceStr) || 0
+        const finalStatus = ts.status === 'Sold' || ts.status === 'Pending'
+        if (finalStatus && parsed <= 0) {
+          missingPriceTracts.push(t.tract_number)
         }
       }
-
-      // Calculate totals
-      const allTracts = listing.tracts || []
-      let totalSalePrice = 0
-      let newListingTotalAcres = 0
-      let totalTillableAcres = 0
-      let weightedSoilRatingSum = 0
-      let soilRatingAcresSum = 0
-      allTracts.forEach(t => {
-        const tState = tractStates[t.id]
-        const tractAcres = tState?.totalAcres || t.total_acres || 0
-        const tractTillable = tState?.tillableAcres || t.tillable_acres || 0
-        const tractSoilRating = tState?.soilRating ?? t.soil_rating ?? null
-        newListingTotalAcres += tractAcres
-        totalTillableAcres += tractTillable
-        if (tractSoilRating && tractSoilRating > 0 && tractAcres > 0) {
-          weightedSoilRatingSum += tractSoilRating * tractAcres
-          soilRatingAcresSum += tractAcres
-        }
-        totalSalePrice += tState ? tState.pricePerAcre * tractAcres : (t.sale_price || 0)
-      })
-
-      const listingStatus = calculateListingStatus(allTracts, tractStates, listing?.status)
-      const soldAcres = calculateSoldAcres(allTracts, tractStates)
-      const listingPricePerAcre = newListingTotalAcres > 0 ? totalSalePrice / newListingTotalAcres : null
-      const listingPPTA = totalTillableAcres > 0 ? totalSalePrice / totalTillableAcres : null
-      const weightedAvgSoilRating = soilRatingAcresSum > 0 ? weightedSoilRatingSum / soilRatingAcresSum : null
-      const listingPPSR = totalSalePrice && weightedAvgSoilRating ? totalSalePrice / weightedAvgSoilRating : null
-
-      // Update listing
-      await fetch(`${API_URL}/api/listings/${listingId}`, {
-        method: 'PATCH',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          sale_price: totalSalePrice,
-          price_per_acre: listingPricePerAcre,
-          price_per_tillable_acre: listingPPTA,
-          price_per_soil_rating: listingPPSR,
-          status: toDbStatus(listingStatus),
-          sold_acres: soldAcres,
-          total_acres: newListingTotalAcres,
-        }),
-      })
-
-      // Send notification. Capture response so we only flip the local
-      // "locked" UI when the backend actually accepted the notify call —
-      // otherwise the UI would lie about a lock that doesn't exist.
-      const notifyResponse = await fetch(`${API_URL}/api/notifications/listing-result`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          listing_id: listingId,
-        }),
-      })
-
-      if (!notifyResponse.ok) {
-        const body = await notifyResponse.json().catch(() => ({}))
-        setError(`Notification failed: ${body.detail || `HTTP ${notifyResponse.status}`}`)
+      if (missingPriceTracts.length > 0) {
+        setError(`Cannot send notification — tract ${missingPriceTracts.join(', ')} has no price but is marked Sold/Pending. Enter a price first.`)
+        setSavingListing(null)
         return
       }
 
-      // Update local state — set control_center_locked=true immediately
-      // so the UI shows "Locked" without needing a refresh. Backend
-      // already persisted this in the notify endpoint; we mirror it
-      // client-side so the next render sees the lock right away.
+      // 1) PATCH every tract; fail fast if any save errors out.
+      for (const tract of allTracts) {
+        const tState = tractStates[tract.id]
+        if (!tState) continue
+        const { salePrice, pricePerAcre } = computePrices(tState, tState.totalAcres)
+        const tractPPTA = tState.tillableAcres > 0 ? Math.round(salePrice / tState.tillableAcres) : null
+        const tractPPSR = tState.soilRating && tState.soilRating > 0 && salePrice ? Math.round(salePrice / tState.soilRating) : null
+        const tractRes = await fetch(`${API_URL}/api/tracts/${tract.id}`, {
+          method: 'PATCH',
+          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sale_price: salePrice,
+            price_per_acre: pricePerAcre,
+            price_per_tillable_acre: tractPPTA,
+            price_per_soil_rating: tractPPSR,
+            sale_status: toDbStatus(tState.status),
+            total_acres: tState.totalAcres,
+            tillable_acres: tState.tillableAcres,
+            soil_rating: tState.soilRating,
+          }),
+        })
+        if (!tractRes.ok) {
+          const b = await tractRes.json().catch(() => ({}))
+          setError(`Tract ${tract.tract_number} save failed — notification NOT sent: ${b.detail || `HTTP ${tractRes.status}`}`)
+          setSavingListing(null)
+          return
+        }
+      }
+
+      // 2) Listing-level aggregate PATCH (status + totals).
+      const { body, listingStatus, newListingTotalAcres } = buildListingUpdateBody(listing, tractStates)
+      const listingRes = await fetch(`${API_URL}/api/listings/${listingId}`, {
+        method: 'PATCH',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (!listingRes.ok) {
+        const b = await listingRes.json().catch(() => ({}))
+        setError(`Listing save failed — notification NOT sent: ${b.detail || `HTTP ${listingRes.status}`}`)
+        setSavingListing(null)
+        return
+      }
+
+      // 3) Only AFTER both PATCH paths succeeded, fire the notification.
+      const notifyResponse = await fetch(`${API_URL}/api/notifications/listing-result`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ listing_id: listingId }),
+      })
+
+      if (!notifyResponse.ok) {
+        const b = await notifyResponse.json().catch(() => ({}))
+        setError(`Notification failed: ${b.detail || `HTTP ${notifyResponse.status}`}`)
+        setSavingListing(null)
+        return
+      }
+
+      // Mirror lock locally so the UI updates immediately (no refresh
+      // required). Backend already persisted control_center_locked=true
+      // in the notify endpoint.
       setListings(prev => prev.map(l => {
         if (l.id === listingId) {
           return {
@@ -589,17 +638,31 @@ export default function ControlCenterPage() {
             total_acres: newListingTotalAcres,
             control_center_locked: true,
             notified_at: new Date().toISOString(),
+            tracts: l.tracts.map(t => {
+              const ts = tractStates[t.id]
+              if (!ts) return t
+              const { salePrice, pricePerAcre } = computePrices(ts, ts.totalAcres)
+              return {
+                ...t,
+                sale_price: salePrice,
+                price_per_acre: pricePerAcre,
+                sale_status: toDbStatus(ts.status),
+                total_acres: ts.totalAcres,
+                tillable_acres: ts.tillableAcres,
+                soil_rating: ts.soilRating,
+              }
+            }),
           }
         }
         return l
       }))
 
-      // Update original values for all tracts so buttons show "Up-to-Date"
-      for (const tract of listing.tracts || []) {
+      // Promote originals so per-tract Save button reads "Up-to-Date".
+      for (const tract of allTracts) {
         const tState = tractStates[tract.id]
         if (tState) {
           updateTractState(tract.id, {
-            originalPricePerAcre: tState.pricePerAcre,
+            originalEnteredPriceStr: tState.enteredPriceStr,
             originalStatus: tState.status,
             originalTotalAcres: tState.totalAcres,
             originalTillableAcres: tState.tillableAcres,
@@ -608,110 +671,104 @@ export default function ControlCenterPage() {
         }
       }
 
-      // Mark this listing as notified
       setNotifiedListings(prev => new Set(Array.from(prev).concat(listingId)))
     } catch (err) {
-      setError('Failed to save and notify')
+      setError(`Save & Notify failed: ${err instanceof Error ? err.message : String(err)}`)
     } finally {
       setSavingListing(null)
     }
   }
 
+  // SAVE WITHOUT NOTIFY: same persistence path as Save & Notify, minus
+  // the push step. Still response.ok-checks every PATCH so we never lie
+  // about a save that didn't land.
   const handleSaveWithoutNotify = async (listingId: string) => {
     setSavingListing(listingId)
+    setError('')
     const token = localStorage.getItem('auth_token')
     const listing = listings.find(l => l.id === listingId)
 
-    if (!listing) return
+    if (!listing) {
+      setSavingListing(null)
+      return
+    }
 
     try {
-      // Save all tracts first
-      for (const tract of listing.tracts || []) {
+      const allTracts = listing.tracts || []
+      for (const tract of allTracts) {
         const tState = tractStates[tract.id]
-        if (tState) {
-          const totalPrice = tState.totalAcres ? tState.pricePerAcre * tState.totalAcres : 0
-          const tractPPTA = tState.tillableAcres > 0 ? totalPrice / tState.tillableAcres : null
-          const tractPPSR = tState.soilRating && tState.soilRating > 0 && totalPrice ? totalPrice / tState.soilRating : null
-          await fetch(`${API_URL}/api/tracts/${tract.id}`, {
-            method: 'PATCH',
-            headers: {
-              'Authorization': `Bearer ${token}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              sale_price: totalPrice,
-              price_per_acre: tState.pricePerAcre,
-              price_per_tillable_acre: tractPPTA,
-              price_per_soil_rating: tractPPSR,
-              sale_status: toDbStatus(tState.status),
-              total_acres: tState.totalAcres,
-              tillable_acres: tState.tillableAcres,
-              soil_rating: tState.soilRating,
-            }),
-          })
+        if (!tState) continue
+        const { salePrice, pricePerAcre } = computePrices(tState, tState.totalAcres)
+        const tractPPTA = tState.tillableAcres > 0 ? Math.round(salePrice / tState.tillableAcres) : null
+        const tractPPSR = tState.soilRating && tState.soilRating > 0 && salePrice ? Math.round(salePrice / tState.soilRating) : null
+        const tractRes = await fetch(`${API_URL}/api/tracts/${tract.id}`, {
+          method: 'PATCH',
+          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sale_price: salePrice,
+            price_per_acre: pricePerAcre,
+            price_per_tillable_acre: tractPPTA,
+            price_per_soil_rating: tractPPSR,
+            sale_status: toDbStatus(tState.status),
+            total_acres: tState.totalAcres,
+            tillable_acres: tState.tillableAcres,
+            soil_rating: tState.soilRating,
+          }),
+        })
+        if (!tractRes.ok) {
+          const b = await tractRes.json().catch(() => ({}))
+          setError(`Tract ${tract.tract_number} save failed: ${b.detail || `HTTP ${tractRes.status}`}`)
+          setSavingListing(null)
+          return
         }
       }
 
-      // Calculate totals
-      const allTracts = listing.tracts || []
-      let totalSalePrice = 0
-      let newListingTotalAcres = 0
-      let totalTillableAcres = 0
-      let weightedSoilRatingSum = 0
-      let soilRatingAcresSum = 0
-      allTracts.forEach(t => {
-        const tState = tractStates[t.id]
-        const tractAcres = tState?.totalAcres || t.total_acres || 0
-        const tractTillable = tState?.tillableAcres || t.tillable_acres || 0
-        const tractSoilRating = tState?.soilRating ?? t.soil_rating ?? null
-        newListingTotalAcres += tractAcres
-        totalTillableAcres += tractTillable
-        if (tractSoilRating && tractSoilRating > 0 && tractAcres > 0) {
-          weightedSoilRatingSum += tractSoilRating * tractAcres
-          soilRatingAcresSum += tractAcres
-        }
-        totalSalePrice += tState ? tState.pricePerAcre * tractAcres : (t.sale_price || 0)
-      })
-
-      const listingStatus = calculateListingStatus(allTracts, tractStates, listing?.status)
-      const soldAcres = calculateSoldAcres(allTracts, tractStates)
-      const listingPricePerAcre = newListingTotalAcres > 0 ? totalSalePrice / newListingTotalAcres : null
-      const listingPPTA = totalTillableAcres > 0 ? totalSalePrice / totalTillableAcres : null
-      const weightedAvgSoilRating = soilRatingAcresSum > 0 ? weightedSoilRatingSum / soilRatingAcresSum : null
-      const listingPPSR = totalSalePrice && weightedAvgSoilRating ? totalSalePrice / weightedAvgSoilRating : null
-
-      // Update listing
-      await fetch(`${API_URL}/api/listings/${listingId}`, {
+      const { body, listingStatus, newListingTotalAcres } = buildListingUpdateBody(listing, tractStates)
+      const listingRes = await fetch(`${API_URL}/api/listings/${listingId}`, {
         method: 'PATCH',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          sale_price: totalSalePrice,
-          price_per_acre: listingPricePerAcre,
-          price_per_tillable_acre: listingPPTA,
-          price_per_soil_rating: listingPPSR,
-          status: toDbStatus(listingStatus),
-          sold_acres: soldAcres,
-          total_acres: newListingTotalAcres,
-        }),
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
       })
+      if (!listingRes.ok) {
+        const b = await listingRes.json().catch(() => ({}))
+        setError(`Listing save failed: ${b.detail || `HTTP ${listingRes.status}`}`)
+        setSavingListing(null)
+        return
+      }
 
-      // Update local state
+      // Mirror the persisted state locally so per-tract and listing
+      // displays update without a refresh.
       setListings(prev => prev.map(l => {
         if (l.id === listingId) {
-          return { ...l, status: toDbStatus(listingStatus), total_acres: newListingTotalAcres }
+          return {
+            ...l,
+            status: toDbStatus(listingStatus),
+            total_acres: newListingTotalAcres,
+            tracts: l.tracts.map(t => {
+              const ts = tractStates[t.id]
+              if (!ts) return t
+              const { salePrice, pricePerAcre } = computePrices(ts, ts.totalAcres)
+              return {
+                ...t,
+                sale_price: salePrice,
+                price_per_acre: pricePerAcre,
+                sale_status: toDbStatus(ts.status),
+                total_acres: ts.totalAcres,
+                tillable_acres: ts.tillableAcres,
+                soil_rating: ts.soilRating,
+              }
+            }),
+          }
         }
         return l
       }))
 
-      // Update original values for all tracts so buttons show "Up-to-Date"
-      for (const tract of listing.tracts || []) {
+      // Promote originals so per-tract Save button reads "Up-to-Date".
+      for (const tract of allTracts) {
         const tState = tractStates[tract.id]
         if (tState) {
           updateTractState(tract.id, {
-            originalPricePerAcre: tState.pricePerAcre,
+            originalEnteredPriceStr: tState.enteredPriceStr,
             originalStatus: tState.status,
             originalTotalAcres: tState.totalAcres,
             originalTillableAcres: tState.tillableAcres,
@@ -720,7 +777,7 @@ export default function ControlCenterPage() {
         }
       }
     } catch (err) {
-      setError('Failed to save listing')
+      setError(`Save failed: ${err instanceof Error ? err.message : String(err)}`)
     } finally {
       setSavingListing(null)
     }
@@ -773,11 +830,18 @@ export default function ControlCenterPage() {
     return labels[state || ''] || 'Soil'
   }
 
+  // The Save button is enabled whenever ANY editable field has drifted
+  // from its last-saved value. Note we compare the raw entered string —
+  // not a derived float — so the Save button doesn't randomly grey out
+  // when the user types a number that round-trips into a slightly
+  // different float. Prior version checked pricePerAcre as a number,
+  // which is what caused "Save button is usually grayed out so I can't
+  // even click it" in production.
   const hasTractChanges = (tractId: string): boolean => {
     const state = tractStates[tractId]
     if (!state) return false
     return (
-      state.pricePerAcre !== state.originalPricePerAcre ||
+      state.enteredPriceStr !== state.originalEnteredPriceStr ||
       state.status !== state.originalStatus ||
       state.totalAcres !== state.originalTotalAcres ||
       state.tillableAcres !== state.originalTillableAcres ||
@@ -1015,11 +1079,37 @@ export default function ControlCenterPage() {
                       <p className="p-4 text-gg-gray-400 text-center">No tracts for this listing</p>
                     )}
                     {[...(listing.tracts || [])].sort((a, b) => (a.tract_number || 0) - (b.tract_number || 0)).map(tract => {
-                      const state = tractStates[tract.id] || { pricePerAcre: 0, bidIncrement: 1000, status: 'Listed', saving: false, bidMode: 'per_acre', totalAcres: tract.total_acres || 0, tillableAcres: tract.tillable_acres || 0, soilRating: tract.soil_rating, originalTotalAcres: tract.total_acres || 0, originalTillableAcres: tract.tillable_acres || 0, originalSoilRating: tract.soil_rating }
+                      const fallback: TractState = {
+                        enteredPriceStr: '',
+                        originalEnteredPriceStr: '',
+                        bidIncrement: 1000,
+                        status: 'Listed',
+                        saving: false,
+                        bidMode: 'per_acre',
+                        totalAcres: tract.total_acres || 0,
+                        tillableAcres: tract.tillable_acres || 0,
+                        soilRating: tract.soil_rating,
+                        originalStatus: 'Listed',
+                        originalTotalAcres: tract.total_acres || 0,
+                        originalTillableAcres: tract.tillable_acres || 0,
+                        originalSoilRating: tract.soil_rating,
+                      }
+                      const state = tractStates[tract.id] || fallback
                       const tractAcres = state.totalAcres || tract.total_acres || 0
-                      const totalPrice = getTotalPrice(tract.id, tractAcres)
+                      const prices = computePrices(state, tractAcres)
+                      const totalPrice = prices.salePrice
+                      const derivedPerAcre = prices.pricePerAcre
                       const isPerAcre = state.bidMode === 'per_acre'
-                      const isLocked = listing.control_center_locked
+                      // A tract is "locked" only if the LISTING is locked
+                      // AND this specific tract had a price saved at the
+                      // time of the lock. Per user verbatim requirement:
+                      // "I NEVER want the Tract save button to say locked
+                      // if the data isn't in the price field." This
+                      // protects against Save & Notify locking the whole
+                      // listing while one tract had a stale/empty input
+                      // and orphaning that tract with no way to fill it.
+                      const tractHasPersistedPrice = (tract.sale_price || 0) > 0
+                      const isLocked = listing.control_center_locked && tractHasPersistedPrice
 
                       return (
                         <div key={tract.id} className="p-4">
@@ -1077,7 +1167,7 @@ export default function ControlCenterPage() {
                                   {isPerAcre ? 'Price/Acre' : 'Total Price'}
                                 </label>
                                 <button
-                                  onClick={() => handleToggleBidMode(tract.id)}
+                                  onClick={() => handleToggleBidMode(tract.id, tractAcres)}
                                   disabled={isLocked}
                                   className={`text-xs ${isLocked ? 'text-gg-gray-600 cursor-not-allowed' : 'text-gg-pink hover:text-gg-pink/80'}`}
                                 >
@@ -1086,28 +1176,23 @@ export default function ControlCenterPage() {
                               </div>
                               <div className="relative">
                                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gg-gray-400">$</span>
-                                {isPerAcre ? (
-                                  <input
-                                    type="number"
-                                    value={state.pricePerAcre || ''}
-                                    onChange={(e) => handlePricePerAcreChange(tract.id, e.target.value)}
-                                    disabled={isLocked}
-                                    className={`w-full bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-3 py-2 pl-7 text-lg font-bold ${isLocked ? 'text-gg-gray-500 cursor-not-allowed' : 'text-white'}`}
-                                  />
-                                ) : (
-                                  <input
-                                    type="number"
-                                    value={totalPrice || ''}
-                                    onChange={(e) => handleLumpSumChange(tract.id, e.target.value, tractAcres)}
-                                    disabled={isLocked}
-                                    className={`w-full bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-3 py-2 pl-7 text-lg font-bold ${isLocked ? 'text-gg-gray-500 cursor-not-allowed' : 'text-white'}`}
-                                  />
-                                )}
+                                {/* SINGLE controlled input bound to the raw
+                                    string the user typed. No round-trip
+                                    division. Only one input per mode so
+                                    React doesn't lose focus between toggles. */}
+                                <input
+                                  type="text"
+                                  inputMode="numeric"
+                                  value={state.enteredPriceStr}
+                                  onChange={(e) => handlePriceInputChange(tract.id, e.target.value)}
+                                  disabled={isLocked}
+                                  className={`w-full bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-3 py-2 pl-7 text-lg font-bold ${isLocked ? 'text-gg-gray-500 cursor-not-allowed' : 'text-white'}`}
+                                />
                               </div>
                               <p className="text-gg-gray-400 text-xs mt-1">
-                                {isPerAcre 
+                                {isPerAcre
                                   ? `Total: ${formatCurrency(totalPrice)}`
-                                  : `${formatCurrency(state.pricePerAcre)}/acre`
+                                  : `${formatCurrency(derivedPerAcre)}/acre`
                                 }
                               </p>
                             </div>
