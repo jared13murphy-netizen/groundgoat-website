@@ -557,8 +557,10 @@ export default function ControlCenterPage() {
         }),
       })
 
-      // Send notification
-      await fetch(`${API_URL}/api/notifications/listing-result`, {
+      // Send notification. Capture response so we only flip the local
+      // "locked" UI when the backend actually accepted the notify call —
+      // otherwise the UI would lie about a lock that doesn't exist.
+      const notifyResponse = await fetch(`${API_URL}/api/notifications/listing-result`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -569,10 +571,25 @@ export default function ControlCenterPage() {
         }),
       })
 
-      // Update local state
+      if (!notifyResponse.ok) {
+        const body = await notifyResponse.json().catch(() => ({}))
+        setError(`Notification failed: ${body.detail || `HTTP ${notifyResponse.status}`}`)
+        return
+      }
+
+      // Update local state — set control_center_locked=true immediately
+      // so the UI shows "Locked" without needing a refresh. Backend
+      // already persisted this in the notify endpoint; we mirror it
+      // client-side so the next render sees the lock right away.
       setListings(prev => prev.map(l => {
         if (l.id === listingId) {
-          return { ...l, status: toDbStatus(listingStatus), total_acres: newListingTotalAcres }
+          return {
+            ...l,
+            status: toDbStatus(listingStatus),
+            total_acres: newListingTotalAcres,
+            control_center_locked: true,
+            notified_at: new Date().toISOString(),
+          }
         }
         return l
       }))
