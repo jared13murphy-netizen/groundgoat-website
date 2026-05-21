@@ -29,9 +29,10 @@ const SCRAPER_URL = 'https://ground-goat-scraper-production.up.railway.app'
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 const TILE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
 const TILE_ATTRIBUTION = '© Esri, Maxar, Earthstar Geographics'
-// Per-tract polygon colors, cycled in order. Same palette as
-// /admin/missing-boundaries for consistency across the admin UI.
-const TRACT_COLORS = ['#ff3b3b','#3b9fff','#ffd83b','#a83bff','#3bffa8','#ff7a3b','#ff8b3b','#3b3bff']
+// Per-tract polygon colors. Primary (first / single-tract) is pink
+// per user 2026-05-21. Subsequent tracts cycle through contrasting
+// colors so multi-tract listings stay distinguishable.
+const TRACT_COLORS = ['#ff3bd6','#3b9fff','#ffd83b','#a83bff','#3bffa8','#ff7a3b','#ff8b3b','#3b3bff']
 
 type ProbeResult = {
   success: boolean
@@ -697,50 +698,60 @@ function extractSourceImage(result: any): { url: string; kind: string; note?: st
   if (triedOk.length === 0) return null
   const last = triedOk[triedOk.length - 1]
   const detail = last.detail || {}
-  // PRIMARY: server-rendered polygon-over-satellite. Always works,
-  // no iframe issues. Per user 2026-05-20 evening: "give me an image
-  // on the right every time!!!"
-  if (detail.polygon_render_b64) {
+  // PRIORITY 1: an actual SCREENSHOT/RASTER of the source the system
+  // used to build the polygon (PDF page, Land ID embed snapshot,
+  // brochure aerial). This is what the user wants on the right pane —
+  // visual proof of what we pulled from the listing. Per user
+  // 2026-05-21: "I need to see what you are using from the auction or
+  // PT url, not a screenshot of your own created polygon."
+  if (detail.image_b64) {
+    let kind = 'source_image'
+    let note = 'Source page used to build the polygon — compare to ours on the left.'
+    if (last.path === 'pdf_vision' || detail.kind === 'pdf') {
+      kind = 'pdf_image'
+      note = `PDF page ${detail.page ?? '?'} — what we read to build the polygon.`
+    } else if (last.path === 'land_id_hash' || detail.kind === 'land_id') {
+      kind = 'land_id_image'
+      note = `Land ID viewer snapshot (hash ${(detail.hash || '').slice(0, 8)}…) — compare to our polygon on the left.`
+    }
     return {
-      url: `data:${detail.polygon_render_media_type || 'image/jpeg'};base64,${detail.polygon_render_b64}`,
-      kind: 'polygon_render',
-      note: detail.polygon_render_note
-        || 'Our polygon rendered over Esri satellite imagery.',
+      url: `data:${detail.image_media_type || 'image/jpeg'};base64,${detail.image_b64}`,
+      kind,
+      note,
     }
   }
-  if (last.path === 'pdf_vision') {
+  // PRIORITY 2: a source URL we could iframe (only useful when the
+  // target server doesn't set X-Frame-Options DENY).
+  if (last.path === 'pdf_vision' && detail.url) {
     return { url: detail.url, kind: 'pdf',
       note: `PDF page ${detail.page ?? '?'} via ${detail.via ?? 'vision'}` }
   }
-  if (last.path === 'vision_aerial') {
+  if (last.path === 'vision_aerial' && detail.url) {
     return { url: detail.url, kind: 'aerial',
       note: `${detail.vertices ?? '?'} vertices · ${detail.anchor_source ?? 'unknown anchor'}` }
   }
-  if (last.path === 'land_id_hash') {
-    // Server captures a Playwright screenshot of the id.land embed
-    // and embeds it as a base64 JPEG. Use that whenever present so
-    // the right pane shows the actual Land ID rendering — the iframe
-    // fallback is blocked by id.land's X-Frame-Options DENY.
-    if (detail.image_b64) {
-      return { url: `data:${detail.image_media_type || 'image/jpeg'};base64,${detail.image_b64}`,
-        kind: 'land_id_image',
-        note: `Land ID viewer snapshot (hash ${(detail.hash || '').slice(0, 8)}…) — compare to our polygon on the left` }
-    }
+  if (last.path === 'land_id_hash' && !detail.image_b64) {
     return { url: '', kind: 'land_id',
-      note: `Land ID hash: ${detail.hash ?? '?'} (no source image — polygon came from API)` }
+      note: `Land ID hash: ${detail.hash ?? '?'} (screenshot not captured)` }
   }
   if (last.path === 'js_array_literal') {
     return { url: '', kind: 'js',
       note: 'Polygon extracted from page JavaScript — no source image' }
   }
-  // Fallback: trust whatever the server's source_image hint produced.
-  // The server has _magic_lab_source_image_hint which handles every
-  // path (including newer ones like regrid_parcel_lookup that this
-  // function doesn't enumerate). The recent-probes synthesizer copies
-  // p.source_image.url / kind / note into the detail of the won tried
-  // entry. If detail has a url + kind, we have something to render.
+  // Trust server's source_image hint for paths not enumerated above
+  // (regrid_parcel_lookup, parcel_db_lookup, per_tract_union, etc.)
   if (detail.url && detail.kind) {
     return { url: detail.url, kind: detail.kind, note: detail.note }
+  }
+  // PRIORITY 3 (LAST RESORT): our own polygon-over-satellite render.
+  // Only shown when no actual source image is available. Labelled
+  // clearly so the user knows it's our output, not the listing's.
+  if (detail.polygon_render_b64) {
+    return {
+      url: `data:${detail.polygon_render_media_type || 'image/jpeg'};base64,${detail.polygon_render_b64}`,
+      kind: 'polygon_render',
+      note: 'No source image available — showing our polygon over satellite for visual reference (this is OUR output, not from the listing).',
+    }
   }
   return null
 }
