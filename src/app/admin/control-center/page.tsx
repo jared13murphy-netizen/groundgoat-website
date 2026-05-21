@@ -437,95 +437,6 @@ export default function ControlCenterPage() {
     }
   }
 
-  // Save one tract + the listing's aggregated totals. CRITICAL: checks
-  // response.ok on every PATCH. If anything fails, we surface the error
-  // and leave the "originals" un-promoted so hasTractChanges still says
-  // "unsaved." Prior version silently barreled past 5xxs and let the
-  // user think a save had landed when it hadn't.
-  const handleSaveTract = async (tractId: string, listingId: string) => {
-    const state = tractStates[tractId]
-    if (!state) return
-
-    updateTractState(tractId, { saving: true })
-    setError('')
-    const token = localStorage.getItem('auth_token')
-
-    try {
-      const listing = listings.find(l => l.id === listingId)
-      if (!listing) return
-      const { salePrice, pricePerAcre } = computePrices(state, state.totalAcres)
-      const tractPPTA = state.tillableAcres > 0 ? Math.round(salePrice / state.tillableAcres) : null
-      const tractPPSR = state.soilRating && state.soilRating > 0 && salePrice ? Math.round(salePrice / state.soilRating) : null
-
-      // 1) Tract PATCH
-      const tractRes = await fetch(`${API_URL}/api/tracts/${tractId}`, {
-        method: 'PATCH',
-        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sale_price: salePrice,
-          price_per_acre: pricePerAcre,
-          price_per_tillable_acre: tractPPTA,
-          price_per_soil_rating: tractPPSR,
-          sale_status: toDbStatus(state.status),
-          total_acres: state.totalAcres,
-          tillable_acres: state.tillableAcres,
-          soil_rating: state.soilRating,
-        }),
-      })
-      if (!tractRes.ok) {
-        const b = await tractRes.json().catch(() => ({}))
-        setError(`Tract save failed: ${b.detail || `HTTP ${tractRes.status}`}`)
-        return
-      }
-
-      // 2) Listing-level aggregate PATCH
-      const { body, listingStatus, newListingTotalAcres } = buildListingUpdateBody(
-        listing,
-        { ...tractStates, [tractId]: state },
-      )
-      const listingRes = await fetch(`${API_URL}/api/listings/${listingId}`, {
-        method: 'PATCH',
-        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
-      if (!listingRes.ok) {
-        const b = await listingRes.json().catch(() => ({}))
-        setError(`Listing aggregate save failed: ${b.detail || `HTTP ${listingRes.status}`}`)
-        return
-      }
-
-      // Update local state — only after BOTH PATCHes succeeded
-      setListings(prev => prev.map(l => {
-        if (l.id === listingId) {
-          return {
-            ...l,
-            status: toDbStatus(listingStatus),
-            total_acres: newListingTotalAcres,
-            tracts: l.tracts.map(t =>
-              t.id === tractId
-                ? { ...t, sale_price: salePrice, sale_status: toDbStatus(state.status), price_per_acre: pricePerAcre, total_acres: state.totalAcres, tillable_acres: state.tillableAcres, soil_rating: state.soilRating }
-                : t
-            ),
-          }
-        }
-        return l
-      }))
-
-      // Promote originals so the button reads "Up-to-Date"
-      updateTractState(tractId, {
-        originalEnteredPriceStr: state.enteredPriceStr,
-        originalStatus: state.status,
-        originalTotalAcres: state.totalAcres,
-        originalTillableAcres: state.tillableAcres,
-        originalSoilRating: state.soilRating,
-      })
-    } catch (err) {
-      setError(`Tract save failed: ${err instanceof Error ? err.message : String(err)}`)
-    } finally {
-      updateTractState(tractId, { saving: false })
-    }
-  }
-
   // SAVE & NOTIFY: the high-stakes button. This is the path that has
   // been firing wrong prices to customers in production. Hard rules:
   //  1) Refuse to fire if ANY tract is mid-edit with no price (Save & Notify
@@ -1046,6 +957,12 @@ export default function ControlCenterPage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
+                      {/* "Save All" — single button that saves every
+                          tract's currently-entered values + the listing
+                          aggregate, without sending notifications. The
+                          per-tract Save buttons used to live in the
+                          tract cards but were removed; this is the only
+                          save path now. */}
                       <button
                         onClick={(e) => { e.stopPropagation(); handleSaveWithoutNotify(listing.id) }}
                         disabled={savingListing === listing.id || !hasListingChanges(listing) || listing.control_center_locked}
@@ -1056,7 +973,7 @@ export default function ControlCenterPage() {
                         }`}
                       >
                         <Save size={14} />
-                        {listing.control_center_locked ? 'Locked' : hasListingChanges(listing) ? 'Save' : 'Up-to-Date'}
+                        {savingListing === listing.id ? 'Saving...' : listing.control_center_locked ? 'Locked' : hasListingChanges(listing) ? 'Save All' : 'Up-to-Date'}
                       </button>
                       <button
                         onClick={(e) => { e.stopPropagation(); handleSaveAndNotify(listing.id) }}
@@ -1100,16 +1017,14 @@ export default function ControlCenterPage() {
                       const totalPrice = prices.salePrice
                       const derivedPerAcre = prices.pricePerAcre
                       const isPerAcre = state.bidMode === 'per_acre'
-                      // A tract is "locked" only if the LISTING is locked
-                      // AND this specific tract had a price saved at the
-                      // time of the lock. Per user verbatim requirement:
-                      // "I NEVER want the Tract save button to say locked
-                      // if the data isn't in the price field." This
-                      // protects against Save & Notify locking the whole
-                      // listing while one tract had a stale/empty input
-                      // and orphaning that tract with no way to fill it.
-                      const tractHasPersistedPrice = (tract.sale_price || 0) > 0
-                      const isLocked = listing.control_center_locked && tractHasPersistedPrice
+                      // Lock model: NOTHING is locked until Save & Notify
+                      // is clicked. That action sets control_center_locked
+                      // on the listing, and at that moment all tracts +
+                      // listing inputs lock together. Per the user's
+                      // spec: "individual tracts don't lock until Save &
+                      // Notify is clicked, and then all tracts and
+                      // listing information is locked."
+                      const isLocked = listing.control_center_locked
 
                       return (
                         <div key={tract.id} className="p-4">
@@ -1245,7 +1160,15 @@ export default function ControlCenterPage() {
                               </div>
                             </div>
 
-                            {/* Action Buttons */}
+                            {/* Action Buttons — quick-bid helper only.
+                                There used to be a per-tract Save Tract
+                                button here; we removed it because the
+                                listing-level "Save All" button at the
+                                top of the listing card now writes every
+                                tract's currently-entered values in a
+                                single click. One save path = one place
+                                to audit for the float-precision and
+                                response.ok-check bugs. */}
                             <div className="flex flex-col gap-2">
                               <button
                                 onClick={() => handleAddBid(tract.id, tractAcres)}
@@ -1257,17 +1180,6 @@ export default function ControlCenterPage() {
                                 }`}
                               >
                                 + {formatCurrency(state.bidIncrement)}{isPerAcre ? '/ac' : ''}
-                              </button>
-                              <button
-                                onClick={() => handleSaveTract(tract.id, listing.id)}
-                                disabled={state.saving || !hasTractChanges(tract.id) || isLocked}
-                                className={`flex-1 px-4 py-2 rounded-lg font-bold text-sm ${
-                                  hasTractChanges(tract.id) && !isLocked
-                                    ? 'bg-gg-pink text-white hover:bg-gg-pink/80'
-                                    : 'bg-gg-gray-700 text-gg-gray-400 cursor-default'
-                                } disabled:opacity-50`}
-                              >
-                                {state.saving ? 'Saving...' : isLocked ? 'Locked' : hasTractChanges(tract.id) ? 'Save Tract' : 'Up-to-Date'}
                               </button>
                             </div>
                           </div>
