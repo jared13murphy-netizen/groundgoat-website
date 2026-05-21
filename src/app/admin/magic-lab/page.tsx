@@ -42,6 +42,8 @@ type ProbeResult = {
   stage_2_resolve?: any
   stage_3_validate?: any
   stage_1c_subpages?: any
+  stage_5_tillable?: any
+  merged_features?: any
   elapsed_ms?: number
   note?: string
   error?: string
@@ -83,6 +85,44 @@ type ServerProbe = {
                    polygon_render_b64?: string;
                    polygon_render_media_type?: string;
                    polygon_render_note?: string } | null
+  // Stage 5 — tillable polygons (USDA CSB) + state-specific soil rating.
+  stage_5_tillable?: {
+    tracts?: Array<{
+      tract_label?: string
+      tract_acres?: number | null
+      tillable_acres?: number | null
+      tillable_fraction?: number | null
+      field_count?: number | null
+      tillable_polygons?: [number, number][][]
+      fields?: any[]
+      soil_rating?: {
+        rating?: number | null
+        scale?: string | null
+        info?: string | null
+        _error?: string | null
+      }
+      _error?: string | null
+    }>
+    _error?: string | null
+  } | null
+  // Subset of Stage 4 merged features persisted so the UI can show
+  // listing-stated values (soil_rating, tillable_acres) without
+  // re-querying Stage 4.
+  merged_features?: {
+    total_acres?: number | null
+    tracts?: Array<{
+      number?: number | null
+      name?: string | null
+      acres?: number | null
+      tillable_acres?: number | null
+      soil_rating?: number | null
+      soil_rating_scale?: string | null
+    }>
+    soil_rating?: number | null
+    soil_rating_scale?: string | null
+    state?: string | null
+    county?: string | null
+  } | null
 }
 
 export default function MagicLabPage() {
