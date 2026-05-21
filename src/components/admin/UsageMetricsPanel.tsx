@@ -45,6 +45,21 @@ interface DashboardData {
     totals_24h: { calls: number; parcels: number; cache_hits: number; errors: number }
     by_endpoint: Array<{ endpoint: string; calls: number; parcels: number; cache_hits: number; errors: number }>
     series: Array<{ hour: string; calls: number; parcels: number; cache_hits: number }>
+    // OUR locally-measured Regrid usage since the contract anniversary
+    // (May 11). Source of truth for cross-checking Regrid's billed
+    // numbers — Records = parcel_count from every parcels/* call
+    // (the billable unit per Schedule A), Tiles = call_count from the
+    // tile-proxy endpoint.
+    measured?: {
+      anniversary_date: string     // 'YYYY-MM-DD'
+      days_into_year: number
+      records: number              // billable records since anniversary
+      tiles: number                // tile requests since anniversary
+      calls: number
+      cache_hits: number
+      errors: number
+      by_endpoint: Array<{ endpoint: string; calls: number; parcels: number; cache_hits: number; errors: number }>
+    }
     // Billing-cycle usage straight from Regrid's free /api/v2/usage
     // endpoint. Null when the call fails.
     cycle: null | {
@@ -319,6 +334,14 @@ export default function UsageMetricsPanel() {
                 cacheHits={data.regrid.totals_24h.cache_hits}
               />
             </div>
+
+            {/* OUR locally-measured usage since the contract anniversary
+                — the cross-check on whatever Regrid bills us. Shown
+                FIRST because it's our source of truth. */}
+            <RegridMeasuredBlock
+              measured={data.regrid.measured}
+              cycle={data.regrid.cycle}
+            />
 
             {/* Regrid's official billing-cycle usage (from their free
                 /api/v2/usage endpoint). Billing model per Regrid docs:
@@ -663,6 +686,171 @@ function RegridCycleBlock({ cycle }: { cycle: DashboardData['regrid']['cycle'] }
           }
         />
       </div>
+    </div>
+  )
+}
+
+/** OUR locally-measured Regrid usage block. Sums every billable Regrid
+ *  call from `hourly_regrid_usage` since the contract anniversary (May
+ *  11). When Regrid bills us "over quota" we use this to cross-check
+ *  their number — vendor reports can be wrong, and this is the only
+ *  number we control.
+ *
+ *  Layout: contract-year header, three cap bars (Records / Tiles /
+ *  Combined), then a side-by-side OUR-vs-THEIRS comparison so the user
+ *  can spot discrepancies at a glance. */
+function RegridMeasuredBlock({
+  measured, cycle,
+}: {
+  measured: DashboardData['regrid']['measured']
+  cycle: DashboardData['regrid']['cycle']
+}) {
+  if (!measured) {
+    return (
+      <div className="mb-4 rounded-xl border border-amber-500/20 bg-amber-500/[0.05] p-3 text-[12px] text-amber-200">
+        Local Regrid usage tracking is not reporting yet — once the
+        backend is updated, this panel will show OUR measured usage
+        since the May 11 contract anniversary.
+      </div>
+    )
+  }
+
+  const recordsUsed = measured.records
+  const tilesUsed = measured.tiles
+  const recordsPct = (recordsUsed / REGRID_RECORDS_CAP) * 100
+  const tilesPct = (tilesUsed / REGRID_TILES_CAP) * 100
+  const combinedPct = recordsPct + tilesPct
+
+  // Pull Regrid's reported numbers if we have them for side-by-side.
+  const theirRecords = cycle?.cycle_usage.results
+  const theirTiles = cycle?.cycle_usage.tiles_parcels
+
+  const fmtDelta = (ours: number, theirs: number | undefined) => {
+    if (theirs === undefined || theirs === null) return '—'
+    const diff = ours - theirs
+    const pct = theirs > 0 ? (diff / theirs) * 100 : 0
+    const sign = diff > 0 ? '+' : ''
+    return `${sign}${fmtNum(diff)} (${sign}${pct.toFixed(1)}%)`
+  }
+
+  const anniv = new Date(measured.anniversary_date + 'T00:00:00')
+  const annivLabel = anniv.toLocaleDateString('en-US', {
+    month: 'short', day: 'numeric', year: 'numeric',
+  })
+
+  return (
+    <div className="mb-4 rounded-xl border border-emerald-500/20 bg-emerald-500/[0.04] p-3">
+      <div className="flex items-baseline justify-between flex-wrap gap-x-3 gap-y-1 mb-2">
+        <div className="text-xs font-semibold text-emerald-300 uppercase tracking-wider">
+          Our measured usage · since {annivLabel}
+        </div>
+        <div className="text-[11px] text-gg-gray-400">
+          Day {measured.days_into_year} of 365
+        </div>
+      </div>
+      <div className="text-[11px] text-gg-gray-400 mb-3">
+        Sum of every billable Regrid call we logged locally. Use this to
+        cross-check Regrid's reported numbers.
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+        <CapBar
+          label="Parcel Records (ours)"
+          used={recordsUsed}
+          cap={REGRID_RECORDS_CAP}
+          unit="records"
+        />
+        <CapBar
+          label="Parcel Tiles (ours)"
+          used={tilesUsed}
+          cap={REGRID_TILES_CAP}
+          unit="tiles"
+        />
+        <div>
+          <div className="flex items-baseline justify-between mb-1">
+            <div className="text-[11px] uppercase tracking-wider text-gg-gray-300">
+              Combined (billed against fee)
+            </div>
+            <div className={`text-[11px] font-semibold ${capTextColor(combinedPct)}`}>
+              {combinedPct.toFixed(1)}%
+            </div>
+          </div>
+          <div className="h-2 w-full bg-white/5 rounded-full overflow-hidden mb-1">
+            <div
+              className={`h-full ${capBarColor(combinedPct)} rounded-full transition-all`}
+              style={{ width: `${Math.min(100, combinedPct)}%` }}
+            />
+          </div>
+          <div className="text-[11px] text-gg-gray-400">
+            {combinedPct > 100
+              ? `Over by ${(combinedPct - 100).toFixed(1)}%`
+              : `${(100 - combinedPct).toFixed(1)}% headroom`}
+          </div>
+        </div>
+      </div>
+
+      {/* Side-by-side: OURS vs Regrid's reported. */}
+      <div className="rounded-lg border border-white/5 bg-black/20 overflow-hidden">
+        <div className="grid grid-cols-4 text-[10px] uppercase tracking-wider text-gg-gray-400 bg-white/[0.02] px-2 py-1">
+          <div></div>
+          <div className="text-right">Ours</div>
+          <div className="text-right">Regrid says</div>
+          <div className="text-right">Δ (ours − theirs)</div>
+        </div>
+        <div className="grid grid-cols-4 text-[12px] px-2 py-1 border-t border-white/5">
+          <div className="text-gg-gray-300">Records</div>
+          <div className="text-right font-mono">{fmtNum(recordsUsed)}</div>
+          <div className="text-right font-mono text-gg-gray-400">
+            {theirRecords !== undefined ? fmtNum(theirRecords) : '—'}
+          </div>
+          <div className="text-right font-mono text-gg-gray-400">
+            {fmtDelta(recordsUsed, theirRecords)}
+          </div>
+        </div>
+        <div className="grid grid-cols-4 text-[12px] px-2 py-1 border-t border-white/5">
+          <div className="text-gg-gray-300">Tiles</div>
+          <div className="text-right font-mono">{fmtNum(tilesUsed)}</div>
+          <div className="text-right font-mono text-gg-gray-400">
+            {theirTiles !== undefined ? fmtNum(theirTiles) : '—'}
+          </div>
+          <div className="text-right font-mono text-gg-gray-400">
+            {fmtDelta(tilesUsed, theirTiles)}
+          </div>
+        </div>
+      </div>
+
+      {/* Per-endpoint breakdown so we can see WHICH call is the hot one. */}
+      {measured.by_endpoint.length > 0 && (
+        <div className="mt-3">
+          <div className="text-[10px] uppercase tracking-wider text-gg-gray-400 mb-1">
+            By endpoint (since {annivLabel})
+          </div>
+          <table className="w-full text-[11px]">
+            <thead className="text-gg-gray-400">
+              <tr>
+                <th className="text-left font-normal">Endpoint</th>
+                <th className="text-right font-normal">Calls</th>
+                <th className="text-right font-normal">Records</th>
+                <th className="text-right font-normal">Cache hits</th>
+                <th className="text-right font-normal">Errors</th>
+              </tr>
+            </thead>
+            <tbody>
+              {measured.by_endpoint.map(ep => (
+                <tr key={ep.endpoint} className="border-t border-white/5">
+                  <td className="py-1 font-mono">{ep.endpoint}</td>
+                  <td className="py-1 text-right font-mono">{fmtNum(ep.calls)}</td>
+                  <td className="py-1 text-right font-mono text-gg-gold">{fmtNum(ep.parcels)}</td>
+                  <td className="py-1 text-right font-mono text-gg-gray-400">{fmtNum(ep.cache_hits)}</td>
+                  <td className={`py-1 text-right font-mono ${ep.errors > 0 ? 'text-red-400' : 'text-gg-gray-400'}`}>
+                    {fmtNum(ep.errors)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   )
 }
