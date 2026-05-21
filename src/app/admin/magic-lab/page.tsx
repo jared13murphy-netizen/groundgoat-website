@@ -644,10 +644,24 @@ function extractPolygons(result: any): PolyEntry[] {
     if (out.length > 0) return out
   }
 
-  // Primary polygon
+  // Primary polygon. If the server's donut subtraction added HOLES
+  // to a matching entry in all_polygons (outer with inner cut out),
+  // attach them here so the primary renders as a donut and the inner
+  // tract doesn't visually overlap.
   if (Array.isArray(s2.polygon) && s2.polygon.length >= 3) {
+    let primaryHoles: [number, number][][] | undefined
+    if (Array.isArray(s2.all_polygons)) {
+      const primaryKey = JSON.stringify(s2.polygon)
+      const m = s2.all_polygons.find(
+        (p: any) => Array.isArray(p?.polygon)
+          && JSON.stringify(p.polygon) === primaryKey
+          && Array.isArray(p?.holes) && p.holes.length > 0
+      )
+      if (m) primaryHoles = m.holes
+    }
     out.push({
       polygon: s2.polygon as [number, number][],
+      holes: primaryHoles,
       label: 'Primary',
       acres: s2.acres,
       color: TRACT_COLORS[0],
@@ -875,6 +889,9 @@ function ResultVisuals({ result }: { result: any }) {
           <div className="rounded border border-gg-gray-800 bg-black flex flex-col"
             style={{ minHeight: 360 }}>
             {srcImg.url && (srcImg.kind === 'aerial' || srcImg.kind === 'land_id_image'
+                            || srcImg.kind === 'pdf_image'
+                            || srcImg.kind === 'listing_map'
+                            || srcImg.kind === 'source_image'
                             || srcImg.kind === 'polygon_render') ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={srcImg.url} alt="source aerial"
