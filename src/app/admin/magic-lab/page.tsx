@@ -573,6 +573,11 @@ function StageBlock({ title, data, status }: { title: string; data: any; status?
 
 type PolyEntry = {
   polygon: [number, number][]
+  // Optional inner rings to cut out of `polygon` (donut/polygon-with-holes).
+  // Set by the scraper when one tract polygon is nested inside another —
+  // e.g. wmgauction's 235ac tract 1 with a 5ac tract 2 inside it. Each
+  // hole is rendered as a transparent cutout in the outer fill.
+  holes?: [number, number][][]
   label: string
   acres?: number | null
   color: string
@@ -592,6 +597,8 @@ function extractPolygons(result: any): PolyEntry[] {
       if (m && Array.isArray(m.polygon) && m.polygon.length >= 3) {
         out.push({
           polygon: m.polygon as [number, number][],
+          holes: (Array.isArray(m.holes) ? m.holes : undefined) as
+                  [number, number][][] | undefined,
           label: `T${m.tract_number ?? '?'}`,
           acres: m.polygon_acres ?? m.tract_acres,
           color: TRACT_COLORS[(m.tract_number ?? idx) % TRACT_COLORS.length],
@@ -620,6 +627,8 @@ function extractPolygons(result: any): PolyEntry[] {
           && JSON.stringify(p.polygon) !== JSON.stringify(s2.polygon)) {
         out.push({
           polygon: p.polygon as [number, number][],
+          holes: (Array.isArray(p.holes) ? p.holes : undefined) as
+                  [number, number][][] | undefined,
           label: p.name || `Poly ${i + 1}`,
           acres: p.acres,
           color: TRACT_COLORS[(i + 1) % TRACT_COLORS.length],
@@ -718,11 +727,24 @@ function ResultVisuals({ result }: { result: any }) {
       for (let i = 0; i < polys.length; i++) {
         const p = polys[i]
         const id = `poly_${i}`
+        // GeoJSON Polygon coordinates: first ring is the outer boundary,
+        // each subsequent ring is a HOLE (cut out of the fill). When the
+        // scraper detected one tract polygon nested inside another, the
+        // nested tract is delivered here as a hole on the outer tract's
+        // p.holes — so the fill draws as a donut with the inner tract
+        // as a transparent cutout.
+        const rings: [number, number][][] = [[...p.polygon, p.polygon[0]]]
+        if (Array.isArray(p.holes)) {
+          for (const h of p.holes) {
+            if (Array.isArray(h) && h.length >= 3) {
+              rings.push([...h, h[0]])
+            }
+          }
+        }
         map.addSource(id, {
           type: 'geojson',
           data: { type: 'Feature', properties: { label: p.label },
-            geometry: { type: 'Polygon',
-                        coordinates: [[...p.polygon, p.polygon[0]]] } } as any,
+            geometry: { type: 'Polygon', coordinates: rings } } as any,
         })
         map.addLayer({ id: `${id}_fill`, type: 'fill', source: id,
           paint: { 'fill-color': p.color, 'fill-opacity': 0.18 } })
