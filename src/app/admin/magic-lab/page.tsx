@@ -348,6 +348,7 @@ export default function MagicLabPage() {
             <StageBlock title="Stage 2 — Resolve" data={result.stage_2_resolve} status={stageStatus['2_resolve']} />
             <StageBlock title="Stage 1c — Sub-page recursion" data={result.stage_1c_subpages} />
             <StageBlock title="Stage 3 — Validate" data={result.stage_3_validate} status={stageStatus['3_validate']} />
+            <StageBlock title="Stage 5 — Tillable polygons + soil rating (USDA CSB + SSURGO)" data={result.stage_5_tillable} status={stageStatus['5_tillable']} />
             {result.error && (
               <div className="text-sm text-red-300 bg-red-500/10 border border-red-500/30 rounded p-2 mt-3">
                 ✗ {result.error}
@@ -521,6 +522,47 @@ export default function MagicLabPage() {
                         ))}
                       </div>
                     )}
+                    {/* Stage 5 — per-tract tillable + soil rating, ours vs listing */}
+                    {p.stage_5_tillable?.tracts?.length ? (
+                      <div className="px-3 py-2 border-t border-gg-gray-800 text-[11px] font-mono">
+                        {p.stage_5_tillable.tracts.map((tr: any, i: number) => {
+                          const sr = tr?.soil_rating || {}
+                          const merged = p.merged_features || {}
+                          const tracts4 = merged.tracts || []
+                          const listingTract = (tracts4[i] || {}) as any
+                          const listingRating = listingTract.soil_rating
+                                                ?? merged.soil_rating
+                          const listingScale = listingTract.soil_rating_scale
+                                                ?? merged.soil_rating_scale
+                          const ours = sr.rating
+                          const oursScale = sr.scale
+                          const diff = (ours != null && listingRating != null)
+                                       ? (ours - +listingRating) : null
+                          return (
+                            <div key={i} className="text-cyan-300">
+                              {tr.tract_label || `T${i+1}`}:
+                              {' '}tillable={tr.tillable_acres ?? '—'}ac
+                              {' / '}{tr.tract_acres ?? '—'}ac
+                              {tr.tillable_fraction != null
+                                ? ` (${(+tr.tillable_fraction*100).toFixed(0)}%)`
+                                : ''}
+                              {' · '}fields={tr.field_count ?? 0}
+                              {(ours != null || listingRating != null) && (
+                                <span className="ml-2">
+                                  soil: ours={ours != null ? (+ours).toFixed(1) : '—'}{oursScale ? ` ${oursScale}` : ''}
+                                  {' · '}listing={listingRating != null ? (+listingRating).toFixed(1) : '—'}{listingScale ? ` ${listingScale}` : ''}
+                                  {diff != null ? (
+                                    <span className={Math.abs(diff) > 5 ? 'text-amber-300' : 'text-emerald-300'}>
+                                      {' '}(Δ {diff > 0 ? '+' : ''}{diff.toFixed(1)})
+                                    </span>
+                                  ) : null}
+                                </span>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    ) : null}
                   </div>
                 )
               })}
@@ -683,6 +725,27 @@ function extractPolygons(result: any): PolyEntry[] {
           source: `all_polygons[${i}]`,
         })
       }
+    })
+  }
+  // Stage 5 — tillable polygons (USDA CSB). Render in cyan above the
+  // tract outlines so the user sees the cultivated portion within each
+  // tract. Per-tract grouping so multi-tract listings show their
+  // tillable distinctly.
+  const s5 = result.stage_5_tillable
+  if (s5 && Array.isArray(s5.tracts)) {
+    s5.tracts.forEach((t: any, ti: number) => {
+      const polys = Array.isArray(t?.tillable_polygons) ? t.tillable_polygons : []
+      polys.forEach((p: any, pi: number) => {
+        if (Array.isArray(p) && p.length >= 3) {
+          out.push({
+            polygon: p as [number, number][],
+            label: `Tillable ${t.tract_label || `T${ti+1}`}${polys.length > 1 ? ` (${pi+1})` : ''}`,
+            acres: undefined,
+            color: '#22d3ee',  // cyan — distinguishes from tract pink
+            source: 'csb_tillable',
+          })
+        }
+      })
     })
   }
   // Sub-page polygons
