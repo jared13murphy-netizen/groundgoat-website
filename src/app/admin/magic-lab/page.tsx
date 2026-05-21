@@ -495,6 +495,7 @@ export default function MagicLabPage() {
                             })),
                           },
                           stage_1c_subpages: p.stage_1c_subpages,
+                          stage_5_tillable: p.stage_5_tillable,
                         }} />
                       </div>
                     ) : (
