@@ -101,6 +101,42 @@ type ServerProbe = {
         info?: string | null
         _error?: string | null
       }
+      // CLASSIFIER COMPARISON — per-tract CDL (USDA 30m) and ESA
+      // WorldCover (10m) polygon classifications. Each is a complete
+      // pixel-by-pixel classification of the tract's land cover; the
+      // tillable flag is set by the scraper based on hardcoded
+      // include/exclude rules per class code. Used by the UI's
+      // tillable-source toggle so the admin can compare classifiers
+      // visually against satellite imagery.
+      classifier_comparison?: {
+        cdl?: {
+          polygons?: Array<{
+            polygon: [number, number][]
+            cdl_class: number
+            class_name: string
+            tillable: boolean
+            acres: number
+          }>
+          tract_acres?: number | null
+          tillable_acres?: number | null
+          non_tillable_acres?: number | null
+          _error?: string | null
+        } | null
+        worldcover?: {
+          polygons?: Array<{
+            polygon: [number, number][]
+            wc_class: number
+            class_name: string
+            tillable: boolean
+            acres: number
+          }>
+          tract_acres?: number | null
+          tillable_acres?: number | null
+          non_tillable_acres?: number | null
+          year?: number | null
+          _error?: string | null
+        } | null
+      }
       _error?: string | null
     }>
     _error?: string | null
@@ -702,7 +738,12 @@ type PolyEntry = {
   source?: string
 }
 
-function extractPolygons(result: any): PolyEntry[] {
+type TillableSource = 'ssurgo' | 'cdl' | 'worldcover'
+
+function extractPolygons(
+  result: any,
+  tillableSource: TillableSource = 'ssurgo',
+): PolyEntry[] {
   if (!result) return []
   const out: PolyEntry[] = []
   const s2 = result.stage_2_resolve || {}
@@ -769,26 +810,55 @@ function extractPolygons(result: any): PolyEntry[] {
       }
     })
   }
-  // Stage 5 — tillable polygons (USDA CSB). Render in cyan above the
-  // tract outlines so the user sees the cultivated portion within each
-  // tract. Per-tract grouping so multi-tract listings show their
-  // tillable distinctly.
+  // Stage 5 — tillable polygons. The user can toggle between three
+  // sources via the tillable-source switch above the map:
+  //   ssurgo     — current path: CSB+NAIP refined → SSURGO clipped
+  //   cdl        — USDA Cropland Data Layer (30m raster, per-class)
+  //   worldcover — ESA WorldCover (10m raster, per-class)
+  // CDL / WorldCover render both TILLABLE (cyan) and NON-TILLABLE
+  // (dark red @ low opacity) so the user sees what each classifier
+  // excluded inside the tract, with class-name labels.
   const s5 = result.stage_5_tillable
   if (s5 && Array.isArray(s5.tracts)) {
-    s5.tracts.forEach((t: any, ti: number) => {
-      const polys = Array.isArray(t?.tillable_polygons) ? t.tillable_polygons : []
-      polys.forEach((p: any, pi: number) => {
-        if (Array.isArray(p) && p.length >= 3) {
-          out.push({
-            polygon: p as [number, number][],
-            label: `Tillable ${t.tract_label || `T${ti+1}`}${polys.length > 1 ? ` (${pi+1})` : ''}`,
-            acres: undefined,
-            color: '#22d3ee',  // cyan — distinguishes from tract pink
-            source: 'csb_tillable',
-          })
-        }
+    if (tillableSource === 'ssurgo') {
+      s5.tracts.forEach((t: any, ti: number) => {
+        const polys = Array.isArray(t?.tillable_polygons) ? t.tillable_polygons : []
+        polys.forEach((p: any, pi: number) => {
+          if (Array.isArray(p) && p.length >= 3) {
+            out.push({
+              polygon: p as [number, number][],
+              label: `Tillable ${t.tract_label || `T${ti+1}`}${polys.length > 1 ? ` (${pi+1})` : ''}`,
+              acres: undefined,
+              color: '#22d3ee',  // cyan
+              source: 'csb_tillable',
+            })
+          }
+        })
       })
-    })
+    } else {
+      // CDL or WorldCover — read classifier_comparison per tract,
+      // emit one PolyEntry per class polygon with class-name label.
+      const key = tillableSource as 'cdl' | 'worldcover'
+      s5.tracts.forEach((t: any, ti: number) => {
+        const cc = t?.classifier_comparison?.[key]
+        const polys = Array.isArray(cc?.polygons) ? cc.polygons : []
+        polys.forEach((p: any) => {
+          const ring = p?.polygon
+          if (!Array.isArray(ring) || ring.length < 3) return
+          // Cyan for tillable, dark red for non-tillable.
+          const color = p.tillable ? '#22d3ee' : '#dc2626'
+          const tractTag = s5.tracts.length > 1
+            ? ` · ${t.tract_label || `T${ti+1}`}` : ''
+          out.push({
+            polygon: ring as [number, number][],
+            label: `${p.class_name}${tractTag}`,
+            acres: p.acres,
+            color,
+            source: `${key}_${p.tillable ? 'tillable' : 'nontill'}`,
+          })
+        })
+      })
+    }
   }
   // Sub-page polygons
   const subs = result.stage_1c_subpages
@@ -878,9 +948,31 @@ function extractSourceImage(result: any): { url: string; kind: string; note?: st
 function ResultVisuals({ result }: { result: any }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
-  const polys = extractPolygons(result)
+  // Per-instance toggle for which Stage-5 tillable source to render.
+  // Each ResultVisuals (top result + each live-probe row) holds its
+  // own selection — small footprint, no global state required.
+  const [tillableSource, setTillableSource] = useState<TillableSource>('ssurgo')
+  const polys = extractPolygons(result, tillableSource)
   const srcImg = extractSourceImage(result)
   const hasMap = polys.length > 0
+
+  // Per-classifier summary for the breakdown panel under the map.
+  const s5Tracts = result?.stage_5_tillable?.tracts || []
+  const compHasCdl = s5Tracts.some(
+    (t: any) => t?.classifier_comparison?.cdl && !t.classifier_comparison.cdl._error,
+  )
+  const compHasWc = s5Tracts.some(
+    (t: any) => t?.classifier_comparison?.worldcover && !t.classifier_comparison.worldcover._error,
+  )
+  const ssurgoTotal = s5Tracts.reduce(
+    (s: number, t: any) => s + (Number(t?.tillable_acres) || 0), 0,
+  )
+  const cdlTotal = s5Tracts.reduce(
+    (s: number, t: any) => s + (Number(t?.classifier_comparison?.cdl?.tillable_acres) || 0), 0,
+  )
+  const wcTotal = s5Tracts.reduce(
+    (s: number, t: any) => s + (Number(t?.classifier_comparison?.worldcover?.tillable_acres) || 0), 0,
+  )
 
   useEffect(() => {
     if (!hasMap || !containerRef.current) return
@@ -940,7 +1032,10 @@ function ResultVisuals({ result }: { result: any }) {
       } catch {}
     })
     return () => { try { map.remove() } catch {}; mapRef.current = null }
-  }, [hasMap, JSON.stringify(polys.map(p => p.polygon[0]))])
+    // Re-render the map whenever the polygon set changes OR the
+    // tillable source toggle changes (which swaps which polygons we
+    // draw). The latter is captured by tillableSource in the dep list.
+  }, [hasMap, tillableSource, JSON.stringify(polys.map(p => p.polygon[0]))])
 
   if (!hasMap && !srcImg) {
     return (
@@ -970,12 +1065,100 @@ function ResultVisuals({ result }: { result: any }) {
             </div>
           )}
         </div>
+        {/* Tillable source toggle — only shown when Stage 5 has at
+            least one classifier comparison result. Lets the user flip
+            between the current path (SSURGO+NAIP+CSB), USDA CDL 30m,
+            and ESA WorldCover 10m so they can compare against the
+            satellite imagery and pick the most accurate one. */}
+        {s5Tracts.length > 0 && (compHasCdl || compHasWc) && (
+          <div className="flex items-center gap-2 flex-wrap text-[11px] mt-1">
+            <span className="text-gg-gray-400">Tillable source:</span>
+            <div className="inline-flex rounded border border-gg-gray-700 overflow-hidden">
+              {([
+                { v: 'ssurgo', label: 'SSURGO+NAIP', acres: ssurgoTotal },
+                { v: 'cdl', label: 'CDL 30m', acres: cdlTotal, disabled: !compHasCdl },
+                { v: 'worldcover', label: 'WorldCover 10m', acres: wcTotal, disabled: !compHasWc },
+              ] as Array<{ v: TillableSource; label: string; acres: number; disabled?: boolean }>).map(opt => {
+                const active = tillableSource === opt.v
+                return (
+                  <button key={opt.v}
+                    disabled={opt.disabled}
+                    onClick={() => setTillableSource(opt.v)}
+                    className={`px-2 py-1 font-mono text-[11px] ${
+                      active ? 'bg-cyan-500/20 text-cyan-300' : 'bg-gg-gray-900 text-gg-gray-400 hover:text-gg-gray-200'
+                    } ${opt.disabled ? 'opacity-40 cursor-not-allowed' : ''}`}
+                    title={opt.disabled ? 'classifier returned no result' : `switch to ${opt.label}`}>
+                    {opt.label}
+                    {opt.acres > 0 && (
+                      <span className="ml-1 text-gg-gray-500">
+                        {opt.acres.toFixed(1)}ac
+                      </span>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
         {hasMap ? (
           <div ref={containerRef} className="rounded border border-gg-gray-800 bg-black"
             style={{ width: '100%', height: 360 }} />
         ) : (
           <div className="rounded border border-gg-gray-800 bg-black p-4 text-xs text-gg-gray-500 italic">
             No polygon to render.
+          </div>
+        )}
+        {/* Per-classifier per-class acre breakdown — shown when the
+            user has selected CDL or WorldCover so they can see which
+            specific land-cover classes contributed to the tillable /
+            non-tillable totals. */}
+        {tillableSource !== 'ssurgo' && s5Tracts.length > 0 && (
+          <div className="mt-2 text-[11px] font-mono bg-black border border-gg-gray-800 rounded p-2">
+            <div className="text-gg-gray-400 mb-1">
+              {tillableSource === 'cdl' ? 'CDL 30m' : 'WorldCover 10m'} —
+              per-class breakdown
+            </div>
+            {s5Tracts.map((t: any, ti: number) => {
+              const cc = t?.classifier_comparison?.[tillableSource]
+              if (!cc || cc._error) {
+                return (
+                  <div key={ti} className="text-amber-300">
+                    {t.tract_label || `T${ti+1}`}: {cc?._error || 'no data'}
+                  </div>
+                )
+              }
+              // Group polygons by class code to sum acres per class.
+              const byClass: Record<string, { name: string; acres: number; tillable: boolean }> = {}
+              for (const p of (cc.polygons || [])) {
+                const code = String(
+                  (p as any).cdl_class ?? (p as any).wc_class ?? '?',
+                )
+                if (!byClass[code]) {
+                  byClass[code] = { name: p.class_name, acres: 0, tillable: p.tillable }
+                }
+                byClass[code].acres += Number(p.acres) || 0
+              }
+              const rows = Object.entries(byClass)
+                .sort((a, b) => b[1].acres - a[1].acres)
+              return (
+                <div key={ti} className="mb-1 last:mb-0">
+                  <div className="text-cyan-300">
+                    {t.tract_label || `T${ti+1}`}:
+                    {' '}tillable={cc.tillable_acres ?? '—'}ac
+                    {' '}· non-till={cc.non_tillable_acres ?? '—'}ac
+                    {' '}/ tract={cc.tract_acres ?? '—'}ac
+                  </div>
+                  {rows.map(([code, info]) => (
+                    <div key={code} className="ml-3 text-gg-gray-400">
+                      <span className={info.tillable ? 'text-cyan-400' : 'text-red-400'}>
+                        {info.tillable ? '✓' : '✗'}
+                      </span>
+                      {' '}{info.name} ({code}): {info.acres.toFixed(2)}ac
+                    </div>
+                  ))}
+                </div>
+              )
+            })}
           </div>
         )}
       </div>
