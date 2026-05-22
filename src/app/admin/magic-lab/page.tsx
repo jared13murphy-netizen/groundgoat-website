@@ -216,6 +216,20 @@ export default function MagicLabPage() {
   const [streamLog, setStreamLog] = useState<string[]>([])
   const [stage1cSubs, setStage1cSubs] = useState<any[]>([])
   const [subpageProgress, setSubpageProgress] = useState<{i: number; total: number; url?: string} | null>(null)
+  // Live elapsed-time counter while a probe is running. Ticks once
+  // per second so the user always sees the probe is progressing,
+  // even during long stages (FTW S3 scan ~60s) that don't emit
+  // intermediate events.
+  const [probeStartedAt, setProbeStartedAt] = useState<number | null>(null)
+  const [nowTick, setNowTick] = useState<number>(Date.now())
+  useEffect(() => {
+    if (!running) return
+    const id = setInterval(() => setNowTick(Date.now()), 1000)
+    return () => clearInterval(id)
+  }, [running])
+  const elapsedSec = (running && probeStartedAt)
+    ? Math.max(0, Math.round((nowTick - probeStartedAt) / 1000))
+    : null
   const abortRef = useRef<AbortController | null>(null)
 
   // Poll the server-side persisted probe log every 5s (only when no
@@ -276,6 +290,8 @@ export default function MagicLabPage() {
     abortRef.current = ac
 
     setRunning(true)
+    setProbeStartedAt(Date.now())
+    setNowTick(Date.now())
     setResult({ success: true, url: trimmed })  // shell — gets filled in by events
     setStreamLog([`▶ Started probe of ${trimmed}`])
     setStage1cSubs([])
@@ -284,6 +300,7 @@ export default function MagicLabPage() {
       '1_acquire': 'pending',
       '4_features': 'pending',
       '2_resolve': 'pending',
+      '5_tillable': 'pending',
       '3_validate': 'pending',
     })
     let cumResult: any = { success: true, url: trimmed, stage_1c_subpages: [] }
@@ -419,16 +436,80 @@ export default function MagicLabPage() {
           </div>
         </div>
 
-        {running && streamLog.length > 0 && (
-          <div className="bg-black border border-gg-pink/40 rounded-lg p-3 mb-4 max-h-48 overflow-y-auto">
-            <div className="text-[10px] text-gg-pink uppercase tracking-wider font-semibold mb-1">
-              Live stream {subpageProgress
-                ? ` · sub-page ${subpageProgress.i + 1}/${subpageProgress.total}`
-                : ''}
+        {/* Prominent live-status banner — visible the whole time a
+            probe is running, with elapsed time, current stage, and
+            per-stage status pills. Per user 2026-05-22: "I really need
+            something to keep me updated on current progress." */}
+        {running && (
+          <div className="bg-gg-pink/10 border-2 border-gg-pink/60 rounded-lg p-4 mb-4">
+            <div className="flex items-center gap-3 flex-wrap mb-3">
+              <Loader2 size={18} className="animate-spin text-gg-pink" />
+              <span className="text-sm font-bold text-gg-pink uppercase tracking-wider">
+                Probe running
+              </span>
+              {elapsedSec != null && (
+                <span className="text-base font-mono text-gg-pink">
+                  {Math.floor(elapsedSec / 60)}:{String(elapsedSec % 60).padStart(2, '0')}
+                </span>
+              )}
+              {(() => {
+                // Find the currently-pending stage (first one not done/error).
+                const order = [
+                  ['1_acquire',   '1. Acquire page'],
+                  ['4_features',  '2. Extract features (Claude Vision)'],
+                  ['2_resolve',   '3. Resolve polygon'],
+                  ['5_tillable',  '4. Classify cropland (FTW + SSURGO + etc.)'],
+                  ['3_validate',  '5. Validate'],
+                ] as const
+                const current = order.find(([k]) => stageStatus[k] === 'pending')
+                if (!current) return null
+                return (
+                  <span className="text-xs text-gg-gray-300 ml-auto">
+                    Now: <span className="text-gg-pink font-semibold">{current[1]}</span>
+                  </span>
+                )
+              })()}
             </div>
-            <pre className="text-[11px] font-mono text-gg-gray-200 leading-snug whitespace-pre-wrap">
+            {/* Per-stage status pills */}
+            <div className="flex flex-wrap gap-2 mb-2">
+              {[
+                ['1_acquire',   'Acquire'],
+                ['4_features',  'Features'],
+                ['2_resolve',   'Resolve'],
+                ['5_tillable',  'Cropland'],
+                ['3_validate',  'Validate'],
+              ].map(([k, label]) => {
+                const s = stageStatus[k] || 'idle'
+                const cls = s === 'done'    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' :
+                            s === 'pending' ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 animate-pulse' :
+                            s === 'error'   ? 'bg-red-500/20 text-red-300 border-red-500/40' :
+                                              'bg-gg-gray-800 text-gg-gray-500 border-gg-gray-700'
+                const icon = s === 'done' ? '✓' : s === 'pending' ? '●' : s === 'error' ? '✗' : '○'
+                return (
+                  <span key={k} className={`text-[11px] font-mono px-2 py-0.5 rounded border ${cls}`}>
+                    {icon} {label}
+                  </span>
+                )
+              })}
+            </div>
+            {subpageProgress && (
+              <div className="text-[11px] text-gg-gray-300 mb-1">
+                Recursing sub-page {subpageProgress.i + 1}/{subpageProgress.total}
+                {subpageProgress.url && (
+                  <span className="text-gg-gray-500 ml-2">({subpageProgress.url})</span>
+                )}
+              </div>
+            )}
+            {streamLog.length > 0 && (
+              <details className="mt-2">
+                <summary className="cursor-pointer text-[10px] text-gg-gray-400 hover:text-gg-gray-200 select-none">
+                  Verbose log ({streamLog.length} lines)
+                </summary>
+                <pre className="text-[11px] font-mono text-gg-gray-200 leading-snug whitespace-pre-wrap mt-1 max-h-40 overflow-y-auto bg-black/40 rounded p-2">
 {streamLog.join('\n')}
-            </pre>
+                </pre>
+              </details>
+            )}
           </div>
         )}
         {result && (
