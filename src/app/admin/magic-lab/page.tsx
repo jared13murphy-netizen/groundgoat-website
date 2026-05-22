@@ -101,14 +101,32 @@ type ServerProbe = {
         info?: string | null
         _error?: string | null
       }
-      // CLASSIFIER COMPARISON — per-tract CDL (USDA 30m) and ESA
-      // WorldCover (10m) polygon classifications. Each is a complete
-      // pixel-by-pixel classification of the tract's land cover; the
-      // tillable flag is set by the scraper based on hardcoded
-      // include/exclude rules per class code. Used by the UI's
-      // tillable-source toggle so the admin can compare classifiers
-      // visually against satellite imagery.
+      // CLASSIFIER COMPARISON — per-tract per-classifier polygon
+      // sets. As of 2026-05-22, three classifiers run per tract:
+      //   - hybrid: WC outline + CDL crop labels + NLCD trees + NHD
+      //     water. New primary tillable shape.
+      //   - cdl: USDA 30m, raw per-crop classifications
+      //   - worldcover: ESA 10m, raw per-class classifications
+      // Each is a complete classification with a tillable flag per
+      // polygon. The UI's tillable-source toggle lets the admin
+      // compare visually against satellite imagery.
       classifier_comparison?: {
+        hybrid?: {
+          polygons?: Array<{
+            polygon: [number, number][]
+            wc_class: number
+            class_name: string
+            tillable: boolean
+            acres: number
+            source?: string  // "cdl" | "nlcd" | "nhd" | "wc"
+          }>
+          tract_acres?: number | null
+          tillable_acres?: number | null
+          non_tillable_acres?: number | null
+          by_source?: Record<string, number>
+          _layer_errors?: Record<string, string | null>
+          _error?: string | null
+        } | null
         cdl?: {
           polygons?: Array<{
             polygon: [number, number][]
@@ -738,7 +756,7 @@ type PolyEntry = {
   source?: string
 }
 
-type TillableSource = 'ssurgo' | 'cdl' | 'worldcover'
+type TillableSource = 'ssurgo' | 'hybrid' | 'cdl' | 'worldcover'
 
 function extractPolygons(
   result: any,
@@ -836,17 +854,29 @@ function extractPolygons(
         })
       })
     } else {
-      // CDL or WorldCover — read classifier_comparison per tract,
-      // emit one PolyEntry per class polygon with class-name label.
-      const key = tillableSource as 'cdl' | 'worldcover'
+      // hybrid / CDL / WorldCover — read classifier_comparison per
+      // tract, emit one PolyEntry per class polygon with class-name
+      // label.
+      const key = tillableSource as 'hybrid' | 'cdl' | 'worldcover'
       s5.tracts.forEach((t: any, ti: number) => {
         const cc = t?.classifier_comparison?.[key]
         const polys = Array.isArray(cc?.polygons) ? cc.polygons : []
         polys.forEach((p: any) => {
           const ring = p?.polygon
           if (!Array.isArray(ring) || ring.length < 3) return
-          // Cyan for tillable, dark red for non-tillable.
-          const color = p.tillable ? '#22d3ee' : '#dc2626'
+          // Hybrid uses per-source colors so the user can see at a
+          // glance which dataset contributed each polygon:
+          //   tillable    → cyan (#22d3ee)
+          //   NHD water   → blue (#3b82f6)
+          //   NLCD trees  → dark red (#dc2626)
+          //   WC other    → orange (#f97316) for built-up etc.
+          let color = p.tillable ? '#22d3ee' : '#dc2626'
+          if (key === 'hybrid' && !p.tillable) {
+            const src = (p.source || '').toString()
+            if (src === 'nhd') color = '#3b82f6'      // blue water
+            else if (src === 'nlcd') color = '#dc2626' // red trees
+            else if (src === 'wc') color = '#f97316'   // orange built-up
+          }
           const tractTag = s5.tracts.length > 1
             ? ` · ${t.tract_label || `T${ti+1}`}` : ''
           out.push({
@@ -951,13 +981,18 @@ function ResultVisuals({ result }: { result: any }) {
   // Per-instance toggle for which Stage-5 tillable source to render.
   // Each ResultVisuals (top result + each live-probe row) holds its
   // own selection — small footprint, no global state required.
-  const [tillableSource, setTillableSource] = useState<TillableSource>('ssurgo')
+  // Default to hybrid (WC + CDL + NLCD + NHD) — the 2026-05-22
+  // primary. Falls back behind the toggle if user wants raw views.
+  const [tillableSource, setTillableSource] = useState<TillableSource>('hybrid')
   const polys = extractPolygons(result, tillableSource)
   const srcImg = extractSourceImage(result)
   const hasMap = polys.length > 0
 
   // Per-classifier summary for the breakdown panel under the map.
   const s5Tracts = result?.stage_5_tillable?.tracts || []
+  const compHasHybrid = s5Tracts.some(
+    (t: any) => t?.classifier_comparison?.hybrid && !t.classifier_comparison.hybrid._error,
+  )
   const compHasCdl = s5Tracts.some(
     (t: any) => t?.classifier_comparison?.cdl && !t.classifier_comparison.cdl._error,
   )
@@ -966,6 +1001,9 @@ function ResultVisuals({ result }: { result: any }) {
   )
   const ssurgoTotal = s5Tracts.reduce(
     (s: number, t: any) => s + (Number(t?.tillable_acres) || 0), 0,
+  )
+  const hybridTotal = s5Tracts.reduce(
+    (s: number, t: any) => s + (Number(t?.classifier_comparison?.hybrid?.tillable_acres) || 0), 0,
   )
   const cdlTotal = s5Tracts.reduce(
     (s: number, t: any) => s + (Number(t?.classifier_comparison?.cdl?.tillable_acres) || 0), 0,
@@ -1070,12 +1108,13 @@ function ResultVisuals({ result }: { result: any }) {
             between the current path (SSURGO+NAIP+CSB), USDA CDL 30m,
             and ESA WorldCover 10m so they can compare against the
             satellite imagery and pick the most accurate one. */}
-        {s5Tracts.length > 0 && (compHasCdl || compHasWc) && (
+        {s5Tracts.length > 0 && (compHasCdl || compHasWc || compHasHybrid) && (
           <div className="flex items-center gap-2 flex-wrap text-[11px] mt-1">
             <span className="text-gg-gray-400">Tillable source:</span>
             <div className="inline-flex rounded border border-gg-gray-700 overflow-hidden">
               {([
-                { v: 'ssurgo', label: 'WC+NAIP+SSURGO', acres: ssurgoTotal },
+                { v: 'hybrid', label: 'Hybrid', acres: hybridTotal, disabled: !compHasHybrid },
+                { v: 'ssurgo', label: 'SSURGO clipped', acres: ssurgoTotal },
                 { v: 'worldcover', label: 'WC raw 10m', acres: wcTotal, disabled: !compHasWc },
                 { v: 'cdl', label: 'CDL 30m', acres: cdlTotal, disabled: !compHasCdl },
               ] as Array<{ v: TillableSource; label: string; acres: number; disabled?: boolean }>).map(opt => {
@@ -1115,8 +1154,10 @@ function ResultVisuals({ result }: { result: any }) {
         {tillableSource !== 'ssurgo' && s5Tracts.length > 0 && (
           <div className="mt-2 text-[11px] font-mono bg-black border border-gg-gray-800 rounded p-2">
             <div className="text-gg-gray-400 mb-1">
-              {tillableSource === 'cdl' ? 'CDL 30m' : 'WorldCover 10m'} —
-              per-class breakdown
+              {tillableSource === 'hybrid'
+                ? 'Hybrid (WC + CDL + NLCD + NHD)'
+                : tillableSource === 'cdl' ? 'CDL 30m'
+                : 'WorldCover 10m'} — per-class breakdown
             </div>
             {s5Tracts.map((t: any, ti: number) => {
               const cc = t?.classifier_comparison?.[tillableSource]
