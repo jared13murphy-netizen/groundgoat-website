@@ -842,9 +842,14 @@ function pickClassColor(
       return COLOR_BUILT
     }
   }
-  // Tillable SSURGO polygons that didn't get a CDL label inside
-  // them — sentinel wc_class < -100 — render lime (the user can't
-  // tell what crop, so don't claim it's cyan-Cropland).
+  // Cultivated Layer cropland (LCC 1-4 ∩ USDA Cultivated). USDA
+  // says it's been row-cropped in 2+ of last 5 years → cyan, even
+  // if the current year is in cover crop / CRP.
+  if (key === 'hybrid' && p.tillable
+      && (p.source === 'cultivated' || p.wc_class === -200)) {
+    return COLOR_CROPLAND
+  }
+  // SSURGO LCC 1-4 area NOT in Cultivated Layer = pasture/grass.
   if (key === 'hybrid' && p.tillable
       && (p.source === 'ssurgo_lcc')) {
     return COLOR_PASTURE
