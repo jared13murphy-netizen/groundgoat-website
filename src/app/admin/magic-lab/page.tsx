@@ -1249,8 +1249,21 @@ function ResultVisuals({ result }: { result: any }) {
           <span className="text-xs font-semibold text-gg-gray-200">
             Polygons {polys.length > 0 && `(${polys.length})`}
           </span>
-          {polys.length > 0 && (
-            <div className="flex flex-wrap gap-1 ml-auto">
+        </div>
+        {/* Per-polygon legend chips — collapsed by default since a
+            hybrid view on a complex tract can return 100+ polygons
+            and the chip list dominates the screen. Click to expand
+            when the user wants to inspect a specific polygon. */}
+        {polys.length > 0 && (
+          <details className="mt-0.5">
+            <summary className="cursor-pointer text-[10px] text-gg-gray-500 hover:text-gg-gray-300 list-none select-none flex items-center gap-1">
+              <svg className="w-2.5 h-2.5 transition-transform group-open:rotate-90"
+                   viewBox="0 0 12 12" fill="currentColor">
+                <path d="M4 2 L4 10 L9 6 Z" />
+              </svg>
+              show per-polygon labels ({polys.length})
+            </summary>
+            <div className="flex flex-wrap gap-1 mt-1">
               {polys.map((p, i) => (
                 <span key={i} className="text-[10px] px-1.5 py-0.5 rounded"
                   style={{ backgroundColor: p.color + '33', color: p.color,
@@ -1259,8 +1272,8 @@ function ResultVisuals({ result }: { result: any }) {
                 </span>
               ))}
             </div>
-          )}
-        </div>
+          </details>
+        )}
         {/* Tillable source toggle — only shown when Stage 5 has at
             least one classifier comparison result. Lets the user flip
             between the current path (SSURGO+NAIP+CSB), USDA CDL 30m,
