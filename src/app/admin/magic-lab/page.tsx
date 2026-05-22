@@ -758,6 +758,65 @@ type PolyEntry = {
 
 type TillableSource = 'ssurgo' | 'hybrid' | 'cdl' | 'worldcover'
 
+// CDL class-code buckets per USDA NASS metadata.
+// https://www.nass.usda.gov/Research_and_Science/Cropland/sarsfaqs2.php
+const CDL_HAY_CODES = new Set([36, 37, 58, 59])  // Alfalfa, Other Hay, Clover, Sod/Grass
+const CDL_FALLOW_CODES = new Set([61])
+const CDL_PASTURE_CODES = new Set([176])  // Grass/Pasture (includes CRP)
+
+// Land-use color palette — distinct, high-contrast, holds up over
+// satellite imagery. Keep these in sync with the legend below the
+// map (LegendSwatch list).
+const COLOR_CROPLAND = '#22d3ee'   // cyan — active row crops
+const COLOR_PASTURE = '#84cc16'    // lime — grass / pasture / CRP
+const COLOR_HAY = '#fbbf24'        // gold — hay / alfalfa
+const COLOR_FALLOW = '#a8a29e'     // tan — fallow / idle
+const COLOR_TREES = '#dc2626'      // red — forest / tree canopy
+const COLOR_WATER = '#3b82f6'      // blue — ponds / streams / wetlands
+const COLOR_BUILT = '#f97316'      // orange — buildings / driveways
+
+function LegendSwatch({ color, label }: { color: string; label: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 text-gg-gray-300">
+      <span className="inline-block w-3 h-3 rounded"
+        style={{ backgroundColor: color + '88',
+                 border: `1.5px solid ${color}` }} />
+      {label}
+    </span>
+  )
+}
+
+function pickClassColor(
+  key: 'hybrid' | 'cdl' | 'worldcover',
+  p: any,
+): string {
+  // Source-based routing for hybrid's non-tillable polygons — NHD /
+  // NLCD / WC built-up each get their own color regardless of class
+  // code (since codes differ across the three datasets).
+  if (key === 'hybrid' && !p.tillable) {
+    const src = (p.source || '').toString()
+    if (src === 'nhd') return COLOR_WATER
+    if (src === 'nlcd') return COLOR_TREES
+    if (src === 'wc') return COLOR_BUILT
+  }
+  if (!p.tillable) return COLOR_TREES  // fallback non-tillable
+
+  // Tillable polygons: sub-category by class code. Hybrid + raw CDL
+  // share the CDL code space; raw WC uses its own.
+  if (key === 'worldcover') {
+    const cls = Number(p.wc_class ?? 0)
+    if (cls === 40) return COLOR_CROPLAND  // Cropland
+    if (cls === 30) return COLOR_PASTURE   // Grassland (lumps pasture+hay+CRP)
+    return COLOR_CROPLAND
+  }
+  // Hybrid or CDL: read CDL class code.
+  const cls = Number(p.wc_class ?? p.cdl_class ?? 0)
+  if (CDL_HAY_CODES.has(cls)) return COLOR_HAY
+  if (CDL_PASTURE_CODES.has(cls)) return COLOR_PASTURE
+  if (CDL_FALLOW_CODES.has(cls)) return COLOR_FALLOW
+  return COLOR_CROPLAND  // row crops 1-60, default
+}
+
 function extractPolygons(
   result: any,
   tillableSource: TillableSource = 'ssurgo',
@@ -856,7 +915,11 @@ function extractPolygons(
     } else {
       // hybrid / CDL / WorldCover — read classifier_comparison per
       // tract, emit one PolyEntry per class polygon with class-name
-      // label.
+      // label. Color-coded by land-use category, not just tillable
+      // boolean, so the user can visually distinguish cropland from
+      // grass / hay / pasture across all views. Per user feedback
+      // 2026-05-22: "I need grassland to be a separate color than
+      // cropland."
       const key = tillableSource as 'hybrid' | 'cdl' | 'worldcover'
       s5.tracts.forEach((t: any, ti: number) => {
         const cc = t?.classifier_comparison?.[key]
@@ -864,19 +927,7 @@ function extractPolygons(
         polys.forEach((p: any) => {
           const ring = p?.polygon
           if (!Array.isArray(ring) || ring.length < 3) return
-          // Hybrid uses per-source colors so the user can see at a
-          // glance which dataset contributed each polygon:
-          //   tillable    → cyan (#22d3ee)
-          //   NHD water   → blue (#3b82f6)
-          //   NLCD trees  → dark red (#dc2626)
-          //   WC other    → orange (#f97316) for built-up etc.
-          let color = p.tillable ? '#22d3ee' : '#dc2626'
-          if (key === 'hybrid' && !p.tillable) {
-            const src = (p.source || '').toString()
-            if (src === 'nhd') color = '#3b82f6'      // blue water
-            else if (src === 'nlcd') color = '#dc2626' // red trees
-            else if (src === 'wc') color = '#f97316'   // orange built-up
-          }
+          const color = pickClassColor(key, p)
           const tractTag = s5.tracts.length > 1
             ? ` · ${t.tract_label || `T${ti+1}`}` : ''
           out.push({
@@ -1145,6 +1196,20 @@ function ResultVisuals({ result }: { result: any }) {
         ) : (
           <div className="rounded border border-gg-gray-800 bg-black p-4 text-xs text-gg-gray-500 italic">
             No polygon to render.
+          </div>
+        )}
+        {/* Color legend — shown only when one of the classifier
+            views is active. Tells the admin what each color means
+            at a glance. Kept in sync with pickClassColor() above. */}
+        {tillableSource !== 'ssurgo' && s5Tracts.length > 0 && (
+          <div className="mt-2 flex items-center gap-3 flex-wrap text-[10px] font-mono">
+            <LegendSwatch color={COLOR_CROPLAND} label="Cropland" />
+            <LegendSwatch color={COLOR_PASTURE} label="Pasture / Grass" />
+            <LegendSwatch color={COLOR_HAY} label="Hay / Alfalfa" />
+            <LegendSwatch color={COLOR_FALLOW} label="Fallow" />
+            <LegendSwatch color={COLOR_TREES} label="Trees" />
+            <LegendSwatch color={COLOR_WATER} label="Water" />
+            <LegendSwatch color={COLOR_BUILT} label="Built-up" />
           </div>
         )}
         {/* Per-classifier per-class acre breakdown — shown when the
