@@ -499,6 +499,32 @@ export default function MagicLabPage() {
                 fetch error: {serverProbesError}
               </span>
             )}
+            {/* Clear-all button — wipes every persisted probe so the
+                admin can start fresh between test runs. */}
+            {serverProbes.length > 0 && (
+              <button
+                onClick={async () => {
+                  if (!confirm(`Delete all ${serverProbes.length} probes? This cannot be undone.`)) return
+                  try {
+                    const resp = await fetchWithAuth(
+                      `${SCRAPER_URL}/api/admin/magic-lab/clear-probes`,
+                      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' },
+                    )
+                    if (!resp.ok) {
+                      alert(`Clear failed: HTTP ${resp.status}`)
+                      return
+                    }
+                    setServerProbes([])
+                  } catch (e: any) {
+                    alert(`Clear failed: ${e?.message || e}`)
+                  }
+                }}
+                className="ml-auto text-[11px] text-red-300 hover:text-red-200 border border-red-500/40 rounded px-2 py-0.5 hover:bg-red-500/10"
+                title="Wipe all probes from the server — useful between test runs"
+              >
+                Clear all probes
+              </button>
+            )}
           </div>
           {serverProbes.length === 0 ? (
             <div className="text-sm text-gg-gray-300 italic p-6 text-center border border-dashed border-gg-gray-700 rounded">
@@ -722,9 +748,16 @@ function StageBlock({ title, data, status }: { title: string; data: any; status?
   const isPending = status === 'pending'
   const isError = status === 'error' || data?._status === 'error'
   if (!data && !isPending) return null
+  // Collapsed by default — the raw stage JSON is admin debug output,
+  // not the primary result. The map + classifier panels above carry
+  // the actual signal. Click the header to expand for inspection.
   return (
-    <div className="mb-3 last:mb-0">
-      <div className="flex items-center gap-2 mb-1">
+    <details className="mb-2 last:mb-0 group">
+      <summary className="cursor-pointer flex items-center gap-2 list-none select-none hover:bg-gg-gray-900 rounded px-1 py-0.5">
+        <svg className="w-3 h-3 text-gg-gray-500 transition-transform group-open:rotate-90"
+             viewBox="0 0 12 12" fill="currentColor">
+          <path d="M4 2 L4 10 L9 6 Z" />
+        </svg>
         <span className="text-xs font-semibold text-gg-gray-200">{title}</span>
         {isPending && (
           <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center gap-1">
@@ -742,17 +775,19 @@ function StageBlock({ title, data, status }: { title: string; data: any; status?
             stub
           </span>
         )}
-      </div>
-      {data ? (
-        <pre className="text-xs bg-black border border-gg-gray-800 rounded p-2 overflow-x-auto font-mono text-gg-gray-400">
+      </summary>
+      <div className="mt-1">
+        {data ? (
+          <pre className="text-xs bg-black border border-gg-gray-800 rounded p-2 overflow-x-auto font-mono text-gg-gray-400">
 {JSON.stringify(data, null, 2)}
-        </pre>
-      ) : isPending ? (
-        <div className="text-xs bg-black border border-gg-gray-800 rounded p-2 font-mono text-gg-gray-500 italic">
-          waiting for stage to complete…
-        </div>
-      ) : null}
-    </div>
+          </pre>
+        ) : isPending ? (
+          <div className="text-xs bg-black border border-gg-gray-800 rounded p-2 font-mono text-gg-gray-500 italic">
+            waiting for stage to complete…
+          </div>
+        ) : null}
+      </div>
+    </details>
   )
 }
 
