@@ -118,13 +118,29 @@ type ServerProbe = {
             class_name: string
             tillable: boolean
             acres: number
-            source?: string  // "cdl" | "nlcd" | "nhd" | "wc"
+            source?: string  // "cdl" | "nlcd" | "nhd" | "io_lulc" | "wc"
           }>
           tract_acres?: number | null
           tillable_acres?: number | null
           non_tillable_acres?: number | null
           by_source?: Record<string, number>
+          base_source?: string  // "io_lulc" | "wc"
+          base_year?: number | null
           _layer_errors?: Record<string, string | null>
+          _error?: string | null
+        } | null
+        io_lulc?: {
+          polygons?: Array<{
+            polygon: [number, number][]
+            wc_class: number
+            class_name: string
+            tillable: boolean
+            acres: number
+          }>
+          tract_acres?: number | null
+          tillable_acres?: number | null
+          non_tillable_acres?: number | null
+          year?: number | null
           _error?: string | null
         } | null
         cdl?: {
@@ -756,7 +772,7 @@ type PolyEntry = {
   source?: string
 }
 
-type TillableSource = 'ssurgo' | 'hybrid' | 'cdl' | 'worldcover'
+type TillableSource = 'ssurgo' | 'hybrid' | 'io_lulc' | 'cdl' | 'worldcover'
 
 // CDL class-code buckets per USDA NASS metadata.
 // https://www.nass.usda.gov/Research_and_Science/Cropland/sarsfaqs2.php
@@ -787,34 +803,59 @@ function LegendSwatch({ color, label }: { color: string; label: string }) {
 }
 
 function pickClassColor(
-  key: 'hybrid' | 'cdl' | 'worldcover',
+  key: 'hybrid' | 'cdl' | 'worldcover' | 'io_lulc',
   p: any,
 ): string {
   // Source-based routing for hybrid's non-tillable polygons — NHD /
-  // NLCD / WC built-up each get their own color regardless of class
-  // code (since codes differ across the three datasets).
+  // NLCD / base classifier (io-lulc or WC) each get their own color
+  // regardless of class code (since codes differ across datasets).
   if (key === 'hybrid' && !p.tillable) {
     const src = (p.source || '').toString()
     if (src === 'nhd') return COLOR_WATER
     if (src === 'nlcd') return COLOR_TREES
-    if (src === 'wc') return COLOR_BUILT
+    if (src === 'io_lulc' || src === 'wc') {
+      // base classifier's non-tillable: water=blue, built=orange,
+      // trees=red, bare=tan. Codes differ — handle both.
+      const cls = Number(p.wc_class ?? 0)
+      // io-lulc codes
+      if (cls === 1) return COLOR_WATER       // io-lulc Water
+      if (cls === 2) return COLOR_TREES       // io-lulc Trees
+      if (cls === 4) return COLOR_WATER       // io-lulc Flooded Veg
+      if (cls === 7) return COLOR_BUILT       // io-lulc Built
+      if (cls === 8) return COLOR_FALLOW      // io-lulc Bare Ground
+      // WC codes
+      if (cls === 10) return COLOR_TREES      // WC Trees
+      if (cls === 80) return COLOR_WATER      // WC Water
+      return COLOR_BUILT
+    }
   }
   if (!p.tillable) return COLOR_TREES  // fallback non-tillable
 
-  // Tillable polygons: sub-category by class code. Hybrid + raw CDL
-  // share the CDL code space; raw WC uses its own.
+  // Tillable polygons: sub-category by class code. The class code
+  // space depends on which dataset emitted the polygon — io-lulc
+  // uses 5/11, CDL uses 1-176, WC uses 30/40.
   if (key === 'worldcover') {
     const cls = Number(p.wc_class ?? 0)
     if (cls === 40) return COLOR_CROPLAND  // Cropland
-    if (cls === 30) return COLOR_PASTURE   // Grassland (lumps pasture+hay+CRP)
+    if (cls === 30) return COLOR_PASTURE   // Grassland (lumps everything)
     return COLOR_CROPLAND
   }
-  // Hybrid or CDL: read CDL class code.
+  if (key === 'io_lulc') {
+    const cls = Number(p.wc_class ?? 0)
+    if (cls === 5) return COLOR_CROPLAND   // io-lulc Crops
+    if (cls === 11) return COLOR_PASTURE   // io-lulc Rangeland
+    return COLOR_CROPLAND
+  }
+  // Hybrid or CDL: io-lulc Rangeland (11) is fallback for tillable
+  // areas with no CDL label, so check that first; otherwise use CDL
+  // category routing.
   const cls = Number(p.wc_class ?? p.cdl_class ?? 0)
+  if (cls === 11) return COLOR_PASTURE   // io-lulc Rangeland fallback
+  if (cls === 5) return COLOR_CROPLAND   // io-lulc Crops fallback
   if (CDL_HAY_CODES.has(cls)) return COLOR_HAY
   if (CDL_PASTURE_CODES.has(cls)) return COLOR_PASTURE
   if (CDL_FALLOW_CODES.has(cls)) return COLOR_FALLOW
-  return COLOR_CROPLAND  // row crops 1-60, default
+  return COLOR_CROPLAND  // CDL row crops 1-60, default
 }
 
 function extractPolygons(
@@ -920,7 +961,7 @@ function extractPolygons(
       // grass / hay / pasture across all views. Per user feedback
       // 2026-05-22: "I need grassland to be a separate color than
       // cropland."
-      const key = tillableSource as 'hybrid' | 'cdl' | 'worldcover'
+      const key = tillableSource as 'hybrid' | 'io_lulc' | 'cdl' | 'worldcover'
       s5.tracts.forEach((t: any, ti: number) => {
         const cc = t?.classifier_comparison?.[key]
         const polys = Array.isArray(cc?.polygons) ? cc.polygons : []
@@ -1044,6 +1085,9 @@ function ResultVisuals({ result }: { result: any }) {
   const compHasHybrid = s5Tracts.some(
     (t: any) => t?.classifier_comparison?.hybrid && !t.classifier_comparison.hybrid._error,
   )
+  const compHasIoLulc = s5Tracts.some(
+    (t: any) => t?.classifier_comparison?.io_lulc && !t.classifier_comparison.io_lulc._error,
+  )
   const compHasCdl = s5Tracts.some(
     (t: any) => t?.classifier_comparison?.cdl && !t.classifier_comparison.cdl._error,
   )
@@ -1055,6 +1099,9 @@ function ResultVisuals({ result }: { result: any }) {
   )
   const hybridTotal = s5Tracts.reduce(
     (s: number, t: any) => s + (Number(t?.classifier_comparison?.hybrid?.tillable_acres) || 0), 0,
+  )
+  const ioLulcTotal = s5Tracts.reduce(
+    (s: number, t: any) => s + (Number(t?.classifier_comparison?.io_lulc?.tillable_acres) || 0), 0,
   )
   const cdlTotal = s5Tracts.reduce(
     (s: number, t: any) => s + (Number(t?.classifier_comparison?.cdl?.tillable_acres) || 0), 0,
@@ -1159,12 +1206,13 @@ function ResultVisuals({ result }: { result: any }) {
             between the current path (SSURGO+NAIP+CSB), USDA CDL 30m,
             and ESA WorldCover 10m so they can compare against the
             satellite imagery and pick the most accurate one. */}
-        {s5Tracts.length > 0 && (compHasCdl || compHasWc || compHasHybrid) && (
+        {s5Tracts.length > 0 && (compHasCdl || compHasWc || compHasHybrid || compHasIoLulc) && (
           <div className="flex items-center gap-2 flex-wrap text-[11px] mt-1">
             <span className="text-gg-gray-400">Tillable source:</span>
             <div className="inline-flex rounded border border-gg-gray-700 overflow-hidden">
               {([
                 { v: 'hybrid', label: 'Hybrid', acres: hybridTotal, disabled: !compHasHybrid },
+                { v: 'io_lulc', label: 'io-lulc 10m', acres: ioLulcTotal, disabled: !compHasIoLulc },
                 { v: 'ssurgo', label: 'SSURGO clipped', acres: ssurgoTotal },
                 { v: 'worldcover', label: 'WC raw 10m', acres: wcTotal, disabled: !compHasWc },
                 { v: 'cdl', label: 'CDL 30m', acres: cdlTotal, disabled: !compHasCdl },
@@ -1220,7 +1268,8 @@ function ResultVisuals({ result }: { result: any }) {
           <div className="mt-2 text-[11px] font-mono bg-black border border-gg-gray-800 rounded p-2">
             <div className="text-gg-gray-400 mb-1">
               {tillableSource === 'hybrid'
-                ? 'Hybrid (WC + CDL + NLCD + NHD)'
+                ? 'Hybrid (io-lulc + CDL + NLCD + NHD)'
+                : tillableSource === 'io_lulc' ? 'io-lulc 10m annual'
                 : tillableSource === 'cdl' ? 'CDL 30m'
                 : 'WorldCover 10m'} — per-class breakdown
             </div>
