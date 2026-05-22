@@ -118,14 +118,17 @@ type ServerProbe = {
             class_name: string
             tillable: boolean
             acres: number
-            source?: string  // "cdl" | "nlcd" | "nhd" | "io_lulc" | "wc"
+            source?: string  // "ssurgo_lcc" | "cdl" | "nlcd" | "nhd" | "io_lulc" | "wc"
+            lcc?: number | null         // SSURGO Land Capability Class 1-8
+            lcc_sub?: string | null     // SSURGO LCC subclass letter (e/w/s/c)
+            muname?: string | null      // SSURGO soil unit name
           }>
           tract_acres?: number | null
           tillable_acres?: number | null
           non_tillable_acres?: number | null
           by_source?: Record<string, number>
-          base_source?: string  // "io_lulc" | "wc"
-          base_year?: number | null
+          by_lcc?: Record<string, number>
+          base_source?: string  // "ssurgo_lcc" | "io_lulc" | "wc"
           _layer_errors?: Record<string, string | null>
           _error?: string | null
         } | null
@@ -807,15 +810,25 @@ function pickClassColor(
   p: any,
 ): string {
   // Source-based routing for hybrid's non-tillable polygons — NHD /
-  // NLCD / base classifier (io-lulc or WC) each get their own color
+  // NLCD / SSURGO LCC / base classifier each get their own color
   // regardless of class code (since codes differ across datasets).
   if (key === 'hybrid' && !p.tillable) {
     const src = (p.source || '').toString()
     if (src === 'nhd') return COLOR_WATER
     if (src === 'nlcd') return COLOR_TREES
+    if (src === 'ssurgo_lcc') {
+      // SSURGO LCC 5-8 — route by subclass letter.
+      // w = wet (waterway, ponded depression) → blue-ish water tone
+      // e = erodible (steep slopes)             → brown / orange
+      // s = stony / shallow                      → tan
+      // c = climate-limited (cold / dry)         → tan
+      const sub = ((p.lcc_sub || '').toString().toLowerCase())[0]
+      if (sub === 'w') return COLOR_WATER
+      if (sub === 'e') return COLOR_BUILT     // brown-ish orange
+      if (sub === 's' || sub === 'c') return COLOR_FALLOW
+      return COLOR_TREES  // unknown subclass → treat as non-till red
+    }
     if (src === 'io_lulc' || src === 'wc') {
-      // base classifier's non-tillable: water=blue, built=orange,
-      // trees=red, bare=tan. Codes differ — handle both.
       const cls = Number(p.wc_class ?? 0)
       // io-lulc codes
       if (cls === 1) return COLOR_WATER       // io-lulc Water
@@ -828,6 +841,13 @@ function pickClassColor(
       if (cls === 80) return COLOR_WATER      // WC Water
       return COLOR_BUILT
     }
+  }
+  // Tillable SSURGO polygons that didn't get a CDL label inside
+  // them — sentinel wc_class < -100 — render lime (the user can't
+  // tell what crop, so don't claim it's cyan-Cropland).
+  if (key === 'hybrid' && p.tillable
+      && (p.source === 'ssurgo_lcc')) {
+    return COLOR_PASTURE
   }
   if (!p.tillable) return COLOR_TREES  // fallback non-tillable
 
