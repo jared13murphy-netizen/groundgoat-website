@@ -539,6 +539,15 @@ export default function MagicLabPage() {
             <ResultVisuals result={result} />
             {/* ▲▲ End visual panels ▲▲ */}
 
+            {/* OURS-VS-LISTING comparison panel — first thing the
+                admin sees after the visual map. Shows tract acres,
+                tillable acres, and soil rating side-by-side with
+                the listing-stated values + delta. */}
+            <TractComparisonPanel
+              stage5={result.stage_5_tillable}
+              merged={result.merged_features}
+            />
+
             <StageBlock title="Stage 1 — Acquire" data={result.stage_1_acquire} status={stageStatus['1_acquire']} />
             <StageBlock title="Stage 4 — Features (Claude-extracted)" data={result.stage_4_features} status={stageStatus['4_features']} />
             <StageBlock title="Stage 2 — Resolve" data={result.stage_2_resolve} status={stageStatus['2_resolve']} />
@@ -745,123 +754,14 @@ export default function MagicLabPage() {
                         ))}
                       </div>
                     )}
-                    {/* Stage 5 — per-tract ours-vs-listing comparison
-                        for total tract acres, tillable acres, and
-                        soil rating. Per user 2026-05-22: 'show me
-                        everything so I can ensure total tract acres
-                        is the same between drawn polygon and the
-                        website polygon, as well as the calculated
-                        soil rating vs the website scraped soil
-                        rating, and a tillable acre comparison.' */}
+                    {/* Stage 5 — same comparison panel as the top
+                        result, rendered per live-stream card. */}
                     {p.stage_5_tillable?.tracts?.length ? (
-                      <div className="px-3 py-2 border-t border-gg-gray-800 text-[11px] font-mono">
-                        {p.stage_5_tillable.tracts.map((tr: any, i: number) => {
-                          const sr = tr?.soil_rating || {}
-                          const merged = p.merged_features || {}
-                          const tracts4 = merged.tracts || []
-                          const listingTract = (tracts4[i] || {}) as any
-                          // For single-tract listings, listing values
-                          // live at the top level of merged_features.
-                          // For multi-tract, prefer per-tract values.
-                          const isSingleTract = (tracts4.length === 0)
-
-                          // ----- TRACT ACRES (drawn polygon vs listing) -----
-                          const oursAcres = tr.tract_acres
-                          const listingAcres = isSingleTract
-                            ? merged.total_acres
-                            : (listingTract.acres ?? null)
-                          const acresDiff = (oursAcres != null && listingAcres != null)
-                            ? (+oursAcres - +listingAcres) : null
-
-                          // ----- TILLABLE ACRES (ours vs listing) -----
-                          const oursTill = tr.tillable_acres
-                          const listingTill = isSingleTract
-                            ? (merged as any).tillable_acres
-                            : (listingTract.tillable_acres ?? null)
-                          const tillDiff = (oursTill != null && listingTill != null)
-                            ? (+oursTill - +listingTill) : null
-
-                          // ----- SOIL RATING (ours vs listing) -----
-                          const oursSoil = sr.rating
-                          const oursScale = sr.scale
-                          const listingSoil = isSingleTract
-                            ? merged.soil_rating
-                            : (listingTract.soil_rating ?? merged.soil_rating)
-                          const listingScale = isSingleTract
-                            ? merged.soil_rating_scale
-                            : (listingTract.soil_rating_scale ?? merged.soil_rating_scale)
-                          const soilDiff = (oursSoil != null && listingSoil != null)
-                            ? (+oursSoil - +listingSoil) : null
-
-                          // Color helpers — green if close, amber if off.
-                          const acresClass = acresDiff == null ? 'text-gg-gray-400'
-                            : Math.abs(acresDiff) < 1 ? 'text-emerald-300'
-                            : Math.abs(acresDiff / (+listingAcres! || 1)) < 0.05 ? 'text-emerald-300'
-                            : 'text-amber-300'
-                          const tillClass = tillDiff == null ? 'text-gg-gray-400'
-                            : Math.abs(tillDiff) < 1 ? 'text-emerald-300'
-                            : Math.abs(tillDiff / (+listingTill! || 1)) < 0.05 ? 'text-emerald-300'
-                            : 'text-amber-300'
-                          const soilClass = soilDiff == null ? 'text-gg-gray-400'
-                            : Math.abs(soilDiff) < 2 ? 'text-emerald-300'
-                            : Math.abs(soilDiff) < 5 ? 'text-cyan-300'
-                            : 'text-amber-300'
-
-                          const fmt = (n: any, dec = 2) =>
-                            n != null ? (+n).toFixed(dec) : '—'
-
-                          return (
-                            <div key={i} className="mb-2 last:mb-0">
-                              <div className="text-cyan-300 font-bold mb-0.5">
-                                {tr.tract_label || `T${i+1}`}
-                                {' · '}fields={tr.field_count ?? 0}
-                                {tr.tillable_fraction != null
-                                  ? ` · ${(+tr.tillable_fraction*100).toFixed(0)}% tillable`
-                                  : ''}
-                              </div>
-                              <table className="text-[11px] leading-tight">
-                                <tbody>
-                                  <tr>
-                                    <td className="text-gg-gray-400 pr-3">Tract acres:</td>
-                                    <td className="text-gg-gray-200 pr-2">ours <span className="text-cyan-300">{fmt(oursAcres)}</span></td>
-                                    <td className="text-gg-gray-200 pr-2">· listing <span className="text-gg-pink">{fmt(listingAcres)}</span></td>
-                                    <td className={acresClass}>
-                                      {acresDiff != null
-                                        ? `Δ ${acresDiff > 0 ? '+' : ''}${acresDiff.toFixed(2)}ac`
-                                        : ''}
-                                    </td>
-                                  </tr>
-                                  <tr>
-                                    <td className="text-gg-gray-400 pr-3">Tillable acres:</td>
-                                    <td className="text-gg-gray-200 pr-2">ours <span className="text-cyan-300">{fmt(oursTill)}</span></td>
-                                    <td className="text-gg-gray-200 pr-2">· listing <span className="text-gg-pink">{fmt(listingTill)}</span></td>
-                                    <td className={tillClass}>
-                                      {tillDiff != null
-                                        ? `Δ ${tillDiff > 0 ? '+' : ''}${tillDiff.toFixed(2)}ac`
-                                        : ''}
-                                    </td>
-                                  </tr>
-                                  <tr>
-                                    <td className="text-gg-gray-400 pr-3">Soil rating:</td>
-                                    <td className="text-gg-gray-200 pr-2">
-                                      ours <span className="text-cyan-300">{fmt(oursSoil, 1)}</span>
-                                      {oursScale ? ` ${oursScale}` : ''}
-                                    </td>
-                                    <td className="text-gg-gray-200 pr-2">
-                                      · listing <span className="text-gg-pink">{fmt(listingSoil, 1)}</span>
-                                      {listingScale ? ` ${listingScale}` : ''}
-                                    </td>
-                                    <td className={soilClass}>
-                                      {soilDiff != null
-                                        ? `Δ ${soilDiff > 0 ? '+' : ''}${soilDiff.toFixed(1)}`
-                                        : ''}
-                                    </td>
-                                  </tr>
-                                </tbody>
-                              </table>
-                            </div>
-                          )
-                        })}
+                      <div className="px-3 py-2 border-t border-gg-gray-800">
+                        <TractComparisonPanel
+                          stage5={p.stage_5_tillable}
+                          merged={p.merged_features}
+                        />
                       </div>
                     ) : null}
                   </div>
@@ -988,6 +888,128 @@ const COLOR_FALLOW = '#a8a29e'     // tan — fallow / idle
 const COLOR_TREES = '#dc2626'      // red — forest / tree canopy
 const COLOR_WATER = '#3b82f6'      // blue — ponds / streams / wetlands
 const COLOR_BUILT = '#f97316'      // orange — buildings / driveways
+
+// =============================================================================
+// TractComparisonPanel — per-tract side-by-side comparison of OUR computed
+// values vs the listing-stated values for total tract acres, tillable
+// acres, and soil rating. Used in both the top result panel (current
+// probe) and the live probe stream cards (past probes). Per user
+// 2026-05-22: 'I need side-by-side comparisons to compare tract acres,
+// tillable acres, and soil rating.'
+// =============================================================================
+function TractComparisonPanel({ stage5, merged }: {
+  stage5: any
+  merged: any
+}) {
+  const tracts = stage5?.tracts || []
+  if (!tracts.length) return null
+  const m = merged || {}
+  const tracts4 = m.tracts || []
+  const isSingleTract = (tracts4.length === 0)
+  const fmt = (n: any, dec = 2) => n != null ? (+n).toFixed(dec) : '—'
+
+  return (
+    <div className="bg-black border border-gg-pink/40 rounded-lg p-3 mb-4">
+      <div className="text-[10px] text-gg-pink uppercase tracking-wider font-bold mb-2">
+        Ours vs listing comparison
+      </div>
+      <div className="text-[11px] font-mono space-y-2">
+        {tracts.map((tr: any, i: number) => {
+          const sr = tr?.soil_rating || {}
+          const listingTract = (tracts4[i] || {}) as any
+          const oursAcres = tr.tract_acres
+          const listingAcres = isSingleTract
+            ? m.total_acres
+            : (listingTract.acres ?? null)
+          const acresDiff = (oursAcres != null && listingAcres != null)
+            ? (+oursAcres - +listingAcres) : null
+          const oursTill = tr.tillable_acres
+          const listingTill = isSingleTract
+            ? m.tillable_acres
+            : (listingTract.tillable_acres ?? null)
+          const tillDiff = (oursTill != null && listingTill != null)
+            ? (+oursTill - +listingTill) : null
+          const oursSoil = sr.rating
+          const oursScale = sr.scale
+          const listingSoil = isSingleTract
+            ? m.soil_rating
+            : (listingTract.soil_rating ?? m.soil_rating)
+          const listingScale = isSingleTract
+            ? m.soil_rating_scale
+            : (listingTract.soil_rating_scale ?? m.soil_rating_scale)
+          const soilDiff = (oursSoil != null && listingSoil != null)
+            ? (+oursSoil - +listingSoil) : null
+
+          const acresClass = acresDiff == null ? 'text-gg-gray-400'
+            : Math.abs(acresDiff) < 1 ? 'text-emerald-300'
+            : Math.abs(acresDiff / (+listingAcres! || 1)) < 0.05 ? 'text-emerald-300'
+            : 'text-amber-300'
+          const tillClass = tillDiff == null ? 'text-gg-gray-400'
+            : Math.abs(tillDiff) < 1 ? 'text-emerald-300'
+            : Math.abs(tillDiff / (+listingTill! || 1)) < 0.05 ? 'text-emerald-300'
+            : 'text-amber-300'
+          const soilClass = soilDiff == null ? 'text-gg-gray-400'
+            : Math.abs(soilDiff) < 2 ? 'text-emerald-300'
+            : Math.abs(soilDiff) < 5 ? 'text-cyan-300'
+            : 'text-amber-300'
+
+          return (
+            <div key={i}>
+              <div className="text-cyan-300 font-bold mb-0.5">
+                {tr.tract_label || `T${i+1}`}
+                {' · '}fields={tr.field_count ?? 0}
+                {tr.tillable_fraction != null
+                  ? ` · ${(+tr.tillable_fraction*100).toFixed(0)}% tillable`
+                  : ''}
+              </div>
+              <table className="text-[11px] leading-tight">
+                <tbody>
+                  <tr>
+                    <td className="text-gg-gray-400 pr-3 whitespace-nowrap">Tract acres:</td>
+                    <td className="text-gg-gray-200 pr-2 whitespace-nowrap">ours <span className="text-cyan-300">{fmt(oursAcres)}</span></td>
+                    <td className="text-gg-gray-200 pr-2 whitespace-nowrap">· listing <span className="text-gg-pink">{fmt(listingAcres)}</span></td>
+                    <td className={`${acresClass} whitespace-nowrap`}>
+                      {acresDiff != null
+                        ? `Δ ${acresDiff > 0 ? '+' : ''}${acresDiff.toFixed(2)}ac`
+                        : ''}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className="text-gg-gray-400 pr-3 whitespace-nowrap">Tillable acres:</td>
+                    <td className="text-gg-gray-200 pr-2 whitespace-nowrap">ours <span className="text-cyan-300">{fmt(oursTill)}</span></td>
+                    <td className="text-gg-gray-200 pr-2 whitespace-nowrap">· listing <span className="text-gg-pink">{fmt(listingTill)}</span></td>
+                    <td className={`${tillClass} whitespace-nowrap`}>
+                      {tillDiff != null
+                        ? `Δ ${tillDiff > 0 ? '+' : ''}${tillDiff.toFixed(2)}ac`
+                        : ''}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className="text-gg-gray-400 pr-3 whitespace-nowrap">Soil rating:</td>
+                    <td className="text-gg-gray-200 pr-2 whitespace-nowrap">
+                      ours <span className="text-cyan-300">{fmt(oursSoil, 1)}</span>
+                      {oursScale ? ` ${oursScale}` : ''}
+                    </td>
+                    <td className="text-gg-gray-200 pr-2 whitespace-nowrap">
+                      · listing <span className="text-gg-pink">{fmt(listingSoil, 1)}</span>
+                      {listingScale ? ` ${listingScale}` : ''}
+                    </td>
+                    <td className={`${soilClass} whitespace-nowrap`}>
+                      {soilDiff != null
+                        ? `Δ ${soilDiff > 0 ? '+' : ''}${soilDiff.toFixed(1)}`
+                        : ''}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 
 function LegendSwatch({ color, label }: { color: string; label: string }) {
   return (
