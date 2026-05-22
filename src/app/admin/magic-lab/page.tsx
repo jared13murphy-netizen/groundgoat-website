@@ -1075,9 +1075,9 @@ function ResultVisuals({ result }: { result: any }) {
             <span className="text-gg-gray-400">Tillable source:</span>
             <div className="inline-flex rounded border border-gg-gray-700 overflow-hidden">
               {([
-                { v: 'ssurgo', label: 'SSURGO+NAIP', acres: ssurgoTotal },
+                { v: 'ssurgo', label: 'WC+NAIP+SSURGO', acres: ssurgoTotal },
+                { v: 'worldcover', label: 'WC raw 10m', acres: wcTotal, disabled: !compHasWc },
                 { v: 'cdl', label: 'CDL 30m', acres: cdlTotal, disabled: !compHasCdl },
-                { v: 'worldcover', label: 'WorldCover 10m', acres: wcTotal, disabled: !compHasWc },
               ] as Array<{ v: TillableSource; label: string; acres: number; disabled?: boolean }>).map(opt => {
                 const active = tillableSource === opt.v
                 return (
