@@ -851,6 +851,11 @@ function pickClassColor(
     const src = (p.source || '').toString()
     if (src === 'nhd') return COLOR_WATER
     if (src === 'nlcd') return COLOR_TREES
+    // Unclassified non-cropland (the tract MINUS FTW polygons that
+    // no specific source claimed). Color it gray (Fallow), NOT red,
+    // because we don't actually know it's trees — it could be brush,
+    // pasture edges, or unregistered farmland. Per user 2026-05-22.
+    if (src === 'ftw') return COLOR_FALLOW
     if (src === 'ssurgo_lcc') {
       // SSURGO LCC 5-8 — route by subclass letter.
       // w = wet (waterway, ponded depression) → blue-ish water tone
@@ -889,7 +894,10 @@ function pickClassColor(
       && (p.source === 'ssurgo_lcc')) {
     return COLOR_PASTURE
   }
-  if (!p.tillable) return COLOR_TREES  // fallback non-tillable
+  // Fallback non-tillable — DEFAULT to gray (Unclassified). Trees
+  // require an explicit forest source to claim. This prevents the
+  // 'every unclassified polygon looks like trees' rendering bug.
+  if (!p.tillable) return COLOR_FALLOW
 
   // Tillable polygons: sub-category by class code. The class code
   // space depends on which dataset emitted the polygon — io-lulc
