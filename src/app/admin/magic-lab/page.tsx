@@ -868,6 +868,18 @@ type PolyEntry = {
   acres?: number | null
   color: string
   source?: string
+  // Optional render mode override. By default we draw both fill+stroke.
+  //   'fill_only'   — skip the stroke layer (used for cropland fills so
+  //                   adjacent same-class polygons don't show double
+  //                   strokes along their shared edge).
+  //   'stroke_only' — skip the fill layer (used for the special
+  //                   '_cropland_outline_' polygon emitted by the
+  //                   scraper, which draws ONE clean outline around the
+  //                   unioned cropland region).
+  render_mode?: 'fill_only' | 'stroke_only'
+  // Hide this entry from the per-polygon labels list (still rendered
+  // on the map). Used for the '_cropland_outline_' helper polygon.
+  hidden_from_list?: boolean
 }
 
 type TillableSource = 'ssurgo' | 'hybrid' | 'io_lulc' | 'cdl' | 'worldcover'
@@ -1221,12 +1233,27 @@ function extractPolygons(
           const color = pickClassColor(key, p)
           const tractTag = s5.tracts.length > 1
             ? ` · ${t.tract_label || `T${ti+1}`}` : ''
+          // _cropland_outline_ is a synthetic entry from the hybrid
+          // classifier — it's the unioned outline of all cropland
+          // polygons. Render it as a single clean stroke around the
+          // cropland region (no fill). Existing cropland polygons
+          // render fill-only so we don't get double strokes along
+          // shared edges between adjacent FTW polygons.
+          const isOutline = p.class_name === '_cropland_outline_'
+          const isCropFill = !!p.tillable && !isOutline
           out.push({
             polygon: ring as [number, number][],
-            label: `${p.class_name}${tractTag}`,
+            holes: Array.isArray(p.holes) ? p.holes : undefined,
+            label: isOutline ? '_cropland_outline_' : `${p.class_name}${tractTag}`,
             acres: p.acres,
-            color,
-            source: `${key}_${p.tillable ? 'tillable' : 'nontill'}`,
+            color: isOutline ? COLOR_CROPLAND : color,
+            source: isOutline
+              ? `${key}_outline`
+              : `${key}_${p.tillable ? 'tillable' : 'nontill'}`,
+            render_mode: isOutline
+              ? 'stroke_only'
+              : (isCropFill ? 'fill_only' : undefined),
+            hidden_from_list: isOutline,
           })
         })
       })
@@ -1407,10 +1434,20 @@ function ResultVisuals({ result }: { result: any }) {
           data: { type: 'Feature', properties: { label: p.label },
             geometry: { type: 'Polygon', coordinates: rings } } as any,
         })
-        map.addLayer({ id: `${id}_fill`, type: 'fill', source: id,
-          paint: { 'fill-color': p.color, 'fill-opacity': 0.18 } })
-        map.addLayer({ id: `${id}_line`, type: 'line', source: id,
-          paint: { 'line-color': p.color, 'line-width': 2.5 } })
+        // render_mode controls which layers we add. By default (no
+        // mode) we add both fill + stroke. 'fill_only' = no stroke
+        // (used for cropland fill polygons so we don't double-stroke
+        // shared edges). 'stroke_only' = no fill (used for the
+        // unioned cropland outline).
+        const mode = p.render_mode
+        if (mode !== 'stroke_only') {
+          map.addLayer({ id: `${id}_fill`, type: 'fill', source: id,
+            paint: { 'fill-color': p.color, 'fill-opacity': 0.18 } })
+        }
+        if (mode !== 'fill_only') {
+          map.addLayer({ id: `${id}_line`, type: 'line', source: id,
+            paint: { 'line-color': p.color, 'line-width': 2.5 } })
+        }
       }
       try {
         map.fitBounds([[minLng, minLat], [maxLng, maxLat]],
@@ -1437,24 +1474,30 @@ function ResultVisuals({ result }: { result: any }) {
         <div className="flex items-center gap-2 flex-wrap">
           <MapIcon size={14} className="text-gg-pink" />
           <span className="text-xs font-semibold text-gg-gray-200">
-            Polygons {polys.length > 0 && `(${polys.length})`}
+            Polygons {polys.filter(p => !p.hidden_from_list).length > 0 && `(${polys.filter(p => !p.hidden_from_list).length})`}
           </span>
         </div>
         {/* Per-polygon legend chips — collapsed by default since a
             hybrid view on a complex tract can return 100+ polygons
             and the chip list dominates the screen. Click to expand
-            when the user wants to inspect a specific polygon. */}
-        {polys.length > 0 && (
+            when the user wants to inspect a specific polygon.
+            Helper polygons (hidden_from_list) — like the synthetic
+            cropland-union outline emitted by the hybrid classifier
+            for stroke-only rendering — are filtered out so the
+            count and chips only show real classification results. */}
+        {polys.filter(p => !p.hidden_from_list).length > 0 && (
           <details className="mt-0.5">
-            <summary className="cursor-pointer text-[10px] text-gg-gray-500 hover:text-gg-gray-300 list-none select-none flex items-center gap-1">
-              <svg className="w-2.5 h-2.5 transition-transform group-open:rotate-90"
-                   viewBox="0 0 12 12" fill="currentColor">
-                <path d="M4 2 L4 10 L9 6 Z" />
-              </svg>
-              show per-polygon labels ({polys.length})
+            {/* Browser-native disclosure triangle. The previous custom
+                SVG never rotated because `group-open:rotate-90` needs a
+                parent with `group` class, which wasn't present — so the
+                arrow stayed put regardless of expansion. Letting the
+                browser draw it gives us a triangle that auto-rotates on
+                toggle, no extra CSS plumbing. */}
+            <summary className="cursor-pointer text-[10px] text-gg-gray-500 hover:text-gg-gray-300 select-none">
+              show per-polygon labels ({polys.filter(p => !p.hidden_from_list).length})
             </summary>
             <div className="flex flex-wrap gap-1 mt-1">
-              {polys.map((p, i) => (
+              {polys.filter(p => !p.hidden_from_list).map((p, i) => (
                 <span key={i} className="text-[10px] px-1.5 py-0.5 rounded"
                   style={{ backgroundColor: p.color + '33', color: p.color,
                            border: `1px solid ${p.color}88` }}>
