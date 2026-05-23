@@ -870,7 +870,7 @@ type PolyEntry = {
   source?: string
 }
 
-type TillableSource = 'ssurgo' | 'hybrid' | 'io_lulc' | 'cdl' | 'worldcover'
+type TillableSource = 'ssurgo' | 'hybrid' | 'ftw_raw' | 'io_lulc' | 'cdl' | 'worldcover'
 
 // CDL class-code buckets per USDA NASS metadata.
 // https://www.nass.usda.gov/Research_and_Science/Cropland/sarsfaqs2.php
@@ -1023,7 +1023,7 @@ function LegendSwatch({ color, label }: { color: string; label: string }) {
 }
 
 function pickClassColor(
-  key: 'hybrid' | 'cdl' | 'worldcover' | 'io_lulc',
+  key: 'hybrid' | 'ftw_raw' | 'cdl' | 'worldcover' | 'io_lulc',
   p: any,
 ): string {
   // Source-based routing for hybrid's non-tillable polygons — NHD /
@@ -1211,7 +1211,7 @@ function extractPolygons(
       // grass / hay / pasture across all views. Per user feedback
       // 2026-05-22: "I need grassland to be a separate color than
       // cropland."
-      const key = tillableSource as 'hybrid' | 'io_lulc' | 'cdl' | 'worldcover'
+      const key = tillableSource as 'hybrid' | 'ftw_raw' | 'io_lulc' | 'cdl' | 'worldcover'
       s5.tracts.forEach((t: any, ti: number) => {
         const cc = t?.classifier_comparison?.[key]
         const polys = Array.isArray(cc?.polygons) ? cc.polygons : []
@@ -1335,6 +1335,9 @@ function ResultVisuals({ result }: { result: any }) {
   const compHasHybrid = s5Tracts.some(
     (t: any) => t?.classifier_comparison?.hybrid && !t.classifier_comparison.hybrid._error,
   )
+  const compHasFtwRaw = s5Tracts.some(
+    (t: any) => t?.classifier_comparison?.ftw_raw && !t.classifier_comparison.ftw_raw._error,
+  )
   const compHasIoLulc = s5Tracts.some(
     (t: any) => t?.classifier_comparison?.io_lulc && !t.classifier_comparison.io_lulc._error,
   )
@@ -1349,6 +1352,9 @@ function ResultVisuals({ result }: { result: any }) {
   )
   const hybridTotal = s5Tracts.reduce(
     (s: number, t: any) => s + (Number(t?.classifier_comparison?.hybrid?.tillable_acres) || 0), 0,
+  )
+  const ftwRawTotal = s5Tracts.reduce(
+    (s: number, t: any) => s + (Number(t?.classifier_comparison?.ftw_raw?.tillable_acres) || 0), 0,
   )
   const ioLulcTotal = s5Tracts.reduce(
     (s: number, t: any) => s + (Number(t?.classifier_comparison?.io_lulc?.tillable_acres) || 0), 0,
@@ -1469,12 +1475,13 @@ function ResultVisuals({ result }: { result: any }) {
             between the current path (SSURGO+NAIP+CSB), USDA CDL 30m,
             and ESA WorldCover 10m so they can compare against the
             satellite imagery and pick the most accurate one. */}
-        {s5Tracts.length > 0 && (compHasCdl || compHasWc || compHasHybrid || compHasIoLulc) && (
+        {s5Tracts.length > 0 && (compHasCdl || compHasWc || compHasHybrid || compHasIoLulc || compHasFtwRaw) && (
           <div className="flex items-center gap-2 flex-wrap text-[11px] mt-1">
             <span className="text-gg-gray-400">Tillable source:</span>
             <div className="inline-flex rounded border border-gg-gray-700 overflow-hidden">
               {([
                 { v: 'hybrid', label: 'Hybrid', acres: hybridTotal, disabled: !compHasHybrid },
+                { v: 'ftw_raw', label: 'FTW raw', acres: ftwRawTotal, disabled: !compHasFtwRaw },
                 { v: 'io_lulc', label: 'io-lulc 10m', acres: ioLulcTotal, disabled: !compHasIoLulc },
                 { v: 'ssurgo', label: 'SSURGO clipped', acres: ssurgoTotal },
                 { v: 'worldcover', label: 'WC raw 10m', acres: wcTotal, disabled: !compHasWc },
@@ -1531,7 +1538,9 @@ function ResultVisuals({ result }: { result: any }) {
           <div className="mt-2 text-[11px] font-mono bg-black border border-gg-gray-800 rounded p-2">
             <div className="text-gg-gray-400 mb-1">
               {tillableSource === 'hybrid'
-                ? 'Hybrid (io-lulc + CDL + NLCD + NHD)'
+                ? 'Hybrid (FTW + CDL + NHD subtract + sliver merge)'
+                : tillableSource === 'ftw_raw'
+                ? 'FTW raw — every polygon, zero post-processing'
                 : tillableSource === 'io_lulc' ? 'io-lulc 10m annual'
                 : tillableSource === 'cdl' ? 'CDL 30m'
                 : 'WorldCover 10m'} — per-class breakdown
