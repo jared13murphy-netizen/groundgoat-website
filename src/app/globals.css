@@ -196,15 +196,47 @@ button {
 
 /* === Backgrounds: dark → white/very-light === */
 .staging-light .bg-gg-black,
-.staging-light .bg-black,
-.staging-light .bg-gg-gray-900 {
+.staging-light .bg-black {
   background-color: #ffffff !important;
+}
+/* Outer auction + PT cards. Per user 2026-05-24 "a little darker
+   (just barely)" — switch from pure white to a hair off-white so
+   the cards have more visual weight against the page bg. */
+.staging-light .bg-gg-gray-900 {
+  background-color: #f4f4f5 !important; /* tailwind zinc-100 */
 }
 .staging-light .bg-gg-gray-800 {
   background-color: #f9fafb !important; /* tailwind gray-50 — card surface */
 }
 .staging-light .bg-gg-gray-700 {
   background-color: #f3f4f6 !important; /* tailwind gray-100 — form fields */
+}
+
+/* === Inner Tract Details box — INVERTED to charcoal ===
+   The bg-gg-gray-800/60 class (opacity modifier) wasn't caught by
+   the base override, so it always rendered darker than the light
+   surrounding cards. Per user 2026-05-24: instead of trying to
+   light-mode it, lean in — make it intentionally charcoal with
+   really light text so it visually pops as the "tract data" section.
+
+   More specific selectors override the .text-white → #111 rule above
+   so labels inside this box stay light against the dark surface. */
+.staging-light .bg-gg-gray-800\/60 {
+  background-color: #2a2a2a !important; /* charcoal */
+}
+.staging-light .bg-gg-gray-800\/60 .text-white {
+  color: #f3f4f6 !important;            /* near-white headings */
+}
+.staging-light .bg-gg-gray-800\/60 .text-gg-gray-300,
+.staging-light .bg-gg-gray-800\/60 .text-gg-gray-400 {
+  color: #d1d5db !important;            /* light gray body */
+}
+.staging-light .bg-gg-gray-800\/60 .text-gg-gray-500 {
+  color: #9ca3af !important;            /* dim secondary text */
+}
+.staging-light .bg-gg-gray-800\/60 .border-gg-gray-700,
+.staging-light .bg-gg-gray-800\/60 .border-gg-gray-800 {
+  border-color: #3a3a3a !important;     /* dark border on dark bg */
 }
 .staging-light .hover\:bg-gg-gray-700:hover,
 .staging-light .hover\:bg-gg-gray-600:hover {
