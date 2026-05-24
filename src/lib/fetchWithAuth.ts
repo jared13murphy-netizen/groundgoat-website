@@ -82,6 +82,35 @@ async function refreshAccessToken(): Promise<RefreshResult> {
 
 let cachedRefreshPromise: Promise<RefreshResult> | null = null
 
+// Hard timeout on every fetchWithAuth call. Per user 2026-05-24
+// incident #2: PT staging spinner stuck forever on refresh. checkAuth
+// or fetchStagingListings was hanging silently — no error logged, no
+// timeout, never reaching the .finally() that turns the spinner off.
+// Native `fetch` will wait indefinitely for the response body if the
+// server/network drops mid-stream (or under flaky CORS conditions),
+// and the `setLoading(false)` in the caller never runs.
+//
+// 20s is generous for every endpoint we have (the slowest, the
+// staging-list join, returns in 1-2s in practice). Anything beyond
+// 20s is a stuck request and we want to fail-fast so the caller's
+// `finally` can clear the spinner and show a Retry button.
+const DEFAULT_TIMEOUT_MS = 20_000
+
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  // Respect a caller-supplied AbortSignal — only stack our own
+  // timeout on top if none is provided.
+  if (init.signal) {
+    return fetch(url, init)
+  }
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    return await fetch(url, { ...init, signal: controller.signal })
+  } finally {
+    clearTimeout(timeoutId)
+  }
+}
+
 export async function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Response> {
   const token = localStorage.getItem('auth_token')
 
@@ -90,7 +119,7 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}): Pro
     headers.set('Authorization', `Bearer ${token}`)
   }
 
-  let response = await fetch(url, { ...options, headers })
+  let response = await fetchWithTimeout(url, { ...options, headers }, DEFAULT_TIMEOUT_MS)
 
   // Only attempt refresh on 401 (token actually rejected). 502/503/504 are
   // backend transients — we surface them to the caller so the UI can show
@@ -106,7 +135,7 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}): Pro
 
     if (result.kind === 'ok') {
       headers.set('Authorization', `Bearer ${result.token}`)
-      response = await fetch(url, { ...options, headers })
+      response = await fetchWithTimeout(url, { ...options, headers }, DEFAULT_TIMEOUT_MS)
     } else if (result.kind === 'expired') {
       // Genuinely signed out. Skip redirect when we're already on /signin
       // so we don't create a redirect loop.

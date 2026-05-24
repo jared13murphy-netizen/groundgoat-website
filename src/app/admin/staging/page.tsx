@@ -914,12 +914,32 @@ export default function AdminStagingPage() {
     }
   }
 
+  // Per user 2026-05-24 incident: spinner stuck forever when fetch
+  // hangs or errors before checkAuth completes. Show the error inline
+  // + Retry button INSIDE the loading screen so the user is never
+  // stranded. fetchError is set by the catch/else branches of
+  // fetchStagingListings — if loading is still true AND fetchError
+  // is set, surface the error + an out instead of just a spinner.
   if (loading) {
     return (
       <div className="staging-light min-h-screen bg-gg-black flex items-center justify-center">
-        <div className="text-center">
-          <Loader2 className="animate-spin text-gg-pink mx-auto mb-4" size={32} />
-          <p className="text-gg-gray-400 text-sm">Loading staging listings...</p>
+        <div className="text-center max-w-md px-6">
+          {fetchError ? (
+            <>
+              <p className="text-red-400 mb-3">Failed to load: {fetchError}</p>
+              <button
+                onClick={() => { setLoading(false); fetchStagingListings(); fetchRunLog() }}
+                className="px-4 py-2 bg-gg-pink text-white rounded-lg hover:bg-gg-pink/80 text-sm"
+              >
+                Retry
+              </button>
+            </>
+          ) : (
+            <>
+              <Loader2 className="animate-spin text-gg-pink mx-auto mb-4" size={32} />
+              <p className="text-gg-gray-400 text-sm">Loading staging listings...</p>
+            </>
+          )}
         </div>
       </div>
     )
