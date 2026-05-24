@@ -207,6 +207,16 @@ button {
 }
 .staging-light .bg-gg-gray-800 {
   background-color: #f9fafb !important; /* tailwind gray-50 — card surface */
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05), 0 1px 3px 0 rgba(0, 0, 0, 0.06) !important;
+}
+/* Form fields + buttons that use bg-gg-gray-800 shouldn't get the
+   stat-card shadow — they have their own focus/hover treatment.
+   `input`/`textarea`/`select`/`button` carve themselves out below. */
+.staging-light input.bg-gg-gray-800,
+.staging-light textarea.bg-gg-gray-800,
+.staging-light select.bg-gg-gray-800,
+.staging-light button.bg-gg-gray-800 {
+  box-shadow: none !important;
 }
 .staging-light .bg-gg-gray-700 {
   background-color: #f3f4f6 !important; /* tailwind gray-100 — form fields */

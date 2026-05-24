@@ -157,6 +157,14 @@ export default function AdminPrivateTreatyStagingPage() {
   const [listings, setListings] = useState<StagingListing[]>([])
   const [screenshotModal, setScreenshotModal] = useState<string | null>(null)
 
+  // Tract image lazy-load cache. Mirrors the auction-staging
+  // implementation — tract_image_base64 isn't included in the staging
+  // list response (too heavy) and is fetched per-tract via
+  // /api/admin/staging/{id}/tract-image/{idx} when the user expands a
+  // card.
+  const [tractImageCache, setTractImageCache] = useState<Record<string, string | null>>({})
+  const [loadingTractImage, setLoadingTractImage] = useState<string | null>(null)
+
   // Company filter
   const [companyFilter, setCompanyFilter] = useState<string>('all')
 
@@ -339,6 +347,27 @@ export default function AdminPrivateTreatyStagingPage() {
       setListings([])
     } finally {
       setLoading(false)
+    }
+  }
+
+  // Lazy-load a single tract's satellite image. Mirrors the
+  // auction-staging implementation. tract_image_base64 isn't
+  // included in the staging list response (heavy payload) — fetch
+  // on-demand when the user expands a card.
+  const loadTractImage = async (listingId: number, tractIndex: number) => {
+    const key = `${listingId}-${tractIndex}`
+    if (tractImageCache[key] !== undefined) return // already loaded/loading
+    setLoadingTractImage(key)
+    try {
+      const response = await fetchWithAuth(`${API_URL}/api/admin/staging/${listingId}/tract-image/${tractIndex}`)
+      if (response.ok) {
+        const data = await response.json()
+        setTractImageCache(prev => ({ ...prev, [key]: data.tract_image_base64 }))
+      }
+    } catch (err) {
+      console.error('Failed to load tract image:', err)
+    } finally {
+      setLoadingTractImage(null)
     }
   }
 
@@ -1097,7 +1126,41 @@ export default function AdminPrivateTreatyStagingPage() {
                             <p className="text-xs text-gg-gray-400 mb-2 font-medium uppercase tracking-wider">Tract Details</p>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                               {info.tracts.map((tract: any, idx: number) => (
-                                <div key={idx} className="bg-gg-gray-800/60 rounded-lg px-3 py-2 text-sm">
+                                <div key={idx} className="bg-gg-gray-800/60 rounded-lg px-3 py-2 text-sm flex gap-3">
+                                  {/* Tract satellite image thumbnail — lazy-loaded.
+                                      Ported from auction staging per user 2026-05-24:
+                                      "Add the Tract Image in the Tract Details Box". */}
+                                  {(tract.tract_image_base64 || tract.has_tract_image) && (() => {
+                                    const cacheKey = `${listing.id}-${idx}`
+                                    const cachedImage = tract.tract_image_base64 || tractImageCache[cacheKey]
+                                    return cachedImage ? (
+                                      <button
+                                        onClick={() => setScreenshotModal(`data:image/png;base64,${cachedImage}`)}
+                                        className="flex-shrink-0"
+                                        title="Click to enlarge tract image"
+                                      >
+                                        <img
+                                          src={`data:image/png;base64,${cachedImage}`}
+                                          alt={`Tract ${tract.tract_number ?? idx + 1}`}
+                                          className="w-24 h-24 rounded object-cover cursor-pointer hover:opacity-80 transition-opacity border border-gg-gray-700"
+                                        />
+                                      </button>
+                                    ) : (
+                                      <button
+                                        onClick={() => loadTractImage(listing.id, idx)}
+                                        disabled={loadingTractImage === cacheKey}
+                                        className="flex-shrink-0 w-24 h-24 rounded flex items-center justify-center border border-gg-gray-700 hover:border-gg-gray-600 text-gg-gray-500 hover:text-gg-gray-400 transition-colors cursor-pointer"
+                                        title="Load tract image"
+                                      >
+                                        {loadingTractImage === cacheKey ? (
+                                          <Loader2 className="animate-spin" size={14} />
+                                        ) : (
+                                          <ImageIcon size={16} />
+                                        )}
+                                      </button>
+                                    )
+                                  })()}
+                                  <div className="flex-1 min-w-0">
                                   <div className="flex items-center justify-between">
                                     <span className="text-white font-medium">Tract {tract.tract_number ?? idx + 1}</span>
                                     {tract.acres && <span className="text-gg-gray-300">{tract.acres} ac</span>}
@@ -1155,6 +1218,7 @@ export default function AdminPrivateTreatyStagingPage() {
                                       </a>
                                     )
                                   })()}
+                                  </div>{/* /flex-1 min-w-0 wrapper */}
                                 </div>
                               ))}
                             </div>
