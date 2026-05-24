@@ -19,11 +19,24 @@ async function refreshAccessToken(): Promise<RefreshResult> {
   const refreshToken = localStorage.getItem('refresh_token')
   if (!refreshToken) return { kind: 'expired' }
 
+  // HARD TIMEOUT on the refresh fetch — CRITICAL for app-wide reliability.
+  // Per user 2026-05-24 incident: when the backend was slow during a
+  // scraper OOM, this fetch hung indefinitely. `cachedRefreshPromise`
+  // below only clears in its `.finally()` — which never fires while the
+  // promise is pending. Every subsequent fetchWithAuth that hit a 401
+  // then awaited the dead promise forever, freezing the entire app
+  // (staging page stuck on "Loading...", Ignore button spinners eternal,
+  // etc). This timeout closes the cascade vector: we ALWAYS settle
+  // within 10s, the finally clears the cache, the app stays responsive.
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), 10_000)
+
   try {
     const response = await fetch(`${API_URL}/api/auth/refresh`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refresh_token: refreshToken }),
+      signal: controller.signal,
     })
 
     if (response.ok) {
@@ -49,9 +62,21 @@ async function refreshAccessToken(): Promise<RefreshResult> {
     console.warn(`Token refresh got HTTP ${response.status} — keeping tokens, will retry on next request`)
     return { kind: 'transient' }
   } catch (error) {
-    // Network error / DNS / fetch threw — also transient, NOT a logout.
-    console.warn('Token refresh network error — keeping tokens, will retry:', error)
+    // AbortError (10s timeout) or any other fetch failure (network error,
+    // DNS, etc.) — all treated as transient so we DON'T wipe the user's
+    // tokens. The promise still SETTLES here, which is the whole point —
+    // the outer .finally() can now clear cachedRefreshPromise and the
+    // next request gets a fresh refresh attempt instead of awaiting a
+    // dead promise.
+    const isAbort = (error as Error)?.name === 'AbortError'
+    console.warn(
+      isAbort
+        ? 'Token refresh hit 10s timeout — keeping tokens, will retry on next request'
+        : `Token refresh network error — keeping tokens, will retry: ${error}`
+    )
     return { kind: 'transient' }
+  } finally {
+    clearTimeout(timeoutId)
   }
 }
 
