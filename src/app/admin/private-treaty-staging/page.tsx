@@ -676,7 +676,7 @@ export default function AdminPrivateTreatyStagingPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gg-black flex items-center justify-center">
+      <div className="staging-light min-h-screen bg-gg-black flex items-center justify-center">
         <div className="text-center">
           <Loader2 className="animate-spin text-gg-pink mx-auto mb-4" size={32} />
           <p className="text-gg-gray-400 text-sm">Loading private treaty staging...</p>
@@ -686,7 +686,10 @@ export default function AdminPrivateTreatyStagingPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gg-black pt-24 pb-12">
+    // `staging-light` (defined in globals.css) flips the dark gg-* tokens
+    // used throughout this page to a light theme — easier to read during
+    // data review. Brand accents (pink, gold) stay the same.
+    <div className="staging-light min-h-screen bg-gg-black pt-24 pb-12">
       <div className="max-w-7xl mx-auto px-6">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
