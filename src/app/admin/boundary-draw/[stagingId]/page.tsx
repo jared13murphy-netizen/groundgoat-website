@@ -87,6 +87,7 @@ export default function BoundaryDrawPage() {
   const [error, setError] = useState<string | null>(null)
   const [points, setPoints] = useState<Pt[]>([])
   const [saving, setSaving] = useState(false)
+  const [aligning, setAligning] = useState(false)
   const [saveResult, setSaveResult] = useState<string | null>(null)
   const [sourceScreenshot, setSourceScreenshot] = useState<string | null>(null)
   const [sourceImages, setSourceImages] = useState<{url: string; alt: string; w: number; h: number}[]>([])
@@ -127,6 +128,26 @@ export default function BoundaryDrawPage() {
     load()
     return () => { cancelled = true }
   }, [stagingId])
+
+  // Pre-fill the editor with any existing polygon — auto-enrichment
+  // (item 3 / commit 948fb5e) populates polygon_coordinates during the
+  // nightly scrape, so when the user opens this page for an already-
+  // enriched tract, the editor should start with that polygon loaded
+  // so they can fine-tune rather than redraw.
+  useEffect(() => {
+    if (!staging) return
+    const t = (staging.scraped_data?.tracts || [])[tractIndex]
+    const existing = t?.polygon_coordinates
+    if (Array.isArray(existing) && existing.length >= 3) {
+      // Drop closing-duplicate vertex if present; the editor's UX
+      // expects unclosed point lists (closes the ring at render time).
+      const cleaned = (
+        existing[0]?.[0] === existing[existing.length - 1]?.[0]
+        && existing[0]?.[1] === existing[existing.length - 1]?.[1]
+      ) ? existing.slice(0, -1) : existing
+      setPoints(cleaned as Pt[])
+    }
+  }, [staging, tractIndex])
 
   // Render the source listing with Playwright and pull a full-page
   // screenshot + every rendered image so the boundary diagram is
@@ -231,6 +252,87 @@ export default function BoundaryDrawPage() {
   const undoLast = () => setPoints(prev => prev.slice(0, -1))
   const clearAll = () => setPoints([])
 
+  // Align Tract Acres button handler (roadmap item 4 per user
+  // 2026-05-23):
+  //   1. POST the current polygon + scraped target acres to the
+  //      backend's /align-and-rebuild endpoint.
+  //   2. Backend SCALES the polygon around its centroid to match the
+  //      target, then REBUILDS the tillable polygon via the same
+  //      hybrid classifier used in the nightly scrape pipeline.
+  //   3. Response includes the scaled polygon — we re-load points
+  //      from it so the user sees the aligned shape immediately.
+  //   4. Tillable polygon + soil rating get saved into the staging
+  //      JSONB by the backend; user sees them refresh after returning
+  //      to the staging page.
+  const align = async () => {
+    if (points.length < 3) {
+      setSaveResult('Need at least 3 points to align')
+      return
+    }
+    const tract = (staging?.scraped_data?.tracts || [])[tractIndex] || {}
+    const targetAcres = Number(tract.acres)
+    if (!targetAcres || targetAcres <= 0) {
+      setSaveResult('No scraped acres on this tract — cannot align')
+      return
+    }
+    setAligning(true)
+    setSaveResult(null)
+    try {
+      const res = await fetch(
+        `${SCRAPER_URL}/api/staging/${stagingId}/tracts/${tractIndex}/align-and-rebuild`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            polygon: points,
+            target_acres: targetAcres,
+          }),
+        }
+      )
+      const data = await res.json()
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'align failed')
+      }
+      // Replace points with the scaled polygon so the user sees the
+      // new shape on the map.
+      const scaled = data.tract?.polygon_coordinates
+      if (Array.isArray(scaled) && scaled.length >= 3) {
+        const cleaned = (
+          scaled[0]?.[0] === scaled[scaled.length - 1]?.[0]
+          && scaled[0]?.[1] === scaled[scaled.length - 1]?.[1]
+        ) ? scaled.slice(0, -1) : scaled
+        setPoints(cleaned as Pt[])
+      }
+      // Refresh the local staging snapshot so the tillable shape +
+      // soil rating shown on the page reflect the rebuild.
+      setStaging((prev: any) => {
+        if (!prev) return prev
+        const next = { ...prev, scraped_data: { ...(prev.scraped_data || {}) } }
+        const ts = [...(next.scraped_data.tracts || [])]
+        ts[tractIndex] = data.tract
+        next.scraped_data.tracts = ts
+        return next
+      })
+      const s = data.stats || {}
+      const tilParts: string[] = []
+      if (s.tillable_acres != null) {
+        tilParts.push(`tillable=${Number(s.tillable_acres).toFixed(1)}ac`)
+      }
+      if (s.tillable_error) {
+        tilParts.push(`tillable rebuild error: ${s.tillable_error}`)
+      }
+      setSaveResult(
+        `✓ Aligned to ${targetAcres}ac` +
+        (tilParts.length ? ` · ${tilParts.join(' · ')}` : '') +
+        ` · ${s.elapsed_s || '?'}s`
+      )
+    } catch (e: any) {
+      setSaveResult(`✗ Align failed: ${e.message || e}`)
+    } finally {
+      setAligning(false)
+    }
+  }
+
   const save = async () => {
     if (points.length < 3) {
       setSaveResult('Need at least 3 points to define a boundary')
@@ -318,7 +420,23 @@ export default function BoundaryDrawPage() {
           <button onClick={() => router.back()} className="px-3 py-1.5 text-sm bg-gg-gray-800 hover:bg-gg-gray-700 rounded flex items-center gap-1 whitespace-nowrap">
             <X size={14} /> Cancel
           </button>
-          <button onClick={save} disabled={saving || points.length < 3} className="px-4 py-1.5 text-sm bg-gg-pink hover:bg-gg-pink-light text-white font-semibold disabled:opacity-40 disabled:hover:bg-gg-pink rounded flex items-center gap-1.5 whitespace-nowrap">
+          {/* Align Tract Acres — scales the current polygon to match the
+              scraped tract acres + auto-rebuilds the tillable polygon
+              via the hybrid classifier. Roadmap item 4 per user
+              2026-05-23. Disabled when fewer than 3 points exist or no
+              scraped acres available. */}
+          <button
+            onClick={align}
+            disabled={aligning || saving || points.length < 3 || !staging?.scraped_data?.tracts?.[tractIndex]?.acres}
+            title={(staging?.scraped_data?.tracts?.[tractIndex]?.acres
+              ? `Scale polygon to ${staging.scraped_data.tracts[tractIndex].acres}ac + rebuild tillable`
+              : 'No scraped acres available — cannot align')}
+            className="px-3 py-1.5 text-sm bg-gg-gold hover:bg-gg-gold-light text-white font-semibold disabled:opacity-40 disabled:hover:bg-gg-gold rounded flex items-center gap-1.5 whitespace-nowrap"
+          >
+            {aligning ? <Loader2 className="animate-spin" size={14} /> : <Save size={14} />}
+            {aligning ? 'Aligning…' : 'Align Tract Acres'}
+          </button>
+          <button onClick={save} disabled={saving || aligning || points.length < 3} className="px-4 py-1.5 text-sm bg-gg-pink hover:bg-gg-pink-light text-white font-semibold disabled:opacity-40 disabled:hover:bg-gg-pink rounded flex items-center gap-1.5 whitespace-nowrap">
             {saving ? <Loader2 className="animate-spin" size={14} /> : <Save size={14} />}
             {saving ? 'Saving…' : 'Save'}
           </button>
