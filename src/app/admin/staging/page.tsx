@@ -1316,45 +1316,36 @@ export default function AdminStagingPage() {
                           </button>
                         </div>
 
-                        {/* Key Data — stat cards. Each one gets a clean
-                            light surface (bg-white + gray-200 border) so it
-                            visually sits on the page rather than blending in
-                            with a flat gray fill. Label gets uppercase
-                            tracking treatment for stronger hierarchy; value
-                            is darker + larger. Targets the staging-light
-                            theme directly — no reliance on CSS scope
-                            overrides for these specific surfaces. */}
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
-                          <div className="bg-white border border-gray-200 rounded-lg p-3.5 shadow-sm">
-                            <p className="text-[10px] uppercase tracking-wider text-gg-gray-500 mb-1.5 font-semibold">Acres</p>
-                            <p className="text-gray-900 font-bold text-lg leading-tight">
+                        {/* Key Data */}
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                          <div className="bg-gg-gray-800 rounded-lg p-3">
+                            <p className="text-xs text-gg-gray-400 mb-1">Acres</p>
+                            <p className="text-white font-semibold">
                               {info.acres ? `${info.acres}` : 'N/A'}
                             </p>
                           </div>
-                          <div className="bg-white border border-gray-200 rounded-lg p-3.5 shadow-sm">
-                            <p className="text-[10px] uppercase tracking-wider text-gg-gray-500 mb-1.5 font-semibold">Location</p>
-                            <p className="text-gray-900 font-bold text-sm leading-tight flex items-center gap-1">
-                              <MapPin size={13} className="text-gg-pink flex-shrink-0" />
-                              <span className="truncate">
-                                {info.county && info.state
-                                  ? `${info.county}, ${info.state}`
-                                  : 'N/A'}
-                              </span>
+                          <div className="bg-gg-gray-800 rounded-lg p-3">
+                            <p className="text-xs text-gg-gray-400 mb-1">Location</p>
+                            <p className="text-white font-semibold flex items-center gap-1">
+                              <MapPin size={12} className="text-gg-gray-500" />
+                              {info.county && info.state
+                                ? `${info.county}, ${info.state}`
+                                : 'N/A'}
                             </p>
                           </div>
-                          <div className="bg-white border border-gray-200 rounded-lg p-3.5 shadow-sm">
-                            <p className="text-[10px] uppercase tracking-wider text-gg-gray-500 mb-1.5 font-semibold">Tracts</p>
-                            <p className="text-gray-900 font-bold text-lg leading-tight flex items-center gap-1">
-                              <Layers size={14} className="text-gg-pink flex-shrink-0" />
+                          <div className="bg-gg-gray-800 rounded-lg p-3">
+                            <p className="text-xs text-gg-gray-400 mb-1">Tracts</p>
+                            <p className="text-white font-semibold flex items-center gap-1">
+                              <Layers size={12} className="text-gg-gray-500" />
                               {info.tractCount}
                             </p>
                           </div>
-                          <div className="bg-white border border-gray-200 rounded-lg p-3.5 shadow-sm">
-                            <p className="text-[10px] uppercase tracking-wider text-gg-gray-500 mb-1.5 font-semibold">Auction Date &amp; Time</p>
-                            <p className="text-gray-900 font-bold text-sm leading-tight">
+                          <div className="bg-gg-gray-800 rounded-lg p-3">
+                            <p className="text-xs text-gg-gray-400 mb-1">Auction Date &amp; Time</p>
+                            <p className="text-white font-semibold">
                               {formatDate(listing.auction_date)}
                               {info.auctionTime && (
-                                <span className="text-gg-gray-500 font-medium ml-1">@ {info.auctionTime}</span>
+                                <span className="text-gg-gray-300 font-normal ml-1">@ {info.auctionTime}</span>
                               )}
                             </p>
                           </div>
@@ -1376,16 +1367,9 @@ export default function AdminStagingPage() {
                         {info.tracts.length > 0 && (
                           <div className="mb-4">
                             <p className="text-xs text-gg-gray-400 mb-2 font-medium uppercase tracking-wider">Tract Details</p>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                              {/* Each tract card explicitly uses light-theme
-                                  tokens (bg-white + gray-200 border + subtle
-                                  shadow) instead of the previous
-                                  bg-gg-gray-800/60 — the opacity-modifier
-                                  class wasn't being overridden by the
-                                  staging-light scope, so it stayed dark
-                                  against the now-white page. */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                               {info.tracts.map((tract: any, idx: number) => (
-                                <div key={idx} className="bg-white border border-gray-200 rounded-lg px-3.5 py-3 text-sm flex gap-3 shadow-sm hover:border-gray-300 transition-colors">
+                                <div key={idx} className="bg-gg-gray-800/60 rounded-lg px-3 py-2 text-sm flex gap-3">
                                   {/* Tract satellite image thumbnail — lazy-loaded */}
                                   {(tract.tract_image_base64 || tract.has_tract_image) && (() => {
                                     const cacheKey = `${listing.id}-${idx}`

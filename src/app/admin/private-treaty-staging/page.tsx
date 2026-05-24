@@ -1058,54 +1058,46 @@ export default function AdminPrivateTreatyStagingPage() {
                           </button>
                         </div>
 
-                        {/* Key Data — mirror of auction staging restyle.
-                            White-on-white-with-border surface gets stronger
-                            visual hierarchy on the light theme than the
-                            previous flat gray fill. */}
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
-                          <div className="bg-white border border-gray-200 rounded-lg p-3.5 shadow-sm">
-                            <p className="text-[10px] uppercase tracking-wider text-gg-gray-500 mb-1.5 font-semibold">Acres</p>
-                            <p className="text-gray-900 font-bold text-lg leading-tight">
+                        {/* Key Data */}
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                          <div className="bg-gg-gray-800 rounded-lg p-3">
+                            <p className="text-xs text-gg-gray-400 mb-1">Acres</p>
+                            <p className="text-white font-semibold">
                               {info.acres ? `${info.acres}` : 'N/A'}
                             </p>
                           </div>
-                          <div className="bg-white border border-gray-200 rounded-lg p-3.5 shadow-sm">
-                            <p className="text-[10px] uppercase tracking-wider text-gg-gray-500 mb-1.5 font-semibold">Location</p>
-                            <p className="text-gray-900 font-bold text-sm leading-tight flex items-center gap-1">
-                              <MapPin size={13} className="text-gg-pink flex-shrink-0" />
-                              <span className="truncate">
-                                {info.county && info.state
-                                  ? `${info.county}, ${info.state}`
-                                  : 'N/A'}
-                              </span>
+                          <div className="bg-gg-gray-800 rounded-lg p-3">
+                            <p className="text-xs text-gg-gray-400 mb-1">Location</p>
+                            <p className="text-white font-semibold flex items-center gap-1">
+                              <MapPin size={12} className="text-gg-gray-500" />
+                              {info.county && info.state
+                                ? `${info.county}, ${info.state}`
+                                : 'N/A'}
                             </p>
                           </div>
-                          <div className="bg-white border border-gray-200 rounded-lg p-3.5 shadow-sm">
-                            <p className="text-[10px] uppercase tracking-wider text-gg-gray-500 mb-1.5 font-semibold">Tracts</p>
-                            <p className="text-gray-900 font-bold text-lg leading-tight flex items-center gap-1">
-                              <Layers size={14} className="text-gg-pink flex-shrink-0" />
+                          <div className="bg-gg-gray-800 rounded-lg p-3">
+                            <p className="text-xs text-gg-gray-400 mb-1">Tracts</p>
+                            <p className="text-white font-semibold flex items-center gap-1">
+                              <Layers size={12} className="text-gg-gray-500" />
                               {info.tractCount}
                             </p>
                           </div>
-                          <div className="bg-white border border-gray-200 rounded-lg p-3.5 shadow-sm">
-                            <p className="text-[10px] uppercase tracking-wider text-gg-gray-500 mb-1.5 font-semibold">Asking Price</p>
-                            <p className="text-gray-900 font-bold text-sm leading-tight flex items-center gap-1">
-                              <DollarSign size={14} className="text-green-600 flex-shrink-0" />
+                          <div className="bg-gg-gray-800 rounded-lg p-3">
+                            <p className="text-xs text-gg-gray-400 mb-1">Asking Price</p>
+                            <p className="text-white font-semibold flex items-center gap-1">
+                              <DollarSign size={12} className="text-green-400" />
                               {formatPrice(info.askingPrice)}
                             </p>
                           </div>
                         </div>
 
-                        {/* Tract Details — mirror of auction staging:
-                            explicit light tract cards rather than relying
-                            on the staging-light CSS scope to recolor a
-                            dark opacity-modified surface. */}
+                        {/* Tract Details */}
                         {info.tracts.length > 0 && (
                           <div className="mb-4">
                             <p className="text-xs text-gg-gray-400 mb-2 font-medium uppercase tracking-wider">Tract Details</p>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                               {info.tracts.map((tract: any, idx: number) => (
-                                <div key={idx} className="bg-white border border-gray-200 rounded-lg px-3.5 py-3 text-sm shadow-sm hover:border-gray-300 transition-colors">
+                                <div key={idx} className="bg-gg-gray-800/60 rounded-lg px-3 py-2 text-sm">
                                   <div className="flex items-center justify-between">
                                     <span className="text-white font-medium">Tract {tract.tract_number ?? idx + 1}</span>
                                     {tract.acres && <span className="text-gg-gray-300">{tract.acres} ac</span>}
