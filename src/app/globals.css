@@ -275,3 +275,60 @@ button {
 .staging-light tr:hover {
   background-color: #f9fafb;
 }
+
+/* === Opacity-modifier variants ===
+   Tailwind generates classes like `bg-gg-gray-800/60` as
+   `.bg-gg-gray-800\/60` (escaped slash). These are SEPARATE CSS
+   classes from the base `.bg-gg-gray-800`, so our base override
+   above does NOT catch them. This was the bug behind the dark
+   inner Tract Details card the user flagged 2026-05-23.
+   We override the opacity-modified variants explicitly here. */
+.staging-light .bg-gg-gray-800\/60,
+.staging-light .bg-gg-gray-800\/40,
+.staging-light .bg-gg-gray-800\/80 {
+  background-color: #f9fafb !important; /* gray-50, solid */
+}
+.staging-light .bg-white\/5,
+.staging-light .bg-white\/10 {
+  background-color: #f9fafb !important;
+}
+
+/* === Card prominence ===
+   The outer staging card uses `bg-gg-gray-900 border-gg-gray-800
+   rounded-xl`. On light theme our overrides flip the bg to white
+   and the border to gray-200, but the card lacks the depth cue
+   that made it pop on dark. Add a real shadow + a slightly
+   darker border so the card visually separates from the page bg.
+   Targets `.bg-gg-gray-900` inside `.staging-light`. */
+.staging-light .bg-gg-gray-900 {
+  background-color: #ffffff !important;
+  border-color: #e5e7eb !important;
+  box-shadow:
+    0 1px 3px 0 rgba(0, 0, 0, 0.05),
+    0 1px 2px 0 rgba(0, 0, 0, 0.06);
+}
+
+/* === Headings get a stronger weight + size === */
+.staging-light h3.font-bold {
+  font-weight: 700;
+  color: #0f172a;
+  font-size: 1.25rem; /* text-xl */
+  letter-spacing: -0.01em;
+}
+
+/* === Action buttons (Verify / Edit / Ignore / Publish / Reject):
+       give them a touch more padding so they don't feel cramped
+       on light bg where the colored fill provides less anchor. */
+.staging-light button.bg-green-600,
+.staging-light button.bg-green-700,
+.staging-light button.bg-red-600,
+.staging-light button.bg-red-700,
+.staging-light button.bg-amber-600,
+.staging-light button.bg-amber-700,
+.staging-light button.bg-yellow-600,
+.staging-light button.bg-yellow-700,
+.staging-light button.bg-orange-600,
+.staging-light button.bg-orange-700 {
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
