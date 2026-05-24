@@ -1135,16 +1135,26 @@ export default function AdminPrivateTreatyStagingPage() {
                                     {tract.has_house && <span className="text-blue-400">House</span>}
                                     {tract.has_building && <span className="text-amber-400">Building</span>}
                                   </div>
-                                  {(!tract.polygon_coordinates || (Array.isArray(tract.polygon_coordinates) && tract.polygon_coordinates.length === 0)) && (
-                                    <a
-                                      href={`/admin/boundary-draw/${listing.id}?tract=${idx}`}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="inline-block mt-1.5 px-2 py-0.5 text-[11px] rounded bg-gg-pink/20 hover:bg-gg-pink/30 text-gg-pink border border-gg-pink/40 transition-colors"
-                                    >
-                                      ✏️ Draw Boundary
-                                    </a>
-                                  )}
+                                  {/* Boundary editor link — shown for ALL tracts (auto-
+                                      enrichment populates polygons during PT scrape,
+                                      operator can fine-tune via the Align Tract Acres
+                                      button on the boundary-draw page). Roadmap item 5
+                                      mirror of the auction-staging change in 0cca4b9. */}
+                                  {(() => {
+                                    const hasPoly = !!tract.polygon_coordinates
+                                      && Array.isArray(tract.polygon_coordinates)
+                                      && tract.polygon_coordinates.length >= 3
+                                    return (
+                                      <a
+                                        href={`/admin/boundary-draw/${listing.id}?tract=${idx}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-block mt-1.5 px-2 py-0.5 text-[11px] rounded bg-gg-pink/20 hover:bg-gg-pink/30 text-gg-pink border border-gg-pink/40 transition-colors"
+                                      >
+                                        {hasPoly ? '✏️ Edit Boundary' : '✏️ Draw Boundary'}
+                                      </a>
+                                    )
+                                  })()}
                                 </div>
                               ))}
                             </div>
