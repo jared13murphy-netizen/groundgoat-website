@@ -1121,18 +1121,18 @@ export default function AdminPrivateTreatyStagingPage() {
                           </div>
                         </div>
 
-                        {/* Tract Details */}
+                        {/* Tract Details — each tract is a vertical block:
+                            map+image header on top (magic-lab pattern),
+                            charcoal details box below. Single-column because
+                            each tract has a 320px-high map header. */}
                         {info.tracts.length > 0 && (
                           <div className="mb-4">
                             <p className="text-xs text-gg-gray-400 mb-2 font-medium uppercase tracking-wider">Tract Details</p>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                            <div className="space-y-4">
                               {info.tracts.map((tract: any, idx: number) => (
-                                <div key={idx} className="bg-gg-gray-800/60 rounded-lg px-3 py-2 text-sm flex flex-wrap gap-3">
-                                  {/* Inline polygon viewer + editor. Same
-                                      component as auction staging — preview
-                                      thumbnail in the row, expands to full-
-                                      width MapLibre editor on click. Lazy-
-                                      mounted to avoid WebGL exhaustion. */}
+                                <div key={idx}>
+                                  {/* Map (~60%) + tract image (~40%) header.
+                                      Lazy-mounts MapLibre on first visibility. */}
                                   <TractMapEditor
                                     stagingId={listing.id}
                                     tractIndex={idx}
@@ -1151,7 +1151,7 @@ export default function AdminPrivateTreatyStagingPage() {
                                       }))
                                     }}
                                   />
-                                  <div className="flex-1 min-w-0">
+                                  <div className="bg-gg-gray-800/60 rounded-lg px-3 py-2 text-sm">
                                   <div className="flex items-center justify-between">
                                     <span className="text-white font-medium">Tract {tract.tract_number ?? idx + 1}</span>
                                     {tract.acres && <span className="text-gg-gray-300">{tract.acres} ac</span>}

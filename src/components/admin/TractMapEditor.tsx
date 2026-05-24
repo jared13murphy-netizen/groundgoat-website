@@ -3,44 +3,49 @@
 /**
  * TractMapEditor — inline polygon viewer + editor for staging cards.
  *
- * Per user 2026-05-24: each tract on the Auction Staging and PT
- * Staging screens needs an inline MapLibre map (parity with
- * /admin/magic-lab) plus the ability to edit/delete the polygon
- * without leaving the staging page.
+ * Per user 2026-05-24 (redesigned): mirrors the magic-lab visual pattern.
+ * Each tract gets its own header above the tract details box:
  *
- * LAZY MOUNT — the MapLibre instance only spins up when the user
- * clicks "Edit Map". Each map is a WebGL context and browsers cap
- * concurrent contexts (typically 8-16). A 20-listing staging page
- * with 2 tracts each would crash the tab if all 40 maps mounted at
- * once. So in preview mode we render the static `tract_image_base64`
- * thumbnail (or a placeholder if missing). The map only mounts when
- * the user explicitly enters edit mode.
+ *   ┌───────────────────────────────────┬─────────────────┐
+ *   │                                   │                 │
+ *   │   Interactive MapLibre map        │   Tract image   │
+ *   │   (editable polygon, ~60% wide)   │   (static       │
+ *   │                                   │    reference,   │
+ *   │                                   │    ~40% wide)   │
+ *   │                                   │                 │
+ *   └───────────────────────────────────┴─────────────────┘
+ *   ┌──────────── toolbar ─────────────────────────────────┐
+ *   │ N vertices • X ac    Undo Clear Delete Cancel Save  │
+ *   └─────────────────────────────────────────────────────┘
+ *
+ * LAZY MOUNT via IntersectionObserver — MapLibre instances are WebGL
+ * contexts; browsers cap them (typically 8-16). A staging page with
+ * 20 listings × 2 tracts each = 40 maps. We use IntersectionObserver
+ * to only initialize the map when the card scrolls into view (and
+ * keep it mounted thereafter, since tearing down on scroll-away
+ * would cause flicker). This caps active WebGL contexts to
+ * ~roughly-what's-on-screen rather than the whole list.
  *
  * Two write paths:
  *   - Save: POST /api/staging/{id}/tracts/{idx}/save-boundary
- *     (existing endpoint — validates polygon >=3 points, recomputes
- *      GIS acres, re-enriches tract data)
+ *     (existing scraper endpoint — recomputes GIS acres, re-enriches)
  *   - Delete: DELETE /api/staging/{id}/tracts/{idx}/boundary
  *     (new endpoint shipped in scraper commit 5252d69 — wipes the
  *      geometric fields so the user can redraw cleanly)
  *
- * Edit mechanics mirror the dedicated /admin/boundary-draw page:
- *   click empty map → add vertex
- *   ≥3 vertices → polygon closes automatically
- *   Undo button removes last vertex
- *   Clear button removes all vertices
- *   Delete button wipes the saved polygon (server-side)
- *   Save button persists the current polygon
- *   Cancel reverts working state to the loaded polygon
+ * Edit mechanics (click-to-add, no drag — same UX as the dedicated
+ * /admin/boundary-draw page so users only have to learn one pattern):
+ *   - Click empty map → add vertex
+ *   - ≥3 vertices → polygon closes automatically (pink fill)
+ *   - Undo / Clear / Delete / Cancel / Save buttons in the toolbar
  */
 
 import { useEffect, useRef, useState } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import {
-  Save, RotateCcw, Trash2, Loader2, Pencil, X, ImageIcon,
+  Save, RotateCcw, Trash2, Loader2, ImageIcon,
 } from 'lucide-react'
-import fetchWithAuth from '@/lib/fetchWithAuth'
 
 const SCRAPER_URL = 'https://ground-goat-scraper-production.up.railway.app'
 const TILE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
@@ -51,27 +56,25 @@ type Pt = [number, number]    // [lng, lat]
 interface TractMapEditorProps {
   stagingId: number
   tractIndex: number
-  /** Existing polygon, if any. null/empty → user is drawing from scratch. */
+  /** Existing polygon, if any. null/empty → user draws from scratch. */
   initialPolygon: Pt[] | null
-  /** Tract satellite image (base64) shown as the preview thumbnail. */
+  /** Tract satellite + polygon overlay image (base64). Shown on the
+   *  right pane as the static reference. */
   tractImageBase64?: string | null
-  /** Tract center (used to position the map when no polygon exists). */
+  /** Center fallback when no polygon and no listing-level coord. */
   latitude?: number | null
   longitude?: number | null
-  /** Pixel size of the preview thumbnail. Defaults to 96. */
-  thumbnailSize?: number
-  /** Pixel height of the live map editor. Defaults to 360. */
+  /** Height of the editor strip in pixels. Default 320. */
   editorHeight?: number
-  /** Called with the updated tract dict after save or delete. The
-   *  parent should merge this into its local staging state so the
-   *  card reflects the change immediately. */
+  /** Called with the updated tract dict after a successful save or
+   *  delete. Parent should merge into its local staging state so the
+   *  card re-renders with the new polygon + regenerated image. */
   onUpdate?: (updatedTract: any) => void
 }
 
 // ---------------------------------------------------------------------------
-// GeoJSON helpers — copied verbatim from /admin/boundary-draw/[stagingId]/page.tsx
-// so the inline editor renders polygons exactly the same way as the
-// dedicated full-page editor.
+// GeoJSON helpers — copied verbatim from /admin/boundary-draw so polygons
+// render identically across surfaces.
 // ---------------------------------------------------------------------------
 
 function buildDrawGeo(points: Pt[]) {
@@ -126,8 +129,6 @@ function gisAcres(points: Pt[]): number {
   return area * latMiles * lngMiles * 640
 }
 
-// Drop the closing-duplicate vertex if the caller passed a closed ring.
-// The editor's working state expects an open list (last point != first).
 function normalizeInitialPolygon(poly: Pt[] | null | undefined): Pt[] {
   if (!Array.isArray(poly) || poly.length < 3) return []
   const first = poly[0]
@@ -149,33 +150,67 @@ export default function TractMapEditor({
   tractImageBase64,
   latitude,
   longitude,
-  thumbnailSize = 96,
-  editorHeight = 360,
+  editorHeight = 320,
   onUpdate,
 }: TractMapEditorProps) {
-  const [mode, setMode] = useState<'preview' | 'edit'>('preview')
+  // Working polygon state — what's being edited on the map. Diverges
+  // from initialPolygon while the user is drawing/clearing; reset on
+  // Cancel or after a successful Save.
   const [points, setPoints] = useState<Pt[]>(
     () => normalizeInitialPolygon(initialPolygon)
   )
+  // True once any modification has been made — controls whether the
+  // Cancel/Save toolbar is enabled.
+  const [dirty, setDirty] = useState(false)
+  // True after the IntersectionObserver fires once. The map mounts on
+  // the first intersection and stays mounted thereafter (re-mounting
+  // on scroll-away → scroll-back would cause flicker + re-fetch tiles).
+  const [hasBeenVisible, setHasBeenVisible] = useState(false)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [status, setStatus] = useState<string | null>(null)
+
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
+  // For IntersectionObserver — observes the outer wrapper so the map
+  // mounts as soon as the user scrolls the tract into view.
+  const wrapperRef = useRef<HTMLDivElement | null>(null)
 
-  // Reset working state if the initial polygon changes (parent updated
-  // the data after a successful save/delete in a different component,
-  // or the user navigated to a different tract).
+  // Reset working state if the parent passes a different polygon (e.g.,
+  // after a successful save on a different tract that updated this
+  // tract's data via shared listings state).
   useEffect(() => {
     setPoints(normalizeInitialPolygon(initialPolygon))
+    setDirty(false)
   }, [initialPolygon])
 
   // ===========================================================
-  // Map lifecycle — initialize ONLY when entering edit mode.
-  // Tear down when leaving edit mode so we don't leak WebGL.
+  // IntersectionObserver — mount the MapLibre instance the FIRST
+  // time the tract scrolls into the viewport. We use rootMargin so
+  // it pre-loads just before becoming visible (smoother scroll).
   // ===========================================================
   useEffect(() => {
-    if (mode !== 'edit') return
+    const el = wrapperRef.current
+    if (!el || hasBeenVisible) return
+    const observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) {
+          setHasBeenVisible(true)
+          observer.disconnect()
+          break
+        }
+      }
+    }, { rootMargin: '200px 0px' })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [hasBeenVisible])
+
+  // ===========================================================
+  // Map lifecycle — mount once after first visibility, tear down
+  // on unmount (e.g., listing removed from staging).
+  // ===========================================================
+  useEffect(() => {
+    if (!hasBeenVisible) return
     const container = containerRef.current
     if (!container) return
 
@@ -209,15 +244,12 @@ export default function TractMapEditor({
       },
       center: [centerLng, centerLat],
       zoom: initZoom,
+      attributionControl: false,
     })
     mapRef.current = map
+    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right')
 
     map.on('load', () => {
-      // The "drawn" source holds the in-progress polygon (or polyline).
-      // The "verts" source renders draggable vertex circles. Vertex
-      // dragging is intentionally NOT wired up here — matches the
-      // dedicated boundary-draw page UX (click-to-add, undo to remove,
-      // clear to reset, redraw if you need to move a vertex).
       map.addSource('drawn', { type: 'geojson', data: buildDrawGeo(points) })
       map.addSource('verts', { type: 'geojson', data: buildVertexGeo(points) })
       map.addLayer({
@@ -232,31 +264,32 @@ export default function TractMapEditor({
       map.addLayer({
         id: 'verts', type: 'circle', source: 'verts',
         paint: {
-          'circle-radius': 7,
-          'circle-color': '#f58cde',
+          'circle-radius': 6,
+          'circle-color': '#ffffff',
           'circle-stroke-width': 2,
-          'circle-stroke-color': '#000',
+          'circle-stroke-color': '#f58cde',
         },
       })
 
-      // If we already have a polygon, frame it.
+      // Frame the polygon if we have one.
       if (points.length >= 3) {
         const bounds = new maplibregl.LngLatBounds()
         for (const p of points) bounds.extend(p as [number, number])
         try {
-          map.fitBounds(bounds, { padding: 40, duration: 0, maxZoom: 17 })
+          map.fitBounds(bounds, { padding: 30, duration: 0, maxZoom: 17 })
         } catch {}
       }
     })
 
-    // Click to add a vertex. (Same UX as boundary-draw — no drag.)
+    // Click to add a vertex (same UX as boundary-draw page).
     map.on('click', (ev) => {
       const { lng, lat } = ev.lngLat
       setPoints(prev => [...prev, [lng, lat]])
+      setDirty(true)
     })
 
     // Force re-measure once layout settles. Maps inside flex/grid
-    // children sometimes initialize before their final size is known.
+    // children sometimes init before their final size is known.
     const t1 = setTimeout(() => map.resize(), 50)
     const t2 = setTimeout(() => map.resize(), 250)
     const t3 = setTimeout(() => map.resize(), 1000)
@@ -266,11 +299,10 @@ export default function TractMapEditor({
       try { map.remove() } catch {}
       mapRef.current = null
     }
-    // points intentionally NOT in deps — we don't want to rebuild
-    // the map every click. The "Update map data on points change"
-    // effect below handles that surgically via setData().
+    // points intentionally NOT in deps — surgical updates via the
+    // setData effect below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode])
+  }, [hasBeenVisible])
 
   // Update map sources on points change.
   useEffect(() => {
@@ -285,19 +317,19 @@ export default function TractMapEditor({
   // ===========================================================
   // Actions
   // ===========================================================
-  const handleEnterEdit = () => {
-    setStatus(null)
-    setMode('edit')
+  const handleUndo = () => {
+    setPoints(prev => prev.slice(0, -1))
+    setDirty(true)
   }
-
-  const handleCancelEdit = () => {
-    setStatus(null)
+  const handleClear = () => {
+    setPoints([])
+    setDirty(true)
+  }
+  const handleCancel = () => {
     setPoints(normalizeInitialPolygon(initialPolygon))
-    setMode('preview')
+    setDirty(false)
+    setStatus(null)
   }
-
-  const handleUndo = () => setPoints(prev => prev.slice(0, -1))
-  const handleClear = () => setPoints([])
 
   const handleSave = async () => {
     if (points.length < 3) {
@@ -324,12 +356,8 @@ export default function TractMapEditor({
           ? `✓ Saved. GIS acres: ${data.gis_acres}`
           : '✓ Saved'
       )
-      // Parent gets the merged tract back so it can refresh the card.
+      setDirty(false)
       if (onUpdate && data.tract) onUpdate(data.tract)
-      // After a successful save, drop back to preview so the new image
-      // (regenerated server-side) shows. Small delay so the success
-      // toast is visible.
-      setTimeout(() => setMode('preview'), 800)
     } catch (e: any) {
       setStatus(`✗ Save failed: ${e.message || e}`)
     } finally {
@@ -356,8 +384,8 @@ export default function TractMapEditor({
       }
       setStatus('✓ Polygon deleted')
       setPoints([])
+      setDirty(false)
       if (onUpdate && data.tract) onUpdate(data.tract)
-      setTimeout(() => setMode('preview'), 600)
     } catch (e: any) {
       setStatus(`✗ Delete failed: ${e.message || e}`)
     } finally {
@@ -366,53 +394,59 @@ export default function TractMapEditor({
   }
 
   // ===========================================================
-  // Render
+  // Render — magic-lab style: map left ~60%, image right ~40%,
+  // toolbar below.
   // ===========================================================
-
-  // PREVIEW MODE — compact thumbnail + Edit Map button.
-  // Renders inline in the tract card row. No MapLibre instance.
-  if (mode === 'preview') {
-    const sz = thumbnailSize
-    return (
-      <div className="flex-shrink-0 relative group" style={{ width: sz, height: sz }}>
-        {tractImageBase64 ? (
-          <img
-            src={`data:image/png;base64,${tractImageBase64}`}
-            alt={`Tract ${tractIndex + 1}`}
-            className="w-full h-full rounded object-cover border border-gg-gray-700"
-          />
-        ) : (
-          <div
-            className="w-full h-full rounded flex items-center justify-center border border-gg-gray-700 text-gg-gray-500 bg-gg-gray-800"
-            title="No polygon yet"
-          >
-            <ImageIcon size={20} />
-          </div>
-        )}
-        {/* Edit button — overlay icon that's visible on hover. The
-            whole thumbnail is also clickable to enter edit mode. */}
-        <button
-          onClick={handleEnterEdit}
-          className="absolute inset-0 flex items-center justify-center bg-black/0 hover:bg-black/40 text-white opacity-0 hover:opacity-100 transition-opacity rounded"
-          title="Edit / draw boundary"
-        >
-          <Pencil size={20} />
-        </button>
-      </div>
-    )
-  }
-
-  // EDIT MODE — full-width map editor with toolbar.
-  // Mounts the MapLibre instance only while in this mode.
   const drawnAcres = gisAcres(points)
+
   return (
-    <div className="col-span-full w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg overflow-hidden mt-2">
-      {/* Toolbar */}
-      <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-gg-gray-800 border-b border-gg-gray-700">
+    <div ref={wrapperRef} className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg overflow-hidden mb-2">
+      {/* Map + image side-by-side. Stacks vertically on small screens. */}
+      <div className="flex flex-col md:flex-row">
+        {/* LEFT: interactive map (~60% on md+). The container is
+            always in the DOM (so IntersectionObserver has something
+            to observe) but MapLibre only mounts after first
+            visibility — until then this is just an empty div with the
+            right dimensions. */}
+        <div className="md:w-3/5 w-full relative bg-gg-gray-800">
+          <div
+            ref={containerRef}
+            style={{ width: '100%', height: editorHeight }}
+            className={hasBeenVisible ? '' : 'flex items-center justify-center'}
+          >
+            {!hasBeenVisible && (
+              <span className="text-xs text-gg-gray-500">Map loads on scroll</span>
+            )}
+          </div>
+        </div>
+        {/* RIGHT: static tract image reference (~40% on md+). Mirrors
+            magic-lab's right pane. If the auto-rendered tract image
+            isn't available (e.g., scraper hasn't generated one yet),
+            show a placeholder so the layout doesn't collapse. */}
+        <div className="md:w-2/5 w-full bg-gg-gray-800 border-l border-gg-gray-700 flex items-center justify-center relative">
+          {tractImageBase64 ? (
+            <img
+              src={`data:image/png;base64,${tractImageBase64}`}
+              alt={`Tract ${tractIndex + 1} reference`}
+              style={{ maxHeight: editorHeight }}
+              className="w-full h-full object-contain"
+            />
+          ) : (
+            <div className="flex flex-col items-center gap-2 text-gg-gray-500 py-8">
+              <ImageIcon size={32} />
+              <span className="text-xs">No tract image yet</span>
+              <span className="text-[10px] text-gg-gray-600">Save a polygon to generate one</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Toolbar — full-width below the map + image. */}
+      <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-gg-gray-800 border-t border-gg-gray-700">
         <div className="flex items-center gap-3 text-xs text-gg-gray-300">
           <span>Click the map to add vertices ({points.length} so far)</span>
           {points.length >= 3 && (
-            <span className="text-gg-pink">Drawn: {drawnAcres.toFixed(2)} ac</span>
+            <span className="text-gg-pink font-semibold">Drawn: {drawnAcres.toFixed(2)} ac</span>
           )}
         </div>
         <div className="flex items-center gap-1.5">
@@ -428,7 +462,7 @@ export default function TractMapEditor({
             disabled={points.length === 0 || saving || deleting}
             className="px-2 py-1 text-xs bg-gg-gray-700 hover:bg-gg-gray-600 disabled:opacity-40 rounded flex items-center gap-1"
           >
-            <Trash2 size={12} /> Clear
+            <RotateCcw size={12} /> Clear
           </button>
           <button
             onClick={handleDelete}
@@ -440,15 +474,15 @@ export default function TractMapEditor({
             Delete
           </button>
           <button
-            onClick={handleCancelEdit}
-            disabled={saving || deleting}
+            onClick={handleCancel}
+            disabled={!dirty || saving || deleting}
             className="px-2 py-1 text-xs bg-gg-gray-700 hover:bg-gg-gray-600 disabled:opacity-40 rounded flex items-center gap-1"
           >
-            <X size={12} /> Cancel
+            Cancel
           </button>
           <button
             onClick={handleSave}
-            disabled={points.length < 3 || saving || deleting}
+            disabled={points.length < 3 || !dirty || saving || deleting}
             className="px-3 py-1 text-xs bg-gg-pink hover:bg-gg-pink-light text-white font-semibold disabled:opacity-40 rounded flex items-center gap-1"
           >
             {saving ? <Loader2 className="animate-spin" size={12} /> : <Save size={12} />}
@@ -457,18 +491,12 @@ export default function TractMapEditor({
         </div>
       </div>
 
-      {/* Status line */}
+      {/* Status line — visible after save/delete attempts. */}
       {status && (
         <div className={`px-3 py-1.5 text-xs ${status.startsWith('✓') ? 'bg-green-900/30 text-green-300' : 'bg-red-900/30 text-red-300'}`}>
           {status}
         </div>
       )}
-
-      {/* The map. Lazy-mounted via the useEffect on `mode`. */}
-      <div
-        ref={containerRef}
-        style={{ width: '100%', height: editorHeight }}
-      />
     </div>
   )
 }

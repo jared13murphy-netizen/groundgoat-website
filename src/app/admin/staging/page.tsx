@@ -1364,19 +1364,23 @@ export default function AdminStagingPage() {
                           />
                         </div>
 
-                        {/* Tract Details */}
+                        {/* Tract Details — each tract is now a vertical
+                            block: map+image header on top (magic-lab pattern),
+                            charcoal details box below. Was previously a
+                            2-column grid; switched to single-column because
+                            each tract now has a 320px-high map header that
+                            would be too cramped at 50% width. */}
                         {info.tracts.length > 0 && (
                           <div className="mb-4">
                             <p className="text-xs text-gg-gray-400 mb-2 font-medium uppercase tracking-wider">Tract Details</p>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                            <div className="space-y-4">
                               {info.tracts.map((tract: any, idx: number) => (
-                                <div key={idx} className="bg-gg-gray-800/60 rounded-lg px-3 py-2 text-sm flex flex-wrap gap-3">
-                                  {/* Inline polygon viewer + editor. Renders the
-                                      static thumbnail in preview mode and expands
-                                      to a full-width MapLibre editor (with
-                                      edit/delete/save) when the user clicks the
-                                      pencil. Lazy-mounted to avoid WebGL context
-                                      exhaustion across many tract cards. */}
+                                <div key={idx}>
+                                  {/* Map (interactive editor, ~60%) + tract image
+                                      (static reference, ~40%) header — magic-lab
+                                      style. Lazy-mounts MapLibre on first
+                                      visibility to avoid WebGL context
+                                      exhaustion on multi-tract pages. */}
                                   <TractMapEditor
                                     stagingId={listing.id}
                                     tractIndex={idx}
@@ -1385,10 +1389,9 @@ export default function AdminStagingPage() {
                                     latitude={tract.latitude}
                                     longitude={tract.longitude}
                                     onUpdate={(updatedTract) => {
-                                      // Merge the updated tract back into local
-                                      // listings state so the card re-renders
-                                      // with the new polygon + image immediately
-                                      // (without a full re-fetch).
+                                      // Merge updated tract back into local state
+                                      // so the card re-renders immediately
+                                      // without a full re-fetch.
                                       setListings(prev => prev.map(l => {
                                         if (l.id !== listing.id) return l
                                         const sd = { ...(l.scraped_data || {}) }
@@ -1399,7 +1402,8 @@ export default function AdminStagingPage() {
                                       }))
                                     }}
                                   />
-                                  <div className="flex-1 min-w-0">
+                                  {/* Tract details (charcoal box) below the map header */}
+                                  <div className="bg-gg-gray-800/60 rounded-lg px-3 py-2 text-sm">
                                     <div className="flex items-center justify-between">
                                       <span className="text-white font-medium">Tract {tract.tract_number ?? idx + 1}</span>
                                       {tract.acres && <span className="text-gg-gray-300">{tract.acres} ac</span>}
