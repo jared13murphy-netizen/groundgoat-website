@@ -33,6 +33,7 @@ import {
 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import NassStagingPreview from '@/components/admin/NassStagingPreview'
+import TractMapEditor from '@/components/admin/TractMapEditor'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 const SCRAPER_URL = 'https://ground-goat-scraper-production.up.railway.app'
@@ -1369,38 +1370,35 @@ export default function AdminStagingPage() {
                             <p className="text-xs text-gg-gray-400 mb-2 font-medium uppercase tracking-wider">Tract Details</p>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                               {info.tracts.map((tract: any, idx: number) => (
-                                <div key={idx} className="bg-gg-gray-800/60 rounded-lg px-3 py-2 text-sm flex gap-3">
-                                  {/* Tract satellite image thumbnail — lazy-loaded */}
-                                  {(tract.tract_image_base64 || tract.has_tract_image) && (() => {
-                                    const cacheKey = `${listing.id}-${idx}`
-                                    const cachedImage = tract.tract_image_base64 || tractImageCache[cacheKey]
-                                    return cachedImage ? (
-                                      <button
-                                        onClick={() => setScreenshotModal(`data:image/png;base64,${cachedImage}`)}
-                                        className="flex-shrink-0"
-                                        title="Click to enlarge tract image"
-                                      >
-                                        <img
-                                          src={`data:image/png;base64,${cachedImage}`}
-                                          alt={`Tract ${tract.tract_number ?? idx + 1}`}
-                                          className="w-24 h-24 rounded object-cover cursor-pointer hover:opacity-80 transition-opacity border border-gg-gray-700"
-                                        />
-                                      </button>
-                                    ) : (
-                                      <button
-                                        onClick={() => loadTractImage(listing.id, idx)}
-                                        disabled={loadingTractImage === cacheKey}
-                                        className="flex-shrink-0 w-24 h-24 rounded flex items-center justify-center border border-gg-gray-700 hover:border-gg-gray-600 text-gg-gray-500 hover:text-gg-gray-400 transition-colors cursor-pointer"
-                                        title="Load tract image"
-                                      >
-                                        {loadingTractImage === cacheKey ? (
-                                          <Loader2 className="animate-spin" size={14} />
-                                        ) : (
-                                          <ImageIcon size={16} />
-                                        )}
-                                      </button>
-                                    )
-                                  })()}
+                                <div key={idx} className="bg-gg-gray-800/60 rounded-lg px-3 py-2 text-sm flex flex-wrap gap-3">
+                                  {/* Inline polygon viewer + editor. Renders the
+                                      static thumbnail in preview mode and expands
+                                      to a full-width MapLibre editor (with
+                                      edit/delete/save) when the user clicks the
+                                      pencil. Lazy-mounted to avoid WebGL context
+                                      exhaustion across many tract cards. */}
+                                  <TractMapEditor
+                                    stagingId={listing.id}
+                                    tractIndex={idx}
+                                    initialPolygon={Array.isArray(tract.polygon_coordinates) ? tract.polygon_coordinates : null}
+                                    tractImageBase64={tract.tract_image_base64 || tractImageCache[`${listing.id}-${idx}`] || null}
+                                    latitude={tract.latitude}
+                                    longitude={tract.longitude}
+                                    onUpdate={(updatedTract) => {
+                                      // Merge the updated tract back into local
+                                      // listings state so the card re-renders
+                                      // with the new polygon + image immediately
+                                      // (without a full re-fetch).
+                                      setListings(prev => prev.map(l => {
+                                        if (l.id !== listing.id) return l
+                                        const sd = { ...(l.scraped_data || {}) }
+                                        const ts = [...((sd.tracts as any[]) || [])]
+                                        ts[idx] = { ...ts[idx], ...updatedTract }
+                                        sd.tracts = ts
+                                        return { ...l, scraped_data: sd }
+                                      }))
+                                    }}
+                                  />
                                   <div className="flex-1 min-w-0">
                                     <div className="flex items-center justify-between">
                                       <span className="text-white font-medium">Tract {tract.tract_number ?? idx + 1}</span>
