@@ -31,6 +31,7 @@ import {
 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import TractMapEditor from '@/components/admin/TractMapEditor'
+import TractDataCompare from '@/components/admin/TractDataCompare'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 const SCRAPER_URL = 'https://ground-goat-scraper-production.up.railway.app'
@@ -165,6 +166,20 @@ export default function AdminPrivateTreatyStagingPage() {
   // card.
   const [tractImageCache, setTractImageCache] = useState<Record<string, string | null>>({})
   const [loadingTractImage, setLoadingTractImage] = useState<string | null>(null)
+
+  // Tillable polygon visibility per `${listingId}-${tractIdx}`. Per user
+  // 2026-05-25: show tract polygon by default, tillable only when the
+  // user clicks Show Tillable on the per-tract map. Lifted to page
+  // level so each tract toggles independently without re-mounting
+  // the whole list.
+  const [tillableVisible, setTillableVisible] = useState<Set<string>>(new Set())
+  const toggleTillable = (key: string, next: boolean) => {
+    setTillableVisible(prev => {
+      const s = new Set(prev)
+      if (next) s.add(key); else s.delete(key)
+      return s
+    })
+  }
 
   // Company filter
   const [companyFilter, setCompanyFilter] = useState<string>('all')
@@ -1157,7 +1172,10 @@ export default function AdminPrivateTreatyStagingPage() {
                           <div className="mb-4">
                             <p className="text-xs text-gg-gray-400 mb-2 font-medium uppercase tracking-wider">Tract Details</p>
                             <div className="space-y-4">
-                              {info.tracts.map((tract: any, idx: number) => (
+                              {info.tracts.map((tract: any, idx: number) => {
+                                const tractKey = `${listing.id}-${idx}`
+                                const showTill = tillableVisible.has(tractKey)
+                                return (
                                 <div key={idx}>
                                   {/* Map (~60%) + tract image (~40%) header.
                                       Lazy-mounts MapLibre on first visibility. */}
@@ -1165,6 +1183,9 @@ export default function AdminPrivateTreatyStagingPage() {
                                     stagingId={listing.id}
                                     tractIndex={idx}
                                     initialPolygon={Array.isArray(tract.polygon_coordinates) ? tract.polygon_coordinates : null}
+                                    tillablePolygon={tract.tillable_polygon || null}
+                                    showTillable={showTill}
+                                    onToggleTillable={(next) => toggleTillable(tractKey, next)}
                                     tractImageBase64={tract.tract_image_base64 || tractImageCache[`${listing.id}-${idx}`] || null}
                                     latitude={tract.latitude}
                                     longitude={tract.longitude}
@@ -1174,6 +1195,28 @@ export default function AdminPrivateTreatyStagingPage() {
                                         const sd = { ...(l.scraped_data || {}) }
                                         const ts = [...((sd.tracts as any[]) || [])]
                                         ts[idx] = { ...ts[idx], ...updatedTract }
+                                        sd.tracts = ts
+                                        return { ...l, scraped_data: sd }
+                                      }))
+                                    }}
+                                  />
+                                  {/* Side-by-side comparison panel — per user
+                                      2026-05-25 requirement. Renders for new-format
+                                      tracts (scraped + computed split from CHUNK
+                                      C2a). Falls back to old display for
+                                      pre-refactor staging rows. */}
+                                  <TractDataCompare
+                                    tractNumber={tract.tract_number ?? idx + 1}
+                                    scraped={tract.scraped}
+                                    computed={tract.computed}
+                                    chosen={tract.chosen}
+                                    fallbackTract={tract}
+                                    onChosenChange={(nextChosen) => {
+                                      setListings(prev => prev.map(l => {
+                                        if (l.id !== listing.id) return l
+                                        const sd = { ...(l.scraped_data || {}) }
+                                        const ts = [...((sd.tracts as any[]) || [])]
+                                        ts[idx] = { ...ts[idx], chosen: nextChosen }
                                         sd.tracts = ts
                                         return { ...l, scraped_data: sd }
                                       }))
@@ -1239,7 +1282,8 @@ export default function AdminPrivateTreatyStagingPage() {
                                   })()}
                                   </div>{/* /flex-1 min-w-0 wrapper */}
                                 </div>
-                              ))}
+                                )
+                              })}
                             </div>
                           </div>
                         )}

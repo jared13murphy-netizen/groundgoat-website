@@ -34,6 +34,7 @@ import {
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import NassStagingPreview from '@/components/admin/NassStagingPreview'
 import TractMapEditor from '@/components/admin/TractMapEditor'
+import TractDataCompare from '@/components/admin/TractDataCompare'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 const SCRAPER_URL = 'https://ground-goat-scraper-production.up.railway.app'
@@ -211,6 +212,18 @@ export default function AdminStagingPage() {
   // Lazy-loaded tract images cache: "staging_id-tract_index" -> base64
   const [tractImageCache, setTractImageCache] = useState<Record<string, string | null>>({})
   const [loadingTractImage, setLoadingTractImage] = useState<string | null>(null)
+
+  // Tillable polygon visibility per `${listingId}-${tractIdx}`. Mirrors
+  // the PT staging page — show tract polygon by default, tillable only
+  // when the user clicks Show Tillable on the per-tract map.
+  const [tillableVisible, setTillableVisible] = useState<Set<string>>(new Set())
+  const toggleTillable = (key: string, next: boolean) => {
+    setTillableVisible(prev => {
+      const s = new Set(prev)
+      if (next) s.add(key); else s.delete(key)
+      return s
+    })
+  }
 
   // Company filter
   const [companyFilter, setCompanyFilter] = useState<string>('all')
@@ -1394,7 +1407,10 @@ export default function AdminStagingPage() {
                           <div className="mb-4">
                             <p className="text-xs text-gg-gray-400 mb-2 font-medium uppercase tracking-wider">Tract Details</p>
                             <div className="space-y-4">
-                              {info.tracts.map((tract: any, idx: number) => (
+                              {info.tracts.map((tract: any, idx: number) => {
+                                const tractKey = `${listing.id}-${idx}`
+                                const showTill = tillableVisible.has(tractKey)
+                                return (
                                 <div key={idx}>
                                   {/* Map (interactive editor, ~60%) + tract image
                                       (static reference, ~40%) header — magic-lab
@@ -1405,6 +1421,9 @@ export default function AdminStagingPage() {
                                     stagingId={listing.id}
                                     tractIndex={idx}
                                     initialPolygon={Array.isArray(tract.polygon_coordinates) ? tract.polygon_coordinates : null}
+                                    tillablePolygon={tract.tillable_polygon || null}
+                                    showTillable={showTill}
+                                    onToggleTillable={(next) => toggleTillable(tractKey, next)}
                                     tractImageBase64={tract.tract_image_base64 || tractImageCache[`${listing.id}-${idx}`] || null}
                                     latitude={tract.latitude}
                                     longitude={tract.longitude}
@@ -1417,6 +1436,27 @@ export default function AdminStagingPage() {
                                         const sd = { ...(l.scraped_data || {}) }
                                         const ts = [...((sd.tracts as any[]) || [])]
                                         ts[idx] = { ...ts[idx], ...updatedTract }
+                                        sd.tracts = ts
+                                        return { ...l, scraped_data: sd }
+                                      }))
+                                    }}
+                                  />
+                                  {/* Per-tract scraped-vs-computed side-by-side with
+                                      per-field radio selectors. Per user 2026-05-25.
+                                      Falls back to single old-format row for pre-
+                                      refactor staging rows. */}
+                                  <TractDataCompare
+                                    tractNumber={tract.tract_number ?? idx + 1}
+                                    scraped={tract.scraped}
+                                    computed={tract.computed}
+                                    chosen={tract.chosen}
+                                    fallbackTract={tract}
+                                    onChosenChange={(nextChosen) => {
+                                      setListings(prev => prev.map(l => {
+                                        if (l.id !== listing.id) return l
+                                        const sd = { ...(l.scraped_data || {}) }
+                                        const ts = [...((sd.tracts as any[]) || [])]
+                                        ts[idx] = { ...ts[idx], chosen: nextChosen }
                                         sd.tracts = ts
                                         return { ...l, scraped_data: sd }
                                       }))
@@ -1501,7 +1541,8 @@ export default function AdminStagingPage() {
                                     })()}
                                   </div>
                                 </div>
-                              ))}
+                                )
+                              })}
                             </div>
                           </div>
                         )}

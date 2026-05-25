@@ -44,7 +44,7 @@ import { useEffect, useRef, useState } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import {
-  Save, RotateCcw, Trash2, Loader2, ImageIcon,
+  Save, RotateCcw, Trash2, Loader2, ImageIcon, Sprout, EyeOff,
 } from 'lucide-react'
 
 const SCRAPER_URL = 'https://ground-goat-scraper-production.up.railway.app'
@@ -58,6 +58,13 @@ interface TractMapEditorProps {
   tractIndex: number
   /** Existing polygon, if any. null/empty → user draws from scratch. */
   initialPolygon: Pt[] | null
+  /** Tillable polygon (single ring) or array of rings from magic-lab
+   *  Stage 5. When non-null + showTillable=true, drawn as a green
+   *  overlay on top of the pink tract polygon. */
+  tillablePolygon?: Pt[] | Pt[][] | null
+  /** Whether to render the tillable polygon. Toggled by the
+   *  Show/Hide Tillable button in the toolbar. */
+  showTillable?: boolean
   /** Tract satellite + polygon overlay image (base64). Shown on the
    *  right pane as the static reference. */
   tractImageBase64?: string | null
@@ -70,6 +77,16 @@ interface TractMapEditorProps {
    *  delete. Parent should merge into its local staging state so the
    *  card re-renders with the new polygon + regenerated image. */
   onUpdate?: (updatedTract: any) => void
+  /** Called when the user clicks "Show Tillable" / "Hide Tillable".
+   *  Parent owns the showTillable state so the comparison panel can
+   *  reflect what's visible. */
+  onToggleTillable?: (next: boolean) => void
+  /** Called when the user clicks "Compute Tillable" — only shown
+   *  when tillablePolygon is missing or the tract polygon was edited
+   *  after the last Stage 5 run. Parent should call the scraper's
+   *  recompute endpoint and update tract.tillable_polygon /
+   *  tract.computed.* with the response. */
+  onComputeTillable?: () => Promise<void> | void
 }
 
 // ---------------------------------------------------------------------------
@@ -139,6 +156,37 @@ function normalizeInitialPolygon(poly: Pt[] | null | undefined): Pt[] {
   return [...poly] as Pt[]
 }
 
+/** Build a GeoJSON FeatureCollection for the tillable polygon overlay.
+ *  Tillable can be a single ring (Pt[]) or an array of rings (Pt[][])
+ *  per the magic-lab Stage 5 hybrid output. Returns an empty FC if
+ *  tillablePolygon is null / empty / unparseable so the source-update
+ *  effect can safely setData() without erroring. */
+function buildTillableGeo(tillable: Pt[] | Pt[][] | null | undefined): any {
+  if (!tillable || !Array.isArray(tillable) || tillable.length === 0) {
+    return { type: 'FeatureCollection', features: [] }
+  }
+  // Detect single-ring vs multi-ring shape. Single ring: first element
+  // is [lng, lat] (a Pt). Multi-ring: first element is itself an array.
+  const isMultiRing = Array.isArray((tillable as any)[0]?.[0])
+  const rings: Pt[][] = isMultiRing
+    ? (tillable as Pt[][])
+    : [tillable as Pt[]]
+  const features = rings
+    .filter(r => Array.isArray(r) && r.length >= 3)
+    .map(r => {
+      const closed = [...r]
+      const f = closed[0]
+      const l = closed[closed.length - 1]
+      if (f[0] !== l[0] || f[1] !== l[1]) closed.push(f)
+      return {
+        type: 'Feature',
+        properties: {},
+        geometry: { type: 'Polygon', coordinates: [closed] },
+      }
+    })
+  return { type: 'FeatureCollection', features }
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -147,11 +195,15 @@ export default function TractMapEditor({
   stagingId,
   tractIndex,
   initialPolygon,
+  tillablePolygon,
+  showTillable = false,
   tractImageBase64,
   latitude,
   longitude,
   editorHeight = 320,
   onUpdate,
+  onToggleTillable,
+  onComputeTillable,
 }: TractMapEditorProps) {
   // Working polygon state — what's being edited on the map. Diverges
   // from initialPolygon while the user is drawing/clearing; reset on
@@ -168,6 +220,10 @@ export default function TractMapEditor({
   const [hasBeenVisible, setHasBeenVisible] = useState(false)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  // Compute Tillable button loading state — only relevant when
+  // tillablePolygon is null (Stage 5 hasn't run yet) OR the user
+  // edited the tract polygon and wants to recompute.
+  const [computingTillable, setComputingTillable] = useState(false)
   const [status, setStatus] = useState<string | null>(null)
 
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -252,6 +308,16 @@ export default function TractMapEditor({
     map.on('load', () => {
       map.addSource('drawn', { type: 'geojson', data: buildDrawGeo(points) })
       map.addSource('verts', { type: 'geojson', data: buildVertexGeo(points) })
+      // Tillable source — empty FC unless showTillable=true. Per user
+      // 2026-05-25 UX: show tract polygon by default, tillable only
+      // when the user clicks the toggle. Magic-lab Stage 5 hybrid
+      // (FTW + CDL + NHD subtract + sliver merge).
+      map.addSource('tillable', {
+        type: 'geojson',
+        data: showTillable
+          ? buildTillableGeo(tillablePolygon)
+          : { type: 'FeatureCollection', features: [] },
+      })
       map.addLayer({
         id: 'drawn-fill', type: 'fill', source: 'drawn',
         paint: { 'fill-color': '#f58cde', 'fill-opacity': 0.25 },
@@ -260,6 +326,17 @@ export default function TractMapEditor({
       map.addLayer({
         id: 'drawn-line', type: 'line', source: 'drawn',
         paint: { 'line-color': '#f58cde', 'line-width': 3 },
+      })
+      // Tillable rendered ON TOP of the tract polygon, semi-transparent
+      // green so user can see the tract underneath. Same color pattern
+      // as the magic-lab probe result panel (Cropland legend swatch).
+      map.addLayer({
+        id: 'tillable-fill', type: 'fill', source: 'tillable',
+        paint: { 'fill-color': '#22c55e', 'fill-opacity': 0.35 },
+      })
+      map.addLayer({
+        id: 'tillable-line', type: 'line', source: 'tillable',
+        paint: { 'line-color': '#16a34a', 'line-width': 2 },
       })
       map.addLayer({
         id: 'verts', type: 'circle', source: 'verts',
@@ -313,6 +390,20 @@ export default function TractMapEditor({
     if (drawSrc) drawSrc.setData(buildDrawGeo(points))
     if (vertSrc) vertSrc.setData(buildVertexGeo(points))
   }, [points])
+
+  // Update tillable overlay when user toggles visibility or the
+  // tillable polygon itself changes (e.g. after re-running Stage 5).
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !map.isStyleLoaded()) return
+    const tillSrc = map.getSource('tillable') as maplibregl.GeoJSONSource | undefined
+    if (!tillSrc) return
+    tillSrc.setData(
+      showTillable
+        ? buildTillableGeo(tillablePolygon)
+        : { type: 'FeatureCollection', features: [] }
+    )
+  }, [showTillable, tillablePolygon])
 
   // ===========================================================
   // Actions
@@ -450,6 +541,45 @@ export default function TractMapEditor({
           )}
         </div>
         <div className="flex items-center gap-1.5">
+          {/* Tillable toggle — show/hide if Stage 5 already computed,
+              compute if it hasn't run yet. Per user 2026-05-25:
+              "Only show tract polygon first, then a button to draw
+              tillable polygons using the Hybrid approach." */}
+          {tillablePolygon ? (
+            <button
+              onClick={() => onToggleTillable?.(!showTillable)}
+              className={`px-2 py-1 text-xs rounded flex items-center gap-1 ${
+                showTillable
+                  ? 'bg-green-600 hover:bg-green-700 text-white'
+                  : 'bg-gg-gray-700 hover:bg-gg-gray-600'
+              }`}
+              title={showTillable
+                ? 'Hide the green tillable overlay'
+                : 'Show magic-lab hybrid tillable (FTW + CDL + NHD subtract)'}
+            >
+              {showTillable
+                ? (<><EyeOff size={12} /> Hide Tillable</>)
+                : (<><Sprout size={12} /> Show Tillable</>)}
+            </button>
+          ) : onComputeTillable ? (
+            <button
+              onClick={async () => {
+                setComputingTillable(true)
+                try { await onComputeTillable() }
+                finally { setComputingTillable(false) }
+              }}
+              disabled={computingTillable || points.length < 3}
+              className="px-2 py-1 text-xs bg-green-600 hover:bg-green-700 text-white disabled:opacity-40 rounded flex items-center gap-1"
+              title={points.length < 3
+                ? 'Need a saved tract polygon first'
+                : 'Compute hybrid tillable (FTW + CDL + NHD subtract + sliver merge) for this tract'}
+            >
+              {computingTillable
+                ? <Loader2 className="animate-spin" size={12} />
+                : <Sprout size={12} />}
+              {computingTillable ? 'Computing…' : 'Compute Tillable'}
+            </button>
+          ) : null}
           <button
             onClick={handleUndo}
             disabled={points.length === 0 || saving || deleting}
