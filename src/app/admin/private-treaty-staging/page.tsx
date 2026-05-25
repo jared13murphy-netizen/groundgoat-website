@@ -647,8 +647,15 @@ export default function AdminPrivateTreatyStagingPage() {
 
     return {
       acres: listing.acres_listed || null,
-      county: firstTract.county?.county_name || null,
-      state: listing.state_full || firstTract.state_full || firstTract.state || listing.state || null,
+      // Per user 2026-05-25 location regression: previous code read
+      // `firstTract.county?.county_name` which only worked if a county
+      // object was nested. Halderman (and most scrapers) put county
+      // as a flat string at `firstTract.county_name` OR at
+      // `listing.county` (after server-side derivation in
+      // scrape_single_url). Check both flat fields with sensible
+      // fallback chain.
+      county: listing.county || firstTract.county_name || firstTract.county || null,
+      state: listing.state_full || firstTract.state_full || firstTract.state_abbr || firstTract.state || listing.state || null,
       description: listing.description || null,
       tractCount: tracts.length,
       tracts: tracts,
