@@ -125,6 +125,10 @@ export default function TractDataCompare({
 
   // Row helper. Renders the field name, two source columns, two
   // radio buttons. Highlights the default if user hasn't picked.
+  // Per user 2026-05-25 readability feedback: the highlighted card
+  // uses full gg-pink (not /20 opacity which muddied to purple on
+  // the dark Tract Details charcoal). Unhighlighted text stays
+  // gray for visual hierarchy; highlighted text becomes white.
   const Row = ({
     label,
     field,
@@ -138,52 +142,54 @@ export default function TractDataCompare({
   }) => {
     const picked = local[field] || defaultFor(field)
     const isDefault = !local[field]
+    const cardCls = (active: boolean) => active
+      ? 'bg-gg-pink border border-gg-pink text-white'
+      : 'border border-gg-gray-700 hover:bg-gg-gray-800/40 text-gg-gray-300'
+    // Inside-card colors flip with active state so contrast is
+    // legible on pink and on dark.
+    const prefixCls = (active: boolean) => active
+      ? 'text-white/80'
+      : 'text-gg-gray-500'
+    const valueCls = (active: boolean) => active
+      ? 'text-white font-mono font-semibold'
+      : 'font-mono'
+    const defaultCls = (active: boolean) => active
+      ? 'ml-1 text-[10px] text-white/70'
+      : 'ml-1 text-[10px] text-gg-gray-500'
     return (
       <div className="grid grid-cols-12 gap-2 items-center py-1.5 border-b border-gg-gray-700 last:border-0">
         <div className="col-span-3 text-xs font-medium text-gg-gray-400">
           {label}
         </div>
-        <label
-          className={`col-span-4 flex items-center gap-2 px-2 py-1 rounded cursor-pointer text-xs ${
-            picked === 'scraped'
-              ? 'bg-gg-pink/20 border border-gg-pink/50'
-              : 'border border-transparent hover:bg-gg-gray-800/40'
-          }`}
-        >
+        <label className={`col-span-4 flex items-center gap-2 px-2 py-1 rounded cursor-pointer text-xs ${cardCls(picked === 'scraped')}`}>
           <input
             type="radio"
             name={`${field}-${tractNumber ?? 'x'}`}
             checked={picked === 'scraped'}
             onChange={() => pick(field, 'scraped')}
-            className="cursor-pointer"
+            className="cursor-pointer accent-gg-pink"
           />
           <span>
-            <span className="text-gg-gray-500">Scraped: </span>
-            <span className="font-mono">{scrapedVal}</span>
+            <span className={prefixCls(picked === 'scraped')}>Scraped: </span>
+            <span className={valueCls(picked === 'scraped')}>{scrapedVal}</span>
             {isDefault && picked === 'scraped' && (
-              <span className="ml-1 text-[10px] text-gg-gray-500">(default)</span>
+              <span className={defaultCls(true)}>(default)</span>
             )}
           </span>
         </label>
-        <label
-          className={`col-span-5 flex items-center gap-2 px-2 py-1 rounded cursor-pointer text-xs ${
-            picked === 'computed'
-              ? 'bg-gg-pink/20 border border-gg-pink/50'
-              : 'border border-transparent hover:bg-gg-gray-800/40'
-          }`}
-        >
+        <label className={`col-span-5 flex items-center gap-2 px-2 py-1 rounded cursor-pointer text-xs ${cardCls(picked === 'computed')}`}>
           <input
             type="radio"
             name={`${field}-${tractNumber ?? 'x'}`}
             checked={picked === 'computed'}
             onChange={() => pick(field, 'computed')}
-            className="cursor-pointer"
+            className="cursor-pointer accent-gg-pink"
           />
           <span>
-            <span className="text-gg-gray-500">Computed: </span>
-            <span className="font-mono">{computedVal}</span>
+            <span className={prefixCls(picked === 'computed')}>Computed: </span>
+            <span className={valueCls(picked === 'computed')}>{computedVal}</span>
             {isDefault && picked === 'computed' && (
-              <span className="ml-1 text-[10px] text-gg-gray-500">(default)</span>
+              <span className={defaultCls(true)}>(default)</span>
             )}
           </span>
         </label>
