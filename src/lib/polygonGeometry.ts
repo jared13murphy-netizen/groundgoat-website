@@ -83,12 +83,9 @@ export function polygonPerimeterFeet(poly: LngLatPt[] | null | undefined): numbe
   return totalM * M_TO_FT
 }
 
-/** Format feet as a compact human string: "5,316 ft" or "1.01 mi"
- *  when over 5280. Used for per-tract perimeter chips. */
+/** Format feet as "5,316 ft (1.01 mi)" — feet primary with miles in
+ *  parentheses, per user 2026-05-25. Always include both. */
 export function formatPerimeter(ft: number): string {
   if (!isFinite(ft) || ft <= 0) return '—'
-  if (ft >= 5280) {
-    return `${(ft / 5280).toFixed(2)} mi`
-  }
-  return `${Math.round(ft).toLocaleString()} ft`
+  return `${Math.round(ft).toLocaleString()} ft (${(ft / 5280).toFixed(2)} mi)`
 }

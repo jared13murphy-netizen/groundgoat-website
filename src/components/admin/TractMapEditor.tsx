@@ -46,6 +46,7 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import {
   Save, RotateCcw, Trash2, Loader2, ImageIcon, Sprout, EyeOff,
 } from 'lucide-react'
+import { polygonPerimeterFeet, formatPerimeter } from '@/lib/polygonGeometry'
 
 const SCRAPER_URL = 'https://ground-goat-scraper-production.up.railway.app'
 const TILE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
@@ -605,10 +606,21 @@ export default function TractMapEditor({
 
       {/* Toolbar — full-width below the map + image. */}
       <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-gg-gray-800 border-t border-gg-gray-700">
-        <div className="flex items-center gap-3 text-xs text-gg-gray-300">
-          <span>Click the map to add vertices ({points.length} so far)</span>
+        <div className="flex flex-col gap-0.5 text-xs text-gg-gray-300">
+          <div className="flex items-center gap-3">
+            <span>Click the map to add vertices ({points.length} so far)</span>
+            {points.length >= 3 && (
+              <span className="text-gg-pink font-semibold">Drawn: {drawnAcres.toFixed(2)} ac</span>
+            )}
+          </div>
+          {/* Perimeter — recalculated live from current polygon points
+              so it updates as the user adds/removes/edits vertices.
+              Per user 2026-05-25: show below the "Click the map..."
+              line, feet primary with miles in parentheses. */}
           {points.length >= 3 && (
-            <span className="text-gg-pink font-semibold">Drawn: {drawnAcres.toFixed(2)} ac</span>
+            <div className="text-gg-pink font-semibold">
+              Perimeter: {formatPerimeter(polygonPerimeterFeet(points))}
+            </div>
           )}
         </div>
         <div className="flex items-center gap-1.5">

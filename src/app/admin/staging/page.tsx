@@ -1414,11 +1414,7 @@ export default function AdminStagingPage() {
                               {info.acres ? `${info.acres}` : 'N/A'}
                             </p>
                             {(info as any).__polySumAc > 0 && (info as any).__acresDelta != null && (
-                              <p className={`text-[11px] mt-0.5 ${
-                                Math.abs((info as any).__acresDeltaPct) > 5
-                                  ? 'text-amber-400'
-                                  : 'text-gg-gray-500'
-                              }`}>
+                              <p className="text-[11px] mt-0.5 text-gray-700">
                                 Drawn: {(info as any).__polySumAc.toFixed(2)} ac
                                 {' · '}
                                 <span className={Math.abs((info as any).__acresDeltaPct) > 5 ? 'font-semibold' : ''}>
@@ -1542,91 +1538,10 @@ export default function AdminStagingPage() {
                                       }))
                                     }}
                                   />
-                                  {/* Tract details (charcoal box) below the map header */}
-                                  <div className="bg-gg-gray-800/60 rounded-lg px-3 py-2 text-sm">
-                                    <div className="flex items-center justify-between">
-                                      <span className="text-white font-medium">Tract {tract.tract_number ?? idx + 1}</span>
-                                      {tract.acres && <span className="text-gg-gray-300">{tract.acres} ac</span>}
-                                    </div>
-                                    <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1 text-xs text-gg-gray-400">
-                                      {tract.tillable_acres != null && (
-                                        <span>Tillable: {tract.tillable_acres} ac</span>
-                                      )}
-                                      {tract.soil_rating != null && (
-                                        <span className="text-green-400">Soil: {tract.soil_rating}{tract.soil_rating_type ? ` (${tract.soil_rating_type})` : ''}</span>
-                                      )}
-                                      {tract.nccpi != null && (
-                                        <span className="text-cyan-400">NCCPI: {tract.nccpi}</span>
-                                      )}
-                                      {tract.pi != null && (
-                                        <span>PI: {tract.pi}</span>
-                                      )}
-                                      {(tract.county?.county_name || tract.county_name) && (
-                                        <span>{tract.county?.county_name || tract.county_name}{(tract.state_full || tract.state || tract.state_abbr) ? `, ${tract.state_full || tract.state || tract.state_abbr}` : ''}</span>
-                                      )}
-                                      {tract.township && (
-                                        <span>Twp: {tract.township}</span>
-                                      )}
-                                      {tract._matching_strategy && (
-                                        <span className={
-                                          ['label', 'acreage', 'single_tract'].includes(tract._matching_strategy)
-                                            ? 'text-green-400'
-                                            : 'text-red-400'
-                                        }>
-                                          Match: {tract._matching_strategy}
-                                          {!['label', 'acreage', 'single_tract'].includes(tract._matching_strategy) && ' ⚠️'}
-                                        </span>
-                                      )}
-                                      {tract.latitude != null && tract.longitude != null && (
-                                        <span className="flex items-center gap-0.5">
-                                          <Navigation size={10} />
-                                          {Number(tract.latitude).toFixed(4)}, {Number(tract.longitude).toFixed(4)}
-                                        </span>
-                                      )}
-                                      {/* Perimeter from drawn polygon — see PT
-                                          staging mirror. Per user 2026-05-25:
-                                          "Don't scrape it, just calculate it
-                                          from your drawn polygon." */}
-                                      {Array.isArray(tract.polygon_coordinates) && tract.polygon_coordinates.length >= 3 && (
-                                        <span>Perimeter: {formatPerimeter(polygonPerimeterFeet(tract.polygon_coordinates))}</span>
-                                      )}
-                                      {(() => {
-                                        const types = (Array.isArray(tract.land_types) && tract.land_types.length > 0)
-                                          ? Array.from(new Set([
-                                              ...(tract.land_type ? [tract.land_type] : []),
-                                              ...tract.land_types,
-                                            ]))
-                                          : (tract.land_type ? [tract.land_type] : [])
-                                        return types.length > 0 ? (
-                                          <span className="text-gg-pink">{types.join(' · ')}</span>
-                                        ) : null
-                                      })()}
-                                      {tract.has_house && <span className="text-blue-400">House</span>}
-                                      {tract.has_building && <span className="text-amber-400">Building</span>}
-                                    </div>
-                                    {/* Boundary editor link — shown for ALL tracts, not just
-                                        missing-polygon ones. Auto-enrichment (item 3) populates
-                                        polygons during the nightly scrape, but the user often
-                                        needs to fine-tune the auto result. The boundary-draw
-                                        page now has an 'Align Tract Acres' button (item 4) that
-                                        scales the polygon to scraped acres + rebuilds tillable
-                                        via the hybrid classifier. */}
-                                    {(() => {
-                                      const hasPoly = !!tract.polygon_coordinates
-                                        && Array.isArray(tract.polygon_coordinates)
-                                        && tract.polygon_coordinates.length >= 3
-                                      return (
-                                        <a
-                                          href={`/admin/boundary-draw/${listing.id}?tract=${idx}`}
-                                          target="_blank"
-                                          rel="noopener noreferrer"
-                                          className="inline-block mt-1.5 px-2 py-0.5 text-[11px] rounded bg-gg-pink/20 hover:bg-gg-pink/30 text-gg-pink border border-gg-pink/40 transition-colors"
-                                        >
-                                          {hasPoly ? '✏️ Edit Boundary' : '✏️ Draw Boundary'}
-                                        </a>
-                                      )
-                                    })()}
-                                  </div>
+                                  {/* Second per-tract details box removed
+                                      per user 2026-05-25 — redundant with
+                                      TractDataCompare above + perimeter
+                                      moved into the editor toolbar. */}
                                 </div>
                                 )
                               })}
