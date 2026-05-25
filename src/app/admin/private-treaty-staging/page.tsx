@@ -1278,8 +1278,14 @@ export default function AdminPrivateTreatyStagingPage() {
                                     sourceImageBase64={cachedSrc?.base64 || null}
                                     sourceImageUrl={cachedSrc?.url || inlineSourceUrl || null}
                                     sourceImageKind={cachedSrc?.kind || inlineSourceKind || null}
-                                    latitude={tract.latitude}
-                                    longitude={tract.longitude}
+                                    // Per user 2026-05-25: when no polygon
+                                    // exists, the map was always defaulting
+                                    // to Iowa (-93.5, 41.9). Fall through to
+                                    // listing-level latitude/longitude so the
+                                    // map at least centers on the right area
+                                    // for manual drawing.
+                                    latitude={tract.latitude ?? listing.scraped_data?.listing?.latitude ?? null}
+                                    longitude={tract.longitude ?? listing.scraped_data?.listing?.longitude ?? null}
                                     onUpdate={(updatedTract) => {
                                       setListings(prev => prev.map(l => {
                                         if (l.id !== listing.id) return l

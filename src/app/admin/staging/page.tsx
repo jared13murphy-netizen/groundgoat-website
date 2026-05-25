@@ -1501,8 +1501,13 @@ export default function AdminStagingPage() {
                                     sourceImageBase64={cachedSrc?.base64 || null}
                                     sourceImageUrl={cachedSrc?.url || inlineSourceUrl || null}
                                     sourceImageKind={cachedSrc?.kind || inlineSourceKind || null}
-                                    latitude={tract.latitude}
-                                    longitude={tract.longitude}
+                                    // Per user 2026-05-25: when no polygon
+                                    // exists, fall through to listing-level
+                                    // lat/lng so the map centers near the
+                                    // actual property instead of defaulting
+                                    // to Iowa (-93.5, 41.9).
+                                    latitude={tract.latitude ?? listing.scraped_data?.listing?.latitude ?? null}
+                                    longitude={tract.longitude ?? listing.scraped_data?.listing?.longitude ?? null}
                                     onUpdate={(updatedTract) => {
                                       // Merge updated tract back into local state
                                       // so the card re-renders immediately
