@@ -226,6 +226,34 @@ export default function AdminStagingPage() {
     })
   }
 
+  // Source-image cache per listingId — mirrors PT staging. See
+  // private-treaty-staging/page.tsx for full comment.
+  const [sourceImageCache, setSourceImageCache] = useState<Record<number, {
+    base64: string | null
+    url: string | null
+    kind: string | null
+  } | null>>({})
+  const loadSourceImage = async (listingId: number) => {
+    if (sourceImageCache[listingId] !== undefined) return
+    setSourceImageCache(prev => ({ ...prev, [listingId]: null }))
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/admin/staging/${listingId}/source-image`)
+      if (res.ok) {
+        const data = await res.json()
+        setSourceImageCache(prev => ({
+          ...prev,
+          [listingId]: {
+            base64: data.source_image_base64 || null,
+            url: data.source_image_url || null,
+            kind: data.source_image_kind || null,
+          },
+        }))
+      }
+    } catch (err) {
+      console.error('Failed to load source image:', err)
+    }
+  }
+
   // Company filter
   const [companyFilter, setCompanyFilter] = useState<string>('all')
   const [companyCounts, setCompanyCounts] = useState<Record<string, number>>({})
@@ -1452,6 +1480,13 @@ export default function AdminStagingPage() {
                               {info.tracts.map((tract: any, idx: number) => {
                                 const tractKey = `${listing.id}-${idx}`
                                 const showTill = tillableVisible.has(tractKey)
+                                const listingHasSourceImage = (listing.scraped_data?.listing as any)?.has_source_image
+                                const inlineSourceUrl = (listing.scraped_data?.listing as any)?.source_image_url
+                                const inlineSourceKind = (listing.scraped_data?.listing as any)?.source_image_kind
+                                if (listingHasSourceImage && sourceImageCache[listing.id] === undefined) {
+                                  setTimeout(() => loadSourceImage(listing.id), 0)
+                                }
+                                const cachedSrc = sourceImageCache[listing.id]
                                 return (
                                 <div key={idx}>
                                   {/* Map (interactive editor, ~60%) + tract image
@@ -1467,6 +1502,9 @@ export default function AdminStagingPage() {
                                     showTillable={showTill}
                                     onToggleTillable={(next) => toggleTillable(tractKey, next)}
                                     tractImageBase64={tract.tract_image_base64 || tractImageCache[`${listing.id}-${idx}`] || null}
+                                    sourceImageBase64={cachedSrc?.base64 || null}
+                                    sourceImageUrl={cachedSrc?.url || inlineSourceUrl || null}
+                                    sourceImageKind={cachedSrc?.kind || inlineSourceKind || null}
                                     latitude={tract.latitude}
                                     longitude={tract.longitude}
                                     onUpdate={(updatedTract) => {

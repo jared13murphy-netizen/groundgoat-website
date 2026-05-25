@@ -68,6 +68,16 @@ interface TractMapEditorProps {
   /** Tract satellite + polygon overlay image (base64). Shown on the
    *  right pane as the static reference. */
   tractImageBase64?: string | null
+  /** Source-image comparison view for the right pane. Magic-lab
+   *  captures the most-comparable image from whichever Stage 2 path
+   *  produced the polygon (Land ID screenshot, PDF aerial, etc.).
+   *  These three fields together describe what to render — kind tells
+   *  us img vs iframe, base64 / url provide the content. Per user
+   *  2026-05-25: "make sure you add an image on the right so I can
+   *  compare the drawn polygon to the image from the website." */
+  sourceImageBase64?: string | null
+  sourceImageUrl?: string | null
+  sourceImageKind?: string | null
   /** Center fallback when no polygon and no listing-level coord. */
   latitude?: number | null
   longitude?: number | null
@@ -198,6 +208,9 @@ export default function TractMapEditor({
   tillablePolygon,
   showTillable = false,
   tractImageBase64,
+  sourceImageBase64,
+  sourceImageUrl,
+  sourceImageKind,
   latitude,
   longitude,
   editorHeight = 320,
@@ -510,12 +523,70 @@ export default function TractMapEditor({
             )}
           </div>
         </div>
-        {/* RIGHT: static tract image reference (~40% on md+). Mirrors
-            magic-lab's right pane. If the auto-rendered tract image
-            isn't available (e.g., scraper hasn't generated one yet),
-            show a placeholder so the layout doesn't collapse. */}
-        <div className="md:w-2/5 w-full bg-gg-gray-800 border-l border-gg-gray-700 flex items-center justify-center relative">
-          {tractImageBase64 ? (
+        {/* RIGHT: comparison source image (~40% on md+). Mirrors the
+            magic-lab probe's right pane — shows the SAME image the
+            polygon was traced from (Land ID screenshot, PDF aerial,
+            sub-page iframe, etc.) so the admin can visually verify
+            the drawn polygon matches the auctioneer's published map.
+            Per user 2026-05-25: "make sure you add an image on the
+            right so I can compare the drawn polygon to the image
+            from the website."
+            Render priority:
+              1. source image (any kind) — what the polygon came from
+              2. tract_image_base64 — our generated satellite+overlay
+              3. placeholder text
+        */}
+        <div className="md:w-2/5 w-full bg-gg-gray-800 border-l border-gg-gray-700 flex items-center justify-center relative overflow-hidden">
+          {sourceImageBase64 ? (
+            <>
+              <img
+                src={`data:image/jpeg;base64,${sourceImageBase64}`}
+                alt={`Tract ${tractIndex + 1} source reference`}
+                style={{ maxHeight: editorHeight }}
+                className="w-full h-full object-contain"
+              />
+              {sourceImageKind && (
+                <span className="absolute top-1 right-1 px-1.5 py-0.5 text-[10px] bg-black/60 text-white rounded">
+                  {sourceImageKind}
+                </span>
+              )}
+            </>
+          ) : sourceImageUrl && (sourceImageKind === 'pdf' || sourceImageKind === 'sub_page' || sourceImageKind === 'land_id_url') ? (
+            <>
+              {/* iframe path — PDFs render natively, sub-pages iframe-ok.
+                  id.land sets X-Frame-Options DENY so land_id_url
+                  iframe will fail visually; the URL link below is
+                  the user's escape hatch. */}
+              <iframe
+                src={sourceImageUrl}
+                style={{ width: '100%', height: editorHeight, border: 0 }}
+                title={`Tract ${tractIndex + 1} source`}
+              />
+              <a
+                href={sourceImageUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="absolute top-1 right-1 px-1.5 py-0.5 text-[10px] bg-black/60 text-white rounded hover:bg-black/80"
+                title="Open source in new tab"
+              >
+                {sourceImageKind} ↗
+              </a>
+            </>
+          ) : sourceImageUrl ? (
+            <>
+              <img
+                src={sourceImageUrl}
+                alt={`Tract ${tractIndex + 1} source reference`}
+                style={{ maxHeight: editorHeight }}
+                className="w-full h-full object-contain"
+              />
+              {sourceImageKind && (
+                <span className="absolute top-1 right-1 px-1.5 py-0.5 text-[10px] bg-black/60 text-white rounded">
+                  {sourceImageKind}
+                </span>
+              )}
+            </>
+          ) : tractImageBase64 ? (
             <img
               src={`data:image/png;base64,${tractImageBase64}`}
               alt={`Tract ${tractIndex + 1} reference`}
@@ -525,8 +596,8 @@ export default function TractMapEditor({
           ) : (
             <div className="flex flex-col items-center gap-2 text-gg-gray-500 py-8">
               <ImageIcon size={32} />
-              <span className="text-xs">No tract image yet</span>
-              <span className="text-[10px] text-gg-gray-600">Save a polygon to generate one</span>
+              <span className="text-xs">No comparison image yet</span>
+              <span className="text-[10px] text-gg-gray-600">Source image not captured for this listing</span>
             </div>
           )}
         </div>
