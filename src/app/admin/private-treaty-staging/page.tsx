@@ -32,6 +32,7 @@ import {
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import TractMapEditor from '@/components/admin/TractMapEditor'
 import TractDataCompare from '@/components/admin/TractDataCompare'
+import { polygonAcres, polygonPerimeterFeet, formatPerimeter } from '@/lib/polygonGeometry'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 const SCRAPER_URL = 'https://ground-goat-scraper-production.up.railway.app'
@@ -1131,6 +1132,40 @@ export default function AdminPrivateTreatyStagingPage() {
                           </button>
                         </div>
 
+                        {/* Per-listing polygon sum — used to surface
+                            scraped-vs-drawn acres discrepancy in the
+                            Acres card. Per user 2026-05-25: "I would
+                            just like the discrepancy shown at the
+                            listing level." Don't auto-scale polygons;
+                            just show both numbers + delta so admin can
+                            spot listings where the drawn boundaries
+                            don't agree with what the auctioneer
+                            published. */}
+                        {(() => {
+                          // Sum each tract's polygon area (acres).
+                          // Skip tracts without a drawn polygon.
+                          const polySumAc = (info.tracts || []).reduce((sum: number, t: any) => {
+                            const p = t?.polygon_coordinates
+                            return Array.isArray(p) && p.length >= 3
+                              ? sum + polygonAcres(p)
+                              : sum
+                          }, 0)
+                          const scrapedAc = typeof info.acres === 'number'
+                            ? info.acres
+                            : parseFloat(info.acres)
+                          const delta = (isFinite(scrapedAc) && polySumAc > 0)
+                            ? polySumAc - scrapedAc
+                            : null
+                          const deltaPct = (delta != null && scrapedAc > 0)
+                            ? (delta / scrapedAc) * 100
+                            : null
+                          // Stash on info so the Acres card below can render
+                          ;(info as any).__polySumAc = polySumAc
+                          ;(info as any).__acresDelta = delta
+                          ;(info as any).__acresDeltaPct = deltaPct
+                          return null
+                        })()}
+
                         {/* Key Data */}
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
                           <div className="bg-gg-gray-800 rounded-lg p-3">
@@ -1138,6 +1173,20 @@ export default function AdminPrivateTreatyStagingPage() {
                             <p className="text-white font-semibold">
                               {info.acres ? `${info.acres}` : 'N/A'}
                             </p>
+                            {(info as any).__polySumAc > 0 && (info as any).__acresDelta != null && (
+                              <p className={`text-[11px] mt-0.5 ${
+                                Math.abs((info as any).__acresDeltaPct) > 5
+                                  ? 'text-amber-400'
+                                  : 'text-gg-gray-500'
+                              }`}>
+                                Drawn: {(info as any).__polySumAc.toFixed(2)} ac
+                                {' · '}
+                                <span className={Math.abs((info as any).__acresDeltaPct) > 5 ? 'font-semibold' : ''}>
+                                  {(info as any).__acresDelta >= 0 ? '+' : ''}{(info as any).__acresDelta.toFixed(2)}
+                                  {' ('}{(info as any).__acresDeltaPct >= 0 ? '+' : ''}{(info as any).__acresDeltaPct.toFixed(1)}%)
+                                </span>
+                              </p>
+                            )}
                           </div>
                           <div className="bg-gg-gray-800 rounded-lg p-3">
                             <p className="text-xs text-gg-gray-400 mb-1">Location</p>
@@ -1236,6 +1285,15 @@ export default function AdminPrivateTreatyStagingPage() {
                                     )}
                                     {tract.pi != null && (
                                       <span>PI: {tract.pi}</span>
+                                    )}
+                                    {/* Perimeter — calculated from the drawn
+                                        polygon via haversine great-circle
+                                        distance. Per user 2026-05-25: "Don't
+                                        scrape it, just calculate it from your
+                                        drawn polygon." Only renders when a
+                                        polygon exists. */}
+                                    {Array.isArray(tract.polygon_coordinates) && tract.polygon_coordinates.length >= 3 && (
+                                      <span>Perimeter: {formatPerimeter(polygonPerimeterFeet(tract.polygon_coordinates))}</span>
                                     )}
                                     {tract.county?.county_name && (
                                       <span>{tract.county.county_name}{(tract.state_full || tract.state) ? `, ${tract.state_full || tract.state}` : ''}</span>

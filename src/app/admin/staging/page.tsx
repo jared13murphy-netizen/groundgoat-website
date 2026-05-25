@@ -35,6 +35,7 @@ import fetchWithAuth from '@/lib/fetchWithAuth'
 import NassStagingPreview from '@/components/admin/NassStagingPreview'
 import TractMapEditor from '@/components/admin/TractMapEditor'
 import TractDataCompare from '@/components/admin/TractDataCompare'
+import { polygonAcres, polygonPerimeterFeet, formatPerimeter } from '@/lib/polygonGeometry'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 const SCRAPER_URL = 'https://ground-goat-scraper-production.up.railway.app'
@@ -1350,6 +1351,33 @@ export default function AdminStagingPage() {
                           </button>
                         </div>
 
+                        {/* Per-listing polygon sum — see PT staging
+                            mirror at 2026-05-25 for rationale. Render
+                            "Drawn: X ac · ±Y (±Z%)" under the scraped
+                            total when polygons exist. Amber when delta
+                            exceeds 5%. */}
+                        {(() => {
+                          const polySumAc = (info.tracts || []).reduce((sum: number, t: any) => {
+                            const p = t?.polygon_coordinates
+                            return Array.isArray(p) && p.length >= 3
+                              ? sum + polygonAcres(p)
+                              : sum
+                          }, 0)
+                          const scrapedAc = typeof info.acres === 'number'
+                            ? info.acres
+                            : parseFloat(info.acres)
+                          const delta = (isFinite(scrapedAc) && polySumAc > 0)
+                            ? polySumAc - scrapedAc
+                            : null
+                          const deltaPct = (delta != null && scrapedAc > 0)
+                            ? (delta / scrapedAc) * 100
+                            : null
+                          ;(info as any).__polySumAc = polySumAc
+                          ;(info as any).__acresDelta = delta
+                          ;(info as any).__acresDeltaPct = deltaPct
+                          return null
+                        })()}
+
                         {/* Key Data */}
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
                           <div className="bg-gg-gray-800 rounded-lg p-3">
@@ -1357,6 +1385,20 @@ export default function AdminStagingPage() {
                             <p className="text-white font-semibold">
                               {info.acres ? `${info.acres}` : 'N/A'}
                             </p>
+                            {(info as any).__polySumAc > 0 && (info as any).__acresDelta != null && (
+                              <p className={`text-[11px] mt-0.5 ${
+                                Math.abs((info as any).__acresDeltaPct) > 5
+                                  ? 'text-amber-400'
+                                  : 'text-gg-gray-500'
+                              }`}>
+                                Drawn: {(info as any).__polySumAc.toFixed(2)} ac
+                                {' · '}
+                                <span className={Math.abs((info as any).__acresDeltaPct) > 5 ? 'font-semibold' : ''}>
+                                  {(info as any).__acresDelta >= 0 ? '+' : ''}{(info as any).__acresDelta.toFixed(2)}
+                                  {' ('}{(info as any).__acresDeltaPct >= 0 ? '+' : ''}{(info as any).__acresDeltaPct.toFixed(1)}%)
+                                </span>
+                              </p>
+                            )}
                           </div>
                           <div className="bg-gg-gray-800 rounded-lg p-3">
                             <p className="text-xs text-gg-gray-400 mb-1">Location</p>
@@ -1502,6 +1544,13 @@ export default function AdminStagingPage() {
                                           <Navigation size={10} />
                                           {Number(tract.latitude).toFixed(4)}, {Number(tract.longitude).toFixed(4)}
                                         </span>
+                                      )}
+                                      {/* Perimeter from drawn polygon — see PT
+                                          staging mirror. Per user 2026-05-25:
+                                          "Don't scrape it, just calculate it
+                                          from your drawn polygon." */}
+                                      {Array.isArray(tract.polygon_coordinates) && tract.polygon_coordinates.length >= 3 && (
+                                        <span>Perimeter: {formatPerimeter(polygonPerimeterFeet(tract.polygon_coordinates))}</span>
                                       )}
                                       {(() => {
                                         const types = (Array.isArray(tract.land_types) && tract.land_types.length > 0)
