@@ -2319,66 +2319,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             ],
           ],
           { 'font-scale': 0.85 },
-          // Sale price — only when saleprice > 0. Regrid stores many
-          // $0 quit-claim / trust transfers; those aren't market sales
-          // so we hide them rather than render "Sale Price: $0".
-          ['case',
-            ['all',
-              ['has', 'saleprice'],
-              ['>', ['to-number', ['get', 'saleprice']], 0],
-            ],
-            ['concat', '\nSale Price: $',
-              ['number-format', ['to-number', ['get', 'saleprice']], {
-                'locale': 'en-US',
-                'min-fraction-digits': 0,
-                'max-fraction-digits': 0,
-              }],
-            ],
-            '',
-          ],
-          { 'font-scale': 0.85 },
-          // Price per acre — derived when both saleprice and an acres
-          // field are present and positive. Guard against divide-by-
-          // zero with an explicit > 0 check on the denominator.
-          ['case',
-            ['all',
-              ['has', 'saleprice'],
-              ['>', ['to-number', ['get', 'saleprice']], 0],
-              ['any', ['has', 'll_gisacre'], ['has', 'gisacre']],
-              ['>', ['to-number', ['coalesce', ['get', 'll_gisacre'], ['get', 'gisacre']]], 0],
-            ],
-            ['concat', '\n$/Acre: $',
-              ['number-format',
-                ['/',
-                  ['to-number', ['get', 'saleprice']],
-                  ['to-number', ['coalesce', ['get', 'll_gisacre'], ['get', 'gisacre']]],
-                ],
-                {
-                  'locale': 'en-US',
-                  'min-fraction-digits': 0,
-                  'max-fraction-digits': 0,
-                },
-              ],
-            ],
-            '',
-          ],
-          { 'font-scale': 0.85 },
-          // Sale date — Regrid returns YYYY-MM-DD; reformat to
-          // MM/DD/YYYY for U.S. readability. Length guard so a
-          // malformed string falls back to hidden.
-          ['case',
-            ['all',
-              ['has', 'saledate'],
-              ['==', ['length', ['get', 'saledate']], 10],
-            ],
-            ['concat', '\nSale Date: ',
-              ['slice', ['get', 'saledate'], 5, 7], '/',
-              ['slice', ['get', 'saledate'], 8, 10], '/',
-              ['slice', ['get', 'saledate'], 0, 4],
-            ],
-            '',
-          ],
-          { 'font-scale': 0.85 },
+          // NOTE: sale price / sale date / $/acre segments were
+          // removed 2026-05-26. Per user product principle ("if we
+          // show data for one parcel we have to show for all"),
+          // partial coverage hurts trust. Sale data only appears in
+          // the click popup (which fetches the Premium Schema record
+          // via /api/regrid/parcel and is always complete for the
+          // clicked parcel).
         ],
         'text-font': ['Open Sans Regular'],
         'text-size': [

@@ -408,65 +408,11 @@ export function addRegridLayer(
           ],
         ],
         { 'font-scale': 0.85 },
-        // Sale price — only when saleprice > 0 (excludes Regrid's many
-        // $0 quit-claim/trust transfers so labels read "Sale Price: $X"
-        // only for real market sales).
-        ['case',
-          ['all',
-            ['has', 'saleprice'],
-            ['>', ['to-number', ['get', 'saleprice']], 0],
-          ],
-          ['concat', '\nSale Price: $',
-            ['number-format', ['to-number', ['get', 'saleprice']], {
-              'locale': 'en-US',
-              'min-fraction-digits': 0,
-              'max-fraction-digits': 0,
-            }],
-          ],
-          '',
-        ],
-        { 'font-scale': 0.85 },
-        // Price per acre — saleprice / acres, only when both > 0 so we
-        // never divide by zero or render a meaningless rate.
-        ['case',
-          ['all',
-            ['has', 'saleprice'],
-            ['>', ['to-number', ['get', 'saleprice']], 0],
-            ['any', ['has', 'll_gisacre'], ['has', 'gisacre']],
-            ['>', ['to-number', ['coalesce', ['get', 'll_gisacre'], ['get', 'gisacre']]], 0],
-          ],
-          ['concat', '\n$/Acre: $',
-            ['number-format',
-              ['/',
-                ['to-number', ['get', 'saleprice']],
-                ['to-number', ['coalesce', ['get', 'll_gisacre'], ['get', 'gisacre']]],
-              ],
-              {
-                'locale': 'en-US',
-                'min-fraction-digits': 0,
-                'max-fraction-digits': 0,
-              },
-            ],
-          ],
-          '',
-        ],
-        { 'font-scale': 0.85 },
-        // Sale date — Regrid returns YYYY-MM-DD; reformat to MM/DD/YYYY.
-        // Length guard so a malformed value collapses to hidden rather
-        // than rendering "//".
-        ['case',
-          ['all',
-            ['has', 'saledate'],
-            ['==', ['length', ['get', 'saledate']], 10],
-          ],
-          ['concat', '\nSale Date: ',
-            ['slice', ['get', 'saledate'], 5, 7], '/',
-            ['slice', ['get', 'saledate'], 8, 10], '/',
-            ['slice', ['get', 'saledate'], 0, 4],
-          ],
-          '',
-        ],
-        { 'font-scale': 0.85 },
+        // NOTE: sale price / sale date / $/acre segments removed
+        // 2026-05-26. Per user principle, partial coverage on labels
+        // erodes trust. Sale data is still surfaced in the click
+        // popup, which fetches the complete Premium Schema record
+        // via /api/regrid/parcel.
       ],
       'text-font': ['Open Sans Regular'],
       'text-size': ['interpolate', ['linear'], ['zoom'], 14, 10, 16, 12, 18, 14],
