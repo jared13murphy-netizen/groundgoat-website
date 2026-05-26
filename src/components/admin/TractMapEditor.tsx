@@ -1198,7 +1198,47 @@ export default function TractMapEditor({
   // geographically. On success the polygon is loaded onto the map ready to
   // edit and Save. The uploaded image stays visible in the right pane as a
   // visual reference while the user fine-tunes the vertices.
-  const handleImageUpload = (file: File) => {
+  const handleImageUpload = async (file: File) => {
+    // Claude Vision does not support HEIC/HEIF (iPhone photo format). Convert
+    // to JPEG using the browser's native image decoder before sending. This
+    // works on macOS/Safari which can decode HEIC natively.
+    const isHeic =
+      file.type === 'image/heic' ||
+      file.type === 'image/heif' ||
+      file.name.toLowerCase().endsWith('.heic') ||
+      file.name.toLowerCase().endsWith('.heif')
+    if (isHeic) {
+      try {
+        const objectUrl = URL.createObjectURL(file)
+        const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+          const el = new Image()
+          el.onload = () => resolve(el)
+          el.onerror = () =>
+            reject(new Error('Could not decode HEIC — save the image as JPEG or PNG and try again'))
+          el.src = objectUrl
+        })
+        URL.revokeObjectURL(objectUrl)
+        const canvas = document.createElement('canvas')
+        canvas.width = img.naturalWidth
+        canvas.height = img.naturalHeight
+        const ctx = canvas.getContext('2d')!
+        ctx.drawImage(img, 0, 0)
+        const jpegDataUrl = canvas.toDataURL('image/jpeg', 0.92)
+        const jpegBlob = await (await fetch(jpegDataUrl)).blob()
+        const jpegFile = new File(
+          [jpegBlob],
+          file.name.replace(/\.heic$/i, '.jpg').replace(/\.heif$/i, '.jpg'),
+          { type: 'image/jpeg' }
+        )
+        // Recurse with the converted JPEG — no HEIC path this time
+        handleImageUpload(jpegFile)
+        return
+      } catch (e: any) {
+        setStatus(`✗ ${e.message || 'HEIC conversion failed'}`)
+        return
+      }
+    }
+
     const reader = new FileReader()
     reader.readAsDataURL(file)
     reader.onload = async () => {
