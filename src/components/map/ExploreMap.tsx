@@ -2307,10 +2307,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       'source-layer': sourceLayer,
       minzoom: REGRID_MIN_ZOOM,
       layout: {
-        // Four segments: owner (bold) → acres → sale price → sale date.
-        // Each conditional segment evaluates to '' when the underlying
-        // property is missing, so labels never render "Sale: $-" or a
-        // stray newline for a parcel without sale data.
+        // Four segments: owner (bold) → acres → $/acre → sale date.
+        // Total sale price was removed 2026-05-26 — the per-acre
+        // figure is what buyers compare on. Each conditional segment
+        // evaluates to '' when its underlying property is missing so
+        // a parcel without sale data shows just owner + acres.
+        // All non-owner rows are 1.0 scale (bumped from 0.85) so the
+        // numbers are legible at browse zoom.
         'text-field': [
           'format',
           ['coalesce', ['get', 'owner'], 'Coming Soon'], {
@@ -2339,29 +2342,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               '',
             ],
           ],
-          { 'font-scale': 0.85 },
-          // Sale price — only when saleprice > 0 (excludes the many
-          // $0 quit-claim / family transfers Regrid records). Custom
-          // tile source (see backend regrid_service.REGRID_CUSTOM_LAYER_ID)
-          // bakes saleprice into the tile so this segment fires
-          // wherever Regrid has a recorded sale on file.
-          ['case',
-            ['all',
-              ['has', 'saleprice'],
-              ['>', ['to-number', ['get', 'saleprice']], 0],
-            ],
-            ['concat', '\nSale Price: $',
-              ['number-format', ['to-number', ['get', 'saleprice']], {
-                'locale': 'en-US',
-                'min-fraction-digits': 0,
-                'max-fraction-digits': 0,
-              }],
-            ],
-            '',
-          ],
-          { 'font-scale': 0.85 },
-          // Price per acre — saleprice / acres when both are positive.
-          // Both denominator fields are in the custom tile.
+          { 'font-scale': 1.0 },
+          // Price per acre — saleprice / acres when both > 0. Guard
+          // against divide-by-zero on the denominator.
           ['case',
             ['all',
               ['has', 'saleprice'],
@@ -2384,13 +2367,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             ],
             '',
           ],
-          { 'font-scale': 0.85 },
-          // Sale date — custom tile returns ISO datetime like
-          // "2011-01-14T00:00:00.000Z" (24 chars). Bare YYYY-MM-DD
-          // (10 chars) is also possible. First 10 chars are always
-          // the date portion either way, so slice positions are
-          // identical. length >= 10 guard prevents a malformed/short
-          // value from rendering as "//".
+          { 'font-scale': 1.0 },
+          // Sale date — custom tile returns ISO datetime; first 10
+          // chars are YYYY-MM-DD either way. length >= 10 guard
+          // prevents "//" output on malformed values.
           ['case',
             ['all',
               ['has', 'saledate'],
@@ -2403,7 +2383,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             ],
             '',
           ],
-          { 'font-scale': 0.85 },
+          { 'font-scale': 1.0 },
         ],
         'text-font': ['Open Sans Regular'],
         'text-size': [

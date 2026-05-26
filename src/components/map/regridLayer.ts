@@ -415,27 +415,10 @@ export function addRegridLayer(
             '',
           ],
         ],
-        { 'font-scale': 0.85 },
-        // Sale price — only when saleprice > 0. Custom Regrid tile
-        // source (REGRID_CUSTOM_LAYER_ID on the backend) bakes
-        // saleprice into the tile so this fires wherever Regrid has
-        // a recorded sale.
-        ['case',
-          ['all',
-            ['has', 'saleprice'],
-            ['>', ['to-number', ['get', 'saleprice']], 0],
-          ],
-          ['concat', '\nSale Price: $',
-            ['number-format', ['to-number', ['get', 'saleprice']], {
-              'locale': 'en-US',
-              'min-fraction-digits': 0,
-              'max-fraction-digits': 0,
-            }],
-          ],
-          '',
-        ],
-        { 'font-scale': 0.85 },
-        // Price per acre — saleprice / acres when both > 0.
+        { 'font-scale': 1.0 },
+        // Price per acre — saleprice / acres when both > 0. Total
+        // sale price segment was removed 2026-05-26 — $/acre is the
+        // headline number land buyers compare on.
         ['case',
           ['all',
             ['has', 'saleprice'],
@@ -458,11 +441,10 @@ export function addRegridLayer(
           ],
           '',
         ],
-        { 'font-scale': 0.85 },
-        // Sale date — custom tile returns ISO datetime (24 chars) or
-        // bare YYYY-MM-DD (10 chars). First 10 chars are the date in
-        // both cases. length >= 10 guard so a malformed short value
-        // collapses to hidden rather than rendering "//".
+        { 'font-scale': 1.0 },
+        // Sale date — first 10 chars of saledate are YYYY-MM-DD
+        // regardless of whether value is bare date or full ISO
+        // datetime. length >= 10 guard prevents "//" on malformed.
         ['case',
           ['all',
             ['has', 'saledate'],
@@ -475,7 +457,7 @@ export function addRegridLayer(
           ],
           '',
         ],
-        { 'font-scale': 0.85 },
+        { 'font-scale': 1.0 },
       ],
       'text-font': ['Open Sans Regular'],
       'text-size': ['interpolate', ['linear'], ['zoom'], 14, 10, 16, 12, 18, 14],
