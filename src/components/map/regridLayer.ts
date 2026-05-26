@@ -375,6 +375,11 @@ export function addRegridLayer(
     'source-layer': 'parcels',
     minzoom,
     layout: {
+      // Four segments: owner (bold) → acres → sale price → sale date.
+      // Conditional segments render '' when the underlying property is
+      // missing so a parcel without sale data doesn't show a "Sale: $-"
+      // row or a stray newline. Same expression as ExploreMap.tsx so
+      // Explore and Comparables maps stay visually identical.
       'text-field': [
         'format',
         ['coalesce', ['get', 'owner'], 'Coming Soon'], {
@@ -395,6 +400,27 @@ export function addRegridLayer(
             ]],
             '',
           ],
+        ],
+        { 'font-scale': 0.85 },
+        // Sale price — only when saleprice > 0 (excludes Regrid's many
+        // $0 quit-claim/trust transfers so labels read "Sale: $X" only
+        // for real market sales).
+        ['case',
+          ['all',
+            ['has', 'saleprice'],
+            ['>', ['to-number', ['get', 'saleprice']], 0],
+          ],
+          ['concat', '\nSale: $',
+            ['number-format', ['to-number', ['get', 'saleprice']], { 'min-fraction-digits': 0, 'max-fraction-digits': 0 }],
+          ],
+          '',
+        ],
+        { 'font-scale': 0.85 },
+        // Sale date — only when present. Raw YYYY-MM-DD from Regrid.
+        ['case',
+          ['has', 'saledate'],
+          ['concat', '\nSold: ', ['get', 'saledate']],
+          '',
         ],
         { 'font-scale': 0.85 },
       ],

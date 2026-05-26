@@ -547,6 +547,18 @@ function buildRegridSaleDotFilter(filters: FilterState, minAcres: number): any[]
   if (to) {
     expr.push(['<=', ['coalesce', ['get', 'saledate'], '9999-12-31'], to])
   }
+  // Sale price min/max from the filter panel. Skip when the input is
+  // empty/non-numeric so the user clearing the field re-shows
+  // everything. The expression already requires saleprice > 0 above,
+  // so we don't need to re-check for presence here.
+  const priceMin = filters.salePriceMin ? parseFloat(filters.salePriceMin) : NaN
+  const priceMax = filters.salePriceMax ? parseFloat(filters.salePriceMax) : NaN
+  if (Number.isFinite(priceMin)) {
+    expr.push(['>=', ['to-number', ['get', 'saleprice']], priceMin])
+  }
+  if (Number.isFinite(priceMax)) {
+    expr.push(['<=', ['to-number', ['get', 'saleprice']], priceMax])
+  }
   return expr
 }
 
@@ -2274,6 +2286,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       'source-layer': 'parcels',
       minzoom: REGRID_MIN_ZOOM,
       layout: {
+        // Four segments: owner (bold) → acres → sale price → sale date.
+        // Each conditional segment evaluates to '' when the underlying
+        // property is missing, so labels never render "Sale: $-" or a
+        // stray newline for a parcel without sale data.
         'text-field': [
           'format',
           ['coalesce', ['get', 'owner'], 'Coming Soon'], {
@@ -2299,6 +2315,31 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               ]],
               '',
             ],
+          ],
+          { 'font-scale': 0.85 },
+          // Sale price — only when saleprice > 0. Regrid stores many
+          // $0 quit-claim / trust transfers; those aren't market sales
+          // so we hide them rather than render "Sale: $0".
+          ['case',
+            ['all',
+              ['has', 'saleprice'],
+              ['>', ['to-number', ['get', 'saleprice']], 0],
+            ],
+            ['concat', '\nSale: $',
+              ['number-format', ['to-number', ['get', 'saleprice']], {
+                'min-fraction-digits': 0, 'max-fraction-digits': 0,
+              }],
+            ],
+            '',
+          ],
+          { 'font-scale': 0.85 },
+          // Sale date — only when present. Regrid's `saledate` is
+          // YYYY-MM-DD; keep it raw since maplibre expression syntax
+          // can't reformat dates cheaply and the user can read ISO.
+          ['case',
+            ['has', 'saledate'],
+            ['concat', '\nSold: ', ['get', 'saledate']],
+            '',
           ],
           { 'font-scale': 0.85 },
         ],
@@ -2555,7 +2596,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         try { map.setFilter(id, expr as any) } catch {/* layer torn down */}
       }
     }
-  }, [mapLoaded, filters.dateRange, filters.dateFrom, filters.dateTo])
+  }, [mapLoaded, filters.dateRange, filters.dateFrom, filters.dateTo, filters.salePriceMin, filters.salePriceMax])
 
   // Create/update HTML markers for tracts
   useEffect(() => {
