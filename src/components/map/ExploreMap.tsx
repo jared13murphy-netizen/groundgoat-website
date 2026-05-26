@@ -2354,10 +2354,16 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             ],
             ['concat', '\n$/Acre: $',
               ['number-format',
-                ['/',
+                // Round the divide before formatting so we never
+                // surface decimals like "$370,692.152". max-fraction-
+                // digits=0 was already in place, but in practice some
+                // upstream values produce a sub-cent residue that
+                // number-format rounds inconsistently — round() ahead
+                // of time makes the integer floor explicit.
+                ['round', ['/',
                   ['to-number', ['get', 'saleprice']],
                   ['to-number', ['coalesce', ['get', 'll_gisacre'], ['get', 'gisacre']]],
-                ],
+                ]],
                 {
                   'locale': 'en-US',
                   'min-fraction-digits': 0,

@@ -428,10 +428,12 @@ export function addRegridLayer(
           ],
           ['concat', '\n$/Acre: $',
             ['number-format',
-              ['/',
+              // Round before format. Without this, sub-cent residue
+              // from the upstream price could surface as ".152" etc.
+              ['round', ['/',
                 ['to-number', ['get', 'saleprice']],
                 ['to-number', ['coalesce', ['get', 'll_gisacre'], ['get', 'gisacre']]],
-              ],
+              ]],
               {
                 'locale': 'en-US',
                 'min-fraction-digits': 0,
