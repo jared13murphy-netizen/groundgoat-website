@@ -595,17 +595,31 @@ export default function TractMapEditor({
   // result. Parent owns staging state; we just fire the callback with
   // the current points + acres. Debounced to one fire per animation
   // frame so a drag doesn't spam the parent with state updates.
+  //
+  // CRITICAL: deps are [points] ONLY — not [points, onPolygonChange].
+  // The parent passes an inline arrow function so its reference changes
+  // on every parent render. Including it in deps caused an infinite
+  // re-render loop (effect fires → setListings → new fn ref → effect
+  // fires again), which froze the staging UI's radio buttons since
+  // React couldn't settle a render before the next state update came
+  // in. Latest callback captured via ref instead.
+  const onPolygonChangeRef = useRef(onPolygonChange)
   useEffect(() => {
-    if (!onPolygonChange) return
+    onPolygonChangeRef.current = onPolygonChange
+  }, [onPolygonChange])
+  useEffect(() => {
+    const cb = onPolygonChangeRef.current
+    if (!cb) return
     if (points.length < 3) {
-      onPolygonChange(points, 0)
+      cb(points, 0)
       return
     }
     const handle = requestAnimationFrame(() => {
-      onPolygonChange(points, gisAcres(points))
+      cb(points, gisAcres(points))
     })
     return () => cancelAnimationFrame(handle)
-  }, [points, onPolygonChange])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [points])
 
   // Update tillable overlay when user toggles visibility, the
   // stored tillable polygon changes, or the user is actively drawing
