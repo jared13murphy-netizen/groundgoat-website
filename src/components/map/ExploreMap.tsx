@@ -541,9 +541,20 @@ function buildRegridSaleDotFilter(filters: FilterState, minAcres: number): any[]
       minAcres,
     ],
   ]
-  if (from) {
-    expr.push(['>=', ['coalesce', ['get', 'saledate'], ''], from])
-  }
+  // HARDCODED 3-year floor on the dot layer per user spec
+  // ("sale date is within the last 3 years"). This applies even when
+  // the user picks "All time" in the filter panel — the panel filter
+  // affects backend listings + tract pins, but the Regrid pink + dots
+  // are always capped at 3 years of sales. If the user picks a
+  // tighter window (e.g. "Last 6 months"), we narrow further by
+  // taking the LATER of (3-year floor, user's `from`).
+  const threeYearFloor = (() => {
+    const d = new Date()
+    d.setFullYear(d.getFullYear() - 3)
+    return d.toISOString().split('T')[0]
+  })()
+  const effectiveFrom = from && from > threeYearFloor ? from : threeYearFloor
+  expr.push(['>=', ['coalesce', ['get', 'saledate'], ''], effectiveFrom])
   if (to) {
     expr.push(['<=', ['coalesce', ['get', 'saledate'], '9999-12-31'], to])
   }
@@ -2554,6 +2565,15 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // layers in sync as the filter changes.
       const filterExpr: any = buildRegridSaleDotFilter(filtersRef.current, PARCEL_MIN_SALE_ACRES)
 
+      // Position the pin ABOVE the parcel label (which is anchored at
+      // the polygon centroid). The label is up to 5 lines tall — owner
+      // + acres + sale price + $/acre + sale date — so we need to lift
+      // the pin by roughly half the label's vertical extent (~3
+      // line-heights from the centroid). circle-translate is in
+      // pixels; text-offset is in ems. We use matching pixel offsets
+      // on both layers so the pink circle and the white "+" stay
+      // visually stacked at any zoom.
+      const PIN_OFFSET_PX = -42
       if (!map.getLayer(PARCEL_SALE_BG_LAYER)) {
         map.addLayer({
           id: PARCEL_SALE_BG_LAYER,
@@ -2567,6 +2587,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             'circle-color': '#f58cde',
             'circle-stroke-color': '#ffffff',
             'circle-stroke-width': 2,
+            'circle-translate': [0, PIN_OFFSET_PX],
           },
         })
       }
@@ -2585,7 +2606,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             'text-allow-overlap': true,
             'text-ignore-placement': true,
           },
-          paint: { 'text-color': '#ffffff' },
+          paint: {
+            'text-color': '#ffffff',
+            // Match the BG circle's pixel offset so the + sits dead-
+            // center inside the pink circle. text-translate is pixels.
+            'text-translate': [0, PIN_OFFSET_PX],
+          },
         })
       }
     }
