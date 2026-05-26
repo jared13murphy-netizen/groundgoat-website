@@ -173,11 +173,13 @@ export default function AdminPrivateTreatyStagingPage() {
   // user clicks Show Tillable on the per-tract map. Lifted to page
   // level so each tract toggles independently without re-mounting
   // the whole list.
-  const [tillableVisible, setTillableVisible] = useState<Set<string>>(new Set())
+  // Inverted set — tracks which tracts have tillable HIDDEN.
+  // Default: tillable is SHOWN whenever tract.tillable_polygon exists.
+  const [tillableHidden, setTillableHidden] = useState<Set<string>>(new Set())
   const toggleTillable = (key: string, next: boolean) => {
-    setTillableVisible(prev => {
+    setTillableHidden(prev => {
       const s = new Set(prev)
-      if (next) s.add(key); else s.delete(key)
+      if (next) s.delete(key); else s.add(key)
       return s
     })
   }
@@ -1261,7 +1263,7 @@ export default function AdminPrivateTreatyStagingPage() {
                             <div className="space-y-4">
                               {info.tracts.map((tract: any, idx: number) => {
                                 const tractKey = `${listing.id}-${idx}`
-                                const showTill = tillableVisible.has(tractKey)
+                                const showTill = tract.tillable_polygon != null && !tillableHidden.has(tractKey)
                                 // Kick off source-image fetch on first
                                 // render of any tract for this listing.
                                 // Cheap: dedup'd inside loadSourceImage.

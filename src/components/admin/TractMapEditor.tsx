@@ -213,6 +213,17 @@ function buildTillableGeo(tillable: Pt[] | Pt[][] | null | undefined): any {
   return { type: 'FeatureCollection', features }
 }
 
+/** Extract the first ring of a tillablePolygon prop as a flat Pt[] with the
+ *  closing duplicate removed — same normalization as normalizeInitialPolygon.
+ *  Used when displaying existing tillable vertices for inline editing. */
+function normalizeTillableToRing(tillable: Pt[] | Pt[][] | null | undefined): Pt[] {
+  if (!tillable || !Array.isArray(tillable) || tillable.length === 0) return []
+  const isMultiRing = Array.isArray((tillable as any)[0]?.[0])
+  const ring: Pt[] = isMultiRing ? (tillable as Pt[][])[0] : (tillable as Pt[])
+  if (!ring || ring.length < 3) return []
+  return normalizeInitialPolygon(ring)
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -283,6 +294,14 @@ export default function TractMapEditor({
     loading: boolean
   } | null>(null)
   const [savingTillable, setSavingTillable] = useState(false)
+  // Non-null while the user is dragging vertices on an EXISTING tillable
+  // polygon (not in draw-new mode). Starts null, gets set on first drag.
+  // Cleared on Save, Delete, or when tillablePolygon prop changes.
+  const [editedTillablePoints, setEditedTillablePoints] = useState<Pt[] | null>(null)
+  // Ref mirror so the map's load-closure drag handlers can read the
+  // latest tillablePolygon prop without stale capture.
+  const tillablePolygonRef = useRef(tillablePolygon)
+  useEffect(() => { tillablePolygonRef.current = tillablePolygon }, [tillablePolygon])
 
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
@@ -339,6 +358,13 @@ export default function TractMapEditor({
     setDirty(false)
     pointsHistory.current = []
   }, [initialPolygon])
+
+  // When the stored tillable polygon changes (e.g., after Save or Delete),
+  // discard any in-progress vertex edits — the prop is now the source of truth.
+  useEffect(() => {
+    setEditedTillablePoints(null)
+    tillableHistory.current = []
+  }, [tillablePolygon])
 
   // ===========================================================
   // IntersectionObserver — mount the MapLibre instance the FIRST
@@ -502,13 +528,27 @@ export default function TractMapEditor({
         const idx = draggingVertexIdx.current
         const { lng, lat } = mev.lngLat
         if (draggingTillableVertex.current) {
-          setTillableDrawPoints(prev => {
-            if (!dragHistoryPushed.current) {
-              tillableHistory.current.push(prev.map(p => [...p] as Pt))
-              dragHistoryPushed.current = true
-            }
-            return prev.map((p, i) => i === idx ? [lng, lat] : p)
-          })
+          if (drawTillableModeRef.current) {
+            // Drawing a NEW tillable polygon — update draw points
+            setTillableDrawPoints(prev => {
+              if (!dragHistoryPushed.current) {
+                tillableHistory.current.push(prev.map(p => [...p] as Pt))
+                dragHistoryPushed.current = true
+              }
+              return prev.map((p, i) => i === idx ? [lng, lat] : p)
+            })
+          } else {
+            // Editing EXISTING tillable polygon vertices inline.
+            // Initialize from the prop on first drag of this session.
+            setEditedTillablePoints(prev => {
+              const base = prev ?? normalizeTillableToRing(tillablePolygonRef.current)
+              if (!dragHistoryPushed.current) {
+                tillableHistory.current.push(base.map(p => [...p] as Pt))
+                dragHistoryPushed.current = true
+              }
+              return base.map((p, i) => i === idx ? [lng, lat] : p)
+            })
+          }
         } else {
           setPoints(prev => {
             if (!dragHistoryPushed.current) {
@@ -572,13 +612,24 @@ export default function TractMapEditor({
         if (!touch) return
         const lngLat = map.unproject(touch)
         if (draggingTillableVertex.current) {
-          setTillableDrawPoints(prev => {
-            if (!dragHistoryPushed.current) {
-              tillableHistory.current.push(prev.map(p => [...p] as Pt))
-              dragHistoryPushed.current = true
-            }
-            return prev.map((p, i) => i === idx ? [lngLat.lng, lngLat.lat] : p)
-          })
+          if (drawTillableModeRef.current) {
+            setTillableDrawPoints(prev => {
+              if (!dragHistoryPushed.current) {
+                tillableHistory.current.push(prev.map(p => [...p] as Pt))
+                dragHistoryPushed.current = true
+              }
+              return prev.map((p, i) => i === idx ? [lngLat.lng, lngLat.lat] : p)
+            })
+          } else {
+            setEditedTillablePoints(prev => {
+              const base = prev ?? normalizeTillableToRing(tillablePolygonRef.current)
+              if (!dragHistoryPushed.current) {
+                tillableHistory.current.push(base.map(p => [...p] as Pt))
+                dragHistoryPushed.current = true
+              }
+              return base.map((p, i) => i === idx ? [lngLat.lng, lngLat.lat] : p)
+            })
+          }
         } else {
           setPoints(prev => {
             if (!dragHistoryPushed.current) {
@@ -685,19 +736,26 @@ export default function TractMapEditor({
     if (vertSrc) vertSrc.setData(buildVertexGeo(points))
   }, [points])
 
-  // Update tillable-verts whenever the drawing changes or the user
-  // exits draw mode. Per user 2026-05-26: tillable polygon needs to
-  // be visually independent from the tract polygon — green dots, green
-  // outline, while keeping the pink tract visible underneath.
+  // Update tillable-verts in three situations:
+  //   1. Drawing new: show live tillableDrawPoints (green, in draw mode)
+  //   2. Editing existing: show tillable polygon vertices (green, when shown)
+  //      — uses editedTillablePoints if dirty, else normalizes from prop
+  //   3. Otherwise: empty (no green dots cluttering the map)
   useEffect(() => {
     const map = mapRef.current
     if (!map || !map.isStyleLoaded()) return
     const tvSrc = map.getSource('tillable-verts') as maplibregl.GeoJSONSource | undefined
     if (!tvSrc) return
-    tvSrc.setData(buildVertexGeo(
-      drawTillableMode ? tillableDrawPoints : []
-    ))
-  }, [drawTillableMode, tillableDrawPoints])
+    if (drawTillableMode) {
+      tvSrc.setData(buildVertexGeo(tillableDrawPoints))
+    } else if (tillablePolygon && showTillable) {
+      // Existing tillable is visible — show its vertices so user can drag them
+      const editPts = editedTillablePoints ?? normalizeTillableToRing(tillablePolygon)
+      tvSrc.setData(buildVertexGeo(editPts))
+    } else {
+      tvSrc.setData({ type: 'FeatureCollection', features: [] })
+    }
+  }, [drawTillableMode, tillableDrawPoints, tillablePolygon, showTillable, editedTillablePoints])
 
   // ── Mode-aware layer styling ──
   // Per user 2026-05-26 (revised): both tract dots (pink) and tillable
@@ -767,22 +825,27 @@ export default function TractMapEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [points])
 
-  // Update tillable overlay when user toggles visibility, the
-  // stored tillable polygon changes, or the user is actively drawing
-  // a new one. Per user 2026-05-26 draw-tillable feature:
-  //   - In draw mode: render the live tillableDrawPoints
-  //   - Otherwise: render the stored tillablePolygon iff showTillable
+  // Update tillable overlay:
+  //   - Draw mode: render live tillableDrawPoints (green, in-progress)
+  //   - Editing existing: render editedTillablePoints if dirty (live)
+  //   - Normal view: render stored tillablePolygon iff showTillable
   useEffect(() => {
     const map = mapRef.current
     if (!map || !map.isStyleLoaded()) return
     const tillSrc = map.getSource('tillable') as maplibregl.GeoJSONSource | undefined
     if (!tillSrc) return
     if (drawTillableMode) {
-      // While drawing, always show the live polygon. If <3 points,
-      // buildTillableGeo returns empty FC.
+      // While drawing a new tillable, show the live polygon.
       tillSrc.setData(
         tillableDrawPoints.length >= 3
           ? buildTillableGeo(tillableDrawPoints)
+          : { type: 'FeatureCollection', features: [] }
+      )
+    } else if (editedTillablePoints !== null) {
+      // Editing existing tillable vertices — render the live edited shape
+      tillSrc.setData(
+        editedTillablePoints.length >= 3
+          ? buildTillableGeo(editedTillablePoints)
           : { type: 'FeatureCollection', features: [] }
       )
     } else {
@@ -792,7 +855,7 @@ export default function TractMapEditor({
           : { type: 'FeatureCollection', features: [] }
       )
     }
-  }, [showTillable, tillablePolygon, drawTillableMode, tillableDrawPoints])
+  }, [showTillable, tillablePolygon, drawTillableMode, tillableDrawPoints, editedTillablePoints])
 
   // ===========================================================
   // Actions
@@ -881,6 +944,58 @@ export default function TractMapEditor({
     }
     setTillableDrawPoints(prev)
   }
+  // ── Handlers for editing an EXISTING tillable polygon's vertices ──
+  // These fire when the user drags a green vertex in non-draw mode.
+  const handleUndoEditedTillable = () => {
+    const prev = tillableHistory.current.pop()
+    if (prev === undefined) {
+      setStatus('Nothing to undo')
+      return
+    }
+    setEditedTillablePoints(prev)
+  }
+  const handleSaveEditedTillable = async () => {
+    const pts = editedTillablePoints
+    if (!pts || pts.length < 3) {
+      setStatus('✗ Need at least 3 points to save a tillable polygon')
+      return
+    }
+    setSavingTillable(true)
+    setStatus(null)
+    try {
+      const res = await fetch(
+        `${SCRAPER_URL}/api/staging/${stagingId}/tracts/${tractIndex}/tillable`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ polygon: pts }),
+        }
+      )
+      const data = await res.json()
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || `HTTP ${res.status}`)
+      }
+      setStatus(
+        `✓ Tillable saved (${data.acres?.toFixed(2) ?? '—'} ac` +
+        (data.soil_rating != null
+          ? `, ${data.soil_rating.toFixed(1)} ${data.soil_rating_type})`
+          : ')')
+      )
+      // editedTillablePoints will be cleared by the tillablePolygon
+      // prop change effect once the parent calls onUpdate.
+      if (onUpdate && data.tract) {
+        onUpdate({
+          ...data.tract,
+          tillable_polygon: data.tract.tillable_polygon,
+        })
+      }
+    } catch (e: any) {
+      setStatus(`✗ Save tillable failed: ${e.message || e}`)
+    } finally {
+      setSavingTillable(false)
+    }
+  }
+
   const handleSaveTillable = async () => {
     if (tillableDrawPoints.length < 3) {
       setStatus('✗ Need at least 3 points to save a tillable polygon')
@@ -1105,6 +1220,8 @@ export default function TractMapEditor({
         throw new Error(data.error || `HTTP ${res.status}`)
       }
       setStatus('✓ Tillable deleted — click Draw Tillable to add a new one')
+      setEditedTillablePoints(null)
+      tillableHistory.current = []
       if (onUpdate && data.tract) {
         // The server pops tillable_polygon + tillable_acres from the
         // tract dict before returning, so spreading data.tract over
@@ -1461,30 +1578,46 @@ export default function TractMapEditor({
                 }`}
                 title={showTillable
                   ? 'Hide the green tillable overlay'
-                  : 'Show magic-lab hybrid tillable (FTW + CDL + NHD subtract)'}
+                  : 'Show tillable polygon and allow vertex editing'}
               >
                 {showTillable
                   ? (<><EyeOff size={12} /> Hide Tillable</>)
                   : (<><Sprout size={12} /> Show Tillable</>)}
               </button>
+              {/* Inline vertex-edit controls — appear as soon as the user
+                  drags a green tillable vertex (editedTillablePoints goes
+                  non-null on first drag). Per user 2026-05-26: tillable
+                  polygon should be editable without needing to delete and
+                  redraw from scratch. */}
+              {editedTillablePoints !== null && (
+                <>
+                  <button
+                    onClick={handleUndoEditedTillable}
+                    disabled={savingTillable}
+                    className="px-2 py-1 text-xs bg-gg-gray-700 hover:bg-gg-gray-600 disabled:opacity-40 rounded flex items-center gap-1"
+                    title="Undo last tillable vertex move"
+                  >
+                    <RotateCcw size={12} /> Undo
+                  </button>
+                  <button
+                    onClick={handleSaveEditedTillable}
+                    disabled={savingTillable}
+                    className="px-3 py-1 text-xs bg-green-600 hover:bg-green-700 text-white font-semibold disabled:opacity-40 rounded flex items-center gap-1"
+                    title="Save the adjusted tillable polygon and recompute soil rating"
+                  >
+                    {savingTillable ? <Loader2 className="animate-spin" size={12} /> : <Save size={12} />}
+                    {savingTillable ? 'Saving…' : 'Save Tillable'}
+                  </button>
+                </>
+              )}
               <button
                 onClick={handleDeleteTillable}
                 disabled={saving || deleting || deletingTillable}
                 className="px-2 py-1 text-xs bg-red-600/70 hover:bg-red-600 text-white disabled:opacity-40 rounded flex items-center gap-1"
-                title="Wipe the tillable polygon only (keeps tract polygon)"
+                title="Wipe the tillable polygon only (keeps tract polygon). Use Draw Tillable to draw a new one."
               >
                 {deletingTillable ? <Loader2 className="animate-spin" size={12} /> : <Trash2 size={12} />}
                 Delete Tillable
-              </button>
-              {/* Per user 2026-05-26: even when auto-detect produced
-                  a tillable polygon, the user may want to redraw it
-                  by hand. */}
-              <button
-                onClick={handleStartTillableDraw}
-                className="px-2 py-1 text-xs bg-green-700/70 hover:bg-green-700 text-white rounded flex items-center gap-1"
-                title="Discard the current tillable and draw a new one by hand"
-              >
-                <Sprout size={12} /> Redraw Tillable
               </button>
             </>
           ) : (

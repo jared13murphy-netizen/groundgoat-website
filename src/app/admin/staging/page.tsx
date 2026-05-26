@@ -217,11 +217,16 @@ export default function AdminStagingPage() {
   // Tillable polygon visibility per `${listingId}-${tractIdx}`. Mirrors
   // the PT staging page — show tract polygon by default, tillable only
   // when the user clicks Show Tillable on the per-tract map.
-  const [tillableVisible, setTillableVisible] = useState<Set<string>>(new Set())
+  // Inverted set — tracks which tracts have tillable HIDDEN.
+  // Default behaviour: tillable is SHOWN whenever tract.tillable_polygon exists.
+  // The user can click "Hide Tillable" to add the key here.
+  const [tillableHidden, setTillableHidden] = useState<Set<string>>(new Set())
   const toggleTillable = (key: string, next: boolean) => {
-    setTillableVisible(prev => {
+    setTillableHidden(prev => {
       const s = new Set(prev)
-      if (next) s.add(key); else s.delete(key)
+      // next=true means "show now" → remove from hidden set
+      // next=false means "hide now" → add to hidden set
+      if (next) s.delete(key); else s.add(key)
       return s
     })
   }
@@ -1485,7 +1490,9 @@ export default function AdminStagingPage() {
                             <div className="space-y-4">
                               {info.tracts.map((tract: any, idx: number) => {
                                 const tractKey = `${listing.id}-${idx}`
-                                const showTill = tillableVisible.has(tractKey)
+                                // Show tillable by default when one exists;
+                                // only hide if the user explicitly toggled it off.
+                                const showTill = tract.tillable_polygon != null && !tillableHidden.has(tractKey)
                                 const listingHasSourceImage = (listing.scraped_data?.listing as any)?.has_source_image
                                 const inlineSourceUrl = (listing.scraped_data?.listing as any)?.source_image_url
                                 const inlineSourceKind = (listing.scraped_data?.listing as any)?.source_image_kind
