@@ -2186,6 +2186,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const REGRID_MIN_ZOOM = 12
   const [regridConfig, setRegridConfig] = useState<{
     tile_url_template: string
+    // Custom-source tiles name their MVT layer with the source UUID;
+    // default tile uses 'parcels'. Optional so older backend responses
+    // (without this field) still type-check.
+    source_layer?: string
     is_sandbox: boolean
     has_token: boolean
     attribution: string
