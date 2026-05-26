@@ -475,6 +475,72 @@ function buildFilterParams(filters: FilterState) {
   return params
 }
 
+// Translate the filter-panel dateRange into the same {from, to} window
+// buildFilterParams sends to the backend. Returned dates are YYYY-MM-DD
+// strings; either side can be undefined when the active preset is open-
+// ended (e.g. 'upcoming' has no upper bound). Both undefined → no date
+// constraint (the 'all' preset).
+function resolveDateWindow(filters: FilterState): {
+  from?: string
+  to?: string
+  upcomingOnly: boolean
+} {
+  if (filters.dateRange === 'custom') {
+    return { from: filters.dateFrom || undefined, to: filters.dateTo || undefined, upcomingOnly: false }
+  }
+  if (filters.dateRange === 'upcoming') {
+    return { from: new Date().toISOString().split('T')[0], to: undefined, upcomingOnly: true }
+  }
+  if (filters.dateRange === 'all') {
+    return { from: undefined, to: undefined, upcomingOnly: false }
+  }
+  const months = filters.dateRange === '1month' ? 1
+    : filters.dateRange === '6months' ? 6
+    : filters.dateRange === '1year' ? 12
+    : filters.dateRange === '18months' ? 18
+    : 24
+  const cutoff = new Date()
+  cutoff.setMonth(cutoff.getMonth() - months)
+  return {
+    from: cutoff.toISOString().split('T')[0],
+    to: new Date().toISOString().split('T')[0],
+    upcomingOnly: false,
+  }
+}
+
+// Maplibre filter expression for the Regrid parcel-sale + pin layers.
+// Mirrors the backend date filter so the dots respect the user's
+// dateRange preset. Regrid's `saledate` is YYYY-MM-DD, so string lexical
+// comparison matches chronological ordering. Missing saledate is
+// coalesced to a sentinel that fails any active date check — so under
+// "Last 6 months" we only show dots whose sale we can prove falls in
+// the window.
+function buildRegridSaleDotFilter(filters: FilterState, minAcres: number): any[] {
+  const { from, to, upcomingOnly } = resolveDateWindow(filters)
+  // "Upcoming auctions" can't match recorded past sales — return a
+  // constant-false expression so all parcel dots vanish.
+  if (upcomingOnly) return ['==', ['literal', 1], ['literal', 0]]
+  const expr: any[] = [
+    'all',
+    ['>', ['coalesce', ['to-number', ['get', 'saleprice']], 0], 0],
+    ['>=',
+      ['coalesce',
+        ['to-number', ['get', 'll_gisacre']],
+        ['to-number', ['get', 'gisacre']],
+        0,
+      ],
+      minAcres,
+    ],
+  ]
+  if (from) {
+    expr.push(['>=', ['coalesce', ['get', 'saledate'], ''], from])
+  }
+  if (to) {
+    expr.push(['<=', ['coalesce', ['get', 'saledate'], '9999-12-31'], to])
+  }
+  return expr
+}
+
 interface ExploreMapProps {
   height?: string
   homeState?: string
@@ -2374,21 +2440,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         timer = setTimeout(mount, 50)
         return
       }
-      // saleprice > 0 AND (ll_gisacre >= 20 OR gisacre >= 20).
-      // ['get'] returns null when the property is missing — wrap in
-      // ['coalesce', value, 0] so the comparison doesn't blow up.
-      const filterExpr: any = [
-        'all',
-        ['>', ['coalesce', ['to-number', ['get', 'saleprice']], 0], 0],
-        ['>=',
-          ['coalesce',
-            ['to-number', ['get', 'll_gisacre']],
-            ['to-number', ['get', 'gisacre']],
-            0,
-          ],
-          PARCEL_MIN_SALE_ACRES,
-        ],
-      ]
+      // saleprice > 0 AND (ll_gisacre >= 20 OR gisacre >= 20), with
+      // an optional saledate window from the user's timeframe filter.
+      // The expression is computed against the LIVE filter state (not
+      // the captured render-time value) so that if the user already had
+      // a filter applied when the map mounted, the layers come up with
+      // the right expression. A separate effect below keeps both
+      // layers in sync as the filter changes.
+      const filterExpr: any = buildRegridSaleDotFilter(filtersRef.current, PARCEL_MIN_SALE_ACRES)
 
       if (!map.getLayer(PARCEL_SALE_BG_LAYER)) {
         map.addLayer({
@@ -2473,6 +2532,21 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       } catch {/* map already torn down */}
     }
   }, [mapLoaded, regridConfig])
+
+  // Keep the Regrid sale-pin layers' filter in sync with the timeframe
+  // preset. Without this, the pink + dots showed every historical sale
+  // forever — even when the user picked "Last 6 months" — because the
+  // maplibre filter is set at addLayer() time and isn't reactive.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+    const expr = buildRegridSaleDotFilter(filters, PARCEL_MIN_SALE_ACRES)
+    for (const id of [PARCEL_SALE_BG_LAYER, PARCEL_SALE_PLUS_LAYER]) {
+      if (map.getLayer(id)) {
+        try { map.setFilter(id, expr as any) } catch {/* layer torn down */}
+      }
+    }
+  }, [mapLoaded, filters.dateRange, filters.dateFrom, filters.dateTo])
 
   // Create/update HTML markers for tracts
   useEffect(() => {
