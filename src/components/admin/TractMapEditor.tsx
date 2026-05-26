@@ -45,7 +45,7 @@ import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import {
   Save, RotateCcw, Trash2, Loader2, ImageIcon, Sprout, EyeOff,
-  Maximize2, Minimize2,
+  Maximize2, Minimize2, Crosshair,
 } from 'lucide-react'
 import { polygonPerimeterFeet, formatPerimeter } from '@/lib/polygonGeometry'
 
@@ -83,12 +83,26 @@ interface TractMapEditorProps {
   /** Center fallback when no polygon and no listing-level coord. */
   latitude?: number | null
   longitude?: number | null
+  /** Auctioneer-published acres for this tract (from tract.scraped.acres
+   *  or top-level tract.acres). When present, the "Align" overlay
+   *  button appears whenever the drawn polygon's area differs from
+   *  this value by >1% — clicking it scales the polygon about its
+   *  centroid by sqrt(scraped/drawn) so the area matches exactly.
+   *  Per user 2026-05-26: faster than re-drawing vertices when the
+   *  shape is right but the size is off. */
+  scrapedAcres?: number | null
   /** Height of the editor strip in pixels. Default 320. */
   editorHeight?: number
   /** Called with the updated tract dict after a successful save or
    *  delete. Parent should merge into its local staging state so the
    *  card re-renders with the new polygon + regenerated image. */
   onUpdate?: (updatedTract: any) => void
+  /** Called LIVE on every polygon edit (vertex drag, Align, Undo, new
+   *  vertex). Per user 2026-05-26: as the user adjusts the polygon,
+   *  the Computed acres in the TractDataCompare card should update in
+   *  real time, not just on Save. The parent should patch
+   *  tract.computed.acres so the radio rows reflect the live shape. */
+  onPolygonChange?: (points: [number, number][], gisAcres: number) => void
   /** Called when the user clicks "Show Tillable" / "Hide Tillable".
    *  Parent owns the showTillable state so the comparison panel can
    *  reflect what's visible. */
@@ -215,8 +229,10 @@ export default function TractMapEditor({
   sourceImageKind,
   latitude,
   longitude,
+  scrapedAcres,
   editorHeight = 320,
   onUpdate,
+  onPolygonChange,
   onToggleTillable,
   onComputeTillable,
 }: TractMapEditorProps) {
@@ -253,6 +269,18 @@ export default function TractMapEditor({
   // For IntersectionObserver — observes the outer wrapper so the map
   // mounts as soon as the user scrolls the tract into view.
   const wrapperRef = useRef<HTMLDivElement | null>(null)
+  // Tracks which vertex (if any) is currently being dragged. Used by
+  // the vertex-drag handlers to know which index to update on each
+  // mousemove. null when no drag in progress. Per user 2026-05-26:
+  // clicking a vertex was just panning the map — we never wired the
+  // mousedown→mousemove→mouseup dance to actually move the vertex.
+  const draggingVertexIdx = useRef<number | null>(null)
+  // Tracks whether the most recent mousedown was on a vertex — used to
+  // suppress the `click` handler's "add a new vertex" path, otherwise
+  // every vertex click would stack a new vertex on top of the existing
+  // one (the click event fires after mouseup if the cursor barely
+  // moved).
+  const recentVertexInteraction = useRef<boolean>(false)
 
   // Reset working state if the parent passes a different polygon (e.g.,
   // after a successful save on a different tract that updated this
@@ -378,10 +406,98 @@ export default function TractMapEditor({
           map.fitBounds(bounds, { padding: 30, duration: 0, maxZoom: 17 })
         } catch {}
       }
+
+      // ── Vertex hover cursor ──
+      map.on('mouseenter', 'verts', () => {
+        map.getCanvas().style.cursor = 'move'
+      })
+      map.on('mouseleave', 'verts', () => {
+        map.getCanvas().style.cursor = ''
+      })
+
+      // ── Vertex drag (per user 2026-05-26) ──
+      // mousedown on a vertex feature → capture index, disable map
+      // pan, attach mousemove + one-shot mouseup. setPoints during
+      // move updates the polygon shape live (the setData effect on
+      // points fires every frame). On mouseup we restore map pan and
+      // detach handlers.
+      const _onVertexDrag = (mev: maplibregl.MapMouseEvent) => {
+        if (draggingVertexIdx.current == null) return
+        const idx = draggingVertexIdx.current
+        const { lng, lat } = mev.lngLat
+        setPoints(prev => prev.map((p, i) =>
+          i === idx ? [lng, lat] : p
+        ))
+        setDirty(true)
+      }
+      const _onVertexUp = () => {
+        draggingVertexIdx.current = null
+        map.dragPan.enable()
+        map.off('mousemove', _onVertexDrag)
+        // mouseup is bound with `once`, no need to detach
+        // Reset the suppression flag after the click event has a chance
+        // to fire and check it (next tick).
+        setTimeout(() => { recentVertexInteraction.current = false }, 0)
+      }
+      map.on('mousedown', 'verts', (ev: any) => {
+        const feature = ev.features?.[0]
+        if (!feature) return
+        const idx = (feature.properties as any)?.idx
+        if (typeof idx !== 'number') return
+        // Stop the map from starting a pan gesture.
+        ev.preventDefault()
+        draggingVertexIdx.current = idx
+        recentVertexInteraction.current = true
+        map.dragPan.disable()
+        map.on('mousemove', _onVertexDrag)
+        map.once('mouseup', _onVertexUp)
+      })
+
+      // Touch support — mirrors the mouse handlers so the editor works
+      // on iPad / touchscreen laptops. MapLibre's touchstart event
+      // doesn't carry `features` directly, so we use
+      // queryRenderedFeatures at the touch point.
+      const _onTouchDrag = (tev: any) => {
+        if (draggingVertexIdx.current == null) return
+        const idx = draggingVertexIdx.current
+        const touch = tev.points?.[0] || tev.point
+        if (!touch) return
+        const lngLat = map.unproject(touch)
+        setPoints(prev => prev.map((p, i) =>
+          i === idx ? [lngLat.lng, lngLat.lat] : p
+        ))
+        setDirty(true)
+      }
+      const _onTouchEnd = () => {
+        draggingVertexIdx.current = null
+        map.dragPan.enable()
+        map.off('touchmove', _onTouchDrag)
+        setTimeout(() => { recentVertexInteraction.current = false }, 0)
+      }
+      map.on('touchstart', 'verts', (ev: any) => {
+        const feature = ev.features?.[0]
+        if (!feature) return
+        const idx = (feature.properties as any)?.idx
+        if (typeof idx !== 'number') return
+        ev.preventDefault()
+        draggingVertexIdx.current = idx
+        recentVertexInteraction.current = true
+        map.dragPan.disable()
+        map.on('touchmove', _onTouchDrag)
+        map.once('touchend', _onTouchEnd)
+      })
     })
 
-    // Click to add a vertex (same UX as boundary-draw page).
+    // Click to add a vertex (same UX as boundary-draw page) — but
+    // skip when the click landed on an existing vertex, otherwise
+    // every vertex click would stack a new vertex on top.
     map.on('click', (ev) => {
+      // Suppress if a vertex was just being interacted with (drag
+      // ended in this tick).
+      if (recentVertexInteraction.current) return
+      // Suppress if the click landed directly on a vertex (no drag).
+      const hits = map.queryRenderedFeatures(ev.point, { layers: ['verts'] })
+      if (hits.length > 0) return
       const { lng, lat } = ev.lngLat
       setPoints(prev => [...prev, [lng, lat]])
       setDirty(true)
@@ -413,6 +529,25 @@ export default function TractMapEditor({
     if (vertSrc) vertSrc.setData(buildVertexGeo(points))
   }, [points])
 
+  // ── Live polygon-change callback ──
+  // Per user 2026-05-26: as the user drags vertices / clicks Align /
+  // adds vertices, push the new GIS acres up so TractDataCompare's
+  // Computed row reflects the live shape instead of the stale magic-lab
+  // result. Parent owns staging state; we just fire the callback with
+  // the current points + acres. Debounced to one fire per animation
+  // frame so a drag doesn't spam the parent with state updates.
+  useEffect(() => {
+    if (!onPolygonChange) return
+    if (points.length < 3) {
+      onPolygonChange(points, 0)
+      return
+    }
+    const handle = requestAnimationFrame(() => {
+      onPolygonChange(points, gisAcres(points))
+    })
+    return () => cancelAnimationFrame(handle)
+  }, [points, onPolygonChange])
+
   // Update tillable overlay when user toggles visibility or the
   // tillable polygon itself changes (e.g. after re-running Stage 5).
   useEffect(() => {
@@ -442,6 +577,32 @@ export default function TractMapEditor({
     setPoints(normalizeInitialPolygon(initialPolygon))
     setDirty(false)
     setStatus(null)
+  }
+  // ── Align: scale polygon about its centroid so its area matches
+  //    the auctioneer-published acres. Per user 2026-05-26: when the
+  //    shape is right but the size is off (computed says 13.56 but
+  //    scraped says 13.86), this is one click instead of redrawing
+  //    every vertex. Area scales with the square of linear dimension,
+  //    so the scale factor is sqrt(target / current). ──
+  const handleAlign = () => {
+    if (points.length < 3) return
+    const target = Number(scrapedAcres)
+    const current = gisAcres(points)
+    if (!isFinite(target) || target <= 0 || current <= 0) return
+    const factor = Math.sqrt(target / current)
+    if (!isFinite(factor) || factor <= 0) return
+    const cx = points.reduce((s, p) => s + p[0], 0) / points.length
+    const cy = points.reduce((s, p) => s + p[1], 0) / points.length
+    setPoints(prev =>
+      prev.map(([x, y]) => [
+        cx + (x - cx) * factor,
+        cy + (y - cy) * factor,
+      ]) as Pt[]
+    )
+    setDirty(true)
+    setStatus(
+      `✓ Aligned to ${target.toFixed(2)} ac (was ${current.toFixed(2)} ac)`
+    )
   }
 
   const handleSave = async () => {
@@ -606,6 +767,33 @@ export default function TractMapEditor({
               <span className="text-xs text-gg-gray-500">Map loads on scroll</span>
             )}
           </div>
+          {/* Align overlay button — appears only when there's a real
+              auctioneer-published acres value AND the drawn polygon's
+              area differs from it by >1%. One click scales the polygon
+              about its centroid to match. Per user 2026-05-26. */}
+          {(() => {
+            const target = Number(scrapedAcres)
+            if (!isFinite(target) || target <= 0) return null
+            if (points.length < 3) return null
+            const cur = drawnAcres
+            if (cur <= 0) return null
+            const diffPct = Math.abs(cur - target) / target
+            if (diffPct <= 0.01) return null
+            const dir = cur > target ? 'shrink' : 'expand'
+            return (
+              <button
+                onClick={handleAlign}
+                title={`${dir === 'shrink' ? 'Shrink' : 'Expand'} polygon to match scraped acres (${target.toFixed(2)} ac). Currently drawn: ${cur.toFixed(2)} ac (${diffPct >= 0.01 ? (diffPct * 100).toFixed(1) : '<1'}% off).`}
+                className="absolute top-2 left-2 z-10 px-2.5 py-1.5 text-xs font-semibold bg-gg-pink hover:bg-gg-pink-light text-white rounded shadow-lg flex items-center gap-1.5 backdrop-blur-sm"
+              >
+                <Crosshair size={14} />
+                Align to {target.toFixed(2)} ac
+                <span className="opacity-70 text-[10px]">
+                  ({dir === 'shrink' ? '−' : '+'}{(diffPct * 100).toFixed(0)}%)
+                </span>
+              </button>
+            )
+          })()}
         </div>
         {/* RIGHT: comparison source image (~40% on md+). Mirrors the
             magic-lab probe's right pane — shows the SAME image the

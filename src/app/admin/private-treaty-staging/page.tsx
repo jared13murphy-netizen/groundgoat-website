@@ -1278,6 +1278,10 @@ export default function AdminPrivateTreatyStagingPage() {
                                     sourceImageBase64={cachedSrc?.base64 || null}
                                     sourceImageUrl={cachedSrc?.url || inlineSourceUrl || null}
                                     sourceImageKind={cachedSrc?.kind || inlineSourceKind || null}
+                                    // Per user 2026-05-26: Align button +
+                                    // live Computed update on edit (same
+                                    // wiring as auction staging).
+                                    scrapedAcres={tract.scraped?.acres ?? tract.acres ?? null}
                                     // Per user 2026-05-25: when no polygon
                                     // exists, the map was always defaulting
                                     // to Iowa (-93.5, 41.9). Fall through to
@@ -1286,6 +1290,18 @@ export default function AdminPrivateTreatyStagingPage() {
                                     // for manual drawing.
                                     latitude={tract.latitude ?? listing.scraped_data?.listing?.latitude ?? null}
                                     longitude={tract.longitude ?? listing.scraped_data?.listing?.longitude ?? null}
+                                    onPolygonChange={(_pts, gisAcres) => {
+                                      setListings(prev => prev.map(l => {
+                                        if (l.id !== listing.id) return l
+                                        const sd = { ...(l.scraped_data || {}) }
+                                        const ts = [...((sd.tracts as any[]) || [])]
+                                        const cur = ts[idx] || {}
+                                        const comp = { ...(cur.computed || {}), acres: gisAcres > 0 ? gisAcres : null }
+                                        ts[idx] = { ...cur, computed: comp }
+                                        sd.tracts = ts
+                                        return { ...l, scraped_data: sd }
+                                      }))
+                                    }}
                                     onUpdate={(updatedTract) => {
                                       setListings(prev => prev.map(l => {
                                         if (l.id !== listing.id) return l

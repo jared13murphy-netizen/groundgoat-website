@@ -1501,6 +1501,10 @@ export default function AdminStagingPage() {
                                     sourceImageBase64={cachedSrc?.base64 || null}
                                     sourceImageUrl={cachedSrc?.url || inlineSourceUrl || null}
                                     sourceImageKind={cachedSrc?.kind || inlineSourceKind || null}
+                                    // Per user 2026-05-26: Align button
+                                    // appears when drawn polygon area
+                                    // doesn't match scraped acres.
+                                    scrapedAcres={tract.scraped?.acres ?? tract.acres ?? null}
                                     // Per user 2026-05-25: when no polygon
                                     // exists, fall through to listing-level
                                     // lat/lng so the map centers near the
@@ -1508,6 +1512,24 @@ export default function AdminStagingPage() {
                                     // to Iowa (-93.5, 41.9).
                                     latitude={tract.latitude ?? listing.scraped_data?.listing?.latitude ?? null}
                                     longitude={tract.longitude ?? listing.scraped_data?.listing?.longitude ?? null}
+                                    // Per user 2026-05-26: live-update
+                                    // tract.computed.acres as the user
+                                    // drags vertices / clicks Align, so the
+                                    // TractDataCompare radios reflect the
+                                    // current shape immediately (not just
+                                    // after Save).
+                                    onPolygonChange={(_pts, gisAcres) => {
+                                      setListings(prev => prev.map(l => {
+                                        if (l.id !== listing.id) return l
+                                        const sd = { ...(l.scraped_data || {}) }
+                                        const ts = [...((sd.tracts as any[]) || [])]
+                                        const cur = ts[idx] || {}
+                                        const comp = { ...(cur.computed || {}), acres: gisAcres > 0 ? gisAcres : null }
+                                        ts[idx] = { ...cur, computed: comp }
+                                        sd.tracts = ts
+                                        return { ...l, scraped_data: sd }
+                                      }))
+                                    }}
                                     onUpdate={(updatedTract) => {
                                       // Merge updated tract back into local state
                                       // so the card re-renders immediately
