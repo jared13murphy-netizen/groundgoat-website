@@ -159,6 +159,14 @@ export default function AdminPrivateTreatyStagingPage() {
   const [fetchError, setFetchError] = useState<string | null>(null)
   const [listings, setListings] = useState<StagingListing[]>([])
   const [screenshotModal, setScreenshotModal] = useState<string | null>(null)
+  // PT pending stagings have ballooned to 200+ rows with ~100MB+ of
+  // scraped_data total. Without pagination the page was downloading
+  // the entire payload on every load and either timing out or running
+  // the browser out of memory before render. Page through the same way
+  // /admin/staging does for auctions.
+  const PAGE_SIZE = 20
+  const [page, setPage] = useState(0)
+  const [totalCount, setTotalCount] = useState(0)
 
   // Tract image lazy-load cache. Mirrors the auction-staging
   // implementation — tract_image_base64 isn't included in the staging
@@ -372,20 +380,25 @@ export default function AdminPrivateTreatyStagingPage() {
     }
   }
 
-  const fetchStagingListings = async () => {
+  const fetchStagingListings = async (pageNum?: number) => {
     setLoading(true)
     setFetchError(null)
+    const offset = (pageNum ?? page) * PAGE_SIZE
     try {
-      const response = await fetchWithAuth(`${API_URL}/api/admin/staging?status=pending&listing_type=private_treaty`)
+      const response = await fetchWithAuth(`${API_URL}/api/admin/staging?status=pending&listing_type=private_treaty&limit=${PAGE_SIZE}&offset=${offset}`)
       if (response.ok) {
         const data = await response.json()
-        // Handle both paginated response {items, total} and legacy array response
         if (data && Array.isArray(data.items)) {
           setListings(data.items)
+          setTotalCount(data.total || data.items.length)
         } else if (Array.isArray(data)) {
-          setListings(data)
+          // Legacy non-paginated response — keep it working but don't
+          // try to render hundreds of rows.
+          setListings(data.slice(0, PAGE_SIZE))
+          setTotalCount(data.length)
         } else {
           setListings([])
+          setTotalCount(0)
         }
       } else {
         const errBody = await response.json().catch(() => null)
@@ -845,6 +858,34 @@ export default function AdminPrivateTreatyStagingPage() {
             </button>
           </div>
         </div>
+
+        {/* Pagination — same UX as auction staging. Mandatory because
+            PT pending list has 200+ rows and ~100MB+ of scraped_data
+            and was timing out without it. */}
+        {totalCount > PAGE_SIZE && (
+          <div className="mb-4 flex items-center justify-between bg-gg-gray-900 border border-gg-gray-800 rounded-lg px-4 py-2 text-sm">
+            <span className="text-gg-gray-300">
+              Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, totalCount)} of {totalCount}
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => { const next = Math.max(0, page - 1); setPage(next); fetchStagingListings(next) }}
+                disabled={page === 0 || loading}
+                className="px-3 py-1 bg-gg-gray-800 text-white rounded hover:bg-gg-gray-700 disabled:opacity-40"
+              >
+                Prev
+              </button>
+              <span className="text-gg-gray-400">Page {page + 1} of {Math.max(1, Math.ceil(totalCount / PAGE_SIZE))}</span>
+              <button
+                onClick={() => { const next = page + 1; if (next * PAGE_SIZE < totalCount) { setPage(next); fetchStagingListings(next) } }}
+                disabled={(page + 1) * PAGE_SIZE >= totalCount || loading}
+                className="px-3 py-1 bg-gg-gray-800 text-white rounded hover:bg-gg-gray-700 disabled:opacity-40"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Single PT URL Scrape — paste a direct PT listing URL to scrape just that one page */}
         <div className="mb-4 flex items-center gap-3">
