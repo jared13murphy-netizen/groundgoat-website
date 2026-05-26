@@ -45,7 +45,7 @@ import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import {
   Save, RotateCcw, Trash2, Loader2, ImageIcon, Sprout, EyeOff,
-  Maximize2, Minimize2, Crosshair, Camera,
+  Maximize2, Minimize2, Crosshair, Camera, Sparkles,
 } from 'lucide-react'
 import { polygonPerimeterFeet, formatPerimeter } from '@/lib/polygonGeometry'
 
@@ -327,6 +327,11 @@ export default function TractMapEditor({
   const [uploadedImage, setUploadedImage] = useState<string | null>(null)
   const [extractingFromImage, setExtractingFromImage] = useState(false)
   const uploadInputRef = useRef<HTMLInputElement | null>(null)
+  // Upload panel — shown when user clicks "Upload Image". Has URL input
+  // (Land ID extraction) and paste/drop/pick image zone.
+  const [showUploadPanel, setShowUploadPanel] = useState(false)
+  const [urlInput, setUrlInput] = useState('')
+  const [extractingUrl, setExtractingUrl] = useState(false)
 
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
@@ -390,6 +395,27 @@ export default function TractMapEditor({
     setEditedTillablePoints(null)
     tillableHistory.current = []
   }, [tillablePolygon])
+
+  // While the upload panel is open, Ctrl+V / Cmd+V pastes the clipboard
+  // image directly into the extraction flow — same UX as the full-page
+  // upload-boundary-tract screen.
+  useEffect(() => {
+    if (!showUploadPanel) return
+    const onPaste = (e: ClipboardEvent) => {
+      const item = Array.from(e.clipboardData?.items || [])
+        .find(it => it.type.startsWith('image/'))
+      if (!item) return
+      const blob = item.getAsFile()
+      if (blob) {
+        setShowUploadPanel(false)
+        handleImageUpload(blob)
+      }
+    }
+    window.addEventListener('paste', onPaste)
+    return () => window.removeEventListener('paste', onPaste)
+    // handleImageUpload is stable enough for this purpose
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showUploadPanel])
 
   // ===========================================================
   // IntersectionObserver — mount the MapLibre instance the FIRST
@@ -1210,6 +1236,50 @@ export default function TractMapEditor({
     }
   }
 
+  // ── URL extract: pull Land ID polygon from an auction page URL ──
+  // User pastes any auction listing URL into the upload panel's URL field.
+  // Backend fetches the page, finds the Land ID iframe hash, pulls the
+  // GeoJSON, and returns the polygon whose acreage best matches this tract.
+  const handleUrlExtract = async () => {
+    const url = urlInput.trim()
+    if (!url) return
+    setExtractingUrl(true)
+    setShowUploadPanel(false)
+    setStatus('Fetching Land ID map from URL…')
+    try {
+      const res = await fetch(
+        `${SCRAPER_URL}/api/admin/tracts/vision-upload/extract-boundary-from-url`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url, acres: scrapedAcres }),
+        }
+      )
+      const data = await res.json()
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || `HTTP ${res.status}`)
+      }
+      const poly = data.polygon as [number, number][]
+      if (!poly || poly.length < 3) throw new Error('No polygon returned')
+      pointsHistory.current.push(points.map(p => [...p] as Pt))
+      setPoints(poly as Pt[])
+      setDirty(true)
+      const matchLabel = data.acreage_match ?? 'unknown'
+      const acLabel = data.extracted_acres
+        ? `${Number(data.extracted_acres).toFixed(1)} ac`
+        : '?'
+      setStatus(
+        `✓ Extracted from URL — ${acLabel} (${matchLabel} match). ` +
+        `Review polygon on the map, then Save.`
+      )
+      setUrlInput('')
+    } catch (e: any) {
+      setStatus(`✗ URL extraction failed: ${e.message || e}`)
+    } finally {
+      setExtractingUrl(false)
+    }
+  }
+
   // ── Align: scale polygon about its centroid so its area matches
   //    the auctioneer-published acres. Per user 2026-05-26: when the
   //    shape is right but the size is off (computed says 13.56 but
@@ -1479,11 +1549,90 @@ export default function TractMapEditor({
             blank white rectangle.
         */}
         <div className={`${fullscreen ? 'md:w-1/3' : 'md:w-2/5'} w-full bg-gg-gray-800 border-l border-gg-gray-700 flex items-center justify-center relative overflow-hidden`}>
-          {/* Priority 0: user-uploaded image + Vision extraction overlay.
-              Shows immediately when the user picks a file and stays visible
-              after extraction completes so they can compare the extracted
-              polygon against the image they uploaded. */}
-          {uploadedImage ? (
+          {/* Priority 0: upload panel — shown when user clicks "Upload Image".
+              Offers URL input (Land ID extraction) and paste/drop/pick image
+              zone, matching the upload-boundary-tract page UX. The panel
+              fills the right pane; × or clicking Upload Image again closes it. */}
+          {showUploadPanel ? (
+            <div className="absolute inset-0 bg-gg-gray-800 flex flex-col gap-3 p-4 overflow-y-auto z-10">
+              <div className="flex items-center justify-between flex-shrink-0">
+                <span className="text-sm font-semibold text-white">Upload Image or URL</span>
+                <button
+                  onClick={() => setShowUploadPanel(false)}
+                  className="text-gg-gray-400 hover:text-white text-xl leading-none px-1"
+                >×</button>
+              </div>
+              {/* URL section */}
+              <div className="text-[10px] text-gg-gray-400 uppercase tracking-wider font-semibold flex-shrink-0">
+                Auction URL with a Land ID map
+              </div>
+              <div className="flex gap-2 flex-shrink-0">
+                <input
+                  type="url"
+                  value={urlInput}
+                  onChange={e => setUrlInput(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && urlInput.trim()) handleUrlExtract()
+                  }}
+                  placeholder="https://…"
+                  disabled={extractingUrl || extractingFromImage}
+                  className="flex-1 min-w-0 px-2 py-1.5 bg-gg-gray-900 border border-gg-gray-700 rounded text-xs text-white placeholder-gg-gray-500 focus:outline-none focus:border-gg-pink disabled:opacity-50"
+                />
+                <button
+                  onClick={handleUrlExtract}
+                  disabled={extractingUrl || !urlInput.trim()}
+                  className="px-2.5 py-1.5 bg-gg-pink hover:bg-gg-pink/85 disabled:opacity-50 text-white text-xs font-semibold rounded flex items-center gap-1 flex-shrink-0"
+                >
+                  {extractingUrl
+                    ? <Loader2 size={12} className="animate-spin" />
+                    : <Sparkles size={12} />}
+                  {extractingUrl ? 'Fetching…' : 'Extract'}
+                </button>
+              </div>
+              {/* Divider */}
+              <div className="flex items-center gap-2 text-[10px] text-gg-gray-600 flex-shrink-0">
+                <div className="flex-1 border-t border-gg-gray-700" />
+                <span>or</span>
+                <div className="flex-1 border-t border-gg-gray-700" />
+              </div>
+              {/* Image drop/paste/pick zone */}
+              <div className="text-[10px] text-gg-gray-400 uppercase tracking-wider font-semibold flex-shrink-0">
+                Paste, drop, or pick an image
+              </div>
+              <label
+                onDragOver={e => e.preventDefault()}
+                onDrop={e => {
+                  e.preventDefault()
+                  const file = e.dataTransfer.files?.[0]
+                  if (file) { setShowUploadPanel(false); handleImageUpload(file) }
+                }}
+                className="flex-1 min-h-[80px] border-2 border-dashed border-gg-gray-700 rounded-lg flex flex-col items-center justify-center gap-2 cursor-pointer hover:border-gg-pink/50 transition-colors p-3"
+              >
+                <ImageIcon size={24} className="text-gg-gray-500" />
+                <div className="text-center text-xs text-gg-gray-400">
+                  <div className="font-medium">Paste, drop, or click to pick</div>
+                  <div className="text-[10px] text-gg-gray-500 mt-0.5">
+                    Auction screenshot, GIS export, or PDF boundary map
+                  </div>
+                </div>
+                <input
+                  ref={uploadInputRef}
+                  type="file"
+                  accept="image/*,application/pdf"
+                  className="hidden"
+                  onChange={e => {
+                    const file = e.target.files?.[0]
+                    if (file) { setShowUploadPanel(false); handleImageUpload(file) }
+                    e.target.value = ''
+                  }}
+                />
+              </label>
+            </div>
+          /* Priority 1: user-uploaded image + Vision extraction overlay.
+             Shows as soon as the user picks/drops/pastes a file and stays
+             visible after extraction completes so the polygon can be compared
+             against the image used to extract it. */
+          ) : uploadedImage ? (
             <>
               <img
                 src={uploadedImage}
@@ -1511,7 +1660,7 @@ export default function TractMapEditor({
                 ×
               </button>
             </>
-          /* Priority 1: just-captured screenshot (this session) */
+          /* Priority 2: just-captured screenshot (this session) */
           ) : capturedSourceImage ? (
             <>
               <img
@@ -1690,31 +1839,24 @@ export default function TractMapEditor({
               full-viewport overlay. Per user 2026-05-26: the inline
               map is too small to accurately draw new polygons; needs a
               way to expand to the full window for precise editing. */}
-          {/* Upload Image — user picks a local aerial/PDF/map image; Claude
-              Vision extracts the tract boundary. The image shows in the
-              right pane; the returned polygon loads onto the map for editing. */}
+          {/* Upload Image — opens an inline panel in the right pane with
+              both a URL input (Land ID map extraction) and a paste/drop/
+              pick image zone. Matches the upload-boundary-tract page UX. */}
           <button
-            onClick={() => uploadInputRef.current?.click()}
-            disabled={extractingFromImage}
-            className="px-2 py-1 text-xs bg-gg-gray-700 hover:bg-gg-gray-600 disabled:opacity-40 rounded flex items-center gap-1"
-            title="Upload an aerial or map image — Claude Vision will extract the tract boundary from it"
+            onClick={() => setShowUploadPanel(prev => !prev)}
+            disabled={extractingFromImage || extractingUrl}
+            className={`px-2 py-1 text-xs rounded flex items-center gap-1 ${
+              showUploadPanel
+                ? 'bg-gg-pink hover:bg-gg-pink/85 text-white'
+                : 'bg-gg-gray-700 hover:bg-gg-gray-600 disabled:opacity-40'
+            }`}
+            title="Open the upload panel — paste/drop/pick an image or enter an auction URL to extract the tract boundary"
           >
-            {extractingFromImage
+            {(extractingFromImage || extractingUrl)
               ? <Loader2 className="animate-spin" size={12} />
               : <ImageIcon size={12} />}
-            {extractingFromImage ? 'Extracting…' : 'Upload Image'}
+            {extractingFromImage ? 'Extracting…' : extractingUrl ? 'Fetching…' : 'Upload Image'}
           </button>
-          <input
-            ref={uploadInputRef}
-            type="file"
-            accept="image/*,application/pdf"
-            className="hidden"
-            onChange={e => {
-              const file = e.target.files?.[0]
-              if (file) handleImageUpload(file)
-              e.target.value = ''
-            }}
-          />
           <button
             onClick={() => setFullscreen(prev => !prev)}
             className="px-2 py-1 text-xs bg-gg-gray-700 hover:bg-gg-gray-600 rounded flex items-center gap-1"
