@@ -295,6 +295,21 @@ export default function TractMapEditor({
   // clicking a vertex was just panning the map — we never wired the
   // mousedown→mousemove→mouseup dance to actually move the vertex.
   const draggingVertexIdx = useRef<number | null>(null)
+  // ── Undo history stacks ──
+  // Per user 2026-05-26: Undo was always popping the LAST vertex
+  // regardless of the actual previous action — moving a vertex then
+  // clicking Undo did nothing, then a second Undo deleted a different
+  // vertex. Now every action snapshots the pre-action state onto the
+  // history stack and Undo pops one snapshot back.
+  // Actions that push: add-vertex (click), vertex drag (first move
+  // only, not every mousemove), Align, Clear, Cancel resets clear
+  // history. Separate stacks for tract vs tillable so Undo in either
+  // mode only walks back through that mode's edits.
+  const pointsHistory = useRef<Pt[][]>([])
+  const tillableHistory = useRef<Pt[][]>([])
+  // True once we've snapshotted the pre-drag state for the current
+  // drag — prevents 100 mousemove events from pushing 100 snapshots.
+  const dragHistoryPushed = useRef(false)
   // Ref mirror of drawTillableMode so map event handlers (which
   // capture the value at mount time inside the load closure) see the
   // latest value without us having to rebind every toggle.
@@ -311,10 +326,13 @@ export default function TractMapEditor({
 
   // Reset working state if the parent passes a different polygon (e.g.,
   // after a successful save on a different tract that updated this
-  // tract's data via shared listings state).
+  // tract's data via shared listings state). Also clears the undo
+  // history — a fresh polygon means the previous history is no longer
+  // meaningful.
   useEffect(() => {
     setPoints(normalizeInitialPolygon(initialPolygon))
     setDirty(false)
+    pointsHistory.current = []
   }, [initialPolygon])
 
   // ===========================================================
@@ -452,18 +470,23 @@ export default function TractMapEditor({
         if (draggingVertexIdx.current == null) return
         const idx = draggingVertexIdx.current
         const { lng, lat } = mev.lngLat
-        // Route the drag to whichever polygon is currently being
-        // edited — tract polygon by default, tillable when the user
-        // toggled "Draw Tillable" mode. The mode is read off a ref so
-        // the closure captures the latest value (state would be stale).
         if (drawTillableModeRef.current) {
-          setTillableDrawPoints(prev => prev.map((p, i) =>
-            i === idx ? [lng, lat] : p
-          ))
+          setTillableDrawPoints(prev => {
+            // Push pre-drag snapshot ONCE per drag, not every move.
+            if (!dragHistoryPushed.current) {
+              tillableHistory.current.push(prev.map(p => [...p] as Pt))
+              dragHistoryPushed.current = true
+            }
+            return prev.map((p, i) => i === idx ? [lng, lat] : p)
+          })
         } else {
-          setPoints(prev => prev.map((p, i) =>
-            i === idx ? [lng, lat] : p
-          ))
+          setPoints(prev => {
+            if (!dragHistoryPushed.current) {
+              pointsHistory.current.push(prev.map(p => [...p] as Pt))
+              dragHistoryPushed.current = true
+            }
+            return prev.map((p, i) => i === idx ? [lng, lat] : p)
+          })
           setDirty(true)
         }
       }
@@ -481,10 +504,13 @@ export default function TractMapEditor({
         if (!feature) return
         const idx = (feature.properties as any)?.idx
         if (typeof idx !== 'number') return
-        // Stop the map from starting a pan gesture.
         ev.preventDefault()
         draggingVertexIdx.current = idx
         recentVertexInteraction.current = true
+        // Reset the "have I snapshotted this drag yet?" flag — the
+        // first mousemove will push the pre-drag state to the right
+        // history stack.
+        dragHistoryPushed.current = false
         map.dragPan.disable()
         map.on('mousemove', _onVertexDrag)
         map.once('mouseup', _onVertexUp)
@@ -501,13 +527,21 @@ export default function TractMapEditor({
         if (!touch) return
         const lngLat = map.unproject(touch)
         if (drawTillableModeRef.current) {
-          setTillableDrawPoints(prev => prev.map((p, i) =>
-            i === idx ? [lngLat.lng, lngLat.lat] : p
-          ))
+          setTillableDrawPoints(prev => {
+            if (!dragHistoryPushed.current) {
+              tillableHistory.current.push(prev.map(p => [...p] as Pt))
+              dragHistoryPushed.current = true
+            }
+            return prev.map((p, i) => i === idx ? [lngLat.lng, lngLat.lat] : p)
+          })
         } else {
-          setPoints(prev => prev.map((p, i) =>
-            i === idx ? [lngLat.lng, lngLat.lat] : p
-          ))
+          setPoints(prev => {
+            if (!dragHistoryPushed.current) {
+              pointsHistory.current.push(prev.map(p => [...p] as Pt))
+              dragHistoryPushed.current = true
+            }
+            return prev.map((p, i) => i === idx ? [lngLat.lng, lngLat.lat] : p)
+          })
           setDirty(true)
         }
       }
@@ -525,6 +559,7 @@ export default function TractMapEditor({
         ev.preventDefault()
         draggingVertexIdx.current = idx
         recentVertexInteraction.current = true
+        dragHistoryPushed.current = false
         map.dragPan.disable()
         map.on('touchmove', _onTouchDrag)
         map.once('touchend', _onTouchEnd)
@@ -549,9 +584,15 @@ export default function TractMapEditor({
       if (hits.length > 0) return
       const { lng, lat } = ev.lngLat
       if (drawTillableModeRef.current) {
-        setTillableDrawPoints(prev => [...prev, [lng, lat]])
+        setTillableDrawPoints(prev => {
+          tillableHistory.current.push(prev.map(p => [...p] as Pt))
+          return [...prev, [lng, lat]]
+        })
       } else {
-        setPoints(prev => [...prev, [lng, lat]])
+        setPoints(prev => {
+          pointsHistory.current.push(prev.map(p => [...p] as Pt))
+          return [...prev, [lng, lat]]
+        })
         setDirty(true)
       }
     })
@@ -651,15 +692,33 @@ export default function TractMapEditor({
   // ===========================================================
   // Actions
   // ===========================================================
+  // ── Undo via history stack (per user 2026-05-26) ──
+  // Pops the most recent pre-action snapshot. Works for every action
+  // type that pushed to history: add-vertex, vertex drag, Align, Clear.
+  // Previously this was `slice(0, -1)` which always dropped the last
+  // vertex regardless of what the user actually just did — moving a
+  // vertex then undoing did nothing, then a second undo would delete
+  // a different vertex.
   const handleUndo = () => {
-    setPoints(prev => prev.slice(0, -1))
+    const prev = pointsHistory.current.pop()
+    if (prev === undefined) {
+      setStatus('Nothing to undo')
+      return
+    }
+    setPoints(prev)
     setDirty(true)
   }
   const handleClear = () => {
-    setPoints([])
+    setPoints(prev => {
+      pointsHistory.current.push(prev.map(p => [...p] as Pt))
+      return []
+    })
     setDirty(true)
   }
   const handleCancel = () => {
+    // Cancel discards all in-flight edits → wipe the undo history too,
+    // there's nothing meaningful to undo back to.
+    pointsHistory.current = []
     setPoints(normalizeInitialPolygon(initialPolygon))
     setDirty(false)
     setStatus(null)
@@ -672,6 +731,7 @@ export default function TractMapEditor({
   const handleStartTillableDraw = () => {
     setDrawTillableMode(true)
     setTillableDrawPoints(points.length >= 3 ? [...points] : [])
+    tillableHistory.current = []
     setTillablePreview(null)
     setStatus(points.length >= 3
       ? 'Tillable draw mode — seeded with tract polygon. Trim non-tillable areas (water, woods, buildings) then Save.'
@@ -680,15 +740,27 @@ export default function TractMapEditor({
   const handleCancelTillableDraw = () => {
     setDrawTillableMode(false)
     setTillableDrawPoints([])
+    tillableHistory.current = []
     setTillablePreview(null)
     setStatus(null)
   }
   const handleClearTillableDraw = () => {
-    setTillableDrawPoints([])
+    setTillableDrawPoints(prev => {
+      tillableHistory.current.push(prev.map(p => [...p] as Pt))
+      return []
+    })
     setTillablePreview(null)
   }
+  // Tillable Undo: pops the tillable history stack. Same fix as the
+  // tract Undo — was previously slice(0,-1) which only worked for the
+  // add-vertex case and ignored drag/Clear actions.
   const handleUndoTillableDraw = () => {
-    setTillableDrawPoints(prev => prev.slice(0, -1))
+    const prev = tillableHistory.current.pop()
+    if (prev === undefined) {
+      setStatus('Nothing to undo in this tillable draw')
+      return
+    }
+    setTillableDrawPoints(prev)
   }
   const handleSaveTillable = async () => {
     if (tillableDrawPoints.length < 3) {
@@ -718,9 +790,11 @@ export default function TractMapEditor({
       )
       // Exit draw mode + push the updated tract up to the parent so
       // the stored tillablePolygon prop refreshes and renders the
-      // green overlay from the new shape.
+      // green overlay from the new shape. Clear history — save is a
+      // commit point, no need to undo back through pre-save drafts.
       setDrawTillableMode(false)
       setTillableDrawPoints([])
+      tillableHistory.current = []
       setTillablePreview(null)
       if (onUpdate && data.tract) {
         onUpdate({
@@ -809,12 +883,14 @@ export default function TractMapEditor({
     if (!isFinite(factor) || factor <= 0) return
     const cx = points.reduce((s, p) => s + p[0], 0) / points.length
     const cy = points.reduce((s, p) => s + p[1], 0) / points.length
-    setPoints(prev =>
-      prev.map(([x, y]) => [
+    setPoints(prev => {
+      // Snapshot pre-Align so Undo reverts cleanly.
+      pointsHistory.current.push(prev.map(p => [...p] as Pt))
+      return prev.map(([x, y]) => [
         cx + (x - cx) * factor,
         cy + (y - cy) * factor,
       ]) as Pt[]
-    )
+    })
     setDirty(true)
     setStatus(
       `✓ Aligned to ${target.toFixed(2)} ac (was ${current.toFixed(2)} ac)`
