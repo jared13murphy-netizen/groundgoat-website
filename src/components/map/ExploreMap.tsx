@@ -2319,13 +2319,66 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             ],
           ],
           { 'font-scale': 0.85 },
-          // NOTE: sale price / sale date / $/acre segments were
-          // removed 2026-05-26. Per user product principle ("if we
-          // show data for one parcel we have to show for all"),
-          // partial coverage hurts trust. Sale data only appears in
-          // the click popup (which fetches the Premium Schema record
-          // via /api/regrid/parcel and is always complete for the
-          // clicked parcel).
+          // Sale price — only when saleprice > 0 (excludes the many
+          // $0 quit-claim / family transfers Regrid records). Custom
+          // tile source (see backend regrid_service.REGRID_CUSTOM_LAYER_ID)
+          // bakes saleprice into the tile so this segment fires
+          // wherever Regrid has a recorded sale on file.
+          ['case',
+            ['all',
+              ['has', 'saleprice'],
+              ['>', ['to-number', ['get', 'saleprice']], 0],
+            ],
+            ['concat', '\nSale Price: $',
+              ['number-format', ['to-number', ['get', 'saleprice']], {
+                'locale': 'en-US',
+                'min-fraction-digits': 0,
+                'max-fraction-digits': 0,
+              }],
+            ],
+            '',
+          ],
+          { 'font-scale': 0.85 },
+          // Price per acre — saleprice / acres when both are positive.
+          // Both denominator fields are in the custom tile.
+          ['case',
+            ['all',
+              ['has', 'saleprice'],
+              ['>', ['to-number', ['get', 'saleprice']], 0],
+              ['any', ['has', 'll_gisacre'], ['has', 'gisacre']],
+              ['>', ['to-number', ['coalesce', ['get', 'll_gisacre'], ['get', 'gisacre']]], 0],
+            ],
+            ['concat', '\n$/Acre: $',
+              ['number-format',
+                ['/',
+                  ['to-number', ['get', 'saleprice']],
+                  ['to-number', ['coalesce', ['get', 'll_gisacre'], ['get', 'gisacre']]],
+                ],
+                {
+                  'locale': 'en-US',
+                  'min-fraction-digits': 0,
+                  'max-fraction-digits': 0,
+                },
+              ],
+            ],
+            '',
+          ],
+          { 'font-scale': 0.85 },
+          // Sale date — custom tile returns ISO datetime like
+          // "2011-01-14T00:00:00.000Z". The first 10 chars are still
+          // YYYY-MM-DD regardless of whether the value is a bare date
+          // or a full datetime, so slice(0,4) / slice(5,7) / slice(8,10)
+          // works either way. No length guard — `has` is sufficient.
+          ['case',
+            ['has', 'saledate'],
+            ['concat', '\nSale Date: ',
+              ['slice', ['get', 'saledate'], 5, 7], '/',
+              ['slice', ['get', 'saledate'], 8, 10], '/',
+              ['slice', ['get', 'saledate'], 0, 4],
+            ],
+            '',
+          ],
+          { 'font-scale': 0.85 },
         ],
         'text-font': ['Open Sans Regular'],
         'text-size': [

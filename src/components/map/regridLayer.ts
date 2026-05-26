@@ -408,11 +408,63 @@ export function addRegridLayer(
           ],
         ],
         { 'font-scale': 0.85 },
-        // NOTE: sale price / sale date / $/acre segments removed
-        // 2026-05-26. Per user principle, partial coverage on labels
-        // erodes trust. Sale data is still surfaced in the click
-        // popup, which fetches the complete Premium Schema record
-        // via /api/regrid/parcel.
+        // Sale price — only when saleprice > 0. Custom Regrid tile
+        // source (REGRID_CUSTOM_LAYER_ID on the backend) bakes
+        // saleprice into the tile so this fires wherever Regrid has
+        // a recorded sale.
+        ['case',
+          ['all',
+            ['has', 'saleprice'],
+            ['>', ['to-number', ['get', 'saleprice']], 0],
+          ],
+          ['concat', '\nSale Price: $',
+            ['number-format', ['to-number', ['get', 'saleprice']], {
+              'locale': 'en-US',
+              'min-fraction-digits': 0,
+              'max-fraction-digits': 0,
+            }],
+          ],
+          '',
+        ],
+        { 'font-scale': 0.85 },
+        // Price per acre — saleprice / acres when both > 0.
+        ['case',
+          ['all',
+            ['has', 'saleprice'],
+            ['>', ['to-number', ['get', 'saleprice']], 0],
+            ['any', ['has', 'll_gisacre'], ['has', 'gisacre']],
+            ['>', ['to-number', ['coalesce', ['get', 'll_gisacre'], ['get', 'gisacre']]], 0],
+          ],
+          ['concat', '\n$/Acre: $',
+            ['number-format',
+              ['/',
+                ['to-number', ['get', 'saleprice']],
+                ['to-number', ['coalesce', ['get', 'll_gisacre'], ['get', 'gisacre']]],
+              ],
+              {
+                'locale': 'en-US',
+                'min-fraction-digits': 0,
+                'max-fraction-digits': 0,
+              },
+            ],
+          ],
+          '',
+        ],
+        { 'font-scale': 0.85 },
+        // Sale date — custom tile returns ISO datetime like
+        // "2011-01-14T00:00:00.000Z". First 10 chars are YYYY-MM-DD
+        // regardless of whether the underlying value is bare date or
+        // full datetime, so slice(0,4)/(5,7)/(8,10) works for both.
+        ['case',
+          ['has', 'saledate'],
+          ['concat', '\nSale Date: ',
+            ['slice', ['get', 'saledate'], 5, 7], '/',
+            ['slice', ['get', 'saledate'], 8, 10], '/',
+            ['slice', ['get', 'saledate'], 0, 4],
+          ],
+          '',
+        ],
+        { 'font-scale': 0.85 },
       ],
       'text-font': ['Open Sans Regular'],
       'text-size': ['interpolate', ['linear'], ['zoom'], 14, 10, 16, 12, 18, 14],
