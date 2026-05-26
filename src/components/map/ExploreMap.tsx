@@ -2319,7 +2319,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           { 'font-scale': 0.85 },
           // Sale price — only when saleprice > 0. Regrid stores many
           // $0 quit-claim / trust transfers; those aren't market sales
-          // so we hide them rather than render "Sale: $0".
+          // so we hide them rather than render "Sale: $0". Explicit
+          // en-US locale guarantees comma grouping ("$1,049,750"
+          // instead of "$1049750") regardless of the user's browser
+          // default locale.
           ['case',
             ['all',
               ['has', 'saleprice'],
@@ -2327,18 +2330,28 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             ],
             ['concat', '\nSale: $',
               ['number-format', ['to-number', ['get', 'saleprice']], {
-                'min-fraction-digits': 0, 'max-fraction-digits': 0,
+                'locale': 'en-US',
+                'min-fraction-digits': 0,
+                'max-fraction-digits': 0,
               }],
             ],
             '',
           ],
           { 'font-scale': 0.85 },
-          // Sale date — only when present. Regrid's `saledate` is
-          // YYYY-MM-DD; keep it raw since maplibre expression syntax
-          // can't reformat dates cheaply and the user can read ISO.
+          // Sale date — Regrid returns YYYY-MM-DD; reformat to
+          // MM/DD/YYYY via slice + concat for U.S. readability. Guard
+          // with a length check so a malformed string falls back to
+          // hiding the row rather than rendering "//".
           ['case',
-            ['has', 'saledate'],
-            ['concat', '\nSold: ', ['get', 'saledate']],
+            ['all',
+              ['has', 'saledate'],
+              ['==', ['length', ['get', 'saledate']], 10],
+            ],
+            ['concat', '\nSold: ',
+              ['slice', ['get', 'saledate'], 5, 7], '/',
+              ['slice', ['get', 'saledate'], 8, 10], '/',
+              ['slice', ['get', 'saledate'], 0, 4],
+            ],
             '',
           ],
           { 'font-scale': 0.85 },

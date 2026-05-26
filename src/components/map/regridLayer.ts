@@ -404,22 +404,38 @@ export function addRegridLayer(
         { 'font-scale': 0.85 },
         // Sale price — only when saleprice > 0 (excludes Regrid's many
         // $0 quit-claim/trust transfers so labels read "Sale: $X" only
-        // for real market sales).
+        // for real market sales). Explicit en-US locale forces comma
+        // grouping so the label always reads "$1,049,750" regardless
+        // of the user's browser default locale.
         ['case',
           ['all',
             ['has', 'saleprice'],
             ['>', ['to-number', ['get', 'saleprice']], 0],
           ],
           ['concat', '\nSale: $',
-            ['number-format', ['to-number', ['get', 'saleprice']], { 'min-fraction-digits': 0, 'max-fraction-digits': 0 }],
+            ['number-format', ['to-number', ['get', 'saleprice']], {
+              'locale': 'en-US',
+              'min-fraction-digits': 0,
+              'max-fraction-digits': 0,
+            }],
           ],
           '',
         ],
         { 'font-scale': 0.85 },
-        // Sale date — only when present. Raw YYYY-MM-DD from Regrid.
+        // Sale date — Regrid returns YYYY-MM-DD; reformat to MM/DD/YYYY
+        // via slice + concat. Length guard so a malformed value (e.g.
+        // empty string with `has` true) falls back to hidden instead
+        // of rendering "//".
         ['case',
-          ['has', 'saledate'],
-          ['concat', '\nSold: ', ['get', 'saledate']],
+          ['all',
+            ['has', 'saledate'],
+            ['==', ['length', ['get', 'saledate']], 10],
+          ],
+          ['concat', '\nSold: ',
+            ['slice', ['get', 'saledate'], 5, 7], '/',
+            ['slice', ['get', 'saledate'], 8, 10], '/',
+            ['slice', ['get', 'saledate'], 0, 4],
+          ],
           '',
         ],
         { 'font-scale': 0.85 },
