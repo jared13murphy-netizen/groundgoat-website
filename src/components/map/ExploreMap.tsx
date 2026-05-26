@@ -2301,7 +2301,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             ['has', 'll_gisacre'],
             ['concat', '\n', ['concat',
               ['number-format', ['get', 'll_gisacre'], {
-                'min-fraction-digits': 1, 'max-fraction-digits': 1,
+                'locale': 'en-US',
+                'min-fraction-digits': 0, 'max-fraction-digits': 2,
               }],
               ' ac',
             ]],
@@ -2309,7 +2310,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               ['has', 'gisacre'],
               ['concat', '\n', ['concat',
                 ['number-format', ['get', 'gisacre'], {
-                  'min-fraction-digits': 1, 'max-fraction-digits': 1,
+                  'locale': 'en-US',
+                  'min-fraction-digits': 0, 'max-fraction-digits': 2,
                 }],
                 ' ac',
               ]],
@@ -2319,16 +2321,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           { 'font-scale': 0.85 },
           // Sale price — only when saleprice > 0. Regrid stores many
           // $0 quit-claim / trust transfers; those aren't market sales
-          // so we hide them rather than render "Sale: $0". Explicit
-          // en-US locale guarantees comma grouping ("$1,049,750"
-          // instead of "$1049750") regardless of the user's browser
-          // default locale.
+          // so we hide them rather than render "Sale Price: $0".
           ['case',
             ['all',
               ['has', 'saleprice'],
               ['>', ['to-number', ['get', 'saleprice']], 0],
             ],
-            ['concat', '\nSale: $',
+            ['concat', '\nSale Price: $',
               ['number-format', ['to-number', ['get', 'saleprice']], {
                 'locale': 'en-US',
                 'min-fraction-digits': 0,
@@ -2338,16 +2337,41 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             '',
           ],
           { 'font-scale': 0.85 },
+          // Price per acre — derived when both saleprice and an acres
+          // field are present and positive. Guard against divide-by-
+          // zero with an explicit > 0 check on the denominator.
+          ['case',
+            ['all',
+              ['has', 'saleprice'],
+              ['>', ['to-number', ['get', 'saleprice']], 0],
+              ['any', ['has', 'll_gisacre'], ['has', 'gisacre']],
+              ['>', ['to-number', ['coalesce', ['get', 'll_gisacre'], ['get', 'gisacre']]], 0],
+            ],
+            ['concat', '\n$/Acre: $',
+              ['number-format',
+                ['/',
+                  ['to-number', ['get', 'saleprice']],
+                  ['to-number', ['coalesce', ['get', 'll_gisacre'], ['get', 'gisacre']]],
+                ],
+                {
+                  'locale': 'en-US',
+                  'min-fraction-digits': 0,
+                  'max-fraction-digits': 0,
+                },
+              ],
+            ],
+            '',
+          ],
+          { 'font-scale': 0.85 },
           // Sale date — Regrid returns YYYY-MM-DD; reformat to
-          // MM/DD/YYYY via slice + concat for U.S. readability. Guard
-          // with a length check so a malformed string falls back to
-          // hiding the row rather than rendering "//".
+          // MM/DD/YYYY for U.S. readability. Length guard so a
+          // malformed string falls back to hidden.
           ['case',
             ['all',
               ['has', 'saledate'],
               ['==', ['length', ['get', 'saledate']], 10],
             ],
-            ['concat', '\nSold: ',
+            ['concat', '\nSale Date: ',
               ['slice', ['get', 'saledate'], 5, 7], '/',
               ['slice', ['get', 'saledate'], 8, 10], '/',
               ['slice', ['get', 'saledate'], 0, 4],

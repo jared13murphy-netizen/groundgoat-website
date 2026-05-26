@@ -390,12 +390,18 @@ export function addRegridLayer(
           'case',
           ['has', 'll_gisacre'],
           ['concat', '\n', ['concat',
-            ['number-format', ['get', 'll_gisacre'], { 'min-fraction-digits': 1, 'max-fraction-digits': 1 }],
+            ['number-format', ['get', 'll_gisacre'], {
+              'locale': 'en-US',
+              'min-fraction-digits': 0, 'max-fraction-digits': 2,
+            }],
             ' ac',
           ]],
           ['case', ['has', 'gisacre'],
             ['concat', '\n', ['concat',
-              ['number-format', ['get', 'gisacre'], { 'min-fraction-digits': 1, 'max-fraction-digits': 1 }],
+              ['number-format', ['get', 'gisacre'], {
+                'locale': 'en-US',
+                'min-fraction-digits': 0, 'max-fraction-digits': 2,
+              }],
               ' ac',
             ]],
             '',
@@ -403,16 +409,14 @@ export function addRegridLayer(
         ],
         { 'font-scale': 0.85 },
         // Sale price — only when saleprice > 0 (excludes Regrid's many
-        // $0 quit-claim/trust transfers so labels read "Sale: $X" only
-        // for real market sales). Explicit en-US locale forces comma
-        // grouping so the label always reads "$1,049,750" regardless
-        // of the user's browser default locale.
+        // $0 quit-claim/trust transfers so labels read "Sale Price: $X"
+        // only for real market sales).
         ['case',
           ['all',
             ['has', 'saleprice'],
             ['>', ['to-number', ['get', 'saleprice']], 0],
           ],
-          ['concat', '\nSale: $',
+          ['concat', '\nSale Price: $',
             ['number-format', ['to-number', ['get', 'saleprice']], {
               'locale': 'en-US',
               'min-fraction-digits': 0,
@@ -422,16 +426,40 @@ export function addRegridLayer(
           '',
         ],
         { 'font-scale': 0.85 },
-        // Sale date — Regrid returns YYYY-MM-DD; reformat to MM/DD/YYYY
-        // via slice + concat. Length guard so a malformed value (e.g.
-        // empty string with `has` true) falls back to hidden instead
-        // of rendering "//".
+        // Price per acre — saleprice / acres, only when both > 0 so we
+        // never divide by zero or render a meaningless rate.
+        ['case',
+          ['all',
+            ['has', 'saleprice'],
+            ['>', ['to-number', ['get', 'saleprice']], 0],
+            ['any', ['has', 'll_gisacre'], ['has', 'gisacre']],
+            ['>', ['to-number', ['coalesce', ['get', 'll_gisacre'], ['get', 'gisacre']]], 0],
+          ],
+          ['concat', '\n$/Acre: $',
+            ['number-format',
+              ['/',
+                ['to-number', ['get', 'saleprice']],
+                ['to-number', ['coalesce', ['get', 'll_gisacre'], ['get', 'gisacre']]],
+              ],
+              {
+                'locale': 'en-US',
+                'min-fraction-digits': 0,
+                'max-fraction-digits': 0,
+              },
+            ],
+          ],
+          '',
+        ],
+        { 'font-scale': 0.85 },
+        // Sale date — Regrid returns YYYY-MM-DD; reformat to MM/DD/YYYY.
+        // Length guard so a malformed value collapses to hidden rather
+        // than rendering "//".
         ['case',
           ['all',
             ['has', 'saledate'],
             ['==', ['length', ['get', 'saledate']], 10],
           ],
-          ['concat', '\nSold: ',
+          ['concat', '\nSale Date: ',
             ['slice', ['get', 'saledate'], 5, 7], '/',
             ['slice', ['get', 'saledate'], 8, 10], '/',
             ['slice', ['get', 'saledate'], 0, 4],
