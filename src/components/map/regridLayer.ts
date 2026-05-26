@@ -16,6 +16,10 @@ const API_URL = 'https://practical-serenity-production.up.railway.app'
 
 export interface RegridConfig {
   tile_url_template: string
+  // Internal MVT layer name. Default Regrid tile uses 'parcels';
+  // custom-source tiles use the source UUID. Fall back to 'parcels'
+  // for any deploy where the backend hasn't been updated yet.
+  source_layer?: string
   is_sandbox: boolean
   has_token: boolean
   attribution: string
@@ -330,6 +334,10 @@ export function addRegridLayer(
   // Default lowered 14 → 12 per user 2026-05-18 (see ExploreMap.tsx
   // REGRID_MIN_ZOOM comment for context).
   const minzoom = options.minZoom ?? 12
+  // Custom Regrid sources use the source-UUID as their internal MVT
+  // layer name; the default /api/v1/parcels endpoint uses 'parcels'.
+  // The backend tells us which one applies via config.source_layer.
+  const sourceLayer = config.source_layer || 'parcels'
 
   if (map.getSource(SOURCE_ID)) {
     // Already mounted (HMR or duplicate caller) — no-op cleanup.
@@ -341,7 +349,7 @@ export function addRegridLayer(
     tiles: [config.tile_url_template],
     minzoom,
     maxzoom: 21,
-    promoteId: { parcels: 'll_uuid' },
+    promoteId: { [sourceLayer]: 'll_uuid' },
     attribution: 'Parcel data &copy; <a href="https://regrid.com" target="_blank" rel="noopener">Regrid</a>',
   } as any)
 
@@ -353,7 +361,7 @@ export function addRegridLayer(
     id: FILL_LAYER,
     type: 'fill',
     source: SOURCE_ID,
-    'source-layer': 'parcels',
+    'source-layer': sourceLayer,
     minzoom,
     paint: {
       'fill-color': '#EC4899',
@@ -364,7 +372,7 @@ export function addRegridLayer(
     id: LINE_LAYER,
     type: 'line',
     source: SOURCE_ID,
-    'source-layer': 'parcels',
+    'source-layer': sourceLayer,
     minzoom,
     paint: { 'line-color': '#000000', 'line-width': 2.2, 'line-opacity': 0.85 },
   }, beforeId)
@@ -372,7 +380,7 @@ export function addRegridLayer(
     id: LABEL_LAYER,
     type: 'symbol',
     source: SOURCE_ID,
-    'source-layer': 'parcels',
+    'source-layer': sourceLayer,
     minzoom,
     layout: {
       // Four segments: owner (bold) → acres → sale price → sale date.
@@ -497,15 +505,15 @@ export function addRegridLayer(
     const newUuid = (e.features[0].properties as any)?.ll_uuid as string | undefined
     if (!newUuid || newUuid === hoveredUuid) return
     if (hoveredUuid) {
-      map.setFeatureState({ source: SOURCE_ID, sourceLayer: 'parcels', id: hoveredUuid }, { hover: false })
+      map.setFeatureState({ source: SOURCE_ID, sourceLayer: sourceLayer, id: hoveredUuid }, { hover: false })
     }
     hoveredUuid = newUuid
-    map.setFeatureState({ source: SOURCE_ID, sourceLayer: 'parcels', id: hoveredUuid }, { hover: true })
+    map.setFeatureState({ source: SOURCE_ID, sourceLayer: sourceLayer, id: hoveredUuid }, { hover: true })
   }
   const onLeave = () => {
     map.getCanvas().style.cursor = ''
     if (hoveredUuid) {
-      map.setFeatureState({ source: SOURCE_ID, sourceLayer: 'parcels', id: hoveredUuid }, { hover: false })
+      map.setFeatureState({ source: SOURCE_ID, sourceLayer: sourceLayer, id: hoveredUuid }, { hover: false })
       hoveredUuid = null
     }
   }

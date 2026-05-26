@@ -2222,6 +2222,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
     if (map.getSource(SOURCE_ID)) return
 
+    // Custom Regrid sources name their internal MVT layer after the
+    // source UUID (not 'parcels' like the default endpoint). Backend
+    // ships the actual name in regridConfig.source_layer; fall back
+    // to 'parcels' for the legacy default tile path.
+    const sourceLayer = regridConfig.source_layer || 'parcels'
+
     map.addSource(SOURCE_ID, {
       type: 'vector',
       tiles: [regridConfig.tile_url_template],
@@ -2229,7 +2235,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       maxzoom: 21,
       // ll_uuid is the stable Regrid parcel UUID we want to use for
       // setFeatureState (hover highlight) and click → API lookup.
-      promoteId: { parcels: 'll_uuid' },
+      promoteId: { [sourceLayer]: 'll_uuid' },
       // Required attribution per Schedule A §7. Surfaces in the
       // built-in attribution control at the bottom of the map.
       attribution: 'Parcel data &copy; <a href="https://regrid.com" target="_blank" rel="noopener">Regrid</a>',
@@ -2249,7 +2255,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       id: FILL_LAYER,
       type: 'fill',
       source: SOURCE_ID,
-      'source-layer': 'parcels',
+      'source-layer': sourceLayer,
       minzoom: REGRID_MIN_ZOOM,
       paint: {
         'fill-color': '#EC4899',
@@ -2267,7 +2273,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       id: LINE_LAYER,
       type: 'line',
       source: SOURCE_ID,
-      'source-layer': 'parcels',
+      'source-layer': sourceLayer,
       minzoom: REGRID_MIN_ZOOM,
       paint: {
         'line-color': '#000000',
@@ -2283,7 +2289,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       id: LABEL_LAYER,
       type: 'symbol',
       source: SOURCE_ID,
-      'source-layer': 'parcels',
+      'source-layer': sourceLayer,
       minzoom: REGRID_MIN_ZOOM,
       layout: {
         // Four segments: owner (bold) → acres → sale price → sale date.
@@ -2425,13 +2431,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       if (!newUuid || newUuid === hoveredUuid) return
       if (hoveredUuid) {
         map.setFeatureState(
-          { source: SOURCE_ID, sourceLayer: 'parcels', id: hoveredUuid },
+          { source: SOURCE_ID, sourceLayer: sourceLayer, id: hoveredUuid },
           { hover: false },
         )
       }
       hoveredUuid = newUuid
       map.setFeatureState(
-        { source: SOURCE_ID, sourceLayer: 'parcels', id: hoveredUuid },
+        { source: SOURCE_ID, sourceLayer: sourceLayer, id: hoveredUuid },
         { hover: true },
       )
     }
@@ -2439,7 +2445,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       map.getCanvas().style.cursor = ''
       if (hoveredUuid) {
         map.setFeatureState(
-          { source: SOURCE_ID, sourceLayer: 'parcels', id: hoveredUuid },
+          { source: SOURCE_ID, sourceLayer: sourceLayer, id: hoveredUuid },
           { hover: false },
         )
         hoveredUuid = null
@@ -2525,6 +2531,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // (its effect runs on the same render). Wait one tick if missing.
     let timer: any = null
     const REGRID_SOURCE = 'regrid-parcels'
+    // Same source_layer plumbing as the boundary-layer mount above —
+    // custom Regrid tiles name the layer with the source UUID
+    // instead of 'parcels'.
+    const sourceLayer = regridConfig.source_layer || 'parcels'
 
     const mount = () => {
       if (!map.getSource(REGRID_SOURCE)) {
@@ -2545,7 +2555,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           id: PARCEL_SALE_BG_LAYER,
           type: 'circle',
           source: REGRID_SOURCE,
-          'source-layer': 'parcels',
+          'source-layer': sourceLayer,
           minzoom: REGRID_MIN_ZOOM,
           filter: filterExpr,
           paint: {
@@ -2561,7 +2571,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           id: PARCEL_SALE_PLUS_LAYER,
           type: 'symbol',
           source: REGRID_SOURCE,
-          'source-layer': 'parcels',
+          'source-layer': sourceLayer,
           minzoom: REGRID_MIN_ZOOM,
           filter: filterExpr,
           layout: {
