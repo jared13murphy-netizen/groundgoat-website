@@ -520,13 +520,22 @@ function buildRegridSaleDotFilter(filters: FilterState, minAcres: number): any[]
   // "Upcoming auctions" can't match recorded past sales — return a
   // constant-false expression so all parcel dots vanish.
   if (upcomingOnly) return ['==', ['literal', 1], ['literal', 0]]
+  // Why the explicit ['has', ...] guards instead of coalesce: maplibre's
+  // to-number(null) returns 0, not null, so a coalesce chain like
+  // [coalesce, to-number(get ll_gisacre), to-number(get gisacre), 0]
+  // never falls through — if ll_gisacre is missing the first term is 0
+  // (not null), coalesce takes it, and the parcel fails 0 >= 20 even
+  // though gisacre is populated. Matches the pattern the parcel-label
+  // layer above uses for the same fields.
   const expr: any[] = [
     'all',
-    ['>', ['coalesce', ['to-number', ['get', 'saleprice']], 0], 0],
+    ['has', 'saleprice'],
+    ['>', ['to-number', ['get', 'saleprice']], 0],
+    ['any', ['has', 'll_gisacre'], ['has', 'gisacre']],
     ['>=',
-      ['coalesce',
-        ['to-number', ['get', 'll_gisacre']],
-        ['to-number', ['get', 'gisacre']],
+      ['case',
+        ['has', 'll_gisacre'], ['to-number', ['get', 'll_gisacre']],
+        ['has', 'gisacre'], ['to-number', ['get', 'gisacre']],
         0,
       ],
       minAcres,
