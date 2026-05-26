@@ -1184,29 +1184,35 @@ export default function TractMapEditor({
               <span className="text-xs text-gg-gray-500">Map loads on scroll</span>
             )}
           </div>
-          {/* Align overlay button — appears only when there's a real
-              auctioneer-published acres value AND the drawn polygon's
-              area differs from it by >1%. One click scales the polygon
-              about its centroid to match. Per user 2026-05-26. */}
+          {/* Align overlay button — appears whenever the drawn polygon
+              area differs from the scraped acres at the hundredth-of-
+              an-acre level. Per user 2026-05-26 update: even a tiny
+              gap matters, so we compare rounded-to-2-decimals values
+              not a percent threshold. One click scales the polygon
+              about its centroid to match the scraped value exactly. */}
           {(() => {
             const target = Number(scrapedAcres)
             if (!isFinite(target) || target <= 0) return null
             if (points.length < 3) return null
             const cur = drawnAcres
             if (cur <= 0) return null
-            const diffPct = Math.abs(cur - target) / target
-            if (diffPct <= 0.01) return null
+            // Round both to 2 decimal places — show the button unless
+            // they're identical to the hundredth.
+            const rTarget = Math.round(target * 100) / 100
+            const rCur = Math.round(cur * 100) / 100
+            if (rTarget === rCur) return null
             const dir = cur > target ? 'shrink' : 'expand'
+            const diffAc = Math.abs(rCur - rTarget).toFixed(2)
             return (
               <button
                 onClick={handleAlign}
-                title={`${dir === 'shrink' ? 'Shrink' : 'Expand'} polygon to match scraped acres (${target.toFixed(2)} ac). Currently drawn: ${cur.toFixed(2)} ac (${diffPct >= 0.01 ? (diffPct * 100).toFixed(1) : '<1'}% off).`}
+                title={`${dir === 'shrink' ? 'Shrink' : 'Expand'} polygon to match scraped acres exactly (${target.toFixed(2)} ac). Currently drawn: ${cur.toFixed(2)} ac (${diffAc} ac ${dir === 'shrink' ? 'too big' : 'too small'}).`}
                 className="absolute top-2 left-2 z-10 px-2.5 py-1.5 text-xs font-semibold bg-gg-pink hover:bg-gg-pink-light text-white rounded shadow-lg flex items-center gap-1.5 backdrop-blur-sm"
               >
                 <Crosshair size={14} />
                 Align to {target.toFixed(2)} ac
                 <span className="opacity-70 text-[10px]">
-                  ({dir === 'shrink' ? '−' : '+'}{(diffPct * 100).toFixed(0)}%)
+                  ({dir === 'shrink' ? '−' : '+'}{diffAc} ac)
                 </span>
               </button>
             )
