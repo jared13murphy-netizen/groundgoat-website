@@ -1271,15 +1271,25 @@ export default function TractMapEditor({
         pointsHistory.current.push(points.map(p => [...p] as Pt))
         setPoints(poly as Pt[])
         setDirty(true)
-        const matchLabel = data.acreage_match ?? 'unknown'
-        const confLabel = data.vision_confidence ?? '?'
-        const acLabel = data.extracted_acres
-          ? `${Number(data.extracted_acres).toFixed(1)} ac`
-          : '?'
-        setStatus(
-          `✓ Extracted ${acLabel} (${matchLabel} match, ${confLabel} confidence) — ` +
-          `review the polygon on the map, adjust vertices if needed, then Save.`
-        )
+        if (data.dms_placeholder) {
+          // Vision found the DMS location but couldn't trace the boundary
+          // shape (image too small/compressed). Square placeholder placed.
+          setStatus(
+            `⚠ Location found from map coordinates — placed a square placeholder. ` +
+            `The location is correct but the shape is approximate. ` +
+            `Adjust the vertices to match the actual boundary, then Save.`
+          )
+        } else {
+          const matchLabel = data.acreage_match ?? 'unknown'
+          const confLabel = data.vision_confidence ?? '?'
+          const acLabel = data.extracted_acres
+            ? `${Number(data.extracted_acres).toFixed(1)} ac`
+            : '?'
+          setStatus(
+            `✓ Extracted ${acLabel} (${matchLabel} match, ${confLabel} confidence) — ` +
+            `review the polygon on the map, adjust vertices if needed, then Save.`
+          )
+        }
       } catch (e: any) {
         setStatus(`✗ Extraction failed: ${e.message || e}`)
       } finally {
