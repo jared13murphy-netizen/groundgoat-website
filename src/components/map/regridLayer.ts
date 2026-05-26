@@ -461,7 +461,11 @@ export function addRegridLayer(
       ],
       'text-font': ['Open Sans Regular'],
       'text-size': ['interpolate', ['linear'], ['zoom'], 14, 10, 16, 12, 18, 14],
-      'text-anchor': 'center', 'text-justify': 'center',
+      // Anchor at top + text-offset so the label grows DOWN from the
+      // polygon centroid. Pin layers (if any caller adds them) can
+      // then sit at the centroid without overlapping the label.
+      'text-anchor': 'top', 'text-justify': 'center',
+      'text-offset': [0, 1.6],
       'text-max-width': 9, 'text-line-height': 1.15,
       'text-allow-overlap': false, 'text-ignore-placement': false,
       'text-padding': 2,

@@ -2392,8 +2392,16 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           16, 12,
           18, 14,
         ],
-        'text-anchor': 'center',
+        // Anchor label at its TOP edge so the multi-line block sits
+        // BELOW the polygon centroid. The pin (parcel-sale-pin layers
+        // mounted in a separate effect) is placed AT the centroid
+        // with no translate. Result: pin always lands inside the
+        // parcel it represents, label appears just below the pin.
+        // Earlier 42px upward translate on the pin caused it to drift
+        // onto adjacent parcels for small lots.
+        'text-anchor': 'top',
         'text-justify': 'center',
+        'text-offset': [0, 1.6],
         'text-max-width': 9,
         'text-line-height': 1.15,
         'text-allow-overlap': false,
@@ -2545,15 +2553,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // layers in sync as the filter changes.
       const filterExpr: any = buildRegridSaleDotFilter(filtersRef.current, PARCEL_MIN_SALE_ACRES)
 
-      // Position the pin ABOVE the parcel label (which is anchored at
-      // the polygon centroid). The label is up to 5 lines tall — owner
-      // + acres + sale price + $/acre + sale date — so we need to lift
-      // the pin by roughly half the label's vertical extent (~3
-      // line-heights from the centroid). circle-translate is in
-      // pixels; text-offset is in ems. We use matching pixel offsets
-      // on both layers so the pink circle and the white "+" stay
-      // visually stacked at any zoom.
-      const PIN_OFFSET_PX = -42
+      // Pin sits AT the polygon centroid (no translate). The LABEL
+      // is anchored 'top' + text-offset 1.6em so it grows DOWN from
+      // the centroid, leaving the pin visible directly above the
+      // label. Earlier we lifted the pin -42px which pushed it onto
+      // neighboring parcels for any lot smaller than ~80px tall —
+      // i.e. most 20-acre parcels at z=14. Keeping the pin at the
+      // centroid guarantees it stays inside the parcel it
+      // represents, no matter how small the lot.
       if (!map.getLayer(PARCEL_SALE_BG_LAYER)) {
         map.addLayer({
           id: PARCEL_SALE_BG_LAYER,
@@ -2567,7 +2574,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             'circle-color': '#f58cde',
             'circle-stroke-color': '#ffffff',
             'circle-stroke-width': 2,
-            'circle-translate': [0, PIN_OFFSET_PX],
           },
         })
       }
@@ -2588,9 +2594,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           },
           paint: {
             'text-color': '#ffffff',
-            // Match the BG circle's pixel offset so the + sits dead-
-            // center inside the pink circle. text-translate is pixels.
-            'text-translate': [0, PIN_OFFSET_PX],
           },
         })
       }
