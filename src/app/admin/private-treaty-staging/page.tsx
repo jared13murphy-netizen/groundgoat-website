@@ -1274,6 +1274,10 @@ export default function AdminPrivateTreatyStagingPage() {
                                   // schedule for after render
                                   setTimeout(() => loadSourceImage(listing.id), 0)
                                 }
+                                // Auto-load tract satellite image when available
+                                if (tract.has_tract_image && tractImageCache[tractKey] === undefined) {
+                                  setTimeout(() => loadTractImage(listing.id, idx), 0)
+                                }
                                 const cachedSrc = sourceImageCache[listing.id]
                                 return (
                                 <div key={idx}>
@@ -1290,6 +1294,7 @@ export default function AdminPrivateTreatyStagingPage() {
                                     sourceImageBase64={cachedSrc?.base64 || null}
                                     sourceImageUrl={cachedSrc?.url || inlineSourceUrl || null}
                                     sourceImageKind={cachedSrc?.kind || inlineSourceKind || null}
+                                    listingUrl={listing.source_url || null}
                                     // Per user 2026-05-26: Align button +
                                     // live Computed update on edit (same
                                     // wiring as auction staging).

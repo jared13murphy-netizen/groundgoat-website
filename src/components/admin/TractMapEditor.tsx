@@ -45,7 +45,7 @@ import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import {
   Save, RotateCcw, Trash2, Loader2, ImageIcon, Sprout, EyeOff,
-  Maximize2, Minimize2, Crosshair,
+  Maximize2, Minimize2, Crosshair, Camera,
 } from 'lucide-react'
 import { polygonPerimeterFeet, formatPerimeter } from '@/lib/polygonGeometry'
 
@@ -113,6 +113,11 @@ interface TractMapEditorProps {
    *  recompute endpoint and update tract.tillable_polygon /
    *  tract.computed.* with the response. */
   onComputeTillable?: () => Promise<void> | void
+  /** The auction / PT listing URL. When no source image is available,
+   *  the right pane shows a "Capture Screenshot" button that hits the
+   *  scraper's /api/staging/{id}/capture-source-image endpoint. On
+   *  success the screenshot is displayed immediately for this session. */
+  listingUrl?: string | null
 }
 
 // ---------------------------------------------------------------------------
@@ -246,6 +251,7 @@ export default function TractMapEditor({
   onPolygonChange,
   onToggleTillable,
   onComputeTillable,
+  listingUrl,
 }: TractMapEditorProps) {
   // Working polygon state — what's being edited on the map. Diverges
   // from initialPolygon while the user is drawing/clearing; reset on
@@ -294,6 +300,11 @@ export default function TractMapEditor({
     loading: boolean
   } | null>(null)
   const [savingTillable, setSavingTillable] = useState(false)
+  // Capture-screenshot state — populated when user clicks "Capture Screenshot"
+  // in the right pane. Lets us show the result immediately without a full
+  // page reload. capturedSourceImage persists until the component unmounts.
+  const [capturedSourceImage, setCapturedSourceImage] = useState<string | null>(null)
+  const [capturingSource, setCapturingSource] = useState(false)
   // Non-null while the user is dragging vertices on an EXISTING tillable
   // polygon (not in draw-new mode). Starts null, gets set on first drag.
   // Cleared on Save, Delete, or when tillablePolygon prop changes.
@@ -1102,6 +1113,32 @@ export default function TractMapEditor({
     return () => clearTimeout(handle)
   }, [tillableDrawPoints, drawTillableMode, stagingId, tractIndex])
 
+  // ── Capture source image on demand ──
+  // Calls the scraper's capture-source-image endpoint which takes a
+  // Playwright screenshot (Land ID embed first, then listing page).
+  // Stores the result immediately in local state for this session; also
+  // persists to the staging DB so future page loads show it too.
+  const handleCaptureSourceImage = async () => {
+    setCapturingSource(true)
+    setStatus(null)
+    try {
+      const res = await fetch(
+        `${SCRAPER_URL}/api/staging/${stagingId}/capture-source-image`,
+        { method: 'POST' }
+      )
+      const data = await res.json()
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || `HTTP ${res.status}`)
+      }
+      setCapturedSourceImage(data.source_image_base64)
+      setStatus(`✓ Screenshot captured (${data.source_image_kind})`)
+    } catch (e: any) {
+      setStatus(`✗ Capture failed: ${e.message || e}`)
+    } finally {
+      setCapturingSource(false)
+    }
+  }
+
   // ── Align: scale polygon about its centroid so its area matches
   //    the auctioneer-published acres. Per user 2026-05-26: when the
   //    shape is right but the size is off (computed says 13.56 but
@@ -1357,21 +1394,35 @@ export default function TractMapEditor({
             )
           })()}
         </div>
-        {/* RIGHT: comparison source image (~40% on md+). Mirrors the
-            magic-lab probe's right pane — shows the SAME image the
-            polygon was traced from (Land ID screenshot, PDF aerial,
-            sub-page iframe, etc.) so the admin can visually verify
-            the drawn polygon matches the auctioneer's published map.
-            Per user 2026-05-25: "make sure you add an image on the
-            right so I can compare the drawn polygon to the image
-            from the website."
+        {/* RIGHT: comparison source image (~40% on md+).
+            Per user 2026-05-26: "I HAVE to have an image on the right."
             Render priority:
-              1. source image (any kind) — what the polygon came from
-              2. tract_image_base64 — our generated satellite+overlay
-              3. placeholder text
+              1. capturedSourceImage — just taken via Capture button
+              2. sourceImageBase64 — Land ID/PDF/aerial b64 from pipeline
+              3. sourceImageUrl (pdf/sub_page) — iframe (browsers render)
+              4. sourceImageUrl (other, not land_id_url) — <img src>
+              5. tractImageBase64 — satellite+polygon overlay we generated
+              6. Capture Screenshot button (with listing URL link) + spinner
+            land_id_url is deliberately skipped for iframe (X-Frame blocked)
+            and falls straight to step 5/6 so the user isn't left with a
+            blank white rectangle.
         */}
         <div className={`${fullscreen ? 'md:w-1/3' : 'md:w-2/5'} w-full bg-gg-gray-800 border-l border-gg-gray-700 flex items-center justify-center relative overflow-hidden`}>
-          {sourceImageBase64 ? (
+          {/* Priority 1: just-captured screenshot (this session) */}
+          {capturedSourceImage ? (
+            <>
+              <img
+                src={`data:image/jpeg;base64,${capturedSourceImage}`}
+                alt={`Tract ${tractIndex + 1} captured screenshot`}
+                style={{ maxHeight: mapHeight }}
+                className="w-full h-full object-contain"
+              />
+              <span className="absolute top-1 right-1 px-1.5 py-0.5 text-[10px] bg-black/60 text-white rounded">
+                captured
+              </span>
+            </>
+          /* Priority 2: base64 source image from pipeline */
+          ) : sourceImageBase64 ? (
             <>
               <img
                 src={`data:image/jpeg;base64,${sourceImageBase64}`}
@@ -1385,12 +1436,9 @@ export default function TractMapEditor({
                 </span>
               )}
             </>
-          ) : sourceImageUrl && (sourceImageKind === 'pdf' || sourceImageKind === 'sub_page' || sourceImageKind === 'land_id_url') ? (
+          /* Priority 3: PDF or sub-page — iframeable */
+          ) : sourceImageUrl && (sourceImageKind === 'pdf' || sourceImageKind === 'sub_page') ? (
             <>
-              {/* iframe path — PDFs render natively, sub-pages iframe-ok.
-                  id.land sets X-Frame-Options DENY so land_id_url
-                  iframe will fail visually; the URL link below is
-                  the user's escape hatch. */}
               <iframe
                 src={sourceImageUrl}
                 style={{ width: '100%', height: mapHeight, border: 0 }}
@@ -1406,7 +1454,8 @@ export default function TractMapEditor({
                 {sourceImageKind} ↗
               </a>
             </>
-          ) : sourceImageUrl ? (
+          /* Priority 4: other URL — load as <img> (aerial CDN images etc.) */
+          ) : sourceImageUrl && sourceImageKind !== 'land_id_url' ? (
             <>
               <img
                 src={sourceImageUrl}
@@ -1420,18 +1469,52 @@ export default function TractMapEditor({
                 </span>
               )}
             </>
+          /* Priority 5: satellite+polygon overlay we generated */
           ) : tractImageBase64 ? (
-            <img
-              src={`data:image/png;base64,${tractImageBase64}`}
-              alt={`Tract ${tractIndex + 1} reference`}
-              style={{ maxHeight: mapHeight }}
-              className="w-full h-full object-contain"
-            />
+            <>
+              <img
+                src={`data:image/png;base64,${tractImageBase64}`}
+                alt={`Tract ${tractIndex + 1} satellite reference`}
+                style={{ maxHeight: mapHeight }}
+                className="w-full h-full object-contain"
+              />
+              <span className="absolute top-1 right-1 px-1.5 py-0.5 text-[10px] bg-black/60 text-white rounded">
+                satellite overlay
+              </span>
+            </>
+          /* Priority 6: nothing yet — offer Capture button */
           ) : (
-            <div className="flex flex-col items-center gap-2 text-gg-gray-500 py-8">
-              <ImageIcon size={32} />
-              <span className="text-xs">No comparison image yet</span>
-              <span className="text-[10px] text-gg-gray-600">Source image not captured for this listing</span>
+            <div className="flex flex-col items-center gap-3 text-gg-gray-400 py-8 px-4 text-center">
+              {capturingSource ? (
+                <>
+                  <Loader2 size={28} className="animate-spin text-gg-gray-400" />
+                  <span className="text-xs">Taking screenshot…</span>
+                  <span className="text-[10px] text-gg-gray-600">Opening listing page with Playwright — may take 10–20 s</span>
+                </>
+              ) : (
+                <>
+                  <Camera size={28} />
+                  <button
+                    onClick={handleCaptureSourceImage}
+                    className="px-3 py-1.5 text-xs bg-gg-gray-700 hover:bg-gg-gray-600 text-white rounded flex items-center gap-1.5"
+                    title="Take a Playwright screenshot of the listing page and store it here"
+                  >
+                    <Camera size={12} /> Capture Screenshot
+                  </button>
+                  {listingUrl && (
+                    <a
+                      href={listingUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[10px] text-gg-gray-500 hover:text-gg-gray-300 underline break-all"
+                      title="Open the listing page in a new tab"
+                    >
+                      {listingUrl.replace(/^https?:\/\//, '').substring(0, 60)}
+                      {listingUrl.length > 66 ? '…' : ''}
+                    </a>
+                  )}
+                </>
+              )}
             </div>
           )}
         </div>

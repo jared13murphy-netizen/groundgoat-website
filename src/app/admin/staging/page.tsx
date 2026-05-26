@@ -1499,6 +1499,16 @@ export default function AdminStagingPage() {
                                 if (listingHasSourceImage && sourceImageCache[listing.id] === undefined) {
                                   setTimeout(() => loadSourceImage(listing.id), 0)
                                 }
+                                // Auto-load tract image when one exists but hasn't been
+                                // fetched yet. Backend strips tract_image_base64 from
+                                // the list payload (leaves has_tract_image=true flag) to
+                                // keep page weight down; we lazy-fetch it here so the
+                                // TractMapEditor right pane always has a satellite overlay
+                                // even when no source screenshot was captured. Per user
+                                // 2026-05-26: "I HAVE to have an image on the right."
+                                if (tract.has_tract_image && tractImageCache[tractKey] === undefined) {
+                                  setTimeout(() => loadTractImage(listing.id, idx), 0)
+                                }
                                 const cachedSrc = sourceImageCache[listing.id]
                                 return (
                                 <div key={idx}>
@@ -1518,6 +1528,7 @@ export default function AdminStagingPage() {
                                     sourceImageBase64={cachedSrc?.base64 || null}
                                     sourceImageUrl={cachedSrc?.url || inlineSourceUrl || null}
                                     sourceImageKind={cachedSrc?.kind || inlineSourceKind || null}
+                                    listingUrl={listing.source_url || null}
                                     // Per user 2026-05-26: Align button
                                     // appears when drawn polygon area
                                     // doesn't match scraped acres.
