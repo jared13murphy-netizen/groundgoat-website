@@ -886,12 +886,24 @@ export default function TractMapEditor({
     const tillSrc = map.getSource('tillable') as maplibregl.GeoJSONSource | undefined
     if (!tillSrc) return
     if (drawTillableMode) {
-      // While drawing a new tillable, show the live polygon.
-      tillSrc.setData(
-        tillableDrawPoints.length >= 3
-          ? buildTillableGeo(tillableDrawPoints)
-          : { type: 'FeatureCollection', features: [] }
-      )
+      // While drawing a new tillable, show the in-progress shape.
+      // Mirror buildDrawGeo: render a LineString for 1–2 points so the
+      // connecting line is visible from the second click onward (the
+      // tillable-line layer renders both LineString and Polygon edges).
+      // Only switch to a closed Polygon once we have ≥3 vertices.
+      if (tillableDrawPoints.length === 0) {
+        tillSrc.setData({ type: 'FeatureCollection', features: [] })
+      } else if (tillableDrawPoints.length < 3) {
+        tillSrc.setData({
+          type: 'FeatureCollection',
+          features: [{
+            type: 'Feature', properties: {},
+            geometry: { type: 'LineString', coordinates: tillableDrawPoints },
+          }],
+        })
+      } else {
+        tillSrc.setData(buildTillableGeo(tillableDrawPoints))
+      }
     } else if (editedTillablePoints !== null) {
       // Editing existing tillable vertices — render the live edited shape
       tillSrc.setData(
