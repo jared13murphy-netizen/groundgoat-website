@@ -700,24 +700,32 @@ export default function TractMapEditor({
   }, [drawTillableMode, tillableDrawPoints])
 
   // ── Mode-aware layer styling ──
-  // In tillable draw mode: hide the tract vertex dots so the user can
-  // only interact with the green tillable vertices, AND dim the tract
-  // polygon fill so the green tillable stands out without losing the
-  // tract outline as a reference. When the user exits draw mode (Save
-  // or Cancel), restore the original pink styling.
+  // Per user 2026-05-26 (revised): both tract dots (pink) and tillable
+  // dots (green) stay visible in tillable draw mode — user wants to
+  // see both polygons clearly. The tract polygon is dimmed (fill +
+  // line opacity dropped) so the green tillable on top stands out.
+  // The tillable layers are always visibility:visible — explicit
+  // because earlier maplibre quirks were leaving the layer hidden in
+  // some race conditions where the green polygon outline never drew.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !map.isStyleLoaded()) return
     try {
+      // ALWAYS show tract verts (pink) — user wants to see both.
+      map.setLayoutProperty('verts', 'visibility', 'visible')
+      // Always show tillable layers — the source data effect controls
+      // whether they're empty (no polygon) or populated.
+      map.setLayoutProperty('tillable-fill', 'visibility', 'visible')
+      map.setLayoutProperty('tillable-line', 'visibility', 'visible')
+      map.setLayoutProperty('tillable-verts', 'visibility', 'visible')
       if (drawTillableMode) {
-        map.setLayoutProperty('verts', 'visibility', 'none')
+        // Dim the tract polygon so the green tillable on top reads
+        // clearly. The outline stays at 50% so the user can still
+        // see where the tract boundary is as a reference.
         map.setPaintProperty('drawn-fill', 'fill-opacity', 0.10)
-        map.setPaintProperty('drawn-line', 'line-color', '#f58cde')
         map.setPaintProperty('drawn-line', 'line-opacity', 0.5)
       } else {
-        map.setLayoutProperty('verts', 'visibility', 'visible')
         map.setPaintProperty('drawn-fill', 'fill-opacity', 0.25)
-        map.setPaintProperty('drawn-line', 'line-color', '#f58cde')
         map.setPaintProperty('drawn-line', 'line-opacity', 1.0)
       }
     } catch {
