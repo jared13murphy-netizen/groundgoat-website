@@ -451,12 +451,15 @@ export function addRegridLayer(
           '',
         ],
         { 'font-scale': 0.85 },
-        // Sale date — custom tile returns ISO datetime like
-        // "2011-01-14T00:00:00.000Z". First 10 chars are YYYY-MM-DD
-        // regardless of whether the underlying value is bare date or
-        // full datetime, so slice(0,4)/(5,7)/(8,10) works for both.
+        // Sale date — custom tile returns ISO datetime (24 chars) or
+        // bare YYYY-MM-DD (10 chars). First 10 chars are the date in
+        // both cases. length >= 10 guard so a malformed short value
+        // collapses to hidden rather than rendering "//".
         ['case',
-          ['has', 'saledate'],
+          ['all',
+            ['has', 'saledate'],
+            ['>=', ['length', ['get', 'saledate']], 10],
+          ],
           ['concat', '\nSale Date: ',
             ['slice', ['get', 'saledate'], 5, 7], '/',
             ['slice', ['get', 'saledate'], 8, 10], '/',

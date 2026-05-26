@@ -2365,12 +2365,16 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           ],
           { 'font-scale': 0.85 },
           // Sale date — custom tile returns ISO datetime like
-          // "2011-01-14T00:00:00.000Z". The first 10 chars are still
-          // YYYY-MM-DD regardless of whether the value is a bare date
-          // or a full datetime, so slice(0,4) / slice(5,7) / slice(8,10)
-          // works either way. No length guard — `has` is sufficient.
+          // "2011-01-14T00:00:00.000Z" (24 chars). Bare YYYY-MM-DD
+          // (10 chars) is also possible. First 10 chars are always
+          // the date portion either way, so slice positions are
+          // identical. length >= 10 guard prevents a malformed/short
+          // value from rendering as "//".
           ['case',
-            ['has', 'saledate'],
+            ['all',
+              ['has', 'saledate'],
+              ['>=', ['length', ['get', 'saledate']], 10],
+            ],
             ['concat', '\nSale Date: ',
               ['slice', ['get', 'saledate'], 5, 7], '/',
               ['slice', ['get', 'saledate'], 8, 10], '/',
