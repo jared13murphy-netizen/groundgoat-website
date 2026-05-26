@@ -2524,10 +2524,19 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const PARCEL_SALE_BG_LAYER = 'parcel-sale-pin-bg'
   const PARCEL_SALE_PLUS_LAYER = 'parcel-sale-pin-plus'
   const PARCEL_MIN_SALE_ACRES = 20
+  // Feature flag — the parcel-sale-pin layers (pink dot + white "+")
+  // are disabled per user 2026-05-26 until the placement is right.
+  // Pins were appearing in the wrong locations relative to their
+  // parcels. Labels (owner / acres / $/acre / sale date) on the
+  // boundary layer already convey the sale info, so disabling the
+  // pins is a clean removal — re-enable by flipping this flag once
+  // we've figured out reliable per-parcel placement.
+  const REGRID_SALE_PINS_ENABLED = false
 
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded || !regridConfig?.tile_url_template) return
+    if (!REGRID_SALE_PINS_ENABLED) return
 
     // The Regrid source itself is added by the layer-mount effect
     // above. We piggyback on it — but the source might not exist yet
@@ -2652,6 +2661,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // forever — even when the user picked "Last 6 months" — because the
   // maplibre filter is set at addLayer() time and isn't reactive.
   useEffect(() => {
+    if (!REGRID_SALE_PINS_ENABLED) return
     const map = mapRef.current
     if (!map || !mapLoaded) return
     const expr = buildRegridSaleDotFilter(filters, PARCEL_MIN_SALE_ACRES)
