@@ -2344,6 +2344,151 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
   }, [mapLoaded, regridConfig])
 
+  // ─────────────────────────────────────────────────────────────────
+  // Parcel-with-sale dots. Pink "+" pin (same look as Comparables map)
+  // over every cached Regrid parcel that has a saleprice. Fetched from
+  // /api/map/parcels-with-sales using the current viewport bbox at
+  // zoom >= REGRID_MIN_ZOOM. Source list grows as users click parcels
+  // — Regrid Premium record fetches populate `regrid_parcels` server-
+  // side and any row with saleprice > 0 becomes a dot.
+  // ─────────────────────────────────────────────────────────────────
+  const PARCEL_SALE_SOURCE = 'parcel-sale-pins'
+  const PARCEL_SALE_BG_LAYER = 'parcel-sale-pins-bg'
+  const PARCEL_SALE_PLUS_LAYER = 'parcel-sale-pins-plus'
+  const parcelSaleByIdRef = useRef<Map<string, any>>(new Map())
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+
+    // Add source + 2 layers (circle background + "+" symbol) if not
+    // already present. Done once; subsequent moveends just update data.
+    const ensureLayers = () => {
+      if (!map.getSource(PARCEL_SALE_SOURCE)) {
+        map.addSource(PARCEL_SALE_SOURCE, {
+          type: 'geojson',
+          data: { type: 'FeatureCollection', features: [] } as any,
+        })
+      }
+      if (!map.getLayer(PARCEL_SALE_BG_LAYER)) {
+        map.addLayer({
+          id: PARCEL_SALE_BG_LAYER,
+          type: 'circle',
+          source: PARCEL_SALE_SOURCE,
+          minzoom: REGRID_MIN_ZOOM,
+          paint: {
+            'circle-radius': ['interpolate', ['linear'], ['zoom'], 12, 8, 16, 14],
+            'circle-color': '#f58cde',
+            'circle-stroke-color': '#ffffff',
+            'circle-stroke-width': 2,
+          },
+        })
+      }
+      if (!map.getLayer(PARCEL_SALE_PLUS_LAYER)) {
+        map.addLayer({
+          id: PARCEL_SALE_PLUS_LAYER,
+          type: 'symbol',
+          source: PARCEL_SALE_SOURCE,
+          minzoom: REGRID_MIN_ZOOM,
+          layout: {
+            'text-field': '+',
+            'text-font': ['Open Sans Bold'],
+            'text-size': ['interpolate', ['linear'], ['zoom'], 12, 13, 16, 19],
+            'text-allow-overlap': true,
+            'text-ignore-placement': true,
+          },
+          paint: { 'text-color': '#ffffff' },
+        })
+      }
+    }
+
+    // Viewport-driven fetch. Below REGRID_MIN_ZOOM we'd be downloading
+    // way too many parcels with no chance of rendering useful pins, so
+    // skip the request and clear any stale dots.
+    let aborted = false
+    const fetchPins = async () => {
+      ensureLayers()
+      const z = map.getZoom()
+      if (z < REGRID_MIN_ZOOM) {
+        const src = map.getSource(PARCEL_SALE_SOURCE) as maplibregl.GeoJSONSource | undefined
+        src?.setData({ type: 'FeatureCollection', features: [] } as any)
+        parcelSaleByIdRef.current = new Map()
+        return
+      }
+      const b = map.getBounds()
+      const params = new URLSearchParams({
+        min_lat: String(b.getSouth()),
+        max_lat: String(b.getNorth()),
+        min_lng: String(b.getWest()),
+        max_lng: String(b.getEast()),
+        limit: '2000',
+      })
+      try {
+        const res = await fetchWithAuth(`${API_URL}/api/map/parcels-with-sales?${params.toString()}`)
+        if (!res.ok || aborted) return
+        const data = await res.json()
+        const parcels = Array.isArray(data?.parcels) ? data.parcels : []
+        const byId = new Map<string, any>()
+        const features = parcels
+          .filter((p: any) => p.lat != null && p.lng != null)
+          .map((p: any) => {
+            byId.set(p.ll_uuid, p)
+            return {
+              type: 'Feature',
+              properties: { id: p.ll_uuid },
+              geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
+            }
+          })
+        parcelSaleByIdRef.current = byId
+        const src = map.getSource(PARCEL_SALE_SOURCE) as maplibregl.GeoJSONSource | undefined
+        src?.setData({ type: 'FeatureCollection', features } as any)
+      } catch {
+        /* network blip — leave whatever's on screen */
+      }
+    }
+
+    // Click → small popup with sale price, date, $/acre, owner.
+    const onPinClick = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
+      const f = e.features?.[0]
+      if (!f) return
+      const id = (f.properties as any)?.id as string | undefined
+      if (!id) return
+      const p = parcelSaleByIdRef.current.get(id)
+      if (!p) return
+      new maplibregl.Popup({ closeButton: true, closeOnClick: true, maxWidth: '300px' })
+        .setLngLat(e.lngLat)
+        .setHTML(_parcelSalePopupHTML(p))
+        .addTo(map)
+    }
+    const setPointer = () => { map.getCanvas().style.cursor = 'pointer' }
+    const clearPointer = () => { map.getCanvas().style.cursor = '' }
+
+    map.on('moveend', fetchPins)
+    map.on('mouseenter', PARCEL_SALE_BG_LAYER, setPointer)
+    map.on('mouseleave', PARCEL_SALE_BG_LAYER, clearPointer)
+    map.on('click', PARCEL_SALE_BG_LAYER, onPinClick)
+    map.on('click', PARCEL_SALE_PLUS_LAYER, onPinClick)
+
+    // Initial fetch (in case the map is already at usable zoom).
+    fetchPins()
+
+    return () => {
+      aborted = true
+      try {
+        if (!map.getStyle()) return
+        map.off('moveend', fetchPins)
+        map.off('mouseenter', PARCEL_SALE_BG_LAYER, setPointer)
+        map.off('mouseleave', PARCEL_SALE_BG_LAYER, clearPointer)
+        map.off('click', PARCEL_SALE_BG_LAYER, onPinClick)
+        map.off('click', PARCEL_SALE_PLUS_LAYER, onPinClick)
+        for (const id of [PARCEL_SALE_PLUS_LAYER, PARCEL_SALE_BG_LAYER]) {
+          if (map.getLayer(id)) map.removeLayer(id)
+        }
+        if (map.getSource(PARCEL_SALE_SOURCE)) map.removeSource(PARCEL_SALE_SOURCE)
+      } catch {/* map already torn down */}
+    }
+  }, [mapLoaded])
+
   // Create/update HTML markers for tracts
   useEffect(() => {
     const map = mapRef.current
@@ -4434,6 +4579,48 @@ function _regridFallbackHTML(tileProps: any): string {
     owner: tileProps?.owner || 'Unknown',
     subheadLines: sub,
   }))
+}
+
+// Compact popup for a + pin on a Regrid parcel that has a saleprice.
+// Mirrors the data the /api/map/parcels-with-sales endpoint returns.
+function _parcelSalePopupHTML(p: any): string {
+  const fmtMoney = (n: any) => {
+    if (n === null || n === undefined) return '—'
+    const v = Number(n)
+    if (!isFinite(v)) return '—'
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(v)
+  }
+  const fmtDate = (s: any) => {
+    if (!s) return '—'
+    const d = new Date(s)
+    if (isNaN(d.getTime())) return _esc(s)
+    return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+  }
+  const fmtAc = (n: any) => {
+    if (n === null || n === undefined) return '—'
+    const v = Number(n)
+    if (!isFinite(v)) return '—'
+    return v.toFixed(1) + ' ac'
+  }
+  const sub: string[] = []
+  if (p?.address) sub.push(p.address)
+  const locParts: string[] = []
+  if (p?.county) locParts.push(p.county)
+  if (p?.state) locParts.push(p.state)
+  if (locParts.length) sub.push(locParts.join(', '))
+  const rows: string[] = []
+  rows.push(`<div style="display:flex;justify-content:space-between;padding:2px 0;font-size:13px;"><span style="color:rgba(0,0,0,0.6);">Sale price</span><span style="font-weight:600;">${_esc(fmtMoney(p?.sale_price))}</span></div>`)
+  rows.push(`<div style="display:flex;justify-content:space-between;padding:2px 0;font-size:13px;"><span style="color:rgba(0,0,0,0.6);">Sale date</span><span>${_esc(fmtDate(p?.sale_date))}</span></div>`)
+  if (p?.price_per_acre) {
+    rows.push(`<div style="display:flex;justify-content:space-between;padding:2px 0;font-size:13px;"><span style="color:rgba(0,0,0,0.6);">Price/acre</span><span>${_esc(fmtMoney(p.price_per_acre))}</span></div>`)
+  }
+  if (p?.total_acres) {
+    rows.push(`<div style="display:flex;justify-content:space-between;padding:2px 0;font-size:13px;"><span style="color:rgba(0,0,0,0.6);">Acres</span><span>${_esc(fmtAc(p.total_acres))}</span></div>`)
+  }
+  return _popupShell(
+    _popupHeader({ label: 'Parcel sale', owner: p?.owner || 'Unknown', subheadLines: sub }) +
+    `<div style="padding:8px 16px 14px;">${rows.join('')}</div>`,
+  )
 }
 
 // Regrid puts the civil township as the 4th segment of the `path`
