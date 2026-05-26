@@ -45,6 +45,7 @@ import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import {
   Save, RotateCcw, Trash2, Loader2, ImageIcon, Sprout, EyeOff,
+  Maximize2, Minimize2,
 } from 'lucide-react'
 import { polygonPerimeterFeet, formatPerimeter } from '@/lib/polygonGeometry'
 
@@ -234,11 +235,18 @@ export default function TractMapEditor({
   const [hasBeenVisible, setHasBeenVisible] = useState(false)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [deletingTillable, setDeletingTillable] = useState(false)
   // Compute Tillable button loading state — only relevant when
   // tillablePolygon is null (Stage 5 hasn't run yet) OR the user
   // edited the tract polygon and wants to recompute.
   const [computingTillable, setComputingTillable] = useState(false)
   const [status, setStatus] = useState<string | null>(null)
+  // Full-screen editor — when true, the whole editor pops out as a
+  // fixed full-viewport overlay. The map instance is preserved (CSS
+  // resize only) — we just call map.resize() after toggle so MapLibre
+  // re-reads its container dimensions. Per user 2026-05-26: the inline
+  // map is too small to accurately draw new polygons.
+  const [fullscreen, setFullscreen] = useState(false)
 
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
@@ -470,6 +478,69 @@ export default function TractMapEditor({
     }
   }
 
+  // After fullscreen toggles, the container's CSS dimensions change.
+  // MapLibre needs an explicit resize() to refresh its internal canvas
+  // size — otherwise the map stays the inline size inside the larger
+  // fullscreen overlay. Re-fit to polygon if one exists so the larger
+  // editor frames the work properly.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    // Defer to after the CSS layout settles. Two ticks: the first
+    // catches the parent's resize, the second after fonts/scrollbars
+    // settle on slower machines.
+    const t1 = setTimeout(() => {
+      try { map.resize() } catch {}
+      if (points.length >= 3) {
+        try {
+          const bounds = new maplibregl.LngLatBounds()
+          for (const p of points) bounds.extend(p as [number, number])
+          map.fitBounds(bounds, { padding: 40, duration: 0, maxZoom: 18 })
+        } catch {}
+      }
+    }, 60)
+    const t2 = setTimeout(() => { try { map.resize() } catch {} }, 300)
+    return () => { clearTimeout(t1); clearTimeout(t2) }
+    // points intentionally excluded — only re-run on fullscreen change
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fullscreen])
+
+  // ESC key exits fullscreen — standard modal UX.
+  useEffect(() => {
+    if (!fullscreen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setFullscreen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [fullscreen])
+
+  const handleDeleteTillable = async () => {
+    if (!window.confirm(
+      'Delete this tract\'s tillable polygon? The tract polygon stays. ' +
+      'You can then redraw the tillable shape manually or click ' +
+      '"Compute Tillable" to re-run the auto-detect.'
+    )) return
+    setDeletingTillable(true)
+    setStatus(null)
+    try {
+      const res = await fetch(
+        `${SCRAPER_URL}/api/staging/${stagingId}/tracts/${tractIndex}/tillable`,
+        { method: 'DELETE' }
+      )
+      const data = await res.json()
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || `HTTP ${res.status}`)
+      }
+      setStatus('✓ Tillable deleted')
+      if (onUpdate && data.tract) onUpdate(data.tract)
+    } catch (e: any) {
+      setStatus(`✗ Delete tillable failed: ${e.message || e}`)
+    } finally {
+      setDeletingTillable(false)
+    }
+  }
+
   const handleDelete = async () => {
     if (!window.confirm(
       'Delete this tract polygon? This wipes the polygon, tillable shape, ' +
@@ -504,19 +575,31 @@ export default function TractMapEditor({
   // ===========================================================
   const drawnAcres = gisAcres(points)
 
+  // In fullscreen mode the editor pops out as a fixed full-viewport
+  // overlay (covers the rest of the staging page). The map container
+  // stretches to fill the available height (viewport minus the toolbar
+  // and source-image strip). Same component instance — MapLibre is
+  // resized in-place via the useEffect above.
+  const wrapperClass = fullscreen
+    ? 'fixed inset-0 z-50 bg-gg-gray-900 border-0 rounded-none overflow-hidden mb-0 flex flex-col'
+    : 'w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg overflow-hidden mb-2'
+  // When fullscreen, the map fills the viewport (minus ~120px reserved
+  // for the toolbar + status). When inline, use the editorHeight prop.
+  const mapHeight = fullscreen ? 'calc(100vh - 120px)' : editorHeight
+
   return (
-    <div ref={wrapperRef} className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg overflow-hidden mb-2">
+    <div ref={wrapperRef} className={wrapperClass}>
       {/* Map + image side-by-side. Stacks vertically on small screens. */}
-      <div className="flex flex-col md:flex-row">
+      <div className={`flex flex-col md:flex-row ${fullscreen ? 'flex-1 min-h-0' : ''}`}>
         {/* LEFT: interactive map (~60% on md+). The container is
             always in the DOM (so IntersectionObserver has something
             to observe) but MapLibre only mounts after first
             visibility — until then this is just an empty div with the
             right dimensions. */}
-        <div className="md:w-3/5 w-full relative bg-gg-gray-800">
+        <div className={`${fullscreen ? 'md:w-2/3' : 'md:w-3/5'} w-full relative bg-gg-gray-800`}>
           <div
             ref={containerRef}
-            style={{ width: '100%', height: editorHeight }}
+            style={{ width: '100%', height: mapHeight }}
             className={hasBeenVisible ? '' : 'flex items-center justify-center'}
           >
             {!hasBeenVisible && (
@@ -537,13 +620,13 @@ export default function TractMapEditor({
               2. tract_image_base64 — our generated satellite+overlay
               3. placeholder text
         */}
-        <div className="md:w-2/5 w-full bg-gg-gray-800 border-l border-gg-gray-700 flex items-center justify-center relative overflow-hidden">
+        <div className={`${fullscreen ? 'md:w-1/3' : 'md:w-2/5'} w-full bg-gg-gray-800 border-l border-gg-gray-700 flex items-center justify-center relative overflow-hidden`}>
           {sourceImageBase64 ? (
             <>
               <img
                 src={`data:image/jpeg;base64,${sourceImageBase64}`}
                 alt={`Tract ${tractIndex + 1} source reference`}
-                style={{ maxHeight: editorHeight }}
+                style={{ maxHeight: mapHeight }}
                 className="w-full h-full object-contain"
               />
               {sourceImageKind && (
@@ -560,7 +643,7 @@ export default function TractMapEditor({
                   the user's escape hatch. */}
               <iframe
                 src={sourceImageUrl}
-                style={{ width: '100%', height: editorHeight, border: 0 }}
+                style={{ width: '100%', height: mapHeight, border: 0 }}
                 title={`Tract ${tractIndex + 1} source`}
               />
               <a
@@ -578,7 +661,7 @@ export default function TractMapEditor({
               <img
                 src={sourceImageUrl}
                 alt={`Tract ${tractIndex + 1} source reference`}
-                style={{ maxHeight: editorHeight }}
+                style={{ maxHeight: mapHeight }}
                 className="w-full h-full object-contain"
               />
               {sourceImageKind && (
@@ -591,7 +674,7 @@ export default function TractMapEditor({
             <img
               src={`data:image/png;base64,${tractImageBase64}`}
               alt={`Tract ${tractIndex + 1} reference`}
-              style={{ maxHeight: editorHeight }}
+              style={{ maxHeight: mapHeight }}
               className="w-full h-full object-contain"
             />
           ) : (
@@ -628,22 +711,50 @@ export default function TractMapEditor({
               compute if it hasn't run yet. Per user 2026-05-25:
               "Only show tract polygon first, then a button to draw
               tillable polygons using the Hybrid approach." */}
+          {/* Full-screen toggle — pops the editor out as a fixed
+              full-viewport overlay. Per user 2026-05-26: the inline
+              map is too small to accurately draw new polygons; needs a
+              way to expand to the full window for precise editing. */}
+          <button
+            onClick={() => setFullscreen(prev => !prev)}
+            className="px-2 py-1 text-xs bg-gg-gray-700 hover:bg-gg-gray-600 rounded flex items-center gap-1"
+            title={fullscreen ? 'Exit full screen (Esc)' : 'Open full-screen editor'}
+          >
+            {fullscreen
+              ? (<><Minimize2 size={12} /> Exit Full Screen</>)
+              : (<><Maximize2 size={12} /> Full Screen</>)}
+          </button>
           {tillablePolygon ? (
-            <button
-              onClick={() => onToggleTillable?.(!showTillable)}
-              className={`px-2 py-1 text-xs rounded flex items-center gap-1 ${
-                showTillable
-                  ? 'bg-green-600 hover:bg-green-700 text-white'
-                  : 'bg-gg-gray-700 hover:bg-gg-gray-600'
-              }`}
-              title={showTillable
-                ? 'Hide the green tillable overlay'
-                : 'Show magic-lab hybrid tillable (FTW + CDL + NHD subtract)'}
-            >
-              {showTillable
-                ? (<><EyeOff size={12} /> Hide Tillable</>)
-                : (<><Sprout size={12} /> Show Tillable</>)}
-            </button>
+            <>
+              <button
+                onClick={() => onToggleTillable?.(!showTillable)}
+                className={`px-2 py-1 text-xs rounded flex items-center gap-1 ${
+                  showTillable
+                    ? 'bg-green-600 hover:bg-green-700 text-white'
+                    : 'bg-gg-gray-700 hover:bg-gg-gray-600'
+                }`}
+                title={showTillable
+                  ? 'Hide the green tillable overlay'
+                  : 'Show magic-lab hybrid tillable (FTW + CDL + NHD subtract)'}
+              >
+                {showTillable
+                  ? (<><EyeOff size={12} /> Hide Tillable</>)
+                  : (<><Sprout size={12} /> Show Tillable</>)}
+              </button>
+              {/* Delete just the tillable polygon — keep the tract
+                  polygon. Per user 2026-05-26: needs separate wipe
+                  buttons so a wrong tillable can be cleared without
+                  losing the correct tract boundary. */}
+              <button
+                onClick={handleDeleteTillable}
+                disabled={saving || deleting || deletingTillable}
+                className="px-2 py-1 text-xs bg-red-600/70 hover:bg-red-600 text-white disabled:opacity-40 rounded flex items-center gap-1"
+                title="Wipe the tillable polygon only (keeps tract polygon)"
+              >
+                {deletingTillable ? <Loader2 className="animate-spin" size={12} /> : <Trash2 size={12} />}
+                Delete Tillable
+              </button>
+            </>
           ) : onComputeTillable ? (
             <button
               onClick={async () => {
@@ -679,12 +790,12 @@ export default function TractMapEditor({
           </button>
           <button
             onClick={handleDelete}
-            disabled={saving || deleting}
+            disabled={saving || deleting || deletingTillable}
             className="px-2 py-1 text-xs bg-red-600 hover:bg-red-700 text-white disabled:opacity-40 rounded flex items-center gap-1"
-            title="Delete the saved polygon entirely (wipes server-side)"
+            title="Delete the tract polygon, tillable polygon, and image (server-side wipe)"
           >
             {deleting ? <Loader2 className="animate-spin" size={12} /> : <Trash2 size={12} />}
-            Delete
+            Delete Tract
           </button>
           <button
             onClick={handleCancel}
