@@ -1142,26 +1142,36 @@ export default function AdminPrivateTreatyStagingPage() {
                               )}
                             </div>
                           </div>
-                          <a
-                            href={listing.source_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center gap-1 px-3 py-1.5 text-sm text-gg-pink hover:text-white bg-gg-pink/10 hover:bg-gg-pink/20 rounded-lg transition-colors"
-                          >
-                            <ExternalLink size={14} />
-                            Source
-                          </a>
-                          <button
-                            onClick={() => {
-                              navigator.clipboard.writeText(listing.source_url)
-                              setCopiedId(listing.id)
-                              setTimeout(() => setCopiedId((prev) => prev === listing.id ? null : prev), 2000)
-                            }}
-                            className="flex items-center gap-1 px-3 py-1.5 text-sm text-gg-gray-400 hover:text-white bg-gg-gray-800 hover:bg-gg-gray-700 rounded-lg transition-colors"
-                          >
-                            {copiedId === listing.id ? <CheckCircle size={14} className="text-green-400" /> : <Copy size={14} />}
-                            {copiedId === listing.id ? 'Copied!' : 'Copy URL'}
-                          </button>
+                          {/* Per user 2026-05-26: Source + Copy URL
+                              grouped together so they read as one
+                              button bar; Source is solid pink for
+                              visibility against the light staging-page
+                              background. Mirror of auction-staging
+                              layout. */}
+                          <div className="flex items-center gap-2">
+                            <a
+                              href={listing.source_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-1 px-3 py-1.5 text-sm font-semibold text-white bg-gg-pink hover:bg-gg-pink-light rounded-lg transition-colors shadow-sm"
+                              title="Open the auctioneer's listing page in a new tab"
+                            >
+                              <ExternalLink size={14} />
+                              Source
+                            </a>
+                            <button
+                              onClick={() => {
+                                navigator.clipboard.writeText(listing.source_url)
+                                setCopiedId(listing.id)
+                                setTimeout(() => setCopiedId((prev) => prev === listing.id ? null : prev), 2000)
+                              }}
+                              className="flex items-center gap-1 px-3 py-1.5 text-sm text-gg-gray-400 hover:text-white bg-gg-gray-800 hover:bg-gg-gray-700 rounded-lg transition-colors"
+                              title="Copy the source URL to clipboard"
+                            >
+                              {copiedId === listing.id ? <CheckCircle size={14} className="text-green-400" /> : <Copy size={14} />}
+                              {copiedId === listing.id ? 'Copied!' : 'Copy URL'}
+                            </button>
+                          </div>
                         </div>
 
                         {/* Per-listing polygon sum — used to surface
