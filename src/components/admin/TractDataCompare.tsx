@@ -290,13 +290,22 @@ export default function TractDataCompare({
                 value={numDraft}
                 onChange={(e) => setNumDraft(e.target.value)}
                 disabled={numSaving}
-                className={`w-12 px-1.5 py-0.5 text-xs font-semibold rounded bg-gg-gray-900 border ${
+                // Inline style for bg/color wins over the browser's
+                // user-agent default white-on-white for text inputs.
+                // Per user 2026-05-26: the input was showing white text
+                // on white bg (default Safari/Chrome text input).
+                style={{
+                  backgroundColor: '#ffffff',
+                  color: '#000000',
+                  caretColor: '#000000',
+                }}
+                className={`w-12 px-1.5 py-0.5 text-sm font-bold rounded border ${
                   wouldCollide
-                    ? 'border-red-500 text-red-300'
+                    ? 'border-red-500'
                     : isDirty
-                      ? 'border-gg-pink text-white'
-                      : 'border-gg-gray-700 text-gg-gray-300'
-                } focus:outline-none focus:ring-1 focus:ring-gg-pink`}
+                      ? 'border-gg-pink'
+                      : 'border-gg-gray-600'
+                } focus:outline-none focus:ring-2 focus:ring-gg-pink`}
                 title="Type the tract number this polygon belongs to. Each tract in the listing must have a unique number."
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && isDirty && !wouldCollide && !numSaving) {

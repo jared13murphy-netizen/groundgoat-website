@@ -295,6 +295,11 @@ export default function TractMapEditor({
   // clicking a vertex was just panning the map — we never wired the
   // mousedown→mousemove→mouseup dance to actually move the vertex.
   const draggingVertexIdx = useRef<number | null>(null)
+  // Tracks whether the active drag is on a TILLABLE vertex (green) vs
+  // a tract vertex (pink). Set by mousedown handlers based on which
+  // layer received the event. The mousemove handler reads this to
+  // decide whether to update tillableDrawPoints or points.
+  const draggingTillableVertex = useRef<boolean>(false)
   // ── Undo history stacks ──
   // Per user 2026-05-26: Undo was always popping the LAST vertex
   // regardless of the actual previous action — moving a vertex then
@@ -413,6 +418,14 @@ export default function TractMapEditor({
           ? buildTillableGeo(tillablePolygon)
           : { type: 'FeatureCollection', features: [] },
       })
+      // Per user 2026-05-26: tillable polygon is its OWN polygon —
+      // independent vertices drawn in green so the user can see both
+      // the tract (pink) and the tillable (green) at the same time.
+      // Separate source so click/drag handlers can target each one.
+      map.addSource('tillable-verts', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      })
       map.addLayer({
         id: 'drawn-fill', type: 'fill', source: 'drawn',
         paint: { 'fill-color': '#f58cde', 'fill-opacity': 0.25 },
@@ -431,7 +444,7 @@ export default function TractMapEditor({
       })
       map.addLayer({
         id: 'tillable-line', type: 'line', source: 'tillable',
-        paint: { 'line-color': '#16a34a', 'line-width': 2 },
+        paint: { 'line-color': '#16a34a', 'line-width': 3 },
       })
       map.addLayer({
         id: 'verts', type: 'circle', source: 'verts',
@@ -440,6 +453,18 @@ export default function TractMapEditor({
           'circle-color': '#ffffff',
           'circle-stroke-width': 2,
           'circle-stroke-color': '#f58cde',
+        },
+      })
+      // Green vertices for the tillable polygon — same dot shape but
+      // green stroke so they're visually distinct from the pink tract
+      // vertices. Only populated when in draw-tillable mode.
+      map.addLayer({
+        id: 'tillable-verts', type: 'circle', source: 'tillable-verts',
+        paint: {
+          'circle-radius': 6,
+          'circle-color': '#ffffff',
+          'circle-stroke-width': 2,
+          'circle-stroke-color': '#16a34a',
         },
       })
 
@@ -452,11 +477,17 @@ export default function TractMapEditor({
         } catch {}
       }
 
-      // ── Vertex hover cursor ──
+      // ── Vertex hover cursor (both tract + tillable verts) ──
       map.on('mouseenter', 'verts', () => {
         map.getCanvas().style.cursor = 'move'
       })
       map.on('mouseleave', 'verts', () => {
+        map.getCanvas().style.cursor = ''
+      })
+      map.on('mouseenter', 'tillable-verts', () => {
+        map.getCanvas().style.cursor = 'move'
+      })
+      map.on('mouseleave', 'tillable-verts', () => {
         map.getCanvas().style.cursor = ''
       })
 
@@ -470,9 +501,8 @@ export default function TractMapEditor({
         if (draggingVertexIdx.current == null) return
         const idx = draggingVertexIdx.current
         const { lng, lat } = mev.lngLat
-        if (drawTillableModeRef.current) {
+        if (draggingTillableVertex.current) {
           setTillableDrawPoints(prev => {
-            // Push pre-drag snapshot ONCE per drag, not every move.
             if (!dragHistoryPushed.current) {
               tillableHistory.current.push(prev.map(p => [...p] as Pt))
               dragHistoryPushed.current = true
@@ -494,22 +524,37 @@ export default function TractMapEditor({
         draggingVertexIdx.current = null
         map.dragPan.enable()
         map.off('mousemove', _onVertexDrag)
-        // mouseup is bound with `once`, no need to detach
-        // Reset the suppression flag after the click event has a chance
-        // to fire and check it (next tick).
         setTimeout(() => { recentVertexInteraction.current = false }, 0)
       }
+      // Tract vertex (pink) drag — only active when NOT in tillable
+      // draw mode. In tillable mode the tract verts are hidden so this
+      // shouldn't fire anyway, but guard for safety.
       map.on('mousedown', 'verts', (ev: any) => {
+        if (drawTillableModeRef.current) return
         const feature = ev.features?.[0]
         if (!feature) return
         const idx = (feature.properties as any)?.idx
         if (typeof idx !== 'number') return
         ev.preventDefault()
         draggingVertexIdx.current = idx
+        draggingTillableVertex.current = false
         recentVertexInteraction.current = true
-        // Reset the "have I snapshotted this drag yet?" flag — the
-        // first mousemove will push the pre-drag state to the right
-        // history stack.
+        dragHistoryPushed.current = false
+        map.dragPan.disable()
+        map.on('mousemove', _onVertexDrag)
+        map.once('mouseup', _onVertexUp)
+      })
+      // Tillable vertex (green) drag — only meaningful when in
+      // tillable draw mode (the layer is empty otherwise).
+      map.on('mousedown', 'tillable-verts', (ev: any) => {
+        const feature = ev.features?.[0]
+        if (!feature) return
+        const idx = (feature.properties as any)?.idx
+        if (typeof idx !== 'number') return
+        ev.preventDefault()
+        draggingVertexIdx.current = idx
+        draggingTillableVertex.current = true
+        recentVertexInteraction.current = true
         dragHistoryPushed.current = false
         map.dragPan.disable()
         map.on('mousemove', _onVertexDrag)
@@ -526,7 +571,7 @@ export default function TractMapEditor({
         const touch = tev.points?.[0] || tev.point
         if (!touch) return
         const lngLat = map.unproject(touch)
-        if (drawTillableModeRef.current) {
+        if (draggingTillableVertex.current) {
           setTillableDrawPoints(prev => {
             if (!dragHistoryPushed.current) {
               tillableHistory.current.push(prev.map(p => [...p] as Pt))
@@ -552,12 +597,28 @@ export default function TractMapEditor({
         setTimeout(() => { recentVertexInteraction.current = false }, 0)
       }
       map.on('touchstart', 'verts', (ev: any) => {
+        if (drawTillableModeRef.current) return
         const feature = ev.features?.[0]
         if (!feature) return
         const idx = (feature.properties as any)?.idx
         if (typeof idx !== 'number') return
         ev.preventDefault()
         draggingVertexIdx.current = idx
+        draggingTillableVertex.current = false
+        recentVertexInteraction.current = true
+        dragHistoryPushed.current = false
+        map.dragPan.disable()
+        map.on('touchmove', _onTouchDrag)
+        map.once('touchend', _onTouchEnd)
+      })
+      map.on('touchstart', 'tillable-verts', (ev: any) => {
+        const feature = ev.features?.[0]
+        if (!feature) return
+        const idx = (feature.properties as any)?.idx
+        if (typeof idx !== 'number') return
+        ev.preventDefault()
+        draggingVertexIdx.current = idx
+        draggingTillableVertex.current = true
         recentVertexInteraction.current = true
         dragHistoryPushed.current = false
         map.dragPan.disable()
@@ -570,17 +631,11 @@ export default function TractMapEditor({
     // skip when the click landed on an existing vertex, otherwise
     // every vertex click would stack a new vertex on top.
     map.on('click', (ev) => {
-      // Suppress if a vertex was just being interacted with (drag
-      // ended in this tick).
       if (recentVertexInteraction.current) return
-      // Suppress if the click landed directly on a vertex (no drag).
-      const hits = map.queryRenderedFeatures(ev.point, {
-        layers: ['verts', 'tillable-verts'].filter(l =>
-          // queryRenderedFeatures errors on layer names that don't
-          // exist; tillable-verts is only present when in draw mode.
-          map.getLayer(l) != null
-        ),
-      })
+      const layersToCheck = ['verts', 'tillable-verts'].filter(
+        l => map.getLayer(l) != null
+      )
+      const hits = map.queryRenderedFeatures(ev.point, { layers: layersToCheck })
       if (hits.length > 0) return
       const { lng, lat } = ev.lngLat
       if (drawTillableModeRef.current) {
@@ -613,21 +668,63 @@ export default function TractMapEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasBeenVisible])
 
-  // Update map sources on points change.
+  // Update map sources on points / tillable change.
+  // - drawn: tract polygon outline + fill (pink) — always reflects points
+  // - verts: tract polygon vertices (pink stroke) — always reflects points
+  // - tillable: tillable polygon outline + fill (green) — handled in the
+  //   separate effect below
+  // - tillable-verts: tillable polygon vertices (green stroke) — only
+  //   populated while drawTillableMode is true; empty otherwise so the
+  //   green dots don't linger after Save.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !map.isStyleLoaded()) return
     const drawSrc = map.getSource('drawn') as maplibregl.GeoJSONSource | undefined
     const vertSrc = map.getSource('verts') as maplibregl.GeoJSONSource | undefined
     if (drawSrc) drawSrc.setData(buildDrawGeo(points))
-    // Verts source carries the ACTIVELY-EDITED polygon's vertices —
-    // tract polygon when not in tillable-draw mode, the tillable
-    // drawing when in mode. We swap the data here on every
-    // points/mode/tillableDrawPoints change.
-    if (vertSrc) vertSrc.setData(buildVertexGeo(
-      drawTillableMode ? tillableDrawPoints : points
+    if (vertSrc) vertSrc.setData(buildVertexGeo(points))
+  }, [points])
+
+  // Update tillable-verts whenever the drawing changes or the user
+  // exits draw mode. Per user 2026-05-26: tillable polygon needs to
+  // be visually independent from the tract polygon — green dots, green
+  // outline, while keeping the pink tract visible underneath.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !map.isStyleLoaded()) return
+    const tvSrc = map.getSource('tillable-verts') as maplibregl.GeoJSONSource | undefined
+    if (!tvSrc) return
+    tvSrc.setData(buildVertexGeo(
+      drawTillableMode ? tillableDrawPoints : []
     ))
-  }, [points, drawTillableMode, tillableDrawPoints])
+  }, [drawTillableMode, tillableDrawPoints])
+
+  // ── Mode-aware layer styling ──
+  // In tillable draw mode: hide the tract vertex dots so the user can
+  // only interact with the green tillable vertices, AND dim the tract
+  // polygon fill so the green tillable stands out without losing the
+  // tract outline as a reference. When the user exits draw mode (Save
+  // or Cancel), restore the original pink styling.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !map.isStyleLoaded()) return
+    try {
+      if (drawTillableMode) {
+        map.setLayoutProperty('verts', 'visibility', 'none')
+        map.setPaintProperty('drawn-fill', 'fill-opacity', 0.10)
+        map.setPaintProperty('drawn-line', 'line-color', '#f58cde')
+        map.setPaintProperty('drawn-line', 'line-opacity', 0.5)
+      } else {
+        map.setLayoutProperty('verts', 'visibility', 'visible')
+        map.setPaintProperty('drawn-fill', 'fill-opacity', 0.25)
+        map.setPaintProperty('drawn-line', 'line-color', '#f58cde')
+        map.setPaintProperty('drawn-line', 'line-opacity', 1.0)
+      }
+    } catch {
+      // Map not fully loaded yet — the load handler sets the initial
+      // styling so this'll catch up on the next mode toggle.
+    }
+  }, [drawTillableMode])
 
   // ── Live polygon-change callback ──
   // Per user 2026-05-26: as the user drags vertices / clicks Align /
