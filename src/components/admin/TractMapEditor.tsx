@@ -118,6 +118,11 @@ interface TractMapEditorProps {
    *  scraper's /api/staging/{id}/capture-source-image endpoint. On
    *  success the screenshot is displayed immediately for this session. */
   listingUrl?: string | null
+  /** State abbreviation or full name — forwarded to the Vision extraction
+   *  endpoint to help the PLSS section lookup pick the right principal
+   *  meridian (e.g. IL has both the 3rd and 4th PM). Improves accuracy for
+   *  GIS-printed map images that carry a PLSS section label. */
+  listingState?: string | null
 }
 
 // ---------------------------------------------------------------------------
@@ -252,6 +257,7 @@ export default function TractMapEditor({
   onToggleTillable,
   onComputeTillable,
   listingUrl,
+  listingState,
 }: TractMapEditorProps) {
   // Working polygon state — what's being edited on the map. Diverges
   // from initialPolygon while the user is drawing/clearing; reset on
@@ -313,6 +319,14 @@ export default function TractMapEditor({
   // latest tillablePolygon prop without stale capture.
   const tillablePolygonRef = useRef(tillablePolygon)
   useEffect(() => { tillablePolygonRef.current = tillablePolygon }, [tillablePolygon])
+
+  // Upload Image — user picks a local aerial/PDF/map image; Claude Vision
+  // extracts the tract boundary from it and loads the polygon onto the map
+  // for review/editing before saving. The image shows in the right pane
+  // (priority 0) while extraction runs; cleared by the × button.
+  const [uploadedImage, setUploadedImage] = useState<string | null>(null)
+  const [extractingFromImage, setExtractingFromImage] = useState(false)
+  const uploadInputRef = useRef<HTMLInputElement | null>(null)
 
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
@@ -1139,6 +1153,63 @@ export default function TractMapEditor({
     }
   }
 
+  // ── Upload Image: extract boundary via Claude Vision ──
+  // User picks any aerial/PDF/map image from their computer. The component
+  // sends it to the scraper's vision-upload endpoint together with the
+  // tract's stored lat/lng/acres so Vision can anchor the extracted polygon
+  // geographically. On success the polygon is loaded onto the map ready to
+  // edit and Save. The uploaded image stays visible in the right pane as a
+  // visual reference while the user fine-tunes the vertices.
+  const handleImageUpload = (file: File) => {
+    const reader = new FileReader()
+    reader.readAsDataURL(file)
+    reader.onload = async () => {
+      const b64 = reader.result as string
+      setUploadedImage(b64)
+      setExtractingFromImage(true)
+      setStatus('Extracting boundary from image…')
+      try {
+        const res = await fetch(
+          `${SCRAPER_URL}/api/admin/tracts/vision-upload/extract-boundary-from-image`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              image_base64: b64,
+              lat: latitude,
+              lng: longitude,
+              acres: scrapedAcres,
+              state: listingState,
+            }),
+          }
+        )
+        const data = await res.json()
+        if (!res.ok || !data.success) {
+          throw new Error(data.error || `HTTP ${res.status}`)
+        }
+        const poly = data.polygon as [number, number][]
+        if (!poly || poly.length < 3) throw new Error('No polygon returned from Vision')
+        // Snapshot the pre-extract polygon so Undo reverts cleanly
+        pointsHistory.current.push(points.map(p => [...p] as Pt))
+        setPoints(poly as Pt[])
+        setDirty(true)
+        const matchLabel = data.acreage_match ?? 'unknown'
+        const confLabel = data.vision_confidence ?? '?'
+        const acLabel = data.extracted_acres
+          ? `${Number(data.extracted_acres).toFixed(1)} ac`
+          : '?'
+        setStatus(
+          `✓ Extracted ${acLabel} (${matchLabel} match, ${confLabel} confidence) — ` +
+          `review the polygon on the map, adjust vertices if needed, then Save.`
+        )
+      } catch (e: any) {
+        setStatus(`✗ Extraction failed: ${e.message || e}`)
+      } finally {
+        setExtractingFromImage(false)
+      }
+    }
+  }
+
   // ── Align: scale polygon about its centroid so its area matches
   //    the auctioneer-published acres. Per user 2026-05-26: when the
   //    shape is right but the size is off (computed says 13.56 but
@@ -1408,8 +1479,40 @@ export default function TractMapEditor({
             blank white rectangle.
         */}
         <div className={`${fullscreen ? 'md:w-1/3' : 'md:w-2/5'} w-full bg-gg-gray-800 border-l border-gg-gray-700 flex items-center justify-center relative overflow-hidden`}>
-          {/* Priority 1: just-captured screenshot (this session) */}
-          {capturedSourceImage ? (
+          {/* Priority 0: user-uploaded image + Vision extraction overlay.
+              Shows immediately when the user picks a file and stays visible
+              after extraction completes so they can compare the extracted
+              polygon against the image they uploaded. */}
+          {uploadedImage ? (
+            <>
+              <img
+                src={uploadedImage}
+                alt="Uploaded image for boundary extraction"
+                style={{ maxHeight: mapHeight }}
+                className="w-full h-full object-contain"
+              />
+              {extractingFromImage && (
+                <div className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center gap-2">
+                  <Loader2 size={28} className="animate-spin text-white" />
+                  <span className="text-xs text-white">Extracting boundary…</span>
+                  <span className="text-[10px] text-white/70">
+                    Claude Vision is tracing the polygon — may take 15–30 s
+                  </span>
+                </div>
+              )}
+              <span className="absolute top-1 right-1 px-1.5 py-0.5 text-[10px] bg-black/60 text-white rounded">
+                {extractingFromImage ? 'extracting…' : 'uploaded'}
+              </span>
+              <button
+                onClick={() => setUploadedImage(null)}
+                className="absolute top-1 left-1 px-1.5 py-0.5 text-[10px] bg-black/60 hover:bg-black/80 text-white rounded"
+                title="Clear uploaded image"
+              >
+                ×
+              </button>
+            </>
+          /* Priority 1: just-captured screenshot (this session) */
+          ) : capturedSourceImage ? (
             <>
               <img
                 src={`data:image/jpeg;base64,${capturedSourceImage}`}
@@ -1587,6 +1690,31 @@ export default function TractMapEditor({
               full-viewport overlay. Per user 2026-05-26: the inline
               map is too small to accurately draw new polygons; needs a
               way to expand to the full window for precise editing. */}
+          {/* Upload Image — user picks a local aerial/PDF/map image; Claude
+              Vision extracts the tract boundary. The image shows in the
+              right pane; the returned polygon loads onto the map for editing. */}
+          <button
+            onClick={() => uploadInputRef.current?.click()}
+            disabled={extractingFromImage}
+            className="px-2 py-1 text-xs bg-gg-gray-700 hover:bg-gg-gray-600 disabled:opacity-40 rounded flex items-center gap-1"
+            title="Upload an aerial or map image — Claude Vision will extract the tract boundary from it"
+          >
+            {extractingFromImage
+              ? <Loader2 className="animate-spin" size={12} />
+              : <ImageIcon size={12} />}
+            {extractingFromImage ? 'Extracting…' : 'Upload Image'}
+          </button>
+          <input
+            ref={uploadInputRef}
+            type="file"
+            accept="image/*,application/pdf"
+            className="hidden"
+            onChange={e => {
+              const file = e.target.files?.[0]
+              if (file) handleImageUpload(file)
+              e.target.value = ''
+            }}
+          />
           <button
             onClick={() => setFullscreen(prev => !prev)}
             className="px-2 py-1 text-xs bg-gg-gray-700 hover:bg-gg-gray-600 rounded flex items-center gap-1"

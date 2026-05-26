@@ -1295,6 +1295,7 @@ export default function AdminPrivateTreatyStagingPage() {
                                     sourceImageUrl={cachedSrc?.url || inlineSourceUrl || null}
                                     sourceImageKind={cachedSrc?.kind || inlineSourceKind || null}
                                     listingUrl={listing.source_url || null}
+                                    listingState={listing.scraped_data?.listing?.state || null}
                                     // Per user 2026-05-26: Align button +
                                     // live Computed update on edit (same
                                     // wiring as auction staging).

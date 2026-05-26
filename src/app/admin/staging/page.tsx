@@ -1529,6 +1529,7 @@ export default function AdminStagingPage() {
                                     sourceImageUrl={cachedSrc?.url || inlineSourceUrl || null}
                                     sourceImageKind={cachedSrc?.kind || inlineSourceKind || null}
                                     listingUrl={listing.source_url || null}
+                                    listingState={listing.scraped_data?.listing?.state || null}
                                     // Per user 2026-05-26: Align button
                                     // appears when drawn polygon area
                                     // doesn't match scraped acres.
