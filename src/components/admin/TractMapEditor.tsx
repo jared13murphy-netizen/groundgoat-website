@@ -833,14 +833,28 @@ export default function TractMapEditor({
   // tract polygon's vertices when one exists so the user can start by
   // matching the tract outline and then trim away non-tillable bits
   // (water, woods, buildings) — faster than starting from scratch.
+  // Start fresh — empty tillable polygon. Per user 2026-05-26 (revised):
+  // seeding with tract vertices was confusing because the new green
+  // polygon overlapped the pink tract polygon at identical coords,
+  // making it look like only the tract was there. User wants to draw
+  // a clean new shape by clicking. The "Seed from tract" option lives
+  // as a separate button so it's an explicit choice.
   const handleStartTillableDraw = () => {
     setDrawTillableMode(true)
-    setTillableDrawPoints(points.length >= 3 ? [...points] : [])
+    setTillableDrawPoints([])
     tillableHistory.current = []
     setTillablePreview(null)
-    setStatus(points.length >= 3
-      ? 'Tillable draw mode — seeded with tract polygon. Trim non-tillable areas (water, woods, buildings) then Save.'
-      : 'Tillable draw mode — click on the map to add vertices. Save when done.')
+    setStatus('Tillable draw mode — click on the map to add vertices (need at least 3). Use Seed from Tract to start with the tract outline.')
+  }
+  // Optional: seed the current tillable drawing with the tract polygon's
+  // vertices. Useful when the tillable is "tract minus a few cutouts"
+  // and the user wants to trim instead of draw from scratch.
+  const handleSeedTillableFromTract = () => {
+    if (points.length < 3) return
+    setTillableDrawPoints(prev => {
+      tillableHistory.current.push(prev.map(p => [...p] as Pt))
+      return points.map(p => [...p] as Pt)
+    })
   }
   const handleCancelTillableDraw = () => {
     setDrawTillableMode(false)
@@ -1311,29 +1325,37 @@ export default function TractMapEditor({
         <div className="flex flex-col gap-0.5 text-xs text-gg-gray-300">
           {drawTillableMode ? (
             <>
+              {/* Per user 2026-05-26: green-300 was unreadable on the
+                  light toolbar background. Bumped to green-700 + bold
+                  + small green-tinted bg pill so the readout pops on
+                  either light or dark backgrounds. */}
               <div className="flex items-center gap-3">
-                <span className="text-green-300 font-semibold">Drawing Tillable</span>
-                <span>({tillableDrawPoints.length} vertices)</span>
+                <span className="px-2 py-0.5 rounded bg-green-700 text-white font-bold text-xs">
+                  Drawing Tillable
+                </span>
+                <span className="text-gg-gray-700">
+                  ({tillableDrawPoints.length} vertices)
+                </span>
                 {tillablePreview?.acres != null && tillablePreview.acres > 0 && (
-                  <span className="text-green-300 font-semibold">
+                  <span className="text-green-700 font-bold">
                     Tillable: {tillablePreview.acres.toFixed(2)} ac
                   </span>
                 )}
               </div>
               <div className="flex items-center gap-3 text-[11px]">
                 {tillablePreview?.loading ? (
-                  <span className="text-gg-gray-400">
+                  <span className="text-gg-gray-700">
                     <Loader2 className="inline animate-spin" size={10} /> Computing soil rating…
                   </span>
                 ) : tillablePreview?.soil_rating != null ? (
-                  <span className="text-green-300 font-semibold">
+                  <span className="text-green-700 font-bold">
                     Soil: {tillablePreview.soil_rating.toFixed(1)}
                     {tillablePreview.soil_rating_type ? ` ${tillablePreview.soil_rating_type}` : ''}
                   </span>
                 ) : tillableDrawPoints.length >= 3 ? (
-                  <span className="text-gg-gray-500">Soil rating: not available for this state</span>
+                  <span className="text-gg-gray-600">Soil rating: not available for this state</span>
                 ) : (
-                  <span className="text-gg-gray-500">Click on the map to add vertices…</span>
+                  <span className="text-gg-gray-600">Click on the map to add vertices…</span>
                 )}
               </div>
             </>
@@ -1381,6 +1403,20 @@ export default function TractMapEditor({
               C. No tillable yet, not drawing: Draw Tillable + Compute */}
           {drawTillableMode ? (
             <>
+              {/* Per user 2026-05-26: Draw Tillable starts EMPTY so
+                  the new shape is clearly separate from the tract.
+                  Use Seed from Tract when the tillable is "tract minus
+                  a few cutouts" and you'd rather trim than draw fresh. */}
+              {points.length >= 3 && (
+                <button
+                  onClick={handleSeedTillableFromTract}
+                  disabled={savingTillable}
+                  className="px-2 py-1 text-xs bg-green-700/80 hover:bg-green-700 text-white disabled:opacity-40 rounded flex items-center gap-1"
+                  title="Replace current tillable drawing with the tract polygon's vertices, then trim non-tillable parts"
+                >
+                  <Sprout size={12} /> Seed from Tract
+                </button>
+              )}
               <button
                 onClick={handleUndoTillableDraw}
                 disabled={tillableDrawPoints.length === 0 || savingTillable}
