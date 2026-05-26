@@ -1308,6 +1308,20 @@ export default function AdminPrivateTreatyStagingPage() {
                                     computed={tract.computed}
                                     chosen={tract.chosen}
                                     fallbackTract={tract}
+                                    stagingId={listing.id}
+                                    tractIndex={idx}
+                                    siblingTractNumbers={info.tracts.map((t: any) =>
+                                      String(t.tract_number ?? ''))}
+                                    onTractNumberChange={(newNum) => {
+                                      setListings(prev => prev.map(l => {
+                                        if (l.id !== listing.id) return l
+                                        const sd = { ...(l.scraped_data || {}) }
+                                        const ts = [...((sd.tracts as any[]) || [])]
+                                        ts[idx] = { ...ts[idx], tract_number: newNum }
+                                        sd.tracts = ts
+                                        return { ...l, scraped_data: sd }
+                                      }))
+                                    }}
                                     onChosenChange={(nextChosen) => {
                                       setListings(prev => prev.map(l => {
                                         if (l.id !== listing.id) return l

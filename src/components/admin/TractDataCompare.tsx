@@ -33,7 +33,7 @@
  * panel reading from top-level tract fields. Old rows still display.
  */
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 interface ScrapedComputed {
   acres?: number | null
@@ -50,7 +50,7 @@ interface Chosen {
 }
 
 interface TractDataCompareProps {
-  tractNumber?: number
+  tractNumber?: number | string
   scraped?: ScrapedComputed | null
   computed?: ScrapedComputed | null
   chosen?: Chosen | null
@@ -59,6 +59,19 @@ interface TractDataCompareProps {
    *  the new scraped/computed split isn't present, render this as the
    *  single source. */
   fallbackTract?: any
+  /** All tract numbers in this listing (string-normalized) — used for
+   *  client-side dedup when the user types a new number. The server
+   *  enforces uniqueness too, but checking client-side gives instant
+   *  feedback. */
+  siblingTractNumbers?: string[]
+  /** When set, the tract number is editable. Saves via
+   *  POST /api/staging/{stagingId}/tracts/{tractIndex}/tract-number
+   *  Per user 2026-05-26: tract↔polygon pairing bugs are common; the
+   *  cleanest fix is letting the user re-type the correct tract number
+   *  on a polygon that's labeled wrong. */
+  stagingId?: number
+  tractIndex?: number
+  onTractNumberChange?: (newNumber: string) => void
 }
 
 function fmtAcres(v?: number | null): string {
@@ -75,6 +88,8 @@ function fmtSoil(rating?: number | null, type?: string | null): string {
   return type ? `${n.toFixed(1)} ${type}` : n.toFixed(1)
 }
 
+const SCRAPER_URL = 'https://ground-goat-scraper-production.up.railway.app'
+
 export default function TractDataCompare({
   tractNumber,
   scraped,
@@ -82,7 +97,70 @@ export default function TractDataCompare({
   chosen,
   onChosenChange,
   fallbackTract,
+  siblingTractNumbers,
+  stagingId,
+  tractIndex,
+  onTractNumberChange,
 }: TractDataCompareProps) {
+  // Editable tract number — per user 2026-05-26: when the scraper paired
+  // the wrong polygon with the wrong tract number (Steffes-class bug),
+  // typing the correct number here re-pairs everything in one click.
+  // Server enforces uniqueness; we also check client-side for instant
+  // feedback before hitting the network.
+  const canEdit = stagingId != null && tractIndex != null
+  const initialNumStr = tractNumber != null ? String(tractNumber) : ''
+  const [numDraft, setNumDraft] = useState<string>(initialNumStr)
+  const [numSaving, setNumSaving] = useState(false)
+  const [numStatus, setNumStatus] = useState<string | null>(null)
+  useEffect(() => { setNumDraft(initialNumStr); setNumStatus(null) }, [initialNumStr])
+
+  const normalize = (s: string): string => {
+    const m = s.trim().match(/\d+/)
+    return m ? m[0] : s.trim()
+  }
+  const isDirty = canEdit && normalize(numDraft) !== normalize(initialNumStr)
+  const wouldCollide = canEdit && isDirty && (() => {
+    const want = normalize(numDraft)
+    if (!want) return false
+    const sibs = (siblingTractNumbers || [])
+      .filter(s => normalize(s) !== normalize(initialNumStr))
+    return sibs.some(s => normalize(s) === want)
+  })()
+
+  const handleSaveNumber = async () => {
+    if (!canEdit) return
+    const want = normalize(numDraft)
+    if (!want) {
+      setNumStatus('✗ Empty — type a tract number')
+      return
+    }
+    if (wouldCollide) {
+      setNumStatus(`✗ Tract ${want} already in this listing — pick a unique number`)
+      return
+    }
+    setNumSaving(true)
+    setNumStatus(null)
+    try {
+      const res = await fetch(
+        `${SCRAPER_URL}/api/staging/${stagingId}/tracts/${tractIndex}/tract-number`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tract_number: want }),
+        }
+      )
+      const data = await res.json()
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || `HTTP ${res.status}`)
+      }
+      setNumStatus(`✓ Saved as Tract ${want}`)
+      onTractNumberChange?.(want)
+    } catch (e: any) {
+      setNumStatus(`✗ Save failed: ${e.message || e}`)
+    } finally {
+      setNumSaving(false)
+    }
+  }
   // Backwards compat: if neither scraped nor computed is present, this
   // is an old-format staging row. Render single-source view from the
   // fallback tract dict.
@@ -202,16 +280,62 @@ export default function TractDataCompare({
 
   return (
     <div className="bg-gg-gray-800/60 rounded-lg px-3 py-2 mt-2">
-      <div className="flex items-center justify-between mb-2">
-        <div className="text-xs font-semibold text-gg-gray-300">
-          {tractNumber != null
-            ? `Tract ${tractNumber} — Data comparison`
-            : 'Data comparison'}
+      <div className="flex items-center justify-between mb-2 gap-2">
+        <div className="text-xs font-semibold text-gg-gray-300 flex items-center gap-2 flex-wrap">
+          {canEdit ? (
+            <>
+              <span>Tract</span>
+              <input
+                type="text"
+                value={numDraft}
+                onChange={(e) => setNumDraft(e.target.value)}
+                disabled={numSaving}
+                className={`w-12 px-1.5 py-0.5 text-xs font-semibold rounded bg-gg-gray-900 border ${
+                  wouldCollide
+                    ? 'border-red-500 text-red-300'
+                    : isDirty
+                      ? 'border-gg-pink text-white'
+                      : 'border-gg-gray-700 text-gg-gray-300'
+                } focus:outline-none focus:ring-1 focus:ring-gg-pink`}
+                title="Type the tract number this polygon belongs to. Each tract in the listing must have a unique number."
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && isDirty && !wouldCollide && !numSaving) {
+                    handleSaveNumber()
+                  }
+                }}
+              />
+              {isDirty && (
+                <button
+                  onClick={handleSaveNumber}
+                  disabled={numSaving || wouldCollide}
+                  className="px-2 py-0.5 text-[10px] bg-gg-pink hover:bg-gg-pink-light text-white rounded disabled:opacity-40"
+                  title={wouldCollide ? 'Duplicate — pick a unique number' : 'Save tract number'}
+                >
+                  {numSaving ? 'Saving…' : 'Save #'}
+                </button>
+              )}
+              <span className="text-gg-gray-500">— Data comparison</span>
+            </>
+          ) : (
+            tractNumber != null
+              ? `Tract ${tractNumber} — Data comparison`
+              : 'Data comparison'
+          )}
         </div>
         <div className="text-[10px] text-gg-gray-500">
           Pick which value to save. Highlighted = chosen.
         </div>
       </div>
+      {numStatus && (
+        <div className={`mb-2 text-[10px] ${numStatus.startsWith('✓') ? 'text-green-300' : 'text-red-300'}`}>
+          {numStatus}
+        </div>
+      )}
+      {wouldCollide && !numStatus && (
+        <div className="mb-2 text-[10px] text-red-300">
+          ✗ Another tract in this listing is already number {normalize(numDraft)} — pick a unique number.
+        </div>
+      )}
       <Row
         label="Acres"
         field="acres"
