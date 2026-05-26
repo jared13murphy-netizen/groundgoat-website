@@ -2345,37 +2345,59 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   }, [mapLoaded, regridConfig])
 
   // ─────────────────────────────────────────────────────────────────
-  // Parcel-with-sale dots. Pink "+" pin (same look as Comparables map)
-  // over every cached Regrid parcel that has a saleprice. Fetched from
-  // /api/map/parcels-with-sales using the current viewport bbox at
-  // zoom >= REGRID_MIN_ZOOM. Source list grows as users click parcels
-  // — Regrid Premium record fetches populate `regrid_parcels` server-
-  // side and any row with saleprice > 0 becomes a dot.
+  // Parcel-with-sale dots. Pink "+" pin over every Regrid parcel in
+  // the USA where the vector tile reports saleprice > 0 AND the parcel
+  // is ≥ 20 acres. NO API calls — we read straight off the same Regrid
+  // vector source we already loaded for the parcel boundary layer.
+  // Coverage = every parcel in Regrid's nationwide dataset.
+  //
+  // The 20-acre floor uses ll_gisacre (Regrid's "land-legal" acreage)
+  // with gisacre as a fallback — same field-precedence the label layer
+  // above uses.
   // ─────────────────────────────────────────────────────────────────
-  const PARCEL_SALE_SOURCE = 'parcel-sale-pins'
-  const PARCEL_SALE_BG_LAYER = 'parcel-sale-pins-bg'
-  const PARCEL_SALE_PLUS_LAYER = 'parcel-sale-pins-plus'
-  const parcelSaleByIdRef = useRef<Map<string, any>>(new Map())
+  const PARCEL_SALE_BG_LAYER = 'parcel-sale-pin-bg'
+  const PARCEL_SALE_PLUS_LAYER = 'parcel-sale-pin-plus'
+  const PARCEL_MIN_SALE_ACRES = 20
 
   useEffect(() => {
     const map = mapRef.current
-    if (!map || !mapLoaded) return
+    if (!map || !mapLoaded || !regridConfig?.tile_url_template) return
 
-    // Add source + 2 layers (circle background + "+" symbol) if not
-    // already present. Done once; subsequent moveends just update data.
-    const ensureLayers = () => {
-      if (!map.getSource(PARCEL_SALE_SOURCE)) {
-        map.addSource(PARCEL_SALE_SOURCE, {
-          type: 'geojson',
-          data: { type: 'FeatureCollection', features: [] } as any,
-        })
+    // The Regrid source itself is added by the layer-mount effect
+    // above. We piggyback on it — but the source might not exist yet
+    // (its effect runs on the same render). Wait one tick if missing.
+    let timer: any = null
+    const REGRID_SOURCE = 'regrid-parcels'
+
+    const mount = () => {
+      if (!map.getSource(REGRID_SOURCE)) {
+        timer = setTimeout(mount, 50)
+        return
       }
+      // saleprice > 0 AND (ll_gisacre >= 20 OR gisacre >= 20).
+      // ['get'] returns null when the property is missing — wrap in
+      // ['coalesce', value, 0] so the comparison doesn't blow up.
+      const filterExpr: any = [
+        'all',
+        ['>', ['coalesce', ['to-number', ['get', 'saleprice']], 0], 0],
+        ['>=',
+          ['coalesce',
+            ['to-number', ['get', 'll_gisacre']],
+            ['to-number', ['get', 'gisacre']],
+            0,
+          ],
+          PARCEL_MIN_SALE_ACRES,
+        ],
+      ]
+
       if (!map.getLayer(PARCEL_SALE_BG_LAYER)) {
         map.addLayer({
           id: PARCEL_SALE_BG_LAYER,
           type: 'circle',
-          source: PARCEL_SALE_SOURCE,
+          source: REGRID_SOURCE,
+          'source-layer': 'parcels',
           minzoom: REGRID_MIN_ZOOM,
+          filter: filterExpr,
           paint: {
             'circle-radius': ['interpolate', ['linear'], ['zoom'], 12, 8, 16, 14],
             'circle-color': '#f58cde',
@@ -2388,8 +2410,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         map.addLayer({
           id: PARCEL_SALE_PLUS_LAYER,
           type: 'symbol',
-          source: PARCEL_SALE_SOURCE,
+          source: REGRID_SOURCE,
+          'source-layer': 'parcels',
           minzoom: REGRID_MIN_ZOOM,
+          filter: filterExpr,
           layout: {
             'text-field': '+',
             'text-font': ['Open Sans Bold'],
@@ -2401,82 +2425,44 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         })
       }
     }
+    mount()
 
-    // Viewport-driven fetch. Below REGRID_MIN_ZOOM we'd be downloading
-    // way too many parcels with no chance of rendering useful pins, so
-    // skip the request and clear any stale dots.
-    let aborted = false
-    const fetchPins = async () => {
-      ensureLayers()
-      const z = map.getZoom()
-      if (z < REGRID_MIN_ZOOM) {
-        const src = map.getSource(PARCEL_SALE_SOURCE) as maplibregl.GeoJSONSource | undefined
-        src?.setData({ type: 'FeatureCollection', features: [] } as any)
-        parcelSaleByIdRef.current = new Map()
-        return
-      }
-      const b = map.getBounds()
-      const params = new URLSearchParams({
-        min_lat: String(b.getSouth()),
-        max_lat: String(b.getNorth()),
-        min_lng: String(b.getWest()),
-        max_lng: String(b.getEast()),
-        limit: '2000',
-      })
-      try {
-        const res = await fetchWithAuth(`${API_URL}/api/map/parcels-with-sales?${params.toString()}`)
-        if (!res.ok || aborted) return
-        const data = await res.json()
-        const parcels = Array.isArray(data?.parcels) ? data.parcels : []
-        const byId = new Map<string, any>()
-        const features = parcels
-          .filter((p: any) => p.lat != null && p.lng != null)
-          .map((p: any) => {
-            byId.set(p.ll_uuid, p)
-            return {
-              type: 'Feature',
-              properties: { id: p.ll_uuid },
-              geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
-            }
-          })
-        parcelSaleByIdRef.current = byId
-        const src = map.getSource(PARCEL_SALE_SOURCE) as maplibregl.GeoJSONSource | undefined
-        src?.setData({ type: 'FeatureCollection', features } as any)
-      } catch {
-        /* network blip — leave whatever's on screen */
-      }
-    }
-
-    // Click → small popup with sale price, date, $/acre, owner.
+    // Click — show a popup with whatever sale info Regrid embedded in
+    // the tile properties. No backend round-trip needed; if the user
+    // wants the full Premium record they can still click the parcel
+    // boundary which opens the existing detail popup.
     const onPinClick = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
       const f = e.features?.[0]
       if (!f) return
-      const id = (f.properties as any)?.id as string | undefined
-      if (!id) return
-      const p = parcelSaleByIdRef.current.get(id)
-      if (!p) return
+      const props: any = f.properties || {}
+      const acres = props.ll_gisacre ?? props.gisacre ?? null
       new maplibregl.Popup({ closeButton: true, closeOnClick: true, maxWidth: '300px' })
         .setLngLat(e.lngLat)
-        .setHTML(_parcelSalePopupHTML(p))
+        .setHTML(_parcelSalePopupHTML({
+          sale_price: props.saleprice ? Number(props.saleprice) : null,
+          sale_date: props.saledate || null,
+          total_acres: acres ? Number(acres) : null,
+          price_per_acre: (props.saleprice && acres && Number(acres) > 0)
+            ? Number(props.saleprice) / Number(acres)
+            : null,
+          owner: props.owner || null,
+          address: props.address || null,
+          county: props.county || null,
+          state: props.state || null,
+        }))
         .addTo(map)
     }
     const setPointer = () => { map.getCanvas().style.cursor = 'pointer' }
     const clearPointer = () => { map.getCanvas().style.cursor = '' }
-
-    map.on('moveend', fetchPins)
     map.on('mouseenter', PARCEL_SALE_BG_LAYER, setPointer)
     map.on('mouseleave', PARCEL_SALE_BG_LAYER, clearPointer)
     map.on('click', PARCEL_SALE_BG_LAYER, onPinClick)
     map.on('click', PARCEL_SALE_PLUS_LAYER, onPinClick)
 
-    // Initial fetch (in case the map is already at usable zoom).
-    fetchPins()
-
     return () => {
-      aborted = true
+      if (timer) clearTimeout(timer)
       try {
         if (!map.getStyle()) return
-        map.off('moveend', fetchPins)
         map.off('mouseenter', PARCEL_SALE_BG_LAYER, setPointer)
         map.off('mouseleave', PARCEL_SALE_BG_LAYER, clearPointer)
         map.off('click', PARCEL_SALE_BG_LAYER, onPinClick)
@@ -2484,10 +2470,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         for (const id of [PARCEL_SALE_PLUS_LAYER, PARCEL_SALE_BG_LAYER]) {
           if (map.getLayer(id)) map.removeLayer(id)
         }
-        if (map.getSource(PARCEL_SALE_SOURCE)) map.removeSource(PARCEL_SALE_SOURCE)
       } catch {/* map already torn down */}
     }
-  }, [mapLoaded])
+  }, [mapLoaded, regridConfig])
 
   // Create/update HTML markers for tracts
   useEffect(() => {
