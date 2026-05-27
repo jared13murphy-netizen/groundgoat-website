@@ -2238,6 +2238,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     if (!map || !mapLoaded || !regridConfig?.tile_url_template) return
 
     const SOURCE_ID = 'regrid-parcels'
+    const LABEL_SOURCE_ID = 'regrid-parcels-labels'
     const FILL_LAYER = 'regrid-parcels-fill'
     const LINE_LAYER = 'regrid-parcels-line'
     const LABEL_LAYER = 'regrid-parcels-label'
@@ -2304,14 +2305,29 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       },
     }, beforeId)
 
+    // Label dedup source. We don't bind the label symbol to the Regrid
+    // vector tile source directly because vector tiles clip every
+    // parcel that spans a tile boundary into multiple Feature
+    // instances — MapLibre then dutifully renders one label per
+    // piece (so a parcel that hits 4 tile corners gets 4 labels).
+    // Instead we query the vector source on every render, group by
+    // ll_uuid, compute one area-weighted centroid per parcel, and
+    // emit a single Point feature here. The symbol layer below
+    // renders one label per Point => one label per parcel, centered.
+    if (!map.getSource(LABEL_SOURCE_ID)) {
+      map.addSource(LABEL_SOURCE_ID, {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      })
+    }
+
     // Owner + acres label — same composition as state_parcels: owner
     // bold on top, acres in smaller text below, white text with a
     // black halo so it reads on both satellite and street basemaps.
     map.addLayer({
       id: LABEL_LAYER,
       type: 'symbol',
-      source: SOURCE_ID,
-      'source-layer': sourceLayer,
+      source: LABEL_SOURCE_ID,
       minzoom: REGRID_MIN_ZOOM,
       layout: {
         // Four segments: owner (bold) → acres → $/acre → sale date.
@@ -2405,16 +2421,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           16, 12,
           18, 14,
         ],
-        // Anchor label at its TOP edge so the multi-line block sits
-        // BELOW the polygon centroid. The pin (parcel-sale-pin layers
-        // mounted in a separate effect) is placed AT the centroid
-        // with no translate. Result: pin always lands inside the
-        // parcel it represents, label appears just below the pin.
-        // Earlier 42px upward translate on the pin caused it to drift
-        // onto adjacent parcels for small lots.
-        'text-anchor': 'top',
+        // Label sits AT the parcel's geometric centroid — the point
+        // feature we emit per-uuid is already the area-weighted
+        // centroid of all the parcel's clipped pieces, so anchor at
+        // center with no offset.
+        'text-anchor': 'center',
         'text-justify': 'center',
-        'text-offset': [0, 1.6],
         'text-max-width': 9,
         'text-line-height': 1.15,
         'text-allow-overlap': false,
@@ -2516,15 +2528,89 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     map.on('mouseleave', FILL_LAYER, onLeave)
     map.on('click', FILL_LAYER, onClick)
 
+    // ─── Label dedup pump ────────────────────────────────────────
+    // Every time the Regrid source finishes loading (initial fetch,
+    // pan, zoom) or the map goes idle, query the vector source for
+    // all currently-loaded parcel features, group by ll_uuid, and
+    // emit one Point feature per parcel at the area-weighted
+    // centroid of all its clipped pieces. Throttled so a flurry of
+    // tile loads doesn't pin the main thread.
+    let refreshTimer: number | null = null
+    const refreshLabels = () => {
+      try {
+        if (!map.getStyle()) return
+        if (map.getZoom() < REGRID_MIN_ZOOM) {
+          const src = map.getSource(LABEL_SOURCE_ID) as any
+          if (src?.setData) src.setData({ type: 'FeatureCollection', features: [] })
+          return
+        }
+        const feats = map.querySourceFeatures(SOURCE_ID, { sourceLayer })
+        // querySourceFeatures returns the bare GeoJSON-ish features
+        // rather than rendered map features, so we don't have the
+        // stricter MapGeoJSONFeature shape here.
+        const groups = new Map<string, any[]>()
+        for (const f of feats) {
+          const uuid = (f.properties as any)?.ll_uuid
+          if (!uuid) continue
+          const arr = groups.get(uuid)
+          if (arr) arr.push(f)
+          else groups.set(uuid, [f])
+        }
+        const out: any[] = []
+        groups.forEach((pieces, uuid) => {
+          let totalArea = 0
+          let sumX = 0
+          let sumY = 0
+          for (const f of pieces) {
+            const { centroid, area } = _polygonCentroidAndArea((f.geometry as any))
+            if (area > 0) {
+              sumX += centroid[0] * area
+              sumY += centroid[1] * area
+              totalArea += area
+            }
+          }
+          if (totalArea <= 0) return
+          // Use the first piece's properties — all clipped pieces of
+          // the same ll_uuid have identical owner/acres/sale fields.
+          const props = { ...(pieces[0].properties as any) }
+          out.push({
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [sumX / totalArea, sumY / totalArea] },
+            properties: props,
+          })
+        })
+        const src = map.getSource(LABEL_SOURCE_ID) as any
+        if (src?.setData) src.setData({ type: 'FeatureCollection', features: out })
+      } catch {/* ignore — map likely tearing down */}
+    }
+    const scheduleRefresh = () => {
+      if (refreshTimer != null) return
+      refreshTimer = window.setTimeout(() => {
+        refreshTimer = null
+        refreshLabels()
+      }, 150) as any
+    }
+    const onSourceData = (e: maplibregl.MapSourceDataEvent) => {
+      if (e.sourceId === SOURCE_ID && e.isSourceLoaded) scheduleRefresh()
+    }
+    map.on('sourcedata', onSourceData)
+    map.on('moveend', scheduleRefresh)
+    // Kick once in case the source is already loaded.
+    scheduleRefresh()
+
     return () => {
       try {
+        if (refreshTimer != null) { window.clearTimeout(refreshTimer); refreshTimer = null }
         if (!map.getStyle()) return
         map.off('mousemove', FILL_LAYER, onMove)
         map.off('mouseleave', FILL_LAYER, onLeave)
         map.off('click', FILL_LAYER, onClick)
+        map.off('sourcedata', onSourceData)
+        map.off('moveend', scheduleRefresh)
         for (const id of [LABEL_LAYER, LINE_LAYER, FILL_LAYER]) {
           if (map.getLayer(id)) map.removeLayer(id)
         }
+        if (map.getSource(LABEL_SOURCE_ID)) map.removeSource(LABEL_SOURCE_ID)
         if (map.getSource(SOURCE_ID)) map.removeSource(SOURCE_ID)
       } catch {
         // map already torn down
@@ -4971,6 +5057,61 @@ function _fmtAcres(n: any): string | null {
   const v = typeof n === 'number' ? n : (n ? Number(n) : NaN)
   if (!isFinite(v) || v <= 0) return null
   return v.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 2 }) + ' ac'
+}
+
+// Polygon centroid + (unsigned) area in degree². Used to dedupe
+// Regrid tile-clipped parcels into one label per parcel: we group
+// the clipped pieces by ll_uuid, compute (centroid, area) for each
+// piece, then take the area-weighted average of the centroids to
+// get the parcel's "true" centroid even when it spans tiles.
+// Formula is the standard shoelace-based polygon centroid — handles
+// arbitrary convex/concave shapes correctly.
+function _polygonCentroidAndArea(geom: any): { centroid: [number, number]; area: number } {
+  if (!geom) return { centroid: [0, 0], area: 0 }
+  if (geom.type === 'Polygon') {
+    const ring = geom.coordinates?.[0]
+    if (!ring || ring.length < 4) return { centroid: [0, 0], area: 0 }
+    return _ringCentroidAndArea(ring)
+  }
+  if (geom.type === 'MultiPolygon') {
+    let totalA = 0, sx = 0, sy = 0
+    for (const poly of geom.coordinates || []) {
+      const ring = poly?.[0]
+      if (!ring || ring.length < 4) continue
+      const { centroid, area } = _ringCentroidAndArea(ring)
+      if (area > 0) {
+        sx += centroid[0] * area
+        sy += centroid[1] * area
+        totalA += area
+      }
+    }
+    if (totalA <= 0) return { centroid: [0, 0], area: 0 }
+    return { centroid: [sx / totalA, sy / totalA], area: totalA }
+  }
+  return { centroid: [0, 0], area: 0 }
+}
+
+function _ringCentroidAndArea(ring: number[][]): { centroid: [number, number]; area: number } {
+  let A = 0, cx = 0, cy = 0
+  // Iterate vertex pairs around the ring. Assumes first == last (typical
+  // closed GeoJSON); if not, the last-to-first segment is still
+  // accounted for by the modulo on the index.
+  const n = ring.length - 1
+  for (let i = 0; i < n; i++) {
+    const [x0, y0] = ring[i]
+    const [x1, y1] = ring[i + 1]
+    const cross = x0 * y1 - x1 * y0
+    A += cross
+    cx += (x0 + x1) * cross
+    cy += (y0 + y1) * cross
+  }
+  A /= 2
+  if (Math.abs(A) < 1e-15) {
+    // Degenerate ring — fall back to the first vertex so we at least
+    // emit a sensible label position.
+    return { centroid: [ring[0][0], ring[0][1]], area: 0 }
+  }
+  return { centroid: [cx / (6 * A), cy / (6 * A)], area: Math.abs(A) }
 }
 
 // "schuyler" → "Schuyler". Regrid stores county names lowercase; the
