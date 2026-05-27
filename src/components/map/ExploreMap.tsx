@@ -954,12 +954,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     process.env.NEXT_PUBLIC_TILES_URL ||
     'https://ground-goat-tiles-production.up.railway.app'
   const [isAdmin, setIsAdmin] = useState(false)
-  // Pilot owner — the parcel-enrichment overlay (Hancock IL tillable +
-  // PI) is gated to this single account until we expand coverage. The
-  // backend already 404s for everyone else, but we also hide the UI
-  // toggle so it doesn't tease unfinished functionality.
-  const [userEmail, setUserEmail] = useState<string>('')
-  const isEnrichmentPilot = userEmail.toLowerCase() === 'jmurphy@groundgoat.com'
+  // Pilot-owner gate for the parcel-enrichment overlay (Hancock IL
+  // tillable + PI). Tied to the existing groundgoat_admin role rather
+  // than a hard-coded email — same audience in practice (I'm the only
+  // admin) but avoids the dead-end where /api/auth/me's `email` field
+  // wasn't always populated on the client. Backend also 404s for
+  // non-admins so this is defense-in-depth.
+  const isEnrichmentPilot = isAdmin
   // Force-OFF: the legacy state_parcels pmtiles overlay (with its own
   // hover popups) is superseded by the always-on Regrid layer. We keep
   // the code path around for emergency fallback, but hard-disable the
@@ -999,7 +1000,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         if (cancelled) return
         const admin = me?.account_type === 'groundgoat_admin'
         setIsAdmin(admin)
-        if (typeof me?.email === 'string') setUserEmail(me.email)
         if (!admin) return
         // Tile-server lists files like ["WI.pmtiles","FL.pmtiles"].
         // Strip the extension to get the state codes. CORS is allowed
