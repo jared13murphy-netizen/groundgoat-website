@@ -2429,8 +2429,19 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         'text-justify': 'center',
         'text-max-width': 9,
         'text-line-height': 1.15,
-        'text-allow-overlap': false,
-        'text-ignore-placement': false,
+        // ALWAYS render Regrid parcel labels. The soil-rating label
+        // layer (parcel-enrichment-labels-text and the WC variant)
+        // is also a symbol layer that targets the same parcel
+        // centroids. With both layers using the default
+        // allow-overlap=false, MapLibre's collision detector would
+        // suppress whichever was placed second — Regrid labels lost
+        // because they sit higher in the layer stack and get placed
+        // AFTER the soil labels. Forcing allow-overlap=true +
+        // ignore-placement=true makes Regrid labels survive that
+        // collision check; they're our primary label, the user
+        // wants them on every parcel.
+        'text-allow-overlap': true,
+        'text-ignore-placement': true,
         'text-padding': 2,
       },
       paint: {
