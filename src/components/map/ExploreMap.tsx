@@ -2416,20 +2416,17 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         'text-justify': 'center',
         'text-max-width': 9,
         'text-line-height': 1.15,
-        // ALWAYS render Regrid parcel labels. The soil-rating label
-        // layer (parcel-enrichment-labels-text and the WC variant)
-        // is also a symbol layer that targets the same parcel
-        // centroids. With both layers using the default
-        // allow-overlap=false, MapLibre's collision detector would
-        // suppress whichever was placed second — Regrid labels lost
-        // because they sit higher in the layer stack and get placed
-        // AFTER the soil labels. Forcing allow-overlap=true +
-        // ignore-placement=true makes Regrid labels survive that
-        // collision check; they're our primary label, the user
-        // wants them on every parcel.
-        'text-allow-overlap': true,
-        'text-ignore-placement': true,
-        'text-padding': 2,
+        // Regrid labels MUST NOT overlap each other — at low zoom
+        // the map otherwise turns into a wall of white text. With
+        // allow-overlap=false MapLibre drops the labels that would
+        // collide; as the user zooms in, more parcels gain enough
+        // space and the dropped labels reappear. ignore-placement=
+        // false means Regrid labels also reserve their footprint
+        // so the soil-rating labels (which are set to
+        // text-ignore-placement=true below) can't overdraw them.
+        'text-allow-overlap': false,
+        'text-ignore-placement': false,
+        'text-padding': 4,
       },
       paint: {
         'text-color': '#ffffff',
@@ -2892,9 +2889,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         17, 15,
       ],
       'text-anchor': 'center',
+      // Soil-rating labels still dedupe AMONG THEMSELVES (no two PI
+      // labels overlap), but they must not BLOCK the Regrid parcel
+      // labels which are the primary identifier. ignore-placement=true
+      // means soil labels don't reserve a collision footprint, so
+      // MapLibre will happily draw the Regrid label on top.
       'text-allow-overlap': false,
+      'text-ignore-placement': true,
       'text-padding': 2,
-      'text-ignore-placement': false,
       'symbol-sort-key': ['*', -1, ['get', 'r']],
     }
     const labelPaintBase: any = {
