@@ -3897,9 +3897,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       )}
 
       {/* Parcel-Enrichment Toggle (pilot owner only). Wired to the
-          Hancock IL soil/tillable overlay. Hidden for everyone else
-          so the half-built feature doesn't show in the live UI. */}
-      {isEnrichmentPilot && !portalMode && (
+          Hancock IL soil/tillable overlay. Gated identically to the
+          Goat Search button: groundgoat_admin only. The map runs in
+          portalMode on /access, so we DO NOT gate on portalMode. */}
+      {isEnrichmentPilot && (
         <button
           onClick={() => setEnrichmentOverlay(v => !v)}
           style={{
