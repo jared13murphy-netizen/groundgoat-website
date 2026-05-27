@@ -954,6 +954,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     process.env.NEXT_PUBLIC_TILES_URL ||
     'https://ground-goat-tiles-production.up.railway.app'
   const [isAdmin, setIsAdmin] = useState(false)
+  // Pilot owner — the parcel-enrichment overlay (Hancock IL tillable +
+  // PI) is gated to this single account until we expand coverage. The
+  // backend already 404s for everyone else, but we also hide the UI
+  // toggle so it doesn't tease unfinished functionality.
+  const [userEmail, setUserEmail] = useState<string>('')
+  const isEnrichmentPilot = userEmail.toLowerCase() === 'jmurphy@groundgoat.com'
   // Force-OFF: the legacy state_parcels pmtiles overlay (with its own
   // hover popups) is superseded by the always-on Regrid layer. We keep
   // the code path around for emergency fallback, but hard-disable the
@@ -993,6 +999,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         if (cancelled) return
         const admin = me?.account_type === 'groundgoat_admin'
         setIsAdmin(admin)
+        if (typeof me?.email === 'string') setUserEmail(me.email)
         if (!admin) return
         // Tile-server lists files like ["WI.pmtiles","FL.pmtiles"].
         // Strip the extension to get the state codes. CORS is allowed
@@ -2484,13 +2491,22 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         const qs = new URLSearchParams()
         if (ll_uuid) qs.set('ll_uuid', ll_uuid)
         else { qs.set('lat', String(lat)); qs.set('lng', String(lng)) }
+        // Fire both requests in parallel. Enrichment is best-effort —
+        // 404s for non-pilot accounts AND for parcels we haven't yet
+        // enriched (everywhere except Hancock IL today), so we don't
+        // gate the popup on it.
+        const enrichPromise: Promise<any> = (isEnrichmentPilot && ll_uuid)
+          ? fetchWithAuth(`${API_URL}/api/parcel-enrichment/by-uuid?ll_uuid=${encodeURIComponent(ll_uuid)}`)
+              .then(r => r.ok ? r.json() : null).catch(() => null)
+          : Promise.resolve(null)
         const res = await fetchWithAuth(`${API_URL}/api/regrid/parcel?${qs.toString()}`)
+        const enrich = await enrichPromise
         if (!res.ok) {
-          popup.setHTML(_regridFallbackHTML(props))
+          popup.setHTML(_regridFallbackHTML(props) + _enrichmentPopupSection(enrich))
           return
         }
         const data = await res.json()
-        popup.setHTML(_regridPopupHTML(data?.parcel || props))
+        popup.setHTML(_regridPopupHTML(data?.parcel || props) + _enrichmentPopupSection(enrich))
       } catch {
         popup.setHTML(_regridFallbackHTML(props))
       }
@@ -2677,6 +2693,241 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       }
     }
   }, [mapLoaded, filters.dateRange, filters.dateFrom, filters.dateTo, filters.salePriceMin, filters.salePriceMax])
+
+  // ─────────────────────────────────────────────────────────────────
+  // Parcel-enrichment overlay (Hancock IL pilot)
+  //
+  // Toggles a green tillable-acres overlay + a per-parcel PI choropleth
+  // (red→amber→green for low/mid/high productivity). Data comes from
+  // /api/map/parcel-enrichment which 404s for everyone except me
+  // (jmurphy@groundgoat.com) AND when the backend ENABLE_PARCEL_ENRICHMENT
+  // flag is set. The button is also hidden for non-pilot accounts so
+  // the unfinished feature doesn't appear in the UI for customers.
+  //
+  // Fetching is bbox-scoped + debounced on viewport changes; results
+  // are stored as a single GeoJSON FeatureCollection swapped into the
+  // tillable + parcel-fill sources via setData (no source/layer
+  // teardown — much smoother than rebuilding on every pan).
+  // ─────────────────────────────────────────────────────────────────
+  const [enrichmentOverlay, setEnrichmentOverlay] = useState<boolean>(() => {
+    try { return localStorage.getItem('gg_enrichment_overlay') === '1' } catch { return false }
+  })
+  // Cache of the latest viewport's enrichment payload, keyed loosely
+  // by bbox-rounded so we don't refetch on micro-pans.
+  const enrichmentLastBboxRef = useRef<string>('')
+  const enrichmentAvailableRef = useRef<boolean>(true)
+  // Persist toggle state to localStorage.
+  useEffect(() => {
+    try { localStorage.setItem('gg_enrichment_overlay', enrichmentOverlay ? '1' : '0') } catch {}
+  }, [enrichmentOverlay])
+
+  // Register the source + layers (empty at first). They sit visible:false
+  // until the toggle is on, so we can swap data with setData without
+  // re-adding layers on every toggle flip.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+    if (!isEnrichmentPilot) return
+
+    const SRC_TILLABLE = 'parcel-enrichment-tillable'
+    const SRC_PARCEL = 'parcel-enrichment-parcels'
+    const LYR_TILL_FILL = 'parcel-enrichment-tillable-fill'
+    const LYR_PARCEL_FILL = 'parcel-enrichment-parcel-fill'
+    const LYR_PARCEL_LINE = 'parcel-enrichment-parcel-line'
+
+    if (!map.getSource(SRC_TILLABLE)) {
+      map.addSource(SRC_TILLABLE, {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      })
+    }
+    if (!map.getSource(SRC_PARCEL)) {
+      map.addSource(SRC_PARCEL, {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      })
+    }
+
+    // Parcel PI choropleth fill — color by soil_rating bin. We render
+    // BELOW the Regrid tile fill (which has fill-opacity 0 unless
+    // hovered) so the PI color is visible on every parcel in view
+    // without fighting the click target.
+    if (!map.getLayer(LYR_PARCEL_FILL)) {
+      map.addLayer({
+        id: LYR_PARCEL_FILL,
+        type: 'fill',
+        source: SRC_PARCEL,
+        layout: { visibility: enrichmentOverlay ? 'visible' : 'none' },
+        paint: {
+          'fill-color': [
+            'case',
+            ['==', ['get', 'soil_rating'], null], 'rgba(160,160,160,0.0)',
+            ['>=', ['get', 'soil_rating'], 130], '#16a34a',  // green: prime
+            ['>=', ['get', 'soil_rating'], 115], '#84cc16',  // lime
+            ['>=', ['get', 'soil_rating'], 100], '#fde047',  // yellow
+            ['>=', ['get', 'soil_rating'], 85], '#fb923c',   // orange
+            '#ef4444',                                       // red: poor
+          ],
+          'fill-opacity': 0.35,
+        },
+      })
+    }
+    if (!map.getLayer(LYR_PARCEL_LINE)) {
+      map.addLayer({
+        id: LYR_PARCEL_LINE,
+        type: 'line',
+        source: SRC_PARCEL,
+        layout: { visibility: enrichmentOverlay ? 'visible' : 'none' },
+        paint: {
+          'line-color': 'rgba(0,0,0,0.55)',
+          'line-width': 0.8,
+        },
+      })
+    }
+    // Tillable polygons on top — solid green so the eye reads "this
+    // portion of the parcel is farmed".
+    if (!map.getLayer(LYR_TILL_FILL)) {
+      map.addLayer({
+        id: LYR_TILL_FILL,
+        type: 'fill',
+        source: SRC_TILLABLE,
+        layout: { visibility: enrichmentOverlay ? 'visible' : 'none' },
+        paint: {
+          'fill-color': '#22c55e',
+          'fill-opacity': 0.55,
+          'fill-outline-color': 'rgba(0,80,0,0.6)',
+        },
+      })
+    }
+
+    return () => {
+      try {
+        if (!map.getStyle()) return
+        for (const id of [LYR_TILL_FILL, LYR_PARCEL_LINE, LYR_PARCEL_FILL]) {
+          if (map.getLayer(id)) map.removeLayer(id)
+        }
+        for (const id of [SRC_TILLABLE, SRC_PARCEL]) {
+          if (map.getSource(id)) map.removeSource(id)
+        }
+      } catch {/* map torn down */}
+    }
+  }, [mapLoaded, isEnrichmentPilot])
+
+  // Toggle layer visibility when the user flips the overlay button.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+    if (!isEnrichmentPilot) return
+    const vis = enrichmentOverlay ? 'visible' : 'none'
+    for (const id of [
+      'parcel-enrichment-tillable-fill',
+      'parcel-enrichment-parcel-fill',
+      'parcel-enrichment-parcel-line',
+    ]) {
+      if (map.getLayer(id)) {
+        try { map.setLayoutProperty(id, 'visibility', vis) } catch {/* */}
+      }
+    }
+  }, [enrichmentOverlay, mapLoaded, isEnrichmentPilot])
+
+  // Viewport fetch — when overlay is on, fetch the enrichment for the
+  // visible bbox and load it into the sources. Debounced; skip when
+  // the bbox hasn't meaningfully changed since the last fetch.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+    if (!isEnrichmentPilot || !enrichmentOverlay) return
+    if (!enrichmentAvailableRef.current) return  // backend 404'd; don't keep retrying
+
+    let cancelled = false
+    let timer: number | null = null
+
+    const doFetch = async () => {
+      const b = map.getBounds()
+      const south = b.getSouth().toFixed(3)
+      const north = b.getNorth().toFixed(3)
+      const west = b.getWest().toFixed(3)
+      const east = b.getEast().toFixed(3)
+      // Hancock IL only for now — quick centroid guard prevents
+      // fetching outside our loaded coverage. Drop this when more
+      // counties come online.
+      const cy = (parseFloat(north) + parseFloat(south)) / 2
+      const cx = (parseFloat(east) + parseFloat(west)) / 2
+      if (cy < 40.1 || cy > 40.75 || cx < -91.6 || cx > -90.85) {
+        // Outside Hancock — clear sources rather than show stale data.
+        const tSrc = map.getSource('parcel-enrichment-tillable') as any
+        const pSrc = map.getSource('parcel-enrichment-parcels') as any
+        if (tSrc?.setData) tSrc.setData({ type: 'FeatureCollection', features: [] })
+        if (pSrc?.setData) pSrc.setData({ type: 'FeatureCollection', features: [] })
+        return
+      }
+      const key = `IL|${south}|${north}|${west}|${east}`
+      if (key === enrichmentLastBboxRef.current) return
+      enrichmentLastBboxRef.current = key
+
+      const qs = new URLSearchParams({
+        state: 'IL',
+        county: 'Hancock',
+        min_lat: south, max_lat: north,
+        min_lng: west, max_lng: east,
+        limit: '2000',
+      })
+      try {
+        const res = await fetchWithAuth(`${API_URL}/api/map/parcel-enrichment?${qs.toString()}`)
+        if (cancelled) return
+        if (res.status === 404) {
+          // Feature flag off or non-pilot account — stop retrying.
+          enrichmentAvailableRef.current = false
+          return
+        }
+        if (!res.ok) return
+        const data = await res.json()
+        const tillableFeats: any[] = []
+        const parcelFeats: any[] = []
+        for (const p of (data?.parcels ?? [])) {
+          if (p.polygon_geojson) {
+            parcelFeats.push({
+              type: 'Feature',
+              geometry: p.polygon_geojson,
+              properties: {
+                ll_uuid: p.ll_uuid,
+                soil_rating: p.soil_rating,
+                pct_tillable: p.pct_tillable,
+                tillable_acres: p.tillable_acres,
+                acres: p.acres,
+                dominant_landcover: p.dominant_landcover,
+              },
+            })
+          }
+          if (p.tillable_geojson) {
+            tillableFeats.push({
+              type: 'Feature',
+              geometry: p.tillable_geojson,
+              properties: { ll_uuid: p.ll_uuid },
+            })
+          }
+        }
+        const tSrc = map.getSource('parcel-enrichment-tillable') as any
+        const pSrc = map.getSource('parcel-enrichment-parcels') as any
+        if (tSrc?.setData) tSrc.setData({ type: 'FeatureCollection', features: tillableFeats })
+        if (pSrc?.setData) pSrc.setData({ type: 'FeatureCollection', features: parcelFeats })
+      } catch {/* network glitch — silent */}
+    }
+
+    const onMove = () => {
+      if (timer != null) window.clearTimeout(timer)
+      timer = window.setTimeout(doFetch, 350) as any
+    }
+    map.on('moveend', onMove)
+    // Initial load.
+    doFetch()
+
+    return () => {
+      cancelled = true
+      if (timer != null) window.clearTimeout(timer)
+      try { map.off('moveend', onMove) } catch {/* */}
+    }
+  }, [mapLoaded, isEnrichmentPilot, enrichmentOverlay])
 
   // Create/update HTML markers for tracts
   useEffect(() => {
@@ -3642,6 +3893,41 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             <line x1="15" y1="3" x2="15" y2="21" />
           </svg>
           {adminParcelOverlay ? 'Parcels' : 'Show parcels'}
+        </button>
+      )}
+
+      {/* Parcel-Enrichment Toggle (pilot owner only). Wired to the
+          Hancock IL soil/tillable overlay. Hidden for everyone else
+          so the half-built feature doesn't show in the live UI. */}
+      {isEnrichmentPilot && !portalMode && (
+        <button
+          onClick={() => setEnrichmentOverlay(v => !v)}
+          style={{
+            position: 'absolute',
+            top: 120 + 44,  // sits directly below the Filter button
+            right: 10,
+            zIndex: 10,
+            height: 36,
+            padding: '0 12px',
+            borderRadius: 6,
+            border: 'none',
+            backgroundColor: enrichmentOverlay ? '#16A34A' : 'rgba(0,0,0,0.75)',
+            color: '#fff',
+            fontSize: 12,
+            fontWeight: 600,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
+          }}
+          title="Tillable + Soil PI overlay — Hancock IL pilot"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 2 L4 7 L4 17 L12 22 L20 17 L20 7 Z" />
+            <path d="M12 7 L12 22 M4 7 L20 7 M4 17 L20 17" />
+          </svg>
+          {enrichmentOverlay ? 'Soils on' : 'Soils'}
         </button>
       )}
 
@@ -4747,6 +5033,47 @@ function _section(title: string, rows: string[]): string {
       ${rows.join('')}
     </div>
   `
+}
+
+// Build the optional "Soil & Tillable" section appended to the popup
+// when /api/parcel-enrichment/by-uuid returns data (pilot only). The
+// section is positioned BELOW the existing detail strips so it adds
+// information without rewriting the main popup body. Returns '' when
+// no enrichment is available — safe to concat unconditionally.
+function _enrichmentPopupSection(enrich: any): string {
+  if (!enrich || typeof enrich !== 'object') return ''
+  const ratingType = (enrich.soil_rating_type || 'PI').toUpperCase()
+  const rating = enrich.soil_rating
+  const tillable = enrich.tillable_acres
+  const pct = enrich.pct_tillable
+  const cover = enrich.dominant_landcover
+  const soils: Array<{ mukey?: string; soil?: string; acres?: number; pi?: number }> = Array.isArray(enrich.soils) ? enrich.soils : []
+  // Hide entirely when there's nothing to show.
+  if (rating == null && tillable == null && !cover && soils.length === 0) return ''
+
+  const headlineRows: string[] = []
+  if (rating != null) headlineRows.push(_detailRow(`Soil Rating (${ratingType})`, String(rating)))
+  if (tillable != null) headlineRows.push(_detailRow(
+    'Tillable Acres',
+    `${Number(tillable).toFixed(1)} ac${pct != null ? ` (${Number(pct).toFixed(0)}%)` : ''}`,
+  ))
+  if (cover) headlineRows.push(_detailRow('Land Cover', String(cover).replace(/(^|[\s-])\S/g, m => m.toUpperCase())))
+
+  // Per-soil breakdown — show up to 5 patches sorted by acres desc.
+  // Already pre-sorted server-side; cap here defensively.
+  const soilRows = soils.slice(0, 5).map(s => {
+    const name = s.soil ? String(s.soil) : (s.mukey ? `Mukey ${s.mukey}` : 'Soil')
+    const ac = (typeof s.acres === 'number') ? `${s.acres.toFixed(1)} ac` : ''
+    const pi = (typeof s.pi === 'number') ? `${ratingType} ${s.pi}` : ''
+    const suffix = [ac, pi].filter(Boolean).join(' · ')
+    return _detailRow(name, suffix)
+  })
+
+  return (
+    _section(`Soil & Tillable (${ratingType})`, headlineRows) +
+    (soilRows.length ? _section('Soils — by acreage', soilRows) : '') +
+    `<div style="height:8px;"></div>`
+  )
 }
 
 function _regridLoadingHTML(tileProps: any): string {
