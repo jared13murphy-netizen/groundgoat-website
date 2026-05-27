@@ -317,37 +317,3 @@ button {
 .staging-light tr:hover {
   background-color: #f9fafb;
 }
-
-/* === Regrid parcel labels (HTML markers) === */
-/* See ExploreMap.tsx — owner/acres/sale labels are rendered as
-   HTML markers, not a MapLibre symbol layer, because the symbol-
-   layer pipeline kept silently dropping labels. White text +
-   pseudo-halo via text-shadow so they read on satellite imagery. */
-.gg-regrid-parcel-label {
-  font-family: 'Open Sans', system-ui, sans-serif;
-  color: #ffffff;
-  text-align: center;
-  line-height: 1.15;
-  white-space: nowrap;
-  pointer-events: none;
-  user-select: none;
-  /* Halo by stacking four 1.4px offset shadows. Close to MapLibre's
-     symbol-layer text-halo-width=1.4 in look. */
-  text-shadow:
-    -1.4px -1.4px 0 rgba(0,0,0,0.85),
-     1.4px -1.4px 0 rgba(0,0,0,0.85),
-    -1.4px  1.4px 0 rgba(0,0,0,0.85),
-     1.4px  1.4px 0 rgba(0,0,0,0.85),
-     0     -1.4px 0 rgba(0,0,0,0.85),
-     0      1.4px 0 rgba(0,0,0,0.85),
-    -1.4px  0     0 rgba(0,0,0,0.85),
-     1.4px  0     0 rgba(0,0,0,0.85);
-}
-.gg-regrid-parcel-label .gg-pl-owner {
-  font-weight: 700;
-  font-size: 12px;
-}
-.gg-regrid-parcel-label .gg-pl-stat {
-  font-weight: 400;
-  font-size: 11px;
-}
