@@ -2741,8 +2741,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
     const SRC_TILLABLE = 'parcel-enrichment-tillable'
     const SRC_FSA = 'parcel-enrichment-fsa-clu'
+    const SRC_LABELS = 'parcel-enrichment-labels'
     const LYR_TILL_FILL = 'parcel-enrichment-tillable-fill'
     const LYR_FSA_LINE = 'parcel-enrichment-fsa-clu-line'
+    const LYR_LABELS = 'parcel-enrichment-labels-text'
 
     if (!map.getSource(SRC_TILLABLE)) {
       map.addSource(SRC_TILLABLE, {
@@ -2752,6 +2754,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
     if (!map.getSource(SRC_FSA)) {
       map.addSource(SRC_FSA, {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      })
+    }
+    if (!map.getSource(SRC_LABELS)) {
+      map.addSource(SRC_LABELS, {
         type: 'geojson',
         data: { type: 'FeatureCollection', features: [] },
       })
@@ -2789,14 +2797,53 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         },
       })
     }
+    // Per-parcel soil-rating label, centered at the parcel centroid.
+    // One symbol per parcel showing the rating-type + score
+    // (e.g. "PI 132.4", "CSR2 74.5", "NCCPI 81.2"). Hidden below
+    // zoom 14 to avoid clutter at county-scale views — the labels
+    // are useful when the operator is actually looking at fields.
+    if (!map.getLayer(LYR_LABELS)) {
+      map.addLayer({
+        id: LYR_LABELS,
+        type: 'symbol',
+        source: SRC_LABELS,
+        layout: {
+          visibility: enrichmentOverlay ? 'visible' : 'none',
+          'text-field': ['concat',
+            ['get', 'rt'], ' ',
+            ['to-string', ['get', 'r']],
+          ],
+          'text-font': ['Open Sans Bold'],
+          'text-size': [
+            'interpolate', ['linear'], ['zoom'],
+            13, 11,
+            15, 13,
+            17, 15,
+          ],
+          'text-anchor': 'center',
+          'text-allow-overlap': false,
+          'text-padding': 2,
+          'text-ignore-placement': false,
+          // Hide at small zooms — too dense.
+          'symbol-sort-key': ['*', -1, ['get', 'r']],  // higher rating draws first
+        },
+        paint: {
+          'text-color': '#ffffff',
+          'text-halo-color': 'rgba(0,0,0,0.85)',
+          'text-halo-width': 1.6,
+          'text-halo-blur': 0.4,
+        },
+        minzoom: 13.5,
+      })
+    }
 
     return () => {
       try {
         if (!map.getStyle()) return
-        for (const id of [LYR_FSA_LINE, LYR_TILL_FILL]) {
+        for (const id of [LYR_LABELS, LYR_FSA_LINE, LYR_TILL_FILL]) {
           if (map.getLayer(id)) map.removeLayer(id)
         }
-        for (const id of [SRC_TILLABLE, SRC_FSA]) {
+        for (const id of [SRC_TILLABLE, SRC_FSA, SRC_LABELS]) {
           if (map.getSource(id)) map.removeSource(id)
         }
       } catch {/* map torn down */}
@@ -2812,6 +2859,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     for (const id of [
       'parcel-enrichment-tillable-fill',
       'parcel-enrichment-fsa-clu-line',
+      'parcel-enrichment-labels-text',
     ]) {
       if (map.getLayer(id)) {
         try { map.setLayoutProperty(id, 'visibility', vis) } catch {/* */}
@@ -2823,72 +2871,119 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   //
   // Previously this re-fetched on every moveend, replacing the entire
   // GeoJSON source each time — which caused the strobing "glitch" on
-  // pan/zoom. Now we pull the WHOLE county once (Hancock IL today),
-  // cache in the source forever, and let MapLibre's GPU handle the
-  // pan/zoom. No more glitch. Cost is one fetch of ~10-15MB gzipped
-  // up front; cleared from memory if the toggle is flipped off.
+  // pan/zoom. Now we pull the WHOLE county once, cache in the source,
+  // and let MapLibre's GPU handle the pan/zoom. No more glitch.
   //
-  // When the operator pans outside Hancock the data stays in the
-  // source but nothing visible is in view — Hancock-only is fine
-  // until we onboard more counties.
+  // Today's coverage:
+  //   • Hancock IL  — Bulletin 811 PI
+  //   • Lee IA      — CSR2 (Corn Suitability Rating, mapunit.iacornsr)
+  //   • Clark MO    — NCCPI v3 (component-weighted overall score × 100)
+  //
+  // All three are fired in parallel and merged into shared GeoJSON
+  // sources so the operator can pan between them without separate
+  // toggle flips. Add more counties by appending to ENRICHMENT_COUNTIES
+  // and running scripts/county_pipeline.py for each.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded) return
     if (!isEnrichmentPilot || !enrichmentOverlay) return
     if (!enrichmentAvailableRef.current) return  // backend 404'd; don't keep retrying
 
+    const COUNTIES: Array<{ state: string; county: string; bbox: [number, number, number, number] }> = [
+      // [min_lat, min_lng, max_lat, max_lng] — pad ~0.05° beyond the
+      // true county bounds so straddling FSA polygons come through.
+      { state: 'IL', county: 'Hancock', bbox: [40.20, -91.56, 40.67, -90.89] },
+      { state: 'IA', county: 'Lee',     bbox: [40.32, -91.78, 40.88, -91.05] },
+      { state: 'MO', county: 'Clark',   bbox: [40.27, -91.97, 40.66, -91.42] },
+    ]
+
     let cancelled = false
 
-    const fetchOnce = async () => {
-      // Hancock IL bbox — wide enough to cover the whole county +
-      // a small pad. We request EVERYTHING in this bbox once.
-      const qs = new URLSearchParams({
-        state: 'IL', county: 'Hancock',
-        min_lat: '40.20', max_lat: '40.67',
-        min_lng: '-91.56', max_lng: '-90.89',
-        limit: '25000',
-      })
-      const fsaQs = new URLSearchParams({
-        state: 'IL', county: 'Hancock',
-        min_lat: '40.20', max_lat: '40.67',
-        min_lng: '-91.56', max_lng: '-90.89',
-        limit: '40000',
-      })
+    const fetchCounty = async (
+      state: string, county: string,
+      bbox: [number, number, number, number],
+    ): Promise<{
+      tillable: any[]; fsa: any[]; labels: any[]; got404: boolean;
+    }> => {
+      const [min_lat, min_lng, max_lat, max_lng] = bbox
+      const params = {
+        state, county,
+        min_lat: String(min_lat), max_lat: String(max_lat),
+        min_lng: String(min_lng), max_lng: String(max_lng),
+      }
+      const parcelQs = new URLSearchParams({ ...params, limit: '40000' })
+      const fsaQs = new URLSearchParams({ ...params, limit: '40000' })
       try {
         const [res, fsaRes] = await Promise.all([
-          fetchWithAuth(`${API_URL}/api/map/parcel-enrichment?${qs.toString()}`),
+          fetchWithAuth(`${API_URL}/api/map/parcel-enrichment?${parcelQs.toString()}`),
           fetchWithAuth(`${API_URL}/api/map/fsa-clu?${fsaQs.toString()}`),
         ])
-        if (cancelled) return
         if (res.status === 404) {
-          enrichmentAvailableRef.current = false
-          return
+          return { tillable: [], fsa: [], labels: [], got404: true }
         }
-        const tillableFeats: any[] = []
+        const tillable: any[] = []
+        const labels: any[] = []
         if (res.ok) {
           const data = await res.json()
           for (const p of (data?.parcels ?? [])) {
             if (p.tillable_geojson) {
-              tillableFeats.push({
+              tillable.push({
                 type: 'Feature',
                 geometry: p.tillable_geojson,
                 properties: { ll_uuid: p.ll_uuid },
               })
             }
+            // Build a centered label point ONLY for parcels with a
+            // computed rating. Skip parcels with no soil rating —
+            // their labels would just be noise.
+            if (p.soil_rating != null && p.centroid_lat != null && p.centroid_lng != null) {
+              labels.push({
+                type: 'Feature',
+                geometry: {
+                  type: 'Point',
+                  coordinates: [Number(p.centroid_lng), Number(p.centroid_lat)],
+                },
+                properties: {
+                  ll_uuid: p.ll_uuid,
+                  rt: p.soil_rating_type || '',
+                  r: Number(p.soil_rating).toFixed(1),
+                },
+              })
+            }
           }
         }
-        const tSrc = map.getSource('parcel-enrichment-tillable') as any
-        if (tSrc?.setData) tSrc.setData({ type: 'FeatureCollection', features: tillableFeats })
-
+        let fsa: any[] = []
         if (fsaRes.ok) {
           const fsaData = await fsaRes.json()
-          const fSrc = map.getSource('parcel-enrichment-fsa-clu') as any
-          if (fSrc?.setData) fSrc.setData(fsaData)
+          fsa = fsaData?.features || []
         }
-      } catch {/* network glitch — silent */}
+        return { tillable, fsa, labels, got404: false }
+      } catch {
+        return { tillable: [], fsa: [], labels: [], got404: false }
+      }
     }
 
-    fetchOnce()
+    ;(async () => {
+      const results = await Promise.all(
+        COUNTIES.map(c => fetchCounty(c.state, c.county, c.bbox))
+      )
+      if (cancelled) return
+      // Stop retrying entirely if even one county returned 404 —
+      // means feature flag is off or non-admin account.
+      if (results.some(r => r.got404)) {
+        enrichmentAvailableRef.current = false
+        return
+      }
+      const tillableFeats = results.flatMap(r => r.tillable)
+      const fsaFeats = results.flatMap(r => r.fsa)
+      const labelFeats = results.flatMap(r => r.labels)
+      const tSrc = map.getSource('parcel-enrichment-tillable') as any
+      const fSrc = map.getSource('parcel-enrichment-fsa-clu') as any
+      const lSrc = map.getSource('parcel-enrichment-labels') as any
+      if (tSrc?.setData) tSrc.setData({ type: 'FeatureCollection', features: tillableFeats })
+      if (fSrc?.setData) fSrc.setData({ type: 'FeatureCollection', features: fsaFeats })
+      if (lSrc?.setData) lSrc.setData({ type: 'FeatureCollection', features: labelFeats })
+    })()
 
     return () => { cancelled = true }
   }, [mapLoaded, isEnrichmentPilot, enrichmentOverlay])
