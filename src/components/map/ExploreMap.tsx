@@ -2889,91 +2889,70 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     if (!isEnrichmentPilot || !enrichmentOverlay) return
     if (!enrichmentAvailableRef.current) return  // backend 404'd; don't keep retrying
 
-    const COUNTIES: Array<{ state: string; county: string; bbox: [number, number, number, number] }> = [
-      // [min_lat, min_lng, max_lat, max_lng] — pad ~0.05° beyond the
-      // true county bounds so straddling FSA polygons come through.
-      { state: 'IL', county: 'Hancock', bbox: [40.20, -91.56, 40.67, -90.89] },
-      { state: 'IA', county: 'Lee',     bbox: [40.32, -91.78, 40.88, -91.05] },
-      { state: 'MO', county: 'Clark',   bbox: [40.27, -91.97, 40.66, -91.42] },
+    const COUNTIES: Array<{ state: string; county: string }> = [
+      { state: 'IL', county: 'Hancock' },
+      { state: 'IA', county: 'Lee'     },
+      { state: 'MO', county: 'Clark'   },
     ]
 
     let cancelled = false
 
-    const fetchCounty = async (
-      state: string, county: string,
-      bbox: [number, number, number, number],
-    ): Promise<{
-      tillable: any[]; fsa: any[]; labels: any[]; got404: boolean;
+    const fetchCounty = async (state: string, county: string): Promise<{
+      tillable: any[]; fsa: any[]; labels: any[]; got404: boolean; got503: boolean;
     }> => {
-      const [min_lat, min_lng, max_lat, max_lng] = bbox
-      const params = {
-        state, county,
-        min_lat: String(min_lat), max_lat: String(max_lat),
-        min_lng: String(min_lng), max_lng: String(max_lng),
-      }
-      const parcelQs = new URLSearchParams({ ...params, limit: '40000' })
-      const fsaQs = new URLSearchParams({ ...params, limit: '40000' })
+      // Pre-baked single-blob endpoint — backend ships gzipped, the
+      // browser caches public-1d. After the first fetch, all
+      // subsequent toggle-ons are instant from disk cache. The
+      // browser handles Content-Encoding: gzip transparently.
       try {
-        const [res, fsaRes] = await Promise.all([
-          fetchWithAuth(`${API_URL}/api/map/parcel-enrichment?${parcelQs.toString()}`),
-          fetchWithAuth(`${API_URL}/api/map/fsa-clu?${fsaQs.toString()}`),
-        ])
+        const res = await fetchWithAuth(
+          `${API_URL}/api/map/county-overlay/${state}/${encodeURIComponent(county)}`
+        )
         if (res.status === 404) {
-          return { tillable: [], fsa: [], labels: [], got404: true }
+          return { tillable: [], fsa: [], labels: [], got404: true, got503: false }
         }
-        const tillable: any[] = []
-        const labels: any[] = []
-        if (res.ok) {
-          const data = await res.json()
-          for (const p of (data?.parcels ?? [])) {
-            if (p.tillable_geojson) {
-              tillable.push({
-                type: 'Feature',
-                geometry: p.tillable_geojson,
-                properties: { ll_uuid: p.ll_uuid },
-              })
-            }
-            // Build a centered label point ONLY for parcels with a
-            // computed rating. Skip parcels with no soil rating —
-            // their labels would just be noise.
-            if (p.soil_rating != null && p.centroid_lat != null && p.centroid_lng != null) {
-              labels.push({
-                type: 'Feature',
-                geometry: {
-                  type: 'Point',
-                  coordinates: [Number(p.centroid_lng), Number(p.centroid_lat)],
-                },
-                properties: {
-                  ll_uuid: p.ll_uuid,
-                  rt: p.soil_rating_type || '',
-                  r: Number(p.soil_rating).toFixed(1),
-                },
-              })
-            }
-          }
+        if (res.status === 503) {
+          // Bake still warming on the backend. Frontend won't loop;
+          // the user can hit the toggle again in a few seconds.
+          return { tillable: [], fsa: [], labels: [], got404: false, got503: true }
         }
-        let fsa: any[] = []
-        if (fsaRes.ok) {
-          const fsaData = await fsaRes.json()
-          fsa = fsaData?.features || []
+        if (!res.ok) {
+          return { tillable: [], fsa: [], labels: [], got404: false, got503: false }
         }
-        return { tillable, fsa, labels, got404: false }
+        const data = await res.json()
+        return {
+          tillable: data?.tillable?.features || [],
+          fsa: data?.fsa_clu?.features || [],
+          labels: (data?.labels?.features || []).map((f: any) => ({
+            ...f,
+            properties: {
+              ...(f.properties || {}),
+              // Bake the display string here so the label expression
+              // doesn't have to do a to-string round-trip per render.
+              r: typeof f.properties?.r === 'number'
+                ? f.properties.r.toFixed(1)
+                : f.properties?.r,
+            },
+          })),
+          got404: false, got503: false,
+        }
       } catch {
-        return { tillable: [], fsa: [], labels: [], got404: false }
+        return { tillable: [], fsa: [], labels: [], got404: false, got503: false }
       }
     }
 
     ;(async () => {
       const results = await Promise.all(
-        COUNTIES.map(c => fetchCounty(c.state, c.county, c.bbox))
+        COUNTIES.map(c => fetchCounty(c.state, c.county))
       )
       if (cancelled) return
-      // Stop retrying entirely if even one county returned 404 —
-      // means feature flag is off or non-admin account.
       if (results.some(r => r.got404)) {
         enrichmentAvailableRef.current = false
         return
       }
+      // 503 = bake still warming. Don't latch enrichmentAvailableRef
+      // off — just render whatever DID load and let a retry click
+      // pick up the missing county.
       const tillableFeats = results.flatMap(r => r.tillable)
       const fsaFeats = results.flatMap(r => r.fsa)
       const labelFeats = results.flatMap(r => r.labels)
