@@ -2729,18 +2729,22 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const [enrichmentOverlay, setEnrichmentOverlay] = useState<boolean>(() => {
     try { return localStorage.getItem('gg_enrichment_overlay') === '1' } catch { return false }
   })
-  // Which cropland source feeds the green tillable fill:
+  // Which cropland / soil source feeds the visual:
   //   • 'cdl'        — USDA CDL 2024+2025 union, per-parcel intersected (default)
   //   • 'worldcover' — ESA WorldCover 2021 raw cropland polygons at 10 m
+  //   • 'ssurgo'     — SSURGO mukey polygons coloured Land ID-style
   // Persisted in localStorage so the operator's last choice sticks
-  // across reloads. WorldCover blob is lazy-loaded on first switch.
-  const [tillableSource, setTillableSource] = useState<'cdl' | 'worldcover'>(() => {
+  // across reloads. WorldCover + SSURGO blobs are lazy-loaded.
+  const [tillableSource, setTillableSource] = useState<'cdl' | 'worldcover' | 'ssurgo'>(() => {
     try {
       const v = localStorage.getItem('gg_tillable_source')
-      return v === 'worldcover' ? 'worldcover' : 'cdl'
+      if (v === 'worldcover') return 'worldcover'
+      if (v === 'ssurgo') return 'ssurgo'
+      return 'cdl'
     } catch { return 'cdl' }
   })
   const worldcoverLoadedRef = useRef<boolean>(false)
+  const ssurgoLoadedRef = useRef<boolean>(false)
   // Cache of the latest viewport's enrichment payload, keyed loosely
   // by bbox-rounded so we don't refetch on micro-pans.
   const enrichmentLastBboxRef = useRef<string>('')
@@ -2776,11 +2780,15 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const SRC_FSA = 'parcel-enrichment-fsa-clu'
     const SRC_LABELS = 'parcel-enrichment-labels'
     const SRC_LABELS_WC = 'parcel-enrichment-labels-worldcover'
+    const SRC_SOILS = 'parcel-enrichment-ssurgo-soils'
     const LYR_TILL_FILL = 'parcel-enrichment-tillable-fill'
     const LYR_TILL_FILL_WC = 'parcel-enrichment-tillable-worldcover-fill'
     const LYR_FSA_LINE = 'parcel-enrichment-fsa-clu-line'
     const LYR_LABELS = 'parcel-enrichment-labels-text'
     const LYR_LABELS_WC = 'parcel-enrichment-labels-worldcover-text'
+    const LYR_SOILS_FILL = 'parcel-enrichment-ssurgo-soils-fill'
+    const LYR_SOILS_LINE = 'parcel-enrichment-ssurgo-soils-line'
+    const LYR_SOILS_LABEL = 'parcel-enrichment-ssurgo-soils-label'
 
     if (!map.getSource(SRC_TILLABLE)) {
       map.addSource(SRC_TILLABLE, {
@@ -2808,6 +2816,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
     if (!map.getSource(SRC_LABELS_WC)) {
       map.addSource(SRC_LABELS_WC, {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      })
+    }
+    if (!map.getSource(SRC_SOILS)) {
+      map.addSource(SRC_SOILS, {
         type: 'geojson',
         data: { type: 'FeatureCollection', features: [] },
       })
@@ -2850,6 +2864,90 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           'fill-opacity': 0.40,
           'fill-outline-color': 'rgba(8, 80, 60, 0.8)',
         },
+      })
+    }
+    // SSURGO mukey polygons — Land ID-style soil-type view. Each
+    // mukey is a real vector polygon coloured by a hash of its
+    // string so we get stable distinct earth-tone shades without
+    // any per-mukey palette work. A subtle outline plus a musym
+    // text label make the visual match Surety / Land ID / Beacon
+    // soil reports.
+    //
+    // Toggled separately from the green tillable fill via the
+    // `tillableSource === 'ssurgo'` selection in the data-source
+    // toggle. Same Soils button turns the whole overlay on/off.
+    if (!map.getLayer(LYR_SOILS_FILL)) {
+      map.addLayer({
+        id: LYR_SOILS_FILL,
+        type: 'fill',
+        source: SRC_SOILS,
+        layout: {
+          visibility: (enrichmentOverlay && tillableSource === 'ssurgo') ? 'visible' : 'none',
+        },
+        paint: {
+          // Hash mukey → HSL hue in a warm range (30°-65°: yellow,
+          // orange, tan, brown). Each unique mukey gets a stable
+          // distinct shade matching Land ID's appearance.
+          'fill-color': [
+            'let', 'h',
+            ['+', 30, ['%', ['to-number', ['get', 'mukey']], 36]],
+            ['concat',
+              'hsl(', ['var', 'h'], ', 60%, ',
+              ['concat',
+                ['to-string', ['+', 55,
+                  ['%', ['floor', ['/', ['to-number', ['get', 'mukey']], 7]], 25],
+                ]],
+                '%',
+              ],
+              ')',
+            ],
+          ],
+          'fill-opacity': 0.55,
+          'fill-outline-color': 'rgba(40, 30, 10, 0.5)',
+        },
+      })
+    }
+    if (!map.getLayer(LYR_SOILS_LINE)) {
+      map.addLayer({
+        id: LYR_SOILS_LINE,
+        type: 'line',
+        source: SRC_SOILS,
+        layout: {
+          visibility: (enrichmentOverlay && tillableSource === 'ssurgo') ? 'visible' : 'none',
+        },
+        paint: {
+          'line-color': 'rgba(40, 30, 10, 0.65)',
+          'line-width': 0.8,
+        },
+      })
+    }
+    if (!map.getLayer(LYR_SOILS_LABEL)) {
+      map.addLayer({
+        id: LYR_SOILS_LABEL,
+        type: 'symbol',
+        source: SRC_SOILS,
+        layout: {
+          visibility: (enrichmentOverlay && tillableSource === 'ssurgo') ? 'visible' : 'none',
+          'text-field': ['coalesce', ['get', 'musym'], ''],
+          'text-font': ['Open Sans Bold'],
+          'text-size': [
+            'interpolate', ['linear'], ['zoom'],
+            13, 9,
+            15, 11,
+            17, 13,
+          ],
+          'text-anchor': 'center',
+          'text-allow-overlap': false,
+          'text-ignore-placement': true,
+          'text-padding': 2,
+        },
+        paint: {
+          'text-color': '#1a1207',
+          'text-halo-color': 'rgba(255, 250, 235, 0.9)',
+          'text-halo-width': 1.4,
+          'text-halo-blur': 0.3,
+        },
+        minzoom: 13,
       })
     }
     // FSA 2008 Common Land Unit field outlines — red lines, no fill.
@@ -2935,10 +3033,17 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     return () => {
       try {
         if (!map.getStyle()) return
-        for (const id of [LYR_LABELS, LYR_LABELS_WC, LYR_FSA_LINE, LYR_TILL_FILL, LYR_TILL_FILL_WC]) {
+        for (const id of [
+          LYR_LABELS, LYR_LABELS_WC, LYR_FSA_LINE,
+          LYR_TILL_FILL, LYR_TILL_FILL_WC,
+          LYR_SOILS_LABEL, LYR_SOILS_LINE, LYR_SOILS_FILL,
+        ]) {
           if (map.getLayer(id)) map.removeLayer(id)
         }
-        for (const id of [SRC_TILLABLE, SRC_TILLABLE_WC, SRC_FSA, SRC_LABELS, SRC_LABELS_WC]) {
+        for (const id of [
+          SRC_TILLABLE, SRC_TILLABLE_WC, SRC_FSA,
+          SRC_LABELS, SRC_LABELS_WC, SRC_SOILS,
+        ]) {
           if (map.getSource(id)) map.removeSource(id)
         }
       } catch {/* map torn down */}
@@ -2959,11 +3064,15 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
     const cdlVis = (enrichmentOverlay && tillableSource === 'cdl') ? 'visible' : 'none'
     const wcVis  = (enrichmentOverlay && tillableSource === 'worldcover') ? 'visible' : 'none'
+    const soilsVis = (enrichmentOverlay && tillableSource === 'ssurgo') ? 'visible' : 'none'
     for (const [id, v] of [
       ['parcel-enrichment-tillable-fill', cdlVis],
       ['parcel-enrichment-labels-text', cdlVis],
       ['parcel-enrichment-tillable-worldcover-fill', wcVis],
       ['parcel-enrichment-labels-worldcover-text', wcVis],
+      ['parcel-enrichment-ssurgo-soils-fill', soilsVis],
+      ['parcel-enrichment-ssurgo-soils-line', soilsVis],
+      ['parcel-enrichment-ssurgo-soils-label', soilsVis],
     ] as const) {
       if (map.getLayer(id)) {
         try { map.setLayoutProperty(id, 'visibility', v) } catch {/* */}
@@ -3005,9 +3114,17 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // i.e. just below tracts — which is exactly Regrid Parcel
       // Labels per the spec above.
       const desiredBottomToTop = [
+        // SSURGO soil polygons (Land ID-style) — fill + outline
+        // share the same z-slot as the green tillable; only one
+        // is visible at a time depending on the data-source toggle.
+        'parcel-enrichment-ssurgo-soils-fill',
+        'parcel-enrichment-ssurgo-soils-line',
         'parcel-enrichment-tillable-fill',
         'parcel-enrichment-tillable-worldcover-fill',
         'parcel-enrichment-fsa-clu-line',
+        // Soil-type musym labels (SSURGO) sit above FSA but below
+        // the soil-rating + Regrid labels.
+        'parcel-enrichment-ssurgo-soils-label',
         'parcel-enrichment-labels-text',
         'parcel-enrichment-labels-worldcover-text',
         'regrid-parcels-fill',
@@ -3181,6 +3298,43 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       if (tSrc?.setData) tSrc.setData({ type: 'FeatureCollection', features: tillableOut })
       if (lSrc?.setData) lSrc.setData({ type: 'FeatureCollection', features: labelsOut })
       worldcoverLoadedRef.current = true
+    })()
+
+    return () => { cancelled = true }
+  }, [tillableSource, isEnrichmentPilot, mapLoaded])
+
+  // Lazy-fetch the SSURGO (Land ID-style) soil polygons the first
+  // time the data-source toggle hits 'ssurgo'. Same lazy-load
+  // pattern as the WorldCover blob above; the soils blob is the
+  // heaviest of the three (~10-15MB gzipped) since SSURGO ships
+  // 20K+ vector polygons per county.
+  useEffect(() => {
+    if (!isEnrichmentPilot) return
+    if (tillableSource !== 'ssurgo') return
+    if (ssurgoLoadedRef.current) return
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+
+    const COUNTIES = ['IL/Hancock', 'IA/Lee', 'MO/Clark']
+    let cancelled = false
+
+    ;(async () => {
+      const out: any[] = []
+      try {
+        const results = await Promise.all(COUNTIES.map(async key => {
+          const res = await fetchWithAuth(
+            `${API_URL}/api/map/county-overlay/${key}/soils`
+          )
+          if (!res.ok) return []
+          const data = await res.json()
+          return data?.soils?.features || []
+        }))
+        for (const fs of results) out.push(...fs)
+      } catch { /* silent */ }
+      if (cancelled) return
+      const src = map.getSource('parcel-enrichment-ssurgo-soils') as any
+      if (src?.setData) src.setData({ type: 'FeatureCollection', features: out })
+      ssurgoLoadedRef.current = true
     })()
 
     return () => { cancelled = true }
@@ -4189,13 +4343,16 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         </button>
       )}
 
-      {/* CDL ↔ WorldCover data-source toggle. Visible only when
-          enrichment is on and we're in the pilot. Operator can
-          compare the 30m USDA classification with ESA's 10m
-          classification of the same county. */}
+      {/* Cropland / soil data-source toggle. Cycles through three
+          modes: CDL (USDA 30m cropland) → WorldCover (ESA 10m
+          cropland) → SSURGO (Land ID-style mukey polygons). */}
       {isEnrichmentPilot && enrichmentOverlay && (
         <button
-          onClick={() => setTillableSource(s => s === 'cdl' ? 'worldcover' : 'cdl')}
+          onClick={() => setTillableSource(s =>
+            s === 'cdl' ? 'worldcover'
+            : s === 'worldcover' ? 'ssurgo'
+            : 'cdl'
+          )}
           style={{
             position: 'absolute',
             top: 120 + 44 + 44,  // directly below the Soils button
@@ -4205,7 +4362,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             padding: '0 12px',
             borderRadius: 6,
             border: 'none',
-            backgroundColor: tillableSource === 'worldcover' ? '#0ea674' : '#22a050',
+            backgroundColor:
+              tillableSource === 'worldcover' ? '#0ea674'
+              : tillableSource === 'ssurgo' ? '#a8762e'  // earth tone
+              : '#22a050',
             color: '#fff',
             fontSize: 12,
             fontWeight: 600,
@@ -4215,9 +4375,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             gap: 6,
             boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
           }}
-          title="Toggle cropland data source: USDA CDL 30m ↔ ESA WorldCover 10m"
+          title="Cycle data source: USDA CDL 30m → ESA WorldCover 10m → SSURGO mukey polygons (Land ID-style)"
         >
-          {tillableSource === 'worldcover' ? 'WorldCover' : 'CDL'}
+          {tillableSource === 'worldcover' ? 'WorldCover'
+            : tillableSource === 'ssurgo' ? 'Soil Types'
+            : 'CDL'}
         </button>
       )}
 
