@@ -2731,9 +2731,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
     const SRC_TILLABLE = 'parcel-enrichment-tillable'
     const SRC_PARCEL = 'parcel-enrichment-parcels'
+    const SRC_FSA = 'parcel-enrichment-fsa-clu'
     const LYR_TILL_FILL = 'parcel-enrichment-tillable-fill'
     const LYR_PARCEL_FILL = 'parcel-enrichment-parcel-fill'
     const LYR_PARCEL_LINE = 'parcel-enrichment-parcel-line'
+    const LYR_FSA_LINE = 'parcel-enrichment-fsa-clu-line'
 
     if (!map.getSource(SRC_TILLABLE)) {
       map.addSource(SRC_TILLABLE, {
@@ -2743,6 +2745,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
     if (!map.getSource(SRC_PARCEL)) {
       map.addSource(SRC_PARCEL, {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      })
+    }
+    if (!map.getSource(SRC_FSA)) {
+      map.addSource(SRC_FSA, {
         type: 'geojson',
         data: { type: 'FeatureCollection', features: [] },
       })
@@ -2794,8 +2802,24 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         layout: { visibility: enrichmentOverlay ? 'visible' : 'none' },
         paint: {
           'fill-color': '#22c55e',
-          'fill-opacity': 0.55,
+          'fill-opacity': 0.35,
           'fill-outline-color': 'rgba(0,80,0,0.6)',
+        },
+      })
+    }
+    // FSA 2008 Common Land Unit field outlines — red lines, no fill.
+    // Sits on TOP of the tillable fill so individual fields are
+    // visible inside each parcel, matching the working prototype map.
+    if (!map.getLayer(LYR_FSA_LINE)) {
+      map.addLayer({
+        id: LYR_FSA_LINE,
+        type: 'line',
+        source: SRC_FSA,
+        layout: { visibility: enrichmentOverlay ? 'visible' : 'none' },
+        paint: {
+          'line-color': '#d63333',
+          'line-width': 1.0,
+          'line-opacity': 0.85,
         },
       })
     }
@@ -2803,10 +2827,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     return () => {
       try {
         if (!map.getStyle()) return
-        for (const id of [LYR_TILL_FILL, LYR_PARCEL_LINE, LYR_PARCEL_FILL]) {
+        for (const id of [LYR_FSA_LINE, LYR_TILL_FILL, LYR_PARCEL_LINE, LYR_PARCEL_FILL]) {
           if (map.getLayer(id)) map.removeLayer(id)
         }
-        for (const id of [SRC_TILLABLE, SRC_PARCEL]) {
+        for (const id of [SRC_TILLABLE, SRC_PARCEL, SRC_FSA]) {
           if (map.getSource(id)) map.removeSource(id)
         }
       } catch {/* map torn down */}
@@ -2823,6 +2847,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       'parcel-enrichment-tillable-fill',
       'parcel-enrichment-parcel-fill',
       'parcel-enrichment-parcel-line',
+      'parcel-enrichment-fsa-clu-line',
     ]) {
       if (map.getLayer(id)) {
         try { map.setLayoutProperty(id, 'visibility', vis) } catch {/* */}
@@ -2857,8 +2882,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         // Outside Hancock — clear sources rather than show stale data.
         const tSrc = map.getSource('parcel-enrichment-tillable') as any
         const pSrc = map.getSource('parcel-enrichment-parcels') as any
+        const fSrc = map.getSource('parcel-enrichment-fsa-clu') as any
         if (tSrc?.setData) tSrc.setData({ type: 'FeatureCollection', features: [] })
         if (pSrc?.setData) pSrc.setData({ type: 'FeatureCollection', features: [] })
+        if (fSrc?.setData) fSrc.setData({ type: 'FeatureCollection', features: [] })
         return
       }
       const key = `IL|${south}|${north}|${west}|${east}`
@@ -2873,44 +2900,67 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         limit: '2000',
       })
       try {
-        const res = await fetchWithAuth(`${API_URL}/api/map/parcel-enrichment?${qs.toString()}`)
+        // Parcel-enrichment (tillable + PI choropleth) and FSA CLU
+        // outlines fire in parallel — they hit different tables and
+        // both are bbox-indexed, so doing them concurrently halves
+        // the perceived latency on pan/zoom.
+        const fsaQs = new URLSearchParams({
+          state: 'IL', county: 'Hancock',
+          min_lat: south, max_lat: north,
+          min_lng: west, max_lng: east,
+          limit: '5000',
+        })
+        const [res, fsaRes] = await Promise.all([
+          fetchWithAuth(`${API_URL}/api/map/parcel-enrichment?${qs.toString()}`),
+          fetchWithAuth(`${API_URL}/api/map/fsa-clu?${fsaQs.toString()}`),
+        ])
         if (cancelled) return
         if (res.status === 404) {
           // Feature flag off or non-pilot account — stop retrying.
           enrichmentAvailableRef.current = false
           return
         }
-        if (!res.ok) return
-        const data = await res.json()
         const tillableFeats: any[] = []
         const parcelFeats: any[] = []
-        for (const p of (data?.parcels ?? [])) {
-          if (p.polygon_geojson) {
-            parcelFeats.push({
-              type: 'Feature',
-              geometry: p.polygon_geojson,
-              properties: {
-                ll_uuid: p.ll_uuid,
-                soil_rating: p.soil_rating,
-                pct_tillable: p.pct_tillable,
-                tillable_acres: p.tillable_acres,
-                acres: p.acres,
-                dominant_landcover: p.dominant_landcover,
-              },
-            })
-          }
-          if (p.tillable_geojson) {
-            tillableFeats.push({
-              type: 'Feature',
-              geometry: p.tillable_geojson,
-              properties: { ll_uuid: p.ll_uuid },
-            })
+        if (res.ok) {
+          const data = await res.json()
+          for (const p of (data?.parcels ?? [])) {
+            if (p.polygon_geojson) {
+              parcelFeats.push({
+                type: 'Feature',
+                geometry: p.polygon_geojson,
+                properties: {
+                  ll_uuid: p.ll_uuid,
+                  soil_rating: p.soil_rating,
+                  pct_tillable: p.pct_tillable,
+                  tillable_acres: p.tillable_acres,
+                  acres: p.acres,
+                  dominant_landcover: p.dominant_landcover,
+                },
+              })
+            }
+            if (p.tillable_geojson) {
+              tillableFeats.push({
+                type: 'Feature',
+                geometry: p.tillable_geojson,
+                properties: { ll_uuid: p.ll_uuid },
+              })
+            }
           }
         }
         const tSrc = map.getSource('parcel-enrichment-tillable') as any
         const pSrc = map.getSource('parcel-enrichment-parcels') as any
         if (tSrc?.setData) tSrc.setData({ type: 'FeatureCollection', features: tillableFeats })
         if (pSrc?.setData) pSrc.setData({ type: 'FeatureCollection', features: parcelFeats })
+
+        // FSA red outlines — separate fetch + source, so partial
+        // failure (e.g. fsa endpoint returns slower) doesn't block
+        // the green tillable refresh.
+        if (fsaRes.ok) {
+          const fsaData = await fsaRes.json()
+          const fSrc = map.getSource('parcel-enrichment-fsa-clu') as any
+          if (fSrc?.setData) fSrc.setData(fsaData)
+        }
       } catch {/* network glitch — silent */}
     }
 
