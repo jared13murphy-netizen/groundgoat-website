@@ -3035,6 +3035,63 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
   }, [enrichmentOverlay, tillableSource, mapLoaded, isEnrichmentPilot])
 
+  // ─────────────────────────────────────────────────────────────────
+  // Enforce canonical map-layer stack order.
+  //
+  // Bottom → top:
+  //   1. MapLibre basemap (implicit, managed by the style)
+  //   2. Soil Map (green tillable fill — CDL + WorldCover variants)
+  //   3. FSA red lines
+  //   4. Soil Map Labels (PI / CSR2 / NCCPI)
+  //   5. Regrid parcel boundaries (fill + line)
+  //   6. Regrid parcel labels (owner / acres / sale date)
+  //   7. Tract polygons + dots (auction listings — anchored above,
+  //      stay on top automatically because we moveLayer everything
+  //      below to BEFORE 'tract-polygon-fill')
+  //
+  // Without this, ordering would depend on which effect mounted
+  // first — e.g. Regrid labels could end up under the green soil
+  // fill, or FSA lines could cover the soil-rating labels.
+  // ─────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!mapLoaded) return
+    const map = mapRef.current
+    if (!map) return
+    // Defer one frame so any addLayer calls just triggered by the
+    // effects above have a chance to finish before we re-order.
+    const t = window.setTimeout(() => {
+      let style: any
+      try { style = map.getStyle() } catch { return }
+      if (!style) return
+      // Bottom-to-top in the desired stack. Moving each one BEFORE
+      // tract-polygon-fill (or to the top if tracts haven't mounted)
+      // means the LAST one moved ends up closest to the anchor —
+      // i.e. just below tracts — which is exactly Regrid Parcel
+      // Labels per the spec above.
+      const desiredBottomToTop = [
+        'parcel-enrichment-tillable-fill',
+        'parcel-enrichment-tillable-worldcover-fill',
+        'parcel-enrichment-fsa-clu-line',
+        'parcel-enrichment-labels-text',
+        'parcel-enrichment-labels-worldcover-text',
+        'regrid-parcels-fill',
+        'regrid-parcels-line',
+        'regrid-parcels-label',
+      ]
+      const tractAnchor = map.getLayer('tract-polygon-fill') ? 'tract-polygon-fill' : undefined
+      for (const id of desiredBottomToTop) {
+        if (!map.getLayer(id)) continue
+        try { map.moveLayer(id, tractAnchor) } catch {/* mid-teardown */}
+      }
+    }, 50)
+    return () => window.clearTimeout(t)
+  }, [
+    mapLoaded, regridConfig, isEnrichmentPilot,
+    enrichmentOverlay, tillableSource,
+    // Re-run when tracts mount/unmount so the anchor stays correct.
+    tracts.length,
+  ])
+
   // ONE-SHOT county-wide fetch when the overlay turns on.
   //
   // Previously this re-fetched on every moveend, replacing the entire
