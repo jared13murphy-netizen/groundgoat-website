@@ -2798,6 +2798,18 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const [enrichmentOverlay, setEnrichmentOverlay] = useState<boolean>(() => {
     try { return localStorage.getItem('gg_enrichment_overlay') === '1' } catch { return false }
   })
+  // Which cropland source feeds the green tillable fill:
+  //   • 'cdl'        — USDA CDL 2024+2025 union, per-parcel intersected (default)
+  //   • 'worldcover' — ESA WorldCover 2021 raw cropland polygons at 10 m
+  // Persisted in localStorage so the operator's last choice sticks
+  // across reloads. WorldCover blob is lazy-loaded on first switch.
+  const [tillableSource, setTillableSource] = useState<'cdl' | 'worldcover'>(() => {
+    try {
+      const v = localStorage.getItem('gg_tillable_source')
+      return v === 'worldcover' ? 'worldcover' : 'cdl'
+    } catch { return 'cdl' }
+  })
+  const worldcoverLoadedRef = useRef<boolean>(false)
   // Cache of the latest viewport's enrichment payload, keyed loosely
   // by bbox-rounded so we don't refetch on micro-pans.
   const enrichmentLastBboxRef = useRef<string>('')
@@ -2806,6 +2818,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   useEffect(() => {
     try { localStorage.setItem('gg_enrichment_overlay', enrichmentOverlay ? '1' : '0') } catch {}
   }, [enrichmentOverlay])
+  useEffect(() => {
+    try { localStorage.setItem('gg_tillable_source', tillableSource) } catch {}
+  }, [tillableSource])
 
   // Register the source + layers (empty at first). They sit visible:false
   // until the toggle is on, so we can swap data with setData without
@@ -2826,14 +2841,22 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     if (!isEnrichmentPilot) return
 
     const SRC_TILLABLE = 'parcel-enrichment-tillable'
+    const SRC_TILLABLE_WC = 'parcel-enrichment-tillable-worldcover'
     const SRC_FSA = 'parcel-enrichment-fsa-clu'
     const SRC_LABELS = 'parcel-enrichment-labels'
     const LYR_TILL_FILL = 'parcel-enrichment-tillable-fill'
+    const LYR_TILL_FILL_WC = 'parcel-enrichment-tillable-worldcover-fill'
     const LYR_FSA_LINE = 'parcel-enrichment-fsa-clu-line'
     const LYR_LABELS = 'parcel-enrichment-labels-text'
 
     if (!map.getSource(SRC_TILLABLE)) {
       map.addSource(SRC_TILLABLE, {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      })
+    }
+    if (!map.getSource(SRC_TILLABLE_WC)) {
+      map.addSource(SRC_TILLABLE_WC, {
         type: 'geojson',
         data: { type: 'FeatureCollection', features: [] },
       })
@@ -2854,16 +2877,39 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // Tillable polygons — solid green so the eye reads "this portion
     // of the parcel is farmed". Anything NOT in this source (trees,
     // water, buildings, roads) just shows the satellite imagery.
+    // Two parallel sources/layers — the operator picks CDL or
+    // WorldCover via the data-source toggle; only one is visible at
+    // a time. WorldCover uses a slightly different shade so a quick
+    // glance tells the operator which is active.
     if (!map.getLayer(LYR_TILL_FILL)) {
       map.addLayer({
         id: LYR_TILL_FILL,
         type: 'fill',
         source: SRC_TILLABLE,
-        layout: { visibility: enrichmentOverlay ? 'visible' : 'none' },
+        layout: {
+          visibility: (enrichmentOverlay && tillableSource === 'cdl') ? 'visible' : 'none',
+        },
         paint: {
           'fill-color': '#22a050',
           'fill-opacity': 0.40,
           'fill-outline-color': 'rgba(20, 80, 30, 0.8)',
+        },
+      })
+    }
+    if (!map.getLayer(LYR_TILL_FILL_WC)) {
+      map.addLayer({
+        id: LYR_TILL_FILL_WC,
+        type: 'fill',
+        source: SRC_TILLABLE_WC,
+        layout: {
+          visibility: (enrichmentOverlay && tillableSource === 'worldcover') ? 'visible' : 'none',
+        },
+        paint: {
+          // Slightly more teal so it's obvious when the operator is
+          // looking at WorldCover vs CDL.
+          'fill-color': '#0ea674',
+          'fill-opacity': 0.40,
+          'fill-outline-color': 'rgba(8, 80, 60, 0.8)',
         },
       })
     }
@@ -2926,10 +2972,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     return () => {
       try {
         if (!map.getStyle()) return
-        for (const id of [LYR_LABELS, LYR_FSA_LINE, LYR_TILL_FILL]) {
+        for (const id of [LYR_LABELS, LYR_FSA_LINE, LYR_TILL_FILL, LYR_TILL_FILL_WC]) {
           if (map.getLayer(id)) map.removeLayer(id)
         }
-        for (const id of [SRC_TILLABLE, SRC_FSA, SRC_LABELS]) {
+        for (const id of [SRC_TILLABLE, SRC_TILLABLE_WC, SRC_FSA, SRC_LABELS]) {
           if (map.getSource(id)) map.removeSource(id)
         }
       } catch {/* map torn down */}
@@ -2942,8 +2988,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     if (!map || !mapLoaded) return
     if (!isEnrichmentPilot) return
     const vis = enrichmentOverlay ? 'visible' : 'none'
+    // FSA + labels always follow the overall toggle. Tillable fill
+    // additionally honours the CDL/WorldCover data-source selection.
     for (const id of [
-      'parcel-enrichment-tillable-fill',
       'parcel-enrichment-fsa-clu-line',
       'parcel-enrichment-labels-text',
     ]) {
@@ -2951,7 +2998,15 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         try { map.setLayoutProperty(id, 'visibility', vis) } catch {/* */}
       }
     }
-  }, [enrichmentOverlay, mapLoaded, isEnrichmentPilot])
+    const cdlVis = (enrichmentOverlay && tillableSource === 'cdl') ? 'visible' : 'none'
+    const wcVis  = (enrichmentOverlay && tillableSource === 'worldcover') ? 'visible' : 'none'
+    if (map.getLayer('parcel-enrichment-tillable-fill')) {
+      try { map.setLayoutProperty('parcel-enrichment-tillable-fill', 'visibility', cdlVis) } catch {/* */}
+    }
+    if (map.getLayer('parcel-enrichment-tillable-worldcover-fill')) {
+      try { map.setLayoutProperty('parcel-enrichment-tillable-worldcover-fill', 'visibility', wcVis) } catch {/* */}
+    }
+  }, [enrichmentOverlay, tillableSource, mapLoaded, isEnrichmentPilot])
 
   // ONE-SHOT county-wide fetch when the overlay turns on.
   //
@@ -3052,6 +3107,44 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
     return () => { cancelled = true }
   }, [mapLoaded, isEnrichmentPilot, enrichmentOverlay])
+
+  // Lazy-fetch the WorldCover blob the first time the operator
+  // switches the data-source toggle. Each county is ~7–12MB gzipped
+  // and ships straight from the backend's in-memory cache (the
+  // committed pre-bake under data/county_overlay_worldcover/). After
+  // the first fetch the browser caches the response for a day, so
+  // re-toggling is instant.
+  useEffect(() => {
+    if (!isEnrichmentPilot) return
+    if (tillableSource !== 'worldcover') return
+    if (worldcoverLoadedRef.current) return
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+
+    const COUNTIES = ['IL/Hancock', 'IA/Lee', 'MO/Clark']
+    let cancelled = false
+
+    ;(async () => {
+      const out: any[] = []
+      try {
+        const results = await Promise.all(COUNTIES.map(async key => {
+          const res = await fetchWithAuth(
+            `${API_URL}/api/map/county-overlay/${key}/worldcover`
+          )
+          if (!res.ok) return []
+          const data = await res.json()
+          return data?.tillable?.features || []
+        }))
+        for (const fs of results) out.push(...fs)
+      } catch { /* silent */ }
+      if (cancelled) return
+      const src = map.getSource('parcel-enrichment-tillable-worldcover') as any
+      if (src?.setData) src.setData({ type: 'FeatureCollection', features: out })
+      worldcoverLoadedRef.current = true
+    })()
+
+    return () => { cancelled = true }
+  }, [tillableSource, isEnrichmentPilot, mapLoaded])
 
   // Create/update HTML markers for tracts
   useEffect(() => {
@@ -4053,6 +4146,38 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             <path d="M12 7 L12 22 M4 7 L20 7 M4 17 L20 17" />
           </svg>
           {enrichmentOverlay ? 'Soils on' : 'Soils'}
+        </button>
+      )}
+
+      {/* CDL ↔ WorldCover data-source toggle. Visible only when
+          enrichment is on and we're in the pilot. Operator can
+          compare the 30m USDA classification with ESA's 10m
+          classification of the same county. */}
+      {isEnrichmentPilot && enrichmentOverlay && (
+        <button
+          onClick={() => setTillableSource(s => s === 'cdl' ? 'worldcover' : 'cdl')}
+          style={{
+            position: 'absolute',
+            top: 120 + 44 + 44,  // directly below the Soils button
+            right: 10,
+            zIndex: 10,
+            height: 36,
+            padding: '0 12px',
+            borderRadius: 6,
+            border: 'none',
+            backgroundColor: tillableSource === 'worldcover' ? '#0ea674' : '#22a050',
+            color: '#fff',
+            fontSize: 12,
+            fontWeight: 600,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
+          }}
+          title="Toggle cropland data source: USDA CDL 30m ↔ ESA WorldCover 10m"
+        >
+          {tillableSource === 'worldcover' ? 'WorldCover' : 'CDL'}
         </button>
       )}
 
