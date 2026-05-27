@@ -2544,7 +2544,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           if (src?.setData) src.setData({ type: 'FeatureCollection', features: [] })
           return
         }
-        const feats = map.querySourceFeatures(SOURCE_ID, { sourceLayer })
+        let feats: any[] = []
+        try { feats = map.querySourceFeatures(SOURCE_ID, { sourceLayer }) } catch { feats = [] }
+        if (!feats.length) return  // nothing loaded yet — leave the previous data alone
         // querySourceFeatures returns the bare GeoJSON-ish features
         // rather than rendered map features, so we don't have the
         // stricter MapGeoJSONFeature shape here.
@@ -2557,27 +2559,36 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           else groups.set(uuid, [f])
         }
         const out: any[] = []
-        groups.forEach((pieces, uuid) => {
+        groups.forEach((pieces) => {
           let totalArea = 0
           let sumX = 0
           let sumY = 0
+          // Per-piece try/catch — one bad geometry shouldn't kill the
+          // whole label batch (which is what was happening before).
           for (const f of pieces) {
-            const { centroid, area } = _polygonCentroidAndArea((f.geometry as any))
-            if (area > 0) {
-              sumX += centroid[0] * area
-              sumY += centroid[1] * area
-              totalArea += area
-            }
+            try {
+              const { centroid, area } = _polygonCentroidAndArea((f.geometry as any))
+              if (area > 0 && isFinite(centroid[0]) && isFinite(centroid[1])) {
+                sumX += centroid[0] * area
+                sumY += centroid[1] * area
+                totalArea += area
+              }
+            } catch {/* skip bad piece */}
           }
           if (totalArea <= 0) return
-          // Use the first piece's properties — all clipped pieces of
-          // the same ll_uuid have identical owner/acres/sale fields.
-          const props = { ...(pieces[0].properties as any) }
-          out.push({
-            type: 'Feature',
-            geometry: { type: 'Point', coordinates: [sumX / totalArea, sumY / totalArea] },
-            properties: props,
-          })
+          const cx = sumX / totalArea
+          const cy = sumY / totalArea
+          if (!isFinite(cx) || !isFinite(cy)) return
+          try {
+            // Use the first piece's properties — all clipped pieces of
+            // the same ll_uuid have identical owner/acres/sale fields.
+            const props = { ...(pieces[0].properties as any) }
+            out.push({
+              type: 'Feature',
+              geometry: { type: 'Point', coordinates: [cx, cy] },
+              properties: props,
+            })
+          } catch {/* skip */}
         })
         const src = map.getSource(LABEL_SOURCE_ID) as any
         if (src?.setData) src.setData({ type: 'FeatureCollection', features: out })
@@ -2590,8 +2601,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         refreshLabels()
       }, 150) as any
     }
+    // Fire on EVERY sourcedata event for the Regrid source, not just
+    // when isSourceLoaded is true. New tile arrivals during a pan
+    // fire with isSourceLoaded=false and used to be ignored —
+    // resulting in stretches where labels were missing for parts of
+    // the viewport that had just loaded. The throttle keeps the
+    // refresh rate bounded.
     const onSourceData = (e: maplibregl.MapSourceDataEvent) => {
-      if (e.sourceId === SOURCE_ID && e.isSourceLoaded) scheduleRefresh()
+      if (e.sourceId === SOURCE_ID) scheduleRefresh()
     }
     map.on('sourcedata', onSourceData)
     map.on('moveend', scheduleRefresh)
@@ -3088,8 +3105,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   }, [
     mapLoaded, regridConfig, isEnrichmentPilot,
     enrichmentOverlay, tillableSource,
-    // Re-run when tracts mount/unmount so the anchor stays correct.
-    tracts.length,
+    // Deliberately NOT including tracts.length — that state changes
+    // every viewport tick and would cause our reorder to thrash
+    // (potentially racing with the Regrid label refresh). Tracts get
+    // added with no beforeId by default so they naturally stack on
+    // top of whatever we've already ordered.
   ])
 
   // ONE-SHOT county-wide fetch when the overlay turns on.
