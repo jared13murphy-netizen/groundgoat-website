@@ -2238,7 +2238,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     if (!map || !mapLoaded || !regridConfig?.tile_url_template) return
 
     const SOURCE_ID = 'regrid-parcels'
-    const LABEL_SOURCE_ID = 'regrid-parcels-labels'
     const FILL_LAYER = 'regrid-parcels-fill'
     const LINE_LAYER = 'regrid-parcels-line'
     const LABEL_LAYER = 'regrid-parcels-label'
@@ -2305,29 +2304,17 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       },
     }, beforeId)
 
-    // Label dedup source. We don't bind the label symbol to the Regrid
-    // vector tile source directly because vector tiles clip every
-    // parcel that spans a tile boundary into multiple Feature
-    // instances — MapLibre then dutifully renders one label per
-    // piece (so a parcel that hits 4 tile corners gets 4 labels).
-    // Instead we query the vector source on every render, group by
-    // ll_uuid, compute one area-weighted centroid per parcel, and
-    // emit a single Point feature here. The symbol layer below
-    // renders one label per Point => one label per parcel, centered.
-    if (!map.getSource(LABEL_SOURCE_ID)) {
-      map.addSource(LABEL_SOURCE_ID, {
-        type: 'geojson',
-        data: { type: 'FeatureCollection', features: [] },
-      })
-    }
-
-    // Owner + acres label — same composition as state_parcels: owner
-    // bold on top, acres in smaller text below, white text with a
-    // black halo so it reads on both satellite and street basemaps.
+    // Owner + acres label — bound DIRECTLY to the Regrid vector tile
+    // source. Multi-tile parcels will get N labels (one per clipped
+    // piece), which is the trade-off for reliable rendering. The
+    // earlier dedup-via-GeoJSON-source approach kept silently
+    // dropping labels in prod and we've spent too long on it; one
+    // working label per piece beats zero labels everywhere.
     map.addLayer({
       id: LABEL_LAYER,
       type: 'symbol',
-      source: LABEL_SOURCE_ID,
+      source: SOURCE_ID,
+      'source-layer': sourceLayer,
       minzoom: REGRID_MIN_ZOOM,
       layout: {
         // Four segments: owner (bold) → acres → $/acre → sale date.
@@ -2539,148 +2526,25 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     map.on('mouseleave', FILL_LAYER, onLeave)
     map.on('click', FILL_LAYER, onClick)
 
-    // ─── Label dedup pump ────────────────────────────────────────
-    // Every time the Regrid source finishes loading (initial fetch,
-    // pan, zoom) or the map goes idle, query the vector source for
-    // all currently-loaded parcel features, group by ll_uuid, and
-    // emit one Point feature per parcel at the area-weighted
-    // centroid of all its clipped pieces. Throttled so a flurry of
-    // tile loads doesn't pin the main thread.
-    // Label refresh state. `allowEmpty` controls whether a refresh
-    // that finds no features is permitted to WIPE the existing
-    // label source. We only allow this on the 'idle' event (when the
-    // map is in a fully-stable state) — during normal pan/load
-    // events we leave the previous labels alone if the dedup happens
-    // to yield 0 features, which avoids the "labels disappear during
-    // a tile-load gap" bug.
-    let refreshTimer: number | null = null
-    const refreshLabels = (allowEmpty: boolean = false) => {
-      try {
-        if (!map.getStyle()) return
-        const zoom = map.getZoom()
-        const src = map.getSource(LABEL_SOURCE_ID) as any
-        if (zoom < REGRID_MIN_ZOOM) {
-          if (allowEmpty && src?.setData) src.setData({ type: 'FeatureCollection', features: [] })
-          return
-        }
-        let feats: any[] = []
-        try { feats = map.querySourceFeatures(SOURCE_ID, { sourceLayer }) } catch { feats = [] }
-        if (!feats.length) {
-          // Nothing loaded yet (or wrong source-layer). Leave the
-          // existing label data alone unless this is a final/idle
-          // refresh that's explicitly allowed to clear.
-          if (allowEmpty && src?.setData) src.setData({ type: 'FeatureCollection', features: [] })
-          return
-        }
-        // querySourceFeatures returns bare GeoJSON-ish features
-        // (no rendered-feature wrapper).
-        const groups = new Map<string, any[]>()
-        for (const f of feats) {
-          const uuid = (f.properties as any)?.ll_uuid
-          if (!uuid) continue
-          const arr = groups.get(uuid)
-          if (arr) arr.push(f)
-          else groups.set(uuid, [f])
-        }
-        const out: any[] = []
-        groups.forEach((pieces) => {
-          let totalArea = 0
-          let sumX = 0
-          let sumY = 0
-          let fallbackPoint: [number, number] | null = null
-          // Per-piece try/catch — one bad geometry shouldn't kill
-          // the whole label batch.
-          for (const f of pieces) {
-            try {
-              const { centroid, area } = _polygonCentroidAndArea((f.geometry as any))
-              if (area > 0 && isFinite(centroid[0]) && isFinite(centroid[1])) {
-                sumX += centroid[0] * area
-                sumY += centroid[1] * area
-                totalArea += area
-                if (!fallbackPoint) fallbackPoint = [centroid[0], centroid[1]]
-              } else if (!fallbackPoint) {
-                // Capture some point for this parcel even if our
-                // centroid math fails — better to render a label
-                // somewhere reasonable than to drop it entirely.
-                const g = (f.geometry as any)
-                const c = g?.coordinates?.[0]?.[0] ?? g?.coordinates?.[0]?.[0]?.[0]
-                if (Array.isArray(c) && isFinite(c[0]) && isFinite(c[1])) {
-                  fallbackPoint = [c[0], c[1]]
-                }
-              }
-            } catch {/* skip bad piece */}
-          }
-          let cx: number, cy: number
-          if (totalArea > 0) {
-            cx = sumX / totalArea
-            cy = sumY / totalArea
-          } else if (fallbackPoint) {
-            cx = fallbackPoint[0]
-            cy = fallbackPoint[1]
-          } else {
-            return  // genuinely nothing usable
-          }
-          if (!isFinite(cx) || !isFinite(cy)) return
-          try {
-            const props = { ...(pieces[0].properties as any) }
-            out.push({
-              type: 'Feature',
-              geometry: { type: 'Point', coordinates: [cx, cy] },
-              properties: props,
-            })
-          } catch {/* skip */}
-        })
-        // Don't wipe a working label set with an empty one unless
-        // this is the explicit "we've gone fully idle" final pass.
-        if (out.length === 0 && !allowEmpty) return
-        if (src?.setData) src.setData({ type: 'FeatureCollection', features: out })
-      } catch {/* ignore — map likely tearing down */}
-    }
-    const scheduleRefresh = () => {
-      if (refreshTimer != null) return
-      refreshTimer = window.setTimeout(() => {
-        refreshTimer = null
-        refreshLabels(false)
-      }, 150) as any
-    }
-    // Fire on EVERY sourcedata event for the Regrid source, not just
-    // when isSourceLoaded is true. New tile arrivals during a pan
-    // fire with isSourceLoaded=false and used to be ignored —
-    // resulting in stretches where labels were missing for parts of
-    // the viewport that had just loaded. The throttle keeps the
-    // refresh rate bounded.
-    const onSourceData = (e: maplibregl.MapSourceDataEvent) => {
-      if (e.sourceId === SOURCE_ID) scheduleRefresh()
-    }
-    // The 'idle' event fires when the map has finished loading all
-    // pending tiles and animations — the most reliable moment to
-    // populate labels with the actual final state. This is also the
-    // ONLY refresh path that's allowed to wipe an empty source
-    // (clear stale labels when the user pans somewhere with no
-    // Regrid coverage).
-    const onIdle = () => refreshLabels(true)
-    map.on('sourcedata', onSourceData)
-    map.on('moveend', scheduleRefresh)
-    map.on('idle', onIdle)
-    // Bootstrap pass — fire 800ms after layer mount in case the
-    // tile source has loaded silently with no sourcedata event.
-    const bootstrapTimer = window.setTimeout(() => refreshLabels(false), 800)
+    // NOTE: previously had a dedup pump that wrote one Point per
+    // ll_uuid into a separate GeoJSON source so the label layer
+    // would render only one label per parcel. After multiple bug
+    // rounds where labels silently disappeared on prod, we abandoned
+    // the dedup approach in favour of binding the label symbol
+    // directly to the Regrid vector tile source above. Multi-tile
+    // parcels now show one label per clipped piece — visible
+    // duplicates on a few large parcels are the cost of reliable
+    // rendering on every parcel.
 
     return () => {
       try {
-        if (refreshTimer != null) { window.clearTimeout(refreshTimer); refreshTimer = null }
-        window.clearTimeout(bootstrapTimer)
         if (!map.getStyle()) return
         map.off('mousemove', FILL_LAYER, onMove)
         map.off('mouseleave', FILL_LAYER, onLeave)
         map.off('click', FILL_LAYER, onClick)
-        map.off('sourcedata', onSourceData)
-        map.off('moveend', scheduleRefresh)
-        map.off('idle', onIdle)
         for (const id of [LABEL_LAYER, LINE_LAYER, FILL_LAYER]) {
           if (map.getLayer(id)) map.removeLayer(id)
         }
-        if (map.getSource(LABEL_SOURCE_ID)) map.removeSource(LABEL_SOURCE_ID)
         if (map.getSource(SOURCE_ID)) map.removeSource(SOURCE_ID)
       } catch {
         // map already torn down
