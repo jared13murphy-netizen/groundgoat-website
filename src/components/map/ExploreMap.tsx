@@ -2724,27 +2724,28 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // Register the source + layers (empty at first). They sit visible:false
   // until the toggle is on, so we can swap data with setData without
   // re-adding layers on every toggle flip.
+  //
+  // ONLY two layers now:
+  //   • green fill on the tillable polygons (parcel ∩ CSB cropland),
+  //     so trees / water / buildings show the satellite underneath.
+  //   • red lines on the FSA 2008 CLU field outlines.
+  //
+  // The earlier per-parcel PI choropleth was painting WHOLE parcels
+  // (including obvious wooded/water portions) — that's what the user
+  // was correctly calling out. Removed entirely; PI lives in the
+  // click-popup now, not on the map fill.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded) return
     if (!isEnrichmentPilot) return
 
     const SRC_TILLABLE = 'parcel-enrichment-tillable'
-    const SRC_PARCEL = 'parcel-enrichment-parcels'
     const SRC_FSA = 'parcel-enrichment-fsa-clu'
     const LYR_TILL_FILL = 'parcel-enrichment-tillable-fill'
-    const LYR_PARCEL_FILL = 'parcel-enrichment-parcel-fill'
-    const LYR_PARCEL_LINE = 'parcel-enrichment-parcel-line'
     const LYR_FSA_LINE = 'parcel-enrichment-fsa-clu-line'
 
     if (!map.getSource(SRC_TILLABLE)) {
       map.addSource(SRC_TILLABLE, {
-        type: 'geojson',
-        data: { type: 'FeatureCollection', features: [] },
-      })
-    }
-    if (!map.getSource(SRC_PARCEL)) {
-      map.addSource(SRC_PARCEL, {
         type: 'geojson',
         data: { type: 'FeatureCollection', features: [] },
       })
@@ -2756,44 +2757,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       })
     }
 
-    // Parcel PI choropleth fill — color by soil_rating bin. We render
-    // BELOW the Regrid tile fill (which has fill-opacity 0 unless
-    // hovered) so the PI color is visible on every parcel in view
-    // without fighting the click target.
-    if (!map.getLayer(LYR_PARCEL_FILL)) {
-      map.addLayer({
-        id: LYR_PARCEL_FILL,
-        type: 'fill',
-        source: SRC_PARCEL,
-        layout: { visibility: enrichmentOverlay ? 'visible' : 'none' },
-        paint: {
-          'fill-color': [
-            'case',
-            ['==', ['get', 'soil_rating'], null], 'rgba(160,160,160,0.0)',
-            ['>=', ['get', 'soil_rating'], 130], '#16a34a',  // green: prime
-            ['>=', ['get', 'soil_rating'], 115], '#84cc16',  // lime
-            ['>=', ['get', 'soil_rating'], 100], '#fde047',  // yellow
-            ['>=', ['get', 'soil_rating'], 85], '#fb923c',   // orange
-            '#ef4444',                                       // red: poor
-          ],
-          'fill-opacity': 0.35,
-        },
-      })
-    }
-    if (!map.getLayer(LYR_PARCEL_LINE)) {
-      map.addLayer({
-        id: LYR_PARCEL_LINE,
-        type: 'line',
-        source: SRC_PARCEL,
-        layout: { visibility: enrichmentOverlay ? 'visible' : 'none' },
-        paint: {
-          'line-color': 'rgba(0,0,0,0.55)',
-          'line-width': 0.8,
-        },
-      })
-    }
-    // Tillable polygons on top — solid green so the eye reads "this
-    // portion of the parcel is farmed".
+    // Tillable polygons — solid green so the eye reads "this portion
+    // of the parcel is farmed". Anything NOT in this source (trees,
+    // water, buildings, roads) just shows the satellite imagery.
     if (!map.getLayer(LYR_TILL_FILL)) {
       map.addLayer({
         id: LYR_TILL_FILL,
@@ -2801,9 +2767,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         source: SRC_TILLABLE,
         layout: { visibility: enrichmentOverlay ? 'visible' : 'none' },
         paint: {
-          'fill-color': '#22c55e',
-          'fill-opacity': 0.35,
-          'fill-outline-color': 'rgba(0,80,0,0.6)',
+          'fill-color': '#22a050',
+          'fill-opacity': 0.40,
+          'fill-outline-color': 'rgba(20, 80, 30, 0.8)',
         },
       })
     }
@@ -2827,10 +2793,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     return () => {
       try {
         if (!map.getStyle()) return
-        for (const id of [LYR_FSA_LINE, LYR_TILL_FILL, LYR_PARCEL_LINE, LYR_PARCEL_FILL]) {
+        for (const id of [LYR_FSA_LINE, LYR_TILL_FILL]) {
           if (map.getLayer(id)) map.removeLayer(id)
         }
-        for (const id of [SRC_TILLABLE, SRC_PARCEL, SRC_FSA]) {
+        for (const id of [SRC_TILLABLE, SRC_FSA]) {
           if (map.getSource(id)) map.removeSource(id)
         }
       } catch {/* map torn down */}
@@ -2845,8 +2811,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const vis = enrichmentOverlay ? 'visible' : 'none'
     for (const id of [
       'parcel-enrichment-tillable-fill',
-      'parcel-enrichment-parcel-fill',
-      'parcel-enrichment-parcel-line',
       'parcel-enrichment-fsa-clu-line',
     ]) {
       if (map.getLayer(id)) {
@@ -2855,9 +2819,18 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
   }, [enrichmentOverlay, mapLoaded, isEnrichmentPilot])
 
-  // Viewport fetch — when overlay is on, fetch the enrichment for the
-  // visible bbox and load it into the sources. Debounced; skip when
-  // the bbox hasn't meaningfully changed since the last fetch.
+  // ONE-SHOT county-wide fetch when the overlay turns on.
+  //
+  // Previously this re-fetched on every moveend, replacing the entire
+  // GeoJSON source each time — which caused the strobing "glitch" on
+  // pan/zoom. Now we pull the WHOLE county once (Hancock IL today),
+  // cache in the source forever, and let MapLibre's GPU handle the
+  // pan/zoom. No more glitch. Cost is one fetch of ~10-15MB gzipped
+  // up front; cleared from memory if the toggle is flipped off.
+  //
+  // When the operator pans outside Hancock the data stays in the
+  // source but nothing visible is in view — Hancock-only is fine
+  // until we onboard more counties.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded) return
@@ -2865,80 +2838,36 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     if (!enrichmentAvailableRef.current) return  // backend 404'd; don't keep retrying
 
     let cancelled = false
-    let timer: number | null = null
 
-    const doFetch = async () => {
-      const b = map.getBounds()
-      const south = b.getSouth().toFixed(3)
-      const north = b.getNorth().toFixed(3)
-      const west = b.getWest().toFixed(3)
-      const east = b.getEast().toFixed(3)
-      // Hancock IL only for now — quick centroid guard prevents
-      // fetching outside our loaded coverage. Drop this when more
-      // counties come online.
-      const cy = (parseFloat(north) + parseFloat(south)) / 2
-      const cx = (parseFloat(east) + parseFloat(west)) / 2
-      if (cy < 40.1 || cy > 40.75 || cx < -91.6 || cx > -90.85) {
-        // Outside Hancock — clear sources rather than show stale data.
-        const tSrc = map.getSource('parcel-enrichment-tillable') as any
-        const pSrc = map.getSource('parcel-enrichment-parcels') as any
-        const fSrc = map.getSource('parcel-enrichment-fsa-clu') as any
-        if (tSrc?.setData) tSrc.setData({ type: 'FeatureCollection', features: [] })
-        if (pSrc?.setData) pSrc.setData({ type: 'FeatureCollection', features: [] })
-        if (fSrc?.setData) fSrc.setData({ type: 'FeatureCollection', features: [] })
-        return
-      }
-      const key = `IL|${south}|${north}|${west}|${east}`
-      if (key === enrichmentLastBboxRef.current) return
-      enrichmentLastBboxRef.current = key
-
+    const fetchOnce = async () => {
+      // Hancock IL bbox — wide enough to cover the whole county +
+      // a small pad. We request EVERYTHING in this bbox once.
       const qs = new URLSearchParams({
-        state: 'IL',
-        county: 'Hancock',
-        min_lat: south, max_lat: north,
-        min_lng: west, max_lng: east,
-        limit: '2000',
+        state: 'IL', county: 'Hancock',
+        min_lat: '40.20', max_lat: '40.67',
+        min_lng: '-91.56', max_lng: '-90.89',
+        limit: '25000',
+      })
+      const fsaQs = new URLSearchParams({
+        state: 'IL', county: 'Hancock',
+        min_lat: '40.20', max_lat: '40.67',
+        min_lng: '-91.56', max_lng: '-90.89',
+        limit: '40000',
       })
       try {
-        // Parcel-enrichment (tillable + PI choropleth) and FSA CLU
-        // outlines fire in parallel — they hit different tables and
-        // both are bbox-indexed, so doing them concurrently halves
-        // the perceived latency on pan/zoom.
-        const fsaQs = new URLSearchParams({
-          state: 'IL', county: 'Hancock',
-          min_lat: south, max_lat: north,
-          min_lng: west, max_lng: east,
-          limit: '5000',
-        })
         const [res, fsaRes] = await Promise.all([
           fetchWithAuth(`${API_URL}/api/map/parcel-enrichment?${qs.toString()}`),
           fetchWithAuth(`${API_URL}/api/map/fsa-clu?${fsaQs.toString()}`),
         ])
         if (cancelled) return
         if (res.status === 404) {
-          // Feature flag off or non-pilot account — stop retrying.
           enrichmentAvailableRef.current = false
           return
         }
         const tillableFeats: any[] = []
-        const parcelFeats: any[] = []
         if (res.ok) {
           const data = await res.json()
           for (const p of (data?.parcels ?? [])) {
-            if (p.polygon_geojson) {
-              parcelFeats.push({
-                type: 'Feature',
-                geometry: p.polygon_geojson,
-                properties: {
-                  ll_uuid: p.ll_uuid,
-                  soil_rating: p.soil_rating,
-                  pct_tillable: p.pct_tillable,
-                  tillable_acres: p.tillable_acres,
-                  acres: p.acres,
-                  dominant_landcover: p.dominant_landcover,
-                },
-              })
-            }
             if (p.tillable_geojson) {
               tillableFeats.push({
                 type: 'Feature',
@@ -2949,13 +2878,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           }
         }
         const tSrc = map.getSource('parcel-enrichment-tillable') as any
-        const pSrc = map.getSource('parcel-enrichment-parcels') as any
         if (tSrc?.setData) tSrc.setData({ type: 'FeatureCollection', features: tillableFeats })
-        if (pSrc?.setData) pSrc.setData({ type: 'FeatureCollection', features: parcelFeats })
 
-        // FSA red outlines — separate fetch + source, so partial
-        // failure (e.g. fsa endpoint returns slower) doesn't block
-        // the green tillable refresh.
         if (fsaRes.ok) {
           const fsaData = await fsaRes.json()
           const fSrc = map.getSource('parcel-enrichment-fsa-clu') as any
@@ -2964,19 +2888,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       } catch {/* network glitch — silent */}
     }
 
-    const onMove = () => {
-      if (timer != null) window.clearTimeout(timer)
-      timer = window.setTimeout(doFetch, 350) as any
-    }
-    map.on('moveend', onMove)
-    // Initial load.
-    doFetch()
+    fetchOnce()
 
-    return () => {
-      cancelled = true
-      if (timer != null) window.clearTimeout(timer)
-      try { map.off('moveend', onMove) } catch {/* */}
-    }
+    return () => { cancelled = true }
   }, [mapLoaded, isEnrichmentPilot, enrichmentOverlay])
 
   // Create/update HTML markers for tracts
