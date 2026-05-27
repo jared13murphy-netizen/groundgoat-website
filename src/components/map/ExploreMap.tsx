@@ -648,6 +648,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const countyMarkersRef = useRef<maplibregl.Marker[]>([])
   const tractMarkersRef = useRef<maplibregl.Marker[]>([])
   const tractMarkerElementsRef = useRef<Map<string, HTMLDivElement>>(new Map())
+  // HTML-marker-based Regrid parcel labels, keyed by ll_uuid. We
+  // replaced the MapLibre symbol-layer approach because it kept
+  // silently dropping labels — HTML markers are the same pattern we
+  // use for tract pins, deterministic, no source/style timing games.
+  const regridLabelMarkersRef = useRef<Map<string, maplibregl.Marker>>(new Map())
   // Today's auctions are rendered as a native MapLibre GeoJSON layer
   // (see the useEffect below) — no per-marker DOM refs needed.
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -2238,10 +2243,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     if (!map || !mapLoaded || !regridConfig?.tile_url_template) return
 
     const SOURCE_ID = 'regrid-parcels'
-    const LABEL_SOURCE_ID = 'regrid-parcels-labels'
+    // (legacy id name kept in a comment — labels are now HTML markers,
+    // not a MapLibre source. const LABEL_SOURCE_ID = 'regrid-parcels-labels')
     const FILL_LAYER = 'regrid-parcels-fill'
     const LINE_LAYER = 'regrid-parcels-line'
-    const LABEL_LAYER = 'regrid-parcels-label'
+    // (legacy id name kept in a comment — labels are now HTML markers,
+    // not a MapLibre layer. const LABEL_LAYER = 'regrid-parcels-label')
 
     if (map.getSource(SOURCE_ID)) return
 
@@ -2305,141 +2312,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       },
     }, beforeId)
 
-    // Label dedup source. We don't bind the label symbol to the Regrid
-    // vector tile source directly because vector tiles clip every
-    // parcel that spans a tile boundary into multiple Feature
-    // instances — MapLibre then dutifully renders one label per
-    // piece (so a parcel that hits 4 tile corners gets 4 labels).
-    // Instead we query the vector source on every render, group by
-    // ll_uuid, compute one area-weighted centroid per parcel, and
-    // emit a single Point feature here. The symbol layer below
-    // renders one label per Point => one label per parcel, centered.
-    if (!map.getSource(LABEL_SOURCE_ID)) {
-      map.addSource(LABEL_SOURCE_ID, {
-        type: 'geojson',
-        data: { type: 'FeatureCollection', features: [] },
-      })
-    }
-
-    // Owner + acres label — same composition as state_parcels: owner
-    // bold on top, acres in smaller text below, white text with a
-    // black halo so it reads on both satellite and street basemaps.
-    map.addLayer({
-      id: LABEL_LAYER,
-      type: 'symbol',
-      source: LABEL_SOURCE_ID,
-      minzoom: REGRID_MIN_ZOOM,
-      layout: {
-        // Four segments: owner (bold) → acres → $/acre → sale date.
-        // Total sale price was removed 2026-05-26 — the per-acre
-        // figure is what buyers compare on. Each conditional segment
-        // evaluates to '' when its underlying property is missing so
-        // a parcel without sale data shows just owner + acres.
-        // All non-owner rows are 1.0 scale (bumped from 0.85) so the
-        // numbers are legible at browse zoom.
-        'text-field': [
-          'format',
-          ['coalesce', ['get', 'owner'], 'Coming Soon'], {
-            'font-scale': 1.0,
-            'text-font': ['literal', ['Open Sans Bold']],
-          },
-          [
-            'case',
-            ['has', 'll_gisacre'],
-            ['concat', '\n', ['concat',
-              ['number-format', ['get', 'll_gisacre'], {
-                'locale': 'en-US',
-                'min-fraction-digits': 0, 'max-fraction-digits': 2,
-              }],
-              ' ac',
-            ]],
-            ['case',
-              ['has', 'gisacre'],
-              ['concat', '\n', ['concat',
-                ['number-format', ['get', 'gisacre'], {
-                  'locale': 'en-US',
-                  'min-fraction-digits': 0, 'max-fraction-digits': 2,
-                }],
-                ' ac',
-              ]],
-              '',
-            ],
-          ],
-          { 'font-scale': 1.0 },
-          // Price per acre — saleprice / acres when both > 0. Guard
-          // against divide-by-zero on the denominator.
-          ['case',
-            ['all',
-              ['has', 'saleprice'],
-              ['>', ['to-number', ['get', 'saleprice']], 0],
-              ['any', ['has', 'll_gisacre'], ['has', 'gisacre']],
-              ['>', ['to-number', ['coalesce', ['get', 'll_gisacre'], ['get', 'gisacre']]], 0],
-            ],
-            ['concat', '\n$/Acre: $',
-              ['number-format',
-                // Round the divide before formatting so we never
-                // surface decimals like "$370,692.152". max-fraction-
-                // digits=0 was already in place, but in practice some
-                // upstream values produce a sub-cent residue that
-                // number-format rounds inconsistently — round() ahead
-                // of time makes the integer floor explicit.
-                ['round', ['/',
-                  ['to-number', ['get', 'saleprice']],
-                  ['to-number', ['coalesce', ['get', 'll_gisacre'], ['get', 'gisacre']]],
-                ]],
-                {
-                  'locale': 'en-US',
-                  'min-fraction-digits': 0,
-                  'max-fraction-digits': 0,
-                },
-              ],
-            ],
-            '',
-          ],
-          { 'font-scale': 1.0 },
-          // Sale date — custom tile returns ISO datetime; first 10
-          // chars are YYYY-MM-DD either way. length >= 10 guard
-          // prevents "//" output on malformed values.
-          ['case',
-            ['all',
-              ['has', 'saledate'],
-              ['>=', ['length', ['get', 'saledate']], 10],
-            ],
-            ['concat', '\nSale Date: ',
-              ['slice', ['get', 'saledate'], 5, 7], '/',
-              ['slice', ['get', 'saledate'], 8, 10], '/',
-              ['slice', ['get', 'saledate'], 0, 4],
-            ],
-            '',
-          ],
-          { 'font-scale': 1.0 },
-        ],
-        'text-font': ['Open Sans Regular'],
-        'text-size': [
-          'interpolate', ['linear'], ['zoom'],
-          14, 10,
-          16, 12,
-          18, 14,
-        ],
-        // Label sits AT the parcel's geometric centroid — the point
-        // feature we emit per-uuid is already the area-weighted
-        // centroid of all the parcel's clipped pieces, so anchor at
-        // center with no offset.
-        'text-anchor': 'center',
-        'text-justify': 'center',
-        'text-max-width': 9,
-        'text-line-height': 1.15,
-        'text-allow-overlap': false,
-        'text-ignore-placement': false,
-        'text-padding': 2,
-      },
-      paint: {
-        'text-color': '#ffffff',
-        'text-halo-color': 'rgba(0,0,0,0.85)',
-        'text-halo-width': 1.4,
-        'text-halo-blur': 0.4,
-      },
-    }, beforeId)
+    // Owner / acres / sale labels are HTML markers (regridLabelMarkersRef)
+    // — see refreshLabels below. We deliberately do NOT use a
+    // MapLibre symbol layer for these because vector-tile clipping
+    // produces multiple feature instances per parcel and the symbol
+    // layer kept silently dropping labels under various timing
+    // conditions. HTML markers give us deterministic dedup keyed by
+    // ll_uuid, with text rendered as a normal DOM element that
+    // can't accidentally be hidden by source-state issues.
 
     // Push tract polygons to the TOP of the layer stack — if Regrid
     // arrived after tract-polygon-* mounted, beforeId above missed
@@ -2535,34 +2415,55 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // emit one Point feature per parcel at the area-weighted
     // centroid of all its clipped pieces. Throttled so a flurry of
     // tile loads doesn't pin the main thread.
-    // Label refresh state. `allowEmpty` controls whether a refresh
-    // that finds no features is permitted to WIPE the existing
-    // label source. We only allow this on the 'idle' event (when the
-    // map is in a fully-stable state) — during normal pan/load
-    // events we leave the previous labels alone if the dedup happens
-    // to yield 0 features, which avoids the "labels disappear during
-    // a tile-load gap" bug.
+    // HTML-marker dedup. Maintain one Marker per ll_uuid keyed in
+    // regridLabelMarkersRef. On each refresh: query the source,
+    // group by uuid, compute area-weighted centroid, then add/
+    // update/remove markers so the rendered set exactly matches
+    // the visible parcels.
     let refreshTimer: number | null = null
-    const refreshLabels = (allowEmpty: boolean = false) => {
+    const buildLabelHTML = (props: any): string => {
+      const escape = (s: any) =>
+        String(s ?? '').replace(/[&<>"']/g, c => ({
+          '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+        } as Record<string, string>)[c] || c)
+      const owner = props?.owner || 'Coming Soon'
+      const acres = props?.ll_gisacre ?? props?.gisacre
+      const saleprice = Number(props?.saleprice)
+      const saledate = typeof props?.saledate === 'string' ? props.saledate : ''
+      const ppa = (acres && saleprice > 0)
+        ? Math.round(saleprice / Number(acres))
+        : null
+      const rows: string[] = []
+      rows.push(`<div class="gg-pl-owner">${escape(owner)}</div>`)
+      if (acres != null) {
+        const fmtAcres = Number(acres).toLocaleString('en-US', {
+          minimumFractionDigits: 0, maximumFractionDigits: 2,
+        })
+        rows.push(`<div class="gg-pl-stat">${fmtAcres} ac</div>`)
+      }
+      if (ppa != null) {
+        rows.push(`<div class="gg-pl-stat">$/Acre: $${ppa.toLocaleString('en-US')}</div>`)
+      }
+      if (saledate && saledate.length >= 10) {
+        const ymd = saledate.slice(0, 10)
+        rows.push(`<div class="gg-pl-stat">Sale Date: ${ymd.slice(5,7)}/${ymd.slice(8,10)}/${ymd.slice(0,4)}</div>`)
+      }
+      return rows.join('')
+    }
+    const refreshLabels = (_allowEmpty: boolean = false) => {
       try {
         if (!map.getStyle()) return
+        const markers = regridLabelMarkersRef.current
         const zoom = map.getZoom()
-        const src = map.getSource(LABEL_SOURCE_ID) as any
         if (zoom < REGRID_MIN_ZOOM) {
-          if (allowEmpty && src?.setData) src.setData({ type: 'FeatureCollection', features: [] })
+          // Below the label zoom — drop everything.
+          markers.forEach(m => m.remove())
+          markers.clear()
           return
         }
         let feats: any[] = []
         try { feats = map.querySourceFeatures(SOURCE_ID, { sourceLayer }) } catch { feats = [] }
-        if (!feats.length) {
-          // Nothing loaded yet (or wrong source-layer). Leave the
-          // existing label data alone unless this is a final/idle
-          // refresh that's explicitly allowed to clear.
-          if (allowEmpty && src?.setData) src.setData({ type: 'FeatureCollection', features: [] })
-          return
-        }
-        // querySourceFeatures returns bare GeoJSON-ish features
-        // (no rendered-feature wrapper).
+        // Group by ll_uuid (ignore features without one).
         const groups = new Map<string, any[]>()
         for (const f of feats) {
           const uuid = (f.properties as any)?.ll_uuid
@@ -2571,58 +2472,67 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           if (arr) arr.push(f)
           else groups.set(uuid, [f])
         }
-        const out: any[] = []
-        groups.forEach((pieces) => {
+        if (groups.size === 0) {
+          // Source mid-load — leave the existing markers in place
+          // so they don't blink while tiles cycle in.
+          return
+        }
+        // Compute area-weighted centroids per uuid, then create or
+        // update one marker per uuid.
+        groups.forEach((pieces, uuid) => {
           let totalArea = 0
           let sumX = 0
           let sumY = 0
           let fallbackPoint: [number, number] | null = null
-          // Per-piece try/catch — one bad geometry shouldn't kill
-          // the whole label batch.
           for (const f of pieces) {
             try {
-              const { centroid, area } = _polygonCentroidAndArea((f.geometry as any))
+              const { centroid, area } = _polygonCentroidAndArea(f.geometry as any)
               if (area > 0 && isFinite(centroid[0]) && isFinite(centroid[1])) {
                 sumX += centroid[0] * area
                 sumY += centroid[1] * area
                 totalArea += area
                 if (!fallbackPoint) fallbackPoint = [centroid[0], centroid[1]]
               } else if (!fallbackPoint) {
-                // Capture some point for this parcel even if our
-                // centroid math fails — better to render a label
-                // somewhere reasonable than to drop it entirely.
                 const g = (f.geometry as any)
-                const c = g?.coordinates?.[0]?.[0] ?? g?.coordinates?.[0]?.[0]?.[0]
+                const c = g?.coordinates?.[0]?.[0]
                 if (Array.isArray(c) && isFinite(c[0]) && isFinite(c[1])) {
-                  fallbackPoint = [c[0], c[1]]
+                  fallbackPoint = [Number(c[0]), Number(c[1])]
                 }
               }
-            } catch {/* skip bad piece */}
+            } catch {/* */}
           }
           let cx: number, cy: number
           if (totalArea > 0) {
-            cx = sumX / totalArea
-            cy = sumY / totalArea
+            cx = sumX / totalArea; cy = sumY / totalArea
           } else if (fallbackPoint) {
-            cx = fallbackPoint[0]
-            cy = fallbackPoint[1]
+            cx = fallbackPoint[0]; cy = fallbackPoint[1]
           } else {
-            return  // genuinely nothing usable
+            return
           }
           if (!isFinite(cx) || !isFinite(cy)) return
-          try {
-            const props = { ...(pieces[0].properties as any) }
-            out.push({
-              type: 'Feature',
-              geometry: { type: 'Point', coordinates: [cx, cy] },
-              properties: props,
-            })
-          } catch {/* skip */}
+          const html = buildLabelHTML((pieces[0].properties as any) || {})
+          const existing = markers.get(uuid)
+          if (existing) {
+            existing.setLngLat([cx, cy])
+            const el = existing.getElement()
+            if (el && el.innerHTML !== html) el.innerHTML = html
+          } else {
+            const el = document.createElement('div')
+            el.className = 'gg-regrid-parcel-label'
+            el.innerHTML = html
+            const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
+              .setLngLat([cx, cy])
+              .addTo(map)
+            markers.set(uuid, marker)
+          }
         })
-        // Don't wipe a working label set with an empty one unless
-        // this is the explicit "we've gone fully idle" final pass.
-        if (out.length === 0 && !allowEmpty) return
-        if (src?.setData) src.setData({ type: 'FeatureCollection', features: out })
+        // Drop markers for parcels no longer present in the source.
+        markers.forEach((marker, uuid) => {
+          if (!groups.has(uuid)) {
+            marker.remove()
+            markers.delete(uuid)
+          }
+        })
       } catch {/* ignore — map likely tearing down */}
     }
     const scheduleRefresh = () => {
@@ -2659,6 +2569,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       try {
         if (refreshTimer != null) { window.clearTimeout(refreshTimer); refreshTimer = null }
         window.clearTimeout(bootstrapTimer)
+        // Remove all HTML-marker labels regardless of map state.
+        regridLabelMarkersRef.current.forEach(m => { try { m.remove() } catch {} })
+        regridLabelMarkersRef.current.clear()
         if (!map.getStyle()) return
         map.off('mousemove', FILL_LAYER, onMove)
         map.off('mouseleave', FILL_LAYER, onLeave)
@@ -2666,10 +2579,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         map.off('sourcedata', onSourceData)
         map.off('moveend', scheduleRefresh)
         map.off('idle', onIdle)
-        for (const id of [LABEL_LAYER, LINE_LAYER, FILL_LAYER]) {
+        for (const id of [LINE_LAYER, FILL_LAYER]) {
           if (map.getLayer(id)) map.removeLayer(id)
         }
-        if (map.getSource(LABEL_SOURCE_ID)) map.removeSource(LABEL_SOURCE_ID)
         if (map.getSource(SOURCE_ID)) map.removeSource(SOURCE_ID)
       } catch {
         // map already torn down
@@ -3135,7 +3047,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         'parcel-enrichment-labels-worldcover-text',
         'regrid-parcels-fill',
         'regrid-parcels-line',
-        'regrid-parcels-label',
+        // Regrid parcel labels are HTML markers (not a MapLibre
+        // layer) — they sit ABOVE the MapLibre canvas via the DOM
+        // marker pane, naturally above everything map-rendered.
       ]
       const tractAnchor = map.getLayer('tract-polygon-fill') ? 'tract-polygon-fill' : undefined
       for (const id of desiredBottomToTop) {
