@@ -2844,10 +2844,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const SRC_TILLABLE_WC = 'parcel-enrichment-tillable-worldcover'
     const SRC_FSA = 'parcel-enrichment-fsa-clu'
     const SRC_LABELS = 'parcel-enrichment-labels'
+    const SRC_LABELS_WC = 'parcel-enrichment-labels-worldcover'
     const LYR_TILL_FILL = 'parcel-enrichment-tillable-fill'
     const LYR_TILL_FILL_WC = 'parcel-enrichment-tillable-worldcover-fill'
     const LYR_FSA_LINE = 'parcel-enrichment-fsa-clu-line'
     const LYR_LABELS = 'parcel-enrichment-labels-text'
+    const LYR_LABELS_WC = 'parcel-enrichment-labels-worldcover-text'
 
     if (!map.getSource(SRC_TILLABLE)) {
       map.addSource(SRC_TILLABLE, {
@@ -2869,6 +2871,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
     if (!map.getSource(SRC_LABELS)) {
       map.addSource(SRC_LABELS, {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      })
+    }
+    if (!map.getSource(SRC_LABELS_WC)) {
+      map.addSource(SRC_LABELS_WC, {
         type: 'geojson',
         data: { type: 'FeatureCollection', features: [] },
       })
@@ -2934,37 +2942,56 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // (e.g. "PI 132.4", "CSR2 74.5", "NCCPI 81.2"). Hidden below
     // zoom 14 to avoid clutter at county-scale views — the labels
     // are useful when the operator is actually looking at fields.
+    // Shared label-layer paint/layout. We define it twice (one per
+    // source) so we can flip them independently when the CDL ↔
+    // WorldCover toggle changes — only the active source shows.
+    const labelLayoutBase: any = {
+      'text-field': ['concat',
+        ['get', 'rt'], ' ',
+        ['to-string', ['get', 'r']],
+      ],
+      'text-font': ['Open Sans Bold'],
+      'text-size': [
+        'interpolate', ['linear'], ['zoom'],
+        13, 11,
+        15, 13,
+        17, 15,
+      ],
+      'text-anchor': 'center',
+      'text-allow-overlap': false,
+      'text-padding': 2,
+      'text-ignore-placement': false,
+      'symbol-sort-key': ['*', -1, ['get', 'r']],
+    }
+    const labelPaintBase: any = {
+      'text-color': '#ffffff',
+      'text-halo-color': 'rgba(0,0,0,0.85)',
+      'text-halo-width': 1.6,
+      'text-halo-blur': 0.4,
+    }
     if (!map.getLayer(LYR_LABELS)) {
       map.addLayer({
         id: LYR_LABELS,
         type: 'symbol',
         source: SRC_LABELS,
         layout: {
-          visibility: enrichmentOverlay ? 'visible' : 'none',
-          'text-field': ['concat',
-            ['get', 'rt'], ' ',
-            ['to-string', ['get', 'r']],
-          ],
-          'text-font': ['Open Sans Bold'],
-          'text-size': [
-            'interpolate', ['linear'], ['zoom'],
-            13, 11,
-            15, 13,
-            17, 15,
-          ],
-          'text-anchor': 'center',
-          'text-allow-overlap': false,
-          'text-padding': 2,
-          'text-ignore-placement': false,
-          // Hide at small zooms — too dense.
-          'symbol-sort-key': ['*', -1, ['get', 'r']],  // higher rating draws first
+          ...labelLayoutBase,
+          visibility: (enrichmentOverlay && tillableSource === 'cdl') ? 'visible' : 'none',
         },
-        paint: {
-          'text-color': '#ffffff',
-          'text-halo-color': 'rgba(0,0,0,0.85)',
-          'text-halo-width': 1.6,
-          'text-halo-blur': 0.4,
+        paint: labelPaintBase,
+        minzoom: 13.5,
+      })
+    }
+    if (!map.getLayer(LYR_LABELS_WC)) {
+      map.addLayer({
+        id: LYR_LABELS_WC,
+        type: 'symbol',
+        source: SRC_LABELS_WC,
+        layout: {
+          ...labelLayoutBase,
+          visibility: (enrichmentOverlay && tillableSource === 'worldcover') ? 'visible' : 'none',
         },
+        paint: labelPaintBase,
         minzoom: 13.5,
       })
     }
@@ -2972,10 +2999,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     return () => {
       try {
         if (!map.getStyle()) return
-        for (const id of [LYR_LABELS, LYR_FSA_LINE, LYR_TILL_FILL, LYR_TILL_FILL_WC]) {
+        for (const id of [LYR_LABELS, LYR_LABELS_WC, LYR_FSA_LINE, LYR_TILL_FILL, LYR_TILL_FILL_WC]) {
           if (map.getLayer(id)) map.removeLayer(id)
         }
-        for (const id of [SRC_TILLABLE, SRC_TILLABLE_WC, SRC_FSA, SRC_LABELS]) {
+        for (const id of [SRC_TILLABLE, SRC_TILLABLE_WC, SRC_FSA, SRC_LABELS, SRC_LABELS_WC]) {
           if (map.getSource(id)) map.removeSource(id)
         }
       } catch {/* map torn down */}
@@ -2988,23 +3015,23 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     if (!map || !mapLoaded) return
     if (!isEnrichmentPilot) return
     const vis = enrichmentOverlay ? 'visible' : 'none'
-    // FSA + labels always follow the overall toggle. Tillable fill
-    // additionally honours the CDL/WorldCover data-source selection.
-    for (const id of [
-      'parcel-enrichment-fsa-clu-line',
-      'parcel-enrichment-labels-text',
-    ]) {
-      if (map.getLayer(id)) {
-        try { map.setLayoutProperty(id, 'visibility', vis) } catch {/* */}
-      }
+    // FSA always follows the overall toggle. Tillable + labels each
+    // have CDL and WorldCover variants — only the matching pair is
+    // visible at a time.
+    if (map.getLayer('parcel-enrichment-fsa-clu-line')) {
+      try { map.setLayoutProperty('parcel-enrichment-fsa-clu-line', 'visibility', vis) } catch {/* */}
     }
     const cdlVis = (enrichmentOverlay && tillableSource === 'cdl') ? 'visible' : 'none'
     const wcVis  = (enrichmentOverlay && tillableSource === 'worldcover') ? 'visible' : 'none'
-    if (map.getLayer('parcel-enrichment-tillable-fill')) {
-      try { map.setLayoutProperty('parcel-enrichment-tillable-fill', 'visibility', cdlVis) } catch {/* */}
-    }
-    if (map.getLayer('parcel-enrichment-tillable-worldcover-fill')) {
-      try { map.setLayoutProperty('parcel-enrichment-tillable-worldcover-fill', 'visibility', wcVis) } catch {/* */}
+    for (const [id, v] of [
+      ['parcel-enrichment-tillable-fill', cdlVis],
+      ['parcel-enrichment-labels-text', cdlVis],
+      ['parcel-enrichment-tillable-worldcover-fill', wcVis],
+      ['parcel-enrichment-labels-worldcover-text', wcVis],
+    ] as const) {
+      if (map.getLayer(id)) {
+        try { map.setLayoutProperty(id, 'visibility', v) } catch {/* */}
+      }
     }
   }, [enrichmentOverlay, tillableSource, mapLoaded, isEnrichmentPilot])
 
@@ -3125,21 +3152,38 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     let cancelled = false
 
     ;(async () => {
-      const out: any[] = []
+      const tillableOut: any[] = []
+      const labelsOut: any[] = []
       try {
         const results = await Promise.all(COUNTIES.map(async key => {
           const res = await fetchWithAuth(
             `${API_URL}/api/map/county-overlay/${key}/worldcover`
           )
-          if (!res.ok) return []
+          if (!res.ok) return { tillable: [], labels: [] }
           const data = await res.json()
-          return data?.tillable?.features || []
+          return {
+            tillable: data?.tillable?.features || [],
+            labels: (data?.labels?.features || []).map((f: any) => ({
+              ...f,
+              properties: {
+                ...(f.properties || {}),
+                r: typeof f.properties?.r === 'number'
+                  ? f.properties.r.toFixed(1)
+                  : f.properties?.r,
+              },
+            })),
+          }
         }))
-        for (const fs of results) out.push(...fs)
+        for (const r of results) {
+          tillableOut.push(...r.tillable)
+          labelsOut.push(...r.labels)
+        }
       } catch { /* silent */ }
       if (cancelled) return
-      const src = map.getSource('parcel-enrichment-tillable-worldcover') as any
-      if (src?.setData) src.setData({ type: 'FeatureCollection', features: out })
+      const tSrc = map.getSource('parcel-enrichment-tillable-worldcover') as any
+      const lSrc = map.getSource('parcel-enrichment-labels-worldcover') as any
+      if (tSrc?.setData) tSrc.setData({ type: 'FeatureCollection', features: tillableOut })
+      if (lSrc?.setData) lSrc.setData({ type: 'FeatureCollection', features: labelsOut })
       worldcoverLoadedRef.current = true
     })()
 
