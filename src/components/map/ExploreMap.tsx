@@ -3272,7 +3272,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const map = mapRef.current
     if (!map || !mapLoaded) return
 
-    const COUNTIES = ['IL/Hancock', 'IA/Lee', 'MO/Clark']
+    const COUNTIES = ['IL/Hancock', 'IL/Adams', 'IA/Lee', 'MO/Clark']
     let cancelled = false
 
     ;(async () => {
@@ -3349,7 +3349,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const map = mapRef.current
     if (!map || !mapLoaded) return
 
-    const COUNTIES = ['IL/Hancock', 'IA/Lee', 'MO/Clark']
+    const COUNTIES = ['IL/Hancock', 'IL/Adams', 'IA/Lee', 'MO/Clark']
     const endpoint = isCsb ? 'soils-csb' : 'soils'
     let cancelled = false
 
