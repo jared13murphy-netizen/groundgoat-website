@@ -2732,19 +2732,25 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // Which cropland / soil source feeds the visual:
   //   • 'cdl'        — USDA CDL 2024+2025 union, per-parcel intersected (default)
   //   • 'worldcover' — ESA WorldCover 2021 raw cropland polygons at 10 m
-  //   • 'ssurgo'     — SSURGO mukey polygons coloured Land ID-style
+  //   • 'ssurgo'     — SSURGO mukey polygons clipped to FSA CLU + ≥65% CDL coverage
+  //   • 'ssurgo_csb' — SSURGO clipped to FSA CLU + ≥65% CSB cropland coverage
+  //                    (uses USDA Crop Sequence Boundaries instead of CDL for
+  //                     the classification; should exclude waterway / house FSAs
+  //                     that the CDL rule misclassifies as tillable)
   // Persisted in localStorage so the operator's last choice sticks
   // across reloads. WorldCover + SSURGO blobs are lazy-loaded.
-  const [tillableSource, setTillableSource] = useState<'cdl' | 'worldcover' | 'ssurgo'>(() => {
+  const [tillableSource, setTillableSource] = useState<'cdl' | 'worldcover' | 'ssurgo' | 'ssurgo_csb'>(() => {
     try {
       const v = localStorage.getItem('gg_tillable_source')
       if (v === 'worldcover') return 'worldcover'
       if (v === 'ssurgo') return 'ssurgo'
+      if (v === 'ssurgo_csb') return 'ssurgo_csb'
       return 'cdl'
     } catch { return 'cdl' }
   })
   const worldcoverLoadedRef = useRef<boolean>(false)
   const ssurgoLoadedRef = useRef<boolean>(false)
+  const ssurgoCsbLoadedRef = useRef<boolean>(false)
   // Cache of the latest viewport's enrichment payload, keyed loosely
   // by bbox-rounded so we don't refetch on micro-pans.
   const enrichmentLastBboxRef = useRef<string>('')
@@ -2882,7 +2888,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         type: 'fill',
         source: SRC_SOILS,
         layout: {
-          visibility: (enrichmentOverlay && tillableSource === 'ssurgo') ? 'visible' : 'none',
+          visibility: (enrichmentOverlay && (tillableSource === 'ssurgo' || tillableSource === 'ssurgo_csb')) ? 'visible' : 'none',
         },
         paint: {
           // Hash mukey → HSL hue in a warm range (30°-65°: yellow,
@@ -2913,7 +2919,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         type: 'line',
         source: SRC_SOILS,
         layout: {
-          visibility: (enrichmentOverlay && tillableSource === 'ssurgo') ? 'visible' : 'none',
+          visibility: (enrichmentOverlay && (tillableSource === 'ssurgo' || tillableSource === 'ssurgo_csb')) ? 'visible' : 'none',
         },
         paint: {
           'line-color': 'rgba(40, 30, 10, 0.65)',
@@ -2927,7 +2933,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         type: 'symbol',
         source: SRC_SOILS,
         layout: {
-          visibility: (enrichmentOverlay && tillableSource === 'ssurgo') ? 'visible' : 'none',
+          visibility: (enrichmentOverlay && (tillableSource === 'ssurgo' || tillableSource === 'ssurgo_csb')) ? 'visible' : 'none',
           'text-field': ['coalesce', ['get', 'musym'], ''],
           'text-font': ['Open Sans Bold'],
           'text-size': [
@@ -3064,7 +3070,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
     const cdlVis = (enrichmentOverlay && tillableSource === 'cdl') ? 'visible' : 'none'
     const wcVis  = (enrichmentOverlay && tillableSource === 'worldcover') ? 'visible' : 'none'
-    const soilsVis = (enrichmentOverlay && tillableSource === 'ssurgo') ? 'visible' : 'none'
+    const soilsVis = (enrichmentOverlay && (tillableSource === 'ssurgo' || tillableSource === 'ssurgo_csb')) ? 'visible' : 'none'
     for (const [id, v] of [
       ['parcel-enrichment-tillable-fill', cdlVis],
       ['parcel-enrichment-labels-text', cdlVis],
@@ -3304,18 +3310,42 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   }, [tillableSource, isEnrichmentPilot, mapLoaded])
 
   // Lazy-fetch the SSURGO (Land ID-style) soil polygons the first
-  // time the data-source toggle hits 'ssurgo'. Same lazy-load
-  // pattern as the WorldCover blob above; the soils blob is the
-  // heaviest of the three (~10-15MB gzipped) since SSURGO ships
-  // 20K+ vector polygons per county.
+  // time the data-source toggle hits 'ssurgo' OR 'ssurgo_csb'.
+  // Same lazy-load pattern as the WorldCover blob above; the soils
+  // blob is the heaviest of the three (~10-15MB gzipped) since
+  // SSURGO ships 20K+ vector polygons per county.
+  //
+  // 'ssurgo'     → /soils endpoint (FSA + ≥65% CDL coverage)
+  // 'ssurgo_csb' → /soils-csb endpoint (FSA + ≥65% CSB cropland
+  //                coverage, with non-cropland CSB sub-regions
+  //                punched as smooth internal holes — should
+  //                exclude waterway / house FSAs that CDL keeps)
+  //
+  // The two variants share the same MapLibre source + layers, so
+  // switching between them only re-fetches; layers stay registered.
   useEffect(() => {
     if (!isEnrichmentPilot) return
-    if (tillableSource !== 'ssurgo') return
-    if (ssurgoLoadedRef.current) return
+    if (tillableSource !== 'ssurgo' && tillableSource !== 'ssurgo_csb') return
+    const isCsb = tillableSource === 'ssurgo_csb'
+    const loadedRef = isCsb ? ssurgoCsbLoadedRef : ssurgoLoadedRef
+    if (loadedRef.current) {
+      // Already fetched this variant — flip the source data to the
+      // cached copy and bail. Since we share one MapLibre source,
+      // we need to re-setData when switching back to a previously
+      // loaded variant. The cached features are kept on the ref.
+      const map = mapRef.current
+      const cached = (loadedRef as any).cachedFeatures
+      if (map && cached) {
+        const src = map.getSource('parcel-enrichment-ssurgo-soils') as any
+        if (src?.setData) src.setData({ type: 'FeatureCollection', features: cached })
+      }
+      return
+    }
     const map = mapRef.current
     if (!map || !mapLoaded) return
 
     const COUNTIES = ['IL/Hancock', 'IA/Lee', 'MO/Clark']
+    const endpoint = isCsb ? 'soils-csb' : 'soils'
     let cancelled = false
 
     ;(async () => {
@@ -3323,7 +3353,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       try {
         const results = await Promise.all(COUNTIES.map(async key => {
           const res = await fetchWithAuth(
-            `${API_URL}/api/map/county-overlay/${key}/soils`
+            `${API_URL}/api/map/county-overlay/${key}/${endpoint}`
           )
           if (!res.ok) return []
           const data = await res.json()
@@ -3334,7 +3364,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       if (cancelled) return
       const src = map.getSource('parcel-enrichment-ssurgo-soils') as any
       if (src?.setData) src.setData({ type: 'FeatureCollection', features: out })
-      ssurgoLoadedRef.current = true
+      loadedRef.current = true
+      ;(loadedRef as any).cachedFeatures = out
     })()
 
     return () => { cancelled = true }
@@ -4343,14 +4374,15 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         </button>
       )}
 
-      {/* Cropland / soil data-source toggle. Cycles through three
-          modes: CDL (USDA 30m cropland) → WorldCover (ESA 10m
-          cropland) → SSURGO (Land ID-style mukey polygons). */}
+      {/* Cropland / soil data-source toggle. Cycles through four
+          modes: CDL → WorldCover → SSURGO (FSA + CDL coverage)
+          → SSURGO-CSB (FSA + CSB cropland coverage). */}
       {isEnrichmentPilot && enrichmentOverlay && (
         <button
           onClick={() => setTillableSource(s =>
             s === 'cdl' ? 'worldcover'
             : s === 'worldcover' ? 'ssurgo'
+            : s === 'ssurgo' ? 'ssurgo_csb'
             : 'cdl'
           )}
           style={{
@@ -4364,7 +4396,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             border: 'none',
             backgroundColor:
               tillableSource === 'worldcover' ? '#0ea674'
-              : tillableSource === 'ssurgo' ? '#a8762e'  // earth tone
+              : tillableSource === 'ssurgo' ? '#a8762e'      // earth tone
+              : tillableSource === 'ssurgo_csb' ? '#7b3f00'  // darker earth (CSB variant)
               : '#22a050',
             color: '#fff',
             fontSize: 12,
@@ -4375,10 +4408,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             gap: 6,
             boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
           }}
-          title="Cycle data source: USDA CDL 30m → ESA WorldCover 10m → SSURGO mukey polygons (Land ID-style)"
+          title="Cycle data source: USDA CDL 30m → ESA WorldCover 10m → SSURGO (FSA+CDL) → SSURGO (FSA+CSB)"
         >
           {tillableSource === 'worldcover' ? 'WorldCover'
             : tillableSource === 'ssurgo' ? 'Soil Types'
+            : tillableSource === 'ssurgo_csb' ? 'Soils CSB'
             : 'CDL'}
         </button>
       )}
