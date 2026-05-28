@@ -3183,6 +3183,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
     const COUNTIES: Array<{ state: string; county: string }> = [
       { state: 'IL', county: 'Hancock' },
+      { state: 'IL', county: 'Adams'   },
       { state: 'IA', county: 'Lee'     },
       { state: 'MO', county: 'Clark'   },
     ]
