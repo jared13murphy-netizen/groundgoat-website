@@ -2742,7 +2742,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const [tillableSource, setTillableSource] = useState<'cdl' | 'worldcover' | 'ssurgo' | 'ssurgo_csb'>(() => {
     try {
       const v = localStorage.getItem('gg_tillable_source')
-      if (v === 'worldcover') return 'worldcover'
+      // WorldCover toggle was removed from the cycle (slow lazy-load,
+      // not the visual we want). If a user has it persisted, reset
+      // to CDL on next load. The 'worldcover' type stays in the union
+      // so the underlying WorldCover layers / visibility checks still
+      // compile — they just never become visible because the toggle
+      // can't land on 'worldcover' anymore.
       if (v === 'ssurgo') return 'ssurgo'
       if (v === 'ssurgo_csb') return 'ssurgo_csb'
       return 'cdl'
@@ -4374,14 +4379,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         </button>
       )}
 
-      {/* Cropland / soil data-source toggle. Cycles through four
-          modes: CDL → WorldCover → SSURGO (FSA + CDL coverage)
-          → SSURGO-CSB (FSA + CSB cropland coverage). */}
+      {/* Cropland / soil data-source toggle. Cycles through three
+          modes (WorldCover removed — slow lazy-load, not the visual
+          we want): CDL → SSURGO (FSA + CDL coverage) → SSURGO-CSB
+          (FSA + CSB cropland coverage). */}
       {isEnrichmentPilot && enrichmentOverlay && (
         <button
           onClick={() => setTillableSource(s =>
-            s === 'cdl' ? 'worldcover'
-            : s === 'worldcover' ? 'ssurgo'
+            s === 'cdl' ? 'ssurgo'
             : s === 'ssurgo' ? 'ssurgo_csb'
             : 'cdl'
           )}
@@ -4395,8 +4400,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             borderRadius: 6,
             border: 'none',
             backgroundColor:
-              tillableSource === 'worldcover' ? '#0ea674'
-              : tillableSource === 'ssurgo' ? '#a8762e'      // earth tone
+              tillableSource === 'ssurgo' ? '#a8762e'        // earth tone
               : tillableSource === 'ssurgo_csb' ? '#7b3f00'  // darker earth (CSB variant)
               : '#22a050',
             color: '#fff',
@@ -4408,10 +4412,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             gap: 6,
             boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
           }}
-          title="Cycle data source: USDA CDL 30m → ESA WorldCover 10m → SSURGO (FSA+CDL) → SSURGO (FSA+CSB)"
+          title="Cycle data source: USDA CDL 30m → SSURGO (FSA+CDL) → SSURGO (FSA+CSB)"
         >
-          {tillableSource === 'worldcover' ? 'WorldCover'
-            : tillableSource === 'ssurgo' ? 'Soil Types'
+          {tillableSource === 'ssurgo' ? 'Soil Types'
             : tillableSource === 'ssurgo_csb' ? 'Soils CSB'
             : 'CDL'}
         </button>
