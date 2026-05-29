@@ -1000,28 +1000,24 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         if (cancelled) return
         const admin = me?.account_type === 'groundgoat_admin'
         setIsAdmin(admin)
-        if (!admin) return
-        // Tile-server lists files like ["WI.pmtiles","FL.pmtiles"].
-        // Strip the extension to get the state codes. CORS is allowed
-        // on the tile server so this works cross-origin without a token.
-        const tileRes = await fetch(`${TILES_BASE_URL}/`).catch(() => null)
-        if (!tileRes || !tileRes.ok) return
-        const tileData = await tileRes.json()
-        if (cancelled) return
-        const states: string[] = (tileData?.available ?? [])
-          .filter((f: string) => typeof f === 'string' && f.endsWith('.pmtiles'))
-          .map((f: string) => f.replace(/\.pmtiles$/, ''))
-          .filter((s: string) => /^[A-Z]{2}$/.test(s))
-        setAdminParcelStates(states)
-        try {
-          localStorage.setItem('gg_admin_parcel_states', JSON.stringify(states))
-        } catch {/* ignore */}
+        // The tile-server discovery fetch that used to live here has
+        // been removed. It populated `adminParcelStates`, which fed
+        // the "Show Parcels" admin toggle — but that toggle has been
+        // force-OFF for months (JSX gate `false && isAdmin && ...` in
+        // the render below, since the always-on Regrid layer
+        // superseded the state_parcels pmtiles overlay). Calling
+        // `fetch(${TILES_BASE_URL}/)` on every admin map load was
+        // therefore dead work, and the tile server's index route
+        // doesn't serve CORS headers — so the call produced a noisy
+        // console error on every admin session for no functional
+        // reason. If we ever re-enable the pmtiles overlay, restore
+        // this block AND fix CORS on the tile server.
       } catch {
-        /* not fatal — overlay just won't appear */
+        /* not fatal */
       }
     })()
     return () => { cancelled = true }
-  }, [TILES_BASE_URL])
+  }, [])
 
   // Sync external filter open state (portal mode)
   useEffect(() => {
