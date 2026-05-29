@@ -1436,7 +1436,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
   }
 
-  const applyFilters = async () => {
+  const applyFilters = () => {
     filtersRef.current = filters
     // Clear cached data so it refetches with new filters
     loadedCellsRef.current = new Set()
@@ -1449,28 +1449,51 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     stateMarkersRef.current = []
     const map = mapRef.current
 
-    // If county filter is set, fitBounds to the chosen counties first
-    // so the user sees the area they just narrowed to. Single county =
-    // zoom into that one; multiple = encompass all of them. Falls
-    // through to current-viewport behavior on any failure (network,
-    // missing bbox data for a county) so Apply still does SOMETHING.
+    // If county filter is set, animate the map to the selected
+    // county/counties so the user sees what they just narrowed to.
+    // Uses the existing countyCentroids dataset (every Midwest county
+    // has a centroid) — no backend roundtrip. Single county = easeTo
+    // at a county-level zoom; multiple = fitBounds over their
+    // centroids with padding so they all fit on screen.
     let targetBounds: { min_lat: number; max_lat: number; min_lng: number; max_lng: number } | null = null
     if (map && filters.countyFilters.length > 0 && filters.stateFilter) {
-      try {
-        const params = new URLSearchParams({ state: filters.stateFilter })
-        filters.countyFilters.forEach(c => params.append('counties', c))
-        const res = await fetchWithAuth(`${API_URL}/api/counties/bbox?${params.toString()}`)
-        if (res.ok) {
-          const data = await res.json()
-          if (data?.union_bbox) {
-            const [w, s, e, n] = data.union_bbox
-            map.fitBounds([[w, s], [e, n]], { padding: 50, duration: 800 })
-            targetBounds = { min_lat: s, max_lat: n, min_lng: w, max_lng: e }
-          }
+      // Picked counties may belong to different states (rare but
+      // possible via Goat Search). Build "County, ST" keys per the
+      // countyCentroids file format.
+      const states = filters.stateFilter.split(',').filter(Boolean)
+      const lookups: [number, number][] = []
+      for (const county of filters.countyFilters) {
+        for (const st of states) {
+          const key = `${county}, ${st}`
+          const c = countyCentroids[key]
+          if (c) { lookups.push(c); break }  // [lat, lng]
         }
-      } catch { /* network failure — fall through to existing behavior */ }
+      }
+      if (lookups.length === 1) {
+        // Single county — easeTo the centroid at a zoom level that
+        // shows the typical county (~30-mile span) with margin.
+        const [lat, lng] = lookups[0]
+        map.easeTo({ center: [lng, lat], zoom: 10, duration: 1000 })
+      } else if (lookups.length > 1) {
+        // Multiple counties — fitBounds across their centroids. The
+        // centroids are interior points so fitBounds with padding
+        // keeps each county's edges on screen.
+        let minLng = 180, minLat = 90, maxLng = -180, maxLat = -90
+        for (const [lat, lng] of lookups) {
+          if (lng < minLng) minLng = lng
+          if (lat < minLat) minLat = lat
+          if (lng > maxLng) maxLng = lng
+          if (lat > maxLat) maxLat = lat
+        }
+        map.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 80, duration: 1000 })
+        targetBounds = { min_lat: minLat, max_lat: maxLat, min_lng: minLng, max_lng: maxLng }
+      }
     }
 
+    // Refetch tracts for whichever viewport the user is about to see.
+    // For the single-county case we let the moveend handler do it
+    // (the easeTo will fire moveend). For multi-county and the
+    // no-county-filter case we kick a manual load here.
     if (!targetBounds && map) {
       const bounds = map.getBounds()
       targetBounds = {
@@ -1480,10 +1503,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         max_lng: bounds.getEast(),
       }
     }
+    if (targetBounds) loadTractsForBounds(targetBounds)
 
-    if (targetBounds) {
-      loadTractsForBounds(targetBounds)
-    }
     setFilterOpen(false)
     onFiltersApplied?.({ stateFilter: filters.stateFilter, countyFilters: filters.countyFilters })
   }
