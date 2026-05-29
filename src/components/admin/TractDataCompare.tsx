@@ -161,6 +161,22 @@ export default function TractDataCompare({
       setNumSaving(false)
     }
   }
+  // Local copy so the radios feel snappy even before the parent
+  // commits the change.
+  //
+  // IMPORTANT: this hook MUST be declared before the early-return
+  // below. Previously it lived after the `if (!hasNewFormat) return ...`
+  // block, which violated Rules of Hooks: if the same component
+  // instance flipped between old-format and new-format renders (which
+  // happens during SSR→client hydration when scraped/computed arrive
+  // asynchronously), the hook count changed between renders and React
+  // threw error #310 "Rendered more hooks than during the previous
+  // render." It also caused hydration mismatches (#418/#425/#423)
+  // because server and client rendered different DOM shapes. The fix
+  // is to ALWAYS call every hook on every render; the conditional
+  // early-return now happens AFTER all hooks have been declared.
+  const [local, setLocal] = useState<Chosen>(chosen || {})
+
   // Backwards compat: if neither scraped nor computed is present, this
   // is an old-format staging row. Render single-source view from the
   // fallback tract dict.
@@ -180,10 +196,6 @@ export default function TractDataCompare({
       </div>
     )
   }
-
-  // Local copy so the radios feel snappy even before the parent
-  // commits the change.
-  const [local, setLocal] = useState<Chosen>(chosen || {})
 
   const pick = (field: keyof Chosen, src: 'scraped' | 'computed') => {
     const next = { ...local, [field]: src }
