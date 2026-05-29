@@ -1262,9 +1262,23 @@ export default function AdminPrivateTreatyStagingPage() {
                               <p className="text-[11px] mt-0.5 text-gray-700">
                                 Drawn: {(info as any).__polySumAc.toFixed(2)} ac
                                 {' · '}
-                                <span className={Math.abs((info as any).__acresDeltaPct) > 5 ? 'font-semibold' : ''}>
+                                {/* deltaPct is null whenever scrapedAc isn't a
+                                    positive number (e.g. listing.acres_listed
+                                    arrived as "0", "-5", or any string that
+                                    parseFloat coerces to ≤ 0). Previously this
+                                    block called .toFixed(1) on the null and
+                                    crashed the entire admin page with
+                                    "Application error: a client-side exception
+                                    has occurred." Guard each accessor
+                                    independently so the absolute delta still
+                                    renders without a percent. */}
+                                <span className={(info as any).__acresDeltaPct != null && Math.abs((info as any).__acresDeltaPct) > 5 ? 'font-semibold' : ''}>
                                   {(info as any).__acresDelta >= 0 ? '+' : ''}{(info as any).__acresDelta.toFixed(2)}
-                                  {' ('}{(info as any).__acresDeltaPct >= 0 ? '+' : ''}{(info as any).__acresDeltaPct.toFixed(1)}%)
+                                  {(info as any).__acresDeltaPct != null && (
+                                    <>
+                                      {' ('}{(info as any).__acresDeltaPct >= 0 ? '+' : ''}{(info as any).__acresDeltaPct.toFixed(1)}%)
+                                    </>
+                                  )}
                                 </span>
                               </p>
                             )}
