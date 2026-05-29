@@ -26,6 +26,11 @@ import GroundTruthPanel from '@/components/portal/GroundTruthPanel'
 import NdviPanel from '@/components/portal/NdviPanel'
 import { countyCentroids } from '@/data/countyCentroids'
 import { STATE_ABBR, STATE_BOUNDS } from './mapConstants'
+import {
+  buildRegridParcelFilter,
+  REGRID_PARCEL_LAYER_IDS,
+  type RegridFilterInput,
+} from '@/lib/regridParcelFilter'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -574,119 +579,31 @@ function buildRegridSaleDotFilter(filters: FilterState, minAcres: number): any[]
 }
 
 /**
- * Build a MapLibre filter expression for the Regrid parcel fill / line /
- * label layers. Unlike buildRegridSaleDotFilter (which always requires
- * saleprice > 0), this one applies ONLY the filter-panel constraints
- * that map to fields present in the Regrid vector tile:
- *   • acreageMin / acreageMax  →  ll_gisacre (fallback gisacre)
- *   • stateFilter              →  state2
- *   • countyFilters            →  county
- *   • dateRange + dateFrom/To  →  saledate (only when a date filter is set)
- *   • salePriceMin/Max         →  saleprice
- *   • statuses includes 'sold' →  saleprice > 0
- *
- * Filters that require a DB lookup (soilRatingMin/Max, pctTillableMin/Max,
- * status=live/listed, township) are intentionally NOT included here —
- * they're applied via the UUID-list endpoint /api/regrid/filter-uuids
- * in a separate effect (Phase E of project_regrid_tile_filterability_plan.md).
- *
- * Returns `true` when no tile-native filter is active so MapLibre shows
- * every parcel by default.
+ * Map this surface's filter state into the shared RegridFilterInput
+ * shape, so the universal builder in src/lib/regridParcelFilter.ts
+ * produces the MapLibre expression. Single source of truth for filter
+ * LOGIC across all 4 maps; this is the per-surface adapter.
  */
-function buildRegridParcelFilter(filters: FilterState): any {
-  const parts: any[] = ['all']
-
-  // Acreage. Use ll_gisacre when present (the Regrid "Loveland Lookout"
-  // canonical value), fall back to gisacre. Same pattern as the
-  // sale-dot filter — coalesce doesn't work here because
-  // to-number(null) = 0, not null.
-  const acresExpr: any = [
-    'case',
-    ['has', 'll_gisacre'], ['to-number', ['get', 'll_gisacre']],
-    ['has', 'gisacre'], ['to-number', ['get', 'gisacre']],
-    -1,
-  ]
+function webExploreFiltersToRegrid(filters: FilterState): RegridFilterInput {
+  const { from, to, upcomingOnly } = resolveDateWindow(filters)
   const acresMin = filters.acreageMin ? parseFloat(filters.acreageMin) : NaN
   const acresMax = filters.acreageMax ? parseFloat(filters.acreageMax) : NaN
-  if (Number.isFinite(acresMin)) parts.push(['>=', acresExpr, acresMin])
-  if (Number.isFinite(acresMax)) parts.push(['<=', acresExpr, acresMax])
-
-  // State (Regrid stores the 2-letter abbreviation in state2). Defensive:
-  // the custom Regrid tile may not include state2 — if absent, let the
-  // parcel through (the map viewport already pans to the chosen state
-  // when the user picks it from the filter panel). Same pattern for
-  // county below.
-  if (filters.stateFilter) {
-    parts.push([
-      'any',
-      ['!', ['has', 'state2']],
-      ['==', ['get', 'state2'], filters.stateFilter],
-    ])
-  }
-
-  // County. Regrid stores lowercase county name. Match any selected.
-  if (filters.countyFilters && filters.countyFilters.length > 0) {
-    parts.push([
-      'any',
-      ['!', ['has', 'county']],
-      [
-        'match',
-        ['downcase', ['coalesce', ['get', 'county'], '']],
-        filters.countyFilters.map(c => c.toLowerCase()),
-        true,
-        false,
-      ],
-    ])
-  }
-
-  // Sale-date window. Reuse the same resolveDateWindow helper so the
-  // semantics match what the sale-dot layer uses (upcoming, last X
-  // months, custom range, all). When `upcomingOnly` is true the
-  // Regrid layer should hide every parcel — recorded past sales
-  // can't match future-dated auctions. When `from`/`to` are set
-  // we constrain saledate to that window AND require saleprice > 0
-  // (no point keeping non-sale parcels visible in a date-narrowed view).
-  const { from, to, upcomingOnly } = resolveDateWindow(filters)
-  if (upcomingOnly) return ['==', ['literal', 1], ['literal', 0]]
-  if (from || to) {
-    parts.push(['has', 'saleprice'])
-    parts.push(['>', ['to-number', ['get', 'saleprice']], 0])
-    if (from) {
-      parts.push(['>=', ['coalesce', ['get', 'saledate'], ''], from])
-    }
-    if (to) {
-      parts.push(['<=', ['coalesce', ['get', 'saledate'], '9999-12-31'], to])
-    }
-  }
-
-  // Sale price min/max. Implies a sale, so add the saleprice > 0 guard
-  // unless we already added it via the date window above.
   const priceMin = filters.salePriceMin ? parseFloat(filters.salePriceMin) : NaN
   const priceMax = filters.salePriceMax ? parseFloat(filters.salePriceMax) : NaN
-  if (Number.isFinite(priceMin) || Number.isFinite(priceMax)) {
-    if (!from && !to) {
-      parts.push(['has', 'saleprice'])
-      parts.push(['>', ['to-number', ['get', 'saleprice']], 0])
-    }
-    if (Number.isFinite(priceMin)) {
-      parts.push(['>=', ['to-number', ['get', 'saleprice']], priceMin])
-    }
-    if (Number.isFinite(priceMax)) {
-      parts.push(['<=', ['to-number', ['get', 'saleprice']], priceMax])
-    }
+  return {
+    acresMin: Number.isFinite(acresMin) ? acresMin : null,
+    acresMax: Number.isFinite(acresMax) ? acresMax : null,
+    salePriceMin: Number.isFinite(priceMin) ? priceMin : null,
+    salePriceMax: Number.isFinite(priceMax) ? priceMax : null,
+    saleDateFrom: from || null,
+    saleDateTo: to || null,
+    upcomingOnly,
+    stateAbbr: filters.stateFilter || null,
+    countyNames: filters.countyFilters && filters.countyFilters.length > 0
+      ? filters.countyFilters
+      : null,
+    soldOnly: filters.statuses?.includes('sold') || false,
   }
-
-  // Status filter — user-confirmed 2026-05-29: status=sold narrows
-  // Regrid to parcels with saleprice > 0. status=live/listed is
-  // DB-native (handled by the UUID-list endpoint elsewhere).
-  if (filters.statuses && filters.statuses.includes('sold')) {
-    if (!from && !to && !Number.isFinite(priceMin) && !Number.isFinite(priceMax)) {
-      parts.push(['has', 'saleprice'])
-      parts.push(['>', ['to-number', ['get', 'saleprice']], 0])
-    }
-  }
-
-  return parts.length === 1 ? true : parts
 }
 
 interface ExploreMapProps {
@@ -2884,8 +2801,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded) return
-    const expr = buildRegridParcelFilter(filters)
-    for (const id of ['regrid-parcels-fill', 'regrid-parcels-line', 'regrid-parcels-label']) {
+    const expr = buildRegridParcelFilter(webExploreFiltersToRegrid(filters))
+    for (const id of REGRID_PARCEL_LAYER_IDS) {
       if (map.getLayer(id)) {
         try { map.setFilter(id, expr as any) } catch {/* layer torn down */}
       }

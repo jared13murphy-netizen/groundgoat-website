@@ -9,6 +9,12 @@ import { countyCentroids } from '@/data/countyCentroids'
 import { normalizeTownship } from '../../utils/normalizeTownship'
 import Tract3DModal from '@/components/Tract3DModal'
 import { addRegridLayer, fetchRegridConfig, type RegridConfig } from './regridLayer'
+import {
+  buildRegridParcelFilter,
+  REGRID_PARCEL_LAYER_IDS,
+  type RegridFilterInput,
+} from '@/lib/regridParcelFilter'
+import type { FilterState as CompFilterState } from '@/components/ComparablesFilterPanel'
 
 interface ComparablePin {
   id: string
@@ -73,6 +79,53 @@ interface ComparablesMapProps {
   selectedIds?: Set<string>
   toggleSelection?: (item: any) => void
   visibleIds?: Set<string>
+  /** When provided, the Regrid parcel layer (fill+line+label) is
+   *  also filtered by tile-native fields (acreage, sale date, sale
+   *  price, sold status). Mirrors the Web Explore behavior. */
+  filters?: CompFilterState
+}
+
+
+/**
+ * Adapter — maps the Comparables filter state into the universal
+ * RegridFilterInput shape consumed by buildRegridParcelFilter.
+ * Surface-specific because each map's filter UI is different.
+ */
+function compFiltersToRegrid(
+  filters: CompFilterState | undefined,
+  subjectState: string,
+): RegridFilterInput {
+  if (!filters) return {}
+  // Map the dateRange preset into from/to. Mirrors what Web Explore's
+  // resolveDateWindow does — kept local to avoid pulling in
+  // ExploreMap's unrelated dependencies.
+  let saleDateFrom: string | null = null
+  const today = new Date()
+  if (filters.dateRange && filters.dateRange !== 'all' && filters.dateRange !== 'upcoming') {
+    const months = filters.dateRange === '1month' ? 1
+      : filters.dateRange === '6months' ? 6
+      : filters.dateRange === '1year' ? 12
+      : filters.dateRange === '18months' ? 18
+      : filters.dateRange === '2years' ? 24
+      : 0
+    if (months > 0) {
+      const from = new Date(today)
+      from.setMonth(today.getMonth() - months)
+      saleDateFrom = from.toISOString().split('T')[0]
+    }
+  }
+  const acresMin = filters.acreageMin ? parseFloat(filters.acreageMin) : NaN
+  const acresMax = filters.acreageMax ? parseFloat(filters.acreageMax) : NaN
+  return {
+    acresMin: Number.isFinite(acresMin) ? acresMin : null,
+    acresMax: Number.isFinite(acresMax) ? acresMax : null,
+    saleDateFrom,
+    saleDateTo: null,
+    upcomingOnly: filters.dateRange === 'upcoming',
+    stateAbbr: subjectState || null,
+    countyNames: null,
+    soldOnly: filters.statuses?.includes('sold') || false,
+  }
 }
 
 function getCountyCentroid(county: string, state: string): [number, number] | null {
@@ -109,6 +162,7 @@ export default function ComparablesMap({
   selectedIds = new Set<string>(),
   toggleSelection,
   visibleIds,
+  filters,
 }: ComparablesMapProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
@@ -145,6 +199,29 @@ export default function ComparablesMap({
     })
     return cleanup
   }, [mapReady, regridConfig])
+
+  // Keep the Regrid fill/line/label filter in sync with the comparables
+  // filter panel. Tile-native filters only (acreage, sale date, sold);
+  // DB-native filters (soil rating, % tillable) require the future
+  // /api/regrid/filter-uuids endpoint — see
+  // project_regrid_tile_filterability_plan.md Phase E.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapReady) return
+    const expr = buildRegridParcelFilter(compFiltersToRegrid(filters, subjectState))
+    for (const id of REGRID_PARCEL_LAYER_IDS) {
+      if (map.getLayer(id)) {
+        try { map.setFilter(id, expr as any) } catch {/* layer torn down */}
+      }
+    }
+  }, [
+    mapReady,
+    subjectState,
+    filters?.acreageMin,
+    filters?.acreageMax,
+    filters?.dateRange,
+    filters?.statuses,
+  ])
 
   useEffect(() => {
     if (!mapContainerRef.current) return

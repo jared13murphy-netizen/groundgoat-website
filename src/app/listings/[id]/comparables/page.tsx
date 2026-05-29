@@ -579,6 +579,7 @@ export default function ComparablesPage({ params }: { params: { id: string } }) 
                 selectedIds={selectedIds}
                 toggleSelection={toggleSelection}
                 visibleIds={visibleIds}
+                filters={filters}
               />
               {!loadedFullState && (
                 <div className="flex justify-center mt-4">
