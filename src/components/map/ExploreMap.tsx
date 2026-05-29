@@ -611,19 +611,31 @@ function buildRegridParcelFilter(filters: FilterState): any {
   if (Number.isFinite(acresMin)) parts.push(['>=', acresExpr, acresMin])
   if (Number.isFinite(acresMax)) parts.push(['<=', acresExpr, acresMax])
 
-  // State (Regrid stores the 2-letter abbreviation in state2).
+  // State (Regrid stores the 2-letter abbreviation in state2). Defensive:
+  // the custom Regrid tile may not include state2 — if absent, let the
+  // parcel through (the map viewport already pans to the chosen state
+  // when the user picks it from the filter panel). Same pattern for
+  // county below.
   if (filters.stateFilter) {
-    parts.push(['==', ['get', 'state2'], filters.stateFilter])
+    parts.push([
+      'any',
+      ['!', ['has', 'state2']],
+      ['==', ['get', 'state2'], filters.stateFilter],
+    ])
   }
 
   // County. Regrid stores lowercase county name. Match any selected.
   if (filters.countyFilters && filters.countyFilters.length > 0) {
     parts.push([
-      'match',
-      ['downcase', ['coalesce', ['get', 'county'], '']],
-      filters.countyFilters.map(c => c.toLowerCase()),
-      true,
-      false,
+      'any',
+      ['!', ['has', 'county']],
+      [
+        'match',
+        ['downcase', ['coalesce', ['get', 'county'], '']],
+        filters.countyFilters.map(c => c.toLowerCase()),
+        true,
+        false,
+      ],
     ])
   }
 
