@@ -2961,9 +2961,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         minzoom: 13,
       })
     }
-    // FSA 2008 Common Land Unit field outlines — red lines, no fill.
-    // Sits on TOP of the tillable fill so individual fields are
-    // visible inside each parcel, matching the working prototype map.
+    // FSA 2008 Common Land Unit field outlines.
+    // Kept as an invisible layer so the source data stays loaded for any
+    // downstream consumer, but the red lines are no longer drawn on the
+    // map (user-requested 2026-05-29). The actual field boundaries are
+    // still used server-side to clip the soil polygons before bake.
     if (!map.getLayer(LYR_FSA_LINE)) {
       map.addLayer({
         id: LYR_FSA_LINE,
@@ -2973,7 +2975,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         paint: {
           'line-color': '#d63333',
           'line-width': 1.0,
-          'line-opacity': 0.85,
+          'line-opacity': 0,
         },
       })
     }
