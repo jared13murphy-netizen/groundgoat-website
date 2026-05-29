@@ -2238,7 +2238,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     if (!map || !mapLoaded || !regridConfig?.tile_url_template) return
 
     const SOURCE_ID = 'regrid-parcels'
-    const LABEL_SOURCE_ID = 'regrid-parcels-labels'
     const FILL_LAYER = 'regrid-parcels-fill'
     const LINE_LAYER = 'regrid-parcels-line'
     const LABEL_LAYER = 'regrid-parcels-label'
@@ -2305,31 +2304,17 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       },
     }, beforeId)
 
-    // Label dedup source. Holds one Point feature per ll_uuid,
-    // populated by the refresh pump at the bottom of this effect.
-    // The label layer below binds to THIS source rather than the
-    // vector-tile source, so a parcel that spans multiple tiles
-    // gets one centered label instead of N piece-centroids.
-    //
-    // Defensive vs. the earlier (reverted) dedup approach: the pump
-    // NEVER wipes this source when querySourceFeatures comes back
-    // empty mid-pan — that was the prod failure mode last time.
-    // Stale entries for parcels no longer on screen are harmless
-    // (MapLibre culls them by viewport before draw).
-    if (!map.getSource(LABEL_SOURCE_ID)) {
-      map.addSource(LABEL_SOURCE_ID, {
-        type: 'geojson',
-        data: { type: 'FeatureCollection', features: [] },
-      })
-    }
-
-    // Owner + acres label — bound to the deduped GeoJSON source
-    // populated by the refresh pump below. One label per ll_uuid,
-    // anchored at the area-weighted centroid of all clipped pieces.
+    // Owner + acres label — bound DIRECTLY to the Regrid vector tile
+    // source. Multi-tile parcels will get N labels (one per clipped
+    // piece), which is the trade-off for reliable rendering. The
+    // earlier dedup-via-GeoJSON-source approach kept silently
+    // dropping labels in prod and we've spent too long on it; one
+    // working label per piece beats zero labels everywhere.
     map.addLayer({
       id: LABEL_LAYER,
       type: 'symbol',
-      source: LABEL_SOURCE_ID,
+      source: SOURCE_ID,
+      'source-layer': sourceLayer,
       minzoom: REGRID_MIN_ZOOM,
       layout: {
         // Four segments: owner (bold) → acres → $/acre → sale date.
@@ -2538,102 +2523,26 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     map.on('mouseleave', FILL_LAYER, onLeave)
     map.on('click', FILL_LAYER, onClick)
 
-    // ─── Defensive label refresh pump ───────────────────────────
-    // Persistent in-memory index keyed by ll_uuid. We ONLY add or
-    // update entries on each refresh — never clear — so a transient
-    // empty querySourceFeatures result (common during tile loading
-    // races) cannot blank the labels on the map. That was the prod
-    // failure mode that killed the previous dedup attempt.
-    const labelIndex = new Map<string, any>()
-
-    const refreshLabels = () => {
-      try {
-        if (!map.getStyle()) return
-        if (map.getZoom() < REGRID_MIN_ZOOM) return  // label layer hidden by minzoom
-        const feats = map.querySourceFeatures(SOURCE_ID, { sourceLayer })
-        if (!feats || feats.length === 0) return     // tile race — keep prior labels
-        const groups = new Map<string, any[]>()
-        for (const f of feats) {
-          const uuid = (f.properties as any)?.ll_uuid
-          if (!uuid) continue
-          const arr = groups.get(uuid)
-          if (arr) arr.push(f)
-          else groups.set(uuid, [f])
-        }
-        let touched = 0
-        groups.forEach((pieces, uuid) => {
-          let totalA = 0, sx = 0, sy = 0
-          for (const f of pieces) {
-            try {
-              const { centroid, area } = _polygonCentroidAndArea(f.geometry as any)
-              if (area > 0) {
-                sx += centroid[0] * area
-                sy += centroid[1] * area
-                totalA += area
-              }
-            } catch { /* skip degenerate piece */ }
-          }
-          if (totalA <= 0) return
-          // Spread properties so the symbol layer's text-field
-          // expression (which uses ll_gisacre / saleprice / etc)
-          // evaluates against the same property bag the vector
-          // tile shipped.
-          labelIndex.set(uuid, {
-            type: 'Feature',
-            geometry: { type: 'Point', coordinates: [sx / totalA, sy / totalA] },
-            properties: { ...(pieces[0].properties as any) },
-          })
-          touched++
-        })
-        if (touched === 0) return  // nothing new — leave source untouched
-        const src = map.getSource(LABEL_SOURCE_ID) as any
-        if (src?.setData) {
-          src.setData({
-            type: 'FeatureCollection',
-            features: Array.from(labelIndex.values()),
-          })
-        }
-      } catch { /* swallow — never let a bad geom kill the pump */ }
-    }
-
-    let refreshTimer: ReturnType<typeof setTimeout> | null = null
-    const scheduleRefresh = () => {
-      if (refreshTimer) return
-      refreshTimer = setTimeout(() => {
-        refreshTimer = null
-        refreshLabels()
-      }, 150)
-    }
-
-    const onSourceData = (e: any) => {
-      if (e?.sourceId === SOURCE_ID && e?.isSourceLoaded) scheduleRefresh()
-    }
-    const onMoveEnd = () => scheduleRefresh()
-    const onIdle = () => scheduleRefresh()
-
-    map.on('sourcedata', onSourceData)
-    map.on('moveend', onMoveEnd)
-    map.on('idle', onIdle)
-    // Bootstrap: tiles may already be loaded by the time this effect
-    // runs (e.g. when re-mounting after a style change).
-    const bootstrapTimer = setTimeout(scheduleRefresh, 500)
+    // NOTE: previously had a dedup pump that wrote one Point per
+    // ll_uuid into a separate GeoJSON source so the label layer
+    // would render only one label per parcel. After multiple bug
+    // rounds where labels silently disappeared on prod, we abandoned
+    // the dedup approach in favour of binding the label symbol
+    // directly to the Regrid vector tile source above. Multi-tile
+    // parcels now show one label per clipped piece — visible
+    // duplicates on a few large parcels are the cost of reliable
+    // rendering on every parcel.
 
     return () => {
       try {
-        if (refreshTimer) clearTimeout(refreshTimer)
-        clearTimeout(bootstrapTimer)
         if (!map.getStyle()) return
         map.off('mousemove', FILL_LAYER, onMove)
         map.off('mouseleave', FILL_LAYER, onLeave)
         map.off('click', FILL_LAYER, onClick)
-        map.off('sourcedata', onSourceData)
-        map.off('moveend', onMoveEnd)
-        map.off('idle', onIdle)
         for (const id of [LABEL_LAYER, LINE_LAYER, FILL_LAYER]) {
           if (map.getLayer(id)) map.removeLayer(id)
         }
         if (map.getSource(SOURCE_ID)) map.removeSource(SOURCE_ID)
-        if (map.getSource(LABEL_SOURCE_ID)) map.removeSource(LABEL_SOURCE_ID)
       } catch {
         // map already torn down
       }
