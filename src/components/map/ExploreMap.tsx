@@ -1436,7 +1436,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
   }
 
-  const applyFilters = () => {
+  const applyFilters = async () => {
     filtersRef.current = filters
     // Clear cached data so it refetches with new filters
     loadedCellsRef.current = new Set()
@@ -1447,16 +1447,42 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     tractMarkersRef.current = []
     stateMarkersRef.current.forEach(m => m.remove())
     stateMarkersRef.current = []
-    // Refetch current viewport
     const map = mapRef.current
-    if (map) {
+
+    // If county filter is set, fitBounds to the chosen counties first
+    // so the user sees the area they just narrowed to. Single county =
+    // zoom into that one; multiple = encompass all of them. Falls
+    // through to current-viewport behavior on any failure (network,
+    // missing bbox data for a county) so Apply still does SOMETHING.
+    let targetBounds: { min_lat: number; max_lat: number; min_lng: number; max_lng: number } | null = null
+    if (map && filters.countyFilters.length > 0 && filters.stateFilter) {
+      try {
+        const params = new URLSearchParams({ state: filters.stateFilter })
+        filters.countyFilters.forEach(c => params.append('counties', c))
+        const res = await fetchWithAuth(`${API_URL}/api/counties/bbox?${params.toString()}`)
+        if (res.ok) {
+          const data = await res.json()
+          if (data?.union_bbox) {
+            const [w, s, e, n] = data.union_bbox
+            map.fitBounds([[w, s], [e, n]], { padding: 50, duration: 800 })
+            targetBounds = { min_lat: s, max_lat: n, min_lng: w, max_lng: e }
+          }
+        }
+      } catch { /* network failure — fall through to existing behavior */ }
+    }
+
+    if (!targetBounds && map) {
       const bounds = map.getBounds()
-      loadTractsForBounds({
+      targetBounds = {
         min_lat: bounds.getSouth(),
         max_lat: bounds.getNorth(),
         min_lng: bounds.getWest(),
         max_lng: bounds.getEast(),
-      })
+      }
+    }
+
+    if (targetBounds) {
+      loadTractsForBounds(targetBounds)
     }
     setFilterOpen(false)
     onFiltersApplied?.({ stateFilter: filters.stateFilter, countyFilters: filters.countyFilters })
