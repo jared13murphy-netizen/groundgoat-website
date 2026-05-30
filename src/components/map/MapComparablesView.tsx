@@ -32,6 +32,36 @@ import Tract3DModal from '@/components/Tract3DModal'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
+// Distinct, flashy highlight color for the SUBJECT tract — intentionally
+// different from the pink sale pins (#E91E8C) so the focal tract always
+// stands out. Shared with the mobile comp map (ComparablesMapView.js).
+const SUBJECT_COLOR = '#0EA5E9'
+
+// Inject the subject-marker pulse keyframes once (module-scoped guard).
+function ensureSubjectPulseCSS() {
+  if (typeof document === 'undefined') return
+  if (document.getElementById('gg-subject-pulse-css')) return
+  const style = document.createElement('style')
+  style.id = 'gg-subject-pulse-css'
+  style.textContent = `
+    .gg-subject-pulse {
+      width: 18px; height: 18px; border-radius: 50%;
+      background: ${SUBJECT_COLOR}; border: 2.5px solid #fff;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.4); position: relative;
+    }
+    .gg-subject-pulse::before {
+      content: ''; position: absolute; inset: -5px; border-radius: 50%;
+      background: ${SUBJECT_COLOR};
+      animation: gg-subject-pulse 1.8s ease-out infinite; z-index: -1;
+    }
+    @keyframes gg-subject-pulse {
+      0%   { transform: scale(0.55); opacity: 0.55; }
+      100% { transform: scale(2.6);  opacity: 0; }
+    }
+  `
+  document.head.appendChild(style)
+}
+
 interface MapSale {
   tract_id: string
   listing_id: string
@@ -123,6 +153,7 @@ const FMT_DATE = (iso: string | null | undefined) => {
 export default function MapComparablesView({ subjectTractId }: { subjectTractId: string }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
+  const subjectMarkerRef = useRef<maplibregl.Marker | null>(null)
   const [mapReady, setMapReady] = useState(false)
   const [data, setData] = useState<MapViewResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -335,23 +366,18 @@ export default function MapComparablesView({ subjectTractId }: { subjectTractId:
       paint: { 'text-color': '#ffffff' },
     })
 
-    // Subject highlight — blue ring at the focal tract
+    // Subject highlight — a pulsing DOM marker in the distinct
+    // SUBJECT_COLOR at the focal tract. A DOM marker (vs a GPU circle
+    // layer) is an HTML overlay that's never collision-hidden or dropped,
+    // so the subject stays visible, and CSS keyframes give it the pulse.
     if (data.subject) {
-      map.addSource('subject', {
-        type: 'geojson',
-        data: { type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [data.subject.lng, data.subject.lat] } } as any,
-      })
-      map.addLayer({
-        id: 'subject-circle',
-        type: 'circle',
-        source: 'subject',
-        paint: {
-          'circle-radius': 16,
-          'circle-color': '#2563EB',
-          'circle-stroke-color': '#ffffff',
-          'circle-stroke-width': 3,
-        },
-      })
+      ensureSubjectPulseCSS()
+      const el = document.createElement('div')
+      el.className = 'gg-subject-pulse'
+      subjectMarkerRef.current?.remove()
+      subjectMarkerRef.current = new maplibregl.Marker({ element: el, anchor: 'center' })
+        .setLngLat([data.subject.lng, data.subject.lat])
+        .addTo(map)
       if (data.subject.polygon_coordinates && data.subject.polygon_coordinates.length >= 3) {
         let sc = data.subject.polygon_coordinates
         if (sc[0][0] !== sc[sc.length - 1][0] || sc[0][1] !== sc[sc.length - 1][1]) {
@@ -365,7 +391,7 @@ export default function MapComparablesView({ subjectTractId }: { subjectTractId:
           id: 'subject-poly-line',
           type: 'line',
           source: 'subject-poly',
-          paint: { 'line-color': '#2563EB', 'line-width': 3, 'line-opacity': 1.0 },
+          paint: { 'line-color': SUBJECT_COLOR, 'line-width': 3.5, 'line-opacity': 1.0 },
         })
       }
     }
@@ -505,6 +531,8 @@ export default function MapComparablesView({ subjectTractId }: { subjectTractId:
       map.off('click', 'parcel-pins-bg' as any, onParcelClick as any)
       map.off('click', 'parcel-pins-plus' as any, onParcelClick as any)
       map.off('click', onMapClick)
+      subjectMarkerRef.current?.remove()
+      subjectMarkerRef.current = null
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapReady, data])
