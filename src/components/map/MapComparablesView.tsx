@@ -569,39 +569,69 @@ export default function MapComparablesView({ subjectTractId }: { subjectTractId:
         )
       } catch { return }
 
-      const seen = new Set<string>()
-      const out: any[] = []
+      // Accumulate each parcel by stable identity (`path`), unioning the
+      // bbox of all its clipped tile fragments so the "+" lands at the
+      // true parcel center — queryRenderedFeatures returns a parcel cut
+      // into one fragment per tile, and a single fragment's centroid sits
+      // off to one side. The keyed map also dedups repeated fragments.
+      const acc = new Map<string, {
+        id: string; minLng: number; minLat: number; maxLng: number; maxLat: number;
+        salePrice: number; saleDate: any; acres: number | null; owner: any;
+      }>()
       for (const f of feats) {
         const props: any = f.properties || {}
         const saleValue = parseSalePrice(props.saleprice)
         if (!(Number.isFinite(saleValue) && saleValue > 0)) continue
+        const acres = num(props.ll_gisacre) ?? num(props.gisacre)
+        // Comp map rule: never pin a parcel under 10 acres. Drops the
+        // dense clusters of tiny town/residential lots and keeps real
+        // farmland comps.
+        if (!(acres != null && acres >= 10)) continue
+        const bb = bboxOf(f.geometry as any)
+        if (!bb) continue
+        const cLng = (bb.minLng + bb.maxLng) / 2
+        const cLat = (bb.minLat + bb.maxLat) / 2
         // `path` is the stable parcel identity on custom Regrid tiles
         // (no ll_uuid present); fall back to ogc_fid / parcelnumb.
         const key = props.path != null ? String(props.path)
           : props.ogc_fid != null ? String(props.ogc_fid)
           : props.parcelnumb != null ? String(props.parcelnumb)
-          : null
-        if (key && seen.has(key)) continue
-        const c = featureCentroid(f.geometry as any)
-        if (!c) continue
+          : `${cLng.toFixed(6)},${cLat.toFixed(6)}`
+        const existing = acc.get(key)
+        if (existing) {
+          existing.minLng = Math.min(existing.minLng, bb.minLng)
+          existing.minLat = Math.min(existing.minLat, bb.minLat)
+          existing.maxLng = Math.max(existing.maxLng, bb.maxLng)
+          existing.maxLat = Math.max(existing.maxLat, bb.maxLat)
+        } else {
+          acc.set(key, {
+            id: key,
+            minLng: bb.minLng, minLat: bb.minLat, maxLng: bb.maxLng, maxLat: bb.maxLat,
+            salePrice: saleValue, saleDate: props.saledate ?? null,
+            acres, owner: props.owner ?? null,
+          })
+        }
+      }
+      const out: any[] = []
+      for (const p of Array.from(acc.values())) {
+        const lng = (p.minLng + p.maxLng) / 2
+        const lat = (p.minLat + p.maxLat) / 2
         // Skip if this parcel sits under an existing tract sale pin.
-        if (tractRings.some(r => pointInRing([c.lng, c.lat], r))) continue
-        if (key) seen.add(key)
-        const acres = num(props.ll_gisacre) ?? num(props.gisacre)
-        const ppa = (acres != null && acres > 0) ? saleValue / acres : null
+        if (tractRings.some(r => pointInRing([lng, lat], r))) continue
+        const ppa = (p.acres != null && p.acres > 0) ? p.salePrice / p.acres : null
         out.push({
           type: 'Feature',
           properties: {
-            id: key || `${c.lng.toFixed(6)},${c.lat.toFixed(6)}`,
+            id: p.id,
             source: 'parcel',
-            lat: c.lat, lng: c.lng,
-            sale_price: saleValue,
-            sale_date: props.saledate ?? null,
-            total_acres: acres,
+            lat, lng,
+            sale_price: p.salePrice,
+            sale_date: p.saleDate,
+            total_acres: p.acres,
             price_per_acre: ppa,
-            owner: props.owner ?? null,
+            owner: p.owner,
           },
-          geometry: { type: 'Point', coordinates: [c.lng, c.lat] },
+          geometry: { type: 'Point', coordinates: [lng, lat] },
         })
       }
       setParcelPins(out)
@@ -737,19 +767,35 @@ function parseSalePrice(sp: any): number {
   return Number(String(sp).replace(/[^0-9.]/g, ''))
 }
 
-// Centroid of a tile feature's outer ring (querySourceFeatures returns
-// geometry in lng/lat). Simple vertex average — accurate enough to place
-// a pin and to dedup against tract polygons.
-function featureCentroid(geom: any): { lng: number; lat: number } | null {
+// Bounding box (lng/lat extent) of a rendered tile feature's geometry.
+// queryRenderedFeatures hands back a parcel CLIPPED into one fragment per
+// rendered tile, so a parcel straddling a tile seam arrives as 2+ pieces.
+// Unioning the bbox of every fragment that shares a `path` recovers the
+// parcel's full extent, so the bbox center is a stable "center of the
+// parcel" even when the polygon is cut by a seam.
+function bboxOf(geom: any): { minLng: number; minLat: number; maxLng: number; maxLat: number } | null {
   if (!geom) return null
-  let ring: number[][] | null = null
-  if (geom.type === 'Point') return { lng: geom.coordinates[0], lat: geom.coordinates[1] }
-  if (geom.type === 'Polygon') ring = geom.coordinates?.[0] || null
-  else if (geom.type === 'MultiPolygon') ring = geom.coordinates?.[0]?.[0] || null
-  if (!ring || ring.length === 0) return null
-  let sx = 0, sy = 0
-  for (const pt of ring) { sx += pt[0]; sy += pt[1] }
-  return { lng: sx / ring.length, lat: sy / ring.length }
+  let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity
+  const visit = (coords: any[]) => {
+    for (const c of coords) {
+      if (typeof c[0] === 'number') {
+        if (c[0] < minLng) minLng = c[0]
+        if (c[0] > maxLng) maxLng = c[0]
+        if (c[1] < minLat) minLat = c[1]
+        if (c[1] > maxLat) maxLat = c[1]
+      } else {
+        visit(c)
+      }
+    }
+  }
+  if (geom.type === 'Point') {
+    const [lng, lat] = geom.coordinates
+    return { minLng: lng, maxLng: lng, minLat: lat, maxLat: lat }
+  }
+  if (!geom.coordinates) return null
+  visit(geom.coordinates)
+  if (!Number.isFinite(minLng)) return null
+  return { minLng, minLat, maxLng, maxLat }
 }
 
 // Ray-casting point-in-polygon for the parcel/tract dedup check.
