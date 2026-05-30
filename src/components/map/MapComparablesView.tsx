@@ -526,15 +526,17 @@ export default function MapComparablesView({ subjectTractId }: { subjectTractId:
 
   // --- Tile-driven parcel "+" detection ------------------------------
   // The Regrid vector TILES carry `saleprice` (and `saledate`) baked in.
-  // We read the rendered tiles via querySourceFeatures, keep parcels with
-  // a real sale (saleprice > 0, parsed in plain JS so we're robust to the
-  // string/int encoding the tiles use), de-dup against tract sales, and
-  // drop a pink "+" at each parcel centroid. The tile only drives
-  // DETECTION — the report content is fetched on tap (onParcelClick).
+  // We read the RENDERED parcel-fill features in the viewport, keep
+  // parcels with a real sale (saleprice > 0, parsed in plain JS so we're
+  // robust to the string/int encoding the tiles use), de-dup against
+  // tract sales, and drop a pink "+" at each parcel centroid. We use
+  // queryRenderedFeatures (not querySourceFeatures) because the rendered
+  // query returns geometry in lng/lat — querySourceFeatures can hand back
+  // tile-local coordinates, which placed the pins off-map. The tile only
+  // drives DETECTION — the report content is fetched on tap (onParcelClick).
   useEffect(() => {
     const map = mapRef.current
-    if (!map || !mapReady || !regridConfig?.source_layer || !data) return
-    const sourceLayer = regridConfig.source_layer
+    if (!map || !mapReady || !data) return
 
     // Tract sale polygons — suppress a parcel pin wherever a tract sale
     // already shows its own "+" (dedup parcels vs tracts).
@@ -551,14 +553,18 @@ export default function MapComparablesView({ subjectTractId }: { subjectTractId:
     }
 
     const extract = () => {
-      // Regrid tiles only load at z >= 12 (see addRegridLayer minzoom).
-      if (map.getZoom() < 12 || !map.getSource('regrid-parcels')) {
+      // Regrid parcels only render at z >= 12 (addRegridLayer minzoom).
+      if (map.getZoom() < 12 || !map.getLayer('regrid-parcels-fill')) {
         setParcelPins([])
         return
       }
-      let feats: maplibregl.GeoJSONFeature[] = []
+      let feats: maplibregl.MapGeoJSONFeature[] = []
       try {
-        feats = map.querySourceFeatures('regrid-parcels', { sourceLayer })
+        const canvas = map.getCanvas()
+        feats = map.queryRenderedFeatures(
+          [[0, 0], [canvas.clientWidth, canvas.clientHeight]] as any,
+          { layers: ['regrid-parcels-fill'] },
+        )
       } catch { return }
 
       const seen = new Set<string>()
