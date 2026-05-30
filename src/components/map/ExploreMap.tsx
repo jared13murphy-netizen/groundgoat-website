@@ -3519,23 +3519,46 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     let cancelled = false
 
     ;(async () => {
+      // Per-county isolation — one failed fetch (auth blip, network
+      // hiccup, slow 17MB body) used to reject the whole Promise.all
+      // and the silent outer catch then setData([]) blanked every
+      // county. Use allSettled so partial success still renders.
       const out: any[] = []
-      try {
-        const results = await Promise.all(COUNTIES.map(async key => {
-          const res = await fetchWithAuth(
-            `${API_URL}/api/map/county-overlay/${key}/${endpoint}`
-          )
-          if (!res.ok) return []
-          const data = await res.json()
-          return data?.soils?.features || []
-        }))
-        for (const fs of results) out.push(...fs)
-      } catch { /* silent */ }
+      const settled = await Promise.allSettled(COUNTIES.map(async key => {
+        const res = await fetchWithAuth(
+          `${API_URL}/api/map/county-overlay/${key}/${endpoint}`
+        )
+        if (!res.ok) {
+          console.warn(`[soils-${endpoint}] ${key}: HTTP ${res.status}`)
+          return []
+        }
+        const data = await res.json()
+        return data?.soils?.features || []
+      }))
+      let ok = 0
+      let failed = 0
+      for (const r of settled) {
+        if (r.status === 'fulfilled') {
+          out.push(...r.value)
+          if (r.value.length > 0) ok += 1
+        } else {
+          failed += 1
+          console.warn(`[soils-${endpoint}] rejected:`, r.reason)
+        }
+      }
+      console.log(
+        `[soils-${endpoint}] ${ok}/${COUNTIES.length} counties returned `
+        + `${out.length} features (${failed} fetches threw)`
+      )
       if (cancelled) return
       const src = map.getSource('parcel-enrichment-ssurgo-soils') as any
-      if (src?.setData) src.setData({ type: 'FeatureCollection', features: out })
-      loadedRef.current = true
-      ;(loadedRef as any).cachedFeatures = out
+      // Don't blank the layer if we got nothing — keep whatever's
+      // already on screen so a transient failure isn't visible.
+      if (src?.setData && out.length > 0) {
+        src.setData({ type: 'FeatureCollection', features: out })
+        loadedRef.current = true
+        ;(loadedRef as any).cachedFeatures = out
+      }
     })()
 
     return () => { cancelled = true }
