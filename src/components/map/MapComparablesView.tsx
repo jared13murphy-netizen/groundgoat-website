@@ -9,10 +9,14 @@
  *     (and click-outside-to-close). Stays open while admin reads /
  *     clicks 3D / Details. Closes when Add-to-Report is clicked.
  *   - All tract sales from /api/comparables/map-view show a + icon.
- *   - Regrid parcels with cached sale data ALSO show a + icon (from
- *     the same response's `parcels_with_sales` array — sparse but
- *     real). The full Regrid parcel layer is rendered underneath as
- *     normal (every parcel boundary visible).
+ *   - Regrid parcels with a real sale (saleprice > 0) ALSO show a +
+ *     icon. These are detected directly from the rendered Regrid
+ *     vector TILES (which carry saleprice/saledate baked in),
+ *     de-duplicated against tract sales, and pinned at each parcel
+ *     centroid. The full Regrid parcel layer is rendered underneath
+ *     as normal (every parcel boundary visible). Tapping a parcel +
+ *     fetches the authoritative parcel record (/api/regrid/parcel)
+ *     for the popup / report content — the tile only drives detection.
  *
  * Subject highlight = blue ring at the focal tract. Sale polygons
  * stay rendered as semi-transparent pink fills for visual context.
@@ -177,22 +181,6 @@ export default function MapComparablesView({ subjectTractId }: { subjectTractId:
     } as any
   }, [data])
 
-  const parcelPinsGeo = useMemo(() => {
-    if (!data) return { type: 'FeatureCollection', features: [] } as any
-    return {
-      type: 'FeatureCollection',
-      features: (data.parcels_with_sales || [])
-        // Only parcels with a real polygon boundary get a pin — parcels
-        // without a boundary should never show a pin on the map.
-        .filter(p => p.lat != null && p.lng != null && p.polygon_coordinates && p.polygon_coordinates.length >= 3)
-        .map(p => ({
-          type: 'Feature',
-          properties: { id: p.ll_uuid, source: 'parcel' },
-          geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
-        })),
-    } as any
-  }, [data])
-
   const tractPolysGeo = useMemo(() => {
     if (!data) return { type: 'FeatureCollection', features: [] } as any
     return {
@@ -220,15 +208,13 @@ export default function MapComparablesView({ subjectTractId }: { subjectTractId:
     if (data) for (const s of data.sales) m.set(s.tract_id, s)
     return m
   }, [data])
-  const parcelById = useMemo(() => {
-    const m = new Map<string, ParcelWithSale>()
-    if (data) for (const p of data.parcels_with_sales || []) m.set(p.ll_uuid, p)
-    return m
-  }, [data])
   const tractByIdRef = useRef(tractById)
-  const parcelByIdRef = useRef(parcelById)
   useEffect(() => { tractByIdRef.current = tractById }, [tractById])
-  useEffect(() => { parcelByIdRef.current = parcelById }, [parcelById])
+  // Signature of the last parcel-pin set we pushed to the source. The
+  // tile-extraction effect compares against this to skip redundant
+  // setData calls — setData triggers a repaint → another 'idle' →
+  // re-extract, which would loop forever if we wrote every time.
+  const lastParcelSigRef = useRef<string>('')
 
   // --- Map init (once, on first data arrival) ------------------------
   useEffect(() => {
@@ -320,8 +306,10 @@ export default function MapComparablesView({ subjectTractId }: { subjectTractId:
     })
 
     // Parcel sale PINS — same look, separate source so we can route
-    // clicks to the parcel popup branch.
-    map.addSource('parcel-pins', { type: 'geojson', data: parcelPinsGeo })
+    // clicks to the parcel popup branch. Populated on demand by the
+    // tile-extraction effect (querySourceFeatures on the Regrid tiles),
+    // so it starts empty here.
+    map.addSource('parcel-pins', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } as any })
     map.addLayer({
       id: 'parcel-pins-bg',
       type: 'circle',
@@ -404,18 +392,76 @@ export default function MapComparablesView({ subjectTractId }: { subjectTractId:
       })
       e.preventDefault?.()  // suppress map click below
     }
+    // Parcel pins are detected from the Regrid TILE (saleprice baked in)
+    // and carry the tile-derived fields in their feature properties. We
+    // open the popup IMMEDIATELY from those (so the user sees the sale
+    // price / acres with no spinner), then fetch the authoritative parcel
+    // record (/api/regrid/parcel?lat=&lng=) and merge richer fields
+    // (county, owner, soil rating, tillable acres) in when it lands.
     const onParcelClick = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
       const f = e.features?.[0]
       if (!f) return
-      const id = (f.properties as any)?.id as string
-      const p = parcelByIdRef.current.get(id)
-      if (!p || p.lat == null || p.lng == null) return
-      const pos = map.project([p.lng, p.lat])
-      setOpenRecord({
-        rec: parcelToPopupRecord(p),
-        pos: { x: pos.x, y: pos.y },
-      })
+      const props: any = f.properties || {}
+      const lat = num(props.lat), lng = num(props.lng)
+      if (lat == null || lng == null) return
+      const pos = map.project([lng, lat])
+      const baseRec: PopupRecord = {
+        kind: 'parcel',
+        id: String(props.id),
+        lat, lng,
+        polygon: null,
+        sale_date: props.sale_date ?? null,
+        sale_price: num(props.sale_price),
+        price_per_acre: num(props.price_per_acre),
+        total_acres: num(props.total_acres),
+        tillable_acres: null,
+        soil_rating: null,
+        soil_rating_type: null,
+        county: null,
+        township: null,
+        owner: props.owner ?? null,
+        source_url: null,  // parcels never show the Details button
+      }
+      setOpenRecord({ rec: baseRec, pos: { x: pos.x, y: pos.y } })
       e.preventDefault?.()
+
+      // Authoritative fetch — the report CONTENT comes from the parcel
+      // record, not the tile. Merge only if the same popup is still open.
+      const fetchId = baseRec.id
+      ;(async () => {
+        try {
+          const res = await fetchWithAuth(`${API_URL}/api/regrid/parcel?lat=${lat}&lng=${lng}`)
+          if (!res.ok) return
+          const body = await res.json().catch(() => null)
+          const rp = body?.parcel
+          if (!rp) return
+          const acres = num(rp.ll_gisacre) ?? num(rp.gisacre) ?? baseRec.total_acres
+          const salePrice = num(rp.saleprice) ?? baseRec.sale_price
+          const ppa = (salePrice != null && acres != null && acres > 0)
+            ? salePrice / acres
+            : baseRec.price_per_acre
+          const merged: PopupRecord = {
+            ...baseRec,
+            total_acres: acres,
+            sale_price: salePrice,
+            sale_date: rp.saledate ?? baseRec.sale_date,
+            price_per_acre: ppa,
+            county: rp.county ?? null,
+            township: rp.township ?? null,
+            owner: rp.owner ?? baseRec.owner,
+            // Soil rating + tillable acres are being added to the parcel
+            // record by a parallel effort; these rows self-hide until the
+            // backend exposes them.
+            soil_rating: num(rp.soil_rating),
+            soil_rating_type: rp.soil_rating_type ?? null,
+            tillable_acres: num(rp.tillable_acres),
+            source_url: null,
+          }
+          setOpenRecord(prev => (prev && prev.rec.id === fetchId)
+            ? { rec: merged, pos: prev.pos }
+            : prev)
+        } catch { /* keep the tile-derived popup */ }
+      })()
     }
     map.on('click', 'tract-pins-bg', onTractClick)
     map.on('click', 'tract-pins-plus', onTractClick)
@@ -466,9 +512,8 @@ export default function MapComparablesView({ subjectTractId }: { subjectTractId:
     const map = mapRef.current
     if (!map || !mapReady) return
     ;(map.getSource('tract-pins') as maplibregl.GeoJSONSource | undefined)?.setData(tractPinsGeo)
-    ;(map.getSource('parcel-pins') as maplibregl.GeoJSONSource | undefined)?.setData(parcelPinsGeo)
     ;(map.getSource('tract-polys') as maplibregl.GeoJSONSource | undefined)?.setData(tractPolysGeo)
-  }, [tractPinsGeo, parcelPinsGeo, tractPolysGeo, mapReady])
+  }, [tractPinsGeo, tractPolysGeo, mapReady])
 
   // Regrid parcel layer (all parcels, no filter)
   useEffect(() => {
@@ -478,6 +523,86 @@ export default function MapComparablesView({ subjectTractId }: { subjectTractId:
     const cleanup = addRegridLayer(map, regridConfig, { beforeId })
     return cleanup
   }, [regridConfig, mapReady])
+
+  // --- Tile-driven parcel "+" detection ------------------------------
+  // The Regrid vector TILES carry `saleprice` (and `saledate`) baked in.
+  // We read the rendered tiles via querySourceFeatures, keep parcels with
+  // a real sale (saleprice > 0, parsed in plain JS so we're robust to the
+  // string/int encoding the tiles use), de-dup against tract sales, and
+  // drop a pink "+" at each parcel centroid. The tile only drives
+  // DETECTION — the report content is fetched on tap (onParcelClick).
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapReady || !regridConfig?.source_layer || !data) return
+    const sourceLayer = regridConfig.source_layer
+
+    // Tract sale polygons — suppress a parcel pin wherever a tract sale
+    // already shows its own "+" (dedup parcels vs tracts).
+    const tractRings: number[][][] = (data.sales || [])
+      .filter(s => s.polygon_coordinates && s.polygon_coordinates.length >= 3)
+      .map(s => s.polygon_coordinates as number[][])
+
+    const setParcelPins = (features: any[]) => {
+      const sig = features.map(f => f.properties.id).sort().join('|')
+      if (sig === lastParcelSigRef.current) return  // unchanged → skip
+      lastParcelSigRef.current = sig
+      ;(map.getSource('parcel-pins') as maplibregl.GeoJSONSource | undefined)
+        ?.setData({ type: 'FeatureCollection', features } as any)
+    }
+
+    const extract = () => {
+      // Regrid tiles only load at z >= 12 (see addRegridLayer minzoom).
+      if (map.getZoom() < 12 || !map.getSource('regrid-parcels')) {
+        setParcelPins([])
+        return
+      }
+      let feats: maplibregl.GeoJSONFeature[] = []
+      try {
+        feats = map.querySourceFeatures('regrid-parcels', { sourceLayer })
+      } catch { return }
+
+      const seen = new Set<string>()
+      const out: any[] = []
+      for (const f of feats) {
+        const props: any = f.properties || {}
+        const saleValue = parseSalePrice(props.saleprice)
+        if (!(Number.isFinite(saleValue) && saleValue > 0)) continue
+        // `path` is the stable parcel identity on custom Regrid tiles
+        // (no ll_uuid present); fall back to ogc_fid / parcelnumb.
+        const key = props.path != null ? String(props.path)
+          : props.ogc_fid != null ? String(props.ogc_fid)
+          : props.parcelnumb != null ? String(props.parcelnumb)
+          : null
+        if (key && seen.has(key)) continue
+        const c = featureCentroid(f.geometry as any)
+        if (!c) continue
+        // Skip if this parcel sits under an existing tract sale pin.
+        if (tractRings.some(r => pointInRing([c.lng, c.lat], r))) continue
+        if (key) seen.add(key)
+        const acres = num(props.ll_gisacre) ?? num(props.gisacre)
+        const ppa = (acres != null && acres > 0) ? saleValue / acres : null
+        out.push({
+          type: 'Feature',
+          properties: {
+            id: key || `${c.lng.toFixed(6)},${c.lat.toFixed(6)}`,
+            source: 'parcel',
+            lat: c.lat, lng: c.lng,
+            sale_price: saleValue,
+            sale_date: props.saledate ?? null,
+            total_acres: acres,
+            price_per_acre: ppa,
+            owner: props.owner ?? null,
+          },
+          geometry: { type: 'Point', coordinates: [c.lng, c.lat] },
+        })
+      }
+      setParcelPins(out)
+    }
+
+    map.on('idle', extract)
+    extract()
+    return () => { map.off('idle', extract) }
+  }, [mapReady, data, regridConfig])
 
   // ESC closes the popup (UX nicety)
   useEffect(() => {
@@ -586,25 +711,51 @@ function tractToPopupRecord(s: MapSale): PopupRecord {
   }
 }
 
-function parcelToPopupRecord(p: ParcelWithSale): PopupRecord {
-  return {
-    kind: 'parcel',
-    id: p.ll_uuid,
-    lat: p.lat as number,
-    lng: p.lng as number,
-    polygon: p.polygon_coordinates,
-    sale_date: p.sale_date,
-    sale_price: p.sale_price,
-    price_per_acre: p.price_per_acre,
-    total_acres: p.total_acres,
-    tillable_acres: null,
-    soil_rating: null,
-    soil_rating_type: null,
-    county: p.county,
-    township: null,
-    owner: p.owner,
-    source_url: null,
+// Coerce any value (number | numeric string | null) to a finite number
+// or null. Used throughout the parcel path since tile properties and the
+// /api/regrid/parcel record both mix numbers and strings.
+function num(v: any): number | null {
+  if (v == null) return null
+  const n = typeof v === 'number' ? v : Number(v)
+  return Number.isFinite(n) ? n : null
+}
+
+// Parse a tile `saleprice` that may be a number OR a string (the custom
+// Regrid tiles encode it inconsistently). Mirrors the locked detection
+// filter shared with the mobile app. Returns NaN when unparseable.
+function parseSalePrice(sp: any): number {
+  if (typeof sp === 'number') return sp
+  if (sp == null) return NaN
+  return Number(String(sp).replace(/[^0-9.]/g, ''))
+}
+
+// Centroid of a tile feature's outer ring (querySourceFeatures returns
+// geometry in lng/lat). Simple vertex average — accurate enough to place
+// a pin and to dedup against tract polygons.
+function featureCentroid(geom: any): { lng: number; lat: number } | null {
+  if (!geom) return null
+  let ring: number[][] | null = null
+  if (geom.type === 'Point') return { lng: geom.coordinates[0], lat: geom.coordinates[1] }
+  if (geom.type === 'Polygon') ring = geom.coordinates?.[0] || null
+  else if (geom.type === 'MultiPolygon') ring = geom.coordinates?.[0]?.[0] || null
+  if (!ring || ring.length === 0) return null
+  let sx = 0, sy = 0
+  for (const pt of ring) { sx += pt[0]; sy += pt[1] }
+  return { lng: sx / ring.length, lat: sy / ring.length }
+}
+
+// Ray-casting point-in-polygon for the parcel/tract dedup check.
+function pointInRing(pt: number[], ring: number[][]): boolean {
+  const x = pt[0], y = pt[1]
+  let inside = false
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const xi = ring[i][0], yi = ring[i][1]
+    const xj = ring[j][0], yj = ring[j][1]
+    const intersect = ((yi > y) !== (yj > y)) &&
+      (x < ((xj - xi) * (y - yi)) / (yj - yi) + xi)
+    if (intersect) inside = !inside
   }
+  return inside
 }
 
 // ---------------------------------------------------------------------
@@ -706,6 +857,11 @@ function ComparablePopup({
           {ratingLabel && <>
             <span style={{ color: '#666' }}>{rec.soil_rating_type || 'Soil rating'}</span>
             <span style={{ fontWeight: 600 }}>{FMT_NUM(rec.soil_rating)}</span>
+          </>}
+
+          {rec.tillable_acres != null && <>
+            <span style={{ color: '#666' }}>Tillable acres</span>
+            <span style={{ fontWeight: 600 }}>{FMT_NUM(rec.tillable_acres)}</span>
           </>}
 
           <span style={{ color: '#666' }}>County</span>
