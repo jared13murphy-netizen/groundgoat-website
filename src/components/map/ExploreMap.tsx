@@ -2995,9 +2995,16 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       })
     }
     if (!map.getSource(SRC_SOILS)) {
+      // Vector tile source backed by the FastAPI MVT endpoint. Each
+      // tile only ships the soil polygons in that tile's bounds, so
+      // 316 counties is no different from 1 county on the client side.
+      // Replaces the old fetch-every-county GeoJSON merge that crashed
+      // browsers past ~6 counties.
       map.addSource(SRC_SOILS, {
-        type: 'geojson',
-        data: { type: 'FeatureCollection', features: [] },
+        type: 'vector',
+        tiles: [`${API_URL}/api/tiles/soils/{z}/{x}/{y}.mvt`],
+        minzoom: 6,
+        maxzoom: 14,
       })
     }
 
@@ -3055,6 +3062,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         id: LYR_SOILS_FILL,
         type: 'fill',
         source: SRC_SOILS,
+        'source-layer': 'soils',
+        minzoom: 6,
         layout: {
           visibility: (enrichmentOverlay && (tillableSource === 'ssurgo' || tillableSource === 'ssurgo_csb')) ? 'visible' : 'none',
         },
@@ -3086,6 +3095,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         id: LYR_SOILS_LINE,
         type: 'line',
         source: SRC_SOILS,
+        'source-layer': 'soils',
+        minzoom: 6,
         layout: {
           visibility: (enrichmentOverlay && (tillableSource === 'ssurgo' || tillableSource === 'ssurgo_csb')) ? 'visible' : 'none',
         },
@@ -3100,6 +3111,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         id: LYR_SOILS_LABEL,
         type: 'symbol',
         source: SRC_SOILS,
+        'source-layer': 'soils',
         layout: {
           visibility: (enrichmentOverlay && (tillableSource === 'ssurgo' || tillableSource === 'ssurgo_csb')) ? 'visible' : 'none',
           'text-field': ['coalesce', ['get', 'musym'], ''],
@@ -3493,76 +3505,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   //
   // The two variants share the same MapLibre source + layers, so
   // switching between them only re-fetches; layers stay registered.
-  useEffect(() => {
-    if (!isEnrichmentPilot) return
-    if (tillableSource !== 'ssurgo' && tillableSource !== 'ssurgo_csb') return
-    const isCsb = tillableSource === 'ssurgo_csb'
-    const loadedRef = isCsb ? ssurgoCsbLoadedRef : ssurgoLoadedRef
-    if (loadedRef.current) {
-      // Already fetched this variant — flip the source data to the
-      // cached copy and bail. Since we share one MapLibre source,
-      // we need to re-setData when switching back to a previously
-      // loaded variant. The cached features are kept on the ref.
-      const map = mapRef.current
-      const cached = (loadedRef as any).cachedFeatures
-      if (map && cached) {
-        const src = map.getSource('parcel-enrichment-ssurgo-soils') as any
-        if (src?.setData) src.setData({ type: 'FeatureCollection', features: cached })
-      }
-      return
-    }
-    const map = mapRef.current
-    if (!map || !mapLoaded) return
-
-    const COUNTIES = overlayCoverage.map(c => `${c.state}/${c.county}`)
-    const endpoint = isCsb ? 'soils-csb' : 'soils'
-    let cancelled = false
-
-    ;(async () => {
-      // Per-county isolation — one failed fetch (auth blip, network
-      // hiccup, slow 17MB body) used to reject the whole Promise.all
-      // and the silent outer catch then setData([]) blanked every
-      // county. Use allSettled so partial success still renders.
-      const out: any[] = []
-      const settled = await Promise.allSettled(COUNTIES.map(async key => {
-        const res = await fetchWithAuth(
-          `${API_URL}/api/map/county-overlay/${key}/${endpoint}`
-        )
-        if (!res.ok) {
-          console.warn(`[soils-${endpoint}] ${key}: HTTP ${res.status}`)
-          return []
-        }
-        const data = await res.json()
-        return data?.soils?.features || []
-      }))
-      let ok = 0
-      let failed = 0
-      for (const r of settled) {
-        if (r.status === 'fulfilled') {
-          out.push(...r.value)
-          if (r.value.length > 0) ok += 1
-        } else {
-          failed += 1
-          console.warn(`[soils-${endpoint}] rejected:`, r.reason)
-        }
-      }
-      console.log(
-        `[soils-${endpoint}] ${ok}/${COUNTIES.length} counties returned `
-        + `${out.length} features (${failed} fetches threw)`
-      )
-      if (cancelled) return
-      const src = map.getSource('parcel-enrichment-ssurgo-soils') as any
-      // Don't blank the layer if we got nothing — keep whatever's
-      // already on screen so a transient failure isn't visible.
-      if (src?.setData && out.length > 0) {
-        src.setData({ type: 'FeatureCollection', features: out })
-        loadedRef.current = true
-        ;(loadedRef as any).cachedFeatures = out
-      }
-    })()
-
-    return () => { cancelled = true }
-  }, [tillableSource, isEnrichmentPilot, mapLoaded, overlayCoverage])
+  // SSURGO soils overlay now uses a vector tile source — MapLibre
+  // fetches /api/tiles/soils/{z}/{x}/{y}.mvt automatically based on
+  // viewport. No per-county GeoJSON fetch + merge needed. The source
+  // was added once in the map-init block above. The per-county
+  // fetch + Promise.allSettled loop was removed when the overlay
+  // went MVT-only to scale past ~6 counties.
 
   // Create/update HTML markers for tracts
   useEffect(() => {
