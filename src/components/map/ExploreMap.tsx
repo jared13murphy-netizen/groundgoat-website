@@ -741,7 +741,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     let cancelled = false
     ;(async () => {
       try {
-        const res = await fetchWithAuth('/api/map/county-overlay/coverage')
+        const res = await fetchWithAuth(`${API_URL}/api/map/county-overlay/coverage`)
         if (!res.ok) return
         const data = await res.json()
         if (cancelled) return
