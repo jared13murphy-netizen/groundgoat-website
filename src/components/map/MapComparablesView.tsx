@@ -246,6 +246,18 @@ export default function MapComparablesView({ subjectTractId }: { subjectTractId:
   // setData calls — setData triggers a repaint → another 'idle' →
   // re-extract, which would loop forever if we wrote every time.
   const lastParcelSigRef = useRef<string>('')
+  // Persistent accumulator of every Regrid parcel we've detected this
+  // session, keyed by parcel `path`. We UNION new detections in (never
+  // replace), so the "+" pins behave exactly like the tract pins: once
+  // found they stay pinned at every zoom, instead of being culled to
+  // whatever tiles happen to be rendered this frame. Tile DETECTION only
+  // works at z>=12, but DISPLAY is no longer gated on zoom. Reset when
+  // the subject tract (data) changes — tracked by parcelAccDataRef.
+  const parcelAccRef = useRef<Map<string, {
+    id: string; minLng: number; minLat: number; maxLng: number; maxLat: number
+    salePrice: number; saleDate: any; acres: number | null; owner: any
+  }>>(new Map())
+  const parcelAccDataRef = useRef<any>(null)
 
   // --- Map init (once, on first data arrival) ------------------------
   useEffect(() => {
@@ -568,24 +580,62 @@ export default function MapComparablesView({ subjectTractId }: { subjectTractId:
     const map = mapRef.current
     if (!map || !mapReady || !data) return
 
+    // New subject tract → start a fresh parcel accumulation. (The effect
+    // also re-runs when regridConfig arrives; only reset on data change.)
+    if (parcelAccDataRef.current !== data) {
+      parcelAccRef.current = new Map()
+      parcelAccDataRef.current = data
+      lastParcelSigRef.current = ''
+    }
+
     // Tract sale polygons — suppress a parcel pin wherever a tract sale
     // already shows its own "+" (dedup parcels vs tracts).
     const tractRings: number[][][] = (data.sales || [])
       .filter(s => s.polygon_coordinates && s.polygon_coordinates.length >= 3)
       .map(s => s.polygon_coordinates as number[][])
 
-    const setParcelPins = (features: any[]) => {
-      const sig = features.map(f => f.properties.id).sort().join('|')
+    // Build the pin GeoJSON from the FULL accumulated parcel set and push
+    // it (skipping a redundant setData when nothing changed). Because we
+    // render every parcel we've ever detected — not just the current
+    // viewport — the "+" pins stay put at every zoom, matching the tract
+    // pins instead of being chained to the Regrid tile zoom.
+    const commit = () => {
+      const out: any[] = []
+      for (const p of Array.from(parcelAccRef.current.values())) {
+        const lng = (p.minLng + p.maxLng) / 2
+        const lat = (p.minLat + p.maxLat) / 2
+        // Skip if this parcel sits under an existing tract sale pin.
+        if (tractRings.some(r => pointInRing([lng, lat], r))) continue
+        const ppa = (p.acres != null && p.acres > 0) ? p.salePrice / p.acres : null
+        out.push({
+          type: 'Feature',
+          properties: {
+            id: p.id,
+            source: 'parcel',
+            lat, lng,
+            sale_price: p.salePrice,
+            sale_date: p.saleDate,
+            total_acres: p.acres,
+            price_per_acre: ppa,
+            owner: p.owner,
+          },
+          geometry: { type: 'Point', coordinates: [lng, lat] },
+        })
+      }
+      const sig = out.map(f => f.properties.id).sort().join('|')
       if (sig === lastParcelSigRef.current) return  // unchanged → skip
       lastParcelSigRef.current = sig
       ;(map.getSource('parcel-pins') as maplibregl.GeoJSONSource | undefined)
-        ?.setData({ type: 'FeatureCollection', features } as any)
+        ?.setData({ type: 'FeatureCollection', features: out } as any)
     }
 
     const extract = () => {
-      // Regrid parcels only render at z >= 12 (addRegridLayer minzoom).
+      // Tile DETECTION only works where Regrid parcels render (z >= 12,
+      // addRegridLayer minzoom). Below that — or before the layer mounts
+      // — we do NOT clear: we keep showing everything already detected so
+      // the pins persist at every zoom like the tract pins.
       if (map.getZoom() < 12 || !map.getLayer('regrid-parcels-fill')) {
-        setParcelPins([])
+        commit()
         return
       }
       let feats: maplibregl.MapGeoJSONFeature[] = []
@@ -597,15 +647,14 @@ export default function MapComparablesView({ subjectTractId }: { subjectTractId:
         )
       } catch { return }
 
-      // Accumulate each parcel by stable identity (`path`), unioning the
-      // bbox of all its clipped tile fragments so the "+" lands at the
-      // true parcel center — queryRenderedFeatures returns a parcel cut
-      // into one fragment per tile, and a single fragment's centroid sits
-      // off to one side. The keyed map also dedups repeated fragments.
-      const acc = new Map<string, {
-        id: string; minLng: number; minLat: number; maxLng: number; maxLat: number;
-        salePrice: number; saleDate: any; acres: number | null; owner: any;
-      }>()
+      // Merge this frame's detections into the PERSISTENT accumulator,
+      // keyed by stable parcel identity (`path`) and unioning the bbox of
+      // every clipped tile fragment so the "+" lands at the true parcel
+      // center — queryRenderedFeatures hands back a parcel cut into one
+      // fragment per tile, and a single fragment's centroid sits off to
+      // one side. The keyed map also dedups repeated fragments and keeps
+      // parcels detected in earlier viewports.
+      const acc = parcelAccRef.current
       for (const f of feats) {
         const props: any = f.properties || {}
         const saleValue = parseSalePrice(props.saleprice)
@@ -640,29 +689,7 @@ export default function MapComparablesView({ subjectTractId }: { subjectTractId:
           })
         }
       }
-      const out: any[] = []
-      for (const p of Array.from(acc.values())) {
-        const lng = (p.minLng + p.maxLng) / 2
-        const lat = (p.minLat + p.maxLat) / 2
-        // Skip if this parcel sits under an existing tract sale pin.
-        if (tractRings.some(r => pointInRing([lng, lat], r))) continue
-        const ppa = (p.acres != null && p.acres > 0) ? p.salePrice / p.acres : null
-        out.push({
-          type: 'Feature',
-          properties: {
-            id: p.id,
-            source: 'parcel',
-            lat, lng,
-            sale_price: p.salePrice,
-            sale_date: p.saleDate,
-            total_acres: p.acres,
-            price_per_acre: ppa,
-            owner: p.owner,
-          },
-          geometry: { type: 'Point', coordinates: [lng, lat] },
-        })
-      }
-      setParcelPins(out)
+      commit()
     }
 
     map.on('idle', extract)
