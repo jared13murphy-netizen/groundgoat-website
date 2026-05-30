@@ -231,7 +231,7 @@ export default function MapComparablesView({ subjectTractId }: { subjectTractId:
         layers: [{ id: 'imagery', type: 'raster', source: 'imagery' }],
       },
       center,
-      zoom: 11,
+      zoom: 14,  // open tight on the subject so Regrid parcels (minzoom 12) render
       attributionControl: false,
     })
     map.addControl(new maplibregl.NavigationControl(), 'top-right')
@@ -480,17 +480,19 @@ export default function MapComparablesView({ subjectTractId }: { subjectTractId:
     }
     map.on('click', onMapClick)
 
-    // Fit bounds to subject + sales bbox
-    const padLng = (data.bbox.max_lng - data.bbox.min_lng) * 0.1
-    const padLat = (data.bbox.max_lat - data.bbox.min_lat) * 0.1
+    // Open zoomed into the SUBJECT tract (not fitBounds to the whole
+    // subject+comps bbox). A county-wide comp report fits at ~z9–11,
+    // which is BELOW the Regrid parcel minzoom (12) — so the parcels
+    // never render and the "+" sale pins can't be detected until the
+    // user manually zooms in. Landing at z14 on the subject (matching
+    // the mobile app) makes the Regrid parcels render and the "+" pins
+    // appear immediately. The comp sale pins remain on the map; the
+    // user can zoom out to see the full comp set.
+    const subjectCenter: [number, number] = data.subject
+      ? [data.subject.lng, data.subject.lat]
+      : [(data.bbox.min_lng + data.bbox.max_lng) / 2, (data.bbox.min_lat + data.bbox.max_lat) / 2]
     try {
-      map.fitBounds(
-        [
-          [data.bbox.min_lng - padLng, data.bbox.min_lat - padLat],
-          [data.bbox.max_lng + padLng, data.bbox.max_lat + padLat],
-        ],
-        { padding: 40, duration: 0 },
-      )
+      map.jumpTo({ center: subjectCenter, zoom: 14 })
     } catch {}
 
     return () => {
