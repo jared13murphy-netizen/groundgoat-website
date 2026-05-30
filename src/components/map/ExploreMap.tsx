@@ -733,6 +733,31 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chatSearchEndSignal])
+
+  // Pull the live soils-overlay coverage list from the backend once on
+  // mount. If the request fails the seed defaults stay in place so
+  // the existing 4-pilot experience is preserved.
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetchWithAuth('/api/map/county-overlay/coverage')
+        if (!res.ok) return
+        const data = await res.json()
+        if (cancelled) return
+        if (Array.isArray(data?.counties) && data.counties.length > 0) {
+          setOverlayCoverage(
+            data.counties
+              .filter((c: any) => c && typeof c.state === 'string' && typeof c.county === 'string')
+              .map((c: any) => ({ state: c.state, county: c.county }))
+          )
+        }
+      } catch {
+        /* keep defaults */
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
   const subjectTractIdRef = useRef<string | null>(null)
   subjectTractIdRef.current = subjectTractId || null
 
@@ -747,6 +772,20 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const [todayTracts, setTodayTracts] = useState<ApiMapTract[]>([])
   const [currentZoom, setCurrentZoom] = useState(MAP_INITIAL_ZOOM)
   const [mapLoaded, setMapLoaded] = useState(false)
+
+  // Live coverage list — counties whose soils / soils-csb / tillable
+  // overlays the backend can serve. Replaces the previous hardcoded
+  // 4-county list so adding a county is a backend-only deploy.
+  // Defaults to the 4 pilots in case the /coverage endpoint fails so
+  // the existing experience never degrades.
+  const [overlayCoverage, setOverlayCoverage] = useState<
+    Array<{ state: string; county: string }>
+  >([
+    { state: 'IL', county: 'Hancock' },
+    { state: 'IL', county: 'Adams'   },
+    { state: 'IA', county: 'Lee'     },
+    { state: 'MO', county: 'Clark'   },
+  ])
 
   // 3-tier marker counts and silhouette geometry. Counts come from
   // dedicated server-side aggregation endpoints (filter-aware) so
@@ -3293,12 +3332,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     if (!isEnrichmentPilot || !enrichmentOverlay) return
     if (!enrichmentAvailableRef.current) return  // backend 404'd; don't keep retrying
 
-    const COUNTIES: Array<{ state: string; county: string }> = [
-      { state: 'IL', county: 'Hancock' },
-      { state: 'IL', county: 'Adams'   },
-      { state: 'IA', county: 'Lee'     },
-      { state: 'MO', county: 'Clark'   },
-    ]
+    const COUNTIES = overlayCoverage
 
     let cancelled = false
 
@@ -3370,7 +3404,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     })()
 
     return () => { cancelled = true }
-  }, [mapLoaded, isEnrichmentPilot, enrichmentOverlay])
+  }, [mapLoaded, isEnrichmentPilot, enrichmentOverlay, overlayCoverage])
 
   // Lazy-fetch the WorldCover blob the first time the operator
   // switches the data-source toggle. Each county is ~7–12MB gzipped
@@ -3385,7 +3419,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const map = mapRef.current
     if (!map || !mapLoaded) return
 
-    const COUNTIES = ['IL/Hancock', 'IL/Adams', 'IA/Lee', 'MO/Clark']
+    const COUNTIES = overlayCoverage.map(c => `${c.state}/${c.county}`)
     let cancelled = false
 
     ;(async () => {
@@ -3425,7 +3459,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     })()
 
     return () => { cancelled = true }
-  }, [tillableSource, isEnrichmentPilot, mapLoaded])
+  }, [tillableSource, isEnrichmentPilot, mapLoaded, overlayCoverage])
 
   // Lazy-fetch the SSURGO (Land ID-style) soil polygons the first
   // time the data-source toggle hits 'ssurgo' OR 'ssurgo_csb'.
@@ -3462,7 +3496,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const map = mapRef.current
     if (!map || !mapLoaded) return
 
-    const COUNTIES = ['IL/Hancock', 'IL/Adams', 'IA/Lee', 'MO/Clark']
+    const COUNTIES = overlayCoverage.map(c => `${c.state}/${c.county}`)
     const endpoint = isCsb ? 'soils-csb' : 'soils'
     let cancelled = false
 
@@ -3487,7 +3521,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     })()
 
     return () => { cancelled = true }
-  }, [tillableSource, isEnrichmentPilot, mapLoaded])
+  }, [tillableSource, isEnrichmentPilot, mapLoaded, overlayCoverage])
 
   // Create/update HTML markers for tracts
   useEffect(() => {
