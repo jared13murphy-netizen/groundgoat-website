@@ -6,37 +6,43 @@ import Link from 'next/link'
 import { Check, ArrowLeft, ArrowRight, Eye, EyeOff, MapPin, ChevronDown, X, Loader2, Building2, Users, Plus, Mail } from 'lucide-react'
 import { US_STATES, getCountiesForState, getStateAbbreviation } from '@/data/counties'
 import { parseApiError } from '@/lib/parseApiError'
+import { PRICING, displayPriceLabel, formatPrice } from '@/config/pricing'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
 
 // VALID_STATES now imported from @/data/counties as US_STATES
 
+// Max additional firm seats available self-serve (3 included + 7 = 10 total).
+const MAX_ADDITIONAL_SEATS = PRICING.firm.maxUsers - PRICING.firm.includedUsers
+
+// All plans bill annually; prices below are ANNUAL. The Monthly/Annual toggle
+// is display-only (see @/config/pricing). Field names mirror the shared config.
 const PLANS = {
   basic_state: {
-    name: 'Basic State',
-    pricePerState: 24.99,
-    description: 'For active land investors',
-    features: ['Full state coverage (all counties)', 'Upcoming land sale alerts', 'Sale results access', 'Historical data access', 'Priority notifications', 'Mobile app access'],
-    trialDays: 7,
-    trialLabel: '7-day free trial',
+    name: PRICING.basic_state.name,
+    pricePerState: PRICING.basic_state.annualPerState,
+    description: PRICING.basic_state.description,
+    features: PRICING.basic_state.features,
+    trialDays: PRICING.basic_state.trialDays,
+    trialLabel: PRICING.basic_state.trialLabel,
   },
   premium_state: {
-    name: 'Premium State',
-    pricePerState: 74.99,
-    description: 'For data-driven land professionals',
-    features: ['Everything in Basic State', 'Interactive map with soil & elevation data', 'Comparable sales reports', 'Advanced land analytics'],
-    trialDays: 7,
-    trialLabel: '7-day free trial',
+    name: PRICING.premium_state.name,
+    pricePerState: PRICING.premium_state.annualPerState,
+    description: PRICING.premium_state.description,
+    features: PRICING.premium_state.features,
+    trialDays: PRICING.premium_state.trialDays,
+    trialLabel: PRICING.premium_state.trialLabel,
   },
   firm: {
-    name: 'Management Firm',
-    basePrice: 199.99,
-    additionalUserPrice: 9.99,
-    description: 'For teams and professionals',
-    features: ['Unlimited states & counties', 'Up to 3 team members included', 'Desktop access with advanced maps', 'County & township analytics', 'Comparable sales reports', 'Priority support'],
-    trialDays: 14,
-    trialLabel: '14-day free trial',
+    name: PRICING.firm.name,
+    basePrice: PRICING.firm.annualBase,
+    additionalUserPrice: PRICING.firm.annualPerAdditionalUser,
+    description: PRICING.firm.description,
+    features: PRICING.firm.features,
+    trialDays: PRICING.firm.trialDays,
+    trialLabel: PRICING.firm.trialLabel,
   },
 }
 
@@ -326,21 +332,19 @@ function SignUpContent() {
   }
 
   const calculatePrice = () => {
-    let total = 0
+    // Prices are annual. Billing is always annual; "monthly" is display-only.
+    let annual = 0
 
     if (selectedPlan === 'firm') {
       const firm = PLANS.firm
-      total = firm.basePrice + additionalSeats * firm.additionalUserPrice
+      annual = firm.basePrice + additionalSeats * firm.additionalUserPrice
     } else {
       const plan = PLANS[selectedPlan as 'basic_state' | 'premium_state']
-      total = Math.max(selectedAreas.length, 1) * plan.pricePerState
+      annual = Math.max(selectedAreas.length, 1) * plan.pricePerState
     }
 
-    if (billingCycle === 'annual') {
-      total = total * 12 * 0.9
-    }
-
-    return total.toFixed(2)
+    const shown = billingCycle === 'annual' ? annual : annual / 12
+    return formatPrice(shown)
   }
 
   const getTotalSteps = () => {
@@ -578,7 +582,7 @@ function SignUpContent() {
           })),
           home_state: getStateAbbreviation(formData.homeState),
           home_county: formData.homeCounty,
-          billing_cycle: billingCycle,
+          billing_cycle: 'annual', // toggle is display-only; billing is always annual
           additional_seats: additionalSeats,
           promo_code: promoValidation?.valid ? promoCode.trim().toUpperCase() : null,
           referral_code: referralCode,
@@ -688,7 +692,7 @@ function SignUpContent() {
             subscription_type: selectedPlan,
             state: getStateAbbreviation(primaryArea.state),
             county: null,
-            billing_cycle: billingCycle,
+            billing_cycle: 'annual', // toggle is display-only; billing is always annual
             additional_areas: selectedAreas.slice(1).map(area => ({
               state: getStateAbbreviation(area.state),
               county: null,
@@ -1033,7 +1037,7 @@ function SignUpContent() {
                     onClick={() => setBillingCycle('annual')}
                     className={`px-6 py-2 rounded-full text-sm font-medium transition-colors ${billingCycle === 'annual' ? 'bg-gg-pink text-black' : 'text-white bg-gg-gray-700 hover:bg-gg-gray-600'}`}
                   >
-                    Annual (Save 10%)
+                    Annual
                   </button>
                 </div>
               </div>
@@ -1060,8 +1064,8 @@ function SignUpContent() {
                       <div className="text-right">
                         <span className="text-2xl font-bold text-white">
                           ${key === 'firm'
-                            ? (billingCycle === 'annual' ? ((p as typeof PLANS.firm).basePrice * 12 * 0.9).toFixed(2) : (p as typeof PLANS.firm).basePrice.toFixed(2))
-                            : (billingCycle === 'annual' ? ((p as typeof PLANS.basic_state).pricePerState * 12 * 0.9).toFixed(2) : (p as typeof PLANS.basic_state).pricePerState.toFixed(2))
+                            ? displayPriceLabel((p as typeof PLANS.firm).basePrice, billingCycle)
+                            : displayPriceLabel((p as typeof PLANS.basic_state).pricePerState, billingCycle)
                           }
                         </span>
                         <span className="text-gg-gray-400 text-sm">
@@ -1520,7 +1524,7 @@ function SignUpContent() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-white font-medium">Need more users?</p>
-                      <p className="text-gg-gray-400 text-sm">${PLANS.firm.additionalUserPrice}/user/month</p>
+                      <p className="text-gg-gray-400 text-sm">${formatPrice(PLANS.firm.additionalUserPrice / 12)}/user/month</p>
                     </div>
                     <div className="flex items-center gap-3">
                       <button
@@ -1532,8 +1536,9 @@ function SignUpContent() {
                       </button>
                       <span className="text-white font-semibold w-8 text-center">{additionalSeats}</span>
                       <button
-                        onClick={() => setAdditionalSeats(additionalSeats + 1)}
-                        className="w-8 h-8 rounded-full bg-gg-gray-700 text-white flex items-center justify-center"
+                        onClick={() => setAdditionalSeats(Math.min(MAX_ADDITIONAL_SEATS, additionalSeats + 1))}
+                        disabled={additionalSeats >= MAX_ADDITIONAL_SEATS}
+                        className="w-8 h-8 rounded-full bg-gg-gray-700 text-white flex items-center justify-center disabled:opacity-50"
                       >
                         +
                       </button>
@@ -1547,18 +1552,12 @@ function SignUpContent() {
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
                     <span className="text-gg-gray-400">Management Firm Base Plan</span>
-                    <span className="text-white">${PLANS.firm.basePrice}/mo</span>
+                    <span className="text-white">${displayPriceLabel(PLANS.firm.basePrice, billingCycle)}/{billingCycle === 'annual' ? 'yr' : 'mo'}</span>
                   </div>
                   {additionalSeats > 0 && (
                     <div className="flex justify-between">
                       <span className="text-gg-gray-400">{additionalSeats} Additional User(s)</span>
-                      <span className="text-white">${(additionalSeats * PLANS.firm.additionalUserPrice).toFixed(2)}/mo</span>
-                    </div>
-                  )}
-                  {billingCycle === 'annual' && (
-                    <div className="flex justify-between text-green-400">
-                      <span>Annual Discount (10%)</span>
-                      <span>-${((PLANS.firm.basePrice + additionalSeats * PLANS.firm.additionalUserPrice) * 12 * 0.1).toFixed(2)}</span>
+                      <span className="text-white">${displayPriceLabel(additionalSeats * PLANS.firm.additionalUserPrice, billingCycle)}/{billingCycle === 'annual' ? 'yr' : 'mo'}</span>
                     </div>
                   )}
                   <div className="pt-2 border-t border-gg-gray-700 flex justify-between">

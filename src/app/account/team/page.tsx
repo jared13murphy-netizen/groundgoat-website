@@ -5,6 +5,7 @@ import fetchWithAuth from '@/lib/fetchWithAuth'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Loader2, Users, UserPlus, Trash2, Mail, Check, AlertCircle, Crown, Shield } from 'lucide-react'
+import { SALES_CONTACT_EMAIL } from '@/config/pricing'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -265,7 +266,14 @@ export default function TeamPage() {
                 </p>
               </div>
             </div>
-            {teamMembers.length + 1 >= maxSeats ? (
+            {maxSeats >= 10 ? (
+              <a
+                href={`mailto:${SALES_CONTACT_EMAIL}`}
+                className="text-xs bg-gg-pink/20 text-gg-pink px-3 py-1.5 rounded-full hover:bg-gg-pink/30 transition font-medium"
+              >
+                Need more than 10 users? Contact us
+              </a>
+            ) : teamMembers.length + 1 >= maxSeats ? (
               <button
                 onClick={() => handleUpgradeSeats(1)}
                 disabled={upgradingSeats}

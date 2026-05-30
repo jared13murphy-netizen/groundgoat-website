@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { MapPin, ArrowLeft, Loader2, ChevronDown, Lock } from 'lucide-react'
 import { parseApiError } from '@/lib/parseApiError'
+import { PRICING, formatPrice } from '@/config/pricing'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -191,7 +192,7 @@ function UpgradePageContent() {
           subscription_type: subscriptionType,
           state: selectedState,
           county: null,
-          billing_cycle: existingSub?.billing_cycle || 'monthly',
+          billing_cycle: 'annual', // all plans bill annually
         })
       })
       if (!response.ok) {
@@ -229,11 +230,15 @@ function UpgradePageContent() {
     )
   }
 
+  // New plans are state-only. Price the added state from the user's current
+  // plan tier (default Basic for new subscribers).
+  const activeSub = areasData?.areas?.find(a => a.status === 'active' || a.status === 'trialing')
+  const planTier = activeSub?.subscription_type === 'premium_state' ? 'premium_state' : 'basic_state'
+  const perStateAnnual = PRICING[planTier].annualPerState
+
   // Check if user already has this area subscribed
   const isAlreadySubscribed = areasData?.areas?.some(a =>
-    a.status === 'active' &&
-    (a.subscription_type === 'state' ||
-     (a.state === selectedState && a.county === selectedCounty))
+    a.status === 'active' && a.state === selectedState
   )
 
   return (
@@ -293,81 +298,21 @@ function UpgradePageContent() {
             </div>
           </div>
 
-          {/* County/State Selection */}
+          {/* State plan summary */}
           {selectedState && (
             <div className="mb-6">
-              <label className="block text-sm font-medium text-gg-gray-300 mb-2">Subscription Type</label>
-              <div className="space-y-3">
-                {/* County option */}
-                <button
-                  onClick={() => setShowCountyDropdown(!showCountyDropdown)}
-                  className={`w-full bg-gg-gray-800 border rounded-lg px-4 py-3 text-left transition-colors ${
-                    selectedCounty ? 'border-gg-pink' : 'border-gg-gray-700 hover:border-gg-gray-600'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-white font-medium">
-                        {selectedCounty ? `${selectedCounty} County` : 'Select a county'}
-                      </p>
-                      <p className="text-gg-pink text-sm">$3.99/mo per county</p>
-                    </div>
-                    <ChevronDown size={20} className="text-gg-gray-500" />
+              <div className="w-full bg-gg-gray-800 border border-gg-pink rounded-lg px-4 py-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-white font-medium">Entire {selectedState} state</p>
+                    <p className="text-gg-pink text-sm">${formatPrice(perStateAnnual)}/year (all counties included)</p>
                   </div>
-                </button>
-                {showCountyDropdown && (
-                  <div className="bg-gg-gray-800 border border-gg-gray-700 rounded-lg shadow-xl max-h-48 overflow-y-auto">
-                    {loadingCounties ? (
-                      <div className="px-4 py-3 text-gg-gray-400 flex items-center gap-2">
-                        <Loader2 size={16} className="animate-spin" />
-                        Loading counties...
-                      </div>
-                    ) : availableCounties.map(county => (
-                      <button
-                        key={county}
-                        onClick={() => {
-                          setSelectedCounty(county)
-                          setShowCountyDropdown(false)
-                        }}
-                        className="w-full px-4 py-3 text-left text-gg-gray-300 hover:bg-gg-gray-700 hover:text-white"
-                      >
-                        {county}
-                      </button>
-                    ))}
+                  <div className="w-5 h-5 bg-gg-pink rounded-full flex items-center justify-center">
+                    <svg className="w-3 h-3 text-black" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                    </svg>
                   </div>
-                )}
-
-                {/* Divider */}
-                <div className="flex items-center gap-3 py-2">
-                  <div className="flex-1 border-t border-gg-gray-700"></div>
-                  <span className="text-xs text-gg-gray-500 uppercase">or</span>
-                  <div className="flex-1 border-t border-gg-gray-700"></div>
                 </div>
-
-                {/* State option */}
-                <button
-                  onClick={() => {
-                    setSelectedCounty('')
-                    setShowCountyDropdown(false)
-                  }}
-                  className={`w-full bg-gg-gray-800 border rounded-lg px-4 py-3 text-left transition-colors ${
-                    !selectedCounty && selectedState ? 'border-gg-pink' : 'border-gg-gray-700 hover:border-gg-gray-600'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-white font-medium">Entire {selectedState} state</p>
-                      <p className="text-gg-pink text-sm">$19.99/mo (all counties included)</p>
-                    </div>
-                    {!selectedCounty && selectedState && (
-                      <div className="w-5 h-5 bg-gg-pink rounded-full flex items-center justify-center">
-                        <svg className="w-3 h-3 text-black" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                        </svg>
-                      </div>
-                    )}
-                  </div>
-                </button>
               </div>
             </div>
           )}

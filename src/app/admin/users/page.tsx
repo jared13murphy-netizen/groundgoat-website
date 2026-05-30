@@ -27,6 +27,31 @@ interface Subscription {
   promo_code: string | null
 }
 
+interface Payment {
+  source: 'stripe' | 'apple'
+  id: string
+  number?: string | null
+  status: string | null
+  amount_due?: number
+  amount_paid?: number | null
+  currency: string
+  created: string | null
+  period_start?: string | null
+  period_end?: string | null
+  hosted_invoice_url?: string | null
+  invoice_pdf?: string | null
+  description?: string | null
+  subscription_type?: string
+  state?: string | null
+  county?: string | null
+  billing_cycle?: string
+}
+
+interface PaymentHistory {
+  payments: Payment[]
+  stripe_error?: string | null
+}
+
 interface User {
   id: string
   email: string
@@ -60,6 +85,8 @@ export default function AdminUsersPage() {
   const [editForm, setEditForm] = useState<{ account_type: string; is_active: boolean; sales_rep_id: string | null }>({ account_type: '', is_active: true, sales_rep_id: null })
   const [saving, setSaving] = useState(false)
   const [expandedUser, setExpandedUser] = useState<string | null>(null)
+  const [paymentHistory, setPaymentHistory] = useState<Record<string, PaymentHistory>>({})
+  const [loadingPayments, setLoadingPayments] = useState<string | null>(null)
 
   useEffect(() => {
     const token = localStorage.getItem('auth_token')
@@ -176,7 +203,26 @@ export default function AdminUsersPage() {
   }
 
   const toggleExpand = (userId: string) => {
-    setExpandedUser(expandedUser === userId ? null : userId)
+    const next = expandedUser === userId ? null : userId
+    setExpandedUser(next)
+    if (next && !paymentHistory[next]) {
+      fetchPaymentHistory(next)
+    }
+  }
+
+  const fetchPaymentHistory = async (userId: string) => {
+    setLoadingPayments(userId)
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/admin/users/${userId}/payment-history`)
+      if (res.ok) {
+        const data = await res.json()
+        setPaymentHistory(prev => ({ ...prev, [userId]: { payments: data.payments || [], stripe_error: data.stripe_error } }))
+      }
+    } catch {
+      // leave history unset; the row will show an empty state
+    } finally {
+      setLoadingPayments(null)
+    }
   }
 
   const filteredUsers = users.filter(user => {
@@ -469,46 +515,126 @@ export default function AdminUsersPage() {
                           </td>
                         )}
                       </tr>
-                      {/* Expanded Subscription Details */}
-                      {expandedUser === user.id && user.subscriptions && user.subscriptions.length > 0 && (
+                      {/* Expanded Subscription + Payment Details */}
+                      {expandedUser === user.id && (
                         <tr key={`${user.id}-subs`} className="bg-gg-gray-800/30">
                           <td colSpan={canEdit ? 14 : 13} className="py-3 px-8">
-                            <div className="text-sm">
-                              <p className="text-gg-gray-400 mb-2 font-medium">Subscriptions:</p>
-                              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-                                {user.subscriptions.map((sub, idx) => (
-                                  <div key={idx} className="bg-gg-gray-800 rounded px-3 py-2">
-                                    <div className="flex items-center justify-between">
-                                      <span className="text-white">
-                                        {sub.county ? `${sub.county} County, ${sub.state}` : sub.state}
-                                      </span>
-                                      <div className="flex items-center gap-2">
-                                        <span className={`px-2 py-0.5 rounded text-xs ${
-                                          sub.status === 'active' ? 'bg-green-500/20 text-green-400' :
-                                          sub.status === 'trialing' ? 'bg-yellow-500/20 text-yellow-400' :
-                                          'bg-gray-500/20 text-gray-400'
-                                        }`}>
-                                          {sub.status === 'trialing' ? 'trialing' : sub.status}
-                                        </span>
-                                        {sub.monthly_price && (
-                                          <span className="text-gg-gray-400 text-xs">
-                                            ${formatCurrency(sub.monthly_price)}/{sub.billing_cycle === 'annual' ? 'yr' : 'mo'}
+                            <div className="text-sm space-y-4">
+                              {user.subscriptions && user.subscriptions.length > 0 && (
+                                <div>
+                                  <p className="text-gg-gray-400 mb-2 font-medium">Subscriptions:</p>
+                                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                                    {user.subscriptions.map((sub, idx) => (
+                                      <div key={idx} className="bg-gg-gray-800 rounded px-3 py-2">
+                                        <div className="flex items-center justify-between">
+                                          <span className="text-white">
+                                            {sub.county ? `${sub.county} County, ${sub.state}` : sub.state}
                                           </span>
-                                        )}
+                                          <div className="flex items-center gap-2">
+                                            <span className={`px-2 py-0.5 rounded text-xs ${
+                                              sub.status === 'active' ? 'bg-green-500/20 text-green-400' :
+                                              sub.status === 'trialing' ? 'bg-yellow-500/20 text-yellow-400' :
+                                              'bg-gray-500/20 text-gray-400'
+                                            }`}>
+                                              {sub.status === 'trialing' ? 'trialing' : sub.status}
+                                            </span>
+                                            {sub.monthly_price && (
+                                              <span className="text-gg-gray-400 text-xs">
+                                                ${formatCurrency(sub.monthly_price)}/{sub.billing_cycle === 'annual' ? 'yr' : 'mo'}
+                                              </span>
+                                            )}
+                                          </div>
+                                        </div>
+                                        <div className="flex items-center gap-3 mt-1 text-xs text-gg-gray-500">
+                                          {sub.payment_method && (
+                                            <span>via {sub.payment_method === 'stripe' ? 'Stripe' : sub.payment_method === 'apple' ? 'Apple' : sub.payment_method}</span>
+                                          )}
+                                          {sub.current_period_end && (
+                                            <span>
+                                              {sub.status === 'cancelled' || sub.status === 'expired' ? 'Expires' : 'Renews'}: {formatDate(sub.current_period_end)}
+                                            </span>
+                                          )}
+                                        </div>
                                       </div>
-                                    </div>
-                                    <div className="flex items-center gap-3 mt-1 text-xs text-gg-gray-500">
-                                      {sub.payment_method && (
-                                        <span>via {sub.payment_method === 'stripe' ? 'Stripe' : sub.payment_method === 'apple' ? 'Apple' : sub.payment_method}</span>
-                                      )}
-                                      {sub.current_period_end && (
-                                        <span>
-                                          {sub.status === 'cancelled' || sub.status === 'expired' ? 'Expires' : 'Renews'}: {formatDate(sub.current_period_end)}
-                                        </span>
-                                      )}
-                                    </div>
+                                    ))}
                                   </div>
-                                ))}
+                                </div>
+                              )}
+
+                              {/* Payment / Invoice History */}
+                              <div>
+                                <p className="text-gg-gray-400 mb-2 font-medium">Payment History:</p>
+                                {loadingPayments === user.id ? (
+                                  <div className="flex items-center gap-2 text-gg-gray-500 text-xs">
+                                    <Loader2 className="animate-spin" size={14} /> Loading payments…
+                                  </div>
+                                ) : (() => {
+                                  const history = paymentHistory[user.id]
+                                  if (!history) {
+                                    return <p className="text-gg-gray-500 text-xs">No payment data loaded.</p>
+                                  }
+                                  if (history.payments.length === 0) {
+                                    return (
+                                      <p className="text-gg-gray-500 text-xs">
+                                        No payments on record.
+                                        {history.stripe_error && <span className="text-red-400 ml-1">(Stripe: {history.stripe_error})</span>}
+                                      </p>
+                                    )
+                                  }
+                                  return (
+                                    <div className="overflow-x-auto">
+                                      <table className="w-full text-xs">
+                                        <thead>
+                                          <tr className="text-gg-gray-500 text-left">
+                                            <th className="py-1 pr-4 font-medium">Date</th>
+                                            <th className="py-1 pr-4 font-medium">Source</th>
+                                            <th className="py-1 pr-4 font-medium">Description</th>
+                                            <th className="py-1 pr-4 font-medium">Amount</th>
+                                            <th className="py-1 pr-4 font-medium">Status</th>
+                                            <th className="py-1 pr-4 font-medium">Invoice</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {history.payments.map((p, idx) => {
+                                            const amount = p.amount_paid ?? p.amount_due ?? 0
+                                            const desc = p.source === 'apple'
+                                              ? [p.subscription_type, p.county ? `${p.county} County, ${p.state}` : p.state].filter(Boolean).join(' — ')
+                                              : (p.description || p.number || '—')
+                                            return (
+                                              <tr key={`${p.source}-${p.id}-${idx}`} className="border-t border-gg-gray-800">
+                                                <td className="py-1 pr-4 text-gg-gray-300 whitespace-nowrap">{p.created ? formatDate(p.created) : '—'}</td>
+                                                <td className="py-1 pr-4 text-gg-gray-400">{p.source === 'apple' ? 'Apple' : 'Stripe'}</td>
+                                                <td className="py-1 pr-4 text-gg-gray-300">{desc || '—'}</td>
+                                                <td className="py-1 pr-4 text-green-400 whitespace-nowrap">{formatCurrency(amount)} {p.currency?.toUpperCase()}</td>
+                                                <td className="py-1 pr-4">
+                                                  <span className={`px-2 py-0.5 rounded ${
+                                                    p.status === 'paid' || p.status === 'active' ? 'bg-green-500/20 text-green-400' :
+                                                    p.status === 'open' || p.status === 'trialing' ? 'bg-yellow-500/20 text-yellow-400' :
+                                                    'bg-gray-500/20 text-gray-400'
+                                                  }`}>
+                                                    {p.status || 'unknown'}
+                                                  </span>
+                                                </td>
+                                                <td className="py-1 pr-4">
+                                                  {p.hosted_invoice_url ? (
+                                                    <a href={p.hosted_invoice_url} target="_blank" rel="noopener noreferrer" className="text-gg-pink hover:underline">View</a>
+                                                  ) : p.invoice_pdf ? (
+                                                    <a href={p.invoice_pdf} target="_blank" rel="noopener noreferrer" className="text-gg-pink hover:underline">PDF</a>
+                                                  ) : (
+                                                    <span className="text-gg-gray-600">—</span>
+                                                  )}
+                                                </td>
+                                              </tr>
+                                            )
+                                          })}
+                                        </tbody>
+                                      </table>
+                                      {history.stripe_error && (
+                                        <p className="text-red-400 text-[11px] mt-1">Stripe: {history.stripe_error}</p>
+                                      )}
+                                    </div>
+                                  )
+                                })()}
                               </div>
                             </div>
                           </td>

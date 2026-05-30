@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Loader2, CreditCard, Calendar, AlertTriangle, CheckCircle, Crown, MapPin, Plus, ExternalLink, Building2, X, ChevronDown, ArrowUpCircle, Minus, Tag } from 'lucide-react'
 import { parseApiError } from '@/lib/parseApiError'
+import { PRICING, formatPrice } from '@/config/pricing'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -21,6 +22,7 @@ interface Subscription {
   current_period_end: string | null
   cancelled_at: string | null
   stripe_subscription_id: string | null
+  payment_platform: string | null
 }
 
 interface SubscriptionData {
@@ -96,6 +98,9 @@ export default function SubscriptionPage() {
   // Upgrade plan
   const [showUpgradeConfirm, setShowUpgradeConfirm] = useState(false)
   const [upgrading, setUpgrading] = useState(false)
+
+  // Reactivate (undo pending cancellation)
+  const [reactivating, setReactivating] = useState(false)
 
   useEffect(() => {
     const token = localStorage.getItem('auth_token')
@@ -325,6 +330,30 @@ export default function SubscriptionPage() {
     }
   }
 
+  const handleReactivate = async () => {
+    const token = localStorage.getItem('auth_token')
+    if (!token) { router.push('/signin'); return }
+    setReactivating(true)
+    setError('')
+    try {
+      const response = await fetchWithAuth(`${API_URL}/api/subscriptions/reactivate`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+      })
+      const data = await response.json()
+      if (!response.ok) {
+        throw new Error(parseApiError(data, 'Failed to resume subscription'))
+      }
+      setSuccessMessage(data.message || 'Your subscription has been resumed.')
+      await fetchSubscriptions(token)
+      setTimeout(() => setSuccessMessage(''), 5000)
+    } catch (err: any) {
+      setError(err.message || 'Failed to resume subscription')
+    } finally {
+      setReactivating(false)
+    }
+  }
+
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'active':
@@ -394,6 +423,16 @@ export default function SubscriptionPage() {
 
   const activeSubscriptions = subscriptionData?.areas?.filter(sub => sub.status === 'active' || sub.status === 'trialing') || []
   const cancelledSubscriptions = subscriptionData?.areas?.filter(sub => sub.status === 'cancelled') || []
+  // Apple IAP subscriptions cannot be cancelled, repriced, or have their card
+  // updated from the web. When any active sub is Apple-billed we hide the
+  // Stripe-only controls (Manage Billing, Add State, Upgrade, Remove) and
+  // surface App Store guidance instead.
+  const isAppleManaged = activeSubscriptions.some(sub => sub.payment_platform === 'apple')
+  // A Stripe sub that's been cancelled stays "active" (with cancelled_at set)
+  // until the paid period ends. Offer a one-click resume to undo the pending
+  // cancellation. Apple subs can't be resumed from the web.
+  const pendingCancellation = !isAppleManaged && activeSubscriptions.some(sub => sub.cancelled_at)
+  const cancellationDate = activeSubscriptions.find(sub => sub.cancelled_at)?.current_period_end || null
   const currentPlanType = activeSubscriptions[0]?.subscription_type || null
   const currentBillingCycle = activeSubscriptions[0]?.billing_cycle || null
   const isBasicPlan = currentPlanType === 'basic_state'
@@ -404,7 +443,7 @@ export default function SubscriptionPage() {
   const actualPerStatePrice = activeSubscriptions[0]?.monthly_price
   const perStatePrice = (actualPerStatePrice && actualPerStatePrice > 0)
     ? actualPerStatePrice
-    : (currentPlanType === 'premium_state' ? 74.99 : 24.99)
+    : (currentPlanType === 'premium_state' ? PRICING.premium_state.annualPerState : PRICING.basic_state.annualPerState)
 
   return (
     <div className="min-h-screen bg-gg-black pt-24 pb-12">
@@ -451,6 +490,64 @@ export default function SubscriptionPage() {
                 <h3 className="font-semibold text-white">Firm Member Access</h3>
                 <p className="text-gg-gray-400 text-sm">Your access is managed by your firm administrator. Contact them for any subscription changes.</p>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* App Store managed banner */}
+        {isAppleManaged && (
+          <div className="card bg-gradient-to-r from-gg-gray-700/40 to-gg-gray-800/40 border-gg-gray-600 mb-8">
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 bg-gg-gray-700 rounded-xl flex items-center justify-center shrink-0">
+                <CreditCard className="text-gg-gray-300" size={24} />
+              </div>
+              <div>
+                <h3 className="font-semibold text-white">Managed through the App Store</h3>
+                <p className="text-gg-gray-400 text-sm mt-1">
+                  You subscribed through the Ground Goat iOS app, so billing is handled by Apple.
+                  To change your plan, update your payment method, or cancel, open
+                  <span className="text-white"> Settings &gt; [your name] &gt; Subscriptions</span> on
+                  your iPhone, or manage it in the Ground Goat app.
+                </p>
+                <a
+                  href="https://apps.apple.com/account/subscriptions"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-gg-pink hover:underline text-sm mt-3"
+                >
+                  Manage Apple Subscriptions
+                  <ExternalLink size={14} />
+                </a>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Pending cancellation — offer one-click resume */}
+        {pendingCancellation && canManageSubscription() && (
+          <div className="card bg-yellow-500/10 border-yellow-500/30 mb-8">
+            <div className="flex items-start justify-between gap-4 flex-wrap">
+              <div className="flex items-start gap-4">
+                <div className="w-12 h-12 bg-yellow-500/20 rounded-xl flex items-center justify-center shrink-0">
+                  <AlertTriangle className="text-yellow-400" size={24} />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-white">Subscription set to cancel</h3>
+                  <p className="text-gg-gray-400 text-sm mt-1">
+                    {cancellationDate
+                      ? `Your subscription will end on ${formatDate(cancellationDate)}. Resume now to keep your access and continue renewing.`
+                      : 'Your subscription is scheduled to cancel. Resume now to keep your access and continue renewing.'}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={handleReactivate}
+                disabled={reactivating}
+                className="btn-primary text-sm py-2.5 px-4 flex items-center gap-2 disabled:opacity-50"
+              >
+                {reactivating && <Loader2 size={16} className="animate-spin" />}
+                Resume Subscription
+              </button>
             </div>
           </div>
         )}
@@ -503,17 +600,19 @@ export default function SubscriptionPage() {
                   </span>
                 )}
               </div>
-              <button
-                onClick={handleManageBilling}
-                className="text-gg-pink hover:underline text-sm flex items-center gap-1"
-              >
-                Manage Billing
-                <ExternalLink size={14} />
-              </button>
+              {!isAppleManaged && (
+                <button
+                  onClick={handleManageBilling}
+                  className="text-gg-pink hover:underline text-sm flex items-center gap-1"
+                >
+                  Manage Billing
+                  <ExternalLink size={14} />
+                </button>
+              )}
             </div>
             <div className="flex items-end justify-between">
               <div>
-                <p className="text-gg-gray-400 text-sm">Monthly Total</p>
+                <p className="text-gg-gray-400 text-sm">{currentBillingCycle === 'annual' ? 'Annual Total' : 'Monthly Total'}</p>
                 <p className="text-3xl font-bold text-white">${calculateTotalMonthly().toFixed(2)}</p>
               </div>
               <div className="text-right">
@@ -548,7 +647,7 @@ export default function SubscriptionPage() {
           <div className="mb-8">
             <div className="flex items-center justify-between mb-4">
               <h2 className="font-semibold text-white">Your States</h2>
-              {canManageSubscription() && (
+              {canManageSubscription() && !isAppleManaged && (
                 <button
                   onClick={() => {
                     setShowAddModal(true)
@@ -582,12 +681,12 @@ export default function SubscriptionPage() {
                           {getStatusBadge(sub.status)}
                         </div>
                         <p className="text-sm text-gg-gray-500">
-                          ${sub.monthly_price?.toFixed(2) || '0.00'}/mo
+                          ${sub.monthly_price?.toFixed(2) || '0.00'}/{sub.billing_cycle === 'annual' ? 'yr' : 'mo'}
                         </p>
                       </div>
                     </div>
                     <div>
-                      {canManageSubscription() && !sub.cancelled_at && (
+                      {canManageSubscription() && !sub.cancelled_at && !isAppleManaged && (
                         showRemoveConfirm === sub.id ? (
                           <div className="flex items-center gap-2">
                             <button
@@ -634,7 +733,7 @@ export default function SubscriptionPage() {
         )}
 
         {/* Upgrade Plan Card */}
-        {isBasicPlan && canManageSubscription() && activeSubscriptions.length > 0 && (
+        {isBasicPlan && canManageSubscription() && activeSubscriptions.length > 0 && !isAppleManaged && (
           <div className="card mb-8 bg-gradient-to-r from-purple-500/10 to-gg-pink/10 border-purple-500/20">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
@@ -644,7 +743,7 @@ export default function SubscriptionPage() {
                 <div>
                   <h3 className="font-medium text-white">Upgrade to Premium State</h3>
                   <p className="text-sm text-gg-gray-400">
-                    Get premium features for $74.99/state/mo (currently $24.99/state/mo)
+                    Get premium features for ${formatPrice(PRICING.premium_state.annualPerState)}/state/year (currently ${formatPrice(PRICING.basic_state.annualPerState)}/state/year)
                   </p>
                 </div>
               </div>
@@ -777,7 +876,7 @@ export default function SubscriptionPage() {
                           <p className="text-white font-medium">{selectedState}</p>
                           <p className="text-gg-gray-400 text-sm">Full state coverage</p>
                         </div>
-                        <p className="text-white font-semibold">${perStatePrice.toFixed(2)}/mo</p>
+                        <p className="text-white font-semibold">${perStatePrice.toFixed(2)}/yr</p>
                       </div>
                     </div>
                   )}
@@ -822,7 +921,7 @@ export default function SubscriptionPage() {
                           <div className="mt-2 space-y-1 text-xs">
                             <div className="flex justify-between text-gg-gray-400">
                               <span>Base price</span>
-                              <span>${perStatePrice.toFixed(2)}/mo</span>
+                              <span>${perStatePrice.toFixed(2)}/yr</span>
                             </div>
                             <div className="flex justify-between text-green-400">
                               <span>Discount</span>
@@ -830,7 +929,7 @@ export default function SubscriptionPage() {
                             </div>
                             <div className="flex justify-between text-white font-semibold pt-1 border-t border-gg-gray-700">
                               <span>New price</span>
-                              <span>${newPrice.toFixed(2)}/mo</span>
+                              <span>${newPrice.toFixed(2)}/yr</span>
                             </div>
                           </div>
                         </div>
@@ -883,7 +982,7 @@ export default function SubscriptionPage() {
                       </div>
                       <div className="flex justify-between text-sm">
                         <span className="text-gg-gray-400">Base price</span>
-                        <span className="text-white">${perStatePrice.toFixed(2)}/mo</span>
+                        <span className="text-white">${perStatePrice.toFixed(2)}/yr</span>
                       </div>
                       {hasPromo && (
                         <>
@@ -896,13 +995,13 @@ export default function SubscriptionPage() {
                         </>
                       )}
                       <div className="flex justify-between pt-2 border-t border-gg-gray-700">
-                        <span className="text-white font-semibold">New monthly charge</span>
-                        <span className="text-white font-semibold">${newPrice.toFixed(2)}/mo</span>
+                        <span className="text-white font-semibold">New annual charge</span>
+                        <span className="text-white font-semibold">${newPrice.toFixed(2)}/yr</span>
                       </div>
                     </div>
 
                     <p className="text-gg-gray-500 text-xs mb-4">
-                      Your card on file will be charged a prorated amount today based on the days remaining in your current billing cycle. Future invoices will include this state at ${newPrice.toFixed(2)}/mo.
+                      Your card on file will be charged a prorated amount today based on the days remaining in your current billing cycle. Future invoices will include this state at ${newPrice.toFixed(2)}/yr.
                     </p>
 
                     {error && (
@@ -947,7 +1046,7 @@ export default function SubscriptionPage() {
                 <h3 className="text-xl font-semibold text-white">Upgrade to Premium</h3>
               </div>
               <p className="text-gg-gray-400 mb-4">
-                Your plan will switch from Basic State ($24.99/state/mo) to Premium State ($74.99/state/mo) for all {activeSubscriptions.length} {activeSubscriptions.length === 1 ? 'state' : 'states'}.
+                Your plan will switch from Basic State (${formatPrice(PRICING.basic_state.annualPerState)}/state/yr) to Premium State (${formatPrice(PRICING.premium_state.annualPerState)}/state/yr) for all {activeSubscriptions.length} {activeSubscriptions.length === 1 ? 'state' : 'states'}.
               </p>
               <p className="text-gg-gray-500 text-sm mb-6">
                 Prorated charges will be applied to your next invoice.
