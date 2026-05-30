@@ -734,6 +734,19 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chatSearchEndSignal])
 
+  // When the coverage list grows (e.g. the live fetch returns more
+  // counties than the seed defaults), invalidate the per-variant
+  // "already loaded" gates so the consumer effects re-fetch with the
+  // expanded list. Without this, the soils/soils-csb/worldcover effects
+  // bail on the first run with only the 4 pilots and never pick up
+  // newly-deployed counties like McDonough.
+  useEffect(() => {
+    ssurgoLoadedRef.current = false
+    ssurgoCsbLoadedRef.current = false
+    worldcoverLoadedRef.current = false
+    enrichmentAvailableRef.current = true
+  }, [overlayCoverage])
+
   // Pull the live soils-overlay coverage list from the backend once on
   // mount. If the request fails the seed defaults stay in place so
   // the existing 4-pilot experience is preserved.
@@ -3385,7 +3398,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         COUNTIES.map(c => fetchCounty(c.state, c.county))
       )
       if (cancelled) return
-      if (results.some(r => r.got404)) {
+      // Don't latch enrichmentAvailableRef off when SOME counties 404
+      // (newer counties may only have soils-csb data, no legacy
+      // tillable/fsa overlay). Only kill the loop if EVERY county
+      // 404'd — meaning the backend is missing all coverage.
+      if (results.length > 0 && results.every(r => r.got404)) {
         enrichmentAvailableRef.current = false
         return
       }
