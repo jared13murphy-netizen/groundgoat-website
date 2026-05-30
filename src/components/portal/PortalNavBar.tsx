@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Map, Calendar, Building2, BarChart3, LogOut, User, Users, Settings, Filter, Bookmark } from 'lucide-react'
+import { Map, Calendar, Building2, BarChart3, LogOut, User, Users, Settings, Filter, Bookmark, Layers } from 'lucide-react'
 
 type TabType = 'map' | 'auctions' | 'private_treaty' | 'results'
 
@@ -17,6 +17,8 @@ interface PortalNavBarProps {
   onWatchlistToggle?: () => void
   watchlistOpen?: boolean
   watchlistCount?: number
+  onSoilMapsToggle?: () => void
+  soilMapsOpen?: boolean
   user: {
     first_name: string
     last_name: string
@@ -24,12 +26,13 @@ interface PortalNavBarProps {
   }
 }
 
-export default function PortalNavBar({ activeTab, onTabChange, onFilterToggle, filterOpen, onAnalyticsToggle, analyticsOpen, onWatchlistToggle, watchlistOpen, watchlistCount = 0, user }: PortalNavBarProps) {
+export default function PortalNavBar({ activeTab, onTabChange, onFilterToggle, filterOpen, onAnalyticsToggle, analyticsOpen, onWatchlistToggle, watchlistOpen, watchlistCount = 0, onSoilMapsToggle, soilMapsOpen, user }: PortalNavBarProps) {
   const router = useRouter()
   const [showUserMenu, setShowUserMenu] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
 
   const isAdmin = user.account_type === 'groundgoat_admin' || user.account_type === 'groundgoat_sales'
+  const isSoilMapsAdmin = user.account_type === 'groundgoat_admin'
   const isFirmAdmin = user.account_type === 'firm_admin'
   const initials = (user.first_name?.[0] || '') + (user.last_name?.[0] || '')
 
@@ -129,6 +132,24 @@ export default function PortalNavBar({ activeTab, onTabChange, onFilterToggle, f
             >
               <BarChart3 size={14} />
               <span className="hidden md:inline">Analytics</span>
+            </button>
+          )}
+
+          {/* Soil Maps button — admin-only. Replaces the in-map
+              "Soils on" + "Soils CSB" toggle pair. Activates the
+              ssurgo_csb overlay on click; second click hides it. */}
+          {isSoilMapsAdmin && onSoilMapsToggle && (
+            <button
+              onClick={onSoilMapsToggle}
+              className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-all flex items-center gap-1.5 ${
+                soilMapsOpen
+                  ? 'bg-gg-pink/15 text-gg-pink border-gg-pink/30'
+                  : 'border-transparent text-white/60 hover:text-white hover:bg-white/5'
+              }`}
+              title="Toggle SSURGO + CSB soils overlay"
+            >
+              <Layers size={14} />
+              <span className="hidden md:inline">Soil Maps</span>
             </button>
           )}
         </nav>

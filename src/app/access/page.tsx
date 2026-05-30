@@ -75,6 +75,10 @@ export default function AccessPortalPage() {
   const [activeTab, setActiveTab] = useState<TabType>('map')
   const [showListPanel, setShowListPanel] = useState(false)
   const [showAnalyticsPanel, setShowAnalyticsPanel] = useState(false)
+  // Soil Maps overlay (admin-only). When true, ExploreMap activates
+  // its soils-CSB overlay. Replaces the in-map "Soils on" + "Soils CSB"
+  // toggle buttons that used to live as floating right-side controls.
+  const [soilMapsOpen, setSoilMapsOpen] = useState(false)
   const [filterOpen, setFilterOpen] = useState(false)
   const [activeFilters, setActiveFilters] = useState<{ stateFilter: string; countyFilters: string[] }>({ stateFilter: '', countyFilters: [] })
   const [listings, setListings] = useState<Listing[]>([])
@@ -576,6 +580,7 @@ export default function AccessPortalPage() {
           comparableVisibleIds={null}
           neighborParcels={neighborParcels}
           neighborsLoading={neighborsLoading}
+          soilMapsOpen={soilMapsOpen}
         />
       </div>
 
@@ -598,6 +603,8 @@ export default function AccessPortalPage() {
         onWatchlistToggle={() => setShowWatchlistPanel(!showWatchlistPanel)}
         watchlistOpen={showWatchlistPanel}
         watchlistCount={watchlistIds.size}
+        onSoilMapsToggle={() => setSoilMapsOpen(v => !v)}
+        soilMapsOpen={soilMapsOpen}
         user={user}
       />
 

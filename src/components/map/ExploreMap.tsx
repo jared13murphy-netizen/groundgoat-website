@@ -672,9 +672,13 @@ interface ExploreMapProps {
     zoning?: string | null
   }[] | null
   neighborsLoading?: boolean
+  /** External Soil Maps toggle, driven by the menu-bar button in
+   *  access/page.tsx. When true, the soils-CSB overlay is activated.
+   *  Replaces the floating "Soils on" + "Soils CSB" buttons. */
+  soilMapsOpen?: boolean
 }
 
-export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, chatSearchEndSignal, comparableVisibleIds, neighborParcels, neighborsLoading }: ExploreMapProps) {
+export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, chatSearchEndSignal, comparableVisibleIds, neighborParcels, neighborsLoading, soilMapsOpen }: ExploreMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const stateMarkersRef = useRef<maplibregl.Marker[]>([])
@@ -2910,6 +2914,22 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const enrichmentLastBboxRef = useRef<string>('')
   const enrichmentAvailableRef = useRef<boolean>(true)
 
+  // Sync external Soil Maps menu-bar button → internal overlay state.
+  // When the operator clicks "Soil Maps" in the nav, soilMapsOpen flips
+  // and we flip the enrichmentOverlay + lock tillableSource to
+  // 'ssurgo_csb' so the CSB-soils view comes up. When they click it
+  // off, we just turn the overlay off (the source stays so the next
+  // toggle remembers).
+  useEffect(() => {
+    if (soilMapsOpen === undefined) return
+    if (soilMapsOpen) {
+      setEnrichmentOverlay(true)
+      setTillableSource('ssurgo_csb')
+    } else {
+      setEnrichmentOverlay(false)
+    }
+  }, [soilMapsOpen])
+
   // When the coverage list grows (e.g. the live fetch returns more
   // counties than the seed defaults), invalidate the per-variant
   // "already loaded" gates so the consumer effects re-fetch with the
@@ -4479,82 +4499,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         </button>
       )}
 
-      {/* Parcel-Enrichment Toggle (pilot owner only). Wired to the
-          Hancock IL soil/tillable overlay. Gated identically to the
-          Goat Search button: groundgoat_admin only. The map runs in
-          portalMode on /access, so we DO NOT gate on portalMode. */}
-      {isEnrichmentPilot && (
-        <button
-          onClick={() => setEnrichmentOverlay(v => !v)}
-          style={{
-            position: 'absolute',
-            top: 120 + 44,  // sits directly below the Filter button
-            right: 10,
-            zIndex: 10,
-            height: 36,
-            padding: '0 12px',
-            borderRadius: 6,
-            border: 'none',
-            backgroundColor: enrichmentOverlay ? '#16A34A' : 'rgba(0,0,0,0.75)',
-            color: '#fff',
-            fontSize: 12,
-            fontWeight: 600,
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
-          }}
-          title="Tillable + Soil PI overlay — Hancock IL pilot"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 2 L4 7 L4 17 L12 22 L20 17 L20 7 Z" />
-            <path d="M12 7 L12 22 M4 7 L20 7 M4 17 L20 17" />
-          </svg>
-          {enrichmentOverlay ? 'Soils on' : 'Soils'}
-        </button>
-      )}
-
-      {/* Cropland / soil data-source toggle. Cycles through three
-          modes (WorldCover removed — slow lazy-load, not the visual
-          we want): CDL → SSURGO (FSA + CDL coverage) → SSURGO-CSB
-          (FSA + CSB cropland coverage). */}
-      {isEnrichmentPilot && enrichmentOverlay && (
-        <button
-          onClick={() => setTillableSource(s =>
-            s === 'cdl' ? 'ssurgo'
-            : s === 'ssurgo' ? 'ssurgo_csb'
-            : 'cdl'
-          )}
-          style={{
-            position: 'absolute',
-            top: 120 + 44 + 44,  // directly below the Soils button
-            right: 10,
-            zIndex: 10,
-            height: 36,
-            padding: '0 12px',
-            borderRadius: 6,
-            border: 'none',
-            backgroundColor:
-              tillableSource === 'ssurgo' ? '#a8762e'        // earth tone
-              : tillableSource === 'ssurgo_csb' ? '#7b3f00'  // darker earth (CSB variant)
-              : '#22a050',
-            color: '#fff',
-            fontSize: 12,
-            fontWeight: 600,
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
-          }}
-          title="Cycle data source: USDA CDL 30m → SSURGO (FSA+CDL) → SSURGO (FSA+CSB)"
-        >
-          {tillableSource === 'ssurgo' ? 'Soil Types'
-            : tillableSource === 'ssurgo_csb' ? 'Soils CSB'
-            : 'CDL'}
-        </button>
-      )}
+      {/* "Soils" + "Soils CSB" floating buttons were removed in favor
+          of the Soil Maps button in the nav-bar (PortalNavBar.tsx).
+          The overlay + tillableSource are now driven by the
+          `soilMapsOpen` prop synced in the useEffect above. */}
 
       {/* Filter Button */}
       <button
