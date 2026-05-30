@@ -166,7 +166,9 @@ export default function MapComparablesView({ subjectTractId }: { subjectTractId:
     return {
       type: 'FeatureCollection',
       features: data.sales
-        .filter(s => s.lat != null && s.lng != null)
+        // Only tracts with a real polygon boundary get a pin — tracts
+        // without a boundary should never show a pin on the map.
+        .filter(s => s.lat != null && s.lng != null && s.polygon_coordinates && s.polygon_coordinates.length >= 3)
         .map(s => ({
           type: 'Feature',
           properties: { id: s.tract_id, source: 'tract' },
@@ -180,7 +182,9 @@ export default function MapComparablesView({ subjectTractId }: { subjectTractId:
     return {
       type: 'FeatureCollection',
       features: (data.parcels_with_sales || [])
-        .filter(p => p.lat != null && p.lng != null)
+        // Only parcels with a real polygon boundary get a pin — parcels
+        // without a boundary should never show a pin on the map.
+        .filter(p => p.lat != null && p.lng != null && p.polygon_coordinates && p.polygon_coordinates.length >= 3)
         .map(p => ({
           type: 'Feature',
           properties: { id: p.ll_uuid, source: 'parcel' },
