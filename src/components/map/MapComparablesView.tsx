@@ -562,7 +562,10 @@ export default function MapComparablesView({ subjectTractId }: { subjectTractId:
     const map = mapRef.current
     if (!map || !mapReady || !regridConfig?.tile_url_template) return
     const beforeId = map.getLayer('tract-polys-fill') ? 'tract-polys-fill' : undefined
-    const cleanup = addRegridLayer(map, regridConfig, { beforeId })
+    // minZoom 11 matches the mobile comp map (REGRID_MIN_ZOOM), so parcels
+    // render — and "+" pins detect — across a wider zoom range, closer to
+    // the tract-pin zoom.
+    const cleanup = addRegridLayer(map, regridConfig, { beforeId, minZoom: 11 })
     return cleanup
   }, [regridConfig, mapReady])
 
@@ -630,11 +633,11 @@ export default function MapComparablesView({ subjectTractId }: { subjectTractId:
     }
 
     const extract = () => {
-      // Tile DETECTION only works where Regrid parcels render (z >= 12,
-      // addRegridLayer minzoom). Below that — or before the layer mounts
+      // Tile DETECTION only works where Regrid parcels render (z >= 11,
+      // addRegridLayer minZoom). Below that — or before the layer mounts
       // — we do NOT clear: we keep showing everything already detected so
       // the pins persist at every zoom like the tract pins.
-      if (map.getZoom() < 12 || !map.getLayer('regrid-parcels-fill')) {
+      if (map.getZoom() < 11 || !map.getLayer('regrid-parcels-fill')) {
         commit()
         return
       }
@@ -692,9 +695,29 @@ export default function MapComparablesView({ subjectTractId }: { subjectTractId:
       commit()
     }
 
+    // Re-detect as the Regrid tiles stream in. A single 'idle' on a fresh
+    // open can fire before every viewport tile has actually rendered, so
+    // queryRenderedFeatures returns only a few parcels (or none) and — with
+    // the user not panning — detection never re-runs to fill in the rest.
+    // The MOBILE app avoids this by re-detecting on every region settle plus
+    // a timed call after the camera lands; we mirror that here with
+    // moveend + sourcedata + a few delayed retries. extract() is idempotent
+    // (it accumulates into parcelAccRef and dedups via lastParcelSigRef), so
+    // firing it repeatedly only ever ADDS pins, never removes them.
+    const onSourceData = (e: maplibregl.MapSourceDataEvent) => {
+      if ((e as any).sourceId === 'regrid-parcels' && (e as any).isSourceLoaded) extract()
+    }
     map.on('idle', extract)
+    map.on('moveend', extract)
+    map.on('sourcedata', onSourceData)
     extract()
-    return () => { map.off('idle', extract) }
+    const retryTimers = [400, 1200, 2500, 4500, 7000].map(ms => setTimeout(extract, ms))
+    return () => {
+      map.off('idle', extract)
+      map.off('moveend', extract)
+      map.off('sourcedata', onSourceData)
+      retryTimers.forEach(clearTimeout)
+    }
   }, [mapReady, data, regridConfig])
 
   // ESC closes the popup (UX nicety)
