@@ -476,11 +476,14 @@ export default function AccessPortalPage() {
           setSubjectTractLocation({ lat: subLat, lng: subLng })
         }
 
+        // Zoom to 13 (above the Regrid source minzoom of 12) so the parcel
+        // tiles + "+" comp markers actually render — at 11 they were below
+        // the Regrid floor and nothing showed. Centered on the subject tract.
         const zoomTarget = subLat && subLng
-          ? { lat: subLat, lng: subLng, zoom: 11 }
+          ? { lat: subLat, lng: subLng, zoom: 13 }
           : (() => {
               const coords = getCountyCoordinates(state, county)
-              return coords ? { lat: coords.latitude, lng: coords.longitude, zoom: 10 } : null
+              return coords ? { lat: coords.latitude, lng: coords.longitude, zoom: 12 } : null
             })()
 
         if (zoomTarget) {

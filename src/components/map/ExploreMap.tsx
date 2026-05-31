@@ -855,6 +855,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const [compPopup, setCompPopup] = useState<{
     sale: SaleDetail
     pos: { x: number; y: number }
+    // For Regrid "+" parcels (no tract marker to re-project from on pan),
+    // we stash the click lng/lat so onMove can keep the popup anchored.
+    lngLat?: [number, number]
   } | null>(null)
   const [show3DViewer, setShow3DViewer] = useState(false)
 
@@ -891,10 +894,27 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   useEffect(() => {
     const map = mapRef.current
     if (!map || !compPopup) return
-    const onMapClick = () => setCompPopup(null)
+    const onMapClick = (e: maplibregl.MapMouseEvent) => {
+      // Don't close if the click landed on a Regrid sale-"+" marker — that
+      // marker's own handler is opening (or switching to) a popup. Without
+      // this guard, clicking one "+" while another popup is open would both
+      // open the new one and immediately close it.
+      if (map.getLayer('parcel-sale-pin-plus')) {
+        try {
+          if (map.queryRenderedFeatures(e.point, { layers: ['parcel-sale-pin-plus'] }).length) return
+        } catch {/* layer gone */}
+      }
+      setCompPopup(null)
+    }
     const onMove = () => {
       setCompPopup(prev => {
         if (!prev) return prev
+        // Regrid "+" parcels carry no tract marker — re-project straight
+        // from the stored click lng/lat so the popup tracks on pan/zoom.
+        if (prev.lngLat) {
+          const p = map.project(prev.lngLat)
+          return { ...prev, pos: { x: p.x, y: p.y } }
+        }
         // Re-project from sale's lat/lng. SaleDetail's polygonCoordinates
         // can be missing — fall back to the lng/lat we projected from
         // originally by reading off the marker element (kept in
@@ -2846,6 +2866,39 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       const ll_uuid = props.ll_uuid as string | undefined
       const lng = e.lngLat.lng
       const lat = e.lngLat.lat
+
+      // COMP MODE: the "+" is a comparable-picker, so open the same inline
+      // CompInlinePopup the HTML tract "+" uses — it has the "Add to Report"
+      // button (the raw parcel-detail maplibre popup has no such button).
+      // EXPLORE MODE (no subject tract): fall through to the rich parcel
+      // detail popup below.
+      if (subjectTractIdRef.current) {
+        if (activePopup) { try { activePopup.remove() } catch {/* gone */} activePopup = null }
+        const acresRaw = props.ll_gisacre ?? props.gisacre ?? null
+        const acres = acresRaw != null ? Number(acresRaw) : null
+        const salePrice = props.saleprice != null && props.saleprice !== ''
+          ? Number(props.saleprice) : null
+        const sale: SaleDetail = {
+          // ll_uuid is the stable Regrid parcel id; report toggle/dedupe
+          // keys off sale.id. Fall back to coords if the tile lacks a uuid.
+          id: ll_uuid || props.path || `parcel:${lng.toFixed(6)},${lat.toFixed(6)}`,
+          listingId: null,
+          tractId: null,
+          auctionDate: typeof props.saledate === 'string' ? props.saledate.slice(0, 10) : null,
+          totalAcres: acres,
+          companyName: props.owner || null,
+          salePrice,
+          pricePerAcre: (salePrice != null && acres && acres > 0) ? salePrice / acres : null,
+          county: props.county || props.county_name || '',
+          state: props.state || props.state_abbr || '',
+          township: null,
+          saleStatus: 'sold',
+        }
+        const point = map.project(e.lngLat)
+        setCompPopup({ sale, pos: { x: point.x, y: point.y }, lngLat: [lng, lat] })
+        return
+      }
+
       if (activePopup) { try { activePopup.remove() } catch {/* gone */} activePopup = null }
       const popup = new maplibregl.Popup({
         closeButton: true,
@@ -3765,6 +3818,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // Click to open modal / slide-out (regular mode) or inline
       // popup on the map (comparables mode).
       el.addEventListener('click', (e) => {
+        // Stop the click from bubbling to the map canvas. Without this, a
+        // tract pin sitting on top of a Regrid parcel fires BOTH the tract
+        // detail (here) AND the Regrid parcel-fill click → two popups. The
+        // tract is on top, so its detail wins; the parcel popup is suppressed.
+        e.stopPropagation()
         const saleData: SaleDetail = {
           id: tract.id,
           listingId: tract.listing_id,
@@ -3950,7 +4008,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         el.style.zIndex = statusZ
         el.dataset.tractId = lead.tract.id
 
-        el.addEventListener('click', () => {
+        el.addEventListener('click', (e) => {
+          // Suppress the underlying Regrid parcel-fill click so a tract pin
+          // layered over a parcel doesn't open two popups (see the same
+          // guard on the regular-tract markers above).
+          e.stopPropagation()
           if (isCluster) {
             // Zoom in by ~2 levels (capped at 13) so the cluster breaks.
             const next = Math.min(map.getZoom() + 2.5, 13)
