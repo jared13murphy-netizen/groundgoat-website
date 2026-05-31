@@ -2685,7 +2685,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // with gisacre as a fallback — same field-precedence the label layer
   // above uses.
   // ─────────────────────────────────────────────────────────────────
-  const PARCEL_SALE_BG_LAYER = 'parcel-sale-pin-bg'
   const PARCEL_SALE_PLUS_LAYER = 'parcel-sale-pin-plus'
   // 0 = no acreage floor — EVERY priced parcel gets a "+" per user spec
   // ("all parcels that have a price should have a plus icon button").
@@ -2725,30 +2724,19 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // layers in sync as the filter changes.
       const filterExpr: any = buildRegridSaleDotFilter(filtersRef.current, PARCEL_MIN_SALE_ACRES)
 
-      // Pin sits AT the polygon centroid (no translate). The LABEL
-      // is anchored 'top' + text-offset 1.6em so it grows DOWN from
-      // the centroid, leaving the pin visible directly above the
-      // label. Earlier we lifted the pin -42px which pushed it onto
-      // neighboring parcels for any lot smaller than ~80px tall —
-      // i.e. most 20-acre parcels at z=14. Keeping the pin at the
-      // centroid guarantees it stays inside the parcel it
-      // represents, no matter how small the lot.
-      if (!map.getLayer(PARCEL_SALE_BG_LAYER)) {
-        map.addLayer({
-          id: PARCEL_SALE_BG_LAYER,
-          type: 'circle',
-          source: REGRID_SOURCE,
-          'source-layer': sourceLayer,
-          minzoom: REGRID_MIN_ZOOM,
-          filter: filterExpr,
-          paint: {
-            'circle-radius': ['interpolate', ['linear'], ['zoom'], 12, 8, 16, 14],
-            'circle-color': '#f58cde',
-            'circle-stroke-color': '#ffffff',
-            'circle-stroke-width': 2,
-          },
-        })
-      }
+      // IMPORTANT: this is a TEXT-ONLY symbol, no circle background.
+      // A maplibre `circle` layer bound to a POLYGON source renders a
+      // dot at every vertex of every parcel — that produced strings of
+      // pink dots tracing the parcel boundary lines. A `symbol` layer
+      // with 'symbol-placement: point' (the default) instead renders
+      // exactly ONE label at each polygon's centroid, so the "+" stays
+      // inside its parcel. The pink halo gives it the button look the
+      // circle used to provide, without the vertex-dot mess.
+      //
+      // We deliberately DON'T set text-allow-overlap/ignore-placement:
+      // letting maplibre collision-test means dense small-parcel towns
+      // de-clutter at low zoom (instead of stacking into a pink blob)
+      // and fill back in as the user zooms toward the parcels.
       if (!map.getLayer(PARCEL_SALE_PLUS_LAYER)) {
         map.addLayer({
           id: PARCEL_SALE_PLUS_LAYER,
@@ -2760,12 +2748,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           layout: {
             'text-field': '+',
             'text-font': ['Open Sans Bold'],
-            'text-size': ['interpolate', ['linear'], ['zoom'], 12, 13, 16, 19],
-            'text-allow-overlap': true,
-            'text-ignore-placement': true,
+            'text-size': ['interpolate', ['linear'], ['zoom'], 12, 16, 16, 24],
           },
           paint: {
             'text-color': '#ffffff',
+            'text-halo-color': '#e0218a',
+            'text-halo-width': 2.6,
           },
         })
       }
@@ -2799,22 +2787,18 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
     const setPointer = () => { map.getCanvas().style.cursor = 'pointer' }
     const clearPointer = () => { map.getCanvas().style.cursor = '' }
-    map.on('mouseenter', PARCEL_SALE_BG_LAYER, setPointer)
-    map.on('mouseleave', PARCEL_SALE_BG_LAYER, clearPointer)
-    map.on('click', PARCEL_SALE_BG_LAYER, onPinClick)
+    map.on('mouseenter', PARCEL_SALE_PLUS_LAYER, setPointer)
+    map.on('mouseleave', PARCEL_SALE_PLUS_LAYER, clearPointer)
     map.on('click', PARCEL_SALE_PLUS_LAYER, onPinClick)
 
     return () => {
       if (timer) clearTimeout(timer)
       try {
         if (!map.getStyle()) return
-        map.off('mouseenter', PARCEL_SALE_BG_LAYER, setPointer)
-        map.off('mouseleave', PARCEL_SALE_BG_LAYER, clearPointer)
-        map.off('click', PARCEL_SALE_BG_LAYER, onPinClick)
+        map.off('mouseenter', PARCEL_SALE_PLUS_LAYER, setPointer)
+        map.off('mouseleave', PARCEL_SALE_PLUS_LAYER, clearPointer)
         map.off('click', PARCEL_SALE_PLUS_LAYER, onPinClick)
-        for (const id of [PARCEL_SALE_PLUS_LAYER, PARCEL_SALE_BG_LAYER]) {
-          if (map.getLayer(id)) map.removeLayer(id)
-        }
+        if (map.getLayer(PARCEL_SALE_PLUS_LAYER)) map.removeLayer(PARCEL_SALE_PLUS_LAYER)
       } catch {/* map already torn down */}
     }
   }, [mapLoaded, regridConfig])
@@ -2828,10 +2812,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const map = mapRef.current
     if (!map || !mapLoaded) return
     const expr = buildRegridSaleDotFilter(filters, PARCEL_MIN_SALE_ACRES)
-    for (const id of [PARCEL_SALE_BG_LAYER, PARCEL_SALE_PLUS_LAYER]) {
-      if (map.getLayer(id)) {
-        try { map.setFilter(id, expr as any) } catch {/* layer torn down */}
-      }
+    if (map.getLayer(PARCEL_SALE_PLUS_LAYER)) {
+      try { map.setFilter(PARCEL_SALE_PLUS_LAYER, expr as any) } catch {/* layer torn down */}
     }
   }, [mapLoaded, filters.dateRange, filters.dateFrom, filters.dateTo, filters.salePriceMin, filters.salePriceMax])
 
