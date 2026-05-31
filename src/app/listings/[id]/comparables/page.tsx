@@ -325,28 +325,6 @@ export default function ComparablesPage({ params }: { params: { id: string } }) 
     return (tillable / total) * 100
   }
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gg-black flex items-center justify-center">
-        <Loader2 className="animate-spin text-gg-pink" size={32} />
-      </div>
-    )
-  }
-
-  if (!listing || !tract) {
-    return (
-      <div className="min-h-screen bg-gg-black pt-24 flex items-center justify-center">
-        <div className="text-center">
-          <BarChart3 className="mx-auto text-gg-gray-600 mb-4" size={48} />
-          <p className="text-gg-gray-400 mb-4">Tract not found</p>
-          <Link href={`/listings/${id}`} className="text-gg-pink hover:underline">
-            Back to Listing
-          </Link>
-        </div>
-      </div>
-    )
-  }
-
   const subjectPctTillable = getSubjectPctTillable()
   const canEmail = selectedIds.size > 0
   // Use polygon centroid for subject tract if available (more accurate than stored lat/lng)
@@ -413,6 +391,31 @@ export default function ComparablesPage({ params }: { params: { id: string } }) 
   const visibleIds = useMemo(() => {
     return new Set(sortedComparables.map((c: any) => String(c.tract_id || c.id)))
   }, [sortedComparables])
+
+  // Conditional early-returns MUST come after every hook above, or the
+  // hook count changes between the loading render and the loaded render
+  // (React error #310). All computations above are null-safe.
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gg-black flex items-center justify-center">
+        <Loader2 className="animate-spin text-gg-pink" size={32} />
+      </div>
+    )
+  }
+
+  if (!listing || !tract) {
+    return (
+      <div className="min-h-screen bg-gg-black pt-24 flex items-center justify-center">
+        <div className="text-center">
+          <BarChart3 className="mx-auto text-gg-gray-600 mb-4" size={48} />
+          <p className="text-gg-gray-400 mb-4">Tract not found</p>
+          <Link href={`/listings/${id}`} className="text-gg-pink hover:underline">
+            Back to Listing
+          </Link>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-gg-black pt-24 pb-12">
