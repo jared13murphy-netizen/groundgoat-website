@@ -536,16 +536,22 @@ function buildRegridSaleDotFilter(filters: FilterState, minAcres: number): any[]
     'all',
     ['has', 'saleprice'],
     ['>', ['to-number', ['get', 'saleprice']], 0],
-    ['any', ['has', 'll_gisacre'], ['has', 'gisacre']],
-    ['>=',
+  ]
+  // Only apply the acreage floor when one is set. With minAcres = 0 we
+  // skip the acre guards entirely so a priced parcel that lacks acreage
+  // data still qualifies — "all parcels that have a price" really means
+  // all of them.
+  if (minAcres > 0) {
+    expr.push(['any', ['has', 'll_gisacre'], ['has', 'gisacre']])
+    expr.push(['>=',
       ['case',
         ['has', 'll_gisacre'], ['to-number', ['get', 'll_gisacre']],
         ['has', 'gisacre'], ['to-number', ['get', 'gisacre']],
         0,
       ],
       minAcres,
-    ],
-  ]
+    ])
+  }
   // HARDCODED 3-year floor on the dot layer per user spec
   // ("sale date is within the last 3 years"). This applies even when
   // the user picks "All time" in the filter panel — the panel filter
@@ -2681,15 +2687,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // ─────────────────────────────────────────────────────────────────
   const PARCEL_SALE_BG_LAYER = 'parcel-sale-pin-bg'
   const PARCEL_SALE_PLUS_LAYER = 'parcel-sale-pin-plus'
-  const PARCEL_MIN_SALE_ACRES = 20
-  // Feature flag — the parcel-sale-pin layers (pink dot + white "+")
-  // are disabled per user 2026-05-26 until the placement is right.
-  // Pins were appearing in the wrong locations relative to their
-  // parcels. Labels (owner / acres / $/acre / sale date) on the
-  // boundary layer already convey the sale info, so disabling the
-  // pins is a clean removal — re-enable by flipping this flag once
-  // we've figured out reliable per-parcel placement.
-  const REGRID_SALE_PINS_ENABLED = false
+  // 0 = no acreage floor — EVERY priced parcel gets a "+" per user spec
+  // ("all parcels that have a price should have a plus icon button").
+  const PARCEL_MIN_SALE_ACRES = 0
+  // Re-enabled 2026-05-31. The original placement bug (pins landing on
+  // neighboring parcels) came from a -42px text-translate that has since
+  // been removed — the pin now sits AT the polygon centroid with no
+  // translate, so it stays inside its parcel regardless of lot size.
+  const REGRID_SALE_PINS_ENABLED = true
 
   useEffect(() => {
     const map = mapRef.current
