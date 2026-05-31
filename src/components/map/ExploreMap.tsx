@@ -2734,6 +2734,19 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     if (!map || !mapLoaded || !regridConfig?.tile_url_template) return
     if (!REGRID_SALE_PINS_ENABLED) return
 
+    // Bulletproof the dot icon against style reloads. MapLibre clears all
+    // addImage() images whenever the style reloads (basemap switch, etc.),
+    // but this effect's deps don't re-fire on a style reload — so the
+    // icon would silently go missing. On the explore map the marker is
+    // icon-only, so a missing icon = NO dots at all (in comp mode the "+"
+    // text still renders, which is why comp mode looked fine while
+    // explore showed nothing). styleimagemissing re-creates the dot on
+    // demand any time MapLibre asks for it.
+    const onStyleImageMissing = (ev: { id: string }) => {
+      if (ev.id === PARCEL_SALE_DOT_IMAGE) ensureParcelSaleDotImage(map)
+    }
+    map.on('styleimagemissing', onStyleImageMissing)
+
     // The Regrid source itself is added by the layer-mount effect
     // above. We piggyback on it — but the source might not exist yet
     // (its effect runs on the same render). Wait one tick if missing.
@@ -2855,6 +2868,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       if (timer) clearTimeout(timer)
       if (activePopup) { try { activePopup.remove() } catch {/* gone */} activePopup = null }
       try {
+        map.off('styleimagemissing', onStyleImageMissing)
         if (!map.getStyle()) return
         map.off('mouseenter', PARCEL_SALE_PLUS_LAYER, setPointer)
         map.off('mouseleave', PARCEL_SALE_PLUS_LAYER, clearPointer)
