@@ -197,8 +197,80 @@ export default function ComparablesMap({
       beforeId: 'tract-polygon-fill',
       minZoom: 14,
     })
-    return cleanup
-  }, [mapReady, regridConfig])
+
+    // --- Parcel "+" button -------------------------------------------
+    // Every Regrid parcel whose tile carries saleprice > 0 gets a pink
+    // "+" drawn per-feature by the GPU — a TEXT symbol with a thick pink
+    // halo, rendered the exact same reliable way the tile LABEL renders
+    // (glyph text + halo). No icon-image (a missing/late icon with the
+    // default icon-optional:false drops the whole symbol), no JS
+    // detection, no timing. addRegridLayer adds the 'regrid-parcels'
+    // source synchronously above, so it's guaranteed present here.
+    const PLUS = 'parcel-plus'
+    const plusSourceLayer = regridConfig.source_layer || 'parcels'
+    if (map.getSource('regrid-parcels') && !map.getLayer(PLUS)) {
+      map.addLayer({
+        id: PLUS,
+        type: 'symbol',
+        source: 'regrid-parcels',
+        'source-layer': plusSourceLayer,
+        minzoom: 14,
+        filter: ['>', ['to-number', ['coalesce', ['get', 'saleprice'], 0]], 0] as any,
+        layout: {
+          'text-field': '+',
+          'text-font': ['Open Sans Bold'],
+          'text-size': ['interpolate', ['linear'], ['zoom'], 8, 18, 14, 28],
+          'text-allow-overlap': true,
+          'text-ignore-placement': true,
+        },
+        paint: {
+          'text-color': '#ffffff',
+          'text-halo-color': '#E91E8C',
+          'text-halo-width': 3.2,
+          'text-halo-blur': 0.4,
+        },
+      })
+    }
+
+    const setPointer = () => { map.getCanvas().style.cursor = 'pointer' }
+    const clearPointer = () => { map.getCanvas().style.cursor = '' }
+    const onPlusClick = (
+      e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] },
+    ) => {
+      const f = e.features?.[0]
+      if (!f) return
+      const p: any = f.properties || {}
+      const toNum = (v: any): number | null => {
+        if (v == null) return null
+        const n = parseFloat(String(v).replace(/[^0-9.]/g, ''))
+        return Number.isFinite(n) ? n : null
+      }
+      const acres = toNum(p.ll_gisacre) ?? toNum(p.gisacre)
+      const salePrice = toNum(p.saleprice)
+      const ppa = salePrice != null && acres != null && acres > 0 ? salePrice / acres : null
+      setSelectedSale({
+        id: String(p.path ?? p.ogc_fid ?? p.parcelnumb ?? `${e.lngLat.lng},${e.lngLat.lat}`),
+        auctionDate: typeof p.saledate === 'string' ? p.saledate.slice(0, 10) : null,
+        totalAcres: acres,
+        salePrice,
+        pricePerAcre: ppa,
+        county: subjectCounty,
+        state: subjectState,
+        companyName: p.owner ?? null,
+      })
+    }
+    map.on('mouseenter', PLUS, setPointer)
+    map.on('mouseleave', PLUS, clearPointer)
+    map.on('click', PLUS, onPlusClick)
+
+    return () => {
+      map.off('mouseenter', PLUS, setPointer)
+      map.off('mouseleave', PLUS, clearPointer)
+      map.off('click', PLUS, onPlusClick)
+      if (map.getLayer(PLUS)) map.removeLayer(PLUS)
+      cleanup()
+    }
+  }, [mapReady, regridConfig, subjectCounty, subjectState])
 
   // Keep the Regrid fill/line/label filter in sync with the comparables
   // filter panel. Tile-native filters only (acreage, sale date, sold);
