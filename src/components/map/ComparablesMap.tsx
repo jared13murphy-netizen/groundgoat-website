@@ -195,7 +195,9 @@ export default function ComparablesMap({
     // outlines remain visible.
     const cleanup = addRegridLayer(map, regridConfig, {
       beforeId: 'tract-polygon-fill',
-      minZoom: 14,
+      // 11 matches the mobile comp map (REGRID_MIN_ZOOM) so parcels +
+      // the "+" appear at the same zoom users see them on mobile.
+      minZoom: 11,
     })
 
     // --- Parcel "+" button -------------------------------------------
@@ -214,7 +216,7 @@ export default function ComparablesMap({
         type: 'symbol',
         source: 'regrid-parcels',
         'source-layer': plusSourceLayer,
-        minzoom: 14,
+        minzoom: 11,
         filter: ['>', ['to-number', ['coalesce', ['get', 'saleprice'], 0]], 0] as any,
         layout: {
           'text-field': '+',
