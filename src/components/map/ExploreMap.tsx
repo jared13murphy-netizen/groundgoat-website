@@ -2844,10 +2844,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
     mount()
 
-    // Click — show a popup with whatever sale info Regrid embedded in
-    // the tile properties. No backend round-trip needed; if the user
-    // wants the full Premium record they can still click the parcel
-    // boundary which opens the existing detail popup.
+    // Click — open the SAME full parcel-detail popup the parcel boundary
+    // opens (address, township, property use, last sale, etc.), per user:
+    // the dot should show the detailed card, not the lighter sale-only one.
+    // We fetch the full Premium Schema record from our backend cache (which
+    // hits Regrid only on a cache miss), showing a loading card immediately.
     //
     // ONE popup at a time: we keep a single instance and remove the
     // previous before opening a new one, so rapid clicks don't stack
@@ -2856,13 +2857,15 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // white padding) — without it the dark header overflowed maplibre's
     // default popup box and looked broken.
     let activePopup: maplibregl.Popup | null = null
-    const onPinClick = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
+    const onPinClick = async (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
       const f = e.features?.[0]
       if (!f) return
       const props: any = f.properties || {}
-      const acres = props.ll_gisacre ?? props.gisacre ?? null
+      const ll_uuid = props.ll_uuid as string | undefined
+      const lng = e.lngLat.lng
+      const lat = e.lngLat.lat
       if (activePopup) { try { activePopup.remove() } catch {/* gone */} activePopup = null }
-      activePopup = new maplibregl.Popup({
+      const popup = new maplibregl.Popup({
         closeButton: true,
         closeOnClick: true,
         maxWidth: '340px',
@@ -2870,20 +2873,30 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         offset: 14,
       })
         .setLngLat(e.lngLat)
-        .setHTML(_parcelSalePopupHTML({
-          sale_price: props.saleprice ? Number(props.saleprice) : null,
-          sale_date: props.saledate || null,
-          total_acres: acres ? Number(acres) : null,
-          price_per_acre: (props.saleprice && acres && Number(acres) > 0)
-            ? Number(props.saleprice) / Number(acres)
-            : null,
-          owner: props.owner || null,
-          address: props.address || null,
-          county: props.county || null,
-          state: props.state || null,
-        }))
+        .setHTML(_regridLoadingHTML(props))
         .addTo(map)
-      activePopup.on('close', () => { activePopup = null })
+      activePopup = popup
+      popup.on('close', () => { if (activePopup === popup) activePopup = null })
+
+      try {
+        const qs = new URLSearchParams()
+        if (ll_uuid) qs.set('ll_uuid', ll_uuid)
+        else { qs.set('lat', String(lat)); qs.set('lng', String(lng)) }
+        const enrichPromise: Promise<any> = (isEnrichmentPilot && ll_uuid)
+          ? fetchWithAuth(`${API_URL}/api/parcel-enrichment/by-uuid?ll_uuid=${encodeURIComponent(ll_uuid)}`)
+              .then(r => r.ok ? r.json() : null).catch(() => null)
+          : Promise.resolve(null)
+        const res = await fetchWithAuth(`${API_URL}/api/regrid/parcel?${qs.toString()}`)
+        const enrich = await enrichPromise
+        if (!res.ok) {
+          popup.setHTML(_regridFallbackHTML(props) + _enrichmentPopupSection(enrich))
+          return
+        }
+        const data = await res.json()
+        popup.setHTML(_regridPopupHTML(data?.parcel || props) + _enrichmentPopupSection(enrich))
+      } catch {
+        popup.setHTML(_regridFallbackHTML(props))
+      }
     }
     const setPointer = () => { map.getCanvas().style.cursor = 'pointer' }
     const clearPointer = () => { map.getCanvas().style.cursor = '' }
