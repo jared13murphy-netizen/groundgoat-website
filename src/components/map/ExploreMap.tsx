@@ -552,20 +552,19 @@ function buildRegridSaleDotFilter(filters: FilterState, minAcres: number): any[]
       minAcres,
     ])
   }
-  // HARDCODED 3-year floor on the dot layer per user spec
-  // ("sale date is within the last 3 years"). This applies even when
-  // the user picks "All time" in the filter panel — the panel filter
-  // affects backend listings + tract pins, but the Regrid pink + dots
-  // are always capped at 3 years of sales. If the user picks a
-  // tighter window (e.g. "Last 6 months"), we narrow further by
-  // taking the LATER of (3-year floor, user's `from`).
-  const threeYearFloor = (() => {
-    const d = new Date()
-    d.setFullYear(d.getFullYear() - 3)
-    return d.toISOString().split('T')[0]
-  })()
-  const effectiveFrom = from && from > threeYearFloor ? from : threeYearFloor
-  expr.push(['>=', ['coalesce', ['get', 'saledate'], ''], effectiveFrom])
+  // Date window — match the parcel-sale LABELS exactly. The label layer
+  // (buildRegridParcelFilter) applies a date filter ONLY when the user
+  // picks a timeframe preset; "All time" applies none. We do the same:
+  // apply from/to when the user set a window, otherwise no date floor.
+  //
+  // There is intentionally NO hardcoded 3-year floor anymore. The old
+  // floor hid every parcel whose sale was older than 3 years even though
+  // its sale-date label was still drawn on the map — so on "All time"
+  // (almost all sales > 3 yrs old) the dots vanished entirely while the
+  // labels showed. The dots must mark every priced parcel the labels do.
+  if (from) {
+    expr.push(['>=', ['coalesce', ['get', 'saledate'], ''], from])
+  }
   if (to) {
     expr.push(['<=', ['coalesce', ['get', 'saledate'], '9999-12-31'], to])
   }
