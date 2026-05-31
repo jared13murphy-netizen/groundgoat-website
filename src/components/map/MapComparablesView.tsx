@@ -241,23 +241,6 @@ export default function MapComparablesView({ subjectTractId }: { subjectTractId:
   }, [data])
   const tractByIdRef = useRef(tractById)
   useEffect(() => { tractByIdRef.current = tractById }, [tractById])
-  // Signature of the last parcel-pin set we pushed to the source. The
-  // tile-extraction effect compares against this to skip redundant
-  // setData calls — setData triggers a repaint → another 'idle' →
-  // re-extract, which would loop forever if we wrote every time.
-  const lastParcelSigRef = useRef<string>('')
-  // Persistent accumulator of every Regrid parcel we've detected this
-  // session, keyed by parcel `path`. We UNION new detections in (never
-  // replace), so the "+" pins behave exactly like the tract pins: once
-  // found they stay pinned at every zoom, instead of being culled to
-  // whatever tiles happen to be rendered this frame. Tile DETECTION only
-  // works at z>=12, but DISPLAY is no longer gated on zoom. Reset when
-  // the subject tract (data) changes — tracked by parcelAccDataRef.
-  const parcelAccRef = useRef<Map<string, {
-    id: string; minLng: number; minLat: number; maxLng: number; maxLat: number
-    salePrice: number; saleDate: any; acres: number | null; owner: any
-  }>>(new Map())
-  const parcelAccDataRef = useRef<any>(null)
 
   // --- Map init (once, on first data arrival) ------------------------
   useEffect(() => {
@@ -348,35 +331,10 @@ export default function MapComparablesView({ subjectTractId }: { subjectTractId:
       paint: { 'text-color': '#ffffff' },
     })
 
-    // Parcel sale PINS — same look, separate source so we can route
-    // clicks to the parcel popup branch. Populated on demand by the
-    // tile-extraction effect (querySourceFeatures on the Regrid tiles),
-    // so it starts empty here.
-    map.addSource('parcel-pins', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } as any })
-    map.addLayer({
-      id: 'parcel-pins-bg',
-      type: 'circle',
-      source: 'parcel-pins',
-      paint: {
-        'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 9, 14, 14],
-        'circle-color': '#E91E8C',
-        'circle-stroke-color': '#ffffff',
-        'circle-stroke-width': 2,
-      },
-    })
-    map.addLayer({
-      id: 'parcel-pins-plus',
-      type: 'symbol',
-      source: 'parcel-pins',
-      layout: {
-        'text-field': '+',
-        'text-font': ['Open Sans Bold'],
-        'text-size': ['interpolate', ['linear'], ['zoom'], 8, 14, 14, 20],
-        'text-allow-overlap': true,
-        'text-ignore-placement': true,
-      },
-      paint: { 'text-color': '#ffffff' },
-    })
+    // Parcel sale "+" PINS are NOT a separate detected source anymore —
+    // they're a symbol layer bound directly to the Regrid vector tiles
+    // (see the "parcel-plus" effect below), so every priced parcel gets a
+    // "+" the same reliable way the tile label renders.
 
     // Subject highlight — a pulsing DOM marker in the distinct
     // SUBJECT_COLOR at the focal tract. A DOM marker (vs a GPU circle
@@ -414,8 +372,6 @@ export default function MapComparablesView({ subjectTractId }: { subjectTractId:
     const clearPointer = () => { map.getCanvas().style.cursor = '' }
     map.on('mouseenter', 'tract-pins-bg', setPointer)
     map.on('mouseleave', 'tract-pins-bg', clearPointer)
-    map.on('mouseenter', 'parcel-pins-bg', setPointer)
-    map.on('mouseleave', 'parcel-pins-bg', clearPointer)
 
     const onTractClick = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
       const f = e.features?.[0]
@@ -430,81 +386,8 @@ export default function MapComparablesView({ subjectTractId }: { subjectTractId:
       })
       e.preventDefault?.()  // suppress map click below
     }
-    // Parcel pins are detected from the Regrid TILE (saleprice baked in)
-    // and carry the tile-derived fields in their feature properties. We
-    // open the popup IMMEDIATELY from those (so the user sees the sale
-    // price / acres with no spinner), then fetch the authoritative parcel
-    // record (/api/regrid/parcel?lat=&lng=) and merge richer fields
-    // (county, owner, soil rating, tillable acres) in when it lands.
-    const onParcelClick = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
-      const f = e.features?.[0]
-      if (!f) return
-      const props: any = f.properties || {}
-      const lat = num(props.lat), lng = num(props.lng)
-      if (lat == null || lng == null) return
-      const pos = map.project([lng, lat])
-      const baseRec: PopupRecord = {
-        kind: 'parcel',
-        id: String(props.id),
-        lat, lng,
-        polygon: null,
-        sale_date: props.sale_date ?? null,
-        sale_price: num(props.sale_price),
-        price_per_acre: num(props.price_per_acre),
-        total_acres: num(props.total_acres),
-        tillable_acres: null,
-        soil_rating: null,
-        soil_rating_type: null,
-        county: null,
-        township: null,
-        owner: props.owner ?? null,
-        source_url: null,  // parcels never show the Details button
-      }
-      setOpenRecord({ rec: baseRec, pos: { x: pos.x, y: pos.y } })
-      e.preventDefault?.()
-
-      // Authoritative fetch — the report CONTENT comes from the parcel
-      // record, not the tile. Merge only if the same popup is still open.
-      const fetchId = baseRec.id
-      ;(async () => {
-        try {
-          const res = await fetchWithAuth(`${API_URL}/api/regrid/parcel?lat=${lat}&lng=${lng}`)
-          if (!res.ok) return
-          const body = await res.json().catch(() => null)
-          const rp = body?.parcel
-          if (!rp) return
-          const acres = num(rp.ll_gisacre) ?? num(rp.gisacre) ?? baseRec.total_acres
-          const salePrice = num(rp.saleprice) ?? baseRec.sale_price
-          const ppa = (salePrice != null && acres != null && acres > 0)
-            ? salePrice / acres
-            : baseRec.price_per_acre
-          const merged: PopupRecord = {
-            ...baseRec,
-            total_acres: acres,
-            sale_price: salePrice,
-            sale_date: rp.saledate ?? baseRec.sale_date,
-            price_per_acre: ppa,
-            county: rp.county ?? null,
-            township: rp.township ?? null,
-            owner: rp.owner ?? baseRec.owner,
-            // Soil rating + tillable acres are being added to the parcel
-            // record by a parallel effort; these rows self-hide until the
-            // backend exposes them.
-            soil_rating: num(rp.soil_rating),
-            soil_rating_type: rp.soil_rating_type ?? null,
-            tillable_acres: num(rp.tillable_acres),
-            source_url: null,
-          }
-          setOpenRecord(prev => (prev && prev.rec.id === fetchId)
-            ? { rec: merged, pos: prev.pos }
-            : prev)
-        } catch { /* keep the tile-derived popup */ }
-      })()
-    }
     map.on('click', 'tract-pins-bg', onTractClick)
     map.on('click', 'tract-pins-plus', onTractClick)
-    map.on('click', 'parcel-pins-bg', onParcelClick)
-    map.on('click', 'parcel-pins-plus', onParcelClick)
 
     // General map click — closes the popup ONLY if the click didn't
     // hit a + pin (and thus didn't open a new popup). MapLibre's
@@ -536,12 +419,8 @@ export default function MapComparablesView({ subjectTractId }: { subjectTractId:
     return () => {
       map.off('mouseenter', 'tract-pins-bg' as any, setPointer)
       map.off('mouseleave', 'tract-pins-bg' as any, clearPointer)
-      map.off('mouseenter', 'parcel-pins-bg' as any, setPointer)
-      map.off('mouseleave', 'parcel-pins-bg' as any, clearPointer)
       map.off('click', 'tract-pins-bg' as any, onTractClick as any)
       map.off('click', 'tract-pins-plus' as any, onTractClick as any)
-      map.off('click', 'parcel-pins-bg' as any, onParcelClick as any)
-      map.off('click', 'parcel-pins-plus' as any, onParcelClick as any)
       map.off('click', onMapClick)
       subjectMarkerRef.current?.remove()
       subjectMarkerRef.current = null
@@ -557,168 +436,160 @@ export default function MapComparablesView({ subjectTractId }: { subjectTractId:
     ;(map.getSource('tract-polys') as maplibregl.GeoJSONSource | undefined)?.setData(tractPolysGeo)
   }, [tractPinsGeo, tractPolysGeo, mapReady])
 
-  // Regrid parcel layer (all parcels, no filter)
+  // Regrid parcel layer (all parcels, no filter). interactive:false so the
+  // built-in fill click→popup doesn't fire alongside our "+" button click
+  // (that would double-pop). The comp map owns interaction via parcel-plus.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapReady || !regridConfig?.tile_url_template) return
     const beforeId = map.getLayer('tract-polys-fill') ? 'tract-polys-fill' : undefined
     // minZoom 11 matches the mobile comp map (REGRID_MIN_ZOOM), so parcels
-    // render — and "+" pins detect — across a wider zoom range, closer to
-    // the tract-pin zoom.
-    const cleanup = addRegridLayer(map, regridConfig, { beforeId, minZoom: 11 })
+    // render across a wider zoom range, closer to the tract-pin zoom.
+    const cleanup = addRegridLayer(map, regridConfig, { beforeId, minZoom: 11, interactive: false })
     return cleanup
   }, [regridConfig, mapReady])
 
-  // --- Tile-driven parcel "+" detection ------------------------------
-  // The Regrid vector TILES carry `saleprice` (and `saledate`) baked in.
-  // We read the RENDERED parcel-fill features in the viewport, keep
-  // parcels with a real sale (saleprice > 0, parsed in plain JS so we're
-  // robust to the string/int encoding the tiles use), de-dup against
-  // tract sales, and drop a pink "+" at each parcel centroid. We use
-  // queryRenderedFeatures (not querySourceFeatures) because the rendered
-  // query returns geometry in lng/lat — querySourceFeatures can hand back
-  // tile-local coordinates, which placed the pins off-map. The tile only
-  // drives DETECTION — the report content is fetched on tap (onParcelClick).
+  // --- Parcel "+" button: a symbol layer bound DIRECTLY to the Regrid
+  // vector tiles ------------------------------------------------------
+  // No JS detection. Every parcel whose tile carries saleprice > 0 gets a
+  // pink "+" rendered per-feature by the GPU — exactly the same reliable
+  // path the tile LABEL renders on. Because it's a style-layer filter (not
+  // queryRenderedFeatures + accumulation), there's no timing, no zoom
+  // gating beyond the source minzoom, and no "sometimes empty" failure
+  // mode. Tap the "+" → open the comp popup (fields come from the tile;
+  // the authoritative parcel record is fetched on tap for the report).
   useEffect(() => {
     const map = mapRef.current
-    if (!map || !mapReady || !data) return
+    if (!map || !mapReady || !regridConfig?.tile_url_template) return
+    // The regrid effect above adds the source synchronously when
+    // regridConfig is set; if it's not mounted yet (ordering), bail —
+    // this effect re-runs on the same deps and will find it next pass.
+    if (!map.getSource('regrid-parcels')) return
+    const sourceLayer = regridConfig.source_layer || 'parcels'
+    const LAYER = 'parcel-plus'
 
-    // New subject tract → start a fresh parcel accumulation. (The effect
-    // also re-runs when regridConfig arrives; only reset on data change.)
-    if (parcelAccDataRef.current !== data) {
-      parcelAccRef.current = new Map()
-      parcelAccDataRef.current = data
-      lastParcelSigRef.current = ''
-    }
-
-    // Tract sale polygons — suppress a parcel pin wherever a tract sale
-    // already shows its own "+" (dedup parcels vs tracts).
-    const tractRings: number[][][] = (data.sales || [])
-      .filter(s => s.polygon_coordinates && s.polygon_coordinates.length >= 3)
-      .map(s => s.polygon_coordinates as number[][])
-
-    // Build the pin GeoJSON from the FULL accumulated parcel set and push
-    // it (skipping a redundant setData when nothing changed). Because we
-    // render every parcel we've ever detected — not just the current
-    // viewport — the "+" pins stay put at every zoom, matching the tract
-    // pins instead of being chained to the Regrid tile zoom.
-    const commit = () => {
-      const out: any[] = []
-      for (const p of Array.from(parcelAccRef.current.values())) {
-        const lng = (p.minLng + p.maxLng) / 2
-        const lat = (p.minLat + p.maxLat) / 2
-        // Skip if this parcel sits under an existing tract sale pin.
-        if (tractRings.some(r => pointInRing([lng, lat], r))) continue
-        const ppa = (p.acres != null && p.acres > 0) ? p.salePrice / p.acres : null
-        out.push({
-          type: 'Feature',
-          properties: {
-            id: p.id,
-            source: 'parcel',
-            lat, lng,
-            sale_price: p.salePrice,
-            sale_date: p.saleDate,
-            total_acres: p.acres,
-            price_per_acre: ppa,
-            owner: p.owner,
-          },
-          geometry: { type: 'Point', coordinates: [lng, lat] },
-        })
+    // Pink circle icon (white ring) drawn once, so the "+" reads as the
+    // same pink button as the tract pins. A symbol icon (vs a circle
+    // layer) is required because the source features are POLYGONS — a
+    // symbol places ONE marker at the parcel's label point, like the label.
+    if (!map.hasImage('parcel-plus-pin')) {
+      const px = 2, d = 40
+      const cv = document.createElement('canvas')
+      cv.width = d * px; cv.height = d * px
+      const ctx = cv.getContext('2d')
+      if (ctx) {
+        ctx.scale(px, px)
+        ctx.beginPath(); ctx.arc(d / 2, d / 2, d / 2 - 3, 0, 2 * Math.PI)
+        ctx.fillStyle = '#E91E8C'; ctx.fill()
+        ctx.lineWidth = 2.5; ctx.strokeStyle = '#ffffff'; ctx.stroke()
+        try {
+          map.addImage('parcel-plus-pin', ctx.getImageData(0, 0, d * px, d * px), { pixelRatio: px })
+        } catch { /* image already added by a concurrent run */ }
       }
-      const sig = out.map(f => f.properties.id).sort().join('|')
-      if (sig === lastParcelSigRef.current) return  // unchanged → skip
-      lastParcelSigRef.current = sig
-      ;(map.getSource('parcel-pins') as maplibregl.GeoJSONSource | undefined)
-        ?.setData({ type: 'FeatureCollection', features: out } as any)
     }
 
-    const extract = () => {
-      // Tile DETECTION only works where Regrid parcels render (z >= 11,
-      // addRegridLayer minZoom). Below that — or before the layer mounts
-      // — we do NOT clear: we keep showing everything already detected so
-      // the pins persist at every zoom like the tract pins.
-      if (map.getZoom() < 11 || !map.getLayer('regrid-parcels-fill')) {
-        commit()
-        return
+    if (!map.getLayer(LAYER)) {
+      map.addLayer({
+        id: LAYER,
+        type: 'symbol',
+        source: 'regrid-parcels',
+        'source-layer': sourceLayer,
+        minzoom: 11,
+        // ONLY parcels with a real sale price. (To also require a minimum
+        // acreage, add e.g. ['>=', ['to-number', ['coalesce',
+        // ['get','ll_gisacre'], ['get','gisacre'], 0]], 10] to this 'all'.)
+        filter: ['>', ['to-number', ['coalesce', ['get', 'saleprice'], 0]], 0] as any,
+        layout: {
+          'icon-image': 'parcel-plus-pin',
+          'icon-size': ['interpolate', ['linear'], ['zoom'], 8, 0.45, 14, 0.7],
+          'icon-allow-overlap': true,
+          'icon-ignore-placement': true,
+          'text-field': '+',
+          'text-font': ['Open Sans Bold'],
+          'text-size': ['interpolate', ['linear'], ['zoom'], 8, 14, 14, 20],
+          'text-allow-overlap': true,
+          'text-ignore-placement': true,
+        },
+        paint: { 'text-color': '#ffffff' },
+      })
+    }
+
+    const setPointer = () => { map.getCanvas().style.cursor = 'pointer' }
+    const clearPointer = () => { map.getCanvas().style.cursor = '' }
+
+    // Tap the "+" → open the comp popup straight from the tile fields, then
+    // fetch the authoritative parcel record and merge richer fields in.
+    const onPlusClick = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
+      const f = e.features?.[0]
+      if (!f) return
+      const props: any = f.properties || {}
+      const lng = e.lngLat.lng, lat = e.lngLat.lat
+      const acres = num(props.ll_gisacre) ?? num(props.gisacre)
+      const salePrice = parseSalePrice(props.saleprice)
+      const sp = Number.isFinite(salePrice) ? salePrice : null
+      const ppa = (sp != null && acres != null && acres > 0) ? sp / acres : null
+      const pos = map.project([lng, lat])
+      const id = String(props.path ?? props.ogc_fid ?? props.parcelnumb ?? `${lng.toFixed(6)},${lat.toFixed(6)}`)
+      const baseRec: PopupRecord = {
+        kind: 'parcel',
+        id,
+        lat, lng,
+        polygon: null,
+        sale_date: props.saledate ?? null,
+        sale_price: sp,
+        price_per_acre: ppa,
+        total_acres: acres,
+        tillable_acres: null,
+        soil_rating: null,
+        soil_rating_type: null,
+        county: null,
+        township: null,
+        owner: props.owner ?? null,
+        source_url: null,  // parcels never show the Details button
       }
-      let feats: maplibregl.MapGeoJSONFeature[] = []
-      try {
-        const canvas = map.getCanvas()
-        feats = map.queryRenderedFeatures(
-          [[0, 0], [canvas.clientWidth, canvas.clientHeight]] as any,
-          { layers: ['regrid-parcels-fill'] },
-        )
-      } catch { return }
+      setOpenRecord({ rec: baseRec, pos: { x: pos.x, y: pos.y } })
+      e.preventDefault?.()
 
-      // Merge this frame's detections into the PERSISTENT accumulator,
-      // keyed by stable parcel identity (`path`) and unioning the bbox of
-      // every clipped tile fragment so the "+" lands at the true parcel
-      // center — queryRenderedFeatures hands back a parcel cut into one
-      // fragment per tile, and a single fragment's centroid sits off to
-      // one side. The keyed map also dedups repeated fragments and keeps
-      // parcels detected in earlier viewports.
-      const acc = parcelAccRef.current
-      for (const f of feats) {
-        const props: any = f.properties || {}
-        const saleValue = parseSalePrice(props.saleprice)
-        if (!(Number.isFinite(saleValue) && saleValue > 0)) continue
-        const acres = num(props.ll_gisacre) ?? num(props.gisacre)
-        // Comp map rule: never pin a parcel under 10 acres. Drops the
-        // dense clusters of tiny town/residential lots and keeps real
-        // farmland comps.
-        if (!(acres != null && acres >= 10)) continue
-        const bb = bboxOf(f.geometry as any)
-        if (!bb) continue
-        const cLng = (bb.minLng + bb.maxLng) / 2
-        const cLat = (bb.minLat + bb.maxLat) / 2
-        // `path` is the stable parcel identity on custom Regrid tiles
-        // (no ll_uuid present); fall back to ogc_fid / parcelnumb.
-        const key = props.path != null ? String(props.path)
-          : props.ogc_fid != null ? String(props.ogc_fid)
-          : props.parcelnumb != null ? String(props.parcelnumb)
-          : `${cLng.toFixed(6)},${cLat.toFixed(6)}`
-        const existing = acc.get(key)
-        if (existing) {
-          existing.minLng = Math.min(existing.minLng, bb.minLng)
-          existing.minLat = Math.min(existing.minLat, bb.minLat)
-          existing.maxLng = Math.max(existing.maxLng, bb.maxLng)
-          existing.maxLat = Math.max(existing.maxLat, bb.maxLat)
-        } else {
-          acc.set(key, {
-            id: key,
-            minLng: bb.minLng, minLat: bb.minLat, maxLng: bb.maxLng, maxLat: bb.maxLat,
-            salePrice: saleValue, saleDate: props.saledate ?? null,
-            acres, owner: props.owner ?? null,
-          })
-        }
-      }
-      commit()
+      // Authoritative fetch — report CONTENT comes from the parcel record.
+      ;(async () => {
+        try {
+          const res = await fetchWithAuth(`${API_URL}/api/regrid/parcel?lat=${lat}&lng=${lng}`)
+          if (!res.ok) return
+          const body = await res.json().catch(() => null)
+          const rp = body?.parcel
+          if (!rp) return
+          const a = num(rp.ll_gisacre) ?? num(rp.gisacre) ?? baseRec.total_acres
+          const price = num(rp.saleprice) ?? baseRec.sale_price
+          const pa = (price != null && a != null && a > 0) ? price / a : baseRec.price_per_acre
+          const merged: PopupRecord = {
+            ...baseRec,
+            total_acres: a,
+            sale_price: price,
+            sale_date: rp.saledate ?? baseRec.sale_date,
+            price_per_acre: pa,
+            county: rp.county ?? null,
+            township: rp.township ?? null,
+            owner: rp.owner ?? baseRec.owner,
+            soil_rating: num(rp.soil_rating),
+            soil_rating_type: rp.soil_rating_type ?? null,
+            tillable_acres: num(rp.tillable_acres),
+            source_url: null,
+          }
+          setOpenRecord(prev => (prev && prev.rec.id === id) ? { rec: merged, pos: prev.pos } : prev)
+        } catch { /* keep the tile-derived popup */ }
+      })()
     }
 
-    // Re-detect as the Regrid tiles stream in. A single 'idle' on a fresh
-    // open can fire before every viewport tile has actually rendered, so
-    // queryRenderedFeatures returns only a few parcels (or none) and — with
-    // the user not panning — detection never re-runs to fill in the rest.
-    // The MOBILE app avoids this by re-detecting on every region settle plus
-    // a timed call after the camera lands; we mirror that here with
-    // moveend + sourcedata + a few delayed retries. extract() is idempotent
-    // (it accumulates into parcelAccRef and dedups via lastParcelSigRef), so
-    // firing it repeatedly only ever ADDS pins, never removes them.
-    const onSourceData = (e: maplibregl.MapSourceDataEvent) => {
-      if ((e as any).sourceId === 'regrid-parcels' && (e as any).isSourceLoaded) extract()
-    }
-    map.on('idle', extract)
-    map.on('moveend', extract)
-    map.on('sourcedata', onSourceData)
-    extract()
-    const retryTimers = [400, 1200, 2500, 4500, 7000].map(ms => setTimeout(extract, ms))
+    map.on('mouseenter', LAYER, setPointer)
+    map.on('mouseleave', LAYER, clearPointer)
+    map.on('click', LAYER, onPlusClick)
     return () => {
-      map.off('idle', extract)
-      map.off('moveend', extract)
-      map.off('sourcedata', onSourceData)
-      retryTimers.forEach(clearTimeout)
+      map.off('mouseenter', LAYER as any, setPointer)
+      map.off('mouseleave', LAYER as any, clearPointer)
+      map.off('click', LAYER as any, onPlusClick as any)
+      try { if (map.getLayer(LAYER)) map.removeLayer(LAYER) } catch { /* torn down */ }
     }
-  }, [mapReady, data, regridConfig])
+  }, [mapReady, regridConfig])
 
   // ESC closes the popup (UX nicety)
   useEffect(() => {
@@ -843,51 +714,6 @@ function parseSalePrice(sp: any): number {
   if (typeof sp === 'number') return sp
   if (sp == null) return NaN
   return Number(String(sp).replace(/[^0-9.]/g, ''))
-}
-
-// Bounding box (lng/lat extent) of a rendered tile feature's geometry.
-// queryRenderedFeatures hands back a parcel CLIPPED into one fragment per
-// rendered tile, so a parcel straddling a tile seam arrives as 2+ pieces.
-// Unioning the bbox of every fragment that shares a `path` recovers the
-// parcel's full extent, so the bbox center is a stable "center of the
-// parcel" even when the polygon is cut by a seam.
-function bboxOf(geom: any): { minLng: number; minLat: number; maxLng: number; maxLat: number } | null {
-  if (!geom) return null
-  let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity
-  const visit = (coords: any[]) => {
-    for (const c of coords) {
-      if (typeof c[0] === 'number') {
-        if (c[0] < minLng) minLng = c[0]
-        if (c[0] > maxLng) maxLng = c[0]
-        if (c[1] < minLat) minLat = c[1]
-        if (c[1] > maxLat) maxLat = c[1]
-      } else {
-        visit(c)
-      }
-    }
-  }
-  if (geom.type === 'Point') {
-    const [lng, lat] = geom.coordinates
-    return { minLng: lng, maxLng: lng, minLat: lat, maxLat: lat }
-  }
-  if (!geom.coordinates) return null
-  visit(geom.coordinates)
-  if (!Number.isFinite(minLng)) return null
-  return { minLng, minLat, maxLng, maxLat }
-}
-
-// Ray-casting point-in-polygon for the parcel/tract dedup check.
-function pointInRing(pt: number[], ring: number[][]): boolean {
-  const x = pt[0], y = pt[1]
-  let inside = false
-  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-    const xi = ring[i][0], yi = ring[i][1]
-    const xj = ring[j][0], yj = ring[j][1]
-    const intersect = ((yi > y) !== (yj > y)) &&
-      (x < ((xj - xi) * (y - yi)) / (yj - yi) + xi)
-    if (intersect) inside = !inside
-  }
-  return inside
 }
 
 // ---------------------------------------------------------------------

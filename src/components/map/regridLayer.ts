@@ -317,6 +317,10 @@ export interface AddRegridLayerOptions {
   beforeId?: string
   /** Minimum zoom at which the Regrid layer is visible. Default 14. */
   minZoom?: number
+  /** When false, skip the built-in fill hover-highlight + click→popup
+   *  wiring so the caller owns all interaction. The Comparables map sets
+   *  this false and drives its own "+" button click instead. Default true. */
+  interactive?: boolean
 }
 
 /** Adds the Regrid vector-tile source + fill / line / label layers to
@@ -530,16 +534,21 @@ export function addRegridLayer(
     popup.setHTML(record ? regridPopupHTML(record) : regridFallbackHTML(props))
   }
 
-  map.on('mousemove', FILL_LAYER, onMove)
-  map.on('mouseleave', FILL_LAYER, onLeave)
-  map.on('click', FILL_LAYER, onClick)
+  const interactive = options.interactive !== false
+  if (interactive) {
+    map.on('mousemove', FILL_LAYER, onMove)
+    map.on('mouseleave', FILL_LAYER, onLeave)
+    map.on('click', FILL_LAYER, onClick)
+  }
 
   return () => {
     try {
       if (!map.getStyle()) return
-      map.off('mousemove', FILL_LAYER, onMove)
-      map.off('mouseleave', FILL_LAYER, onLeave)
-      map.off('click', FILL_LAYER, onClick)
+      if (interactive) {
+        map.off('mousemove', FILL_LAYER, onMove)
+        map.off('mouseleave', FILL_LAYER, onLeave)
+        map.off('click', FILL_LAYER, onClick)
+      }
       for (const id of [LABEL_LAYER, LINE_LAYER, FILL_LAYER]) {
         if (map.getLayer(id)) map.removeLayer(id)
       }
