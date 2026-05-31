@@ -537,20 +537,35 @@ function buildRegridSaleDotFilter(filters: FilterState, minAcres: number): any[]
     ['has', 'saleprice'],
     ['>', ['to-number', ['get', 'saleprice']], 0],
   ]
-  // Only apply the acreage floor when one is set. With minAcres = 0 we
-  // skip the acre guards entirely so a priced parcel that lacks acreage
-  // data still qualifies — "all parcels that have a price" really means
-  // all of them.
-  if (minAcres > 0) {
+  // Acreage floor + the user's Acreage filter range. The baseline floor
+  // (minAcres) hides tiny non-comp parcels; the user's acreageMin/Max
+  // from the Filters panel narrows further. We fold the user's min into
+  // the floor (take the larger) and apply the user's max as a ceiling.
+  // Without this the "+" comp pins ignored the Acreage filter entirely
+  // even though the parcel labels/fill respected it.
+  const userAcresMin = filters.acreageMin ? parseFloat(filters.acreageMin) : NaN
+  const userAcresMax = filters.acreageMax ? parseFloat(filters.acreageMax) : NaN
+  const effectiveMin = Math.max(
+    minAcres > 0 ? minAcres : 0,
+    Number.isFinite(userAcresMin) ? userAcresMin : 0,
+  )
+  const hasMaxAcres = Number.isFinite(userAcresMax)
+  // The parcel's acreage value, guarding against maplibre's to-number(null)
+  // → 0 (see the ['has', ...] note above): falls back through ll_gisacre →
+  // gisacre, and yields -1 when neither is present so any active acre
+  // guard fails (we don't want acreage-less parcels passing a max/min).
+  const acreVal: any = ['case',
+    ['has', 'll_gisacre'], ['to-number', ['get', 'll_gisacre']],
+    ['has', 'gisacre'], ['to-number', ['get', 'gisacre']],
+    -1,
+  ]
+  if (effectiveMin > 0) {
     expr.push(['any', ['has', 'll_gisacre'], ['has', 'gisacre']])
-    expr.push(['>=',
-      ['case',
-        ['has', 'll_gisacre'], ['to-number', ['get', 'll_gisacre']],
-        ['has', 'gisacre'], ['to-number', ['get', 'gisacre']],
-        0,
-      ],
-      minAcres,
-    ])
+    expr.push(['>=', acreVal, effectiveMin])
+  }
+  if (hasMaxAcres) {
+    expr.push(['any', ['has', 'll_gisacre'], ['has', 'gisacre']])
+    expr.push(['<=', acreVal, userAcresMax])
   }
   // Date window — match the parcel-sale LABELS exactly. The label layer
   // (buildRegridParcelFilter) applies a date filter ONLY when the user
@@ -3011,7 +3026,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     if (map.getLayer(PARCEL_SALE_PLUS_LAYER)) {
       try { map.setFilter(PARCEL_SALE_PLUS_LAYER, expr as any) } catch {/* layer torn down */}
     }
-  }, [mapLoaded, filters.dateRange, filters.dateFrom, filters.dateTo, filters.salePriceMin, filters.salePriceMax])
+  }, [mapLoaded, filters.dateRange, filters.dateFrom, filters.dateTo, filters.salePriceMin, filters.salePriceMax, filters.acreageMin, filters.acreageMax])
 
   // Flip the Regrid parcel markers between explore form (pink dot only)
   // and comparables form (pink dot + white "+", bigger) when the user
