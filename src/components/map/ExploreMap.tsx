@@ -2718,9 +2718,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // markers use to flip between labeled-pin and "+"-button form.
   // ─────────────────────────────────────────────────────────────────
   const PARCEL_SALE_PLUS_LAYER = 'parcel-sale-pin-plus'
-  // 0 = no acreage floor — EVERY priced parcel gets a marker per user
-  // spec ("all parcels that have a price should have a pin").
-  const PARCEL_MIN_SALE_ACRES = 0
+  // Acreage floor: only parcels with a recorded sale AND >= 10 acres
+  // (ll_gisacre, gisacre fallback) get a marker. Per user spec.
+  const PARCEL_MIN_SALE_ACRES = 10
   // icon-size for the dot image (36px @ pixelRatio 2 = 18px base).
   const PARCEL_DOT_ICON_SIZE = 0.78  // ≈14px — matches the 14px sold pin
   const PARCEL_COMP_ICON_SIZE = 1.2  // ≈22px — matches the comp "+" button
