@@ -420,24 +420,16 @@ export function addRegridLayer(
           ],
         ],
         { 'font-scale': 1.0 },
-        // Price per acre — saleprice / acres when both > 0. Total
-        // sale price segment was removed 2026-05-26 — $/acre is the
-        // headline number land buyers compare on.
+        // Total sale price (diagnostic swap from $/Acre 2026-05-30) —
+        // renders when saleprice > 0.
         ['case',
           ['all',
             ['has', 'saleprice'],
             ['>', ['to-number', ['get', 'saleprice']], 0],
-            ['any', ['has', 'll_gisacre'], ['has', 'gisacre']],
-            ['>', ['to-number', ['coalesce', ['get', 'll_gisacre'], ['get', 'gisacre']]], 0],
           ],
-          ['concat', '\n$/Acre: $',
+          ['concat', '\nSale Price: $',
             ['number-format',
-              // Round before format. Without this, sub-cent residue
-              // from the upstream price could surface as ".152" etc.
-              ['round', ['/',
-                ['to-number', ['get', 'saleprice']],
-                ['to-number', ['coalesce', ['get', 'll_gisacre'], ['get', 'gisacre']]],
-              ]],
+              ['round', ['to-number', ['get', 'saleprice']]],
               {
                 'locale': 'en-US',
                 'min-fraction-digits': 0,
