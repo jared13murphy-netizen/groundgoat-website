@@ -584,6 +584,34 @@ function buildRegridSaleDotFilter(filters: FilterState, minAcres: number): any[]
   return expr
 }
 
+// Canvas-drawn pink dot used as the Regrid parcel-sale marker icon. We
+// use a SYMBOL layer with this icon (one per polygon centroid) instead
+// of a `circle` layer — a circle layer bound to a polygon source draws a
+// dot at every vertex, which traced the parcel boundary lines with dots.
+// The pink fill + white ring deliberately matches the Sold tract HTML
+// pins (.comp-marker-pin, background #f58cde) so the two look identical
+// on the explore map. In comparables mode we overlay a white "+" on top.
+const PARCEL_SALE_DOT_IMAGE = 'parcel-sale-dot'
+function ensureParcelSaleDotImage(map: maplibregl.Map) {
+  if (map.hasImage(PARCEL_SALE_DOT_IMAGE)) return
+  const size = 36 // rendered at pixelRatio 2 → 18px at icon-size 1
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return
+  const c = size / 2
+  ctx.beginPath()
+  ctx.arc(c, c, c - 4, 0, Math.PI * 2)
+  ctx.fillStyle = '#f58cde' // == PIN_COLORS.sold
+  ctx.fill()
+  ctx.lineWidth = 3
+  ctx.strokeStyle = '#ffffff'
+  ctx.stroke()
+  const img = ctx.getImageData(0, 0, size, size)
+  try { map.addImage(PARCEL_SALE_DOT_IMAGE, img, { pixelRatio: 2 }) } catch {/* added by a racing call */}
+}
+
 /**
  * Map this surface's filter state into the shared RegridFilterInput
  * shape, so the universal builder in src/lib/regridParcelFilter.ts
@@ -2675,24 +2703,30 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   }, [mapLoaded, regridConfig])
 
   // ─────────────────────────────────────────────────────────────────
-  // Parcel-with-sale dots. Pink "+" pin over every Regrid parcel in
-  // the USA where the vector tile reports saleprice > 0 AND the parcel
-  // is ≥ 20 acres. NO API calls — we read straight off the same Regrid
-  // vector source we already loaded for the parcel boundary layer.
-  // Coverage = every parcel in Regrid's nationwide dataset.
+  // Parcel-with-sale markers. One pink dot over every Regrid parcel in
+  // the USA where the vector tile reports saleprice > 0. NO API calls —
+  // we read straight off the same Regrid vector source we already loaded
+  // for the parcel boundary layer. Coverage = every parcel in Regrid's
+  // nationwide dataset.
   //
-  // The 20-acre floor uses ll_gisacre (Regrid's "land-legal" acreage)
-  // with gisacre as a fallback — same field-precedence the label layer
-  // above uses.
+  // TWO visual modes on the SAME symbol layer:
+  //   • Explore map (default): pink dot only, styled to match the Sold
+  //     tract HTML pins (#f58cde, white ring).
+  //   • Comparables mode (subjectTractId set): the pink dot + a white "+"
+  //     overlaid on top, so admin can scan the area for comps.
+  // The mode is driven off subjectTractId — same trigger the HTML tract
+  // markers use to flip between labeled-pin and "+"-button form.
   // ─────────────────────────────────────────────────────────────────
   const PARCEL_SALE_PLUS_LAYER = 'parcel-sale-pin-plus'
-  // 0 = no acreage floor — EVERY priced parcel gets a "+" per user spec
-  // ("all parcels that have a price should have a plus icon button").
+  // 0 = no acreage floor — EVERY priced parcel gets a marker per user
+  // spec ("all parcels that have a price should have a pin").
   const PARCEL_MIN_SALE_ACRES = 0
+  // icon-size for the dot image (36px @ pixelRatio 2 = 18px base).
+  const PARCEL_DOT_ICON_SIZE = 0.78  // ≈14px — matches the 14px sold pin
+  const PARCEL_COMP_ICON_SIZE = 1.2  // ≈22px — matches the comp "+" button
   // Re-enabled 2026-05-31. The original placement bug (pins landing on
   // neighboring parcels) came from a -42px text-translate that has since
-  // been removed — the pin now sits AT the polygon centroid with no
-  // translate, so it stays inside its parcel regardless of lot size.
+  // been removed — the marker now sits AT the polygon centroid.
   const REGRID_SALE_PINS_ENABLED = true
 
   useEffect(() => {
@@ -2724,19 +2758,23 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // layers in sync as the filter changes.
       const filterExpr: any = buildRegridSaleDotFilter(filtersRef.current, PARCEL_MIN_SALE_ACRES)
 
-      // IMPORTANT: this is a TEXT-ONLY symbol, no circle background.
-      // A maplibre `circle` layer bound to a POLYGON source renders a
-      // dot at every vertex of every parcel — that produced strings of
-      // pink dots tracing the parcel boundary lines. A `symbol` layer
-      // with 'symbol-placement: point' (the default) instead renders
-      // exactly ONE label at each polygon's centroid, so the "+" stays
-      // inside its parcel. The pink halo gives it the button look the
-      // circle used to provide, without the vertex-dot mess.
+      // IMPORTANT: this is a SYMBOL layer (icon at the polygon centroid),
+      // NOT a circle layer. A maplibre `circle` layer bound to a POLYGON
+      // source renders a dot at every vertex of every parcel — that
+      // produced strings of pink dots tracing the boundary lines. A
+      // symbol layer with the default 'point' placement renders exactly
+      // ONE marker at each polygon's label anchor, inside its parcel.
       //
-      // We deliberately DON'T set text-allow-overlap/ignore-placement:
-      // letting maplibre collision-test means dense small-parcel towns
-      // de-clutter at low zoom (instead of stacking into a pink blob)
-      // and fill back in as the user zooms toward the parcels.
+      // The icon is the pink dot (matches the Sold tract pins). In
+      // comparables mode we overlay a white "+" via text-field (set by
+      // the mode-sync effect below) and bump icon-size up to the comp
+      // "+"-button size.
+      //
+      // icon-allow-overlap is left OFF so dense small-parcel towns
+      // collision-de-clutter instead of stacking into a solid blob; the
+      // markers fill back in as the user zooms toward the parcels.
+      ensureParcelSaleDotImage(map)
+      const inCompModeNow = !!subjectTractIdRef.current
       if (!map.getLayer(PARCEL_SALE_PLUS_LAYER)) {
         map.addLayer({
           id: PARCEL_SALE_PLUS_LAYER,
@@ -2746,14 +2784,18 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           minzoom: REGRID_MIN_ZOOM,
           filter: filterExpr,
           layout: {
-            'text-field': '+',
+            'icon-image': PARCEL_SALE_DOT_IMAGE,
+            'icon-size': inCompModeNow ? PARCEL_COMP_ICON_SIZE : PARCEL_DOT_ICON_SIZE,
+            'icon-allow-overlap': false,
+            // "+" only in comp mode; empty string = dot only on explore.
+            'text-field': inCompModeNow ? '+' : '',
             'text-font': ['Open Sans Bold'],
-            'text-size': ['interpolate', ['linear'], ['zoom'], 12, 16, 16, 24],
+            'text-size': ['interpolate', ['linear'], ['zoom'], 12, 13, 16, 17],
+            'text-allow-overlap': true,
+            'text-ignore-placement': true,
           },
           paint: {
             'text-color': '#ffffff',
-            'text-halo-color': '#e0218a',
-            'text-halo-width': 2.6,
           },
         })
       }
@@ -2816,6 +2858,23 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       try { map.setFilter(PARCEL_SALE_PLUS_LAYER, expr as any) } catch {/* layer torn down */}
     }
   }, [mapLoaded, filters.dateRange, filters.dateFrom, filters.dateTo, filters.salePriceMin, filters.salePriceMax])
+
+  // Flip the Regrid parcel markers between explore form (pink dot only)
+  // and comparables form (pink dot + white "+", bigger) when the user
+  // enters/exits comp mode. Same subjectTractId trigger the HTML tract
+  // markers use. Only the glyph + icon-size change; the filter (which
+  // parcels show) is untouched here.
+  useEffect(() => {
+    if (!REGRID_SALE_PINS_ENABLED) return
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+    if (!map.getLayer(PARCEL_SALE_PLUS_LAYER)) return
+    const inComp = !!subjectTractId
+    try {
+      map.setLayoutProperty(PARCEL_SALE_PLUS_LAYER, 'text-field', inComp ? '+' : '')
+      map.setLayoutProperty(PARCEL_SALE_PLUS_LAYER, 'icon-size', inComp ? PARCEL_COMP_ICON_SIZE : PARCEL_DOT_ICON_SIZE)
+    } catch {/* layer torn down */}
+  }, [mapLoaded, subjectTractId])
 
   // Keep the Regrid fill / line / label layers' filter in sync with the
   // tile-native filter inputs (acreage, state, county, sale date,
