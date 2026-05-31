@@ -2874,28 +2874,74 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // detail popup below.
       if (subjectTractIdRef.current) {
         if (activePopup) { try { activePopup.remove() } catch {/* gone */} activePopup = null }
-        const acresRaw = props.ll_gisacre ?? props.gisacre ?? null
-        const acres = acresRaw != null ? Number(acresRaw) : null
-        const salePrice = props.saleprice != null && props.saleprice !== ''
-          ? Number(props.saleprice) : null
-        const sale: SaleDetail = {
-          // ll_uuid is the stable Regrid parcel id; report toggle/dedupe
-          // keys off sale.id. Fall back to coords if the tile lacks a uuid.
-          id: ll_uuid || props.path || `parcel:${lng.toFixed(6)},${lat.toFixed(6)}`,
-          listingId: null,
-          tractId: null,
-          auctionDate: typeof props.saledate === 'string' ? props.saledate.slice(0, 10) : null,
-          totalAcres: acres,
-          companyName: props.owner || null,
-          salePrice,
-          pricePerAcre: (salePrice != null && acres && acres > 0) ? salePrice / acres : null,
-          county: props.county || props.county_name || '',
-          state: props.state || props.state_abbr || '',
-          township: null,
-          saleStatus: 'sold',
+
+        // Build the report-ready SaleDetail the SAME way the mobile app
+        // does (ComparablesMapView.buildParcelSale): start from the tile
+        // pin's lightweight props, then fetch the authoritative Premium
+        // Schema record from /api/regrid/parcel and merge in the richer
+        // fields (tillable acres, soil rating, exact acreage/price). The
+        // website report panels read camelCase fields, so we populate
+        // those; they derive the snake_case email payload themselves.
+        const parcelId = ll_uuid || props.path || `parcel:${lng.toFixed(6)},${lat.toFixed(6)}`
+        const toNum = (v: any): number | null => {
+          if (v == null || v === '') return null
+          const n = Number(v)
+          return Number.isFinite(n) ? n : null
         }
+        const buildParcelSale = (rec: any | null): SaleDetail => {
+          const acres = (rec ? (toNum(rec.ll_gisacre) ?? toNum(rec.gisacre)) : null)
+            ?? toNum(props.ll_gisacre) ?? toNum(props.gisacre)
+          const salePrice = (rec ? toNum(rec.saleprice) : null) ?? toNum(props.saleprice)
+          const saleDateRaw = (rec && rec.saledate) || props.saledate || null
+          const ppa = (salePrice != null && acres != null && acres > 0)
+            ? salePrice / acres : null
+          const tillable = rec ? toNum(rec.tillable_acres) : null
+          const soil = rec ? toNum(rec.soil_rating) : null
+          const pctTillable = (tillable != null && acres != null && acres > 0)
+            ? (tillable / acres) * 100 : null
+          const owner = (rec && rec.owner) || props.owner || null
+          return {
+            // ll_uuid is the stable Regrid parcel id; report toggle/dedupe
+            // keys off sale.id. Fall back to coords if the tile lacks a uuid.
+            id: parcelId,
+            listingId: null,
+            tractId: null,
+            auctionDate: typeof saleDateRaw === 'string' ? saleDateRaw.slice(0, 10) : null,
+            totalAcres: acres,
+            tillableAcres: tillable,
+            soilRating: soil,
+            pctTillable,
+            companyName: owner,
+            salePrice,
+            pricePerAcre: ppa,
+            county: (rec ? rec.county : null) || props.county || props.county_name || '',
+            state: (rec ? (rec.state2 || rec.state) : null) || props.state || props.state_abbr || '',
+            township: null,
+            saleStatus: 'sold',
+          }
+        }
+
+        // Show the popup immediately with pin-derived values (responsive),
+        // then upgrade it once the authoritative record resolves.
         const point = map.project(e.lngLat)
-        setCompPopup({ sale, pos: { x: point.x, y: point.y }, lngLat: [lng, lat] })
+        setCompPopup({ sale: buildParcelSale(null), pos: { x: point.x, y: point.y }, lngLat: [lng, lat] })
+
+        ;(async () => {
+          try {
+            const qs = new URLSearchParams()
+            if (ll_uuid) qs.set('ll_uuid', ll_uuid)
+            else { qs.set('lat', String(lat)); qs.set('lng', String(lng)) }
+            const res = await fetchWithAuth(`${API_URL}/api/regrid/parcel?${qs.toString()}`)
+            if (!res.ok) return
+            const data = await res.json()
+            const rec = data?.parcel
+            if (!rec) return
+            const enriched = buildParcelSale(rec)
+            // Only patch if the user is still looking at THIS parcel's popup.
+            setCompPopup(prev => (prev && prev.sale.id === parcelId)
+              ? { ...prev, sale: enriched } : prev)
+          } catch {/* keep the pin-derived popup */}
+        })()
         return
       }
 
