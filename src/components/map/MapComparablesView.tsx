@@ -468,26 +468,12 @@ export default function MapComparablesView({ subjectTractId }: { subjectTractId:
     const sourceLayer = regridConfig.source_layer || 'parcels'
     const LAYER = 'parcel-plus'
 
-    // Pink circle icon (white ring) drawn once, so the "+" reads as the
-    // same pink button as the tract pins. A symbol icon (vs a circle
-    // layer) is required because the source features are POLYGONS — a
-    // symbol places ONE marker at the parcel's label point, like the label.
-    if (!map.hasImage('parcel-plus-pin')) {
-      const px = 2, d = 40
-      const cv = document.createElement('canvas')
-      cv.width = d * px; cv.height = d * px
-      const ctx = cv.getContext('2d')
-      if (ctx) {
-        ctx.scale(px, px)
-        ctx.beginPath(); ctx.arc(d / 2, d / 2, d / 2 - 3, 0, 2 * Math.PI)
-        ctx.fillStyle = '#E91E8C'; ctx.fill()
-        ctx.lineWidth = 2.5; ctx.strokeStyle = '#ffffff'; ctx.stroke()
-        try {
-          map.addImage('parcel-plus-pin', ctx.getImageData(0, 0, d * px, d * px), { pixelRatio: px })
-        } catch { /* image already added by a concurrent run */ }
-      }
-    }
-
+    // The "+" is a TEXT symbol with a thick pink halo — rendered exactly
+    // the way the tile LABEL renders (glyph text + halo), which we KNOW
+    // works on this map. Deliberately NO icon-image: a symbol whose icon
+    // is missing or loads late, with the default icon-optional:false,
+    // drops the WHOLE symbol (text included) — which is why the first
+    // icon-based "+" showed nothing at all. Text-only can't fail that way.
     if (!map.getLayer(LAYER)) {
       map.addLayer({
         id: LAYER,
@@ -496,21 +482,22 @@ export default function MapComparablesView({ subjectTractId }: { subjectTractId:
         'source-layer': sourceLayer,
         minzoom: 11,
         // ONLY parcels with a real sale price. (To also require a minimum
-        // acreage, add e.g. ['>=', ['to-number', ['coalesce',
-        // ['get','ll_gisacre'], ['get','gisacre'], 0]], 10] to this 'all'.)
+        // acreage, wrap this in ['all', <this>, ['>=', ['to-number',
+        // ['coalesce', ['get','ll_gisacre'], ['get','gisacre'], 0]], 10]].)
         filter: ['>', ['to-number', ['coalesce', ['get', 'saleprice'], 0]], 0] as any,
         layout: {
-          'icon-image': 'parcel-plus-pin',
-          'icon-size': ['interpolate', ['linear'], ['zoom'], 8, 0.45, 14, 0.7],
-          'icon-allow-overlap': true,
-          'icon-ignore-placement': true,
           'text-field': '+',
           'text-font': ['Open Sans Bold'],
-          'text-size': ['interpolate', ['linear'], ['zoom'], 8, 14, 14, 20],
+          'text-size': ['interpolate', ['linear'], ['zoom'], 8, 18, 14, 28],
           'text-allow-overlap': true,
           'text-ignore-placement': true,
         },
-        paint: { 'text-color': '#ffffff' },
+        paint: {
+          'text-color': '#ffffff',
+          'text-halo-color': '#E91E8C',
+          'text-halo-width': 3.2,
+          'text-halo-blur': 0.4,
+        },
       })
     }
 
