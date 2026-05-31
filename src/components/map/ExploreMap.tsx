@@ -2770,9 +2770,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // the mode-sync effect below) and bump icon-size up to the comp
       // "+"-button size.
       //
-      // icon-allow-overlap is left OFF so dense small-parcel towns
-      // collision-de-clutter instead of stacking into a solid blob; the
-      // markers fill back in as the user zooms toward the parcels.
+      // allow-overlap + ignore-placement are ON so EVERY priced parcel
+      // shows a marker — per user spec "all parcels that have a price
+      // should have a pin/+". Collision de-cluttering was hiding most of
+      // them, which read as "not enough plus signs".
       ensureParcelSaleDotImage(map)
       const inCompModeNow = !!subjectTractIdRef.current
       if (!map.getLayer(PARCEL_SALE_PLUS_LAYER)) {
@@ -2786,7 +2787,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           layout: {
             'icon-image': PARCEL_SALE_DOT_IMAGE,
             'icon-size': inCompModeNow ? PARCEL_COMP_ICON_SIZE : PARCEL_DOT_ICON_SIZE,
-            'icon-allow-overlap': false,
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true,
             // "+" only in comp mode; empty string = dot only on explore.
             'text-field': inCompModeNow ? '+' : '',
             'text-font': ['Open Sans Bold'],
@@ -2806,12 +2808,27 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // the tile properties. No backend round-trip needed; if the user
     // wants the full Premium record they can still click the parcel
     // boundary which opens the existing detail popup.
+    //
+    // ONE popup at a time: we keep a single instance and remove the
+    // previous before opening a new one, so rapid clicks don't stack
+    // multiple cards on the map. The 'regrid-parcel-popup' className
+    // applies the styled-card CSS (transparent content box, no default
+    // white padding) — without it the dark header overflowed maplibre's
+    // default popup box and looked broken.
+    let activePopup: maplibregl.Popup | null = null
     const onPinClick = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
       const f = e.features?.[0]
       if (!f) return
       const props: any = f.properties || {}
       const acres = props.ll_gisacre ?? props.gisacre ?? null
-      new maplibregl.Popup({ closeButton: true, closeOnClick: true, maxWidth: '300px' })
+      if (activePopup) { try { activePopup.remove() } catch {/* gone */} activePopup = null }
+      activePopup = new maplibregl.Popup({
+        closeButton: true,
+        closeOnClick: true,
+        maxWidth: '340px',
+        className: 'regrid-parcel-popup',
+        offset: 14,
+      })
         .setLngLat(e.lngLat)
         .setHTML(_parcelSalePopupHTML({
           sale_price: props.saleprice ? Number(props.saleprice) : null,
@@ -2826,6 +2843,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           state: props.state || null,
         }))
         .addTo(map)
+      activePopup.on('close', () => { activePopup = null })
     }
     const setPointer = () => { map.getCanvas().style.cursor = 'pointer' }
     const clearPointer = () => { map.getCanvas().style.cursor = '' }
@@ -2835,6 +2853,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
     return () => {
       if (timer) clearTimeout(timer)
+      if (activePopup) { try { activePopup.remove() } catch {/* gone */} activePopup = null }
       try {
         if (!map.getStyle()) return
         map.off('mouseenter', PARCEL_SALE_PLUS_LAYER, setPointer)
