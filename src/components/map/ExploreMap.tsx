@@ -3020,10 +3020,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // 316 counties is no different from 1 county on the client side.
       // Replaces the old fetch-every-county GeoJSON merge that crashed
       // browsers past ~6 counties.
+      // Source minzoom 8 = one step zoomed out from the tract-pin tier
+      // (TRACT_TIER_MIN=9). Below z<8 MapLibre doesn't fetch the MVT
+      // tiles at all, so the layer is both invisible AND free.
       map.addSource(SRC_SOILS, {
         type: 'vector',
         tiles: [`${API_URL}/api/tiles/soils/{z}/{x}/{y}.mvt`],
-        minzoom: 6,
+        minzoom: 8,
         maxzoom: 14,
       })
     }
@@ -3083,7 +3086,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         type: 'fill',
         source: SRC_SOILS,
         'source-layer': 'soils',
-        minzoom: 6,
+        minzoom: 8,
         layout: {
           visibility: (enrichmentOverlay && (tillableSource === 'ssurgo' || tillableSource === 'ssurgo_csb')) ? 'visible' : 'none',
         },
@@ -3116,7 +3119,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         type: 'line',
         source: SRC_SOILS,
         'source-layer': 'soils',
-        minzoom: 6,
+        minzoom: 8,
         layout: {
           visibility: (enrichmentOverlay && (tillableSource === 'ssurgo' || tillableSource === 'ssurgo_csb')) ? 'visible' : 'none',
         },
