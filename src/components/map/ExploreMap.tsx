@@ -3020,13 +3020,22 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // 316 counties is no different from 1 county on the client side.
       // Replaces the old fetch-every-county GeoJSON merge that crashed
       // browsers past ~6 counties.
-      // Source minzoom 8 = one step zoomed out from the tract-pin tier
-      // (TRACT_TIER_MIN=9). Below z<8 MapLibre doesn't fetch the MVT
-      // tiles at all, so the layer is both invisible AND free.
+      // Source minzoom 11 sits between the tract-pin tier
+      // (TRACT_TIER_MIN=9) and the Regrid tier (REGRID_MIN_ZOOM=12).
+      // Empirical cost per MVT tile at central-IL bounds:
+      //   z=8 → 12 MB, 8.0s server-time per tile (~16 in a viewport)
+      //   z=9 → 2.8 MB, 0.6s
+      //   z=10 → 76 KB, 70ms
+      //   z=11 → 45 KB, 70ms       ← chosen
+      //   z=12 → 23 KB, 60ms
+      // Below z=11 the soil polygons are mostly subpixel and either
+      // get simplified to nothing or render as a blurry mess, so the
+      // overlay was both cheap-to-skip and visually useless. Pinning
+      // minzoom here is what makes the overlay feel instant.
       map.addSource(SRC_SOILS, {
         type: 'vector',
         tiles: [`${API_URL}/api/tiles/soils/{z}/{x}/{y}.mvt`],
-        minzoom: 8,
+        minzoom: 11,
         maxzoom: 14,
       })
     }
@@ -3086,7 +3095,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         type: 'fill',
         source: SRC_SOILS,
         'source-layer': 'soils',
-        minzoom: 8,
+        minzoom: 11,
         layout: {
           visibility: (enrichmentOverlay && (tillableSource === 'ssurgo' || tillableSource === 'ssurgo_csb')) ? 'visible' : 'none',
         },
@@ -3119,7 +3128,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         type: 'line',
         source: SRC_SOILS,
         'source-layer': 'soils',
-        minzoom: 8,
+        minzoom: 11,
         layout: {
           visibility: (enrichmentOverlay && (tillableSource === 'ssurgo' || tillableSource === 'ssurgo_csb')) ? 'visible' : 'none',
         },
