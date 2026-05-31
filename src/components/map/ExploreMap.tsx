@@ -2354,16 +2354,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // z=14, so heavier but still well within budget for a single view).
   // If this becomes too slow at scale, raise back to 13.
   const REGRID_MIN_ZOOM = 12
-  // Sale-dot floor — how early the pink sale dots appear. The user wants
-  // them "at the same level as the tract dots" (TRACT_TIER_MIN = 9). We
-  // can't literally hit z9 because Regrid's tiles don't INCLUDE parcel
-  // geometry below z11 (see the note above: "real data at z=11+"), so a
-  // z9/z10 tile fetch comes back empty — there's simply nothing to draw.
-  // z11 is the earliest zoom Regrid ships parcels, so that's the floor we
-  // can honor. The dots get their own source-tile + layer floor here; the
-  // heavier fill / line / owner-label layers stay pinned at REGRID_MIN_ZOOM
-  // (12) so the lower tiers show ONLY the sale dots, not boundary clutter.
-  const REGRID_DOT_MIN_ZOOM = 11
   const [regridConfig, setRegridConfig] = useState<{
     tile_url_template: string
     // Custom-source tiles name their MVT layer with the source UUID;
@@ -2414,13 +2404,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
     map.addSource(SOURCE_ID, {
       type: 'vector',
-      // Source tile-fetch floor matches the sale-dot floor (z11), NOT the
-      // boundary/label floor (z12). MapLibre only fetches tiles at/above a
-      // source's minzoom, so the dot LAYER's minzoom alone can't pull z11
-      // tiles unless the source allows it. The fill/line/label layers keep
-      // their own minzoom:12 below, so dropping this to 11 surfaces the
-      // dots one zoom earlier without showing boundary clutter at z11.
-      minzoom: REGRID_DOT_MIN_ZOOM,
+      tiles: [regridConfig.tile_url_template],
+      minzoom: REGRID_MIN_ZOOM,
       maxzoom: 21,
       // ll_uuid is the stable Regrid parcel UUID we want to use for
       // setFeatureState (hover highlight) and click → API lookup.
@@ -2819,10 +2804,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           type: 'symbol',
           source: REGRID_SOURCE,
           'source-layer': sourceLayer,
-          // Dots render one tier below the boundary/label layers (z11 vs
-          // z12) so they appear closer to the tract-pin browse level. z11
-          // is Regrid's parcel-data floor — see REGRID_DOT_MIN_ZOOM.
-          minzoom: REGRID_DOT_MIN_ZOOM,
+          minzoom: REGRID_MIN_ZOOM,
           filter: filterExpr,
           layout: {
             'icon-image': PARCEL_SALE_DOT_IMAGE,
