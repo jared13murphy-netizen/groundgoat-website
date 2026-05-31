@@ -34,6 +34,7 @@ import {
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import NassStagingPreview from '@/components/admin/NassStagingPreview'
 import TractMapEditor from '@/components/admin/TractMapEditor'
+import TillableCluWorkshop from '@/components/admin/TillableCluWorkshop'
 import TractDataCompare from '@/components/admin/TractDataCompare'
 import { polygonAcres, polygonPerimeterFeet, formatPerimeter } from '@/lib/polygonGeometry'
 
@@ -1578,6 +1579,39 @@ export default function AdminStagingPage() {
                                         const sd = { ...(l.scraped_data || {}) }
                                         const ts = [...((sd.tracts as any[]) || [])]
                                         ts[idx] = { ...ts[idx], ...updatedTract }
+                                        sd.tracts = ts
+                                        return { ...l, scraped_data: sd }
+                                      }))
+                                    }}
+                                  />
+                                  {/* FSA-CLU tillable workshop — admin clicks
+                                      the field polygons that count as tillable.
+                                      onSaved patches tract.computed so the
+                                      TractDataCompare radios + Verify pick up
+                                      the new tillable acres / soil rating. */}
+                                  <TillableCluWorkshop
+                                    stagingId={listing.id}
+                                    tractIndex={idx}
+                                    latitude={tract.latitude ?? listing.scraped_data?.listing?.latitude ?? null}
+                                    longitude={tract.longitude ?? listing.scraped_data?.listing?.longitude ?? null}
+                                    onSaved={(r) => {
+                                      setListings(prev => prev.map(l => {
+                                        if (l.id !== listing.id) return l
+                                        const sd = { ...(l.scraped_data || {}) }
+                                        const ts = [...((sd.tracts as any[]) || [])]
+                                        const cur = ts[idx] || {}
+                                        const comp = { ...(cur.computed || {}) }
+                                        const chosen = { ...(cur.chosen || {}) }
+                                        if (r.tillable_acres != null) {
+                                          comp.tillable_acres = r.tillable_acres
+                                          chosen.tillable_acres = 'computed'
+                                        }
+                                        if (r.soil_rating != null) {
+                                          comp.soil_rating = r.soil_rating
+                                          chosen.soil_rating = 'computed'
+                                        }
+                                        if (r.soil_rating_type) comp.soil_rating_type = r.soil_rating_type
+                                        ts[idx] = { ...cur, computed: comp, chosen }
                                         sd.tracts = ts
                                         return { ...l, scraped_data: sd }
                                       }))

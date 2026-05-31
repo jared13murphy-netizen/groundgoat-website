@@ -12,6 +12,7 @@ import { Loader2, ExternalLink, MapPin, Trash2 } from 'lucide-react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import fetchWithAuth from '@/lib/fetchWithAuth'
+import TillableCluWorkshop from '@/components/admin/TillableCluWorkshop'
 
 const SCRAPER_URL = 'https://ground-goat-scraper-production.up.railway.app'
 const API_URL = 'https://practical-serenity-production.up.railway.app'
@@ -2759,6 +2760,27 @@ export default function MissingBoundariesPage() {
                                       (calc: {e?.current_no_cropland ? 'N/A' : (e?.current_soil_rating ?? '—')})
                                     </span>
                                   </div>
+
+                                  {/* FSA-CLU tillable workshop — published-tract
+                                      mode (keyed by tract_id). Persists straight
+                                      to tract_tillable_clu + the tract columns;
+                                      we mirror the result into the override
+                                      inputs above so the approve flow stays
+                                      consistent. */}
+                                  <TillableCluWorkshop
+                                    tractId={t.tract_id}
+                                    latitude={t.latitude ?? null}
+                                    longitude={t.longitude ?? null}
+                                    editorHeight={300}
+                                    onSaved={(r) => {
+                                      if (r.tillable_acres != null) {
+                                        onOverrideTillableAcres(t.tract_id, String(r.tillable_acres))
+                                      }
+                                      if (r.soil_rating != null) {
+                                        onOverrideSoilRating(t.tract_id, String(r.soil_rating))
+                                      }
+                                    }}
+                                  />
 
                                   {listingTract && (listingTract.total_acres != null || listingTract.scraped_tillable_acres != null || listingTract.scraped_soil_rating != null) && (
                                     <div className="text-[10px] text-gg-gray-500 mb-1">
