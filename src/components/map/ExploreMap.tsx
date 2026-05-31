@@ -3020,22 +3020,22 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // 316 counties is no different from 1 county on the client side.
       // Replaces the old fetch-every-county GeoJSON merge that crashed
       // browsers past ~6 counties.
-      // Source minzoom 11 sits between the tract-pin tier
+      // Source minzoom 10 sits between the tract-pin tier
       // (TRACT_TIER_MIN=9) and the Regrid tier (REGRID_MIN_ZOOM=12).
+      // Layers fade their opacity from 0 → full across z=10 → z=11.5,
+      // so the overlay smoothly materializes as the user zooms in
+      // rather than popping on. Source minzoom matches the fade
+      // start so tiles are pre-fetched in the fade-in window.
       // Empirical cost per MVT tile at central-IL bounds:
       //   z=8 → 12 MB, 8.0s server-time per tile (~16 in a viewport)
       //   z=9 → 2.8 MB, 0.6s
-      //   z=10 → 76 KB, 70ms
-      //   z=11 → 45 KB, 70ms       ← chosen
+      //   z=10 → 76 KB, 70ms       ← chosen (fade start)
+      //   z=11 → 45 KB, 70ms
       //   z=12 → 23 KB, 60ms
-      // Below z=11 the soil polygons are mostly subpixel and either
-      // get simplified to nothing or render as a blurry mess, so the
-      // overlay was both cheap-to-skip and visually useless. Pinning
-      // minzoom here is what makes the overlay feel instant.
       map.addSource(SRC_SOILS, {
         type: 'vector',
         tiles: [`${API_URL}/api/tiles/soils/{z}/{x}/{y}.mvt`],
-        minzoom: 11,
+        minzoom: 10,
         maxzoom: 14,
       })
     }
@@ -3095,7 +3095,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         type: 'fill',
         source: SRC_SOILS,
         'source-layer': 'soils',
-        minzoom: 11,
+        minzoom: 10,
         layout: {
           visibility: (enrichmentOverlay && (tillableSource === 'ssurgo' || tillableSource === 'ssurgo_csb')) ? 'visible' : 'none',
         },
@@ -3117,7 +3117,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               ')',
             ],
           ],
-          'fill-opacity': 0.55,
+          // Fade in from invisible at z=10 to 55% opacity at z=11.5.
+          // The smooth ramp means zooming in/out animates the overlay
+          // in/out instead of popping on at a hard threshold.
+          'fill-opacity': [
+            'interpolate', ['linear'], ['zoom'],
+            10, 0,
+            11.5, 0.55,
+          ],
           'fill-outline-color': 'rgba(40, 30, 10, 0.5)',
         },
       })
@@ -3128,13 +3135,20 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         type: 'line',
         source: SRC_SOILS,
         'source-layer': 'soils',
-        minzoom: 11,
+        minzoom: 10,
         layout: {
           visibility: (enrichmentOverlay && (tillableSource === 'ssurgo' || tillableSource === 'ssurgo_csb')) ? 'visible' : 'none',
         },
         paint: {
           'line-color': 'rgba(40, 30, 10, 0.65)',
           'line-width': 0.8,
+          // Fade in/out together with the fill so the borders
+          // don't pop on alone.
+          'line-opacity': [
+            'interpolate', ['linear'], ['zoom'],
+            10, 0,
+            11.5, 1,
+          ],
         },
       })
     }
@@ -3163,9 +3177,18 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           'text-color': '#1a1207',
           'text-halo-color': 'rgba(255, 250, 235, 0.9)',
           'text-halo-width': 1.4,
+          // Fade labels in z=12.5 → z=13.5 so they don't pop at the
+          // hard minzoom boundary (matches the fill/line fade pattern).
+          'text-opacity': [
+            'interpolate', ['linear'], ['zoom'],
+            12.5, 0,
+            13.5, 1,
+          ],
           'text-halo-blur': 0.3,
         },
-        minzoom: 13,
+        // Layer minzoom matches the fade-in floor so labels can render
+        // (transparently) at z=12.5 and ramp to full by z=13.5.
+        minzoom: 12.5,
       })
     }
     // FSA 2008 Common Land Unit field outlines.
