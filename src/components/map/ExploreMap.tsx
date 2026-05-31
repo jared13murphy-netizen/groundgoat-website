@@ -2647,6 +2647,16 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const onClick = async (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
       const f = e.features?.[0]
       if (!f) return
+      // If the click also landed on a sale-dot marker, that layer's own
+      // handler (onPinClick) opens the "Parcel sale" popup. Don't ALSO
+      // open the full parcel-detail popup or the user gets two stacked
+      // cards (reported bug). The dot sits on top, so its popup wins.
+      const SALE_DOT_LAYER = 'parcel-sale-pin-plus'
+      if (map.getLayer(SALE_DOT_LAYER)) {
+        try {
+          if (map.queryRenderedFeatures(e.point, { layers: [SALE_DOT_LAYER] }).length) return
+        } catch {/* layer torn down mid-click */}
+      }
       const props: any = f.properties || {}
       const ll_uuid = props.ll_uuid as string | undefined
       const lng = e.lngLat.lng
