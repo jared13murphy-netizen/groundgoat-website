@@ -1471,6 +1471,22 @@ export default function TractMapEditor({
         )
         const data = await res.json()
         if (!res.ok || !data.success) {
+          // Extraction failed — but if the scraper resolved a geographic
+          // center for the parcel (map-center DMS, listing centroid, or
+          // PLSS section), recenter the map there so the admin can draw
+          // the boundary manually at the right spot instead of hunting.
+          const c = data.center
+          if (c && typeof c.lat === 'number' && typeof c.lng === 'number'
+              && mapRef.current) {
+            try {
+              mapRef.current.flyTo({ center: [c.lng, c.lat], zoom: 15 })
+            } catch { /* map not ready — ignore */ }
+            setStatus(
+              `✗ ${data.error || `HTTP ${res.status}`} — moved the map to the `
+              + `parcel location so you can draw the boundary manually.`
+            )
+            return
+          }
           throw new Error(data.error || `HTTP ${res.status}`)
         }
         const poly = data.polygon as [number, number][]
