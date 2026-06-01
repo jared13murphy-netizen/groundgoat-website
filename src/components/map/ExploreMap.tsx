@@ -651,6 +651,7 @@ function webExploreFiltersToRegrid(filters: FilterState): RegridFilterInput {
       ? filters.countyFilters
       : null,
     soldOnly: filters.statuses?.includes('sold') || false,
+    hasBuildings: filters.hasBuildings,
   }
 }
 
@@ -3077,6 +3078,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     filters.salePriceMin,
     filters.salePriceMax,
     filters.statuses,
+    filters.hasBuildings,
   ])
 
   // ─────────────────────────────────────────────────────────────────

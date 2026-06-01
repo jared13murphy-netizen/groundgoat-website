@@ -54,6 +54,14 @@ export interface RegridFilterInput {
    *  by any sale-price or sale-date filter, so callers don't need
    *  to set this in addition. */
   soldOnly?: boolean
+  /** Tri-state buildings filter, keyed on the Regrid `ll_bldg_count`
+   *  field baked into the custom tile (2026-06-01).
+   *    null/undefined → no filter (show all parcels)
+   *    true           → only parcels with a building (count > 0)
+   *    false          → only parcels with NO building (count == 0)
+   *  Defensive: when the tile lacks ll_bldg_count the clause no-ops so
+   *  parcels aren't silently hidden. */
+  hasBuildings?: boolean | null
 }
 
 const FAR_FUTURE = '9999-12-31'
@@ -143,6 +151,18 @@ export function buildRegridParcelFilter(input: RegridFilterInput): any {
   }
   if (input.salePriceMax != null && Number.isFinite(input.salePriceMax)) {
     parts.push(['<=', ['to-number', ['get', 'saleprice']], input.salePriceMax])
+  }
+
+  // Buildings (ll_bldg_count). The custom tile populates this on every
+  // parcel (0 = none, >0 = has a building). Guard with `has` so the
+  // clause no-ops on any tile that lacks the field rather than hiding
+  // every parcel.
+  if (input.hasBuildings === true) {
+    parts.push(['has', 'll_bldg_count'])
+    parts.push(['>', ['to-number', ['get', 'll_bldg_count']], 0])
+  } else if (input.hasBuildings === false) {
+    parts.push(['has', 'll_bldg_count'])
+    parts.push(['==', ['to-number', ['get', 'll_bldg_count']], 0])
   }
 
   return parts.length === 1 ? true : parts
