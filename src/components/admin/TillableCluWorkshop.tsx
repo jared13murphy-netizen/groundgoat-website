@@ -28,7 +28,7 @@
  * cap) — same pattern as TractMapEditor.
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { Loader2, Save, Calculator, Sprout, Pencil, Check, Undo2, Trash2 } from 'lucide-react'
@@ -53,6 +53,26 @@ interface SoilResult {
   soil_rating: number | null
   soil_rating_type: string
   breakdown: { mukey: any; name: string | null; acres: number; rating: number }[]
+}
+
+// Stable signature of everything Save persists (per-CLU tillable verdict,
+// drawn polygons, computed soil rating). Used to drive the Save button's
+// dirty-state: Save is enabled only when the current signature differs from
+// the last-saved one, and re-disables itself after a successful save.
+function tillableSig(
+  clus: Clu[],
+  selection: Record<number, boolean>,
+  manualPolygons: Pt[][],
+  soilRating: number | null,
+  soilType: string,
+): string {
+  const sel = clus
+    .map((c) => `${c.fsa_clu_id}:${(selection[c.fsa_clu_id] ?? c.default_tillable) ? 1 : 0}`)
+    .sort()
+    .join(',')
+  const man = JSON.stringify(manualPolygons)
+  const soil = soilRating != null ? `${soilType}:${soilRating}` : ''
+  return `${sel}|${man}|${soil}`
 }
 
 interface TillableCluWorkshopProps {
@@ -212,6 +232,10 @@ export default function TillableCluWorkshop({
   const [computing, setComputing] = useState(false)
   const [saving, setSaving] = useState(false)
 
+  // Signature of the last-saved state (set on load + after each save). The
+  // Save button is dirty only when the live signature diverges from this.
+  const [savedSig, setSavedSig] = useState<string | null>(null)
+
   // ── Manual draw: used when the 2008 FSA CLU data is wrong for the tract.
   //    When ≥1 polygon is drawn it OVERRIDES the CLU selection entirely. ──
   const [drawMode, setDrawMode] = useState(false)
@@ -323,14 +347,19 @@ export default function TillableCluWorkshop({
         setTractPolygon(data.tract?.polygon || null)
         setTractAcres(data.tract?.total_acres ?? null)
         setReportedAcres(data.tract?.reported_acres ?? null)
-        if (data.totals?.soil_rating != null) {
+        const savedRating: number | null = data.totals?.soil_rating ?? null
+        const savedRatingType: string = data.totals?.soil_rating_type || ''
+        if (savedRating != null) {
           setSoil({
             tillable_acres: data.totals.tillable_acres ?? 0,
-            soil_rating: data.totals.soil_rating,
-            soil_rating_type: data.totals.soil_rating_type || '',
+            soil_rating: savedRating,
+            soil_rating_type: savedRatingType,
             breakdown: [],
           })
         }
+        // Baseline signature of the just-loaded saved state → Save starts
+        // disabled until the admin actually changes something.
+        setSavedSig(tillableSig(list, sel, savedManual, savedRating, savedRatingType))
         if (data.error) setError(data.error)
         setLoaded(true)
       } catch (e: any) {
@@ -691,6 +720,10 @@ export default function TillableCluWorkshop({
           ? `✓ Saved ${data.manual_polygon_count} drawn field${data.manual_polygon_count === 1 ? '' : 's'} · ${data.tillable_acres ?? '?'} tillable ac`
           : `✓ Saved ${data.tillable_clu_count} CLUs · ${data.tillable_acres ?? '?'} tillable ac`,
       )
+      // Persisted → this is the new baseline, so Save re-disables itself
+      // until the admin changes something again.
+      setSavedSig(tillableSig(clus, selection, manualPolygons,
+        soil?.soil_rating ?? null, soil?.soil_rating_type ?? ''))
       onSaved?.({
         tillable_acres: data.tillable_acres ?? null,
         soil_rating: data.soil_rating ?? null,
@@ -706,6 +739,14 @@ export default function TillableCluWorkshop({
   const tillableCount = clus.filter(
     (c) => selection[c.fsa_clu_id] ?? c.default_tillable,
   ).length
+
+  // Live signature vs the last-saved baseline → is there anything to save?
+  const currentSig = useMemo(
+    () => tillableSig(clus, selection, manualPolygons,
+      soil?.soil_rating ?? null, soil?.soil_rating_type ?? ''),
+    [clus, selection, manualPolygons, soil],
+  )
+  const isDirty = savedSig != null && currentSig !== savedSig
 
   return (
     <div ref={wrapperRef} className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg overflow-hidden mb-2">
@@ -833,7 +874,8 @@ export default function TillableCluWorkshop({
           </button>
           <button
             onClick={handleSave}
-            disabled={saving || computing || (!manualActive && clus.length === 0)}
+            disabled={saving || computing || !isDirty || (!manualActive && clus.length === 0)}
+            title={!isDirty ? 'No unsaved changes' : 'Save tillable selection'}
             className="px-3 py-1 text-xs bg-gg-pink hover:bg-gg-pink-light text-white font-semibold disabled:opacity-40 rounded flex items-center gap-1"
           >
             {saving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
