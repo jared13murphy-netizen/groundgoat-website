@@ -33,7 +33,6 @@ import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { Loader2, Save, Calculator, Sprout, Pencil, Check, Undo2, Trash2 } from 'lucide-react'
 import { fetchWithAuth } from '@/lib/fetchWithAuth'
-import { polygonAcres } from '@/lib/polygonGeometry'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 const TILE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
@@ -240,15 +239,47 @@ export default function TillableCluWorkshop({
   useEffect(() => { clusRef.current = clus }, [clus])
   useEffect(() => { selectionRef.current = selection }, [selection])
 
-  // Live tillable-acres total. When manual polygons are drawn they OVERRIDE
-  // the CLU selection → sum drawn polygon areas (client-side shoelace).
-  // Otherwise sum the selected CLU acres.
-  const tillableAcres = manualActive
-    ? manualPolygons.reduce((s, p) => s + polygonAcres(p), 0)
-    : clus.reduce(
-        (s, c) => s + ((selection[c.fsa_clu_id] ?? c.default_tillable) ? c.acres_within_tract : 0),
-        0,
-      )
+  // ── Authoritative tillable acres: refetch the server-side UNION whenever
+  //    the selection or drawn polygons change. Debounced (300ms) so a flurry
+  //    of toggles makes one call. The value returned is identical to what
+  //    Save persists, so the badge can never disagree with the saved acreage. ──
+  useEffect(() => {
+    if (!hasBeenVisible) return
+    if (clus.length === 0 && manualPolygons.length === 0) {
+      setTillableAcres(0)
+      return
+    }
+    const selections = clus.map((c) => ({
+      fsa_clu_id: c.fsa_clu_id,
+      is_tillable: selection[c.fsa_clu_id] ?? c.default_tillable,
+    }))
+    let cancelled = false
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetchWithAuth(`${baseUrl}/tillable-acres`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ selections, manual_polygons: manualPolygons }),
+        })
+        if (!res.ok) return
+        const data = await res.json()
+        if (!cancelled && typeof data.tillable_acres === 'number') {
+          setTillableAcres(data.tillable_acres)
+        }
+      } catch {
+        /* transient backend blip — keep the prior value, don't zero it */
+      }
+    }, 300)
+    return () => { cancelled = true; clearTimeout(t) }
+  }, [hasBeenVisible, clus, selection, manualPolygons, baseUrl])
+
+  // Live tillable-acres total = geometric UNION area of the selected
+  // polygons, computed server-side (debounced fetch below). Summing per-CLU
+  // acres is WRONG: the fsa_clu_2008 table carries overlapping CLU vintages,
+  // so a sum double-counts the same ground (151-ac field shown as 261). The
+  // backend union is the single source of truth — the same value Save
+  // persists and the soil rating weights over.
+  const [tillableAcres, setTillableAcres] = useState(0)
 
   // ── Lazy mount: only load data + map after the card scrolls in. ──
   useEffect(() => {
