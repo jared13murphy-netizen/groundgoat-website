@@ -131,13 +131,12 @@ function AccessPortalPageInner() {
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return
     const zoom = parseFloat(searchParams.get('focusZoom') || '15')
     focusHandledRef.current = true
-    // Re-fire pattern matches the comparables flow: clear then set so
-    // ExploreMap's effect always sees a fresh value, then auto-clear.
-    setZoomToLocation(null)
-    setTimeout(() => {
-      setZoomToLocation({ lat, lng, zoom: Number.isFinite(zoom) ? zoom : 15 })
-      setTimeout(() => setZoomToLocation(null), 3000)
-    }, 300)
+    // Set the target immediately. ExploreMap gates its flyTo on its own
+    // mapLoaded state, so it will fire as soon as the map is ready (no need
+    // to guess a delay here). Auto-clear after a generous window that still
+    // covers a slow first map-load, so panning away later isn't yanked back.
+    setZoomToLocation({ lat, lng, zoom: Number.isFinite(zoom) ? zoom : 15 })
+    setTimeout(() => setZoomToLocation(null), 10000)
   }, [user, searchParams])
   const zoomToFirstTractWithBoundary = (listing: any) => {
     // Also capture county/state for the pane header subtitle.

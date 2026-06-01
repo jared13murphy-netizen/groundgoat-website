@@ -1344,16 +1344,21 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [applyExternalFilters?.nonce])
 
-  // Zoom to location from parent (portal mode)
+  // Zoom to location from parent (portal mode).
+  // Depends on mapLoaded because mapRef.current is only assigned inside the
+  // map 'load' handler — a deep-link (e.g. the staging "View on Map" button)
+  // sets zoomToLocation before the map finishes loading, so without the
+  // mapLoaded dependency the flyTo would be skipped and never retried. When
+  // the map finishes loading this effect re-runs with the still-set target.
   useEffect(() => {
-    if (zoomToLocation && mapRef.current) {
+    if (zoomToLocation && mapRef.current && mapLoaded) {
       mapRef.current.flyTo({
         center: [zoomToLocation.lng, zoomToLocation.lat],
         zoom: zoomToLocation.zoom,
         duration: 1500,
       })
     }
-  }, [zoomToLocation])
+  }, [zoomToLocation, mapLoaded])
 
   // Fit map to polygon bounds (e.g. when the user picks a listing or
   // tract from a slide-out pane). Computes the bbox client-side so we
