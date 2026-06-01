@@ -33,6 +33,7 @@ import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { Loader2, Save, Calculator, Sprout, Pencil, Check, Undo2, Trash2 } from 'lucide-react'
 import { fetchWithAuth } from '@/lib/fetchWithAuth'
+import { polygonAcres } from '@/lib/polygonGeometry'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 const TILE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
@@ -263,12 +264,43 @@ export default function TillableCluWorkshop({
   useEffect(() => { clusRef.current = clus }, [clus])
   useEffect(() => { selectionRef.current = selection }, [selection])
 
+  // ── Instant client-side tillable acres (no round-trip) so the badge moves
+  //    on EVERY interaction: each CLU toggle, each drawn vertex, each drawn
+  //    field. Two regimes:
+  //      • drawing/manual: shoelace area of the finished drawn fields plus the
+  //        in-progress polygon (≥3 pts) — updates as vertices are placed.
+  //      • CLU selection: sum of the selected CLUs' clipped acres. get_tract_clus
+  //        already de-dupes overlapping fsa_clu_2008 vintages into a NON-
+  //        overlapping set, so this sum equals the true union — exact, instant.
+  //    The debounced server fetch below then reconciles (it's authoritative for
+  //    the union of OVERLAPPING drawn fields, and is what Save persists). ──
+  const clientTillableAcres = useMemo(() => {
+    if (manualActive || currentDraw.length >= 3) {
+      let a = 0
+      for (const ring of manualPolygons) a += polygonAcres(ring)
+      if (currentDraw.length >= 3) a += polygonAcres(currentDraw)
+      return a
+    }
+    return clus.reduce(
+      (sum, c) => sum + ((selection[c.fsa_clu_id] ?? c.default_tillable) ? c.acres_within_tract : 0),
+      0,
+    )
+  }, [clus, selection, manualPolygons, currentDraw, manualActive])
+
+  // Optimistic: show the instant client value immediately on every change. The
+  // server fetch below overwrites it with the authoritative union once settled.
+  useEffect(() => { setTillableAcres(clientTillableAcres) }, [clientTillableAcres])
+
   // ── Authoritative tillable acres: refetch the server-side UNION whenever
   //    the selection or drawn polygons change. Debounced (300ms) so a flurry
   //    of toggles makes one call. The value returned is identical to what
   //    Save persists, so the badge can never disagree with the saved acreage. ──
   useEffect(() => {
     if (!hasBeenVisible) return
+    // Mid-draw (vertices being placed) the server can't union an open ring —
+    // the instant client estimate above carries the badge until the field is
+    // finished, at which point manualPolygons changes and this re-reconciles.
+    if (currentDraw.length > 0) return
     if (clus.length === 0 && manualPolygons.length === 0) {
       setTillableAcres(0)
       return
@@ -295,7 +327,7 @@ export default function TillableCluWorkshop({
       }
     }, 300)
     return () => { cancelled = true; clearTimeout(t) }
-  }, [hasBeenVisible, clus, selection, manualPolygons, baseUrl])
+  }, [hasBeenVisible, clus, selection, manualPolygons, currentDraw, baseUrl])
 
   // Live tillable-acres total = geometric UNION area of the selected
   // polygons, computed server-side (debounced fetch below). Summing per-CLU
