@@ -72,6 +72,12 @@ interface TractDataCompareProps {
   stagingId?: number
   tractIndex?: number
   onTractNumberChange?: (newNumber: string) => void
+  /** Whether the scraper / admin marked this tract as having buildings
+   *  on it. Auto-seeded from the scraper's has_building output; the
+   *  admin can toggle it here in case the scraper got it wrong. Feeds
+   *  the map's "has buildings" show/hide filter at verify time. */
+  hasBuilding?: boolean
+  onHasBuildingChange?: (next: boolean) => void
 }
 
 function fmtAcres(v?: number | null): string {
@@ -101,6 +107,8 @@ export default function TractDataCompare({
   stagingId,
   tractIndex,
   onTractNumberChange,
+  hasBuilding,
+  onHasBuildingChange,
 }: TractDataCompareProps) {
   // Editable tract number — per user 2026-05-26: when the scraper paired
   // the wrong polygon with the wrong tract number (Steffes-class bug),
@@ -177,6 +185,32 @@ export default function TractDataCompare({
   // early-return now happens AFTER all hooks have been declared.
   const [local, setLocal] = useState<Chosen>(chosen || {})
 
+  // Has-buildings checkbox state. Seeded from the scraper's value;
+  // local copy keeps the checkbox snappy before the parent commits.
+  // Declared before the early-return below to satisfy Rules of Hooks.
+  const [bldg, setBldg] = useState<boolean>(!!hasBuilding)
+  useEffect(() => { setBldg(!!hasBuilding) }, [hasBuilding])
+  const toggleBldg = () => {
+    const next = !bldg
+    setBldg(next)
+    onHasBuildingChange?.(next)
+  }
+  const BuildingCheckbox = () => (
+    <label
+      className="flex items-center gap-2 mt-2 pt-2 border-t border-gg-gray-700 cursor-pointer text-xs text-gg-gray-300 select-none"
+      title="Auto-checked when the scraper detects buildings on this tract. Uncheck if the scraper is wrong. Feeds the map's 'has buildings' filter."
+    >
+      <input
+        type="checkbox"
+        checked={bldg}
+        onChange={toggleBldg}
+        className="cursor-pointer accent-gg-pink w-4 h-4"
+      />
+      <span className="font-medium">Buildings on this tract</span>
+      <span className="text-[10px] text-gg-gray-500">(auto-detected by scraper — edit if wrong)</span>
+    </label>
+  )
+
   // Backwards compat: if neither scraped nor computed is present, this
   // is an old-format staging row. Render single-source view from the
   // fallback tract dict.
@@ -193,6 +227,7 @@ export default function TractDataCompare({
         <span className="mr-3">Acres: {fmtAcres(t.acres)}</span>
         <span className="mr-3">Tillable: {fmtAcres(t.tillable_acres)}</span>
         <span>Soil: {fmtSoil(t.soil_rating, t.soil_rating_type)}</span>
+        <BuildingCheckbox />
       </div>
     )
   }
@@ -375,6 +410,7 @@ export default function TractDataCompare({
         scrapedVal={fmtSoil(s.soil_rating, s.soil_rating_type)}
         computedVal={fmtSoil(c.soil_rating, c.soil_rating_type)}
       />
+      <BuildingCheckbox />
       <div className="flex justify-between mt-1 pt-1 text-[10px] text-gg-gray-600">
         <span>Scraped source: {s.source || 'unknown'}</span>
         <span>Computed source: {c.source || 'magic-lab'}</span>

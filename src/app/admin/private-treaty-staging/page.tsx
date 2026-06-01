@@ -711,6 +711,29 @@ export default function AdminPrivateTreatyStagingPage() {
     }
   }
 
+  // Persist the per-tract "has buildings" checkbox. Verify POSTs with no
+  // body, so per-tract edits must be PATCHed into scraped_data here (same
+  // pattern as the inline price edit). Updates local state optimistically.
+  const saveTractHasBuilding = async (listing: StagingListing, idx: number, next: boolean) => {
+    const updated = JSON.parse(JSON.stringify(listing.scraped_data || {}))
+    if (!Array.isArray(updated.tracts)) updated.tracts = []
+    if (!updated.tracts[idx]) updated.tracts[idx] = {}
+    updated.tracts[idx].has_building = next
+    setListings((prev) =>
+      prev.map((l) => (l.id === listing.id ? { ...l, scraped_data: updated } : l))
+    )
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/admin/staging/${listing.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scraped_data: updated }),
+      })
+      if (!res.ok) showToast('error', 'Failed to save buildings flag')
+    } catch {
+      showToast('error', 'Network error — failed to save buildings flag')
+    }
+  }
+
   const openEditModal = (listing: StagingListing) => {
     setEditingListing(listing)
     setEditForm(buildEditForm(listing.scraped_data))
@@ -1568,6 +1591,8 @@ export default function AdminPrivateTreatyStagingPage() {
                                     fallbackTract={tract}
                                     stagingId={listing.id}
                                     tractIndex={idx}
+                                    hasBuilding={!!tract.has_building}
+                                    onHasBuildingChange={(next) => saveTractHasBuilding(listing, idx, next)}
                                     siblingTractNumbers={info.tracts.map((t: any) =>
                                       String(t.tract_number ?? ''))}
                                     onTractNumberChange={(newNum) => {
