@@ -376,20 +376,51 @@ export default function AdminStagingPage() {
     setScrapingUrl(true)
     setScrapeUrlResult(null)
     try {
+      // Async by default: the scraper runs the 30-60s scrape on a background
+      // thread and returns a job_id immediately. We poll for completion so
+      // the long request never trips the browser/edge timeout ("Failed to
+      // fetch"). The server still finishes even if this tab closes.
       const res = await fetch(`${SCRAPER_URL}/api/scraper/scrape-single-url`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: scrapeUrl.trim(), force: true }),
+        body: JSON.stringify({ url: scrapeUrl.trim(), force: true, async: true }),
       })
       const data = await res.json()
-      if (data.success) {
-        setScrapeUrlResult({ success: true, message: `Staged successfully (${data.company_name}, ${Math.round((data.scrape_duration_ms || 0) / 1000)}s)` })
-        setScrapeUrl('')
-        setPage(0)
-        fetchStagingListings(0)
-      } else {
-        setScrapeUrlResult({ success: false, message: data.error || 'Scraping failed' })
+
+      const applyResult = (d: any) => {
+        if (d.success && d.staging_id) {
+          setScrapeUrlResult({ success: true, message: `Staged successfully (${d.company_name}, ${Math.round((d.scrape_duration_ms || 0) / 1000)}s)` })
+          setScrapeUrl('')
+          setPage(0)
+          fetchStagingListings(0)
+        } else {
+          setScrapeUrlResult({ success: false, message: d.error || 'Scraping failed' })
+        }
       }
+
+      // Sync fallback (async=false or older server): result is inline.
+      if (!data.job_id) {
+        applyResult(data)
+        return
+      }
+
+      // Poll the status endpoint until the job finishes (up to ~4 min).
+      const jobId = data.job_id
+      setScrapeUrlResult({ success: true, message: 'Scraping… this can take up to a minute.' })
+      const started = Date.now()
+      while (Date.now() - started < 240_000) {
+        await new Promise((r) => setTimeout(r, 3000))
+        try {
+          const sres = await fetch(`${SCRAPER_URL}/api/scraper/scrape-single-url/status/${jobId}`)
+          const sdata = await sres.json()
+          if (sdata.status === 'running') continue
+          applyResult(sdata)
+          return
+        } catch {
+          // transient network blip while polling — keep trying until timeout
+        }
+      }
+      setScrapeUrlResult({ success: false, message: 'Timed out waiting for scrape — hit Refresh; it may have finished.' })
     } catch (err: any) {
       setScrapeUrlResult({ success: false, message: err.message || 'Network error' })
     } finally {
