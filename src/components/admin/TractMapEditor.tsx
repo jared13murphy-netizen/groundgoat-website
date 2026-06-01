@@ -45,7 +45,7 @@ import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import {
   Save, RotateCcw, Trash2, Loader2, ImageIcon, Sprout, EyeOff,
-  Maximize2, Minimize2, Crosshair, Camera, Sparkles,
+  Maximize2, Minimize2, Crosshair, Camera, Sparkles, Move, Spline,
 } from 'lucide-react'
 import { polygonPerimeterFeet, formatPerimeter } from '@/lib/polygonGeometry'
 
@@ -196,6 +196,47 @@ function gisAcres(points: Pt[]): number {
   return area * latMiles * lngMiles * 640
 }
 
+// ── Douglas–Peucker simplification (per user 2026-06-01) ──
+// The Surety overview tracer follows the painted boundary contour and
+// emits many vertices on gentle curves, so corners look "rounded".
+// Simplify drops vertices that lie within `tol` (degrees) of the line
+// between their neighbours, straightening those runs into crisp edges
+// while leaving real corners intact. Operates on the OPEN ring `points`
+// uses elsewhere (no closing duplicate).
+function _perpDist(p: Pt, a: Pt, b: Pt): number {
+  const dx = b[0] - a[0]
+  const dy = b[1] - a[1]
+  if (dx === 0 && dy === 0) return Math.hypot(p[0] - a[0], p[1] - a[1])
+  const t = ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / (dx * dx + dy * dy)
+  const cx = a[0] + t * dx
+  const cy = a[1] + t * dy
+  return Math.hypot(p[0] - cx, p[1] - cy)
+}
+function _dp(pts: Pt[], tol: number): Pt[] {
+  if (pts.length < 3) return pts
+  const end = pts.length - 1
+  let maxD = 0
+  let idx = 0
+  for (let i = 1; i < end; i++) {
+    const d = _perpDist(pts[i], pts[0], pts[end])
+    if (d > maxD) { maxD = d; idx = i }
+  }
+  if (maxD > tol) {
+    const left = _dp(pts.slice(0, idx + 1), tol)
+    const right = _dp(pts.slice(idx), tol)
+    return [...left.slice(0, -1), ...right]
+  }
+  return [pts[0], pts[end]]
+}
+function simplifyRing(ring: Pt[], tol: number): Pt[] {
+  if (ring.length < 5) return ring
+  const closed = [...ring, ring[0]] as Pt[]
+  const out = _dp(closed, tol)
+  // _dp keeps first & last (same point) — drop the closing duplicate.
+  const open = out.slice(0, -1) as Pt[]
+  return open.length >= 3 ? open : ring
+}
+
 function normalizeInitialPolygon(poly: Pt[] | null | undefined): Pt[] {
   if (!Array.isArray(poly) || poly.length < 3) return []
   const first = poly[0]
@@ -303,6 +344,16 @@ export default function TractMapEditor({
   // re-reads its container dimensions. Per user 2026-05-26: the inline
   // map is too small to accurately draw new polygons.
   const [fullscreen, setFullscreen] = useState(false)
+  // Move-polygon mode (per user 2026-06-01): when on, dragging anywhere
+  // on the tract fill translates EVERY vertex by the drag delta so the
+  // whole shape slides into position. Vertex dragging and add-vertex are
+  // suppressed while this is active to avoid accidental edits.
+  const [moveMode, setMoveMode] = useState(false)
+  const moveModeRef = useRef(false)
+  useEffect(() => { moveModeRef.current = moveMode }, [moveMode])
+  // Drag state for the whole-polygon move. Captured on mousedown.
+  const moveDragStart = useRef<{ lng: number; lat: number } | null>(null)
+  const moveDragBase = useRef<Pt[] | null>(null)
   // Tillable draw mode — per user 2026-05-26: even after Delete
   // Tillable, the user wants to draw a new tillable shape by hand
   // because magic-lab's auto-detect is sometimes wrong. When true:
@@ -744,6 +795,105 @@ export default function TractMapEditor({
         map.on('touchmove', _onTouchDrag)
         map.once('touchend', _onTouchEnd)
       })
+
+      // ── Delete a vertex (per user 2026-06-01) ──
+      // Double-click a tract vertex to remove it. preventDefault stops
+      // MapLibre's double-click zoom. Guarded to keep at least 3 points
+      // so the polygon stays valid, and snapshots for Undo.
+      map.on('dblclick', 'verts', (ev: any) => {
+        if (drawTillableModeRef.current) return
+        const feature = ev.features?.[0]
+        if (!feature) return
+        const idx = (feature.properties as any)?.idx
+        if (typeof idx !== 'number') return
+        ev.preventDefault()
+        recentVertexInteraction.current = true
+        setPoints(prev => {
+          if (prev.length <= 3) return prev
+          pointsHistory.current.push(prev.map(p => [...p] as Pt))
+          return prev.filter((_, i) => i !== idx)
+        })
+        setDirty(true)
+        setTimeout(() => { recentVertexInteraction.current = false }, 0)
+      })
+
+      // ── Move the whole polygon (per user 2026-06-01) ──
+      // Only active in moveMode. mousedown on the tract fill captures a
+      // base copy of all vertices + the start lng/lat; each mousemove
+      // re-applies the delta to that base so the whole shape slides.
+      const _onPolyMove = (mev: maplibregl.MapMouseEvent) => {
+        if (!moveDragStart.current || !moveDragBase.current) return
+        const dLng = mev.lngLat.lng - moveDragStart.current.lng
+        const dLat = mev.lngLat.lat - moveDragStart.current.lat
+        const base = moveDragBase.current
+        setPoints(base.map(([lng, lat]) => [lng + dLng, lat + dLat] as Pt))
+        setDirty(true)
+      }
+      const _onPolyMoveUp = () => {
+        moveDragStart.current = null
+        moveDragBase.current = null
+        map.dragPan.enable()
+        map.off('mousemove', _onPolyMove)
+        setTimeout(() => { recentVertexInteraction.current = false }, 0)
+      }
+      map.on('mousedown', 'drawn-fill', (ev: any) => {
+        if (!moveModeRef.current || drawTillableModeRef.current) return
+        ev.preventDefault()
+        recentVertexInteraction.current = true
+        moveDragStart.current = { lng: ev.lngLat.lng, lat: ev.lngLat.lat }
+        // Capture the base vertices via functional setState (no mutation).
+        setPoints(prev => {
+          pointsHistory.current.push(prev.map(p => [...p] as Pt))
+          moveDragBase.current = prev.map(p => [...p] as Pt)
+          return prev
+        })
+        map.dragPan.disable()
+        map.on('mousemove', _onPolyMove)
+        map.once('mouseup', _onPolyMoveUp)
+      })
+      // Touch equivalent for whole-polygon move.
+      const _onPolyTouchMove = (tev: any) => {
+        if (!moveDragStart.current || !moveDragBase.current) return
+        const touch = tev.points?.[0] || tev.point
+        if (!touch) return
+        const ll = map.unproject(touch)
+        const dLng = ll.lng - moveDragStart.current.lng
+        const dLat = ll.lat - moveDragStart.current.lat
+        const base = moveDragBase.current
+        setPoints(base.map(([lng, lat]) => [lng + dLng, lat + dLat] as Pt))
+        setDirty(true)
+      }
+      const _onPolyTouchEnd = () => {
+        moveDragStart.current = null
+        moveDragBase.current = null
+        map.dragPan.enable()
+        map.off('touchmove', _onPolyTouchMove)
+        setTimeout(() => { recentVertexInteraction.current = false }, 0)
+      }
+      map.on('touchstart', 'drawn-fill', (ev: any) => {
+        if (!moveModeRef.current || drawTillableModeRef.current) return
+        const touch = ev.points?.[0] || ev.point
+        if (!touch) return
+        ev.preventDefault()
+        recentVertexInteraction.current = true
+        const ll = map.unproject(touch)
+        moveDragStart.current = { lng: ll.lng, lat: ll.lat }
+        setPoints(prev => {
+          pointsHistory.current.push(prev.map(p => [...p] as Pt))
+          moveDragBase.current = prev.map(p => [...p] as Pt)
+          return prev
+        })
+        map.dragPan.disable()
+        map.on('touchmove', _onPolyTouchMove)
+        map.once('touchend', _onPolyTouchEnd)
+      })
+      // Cursor affordance — show the move cursor over the fill in move mode.
+      map.on('mouseenter', 'drawn-fill', () => {
+        if (moveModeRef.current) map.getCanvas().style.cursor = 'move'
+      })
+      map.on('mouseleave', 'drawn-fill', () => {
+        if (moveModeRef.current) map.getCanvas().style.cursor = ''
+      })
     })
 
     // Click to add a vertex (same UX as boundary-draw page) — but
@@ -751,6 +901,8 @@ export default function TractMapEditor({
     // every vertex click would stack a new vertex on top.
     map.on('click', (ev) => {
       if (recentVertexInteraction.current) return
+      // In move mode, clicks pan/slide the polygon — never add vertices.
+      if (moveModeRef.current) return
       const layersToCheck = ['verts', 'tillable-verts'].filter(
         l => map.getLayer(l) != null
       )
@@ -963,9 +1115,42 @@ export default function TractMapEditor({
     })
     setDirty(true)
   }
+  // ── Simplify (per user 2026-06-01) ──
+  // Straightens the over-vertexed, rounded contours the overview tracer
+  // produces. Tolerance scales to the polygon's own size so it works at
+  // any zoom/acreage; clicking again with the now-coarser shape removes
+  // a bit more. Snapshots for Undo.
+  const handleSimplify = () => {
+    setPoints(prev => {
+      if (prev.length < 5) {
+        setStatus('Too few vertices to simplify')
+        return prev
+      }
+      // bbox diagonal in degrees → tolerance ≈ 0.5% of the diagonal.
+      const lngs = prev.map(p => p[0])
+      const lats = prev.map(p => p[1])
+      const diag = Math.hypot(
+        Math.max(...lngs) - Math.min(...lngs),
+        Math.max(...lats) - Math.min(...lats),
+      )
+      const tol = diag * 0.005
+      const simplified = simplifyRing(prev, tol)
+      if (simplified.length >= prev.length) {
+        setStatus('Already as simple as it gets — delete vertices manually for finer control')
+        return prev
+      }
+      pointsHistory.current.push(prev.map(p => [...p] as Pt))
+      setStatus(`Simplified ${prev.length} → ${simplified.length} vertices`)
+      return simplified
+    })
+    setDirty(true)
+  }
   const handleCancel = () => {
     // Cancel discards all in-flight edits → wipe the undo history too,
     // there's nothing meaningful to undo back to.
+    moveDragStart.current = null
+    moveDragBase.current = null
+    setMoveMode(false)
     pointsHistory.current = []
     setPoints(normalizeInitialPolygon(initialPolygon))
     setDirty(false)
@@ -1889,7 +2074,11 @@ export default function TractMapEditor({
           ) : (
             <>
               <div className="flex items-center gap-3">
-                <span>Click the map to add vertices ({points.length} so far)</span>
+                <span>
+                  {moveMode
+                    ? 'Move mode — drag the polygon to slide it'
+                    : `Click to add · drag a dot to move · double-click a dot to delete (${points.length} vertices)`}
+                </span>
                 {points.length >= 3 && (
                   <span className="text-gg-pink font-semibold">Drawn: {drawnAcres.toFixed(2)} ac</span>
                 )}
@@ -2101,6 +2290,26 @@ export default function TractMapEditor({
             className="px-2 py-1 text-xs bg-gg-gray-700 hover:bg-gg-gray-600 disabled:opacity-40 rounded flex items-center gap-1"
           >
             <RotateCcw size={12} /> Clear
+          </button>
+          <button
+            onClick={handleSimplify}
+            disabled={points.length < 5 || saving || deleting}
+            className="px-2 py-1 text-xs bg-gg-gray-700 hover:bg-gg-gray-600 disabled:opacity-40 rounded flex items-center gap-1"
+            title="Straighten rounded contours by removing near-collinear vertices"
+          >
+            <Spline size={12} /> Simplify
+          </button>
+          <button
+            onClick={() => setMoveMode(m => !m)}
+            disabled={points.length < 3 || saving || deleting}
+            className={`px-2 py-1 text-xs rounded flex items-center gap-1 disabled:opacity-40 ${
+              moveMode
+                ? 'bg-gg-pink text-white'
+                : 'bg-gg-gray-700 hover:bg-gg-gray-600'
+            }`}
+            title="Toggle move mode — drag anywhere on the polygon to slide the whole shape"
+          >
+            <Move size={12} /> {moveMode ? 'Moving…' : 'Move'}
           </button>
           <button
             onClick={handleDelete}
