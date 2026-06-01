@@ -4552,14 +4552,16 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
       {/* Inline toast — fades in/out, used today only for the
           "zoom in to view soil maps" hint when the user enables Soil
-          Maps below the soils minzoom. Auto-dismisses in 4s.  */}
+          Maps below the soils minzoom. Auto-dismisses in 4s.
+          top: 72 keeps it clear of the portal top menu bar (~56-64px)
+          so the message reads cleanly instead of overlapping the nav. */}
       {zoomToast && (
         <div
           role="status"
           aria-live="polite"
           style={{
             position: 'absolute',
-            top: 16,
+            top: 72,
             left: '50%',
             transform: 'translateX(-50%)',
             zIndex: 1000,
