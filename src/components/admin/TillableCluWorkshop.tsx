@@ -31,8 +31,9 @@
 import { useEffect, useRef, useState } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import { Loader2, Save, Calculator, Sprout } from 'lucide-react'
+import { Loader2, Save, Calculator, Sprout, Pencil, Check, Undo2, Trash2 } from 'lucide-react'
 import { fetchWithAuth } from '@/lib/fetchWithAuth'
+import { polygonAcres } from '@/lib/polygonGeometry'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 const TILE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
@@ -117,6 +118,60 @@ function buildTractGeo(poly: Pt[] | null): any {
   }
 }
 
+// Finished, admin-drawn tillable polygons (green override layer).
+function buildManualGeo(polys: Pt[][]): any {
+  return {
+    type: 'FeatureCollection',
+    features: polys
+      .filter((p) => p.length >= 3)
+      .map((p, i) => {
+        const ring = [...p]
+        const f = ring[0]; const l = ring[ring.length - 1]
+        if (f[0] !== l[0] || f[1] !== l[1]) ring.push(f)
+        return {
+          type: 'Feature',
+          properties: { idx: i },
+          geometry: { type: 'Polygon', coordinates: [ring] },
+        }
+      }),
+  }
+}
+
+// In-progress polygon: a LineString while < 3 pts, a closed Polygon at >= 3.
+function buildDrawGeo(points: Pt[]): any {
+  if (points.length === 0) return { type: 'FeatureCollection', features: [] }
+  if (points.length < 3) {
+    return {
+      type: 'FeatureCollection',
+      features: [{ type: 'Feature', properties: {},
+        geometry: { type: 'LineString', coordinates: points } }],
+    }
+  }
+  return {
+    type: 'FeatureCollection',
+    features: [{ type: 'Feature', properties: {},
+      geometry: { type: 'Polygon', coordinates: [[...points, points[0]]] } }],
+  }
+}
+
+function buildVertexGeo(points: Pt[]): any {
+  return {
+    type: 'FeatureCollection',
+    features: points.map((p, i) => ({
+      type: 'Feature', properties: { i },
+      geometry: { type: 'Point', coordinates: p },
+    })),
+  }
+}
+
+// GeoJSON Polygon geometry → outer ring (Pt[]). Used to hydrate saved
+// manual polygons (backend returns them as GeoJSON geometries).
+function geomToRing(geom: any): Pt[] | null {
+  const ring = geom?.coordinates?.[0]
+  if (!Array.isArray(ring) || ring.length < 3) return null
+  return ring.map((p: any) => [Number(p[0]), Number(p[1])] as Pt)
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -152,6 +207,22 @@ export default function TillableCluWorkshop({
   const [computing, setComputing] = useState(false)
   const [saving, setSaving] = useState(false)
 
+  // ── Manual draw: used when the 2008 FSA CLU data is wrong for the tract.
+  //    When ≥1 polygon is drawn it OVERRIDES the CLU selection entirely. ──
+  const [drawMode, setDrawMode] = useState(false)
+  const [manualPolygons, setManualPolygons] = useState<Pt[][]>([])
+  const [currentDraw, setCurrentDraw] = useState<Pt[]>([])
+  const drawModeRef = useRef(false)
+  const manualPolygonsRef = useRef<Pt[][]>([])
+  const currentDrawRef = useRef<Pt[]>([])
+  useEffect(() => { drawModeRef.current = drawMode }, [drawMode])
+  useEffect(() => { manualPolygonsRef.current = manualPolygons }, [manualPolygons])
+  useEffect(() => { currentDrawRef.current = currentDraw }, [currentDraw])
+
+  // True once the admin has drawn at least one polygon → CLU selection is
+  // overridden (drawn polygons are the tillable area).
+  const manualActive = manualPolygons.length > 0
+
   const wrapperRef = useRef<HTMLDivElement | null>(null)
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
@@ -163,11 +234,15 @@ export default function TillableCluWorkshop({
   useEffect(() => { clusRef.current = clus }, [clus])
   useEffect(() => { selectionRef.current = selection }, [selection])
 
-  // Live tillable-acres total — client-side sum over selected CLUs.
-  const tillableAcres = clus.reduce(
-    (s, c) => s + ((selection[c.fsa_clu_id] ?? c.default_tillable) ? c.acres_within_tract : 0),
-    0,
-  )
+  // Live tillable-acres total. When manual polygons are drawn they OVERRIDE
+  // the CLU selection → sum drawn polygon areas (client-side shoelace).
+  // Otherwise sum the selected CLU acres.
+  const tillableAcres = manualActive
+    ? manualPolygons.reduce((s, p) => s + polygonAcres(p), 0)
+    : clus.reduce(
+        (s, c) => s + ((selection[c.fsa_clu_id] ?? c.default_tillable) ? c.acres_within_tract : 0),
+        0,
+      )
 
   // ── Lazy mount: only load data + map after the card scrolls in. ──
   useEffect(() => {
@@ -203,6 +278,11 @@ export default function TillableCluWorkshop({
         for (const c of list) sel[c.fsa_clu_id] = c.current_tillable
         setClus(list)
         setSelection(sel)
+        // Hydrate any saved admin-drawn tillable polygons.
+        const savedManual: Pt[][] = ((data.manual_polygons || []) as any[])
+          .map(geomToRing)
+          .filter((r: Pt[] | null): r is Pt[] => r != null)
+        setManualPolygons(savedManual)
         setTractPolygon(data.tract?.polygon || null)
         setTractAcres(data.tract?.total_acres ?? null)
         setReportedAcres(data.tract?.reported_acres ?? null)
@@ -239,6 +319,94 @@ export default function TillableCluWorkshop({
     // Selection changed → any prior soil rating is now stale.
     setSoil(null)
     setStatus(null)
+  }
+
+  // ── Manual draw helpers ──
+  const pushMapSource = (id: string, data: any) => {
+    const src = mapRef.current?.getSource(id) as maplibregl.GeoJSONSource | undefined
+    if (src) src.setData(data)
+  }
+
+  const addVertex = (pt: Pt) => {
+    setCurrentDraw((prev) => {
+      const next = [...prev, pt]
+      currentDrawRef.current = next
+      pushMapSource('draw', buildDrawGeo(next))
+      pushMapSource('draw-vertex', buildVertexGeo(next))
+      return next
+    })
+  }
+
+  const finishPolygon = () => {
+    // A double-click fires two near-identical click events before dblclick,
+    // so drop consecutive duplicate vertices before closing.
+    const raw = currentDrawRef.current
+    const pts = raw.filter((p, i) =>
+      i === 0 || Math.abs(p[0] - raw[i - 1][0]) > 1e-7 || Math.abs(p[1] - raw[i - 1][1]) > 1e-7,
+    )
+    if (pts.length < 3) return
+    setManualPolygons((prev) => {
+      const next = [...prev, pts]
+      manualPolygonsRef.current = next
+      pushMapSource('manual', buildManualGeo(next))
+      return next
+    })
+    setCurrentDraw(() => {
+      currentDrawRef.current = []
+      pushMapSource('draw', buildDrawGeo([]))
+      pushMapSource('draw-vertex', buildVertexGeo([]))
+      return []
+    })
+    setSoil(null); setStatus(null)
+  }
+
+  // Undo: drop the last in-progress vertex, or (if none) the last finished
+  // polygon.
+  const undoDraw = () => {
+    if (currentDrawRef.current.length > 0) {
+      setCurrentDraw((prev) => {
+        const next = prev.slice(0, -1)
+        currentDrawRef.current = next
+        pushMapSource('draw', buildDrawGeo(next))
+        pushMapSource('draw-vertex', buildVertexGeo(next))
+        return next
+      })
+    } else if (manualPolygonsRef.current.length > 0) {
+      setManualPolygons((prev) => {
+        const next = prev.slice(0, -1)
+        manualPolygonsRef.current = next
+        pushMapSource('manual', buildManualGeo(next))
+        return next
+      })
+      setSoil(null)
+    }
+    setStatus(null)
+  }
+
+  const clearManual = () => {
+    setManualPolygons(() => { manualPolygonsRef.current = []; pushMapSource('manual', buildManualGeo([])); return [] })
+    setCurrentDraw(() => {
+      currentDrawRef.current = []
+      pushMapSource('draw', buildDrawGeo([]))
+      pushMapSource('draw-vertex', buildVertexGeo([]))
+      return []
+    })
+    setSoil(null); setStatus(null)
+  }
+
+  const toggleDrawMode = () => {
+    setDrawMode((prev) => {
+      const next = !prev
+      drawModeRef.current = next
+      const map = mapRef.current
+      if (map) {
+        if (next) map.doubleClickZoom.disable()
+        else map.doubleClickZoom.enable()
+      }
+      // Leaving draw mode with an unfinished polygon → auto-finish it.
+      if (!next && currentDrawRef.current.length >= 3) finishPolygon()
+      return next
+    })
   }
 
   // ── Map lifecycle: create once data is loaded + container visible. ──
@@ -284,6 +452,9 @@ export default function TillableCluWorkshop({
     map.on('load', () => {
       map.addSource('clu', { type: 'geojson', data: buildCluGeo(clusRef.current, selectionRef.current) })
       map.addSource('tract', { type: 'geojson', data: buildTractGeo(tractPolygon) })
+      map.addSource('manual', { type: 'geojson', data: buildManualGeo(manualPolygonsRef.current) })
+      map.addSource('draw', { type: 'geojson', data: buildDrawGeo(currentDrawRef.current) })
+      map.addSource('draw-vertex', { type: 'geojson', data: buildVertexGeo(currentDrawRef.current) })
 
       // CLU fill — data-driven green (tillable) / red (not). Click toggles.
       map.addLayer({
@@ -313,18 +484,61 @@ export default function TillableCluWorkshop({
         paint: { 'line-color': '#ffffff', 'line-width': 3 },
       })
 
+      // Admin-drawn tillable polygons (override layer) — solid green.
+      map.addLayer({
+        id: 'manual-fill', type: 'fill', source: 'manual',
+        paint: { 'fill-color': '#22c55e', 'fill-opacity': 0.45 },
+      })
+      map.addLayer({
+        id: 'manual-line', type: 'line', source: 'manual',
+        paint: { 'line-color': '#15803d', 'line-width': 2 },
+      })
+      // In-progress polygon being drawn — dashed yellow line + fill + vertices.
+      map.addLayer({
+        id: 'draw-fill', type: 'fill', source: 'draw',
+        paint: { 'fill-color': '#facc15', 'fill-opacity': 0.25 },
+      })
+      map.addLayer({
+        id: 'draw-line', type: 'line', source: 'draw',
+        paint: { 'line-color': '#facc15', 'line-width': 2, 'line-dasharray': [2, 1] },
+      })
+      map.addLayer({
+        id: 'draw-vertex', type: 'circle', source: 'draw-vertex',
+        paint: { 'circle-radius': 4, 'circle-color': '#facc15',
+                 'circle-stroke-color': '#000', 'circle-stroke-width': 1 },
+      })
+
       if (tractPolygon && tractPolygon.length >= 3) {
         const bounds = new maplibregl.LngLatBounds()
         for (const p of tractPolygon) bounds.extend(p as [number, number])
         try { map.fitBounds(bounds, { padding: 30, duration: 0, maxZoom: 17 }) } catch {}
       }
 
-      map.on('mouseenter', 'clu-fill', () => { map.getCanvas().style.cursor = 'pointer' })
-      map.on('mouseleave', 'clu-fill', () => { map.getCanvas().style.cursor = '' })
+      map.on('mouseenter', 'clu-fill', () => {
+        if (!drawModeRef.current) map.getCanvas().style.cursor = 'pointer'
+      })
+      map.on('mouseleave', 'clu-fill', () => {
+        if (!drawModeRef.current) map.getCanvas().style.cursor = ''
+      })
+      // CLU click toggles — but only when NOT drawing (in draw mode the
+      // map-level click handler below lays vertices instead).
       map.on('click', 'clu-fill', (ev) => {
+        if (drawModeRef.current) return
         const feat = ev.features?.[0]
         const id = (feat?.properties as any)?.fsa_clu_id
         if (typeof id === 'number') toggleClu(id)
+      })
+
+      // Map-level click: in draw mode, add a vertex to the current polygon.
+      map.on('click', (ev) => {
+        if (!drawModeRef.current) return
+        addVertex([ev.lngLat.lng, ev.lngLat.lat])
+      })
+      // Double-click finishes the current polygon (zoom already disabled).
+      map.on('dblclick', (ev) => {
+        if (!drawModeRef.current) return
+        ev.preventDefault?.()
+        finishPolygon()
       })
 
       const t1 = setTimeout(() => map.resize(), 50)
@@ -341,6 +555,18 @@ export default function TillableCluWorkshop({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasBeenVisible, loaded])
 
+  // Dim the CLU layer when a manual override is active (drawn polygons win),
+  // and switch the cursor to a crosshair while in draw mode.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !map.isStyleLoaded()) return
+    try {
+      map.setPaintProperty('clu-fill', 'fill-opacity', manualActive ? 0.12 : 0.4)
+      map.setPaintProperty('clu-line', 'line-opacity', manualActive ? 0.3 : 1)
+    } catch {/* layers not ready yet */}
+    map.getCanvas().style.cursor = drawMode ? 'crosshair' : ''
+  }, [manualActive, drawMode, loaded])
+
   // ── Compute Soil Rating (state-aware, on demand). ──
   const handleComputeSoil = async () => {
     setComputing(true)
@@ -353,7 +579,7 @@ export default function TillableCluWorkshop({
       const res = await fetchWithAuth(`${baseUrl}/compute-soil`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ selections }),
+        body: JSON.stringify({ selections, manual_polygons: manualPolygons }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`)
@@ -381,6 +607,7 @@ export default function TillableCluWorkshop({
       }))
       const body: any = {
         selections,
+        manual_polygons: manualPolygons,
         tillable_acres: Math.round(tillableAcres * 100) / 100,
       }
       if (soil?.soil_rating != null) {
@@ -394,7 +621,11 @@ export default function TillableCluWorkshop({
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`)
-      setStatus(`✓ Saved ${data.tillable_clu_count} CLUs · ${data.tillable_acres ?? '?'} tillable ac`)
+      setStatus(
+        data.manual_polygon_count
+          ? `✓ Saved ${data.manual_polygon_count} drawn field${data.manual_polygon_count === 1 ? '' : 's'} · ${data.tillable_acres ?? '?'} tillable ac`
+          : `✓ Saved ${data.tillable_clu_count} CLUs · ${data.tillable_acres ?? '?'} tillable ac`,
+      )
       onSaved?.({
         tillable_acres: data.tillable_acres ?? null,
         soil_rating: data.soil_rating ?? null,
@@ -416,7 +647,54 @@ export default function TillableCluWorkshop({
       <div className="px-3 py-1.5 bg-gg-gray-800 border-b border-gg-gray-700 flex items-center gap-2 text-xs text-gg-gray-300">
         <Sprout size={13} className="text-green-500" />
         <span className="font-semibold">Tillable Workshop</span>
-        <span className="text-gg-gray-500">— click field polygons to toggle tillable (green) / not (red)</span>
+        <span className="text-gg-gray-500 hidden sm:inline">
+          {drawMode
+            ? '— click to add points, double-click to finish a field'
+            : manualActive
+              ? '— drawn polygons override FSA CLUs'
+              : '— click field polygons to toggle tillable (green) / not (red)'}
+        </span>
+        <div className="ml-auto flex items-center gap-1.5">
+          <button
+            onClick={toggleDrawMode}
+            disabled={!loaded}
+            className={`px-2 py-1 rounded flex items-center gap-1 font-semibold disabled:opacity-40 ${
+              drawMode ? 'bg-yellow-500 text-black' : 'bg-gg-gray-700 hover:bg-gg-gray-600 text-white'
+            }`}
+            title="Draw tillable polygons by hand (use when the 2008 FSA CLU is wrong for this tract)"
+          >
+            <Pencil size={12} />
+            {drawMode ? 'Drawing…' : 'Draw Tillable'}
+          </button>
+          {drawMode && (
+            <button
+              onClick={finishPolygon}
+              disabled={currentDraw.length < 3}
+              className="px-2 py-1 rounded flex items-center gap-1 bg-green-700 hover:bg-green-600 text-white disabled:opacity-40"
+              title="Close the current polygon and start a new one"
+            >
+              <Check size={12} /> Finish
+            </button>
+          )}
+          {(currentDraw.length > 0 || manualActive) && (
+            <button
+              onClick={undoDraw}
+              className="px-2 py-1 rounded flex items-center gap-1 bg-gg-gray-700 hover:bg-gg-gray-600 text-white"
+              title="Undo last point / last polygon"
+            >
+              <Undo2 size={12} /> Undo
+            </button>
+          )}
+          {(currentDraw.length > 0 || manualActive) && (
+            <button
+              onClick={clearManual}
+              className="px-2 py-1 rounded flex items-center gap-1 bg-red-800 hover:bg-red-700 text-white"
+              title="Clear all drawn polygons"
+            >
+              <Trash2 size={12} /> Clear
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="relative bg-gg-gray-800">
@@ -436,12 +714,17 @@ export default function TillableCluWorkshop({
           {hasBeenVisible && !loading && error && (
             <span className="text-xs text-red-400 px-4 text-center">{error}</span>
           )}
-          {hasBeenVisible && !loading && !error && loaded && clus.length === 0 && (
+          {hasBeenVisible && !loading && !error && loaded && clus.length === 0 && !manualActive && (
             <span className="text-xs text-gg-gray-400 px-4 text-center">
-              No FSA CLU field polygons intersect this tract.
+              No FSA CLU field polygons intersect this tract — use “Draw Tillable” to draw the tillable area by hand.
             </span>
           )}
         </div>
+        {drawMode && (
+          <div className="absolute top-2 left-2 px-2 py-1 rounded bg-black/70 text-yellow-300 text-[11px] pointer-events-none">
+            Click to add points · double-click (or Finish) to close · draw multiple fields
+          </div>
+        )}
       </div>
 
       {/* Toolbar — totals + actions. */}
@@ -456,7 +739,9 @@ export default function TillableCluWorkshop({
               {reportedAcres != null && ` · reported ${Number(reportedAcres).toFixed(2)}`}
             </span>
             <span className="text-gg-gray-500">
-              ({tillableCount}/{clus.length} CLUs)
+              {manualActive
+                ? `(${manualPolygons.length} drawn field${manualPolygons.length === 1 ? '' : 's'} · CLUs overridden)`
+                : `(${tillableCount}/${clus.length} CLUs)`}
             </span>
           </div>
           <div className="text-[11px]">
@@ -474,7 +759,7 @@ export default function TillableCluWorkshop({
         <div className="flex items-center gap-1.5">
           <button
             onClick={handleComputeSoil}
-            disabled={computing || saving || clus.length === 0 || tillableCount === 0}
+            disabled={computing || saving || (manualActive ? false : (clus.length === 0 || tillableCount === 0))}
             className="px-2.5 py-1 text-xs bg-gg-gray-700 hover:bg-gg-gray-600 disabled:opacity-40 text-white rounded flex items-center gap-1"
             title="Area-weight the state soil rating (PI / CSR2 / WAPI / NCCPI) over the tillable selection"
           >
@@ -483,7 +768,7 @@ export default function TillableCluWorkshop({
           </button>
           <button
             onClick={handleSave}
-            disabled={saving || computing || clus.length === 0}
+            disabled={saving || computing || (!manualActive && clus.length === 0)}
             className="px-3 py-1 text-xs bg-gg-pink hover:bg-gg-pink-light text-white font-semibold disabled:opacity-40 rounded flex items-center gap-1"
           >
             {saving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
