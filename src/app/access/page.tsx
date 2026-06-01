@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import Image from 'next/image'
 import Link from 'next/link'
@@ -70,6 +70,7 @@ interface AnalyticsData {
 
 export default function AccessPortalPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [user, setUser] = useState<User | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<TabType>('map')
@@ -115,6 +116,29 @@ export default function AccessPortalPage() {
   // listing's load.
   const [mapListingMeta, setMapListingMeta] = useState<{ county: string; state: string } | null>(null)
   useEffect(() => { setMapListingMeta(null) }, [mapListingId])
+  // Deep-link focus: when the Explore map is opened with
+  // ?focusLat=&focusLng=&focusZoom= (e.g. the "View on Map" button on
+  // the staging screen), zoom there once the map is mounted. Fires a
+  // single time so panning away doesn't get yanked back.
+  const focusHandledRef = useRef(false)
+  useEffect(() => {
+    if (focusHandledRef.current || !user) return
+    const latStr = searchParams.get('focusLat')
+    const lngStr = searchParams.get('focusLng')
+    if (!latStr || !lngStr) return
+    const lat = parseFloat(latStr)
+    const lng = parseFloat(lngStr)
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return
+    const zoom = parseFloat(searchParams.get('focusZoom') || '15')
+    focusHandledRef.current = true
+    // Re-fire pattern matches the comparables flow: clear then set so
+    // ExploreMap's effect always sees a fresh value, then auto-clear.
+    setZoomToLocation(null)
+    setTimeout(() => {
+      setZoomToLocation({ lat, lng, zoom: Number.isFinite(zoom) ? zoom : 15 })
+      setTimeout(() => setZoomToLocation(null), 3000)
+    }, 300)
+  }, [user, searchParams])
   const zoomToFirstTractWithBoundary = (listing: any) => {
     // Also capture county/state for the pane header subtitle.
     if (listing?.county || listing?.state) {

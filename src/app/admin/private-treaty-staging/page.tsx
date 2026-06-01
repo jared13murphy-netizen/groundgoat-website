@@ -1492,6 +1492,54 @@ export default function AdminPrivateTreatyStagingPage() {
                                 const cachedSrc = sourceImageCache[listing.id]
                                 return (
                                 <div key={idx}>
+                                  {/* View on Map — opens the Explore portal map
+                                      in a new tab, zoomed to this tract. */}
+                                  {(() => {
+                                    const ring = Array.isArray(tract.polygon_coordinates) ? tract.polygon_coordinates : null
+                                    let fLat: number | null = null
+                                    let fLng: number | null = null
+                                    if (ring && ring.length) {
+                                      let sx = 0, sy = 0, n = 0
+                                      for (const p of ring) {
+                                        if (Array.isArray(p) && p.length >= 2 && Number.isFinite(p[0]) && Number.isFinite(p[1])) {
+                                          sx += p[0]; sy += p[1]; n++
+                                        }
+                                      }
+                                      if (n) { fLng = sx / n; fLat = sy / n }
+                                    }
+                                    if (fLat == null || fLng == null) {
+                                      fLat = tract.latitude ?? listing.scraped_data?.listing?.latitude ?? null
+                                      fLng = tract.longitude ?? listing.scraped_data?.listing?.longitude ?? null
+                                    }
+                                    const disabled = fLat == null || fLng == null
+                                    return (
+                                      <div className="flex items-center justify-between mb-2">
+                                        <p className="text-xs text-gg-gray-300 font-semibold">
+                                          Tract {tract.tract_number ?? idx + 1}
+                                        </p>
+                                        <button
+                                          type="button"
+                                          disabled={disabled}
+                                          title={disabled ? 'No location available for this tract' : 'Open this tract on the Explore map'}
+                                          onClick={() => {
+                                            const params = new URLSearchParams({
+                                              focusLat: String(fLat),
+                                              focusLng: String(fLng),
+                                              focusZoom: '15',
+                                            })
+                                            window.open(`/access?${params.toString()}`, '_blank')
+                                          }}
+                                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+                                            disabled
+                                              ? 'bg-gg-gray-800 text-gg-gray-600 cursor-not-allowed'
+                                              : 'bg-gg-gray-800 text-gg-pink hover:bg-gg-gray-700'
+                                          }`}
+                                        >
+                                          <MapPin size={13} /> View on Map
+                                        </button>
+                                      </div>
+                                    )
+                                  })()}
                                   {/* Map (~60%) + tract image (~40%) header.
                                       Lazy-mounts MapLibre on first visibility. */}
                                   <TractMapEditor
