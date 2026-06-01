@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import Image from 'next/image'
@@ -68,7 +68,7 @@ interface AnalyticsData {
   total_sale_amount: number
 }
 
-export default function AccessPortalPage() {
+function AccessPortalPageInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [user, setUser] = useState<User | null>(null)
@@ -902,5 +902,13 @@ export default function AccessPortalPage() {
         />
       )}
     </div>
+  )
+}
+
+export default function AccessPortalPage() {
+  return (
+    <Suspense fallback={null}>
+      <AccessPortalPageInner />
+    </Suspense>
   )
 }
