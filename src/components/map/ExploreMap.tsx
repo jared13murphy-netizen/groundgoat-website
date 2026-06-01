@@ -3129,21 +3129,40 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const enrichmentLastBboxRef = useRef<string>('')
   const enrichmentAvailableRef = useRef<boolean>(true)
 
+  // Tiny inline toast — used when user enables Soil Maps but the
+  // current zoom is below the soils-layer minzoom (11). The soils
+  // overlay won't render until they zoom in, so we tell them.
+  const [zoomToast, setZoomToast] = useState<string | null>(null)
+  const zoomToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const showZoomToast = useCallback((msg: string) => {
+    setZoomToast(msg)
+    if (zoomToastTimerRef.current) clearTimeout(zoomToastTimerRef.current)
+    zoomToastTimerRef.current = setTimeout(() => setZoomToast(null), 4000)
+  }, [])
+
   // Sync external Soil Maps menu-bar button → internal overlay state.
   // When the operator clicks "Soil Maps" in the nav, soilMapsOpen flips
   // and we flip the enrichmentOverlay + lock tillableSource to
   // 'ssurgo_csb' so the CSB-soils view comes up. When they click it
   // off, we just turn the overlay off (the source stays so the next
   // toggle remembers).
+  // If the user is zoomed below the soils minzoom (11) we still
+  // enable the overlay (so it appears the moment they zoom in) but
+  // we show a toast telling them to zoom in.
   useEffect(() => {
     if (soilMapsOpen === undefined) return
     if (soilMapsOpen) {
       setEnrichmentOverlay(true)
       setTillableSource('ssurgo_csb')
+      const map = mapRef.current
+      const SOILS_MIN_ZOOM = 11
+      if (map && map.getZoom() < SOILS_MIN_ZOOM) {
+        showZoomToast('Zoom in to view soil maps')
+      }
     } else {
       setEnrichmentOverlay(false)
     }
-  }, [soilMapsOpen])
+  }, [soilMapsOpen, showZoomToast])
 
   // When the coverage list grows (e.g. the live fetch returns more
   // counties than the seed defaults), invalidate the per-variant
@@ -4530,6 +4549,34 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   return (
     <div className="comparables-map-container" style={{ height }}>
       <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+
+      {/* Inline toast — fades in/out, used today only for the
+          "zoom in to view soil maps" hint when the user enables Soil
+          Maps below the soils minzoom. Auto-dismisses in 4s.  */}
+      {zoomToast && (
+        <div
+          role="status"
+          aria-live="polite"
+          style={{
+            position: 'absolute',
+            top: 16,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 1000,
+            background: 'rgba(20, 25, 30, 0.92)',
+            color: 'white',
+            padding: '10px 16px',
+            borderRadius: 8,
+            fontSize: 13,
+            fontWeight: 500,
+            boxShadow: '0 4px 16px rgba(0,0,0,0.25)',
+            pointerEvents: 'none',
+            backdropFilter: 'blur(4px)',
+          }}
+        >
+          {zoomToast}
+        </div>
+      )}
 
       {/* Comparables-mode inline popup — click a + marker → opens here.
           Sits absolutely positioned over the map. Closes on map click
