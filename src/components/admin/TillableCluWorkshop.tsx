@@ -28,7 +28,7 @@
  * cap) — same pattern as TractMapEditor.
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { Loader2, Save, Calculator, Sprout, Pencil, Check, Undo2, Trash2 } from 'lucide-react'
@@ -261,18 +261,32 @@ export default function TillableCluWorkshop({
     return () => observer.disconnect()
   }, [hasBeenVisible])
 
-  // ── Fetch CLU data on first visibility. ──
-  useEffect(() => {
-    if (!hasBeenVisible) return
-    let cancelled = false
-    ;(async () => {
-      setLoading(true)
-      setError(null)
+  // ── Fetch CLU data (with auto-retry on transient timeouts). ──
+  // The staging page fires a large burst of concurrent requests (a
+  // tract-image fetch per tract of every listing on the page, plus each
+  // visible workshop's CLU fetch). Under that burst the backend DB
+  // connection pools can momentarily saturate and a CLU request stalls
+  // past fetchWithAuth's 20s timeout → "signal is aborted without reason".
+  // The endpoint itself is fast (<0.5s); the failure is transient. So we
+  // retry a couple of times with backoff before surfacing the error, and
+  // expose a manual Retry button. We do NOT touch the (correct) backend
+  // query path.
+  const loadSeqRef = useRef(0)
+  const isTransient = (msg: string) =>
+    /aborted|abort|timeout|timed out|network|failed to fetch|HTTP 50[234]|HTTP 429/i.test(msg)
+
+  const loadClus = useCallback(async () => {
+    const seq = ++loadSeqRef.current
+    const stale = () => seq !== loadSeqRef.current
+    setLoading(true)
+    setError(null)
+    const MAX_ATTEMPTS = 3
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       try {
         const res = await fetchWithAuth(baseUrl)
         const data = await res.json()
         if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`)
-        if (cancelled) return
+        if (stale()) return
         const list: Clu[] = data.clus || []
         const sel: Record<number, boolean> = {}
         for (const c of list) sel[c.fsa_clu_id] = c.current_tillable
@@ -296,14 +310,33 @@ export default function TillableCluWorkshop({
         }
         if (data.error) setError(data.error)
         setLoaded(true)
+        setLoading(false)
+        return
       } catch (e: any) {
-        if (!cancelled) setError(e.message || String(e))
-      } finally {
-        if (!cancelled) setLoading(false)
+        if (stale()) return
+        const msg = e?.message || String(e)
+        if (attempt < MAX_ATTEMPTS && isTransient(msg)) {
+          // Backoff (1.2s, 2.4s) lets the request burst drain.
+          await new Promise((r) => setTimeout(r, 1200 * attempt))
+          if (stale()) return
+          continue
+        }
+        setError(
+          isTransient(msg)
+            ? 'FSA CLUs timed out (server busy) — click Retry.'
+            : msg
+        )
+        setLoading(false)
+        return
       }
-    })()
-    return () => { cancelled = true }
-  }, [hasBeenVisible, baseUrl])
+    }
+  }, [baseUrl])
+
+  useEffect(() => {
+    if (!hasBeenVisible) return
+    loadClus()
+    return () => { loadSeqRef.current++ }
+  }, [hasBeenVisible, loadClus])
 
   // ── Toggle one CLU's tillable verdict (and update the map in place). ──
   const toggleClu = (id: number) => {
@@ -712,7 +745,15 @@ export default function TillableCluWorkshop({
             </span>
           )}
           {hasBeenVisible && !loading && error && (
-            <span className="text-xs text-red-400 px-4 text-center">{error}</span>
+            <div className="flex flex-col items-center gap-2 px-4 text-center">
+              <span className="text-xs text-red-400">{error}</span>
+              <button
+                onClick={() => loadClus()}
+                className="flex items-center gap-1 px-2 py-1 rounded text-xs bg-gg-gray-700 hover:bg-gg-gray-600 text-gg-gray-200"
+              >
+                <Undo2 size={12} /> Retry
+              </button>
+            </div>
           )}
           {hasBeenVisible && !loading && !error && loaded && clus.length === 0 && !manualActive && (
             <span className="text-xs text-gg-gray-400 px-4 text-center">
