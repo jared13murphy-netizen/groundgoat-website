@@ -215,6 +215,11 @@ export default function AdminStagingPage() {
   const [tractImageCache, setTractImageCache] = useState<Record<string, string | null>>({})
   const [loadingTractImage, setLoadingTractImage] = useState<string | null>(null)
 
+  // Per-tract CLU-workshop reload counter ("staging_id-tract_index" -> n).
+  // Bumped whenever a tract boundary is saved in TractMapEditor so the
+  // TillableCluWorkshop below re-fetches CLUs against the new polygon.
+  const [cluReloadKeys, setCluReloadKeys] = useState<Record<string, number>>({})
+
   // Tillable polygon visibility per `${listingId}-${tractIdx}`. Mirrors
   // the PT staging page — show tract polygon by default, tillable only
   // when the user clicks Show Tillable on the per-tract map.
@@ -1700,6 +1705,12 @@ export default function AdminStagingPage() {
                                         sd.tracts = ts
                                         return { ...l, scraped_data: sd }
                                       }))
+                                      // Boundary just saved → tell the CLU
+                                      // workshop below to re-fetch against the
+                                      // new polygon (it loaded empty before the
+                                      // polygon existed).
+                                      const rk = `${listing.id}-${idx}`
+                                      setCluReloadKeys(prev => ({ ...prev, [rk]: (prev[rk] || 0) + 1 }))
                                     }}
                                   />
                                   {/* FSA-CLU tillable workshop — admin clicks
@@ -1710,6 +1721,7 @@ export default function AdminStagingPage() {
                                   <TillableCluWorkshop
                                     stagingId={listing.id}
                                     tractIndex={idx}
+                                    reloadKey={cluReloadKeys[`${listing.id}-${idx}`] || 0}
                                     latitude={tract.latitude ?? listing.scraped_data?.listing?.latitude ?? null}
                                     longitude={tract.longitude ?? listing.scraped_data?.listing?.longitude ?? null}
                                     onSaved={(r) => {

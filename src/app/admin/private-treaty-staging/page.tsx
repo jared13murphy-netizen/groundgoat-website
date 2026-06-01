@@ -178,6 +178,10 @@ export default function AdminPrivateTreatyStagingPage() {
   const [tractImageCache, setTractImageCache] = useState<Record<string, string | null>>({})
   const [loadingTractImage, setLoadingTractImage] = useState<string | null>(null)
 
+  // Per-tract CLU-workshop reload counter — bumped on boundary save so the
+  // TillableCluWorkshop re-fetches CLUs against the new polygon.
+  const [cluReloadKeys, setCluReloadKeys] = useState<Record<string, number>>({})
+
   // Tillable polygon visibility per `${listingId}-${tractIdx}`. Per user
   // 2026-05-25: show tract polygon by default, tillable only when the
   // user clicks Show Tillable on the per-tract map. Lifted to page
@@ -1602,6 +1606,8 @@ export default function AdminPrivateTreatyStagingPage() {
                                         sd.tracts = ts
                                         return { ...l, scraped_data: sd }
                                       }))
+                                      const rk = `${listing.id}-${idx}`
+                                      setCluReloadKeys(prev => ({ ...prev, [rk]: (prev[rk] || 0) + 1 }))
                                     }}
                                   />
                                   {/* FSA-CLU tillable workshop — click field
@@ -1611,6 +1617,7 @@ export default function AdminPrivateTreatyStagingPage() {
                                   <TillableCluWorkshop
                                     stagingId={listing.id}
                                     tractIndex={idx}
+                                    reloadKey={cluReloadKeys[`${listing.id}-${idx}`] || 0}
                                     latitude={tract.latitude ?? listing.scraped_data?.listing?.latitude ?? null}
                                     longitude={tract.longitude ?? listing.scraped_data?.listing?.longitude ?? null}
                                     onSaved={(r) => {

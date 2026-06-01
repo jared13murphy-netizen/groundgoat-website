@@ -71,6 +71,11 @@ interface TillableCluWorkshopProps {
   longitude?: number | null
   /** Map height in px. Default 380. */
   editorHeight?: number
+  /** Bumped by the parent whenever the tract boundary is (re)saved in the
+   *  editor above. A change forces the workshop to re-fetch CLUs against
+   *  the now-current polygon + re-fit the map — otherwise the workshop
+   *  keeps the empty data it loaded before the polygon existed. */
+  reloadKey?: number
   /** Called after a successful Save with the persisted tillable acres /
    *  soil rating so the parent can patch tract.computed and the
    *  TractDataCompare radios reflect the new values without a re-fetch. */
@@ -183,6 +188,7 @@ export default function TillableCluWorkshop({
   latitude,
   longitude,
   editorHeight = 380,
+  reloadKey = 0,
   onSaved,
 }: TillableCluWorkshopProps) {
   // Base URL for the three CLU endpoints — published-tract mode (tractId)
@@ -303,7 +309,35 @@ export default function TillableCluWorkshop({
       }
     })()
     return () => { cancelled = true }
-  }, [hasBeenVisible, baseUrl])
+  }, [hasBeenVisible, baseUrl, reloadKey])
+
+  // After a re-fetch (reloadKey bump) the map already exists — it was
+  // created once on first load — so the fresh tract polygon + CLUs won't
+  // appear unless we push them into the existing sources and re-fit. The
+  // map's own load handler only runs the first time. fitBounds is gated to
+  // tractPolygon changes (this effect, not the toggle path) so toggling a
+  // CLU doesn't recenter the map.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !loaded) return
+    const apply = () => {
+      try {
+        ;(map.getSource('clu') as maplibregl.GeoJSONSource | undefined)?.setData(buildCluGeo(clus, selection))
+        ;(map.getSource('tract') as maplibregl.GeoJSONSource | undefined)?.setData(buildTractGeo(tractPolygon))
+        ;(map.getSource('manual') as maplibregl.GeoJSONSource | undefined)?.setData(buildManualGeo(manualPolygons))
+        if (tractPolygon && tractPolygon.length >= 3) {
+          const bounds = new maplibregl.LngLatBounds()
+          for (const p of tractPolygon) bounds.extend(p as [number, number])
+          map.fitBounds(bounds, { padding: 30, duration: 0, maxZoom: 17 })
+        }
+      } catch {/* style not ready */}
+    }
+    if (map.isStyleLoaded()) apply()
+    else map.once('idle', apply)
+    // Re-sync only when the tract polygon identity changes (i.e. a reload),
+    // not on every selection toggle — toggleClu pushes its own clu data.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tractPolygon, loaded])
 
   // ── Toggle one CLU's tillable verdict (and update the map in place). ──
   const toggleClu = (id: number) => {
