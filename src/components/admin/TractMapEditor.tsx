@@ -128,6 +128,15 @@ interface TractMapEditorProps {
    *  is no longer derived/drawn here — the TillableCluWorkshop owns it. When
    *  true this is a pure tract-boundary editor. */
   hideTillable?: boolean
+  /** This tract's published number (the label printed inside its boundary on
+   *  a Surety overview map). Used by "Upload Image" to pick the matching
+   *  polygon out of a multi-tract map. */
+  tractNumber?: number | null
+  /** All tracts on the listing — {tract_number, total_acres, tillable_acres}.
+   *  Forwarded with an uploaded image so the validated multi-tract overview
+   *  extractor can trace every boundary and match each to a tract by label /
+   *  acreage, then return THIS tract's polygon. */
+  siblingTracts?: { tract_number: number | null; total_acres: number | null; tillable_acres: number | null }[]
 }
 
 // ---------------------------------------------------------------------------
@@ -264,6 +273,8 @@ export default function TractMapEditor({
   listingUrl,
   listingState,
   hideTillable = false,
+  tractNumber,
+  siblingTracts,
 }: TractMapEditorProps) {
   // Working polygon state — what's being edited on the map. Diverges
   // from initialPolygon while the user is drawing/clearing; reset on
@@ -1264,6 +1275,12 @@ export default function TractMapEditor({
               lng: longitude,
               acres: scrapedAcres,
               state: listingState,
+              // When we know this tract's number + the listing's full tract
+              // list, the backend routes through the validated multi-tract
+              // overview extractor and returns THIS tract's traced polygon
+              // (handles Surety maps showing several labeled tracts).
+              tract_number: tractNumber ?? null,
+              tracts: siblingTracts ?? null,
             }),
           }
         )

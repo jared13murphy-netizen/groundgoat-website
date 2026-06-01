@@ -1545,6 +1545,16 @@ export default function AdminPrivateTreatyStagingPage() {
                                   <TractMapEditor
                                     stagingId={listing.id}
                                     tractIndex={idx}
+                                    // Upload Image → multi-tract Surety overview
+                                    // extraction: pass this tract's number + the
+                                    // listing's full tract list so the backend
+                                    // returns the correct traced polygon.
+                                    tractNumber={tract.tract_number ?? (idx + 1)}
+                                    siblingTracts={((listing.scraped_data?.tracts as any[]) || []).map((t: any, i: number) => ({
+                                      tract_number: t.tract_number ?? (i + 1),
+                                      total_acres: t.scraped?.acres ?? t.acres ?? null,
+                                      tillable_acres: t.tillable_acres ?? null,
+                                    }))}
                                     initialPolygon={Array.isArray(tract.polygon_coordinates) ? tract.polygon_coordinates : null}
                                     // FSA-CLU rescope: tillable is owned by the
                                     // TillableCluWorkshop below. The map editor is
