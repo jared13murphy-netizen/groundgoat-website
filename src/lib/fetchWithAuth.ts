@@ -111,6 +111,61 @@ async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: numbe
   }
 }
 
+// During a backend deploy the new container 502/503/504s (or the socket drops)
+// for a few seconds until startup finishes. Every page's checkAuth does
+// `fetchWithAuth('/api/auth/me'); if (!response.ok) throw` → catch →
+// router.push('/signin'). So a momentary deploy blip bounced EVERY logged-in
+// user to the sign-in screen, even though their 7-day token was still valid.
+// fetchWithAuth keeps the tokens (transient-safe) but still RETURNED the 502,
+// and the caller logged them out anyway.
+//
+// Fix: ride out transient failures on idempotent requests (GET/HEAD) with a
+// short backoff before surfacing the error. A normal deploy cutover (now
+// zero-downtime via the backend /health healthcheck) is invisible; a brief
+// residual blip is retried instead of forcing a re-login. We only retry
+// idempotent methods so we never double-submit a POST/PUT/DELETE.
+const TRANSIENT_STATUSES = new Set([502, 503, 504])
+const RETRY_BACKOFF_MS = [1000, 2000, 4000]
+
+function isIdempotent(method?: string): boolean {
+  const m = (method || 'GET').toUpperCase()
+  return m === 'GET' || m === 'HEAD'
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+async function fetchWithTransientRetry(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<Response> {
+  if (!isIdempotent(init.method)) {
+    return fetchWithTimeout(url, init, timeoutMs)
+  }
+  let lastError: unknown = null
+  for (let attempt = 0; attempt <= RETRY_BACKOFF_MS.length; attempt++) {
+    try {
+      const res = await fetchWithTimeout(url, init, timeoutMs)
+      if (TRANSIENT_STATUSES.has(res.status) && attempt < RETRY_BACKOFF_MS.length) {
+        await sleep(RETRY_BACKOFF_MS[attempt])
+        continue
+      }
+      return res
+    } catch (error) {
+      // Network drop / timeout abort mid-deploy — retry, don't bubble up to
+      // the caller's catch (which redirects to /signin).
+      lastError = error
+      if (attempt < RETRY_BACKOFF_MS.length) {
+        await sleep(RETRY_BACKOFF_MS[attempt])
+        continue
+      }
+      throw lastError
+    }
+  }
+  // Unreachable, but satisfies the type checker.
+  throw lastError ?? new Error('fetchWithTransientRetry: exhausted retries')
+}
+
 export async function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Response> {
   const token = localStorage.getItem('auth_token')
 
@@ -119,7 +174,7 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}): Pro
     headers.set('Authorization', `Bearer ${token}`)
   }
 
-  let response = await fetchWithTimeout(url, { ...options, headers }, DEFAULT_TIMEOUT_MS)
+  let response = await fetchWithTransientRetry(url, { ...options, headers }, DEFAULT_TIMEOUT_MS)
 
   // Only attempt refresh on 401 (token actually rejected). 502/503/504 are
   // backend transients — we surface them to the caller so the UI can show
