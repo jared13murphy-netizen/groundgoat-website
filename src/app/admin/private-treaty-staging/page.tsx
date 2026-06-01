@@ -27,7 +27,8 @@ import {
   Copy,
   StopCircle,
   Play,
-  Link2
+  Link2,
+  Check
 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import TractMapEditor from '@/components/admin/TractMapEditor'
@@ -244,6 +245,12 @@ export default function AdminPrivateTreatyStagingPage() {
   const [editingListing, setEditingListing] = useState<StagingListing | null>(null)
   const [editForm, setEditForm] = useState<EditForm>({ acres_listed: '', asking_price: '', auction_url: '', image_url: '', description: '', tracts: [] })
   const [saving, setSaving] = useState(false)
+
+  // Inline price editing on the Price card. Lets the admin fix a missing
+  // / wrong scraped price without opening the full edit modal.
+  const [priceEditId, setPriceEditId] = useState<number | null>(null)
+  const [priceEditValue, setPriceEditValue] = useState('')
+  const [priceSaving, setPriceSaving] = useState(false)
 
   // Scraper status
   const [scraperStatus, setScraperStatus] = useState<{
@@ -654,6 +661,53 @@ export default function AdminPrivateTreatyStagingPage() {
       }
     } catch (err) {
       showToast('error', 'Network error — failed to clear staging')
+    }
+  }
+
+  const startPriceEdit = (listing: StagingListing, current: number | string | null) => {
+    setPriceEditId(listing.id)
+    setPriceEditValue(current != null ? String(current) : '')
+  }
+
+  const cancelPriceEdit = () => {
+    setPriceEditId(null)
+    setPriceEditValue('')
+  }
+
+  const savePriceEdit = async (listing: StagingListing) => {
+    setPriceSaving(true)
+    const raw = priceEditValue.replace(/[$,\s]/g, '')
+    const num = raw ? parseFloat(raw) : null
+    if (raw && (num == null || isNaN(num))) {
+      showToast('error', 'Enter a valid price')
+      setPriceSaving(false)
+      return
+    }
+    const updated = JSON.parse(JSON.stringify(listing.scraped_data || {}))
+    if (!updated.listing) updated.listing = {}
+    updated.listing.sale_price = num
+    updated.listing.asking_price = num
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/admin/staging/${listing.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scraped_data: updated }),
+      })
+      if (res.ok) {
+        setListings((prev) =>
+          prev.map((l) => (l.id === listing.id ? { ...l, scraped_data: updated } : l))
+        )
+        setPriceEditId(null)
+        setPriceEditValue('')
+        showToast('success', 'Price updated')
+      } else {
+        const err = await res.json().catch(() => ({}))
+        showToast('error', err.detail || 'Failed to update price')
+      }
+    } catch (err) {
+      showToast('error', 'Network error — failed to update price')
+    } finally {
+      setPriceSaving(false)
     }
   }
 
@@ -1333,11 +1387,57 @@ export default function AdminPrivateTreatyStagingPage() {
                             </p>
                           </div>
                           <div className="bg-gg-gray-800 rounded-lg p-3">
-                            <p className="text-xs text-gg-gray-400 mb-1">Asking Price</p>
-                            <p className="text-white font-semibold flex items-center gap-1">
-                              <DollarSign size={12} className="text-green-400" />
-                              {formatPrice(info.askingPrice)}
-                            </p>
+                            <div className="flex items-center justify-between mb-1">
+                              <p className="text-xs text-gg-gray-400">Asking Price</p>
+                              {priceEditId !== listing.id && (
+                                <button
+                                  onClick={() => startPriceEdit(listing, info.askingPrice)}
+                                  className="text-gg-gray-500 hover:text-white transition-colors"
+                                  title="Edit price"
+                                >
+                                  <Pencil size={12} />
+                                </button>
+                              )}
+                            </div>
+                            {priceEditId === listing.id ? (
+                              <div className="flex items-center gap-1">
+                                <DollarSign size={12} className="text-green-400 shrink-0" />
+                                <input
+                                  type="text"
+                                  inputMode="decimal"
+                                  autoFocus
+                                  value={priceEditValue}
+                                  onChange={(e) => setPriceEditValue(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') savePriceEdit(listing)
+                                    if (e.key === 'Escape') cancelPriceEdit()
+                                  }}
+                                  placeholder="Price"
+                                  className="w-full bg-gg-gray-900 border border-gg-gray-600 rounded px-1.5 py-0.5 text-sm text-white focus:outline-none focus:border-green-500"
+                                />
+                                <button
+                                  onClick={() => savePriceEdit(listing)}
+                                  disabled={priceSaving}
+                                  className="text-green-400 hover:text-green-300 disabled:opacity-50 shrink-0"
+                                  title="Save price"
+                                >
+                                  {priceSaving ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+                                </button>
+                                <button
+                                  onClick={cancelPriceEdit}
+                                  disabled={priceSaving}
+                                  className="text-gg-gray-500 hover:text-white disabled:opacity-50 shrink-0"
+                                  title="Cancel"
+                                >
+                                  <X size={14} />
+                                </button>
+                              </div>
+                            ) : (
+                              <p className="text-white font-semibold flex items-center gap-1">
+                                <DollarSign size={12} className="text-green-400" />
+                                {formatPrice(info.askingPrice)}
+                              </p>
+                            )}
                           </div>
                         </div>
 
