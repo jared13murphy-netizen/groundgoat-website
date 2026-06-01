@@ -1532,9 +1532,13 @@ export default function AdminStagingPage() {
                                     stagingId={listing.id}
                                     tractIndex={idx}
                                     initialPolygon={Array.isArray(tract.polygon_coordinates) ? tract.polygon_coordinates : null}
-                                    tillablePolygon={tract.tillable_polygon || null}
-                                    showTillable={showTill}
-                                    onToggleTillable={(next) => toggleTillable(tractKey, next)}
+                                    // FSA-CLU rescope: tillable is owned by the
+                                    // TillableCluWorkshop below. The map editor is
+                                    // tract-boundary-only — no old green overlay,
+                                    // no Draw/Auto Tillable buttons.
+                                    hideTillable
+                                    tillablePolygon={null}
+                                    showTillable={false}
                                     tractImageBase64={tract.tract_image_base64 || tractImageCache[`${listing.id}-${idx}`] || null}
                                     sourceImageBase64={cachedSrc?.base64 || null}
                                     sourceImageUrl={cachedSrc?.url || inlineSourceUrl || null}

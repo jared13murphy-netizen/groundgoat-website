@@ -123,6 +123,11 @@ interface TractMapEditorProps {
    *  meridian (e.g. IL has both the 3rd and 4th PM). Improves accuracy for
    *  GIS-printed map images that carry a PLSS section label. */
   listingState?: string | null
+  /** Hide ALL tillable UI (the green overlay + Draw/Auto/Show-Hide/Delete
+   *  Tillable toolbar buttons). Per the 2026-05-31 FSA-CLU rescope: tillable
+   *  is no longer derived/drawn here — the TillableCluWorkshop owns it. When
+   *  true this is a pure tract-boundary editor. */
+  hideTillable?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -258,6 +263,7 @@ export default function TractMapEditor({
   onComputeTillable,
   listingUrl,
   listingState,
+  hideTillable = false,
 }: TractMapEditorProps) {
   // Working polygon state — what's being edited on the map. Diverges
   // from initialPolygon while the user is drawing/clearing; reset on
@@ -1922,8 +1928,10 @@ export default function TractMapEditor({
               A. Drawing a new tillable polygon (drawTillableMode=true):
                  Save / Undo / Clear / Cancel
               B. Tillable exists, not drawing: Show/Hide, Delete, Draw New
-              C. No tillable yet, not drawing: Draw Tillable + Compute */}
-          {drawTillableMode ? (
+              C. No tillable yet, not drawing: Draw Tillable + Compute
+              Hidden entirely under the FSA-CLU rescope (hideTillable):
+              the TillableCluWorkshop owns tillable now. */}
+          {!hideTillable && (drawTillableMode ? (
             <>
               {/* Per user 2026-05-26: Draw Tillable starts EMPTY so
                   the new shape is clearly separate from the tract.
@@ -2056,7 +2064,7 @@ export default function TractMapEditor({
                 </button>
               )}
             </>
-          )}
+          ))}
           {/* Tract-polygon buttons — hidden in tillable draw mode so
               the user can't accidentally edit the tract while drawing
               the tillable. The tillable section above provides its own
