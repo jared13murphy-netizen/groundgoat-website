@@ -1839,14 +1839,17 @@ export default function TractMapEditor({
             Per user 2026-05-26: "I HAVE to have an image on the right."
             Render priority:
               1. capturedSourceImage — just taken via Capture button
-              2. sourceImageBase64 — Land ID/PDF/aerial b64 from pipeline
+              2. sourceImageBase64 — Land ID/PDF/aerial b64 OR a listing-page
+                 map screenshot the scraper captured (kind=listing_map)
               3. sourceImageUrl (pdf/sub_page) — iframe (browsers render)
               4. sourceImageUrl (other, not land_id_url) — <img src>
-              5. tractImageBase64 — satellite+polygon overlay we generated
-              6. Capture Screenshot button (with listing URL link) + spinner
+              5. Capture Screenshot button (with listing URL link) + spinner
+            Per user 2026-06-01 there is intentionally NO fallback to our own
+            branded satellite map (tractImageBase64): the right pane must only
+            ever show a screenshot from the listing company's own page, so
+            when nothing real exists we show the Capture button instead.
             land_id_url is deliberately skipped for iframe (X-Frame blocked)
-            and falls straight to step 5/6 so the user isn't left with a
-            blank white rectangle.
+            and falls straight to the Capture button.
         */}
         <div className={`${fullscreen ? 'md:w-1/3' : 'md:w-2/5'} w-full bg-gg-gray-800 border-l border-gg-gray-700 flex items-center justify-center relative overflow-hidden`}>
           {/* Priority 0: upload panel — shown when user clicks "Upload Image".
@@ -2025,20 +2028,11 @@ export default function TractMapEditor({
                 </span>
               )}
             </>
-          /* Priority 5: satellite+polygon overlay we generated */
-          ) : tractImageBase64 ? (
-            <>
-              <img
-                src={`data:image/png;base64,${tractImageBase64}`}
-                alt={`Tract ${tractIndex + 1} satellite reference`}
-                style={{ maxHeight: mapHeight }}
-                className="w-full h-full object-contain"
-              />
-              <span className="absolute top-1 right-1 px-1.5 py-0.5 text-[10px] bg-black/60 text-white rounded">
-                satellite overlay
-              </span>
-            </>
-          /* Priority 6: nothing yet — offer Capture button */
+          /* No real auction/PT-page image available — offer the Capture
+             Screenshot button. Per user 2026-06-01 we deliberately do NOT
+             fall back to our own branded satellite map (tractImageBase64)
+             here: the right pane must only ever show a screenshot taken
+             from the listing company's own auction/PT page. */
           ) : (
             <div className="flex flex-col items-center gap-3 text-gg-gray-400 py-8 px-4 text-center">
               {capturingSource ? (
