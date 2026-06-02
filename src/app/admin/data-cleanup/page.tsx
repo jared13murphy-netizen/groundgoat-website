@@ -867,6 +867,15 @@ export default function TractDataCleanupPage() {
                                       tractIndex={0}
                                       liveTractId={tract.id}
                                       tractNumber={tract.tract_number}
+                                      // Pass the listing's full tract list so an Upload Image
+                                      // routes through the VALIDATED multi-tract overview tracer
+                                      // (same as the Auction/PT staging screens) instead of the
+                                      // weaker legacy full-image color trace.
+                                      siblingTracts={loaded.tracts.map((t) => ({
+                                        tract_number: t.tract_number ?? null,
+                                        total_acres: t.total_acres ?? null,
+                                        tillable_acres: t.tillable_acres ?? null,
+                                      }))}
                                       initialPolygon={ring}
                                       proposedPolygon={proposals[tract.id]?.coords ?? null}
                                       proposedNonce={proposals[tract.id]?.nonce ?? 0}
