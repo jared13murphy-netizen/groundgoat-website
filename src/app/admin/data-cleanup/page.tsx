@@ -162,6 +162,8 @@ export default function TractDataCleanupPage() {
   const [editingTractNumId, setEditingTractNumId] = useState<string | null>(null)
   const [tractNumDraft, setTractNumDraft] = useState('')
   const [savingTractNumId, setSavingTractNumId] = useState<string | null>(null)
+  // Listing-level Verify: in-flight marker for the whole-listing verify button.
+  const [verifyingId, setVerifyingId] = useState<string | null>(null)
   // Rescrape: listing in-flight + per-listing result banner. Proposals are keyed
   // by tract id; bumping `nonce` makes that tract's TractMapEditor load the
   // proposed boundary as a dirty edit for review-then-Save. NOTHING is written
@@ -368,6 +370,37 @@ export default function TractDataCleanupPage() {
     } catch (e: any) {
       alert(`Could not update tract number: ${e.message || e}`)
     } finally { setSavingTractNumId(null) }
+  }
+
+  // Verify the whole listing: mark every tract Reviewed and flip status to Done.
+  // Per the user, this finalizes a listing AFTER each tract has been saved — it
+  // does NOT touch polygon/tillable/soil (those save on their own editors).
+  async function verifyListing(lid: string) {
+    setVerifyingId(lid)
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/admin/tract-cleanup/${lid}/verify`, { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok || !data.success) throw new Error(data.detail || `HTTP ${res.status}`)
+      const stamp = new Date().toISOString()
+      // Mark every loaded tract reviewed locally so badges flip immediately.
+      setLoadedListings((prev) => {
+        const cur = prev[lid]
+        if (!cur) return prev
+        return {
+          ...prev,
+          [lid]: {
+            ...cur,
+            tracts: cur.tracts.map((t) => ({
+              ...t, boundary_reviewed_by: t.boundary_reviewed_by || 'you', boundary_reviewed_at: t.boundary_reviewed_at || stamp,
+            })),
+          },
+        }
+      })
+      patchRow(lid, { cleanup_status: 'done' })
+      loadStats()
+    } catch (e: any) {
+      alert(`Could not verify listing: ${e.message || e}`)
+    } finally { setVerifyingId(null) }
   }
 
   // Rescrape a listing's source URL and load proposed boundaries into each
@@ -870,6 +903,34 @@ export default function TractDataCleanupPage() {
                               </div>
                             )
                           })}
+
+                          {/* Listing-level Verify — finalize once every tract has
+                              been updated + saved. Marks ALL tracts Reviewed and
+                              flips the workflow status to Done. Does NOT touch
+                              polygon/tillable/soil (those save on their own editors). */}
+                          {(() => {
+                            const allReviewed = loaded.tracts.every((t) => !!t.boundary_reviewed_by)
+                            return (
+                              <div className="flex items-center justify-end gap-3 border-t border-gg-gray-800 pt-4">
+                                {allReviewed && (
+                                  <span className="text-xs text-green-600 inline-flex items-center gap-1">
+                                    <CheckCircle2 size={13} /> All tracts reviewed
+                                  </span>
+                                )}
+                                <button
+                                  onClick={() => verifyListing(it.listing_id)}
+                                  disabled={verifyingId === it.listing_id}
+                                  title="Mark every tract on this listing Reviewed and set the listing to Done"
+                                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-bold bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 shadow-sm"
+                                >
+                                  {verifyingId === it.listing_id
+                                    ? <Loader2 className="animate-spin" size={16} />
+                                    : <CheckCircle2 size={16} />}
+                                  Verify Listing
+                                </button>
+                              </div>
+                            )
+                          })()}
                         </div>
                       )}
                     </div>
