@@ -352,7 +352,10 @@ export function addRegridLayer(
     type: 'vector',
     tiles: [config.tile_url_template],
     minzoom,
-    maxzoom: 21,
+    // Source maxzoom 14: MapLibre over-zooms (reuses) z=14 tiles
+    // for higher zooms. Vector parcel boundaries scale without
+    // quality loss — saves ~75% of Regrid tile fetches at z=15+.
+    maxzoom: 14,
     promoteId: { [sourceLayer]: 'll_uuid' },
     attribution: 'Parcel data &copy; <a href="https://regrid.com" target="_blank" rel="noopener">Regrid</a>',
   } as any)
