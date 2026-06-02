@@ -391,6 +391,12 @@ export default function TractMapEditor({
   const [moveMode, setMoveMode] = useState(false)
   const moveModeRef = useRef(false)
   useEffect(() => { moveModeRef.current = moveMode }, [moveMode])
+  // Snap-to-fields (per user 2026-06-02): the scraped tract is often
+  // offset ~1mi from the real field, so the FSA-CLU tillable workshop comes
+  // up empty. This button asks the backend for the translation that lands
+  // the tract on real CLU coverage, shifts every vertex by it, and marks the
+  // editor dirty so the user reviews + clicks Save (no auto-save).
+  const [snapping, setSnapping] = useState(false)
   // Drag state for the whole-polygon move. Captured on mousedown.
   const moveDragStart = useRef<{ lng: number; lat: number } | null>(null)
   const moveDragBase = useRef<Pt[] | null>(null)
@@ -1658,6 +1664,54 @@ export default function TractMapEditor({
     )
   }
 
+  // ── Snap to fields: shift the whole polygon onto real FSA-CLU coverage.
+  //    The backend grid-searches small translations and returns the one
+  //    that maximises the fraction of the tract sitting on actual CLU
+  //    fields (using only our fsa_clu_2008 table — no Regrid). We apply the
+  //    proposed shift to every vertex and mark dirty; the user reviews on
+  //    the map and clicks Save. Nothing is auto-saved. ──
+  const handleSnap = async () => {
+    if (points.length < 3 || snapping) return
+    setSnapping(true)
+    setStatus('Snapping to FSA fields…')
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/admin/clu/snap-offset`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ polygon: points, state: listingState || '' }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`)
+      if (!data.found) {
+        const best = typeof data.coverage_after === 'number' ? `${data.coverage_after.toFixed(0)}%` : '?'
+        setStatus(`No confident field alignment found (best ${best} coverage). Adjust the boundary by hand.`)
+        return
+      }
+      const dx = Number(data.dx), dy = Number(data.dy)
+      setPoints(prev => {
+        pointsHistory.current.push(prev.map(p => [...p] as Pt))
+        return prev.map(([x, y]) => [x + dx, y + dy] as Pt)
+      })
+      setDirty(true)
+      // Re-frame the moved polygon so the shift is visible.
+      const map = mapRef.current
+      if (map) {
+        try {
+          const bounds = new maplibregl.LngLatBounds()
+          for (const [x, y] of points) bounds.extend([x + dx, y + dy] as [number, number])
+          map.fitBounds(bounds, { padding: 40, duration: 400, maxZoom: 18 })
+        } catch {}
+      }
+      const b = Number(data.coverage_before).toFixed(0)
+      const a = Number(data.coverage_after).toFixed(0)
+      setStatus(`✓ Snapped to fields: field coverage ${b}% → ${a}%. Review the boundary, then click Save.`)
+    } catch (e: any) {
+      setStatus(`✗ Snap failed: ${e.message || e}`)
+    } finally {
+      setSnapping(false)
+    }
+  }
+
   const handleSave = async () => {
     if (points.length < 3) {
       setStatus('Need at least 3 points to save a boundary')
@@ -1872,6 +1926,25 @@ export default function TractMapEditor({
               <span className="text-xs text-gg-gray-500">Map loads on scroll</span>
             )}
           </div>
+          {/* Snap-to-fields overlay button (per user 2026-06-02). The
+              scraped tract often lands ~1mi off the real field, so the
+              FSA-CLU tillable workshop is empty. One click asks the backend
+              for the translation onto real CLU coverage and shifts the
+              boundary; the user reviews + clicks Save. Fullscreen only
+              (it's a tract edit, like Align), needs a polygon + a state. */}
+          {fullscreen && !drawTillableMode && points.length >= 3 && listingState && (
+            <button
+              onClick={handleSnap}
+              disabled={snapping}
+              title="Shift the boundary onto the real FSA field (CLU) coverage. The scraped tract is often offset; this finds the best fit so the tillable workshop populates. You review and click Save — nothing is auto-saved."
+              className="absolute top-2 left-2 z-10 px-2.5 py-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded shadow-lg flex items-center gap-1.5 backdrop-blur-sm"
+            >
+              {snapping
+                ? <Loader2 size={14} className="animate-spin" />
+                : <Crosshair size={14} />}
+              {snapping ? 'Snapping…' : 'Snap to fields'}
+            </button>
+          )}
           {/* Align overlay button — appears whenever the drawn polygon
               area differs from the scraped acres at the hundredth-of-
               an-acre level. Per user 2026-05-26 update: even a tiny
@@ -1902,7 +1975,7 @@ export default function TractMapEditor({
               <button
                 onClick={handleAlign}
                 title={`${dir === 'shrink' ? 'Shrink' : 'Expand'} polygon to match scraped acres exactly (${target.toFixed(2)} ac). Currently drawn: ${cur.toFixed(2)} ac (${diffAc} ac ${dir === 'shrink' ? 'too big' : 'too small'}).`}
-                className="absolute top-2 left-2 z-10 px-2.5 py-1.5 text-xs font-semibold bg-gg-pink hover:bg-gg-pink-light text-white rounded shadow-lg flex items-center gap-1.5 backdrop-blur-sm"
+                className="absolute top-12 left-2 z-10 px-2.5 py-1.5 text-xs font-semibold bg-gg-pink hover:bg-gg-pink-light text-white rounded shadow-lg flex items-center gap-1.5 backdrop-blur-sm"
               >
                 <Crosshair size={14} />
                 Align to {target.toFixed(2)} ac
