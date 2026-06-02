@@ -31,6 +31,7 @@ import {
   Check
 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
+import openListingReport from '@/lib/openListingReport'
 import TractMapEditor from '@/components/admin/TractMapEditor'
 import TillableCluWorkshop from '@/components/admin/TillableCluWorkshop'
 import TractDataCompare from '@/components/admin/TractDataCompare'
@@ -652,8 +653,12 @@ export default function AdminPrivateTreatyStagingPage() {
         method: 'POST',
       })
       if (response.ok) {
+        const data = await response.json().catch(() => ({}))
+        const newListingId = data?.listing_id || (isRescrape ? item?.scraped_data?.rescrape_listing_id : null)
         setListings((prev) => prev.filter((l) => l.id !== id))
         showToast('success', isRescrape ? 'Tracts updated with new data' : 'Listing verified and created successfully')
+        // Open the branded report PDF so the admin can double-check the data.
+        if (newListingId) openListingReport(String(newListingId), { force: true })
       } else {
         const err = await response.json().catch(() => ({ detail: 'Unknown error' }))
         const detail = err.detail

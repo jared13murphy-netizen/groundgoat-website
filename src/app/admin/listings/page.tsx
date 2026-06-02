@@ -3,9 +3,10 @@
 import { useState, useEffect, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import fetchWithAuth from '@/lib/fetchWithAuth'
+import openListingReport from '@/lib/openListingReport'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Loader2, Trash2, ChevronLeft, ChevronRight, MapPin, ArrowLeft, Filter, Pencil, CheckCircle, ExternalLink, Plus, X } from 'lucide-react'
+import { Loader2, Trash2, ChevronLeft, ChevronRight, MapPin, ArrowLeft, Filter, Pencil, CheckCircle, ExternalLink, Plus, X, FileText } from 'lucide-react'
 import { getCountiesForState } from '@/data/counties'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
@@ -679,6 +680,15 @@ function AdminListingsPageContent() {
                     <ExternalLink size={16} />
                   </a>
                 )}
+
+                {/* Report PDF */}
+                <button
+                  onClick={() => openListingReport(String(listing.id), { force: true })}
+                  className="p-2 text-gg-gray-400 hover:text-white hover:bg-gg-gray-800 rounded-lg"
+                  title="Open branded listing report (PDF)"
+                >
+                  <FileText size={16} />
+                </button>
 
                 {/* Edit Icon */}
                 <Link

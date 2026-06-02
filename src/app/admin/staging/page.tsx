@@ -32,6 +32,7 @@ import {
   Link2
 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
+import openListingReport from '@/lib/openListingReport'
 import NassStagingPreview from '@/components/admin/NassStagingPreview'
 import TractMapEditor from '@/components/admin/TractMapEditor'
 import TillableCluWorkshop from '@/components/admin/TillableCluWorkshop'
@@ -724,9 +725,13 @@ export default function AdminStagingPage() {
         method: 'POST',
       })
       if (response.ok) {
+        const data = await response.json().catch(() => ({}))
+        const newListingId = data?.listing_id || (isRescrape ? item?.scraped_data?.rescrape_listing_id : null)
         setListings((prev) => prev.filter((l) => l.id !== id))
         setTotalCount((prev) => Math.max(0, prev - 1))
         showToast('success', isRescrape ? 'Tracts updated with new boundary data' : 'Listing verified and created successfully')
+        // Open the branded report PDF so the admin can double-check the data.
+        if (newListingId) openListingReport(String(newListingId), { force: true })
       } else if (response.status === 409) {
         // Duplicate detected — check if we have listing ID for comparison
         const err = await response.json().catch(() => ({ detail: 'Duplicate listing' }))

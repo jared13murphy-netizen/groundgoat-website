@@ -12,6 +12,7 @@ import {
   Pencil, Check, X,
 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
+import openListingReport from '@/lib/openListingReport'
 import TractMapEditor from '@/components/admin/TractMapEditor'
 import TillableCluWorkshop from '@/components/admin/TillableCluWorkshop'
 
@@ -412,6 +413,8 @@ export default function TractDataCleanupPage() {
       setTotal((prev) => Math.max(0, prev - 1))
       loadStats()
       showToast(`Listing verified — ${count} tract${count === 1 ? '' : 's'} marked reviewed and set to Done.`, 'success')
+      // Open the branded report PDF so the admin can double-check the data.
+      openListingReport(lid, { force: true })
     } catch (e: any) {
       showToast(`Could not verify listing: ${e.message || e}`, 'error')
     } finally { setVerifyingId(null) }
