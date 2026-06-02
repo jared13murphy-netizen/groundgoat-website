@@ -1318,83 +1318,16 @@ export default function AdminStagingPage() {
             <div className="space-y-6">
               {filteredListings.map((listing) => {
                 const info = extractListingInfo(listing.scraped_data)
-                const mapImageBase64 = listing.scraped_data?.map_image_base64 || listing.map_image_base64 || null
                 return (
                   <div
                     key={listing.id}
                     className="bg-gg-gray-900 border border-gg-gray-800 rounded-xl overflow-hidden"
                   >
-                    <div className="flex flex-col lg:flex-row">
-                      {/* Thumbnail Screenshot — lazy-loaded, click to enlarge */}
-                      <div className="lg:w-52 flex-shrink-0 bg-gg-gray-800 p-3 flex flex-col gap-2">
-                        {screenshotCache[listing.id] ? (
-                          <button
-                            onClick={() => setScreenshotModal(`data:image/png;base64,${screenshotCache[listing.id]}`)}
-                            className="block"
-                            title="Click to enlarge"
-                          >
-                            <img
-                              src={`data:image/png;base64,${screenshotCache[listing.id]}`}
-                              alt="Page screenshot"
-                              className="w-full max-w-[200px] rounded-lg object-cover object-top cursor-pointer hover:opacity-80 transition-opacity border border-gg-gray-700"
-                              style={{ maxHeight: '150px' }}
-                            />
-                            <span className="text-[10px] text-gg-gray-500 mt-1 block">Click to enlarge</span>
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => loadScreenshot(listing.id)}
-                            disabled={loadingScreenshot === listing.id}
-                            className="w-full h-24 flex flex-col items-center justify-center text-gg-gray-500 rounded-lg border border-gg-gray-700 hover:border-gg-gray-600 hover:text-gg-gray-400 transition-colors cursor-pointer"
-                          >
-                            {loadingScreenshot === listing.id ? (
-                              <Loader2 className="animate-spin" size={20} />
-                            ) : (
-                              <>
-                                <ImageIcon size={28} />
-                                <span className="text-[10px] mt-1">Load screenshot</span>
-                              </>
-                            )}
-                          </button>
-                        )}
-                        {/* Listing property image */}
-                        {info.imageUrl && (
-                          <button
-                            onClick={() => setScreenshotModal(info.imageUrl)}
-                            className="block"
-                            title="Click to enlarge property image"
-                          >
-                            <img
-                              src={info.imageUrl}
-                              alt="Property"
-                              className="w-full max-w-[200px] rounded-lg object-cover cursor-pointer hover:opacity-80 transition-opacity border border-gg-gray-700"
-                              style={{ maxHeight: '150px' }}
-                              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
-                            />
-                            <span className="text-[10px] text-gg-gray-500 mt-1 block">Property Photo</span>
-                          </button>
-                        )}
-                        {/* Map image if available */}
-                        {mapImageBase64 && (
-                          <button
-                            onClick={() => setScreenshotModal(`data:image/png;base64,${mapImageBase64}`)}
-                            className="block"
-                            title="Click to enlarge map"
-                          >
-                            <img
-                              src={`data:image/png;base64,${mapImageBase64}`}
-                              alt="Tract map"
-                              className="w-full max-w-[200px] rounded-lg object-contain cursor-pointer hover:opacity-80 transition-opacity border border-gg-gray-700"
-                              style={{ maxHeight: '150px' }}
-                            />
-                            <span className="text-[10px] text-gg-gray-500 mt-1 block">Tract Map</span>
-                          </button>
-                        )}
-                        {/* Inline polygon mini-map from scraped_data if no map_image_base64 */}
-                        {!mapImageBase64 && info.tracts.some((t: any) => t.polygon_coordinates) && (
-                          <TractMiniMap tracts={info.tracts} />
-                        )}
-                      </div>
+                    <div className="flex flex-col">
+                      {/* Per user 2026-06-01: removed the left thumbnail column
+                          (page screenshot + property photo + tract map) — it was
+                          wasted space. The interactive tract map below is the
+                          working reference now. */}
 
                       {/* Content */}
                       <div className="flex-1 p-6">
@@ -1606,7 +1539,7 @@ export default function AdminStagingPage() {
                                     const disabled = fLat == null || fLng == null
                                     return (
                                       <div className="flex items-center justify-between mb-2">
-                                        <p className="text-xs text-gg-gray-300 font-semibold">
+                                        <p className="text-2xl text-white font-extrabold tracking-tight">
                                           Tract {tract.tract_number ?? idx + 1}
                                         </p>
                                         <button
@@ -1621,10 +1554,10 @@ export default function AdminStagingPage() {
                                             })
                                             window.open(`/access?${params.toString()}`, '_blank')
                                           }}
-                                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+                                          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${
                                             disabled
                                               ? 'bg-gg-gray-800 text-gg-gray-600 cursor-not-allowed'
-                                              : 'bg-gg-gray-800 text-gg-pink hover:bg-gg-gray-700'
+                                              : 'bg-gg-pink text-white hover:bg-gg-pink-light shadow-sm'
                                           }`}
                                         >
                                           <MapPin size={13} /> View on Map
@@ -2500,69 +2433,3 @@ export default function AdminStagingPage() {
 }
 
 
-/**
- * TractMiniMap renders a small SVG polygon map from tract polygon_coordinates
- * that exist in scraped_data. Used as a fallback when no pre-generated
- * map_image_base64 is available.
- */
-function TractMiniMap({ tracts }: { tracts: any[] }) {
-  const tractsWithCoords = tracts.filter((t: any) => t.polygon_coordinates && t.polygon_coordinates.length >= 3)
-  if (tractsWithCoords.length === 0) return null
-
-  // Gather all points to compute bounds
-  let allLons: number[] = []
-  let allLats: number[] = []
-  tractsWithCoords.forEach((t: any) => {
-    t.polygon_coordinates.forEach((pt: number[]) => {
-      if (pt.length >= 2) {
-        allLons.push(pt[0])
-        allLats.push(pt[1])
-      }
-    })
-  })
-
-  if (allLons.length === 0) return null
-
-  const minLon = Math.min(...allLons)
-  const maxLon = Math.max(...allLons)
-  const minLat = Math.min(...allLats)
-  const maxLat = Math.max(...allLats)
-  const padLon = (maxLon - minLon) * 0.1 || 0.001
-  const padLat = (maxLat - minLat) * 0.1 || 0.001
-
-  const width = 180
-  const height = 140
-
-  const scaleX = width / (maxLon - minLon + 2 * padLon)
-  const scaleY = height / (maxLat - minLat + 2 * padLat)
-
-  const toSvgX = (lon: number) => (lon - minLon + padLon) * scaleX
-  // Flip Y because SVG y goes down, lat goes up
-  const toSvgY = (lat: number) => height - (lat - minLat + padLat) * scaleY
-
-  const colors = ['#4CAF50', '#2196F3', '#FF9800', '#9C27B0', '#F44336', '#00BCD4']
-
-  return (
-    <div className="bg-gg-gray-900 rounded-lg border border-gg-gray-700 p-1">
-      <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="w-full">
-        {tractsWithCoords.map((tract: any, i: number) => {
-          const points = tract.polygon_coordinates
-            .filter((pt: number[]) => pt.length >= 2)
-            .map((pt: number[]) => `${toSvgX(pt[0])},${toSvgY(pt[1])}`)
-            .join(' ')
-          return (
-            <polygon
-              key={i}
-              points={points}
-              fill={colors[i % colors.length]}
-              fillOpacity={0.35}
-              stroke={colors[i % colors.length]}
-              strokeWidth={2}
-            />
-          )
-        })}
-      </svg>
-      <p className="text-[9px] text-gg-gray-500 text-center mt-0.5">Tract Boundaries</p>
-    </div>
-  )
-}

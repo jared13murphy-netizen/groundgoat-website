@@ -407,6 +407,15 @@ export default function TractMapEditor({
   const [showUploadPanel, setShowUploadPanel] = useState(false)
   const [urlInput, setUrlInput] = useState('')
   const [extractingUrl, setExtractingUrl] = useState(false)
+  // Per user 2026-06-01: the source reference image "HAS to show up every
+  // time" — it's how the admin verifies the polygon. External source URLs
+  // frequently 404 / hotlink-block, leaving a broken-image icon. When that
+  // happens we flip this flag so the render falls THROUGH to the next
+  // priority (the satellite+polygon overlay we generate, which always
+  // loads) instead of getting stuck on the dead URL. Reset whenever the
+  // source URL changes so a new tract gets a fresh attempt.
+  const [sourceUrlFailed, setSourceUrlFailed] = useState(false)
+  useEffect(() => { setSourceUrlFailed(false) }, [sourceImageUrl])
 
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
@@ -1997,14 +2006,18 @@ export default function TractMapEditor({
                 {sourceImageKind} ↗
               </a>
             </>
-          /* Priority 4: other URL — load as <img> (aerial CDN images etc.) */
-          ) : sourceImageUrl && sourceImageKind !== 'land_id_url' ? (
+          /* Priority 4: other URL — load as <img> (aerial CDN images etc.).
+             If the URL 404s / hotlink-blocks, onError flips sourceUrlFailed
+             so this branch drops out and the render falls through to the
+             satellite+polygon overlay below (never a broken-image icon). */
+          ) : sourceImageUrl && sourceImageKind !== 'land_id_url' && !sourceUrlFailed ? (
             <>
               <img
                 src={sourceImageUrl}
                 alt={`Tract ${tractIndex + 1} source reference`}
                 style={{ maxHeight: mapHeight }}
                 className="w-full h-full object-contain"
+                onError={() => setSourceUrlFailed(true)}
               />
               {sourceImageKind && (
                 <span className="absolute top-1 right-1 px-1.5 py-0.5 text-[10px] bg-black/60 text-white rounded">
@@ -2039,7 +2052,7 @@ export default function TractMapEditor({
                   <Camera size={28} />
                   <button
                     onClick={handleCaptureSourceImage}
-                    className="px-3 py-1.5 text-xs bg-gg-gray-700 hover:bg-gg-gray-600 text-white rounded flex items-center gap-1.5"
+                    className="px-3 py-1.5 text-xs bg-gg-gray-600 hover:bg-gg-gray-500 text-white border border-gg-gray-400/60 text-white rounded flex items-center gap-1.5"
                     title="Take a Playwright screenshot of the listing page and store it here"
                   >
                     <Camera size={12} /> Capture Screenshot
@@ -2150,7 +2163,7 @@ export default function TractMapEditor({
             className={`px-2 py-1 text-xs rounded flex items-center gap-1 ${
               showUploadPanel
                 ? 'bg-gg-pink hover:bg-gg-pink/85 text-white'
-                : 'bg-gg-gray-700 hover:bg-gg-gray-600 disabled:opacity-40'
+                : 'bg-gg-gray-600 hover:bg-gg-gray-500 text-white border border-gg-gray-400/60 disabled:opacity-40'
             }`}
             title="Open the upload panel — paste/drop/pick an image or enter an auction URL to extract the tract boundary"
           >
@@ -2162,7 +2175,7 @@ export default function TractMapEditor({
           )}
           <button
             onClick={() => setFullscreen(prev => !prev)}
-            className="px-2 py-1 text-xs bg-gg-gray-700 hover:bg-gg-gray-600 rounded flex items-center gap-1"
+            className="px-2 py-1 text-xs bg-gg-gray-600 hover:bg-gg-gray-500 text-white border border-gg-gray-400/60 rounded flex items-center gap-1"
             title={fullscreen ? 'Exit full screen (Esc)' : 'Open full-screen editor'}
           >
             {fullscreen
@@ -2195,21 +2208,21 @@ export default function TractMapEditor({
               <button
                 onClick={handleUndoTillableDraw}
                 disabled={tillableDrawPoints.length === 0 || savingTillable}
-                className="px-2 py-1 text-xs bg-gg-gray-700 hover:bg-gg-gray-600 disabled:opacity-40 rounded flex items-center gap-1"
+                className="px-2 py-1 text-xs bg-gg-gray-600 hover:bg-gg-gray-500 text-white border border-gg-gray-400/60 disabled:opacity-40 rounded flex items-center gap-1"
               >
                 <RotateCcw size={12} /> Undo
               </button>
               <button
                 onClick={handleClearTillableDraw}
                 disabled={tillableDrawPoints.length === 0 || savingTillable}
-                className="px-2 py-1 text-xs bg-gg-gray-700 hover:bg-gg-gray-600 disabled:opacity-40 rounded flex items-center gap-1"
+                className="px-2 py-1 text-xs bg-gg-gray-600 hover:bg-gg-gray-500 text-white border border-gg-gray-400/60 disabled:opacity-40 rounded flex items-center gap-1"
               >
                 <RotateCcw size={12} /> Clear
               </button>
               <button
                 onClick={handleCancelTillableDraw}
                 disabled={savingTillable}
-                className="px-2 py-1 text-xs bg-gg-gray-700 hover:bg-gg-gray-600 disabled:opacity-40 rounded"
+                className="px-2 py-1 text-xs bg-gg-gray-600 hover:bg-gg-gray-500 text-white border border-gg-gray-400/60 disabled:opacity-40 rounded"
               >
                 Cancel Draw
               </button>
@@ -2232,7 +2245,7 @@ export default function TractMapEditor({
                 className={`px-2 py-1 text-xs rounded flex items-center gap-1 ${
                   showTillable
                     ? 'bg-green-600 hover:bg-green-700 text-white'
-                    : 'bg-gg-gray-700 hover:bg-gg-gray-600'
+                    : 'bg-gg-gray-600 hover:bg-gg-gray-500 text-white border border-gg-gray-400/60'
                 }`}
                 title={showTillable
                   ? 'Hide the green tillable overlay'
@@ -2252,7 +2265,7 @@ export default function TractMapEditor({
                   <button
                     onClick={handleUndoEditedTillable}
                     disabled={savingTillable}
-                    className="px-2 py-1 text-xs bg-gg-gray-700 hover:bg-gg-gray-600 disabled:opacity-40 rounded flex items-center gap-1"
+                    className="px-2 py-1 text-xs bg-gg-gray-600 hover:bg-gg-gray-500 text-white border border-gg-gray-400/60 disabled:opacity-40 rounded flex items-center gap-1"
                     title="Undo last tillable vertex move"
                   >
                     <RotateCcw size={12} /> Undo
@@ -2322,21 +2335,21 @@ export default function TractMapEditor({
           <button
             onClick={handleUndo}
             disabled={points.length === 0 || saving || deleting}
-            className="px-2 py-1 text-xs bg-gg-gray-700 hover:bg-gg-gray-600 disabled:opacity-40 rounded flex items-center gap-1"
+            className="px-2 py-1 text-xs bg-gg-gray-600 hover:bg-gg-gray-500 text-white border border-gg-gray-400/60 disabled:opacity-40 rounded flex items-center gap-1"
           >
             <RotateCcw size={12} /> Undo
           </button>
           <button
             onClick={handleClear}
             disabled={points.length === 0 || saving || deleting}
-            className="px-2 py-1 text-xs bg-gg-gray-700 hover:bg-gg-gray-600 disabled:opacity-40 rounded flex items-center gap-1"
+            className="px-2 py-1 text-xs bg-gg-gray-600 hover:bg-gg-gray-500 text-white border border-gg-gray-400/60 disabled:opacity-40 rounded flex items-center gap-1"
           >
             <RotateCcw size={12} /> Clear
           </button>
           <button
             onClick={handleSimplify}
             disabled={points.length < 5 || saving || deleting}
-            className="px-2 py-1 text-xs bg-gg-gray-700 hover:bg-gg-gray-600 disabled:opacity-40 rounded flex items-center gap-1"
+            className="px-2 py-1 text-xs bg-gg-gray-600 hover:bg-gg-gray-500 text-white border border-gg-gray-400/60 disabled:opacity-40 rounded flex items-center gap-1"
             title="Straighten rounded contours by removing near-collinear vertices"
           >
             <Spline size={12} /> Simplify
@@ -2347,7 +2360,7 @@ export default function TractMapEditor({
             className={`px-2 py-1 text-xs rounded flex items-center gap-1 disabled:opacity-40 ${
               moveMode
                 ? 'bg-gg-pink text-white'
-                : 'bg-gg-gray-700 hover:bg-gg-gray-600'
+                : 'bg-gg-gray-600 hover:bg-gg-gray-500 text-white border border-gg-gray-400/60'
             }`}
             title="Toggle move mode — drag anywhere on the polygon to slide the whole shape"
           >
@@ -2365,7 +2378,7 @@ export default function TractMapEditor({
           <button
             onClick={handleCancel}
             disabled={!dirty || saving || deleting}
-            className="px-2 py-1 text-xs bg-gg-gray-700 hover:bg-gg-gray-600 disabled:opacity-40 rounded flex items-center gap-1"
+            className="px-2 py-1 text-xs bg-gg-gray-600 hover:bg-gg-gray-500 text-white border border-gg-gray-400/60 disabled:opacity-40 rounded flex items-center gap-1"
           >
             Cancel
           </button>

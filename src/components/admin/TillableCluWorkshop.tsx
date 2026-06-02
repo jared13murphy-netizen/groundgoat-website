@@ -797,7 +797,7 @@ export default function TillableCluWorkshop({
             onClick={toggleDrawMode}
             disabled={!loaded}
             className={`px-2 py-1 rounded flex items-center gap-1 font-semibold disabled:opacity-40 ${
-              drawMode ? 'bg-yellow-500 text-black' : 'bg-gg-gray-700 hover:bg-gg-gray-600 text-white'
+              drawMode ? 'bg-yellow-500 text-black' : 'bg-gg-gray-600 hover:bg-gg-gray-500 border border-gg-gray-400/60 text-white'
             }`}
             title="Draw tillable polygons by hand (use when the 2008 FSA CLU is wrong for this tract)"
           >
@@ -817,7 +817,7 @@ export default function TillableCluWorkshop({
           {(currentDraw.length > 0 || manualActive) && (
             <button
               onClick={undoDraw}
-              className="px-2 py-1 rounded flex items-center gap-1 bg-gg-gray-700 hover:bg-gg-gray-600 text-white"
+              className="px-2 py-1 rounded flex items-center gap-1 bg-gg-gray-600 hover:bg-gg-gray-500 border border-gg-gray-400/60 text-white"
               title="Undo last point / last polygon"
             >
               <Undo2 size={12} /> Undo
@@ -898,7 +898,7 @@ export default function TillableCluWorkshop({
           <button
             onClick={handleComputeSoil}
             disabled={computing || saving || (manualActive ? false : (clus.length === 0 || tillableCount === 0))}
-            className="px-2.5 py-1 text-xs bg-gg-gray-700 hover:bg-gg-gray-600 disabled:opacity-40 text-white rounded flex items-center gap-1"
+            className="px-2.5 py-1 text-xs bg-gg-gray-600 hover:bg-gg-gray-500 border border-gg-gray-400/60 disabled:opacity-40 text-white rounded flex items-center gap-1"
             title="Area-weight the state soil rating (PI / CSR2 / WAPI / NCCPI) over the tillable selection"
           >
             {computing ? <Loader2 size={12} className="animate-spin" /> : <Calculator size={12} />}
