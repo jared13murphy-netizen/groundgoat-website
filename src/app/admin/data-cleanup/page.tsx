@@ -54,6 +54,9 @@ type QueueItem = {
   title: string | null
   county: string | null
   source_url: string | null
+  listing_type: string | null
+  auction_datetime: string | null
+  listing_created_at: string | null
 }
 
 type Stats = {
@@ -96,6 +99,31 @@ type LoadedListing = {
 function statusLabel(s: string) {
   return s === 'in_progress' ? 'In progress'
     : s.charAt(0).toUpperCase() + s.slice(1)
+}
+
+// "Auction · Jun 14, 2026, 10:00 AM" for auctions; private-treaty listings
+// have no auction date, so show when the listing was added instead.
+function listingMeta(it: QueueItem): { typeLabel: string; dateLabel: string } {
+  const isPT = it.listing_type === 'private_treaty'
+  const typeLabel = isPT ? 'Private Treaty' : 'Auction'
+  if (!isPT && it.auction_datetime) {
+    return {
+      typeLabel,
+      dateLabel: new Date(it.auction_datetime).toLocaleString(undefined, {
+        year: 'numeric', month: 'short', day: 'numeric',
+        hour: 'numeric', minute: '2-digit',
+      }),
+    }
+  }
+  if (it.listing_created_at) {
+    return {
+      typeLabel,
+      dateLabel: 'added ' + new Date(it.listing_created_at).toLocaleDateString(undefined, {
+        year: 'numeric', month: 'short', day: 'numeric',
+      }),
+    }
+  }
+  return { typeLabel, dateLabel: 'no date' }
 }
 
 export default function TractDataCleanupPage() {
@@ -487,6 +515,24 @@ export default function TractDataCleanupPage() {
                           </span>
                         )}
                       </div>
+                      {/* Listing type + date, below the title (queue is sorted
+                          newest→oldest by auction date server-side). */}
+                      {(() => {
+                        const { typeLabel, dateLabel } = listingMeta(it)
+                        const isPT = it.listing_type === 'private_treaty'
+                        return (
+                          <div className="flex items-center gap-2 mt-0.5 text-xs">
+                            <span className={`uppercase tracking-wide font-medium px-1.5 py-0.5 rounded border ${
+                              isPT
+                                ? 'bg-indigo-500/15 text-indigo-600 border-indigo-500/40'
+                                : 'bg-emerald-500/15 text-emerald-600 border-emerald-500/40'
+                            }`}>
+                              {typeLabel}
+                            </span>
+                            <span className="text-gg-gray-400">{dateLabel}</span>
+                          </div>
+                        )
+                      })()}
                       <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1 text-xs text-gg-gray-400">
                         <span className="flex items-center gap-1"><MapPin size={11} />{it.county || '—'}, {it.state || '—'}</span>
                         <span>{it.tract_count} tract{it.tract_count === 1 ? '' : 's'}{it.defect_tract_count > 0 ? ` · ${it.defect_tract_count} flagged` : ''}</span>
