@@ -2447,7 +2447,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       type: 'vector',
       tiles: [regridConfig.tile_url_template],
       minzoom: REGRID_MIN_ZOOM,
-      maxzoom: 21,
+      // Source maxzoom 14: MapLibre over-zooms (reuses) z=14 tiles
+      // for zooms 15-21. Vector parcel boundaries scale without
+      // quality loss. Cuts tile fetches ~75% vs the old maxzoom:21
+      // (each additional zoom level beyond 14 was a fresh tile fetch).
+      maxzoom: 14,
       // ll_uuid is the stable Regrid parcel UUID we want to use for
       // setFeatureState (hover highlight) and click → API lookup.
       promoteId: { [sourceLayer]: 'll_uuid' },
