@@ -1550,15 +1550,20 @@ export default function TractMapEditor({
         )
         const data = await res.json()
         if (!res.ok || !data.success) {
-          // Extraction failed — but if the scraper resolved a geographic
-          // center for the parcel (map-center DMS, listing centroid, or
-          // PLSS section), recenter the map there so the admin can draw
-          // the boundary manually at the right spot instead of hunting.
+          // Extraction failed (or the trace was rejected as implausible) —
+          // recenter the map on the parcel so the admin can draw the
+          // boundary manually at the right spot instead of hunting. Prefer
+          // the scraper's resolved center (map-center DMS / PLSS section /
+          // rejected-polygon centroid); fall back to the tract's stored
+          // lat/lng so the map ALWAYS zooms to the location on upload.
           const c = data.center
-          if (c && typeof c.lat === 'number' && typeof c.lng === 'number'
-              && mapRef.current) {
+          const cLat = (c && typeof c.lat === 'number') ? c.lat
+            : (latitude != null && isFinite(Number(latitude)) ? Number(latitude) : null)
+          const cLng = (c && typeof c.lng === 'number') ? c.lng
+            : (longitude != null && isFinite(Number(longitude)) ? Number(longitude) : null)
+          if (cLat != null && cLng != null && mapRef.current) {
             try {
-              mapRef.current.flyTo({ center: [c.lng, c.lat], zoom: 15 })
+              mapRef.current.flyTo({ center: [cLng, cLat], zoom: 15 })
             } catch { /* map not ready — ignore */ }
             setStatus(
               `✗ ${data.error || `HTTP ${res.status}`} — moved the map to the `
@@ -1574,6 +1579,17 @@ export default function TractMapEditor({
         pointsHistory.current.push(points.map(p => [...p] as Pt))
         setPoints(poly as Pt[])
         setDirty(true)
+        // ALWAYS re-frame the map on upload so it zooms to the parcel — even
+        // when a polygon was created (user 2026-06-02: it used to skip the
+        // zoom whenever a polygon came back).
+        try {
+          const map = mapRef.current
+          if (map) {
+            const bounds = new maplibregl.LngLatBounds()
+            for (const [x, y] of poly) bounds.extend([x, y] as [number, number])
+            map.fitBounds(bounds, { padding: 40, duration: 400, maxZoom: 17 })
+          }
+        } catch { /* map not ready — ignore */ }
         const matchLabel = data.acreage_match ?? 'unknown'
         const confLabel = data.vision_confidence ?? '?'
         const acLabel = data.extracted_acres
