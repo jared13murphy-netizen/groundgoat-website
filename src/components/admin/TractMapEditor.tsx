@@ -1579,15 +1579,32 @@ export default function TractMapEditor({
         pointsHistory.current.push(points.map(p => [...p] as Pt))
         setPoints(poly as Pt[])
         setDirty(true)
-        // ALWAYS re-frame the map on upload so it zooms to the parcel — even
-        // when a polygon was created (user 2026-06-02: it used to skip the
-        // zoom whenever a polygon came back).
+        // ALWAYS re-frame the map on upload so it zooms to the CORRECT land
+        // (user 2026-06-02: "Map location is essential to get right"). The
+        // scraper returns `center` — the authoritative anchor it resolved from
+        // the map's own printed georeference (Map Center DMS / PLSS section)
+        // or the tract centroid. Prefer that center whenever the traced
+        // polygon sits far from it (a misplaced trace), so the map lands on
+        // the right parcel even when the boundary shape is off. When the
+        // polygon agrees with the center, fit its bounds for tighter framing.
         try {
           const map = mapRef.current
           if (map) {
-            const bounds = new maplibregl.LngLatBounds()
-            for (const [x, y] of poly) bounds.extend([x, y] as [number, number])
-            map.fitBounds(bounds, { padding: 40, duration: 400, maxZoom: 17 })
+            const c = data.center
+            const cLat = (c && typeof c.lat === 'number' && isFinite(c.lat)) ? c.lat : null
+            const cLng = (c && typeof c.lng === 'number' && isFinite(c.lng)) ? c.lng : null
+            let px = 0, py = 0
+            for (const [x, y] of poly) { px += x; py += y }
+            px /= poly.length; py /= poly.length
+            const farFromCenter = cLat != null && cLng != null
+              && (Math.abs(py - cLat) > 0.01 || Math.abs(px - cLng) > 0.01) // ~1 km
+            if (cLat != null && cLng != null && farFromCenter) {
+              map.flyTo({ center: [cLng, cLat], zoom: 15 })
+            } else {
+              const bounds = new maplibregl.LngLatBounds()
+              for (const [x, y] of poly) bounds.extend([x, y] as [number, number])
+              map.fitBounds(bounds, { padding: 40, duration: 400, maxZoom: 17 })
+            }
           }
         } catch { /* map not ready — ignore */ }
         const matchLabel = data.acreage_match ?? 'unknown'
