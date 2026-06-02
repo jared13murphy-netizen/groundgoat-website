@@ -2709,7 +2709,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         // 404s for non-pilot accounts AND for parcels we haven't yet
         // enriched (everywhere except Hancock IL today), so we don't
         // gate the popup on it.
-        const enrichPromise: Promise<any> = (isEnrichmentPilot && ll_uuid)
+        const enrichPromise: Promise<any> = (!!ll_uuid)
           ? fetchWithAuth(`${API_URL}/api/parcel-enrichment/by-uuid?ll_uuid=${encodeURIComponent(ll_uuid)}`)
               .then(r => r.ok ? r.json() : null).catch(() => null)
           : Promise.resolve(null)
@@ -2988,7 +2988,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         const qs = new URLSearchParams()
         if (ll_uuid) qs.set('ll_uuid', ll_uuid)
         else { qs.set('lat', String(lat)); qs.set('lng', String(lng)) }
-        const enrichPromise: Promise<any> = (isEnrichmentPilot && ll_uuid)
+        const enrichPromise: Promise<any> = (!!ll_uuid)
           ? fetchWithAuth(`${API_URL}/api/parcel-enrichment/by-uuid?ll_uuid=${encodeURIComponent(ll_uuid)}`)
               .then(r => r.ok ? r.json() : null).catch(() => null)
           : Promise.resolve(null)
