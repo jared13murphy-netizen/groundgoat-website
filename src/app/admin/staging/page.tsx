@@ -1087,15 +1087,6 @@ export default function AdminStagingPage() {
                 </>
               )}
             </button>
-            {listings.length > 0 && (
-              <button
-                onClick={handleClearAll}
-                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm flex items-center gap-2"
-              >
-                <Trash2 size={16} />
-                Clear All
-              </button>
-            )}
             <button
               onClick={() => { setPage(0); fetchStagingListings(0); fetchRunLog() }}
               className="px-4 py-2 bg-gg-gray-800 text-white rounded-lg hover:bg-gg-gray-700 transition-colors text-sm"
