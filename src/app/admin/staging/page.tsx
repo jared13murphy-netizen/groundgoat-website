@@ -704,6 +704,22 @@ export default function AdminStagingPage() {
       ? `${API_URL}/api/admin/staging/${id}/verify-rescrape`
       : `${API_URL}/api/admin/staging/${id}/verify`
     try {
+      // Verify POSTs with no body and reads the stored staging record, so any
+      // unsaved in-memory edits (TractDataCompare Scraped/Computed picks, tract
+      // number changes) must be PATCHed into scraped_data FIRST or they're lost.
+      // Per user 2026-06-02: chosen "Scraped" picks were being ignored at verify.
+      if (item && !isRescrape) {
+        const patchRes = await fetchWithAuth(`${API_URL}/api/admin/staging/${id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ scraped_data: item.scraped_data }),
+        })
+        if (!patchRes.ok) {
+          showToast('error', 'Failed to save your selections before verifying — not verified')
+          setActionLoading(null)
+          return
+        }
+      }
       const response = await fetchWithAuth(verifyUrl, {
         method: 'POST',
       })
