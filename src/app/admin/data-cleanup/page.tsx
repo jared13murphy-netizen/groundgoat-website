@@ -9,6 +9,7 @@ import Link from 'next/link'
 import {
   Loader2, ExternalLink, MapPin, ChevronLeft, ChevronRight,
   ChevronDown, ChevronUp, CheckCircle2, ArrowLeft, AlertTriangle, RefreshCw,
+  Pencil, Check, X,
 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import TractMapEditor from '@/components/admin/TractMapEditor'
@@ -86,12 +87,14 @@ type LiveTract = {
   boundary_valid: boolean | null
   boundary_reviewed_by: string | null
   boundary_reviewed_at: string | null
+  image_url: string | null
 }
 
 type LoadedListing = {
   loading: boolean
   error: string | null
   source_url: string | null
+  primary_image_url: string | null
   state: string | null
   tracts: LiveTract[]
 }
@@ -154,6 +157,11 @@ export default function TractDataCleanupPage() {
   const [cluReloadKeys, setCluReloadKeys] = useState<Record<string, number>>({})
   // Per-tract in-flight marker for the Mark Reviewed button.
   const [reviewingTractId, setReviewingTractId] = useState<string | null>(null)
+  // Editable tract number: which tract is being edited, its draft value, and
+  // an in-flight marker. Saving writes ONLY tract_number via a restricted endpoint.
+  const [editingTractNumId, setEditingTractNumId] = useState<string | null>(null)
+  const [tractNumDraft, setTractNumDraft] = useState('')
+  const [savingTractNumId, setSavingTractNumId] = useState<string | null>(null)
   // Rescrape: listing in-flight + per-listing result banner. Proposals are keyed
   // by tract id; bumping `nonce` makes that tract's TractMapEditor load the
   // proposed boundary as a dirty edit for review-then-Save. NOTHING is written
@@ -215,7 +223,7 @@ export default function TractDataCleanupPage() {
   const loadListing = useCallback(async (lid: string) => {
     setLoadedListings((prev) => ({
       ...prev,
-      [lid]: { loading: true, error: null, source_url: null, state: null, tracts: prev[lid]?.tracts || [] },
+      [lid]: { loading: true, error: null, source_url: null, primary_image_url: null, state: null, tracts: prev[lid]?.tracts || [] },
     }))
     try {
       const res = await fetchWithAuth(`${API_URL}/api/listings/${lid}`)
@@ -237,6 +245,7 @@ export default function TractDataCleanupPage() {
         boundary_valid: t.boundary_valid ?? null,
         boundary_reviewed_by: t.boundary_reviewed_by ?? null,
         boundary_reviewed_at: t.boundary_reviewed_at ?? null,
+        image_url: t.image_url ?? null,
       }))
       // Sort by tract number so the order matches the listing page.
       tracts.sort((a, b) => (a.tract_number ?? 0) - (b.tract_number ?? 0))
@@ -245,6 +254,7 @@ export default function TractDataCleanupPage() {
         [lid]: {
           loading: false, error: null,
           source_url: data.source_url ?? null,
+          primary_image_url: data.primary_image_url ?? null,
           state: data.state ?? (tracts[0]?.state_abbr ?? null),
           tracts,
         },
@@ -252,7 +262,7 @@ export default function TractDataCleanupPage() {
     } catch (e: any) {
       setLoadedListings((prev) => ({
         ...prev,
-        [lid]: { loading: false, error: e.message || String(e), source_url: null, state: null, tracts: [] },
+        [lid]: { loading: false, error: e.message || String(e), source_url: null, primary_image_url: null, state: null, tracts: [] },
       }))
     }
   }, [])
@@ -329,6 +339,35 @@ export default function TractDataCleanupPage() {
     } catch (e: any) {
       alert(`Could not update review state: ${e.message || e}`)
     } finally { setReviewingTractId(null) }
+  }
+
+  // Save a corrected tract number. Writes ONLY tract_number via the restricted
+  // endpoint — never polygon/tillable/soil/status/price. Re-sorts the tract list
+  // so the new order matches the listing page.
+  async function saveTractNumber(lid: string, tract: LiveTract) {
+    const parsed = parseInt(tractNumDraft, 10)
+    if (!Number.isFinite(parsed) || parsed < 1) { alert('Tract number must be a whole number ≥ 1'); return }
+    if (parsed === tract.tract_number) { setEditingTractNumId(null); return }
+    setSavingTractNumId(tract.id)
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/admin/tract-cleanup/tract/${tract.id}/tract-number`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tract_number: parsed }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.success) throw new Error(data.detail || `HTTP ${res.status}`)
+      setLoadedListings((prev) => {
+        const cur = prev[lid]
+        if (!cur) return prev
+        const tracts = cur.tracts
+          .map((t) => (t.id === tract.id ? { ...t, tract_number: parsed } : t))
+          .sort((a, b) => (a.tract_number ?? 0) - (b.tract_number ?? 0))
+        return { ...prev, [lid]: { ...cur, tracts } }
+      })
+      setEditingTractNumId(null)
+    } catch (e: any) {
+      alert(`Could not update tract number: ${e.message || e}`)
+    } finally { setSavingTractNumId(null) }
   }
 
   // Rescrape a listing's source URL and load proposed boundaries into each
@@ -590,6 +629,19 @@ export default function TractDataCleanupPage() {
                   {/* Expanded editor — the staging-style per-tract blocks */}
                   {expanded && (
                     <div className="border-t border-gg-gray-800 p-4">
+                      {/* Source website URL (full, copyable) so reviewers can
+                          open the exact auction/PT page the tracts came from. */}
+                      {(loaded?.source_url || it.source_url) && (
+                        <div className="flex items-center gap-2 mb-4 text-xs">
+                          <span className="text-gg-gray-400 shrink-0">Source URL:</span>
+                          <a href={loaded?.source_url || it.source_url || undefined}
+                            target="_blank" rel="noreferrer"
+                            className="text-gg-pink hover:underline break-all inline-flex items-center gap-1">
+                            {loaded?.source_url || it.source_url}
+                            <ExternalLink size={11} className="shrink-0" />
+                          </a>
+                        </div>
+                      )}
                       {loaded?.loading && (
                         <div className="flex items-center gap-2 text-gg-gray-400 py-6 justify-center">
                           <Loader2 className="animate-spin" size={16} /> Loading tracts…
@@ -647,9 +699,48 @@ export default function TractDataCleanupPage() {
                                 {/* Tract header + View on Map */}
                                 <div className="flex items-center justify-between mb-2">
                                   <div className="flex items-center gap-2 flex-wrap">
-                                    <p className="text-2xl text-white font-extrabold tracking-tight">
-                                      Tract {tract.tract_number}
-                                    </p>
+                                    {editingTractNumId === tract.id ? (
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="text-2xl text-white font-extrabold tracking-tight">Tract</span>
+                                        <input
+                                          type="number" min={1} step={1} autoFocus
+                                          value={tractNumDraft}
+                                          onChange={(e) => setTractNumDraft(e.target.value)}
+                                          onKeyDown={(e) => {
+                                            if (e.key === 'Enter') saveTractNumber(it.listing_id, tract)
+                                            if (e.key === 'Escape') setEditingTractNumId(null)
+                                          }}
+                                          disabled={savingTractNumId === tract.id}
+                                          className="w-20 bg-gg-gray-800 border border-gg-gray-600 rounded px-2 py-1 text-xl text-white font-bold disabled:opacity-50"
+                                        />
+                                        <button
+                                          onClick={() => saveTractNumber(it.listing_id, tract)}
+                                          disabled={savingTractNumId === tract.id}
+                                          title="Save tract number"
+                                          className="p-1.5 rounded bg-green-600 text-white hover:bg-green-700 disabled:opacity-50">
+                                          {savingTractNumId === tract.id ? <Loader2 className="animate-spin" size={16} /> : <Check size={16} />}
+                                        </button>
+                                        <button
+                                          onClick={() => setEditingTractNumId(null)}
+                                          disabled={savingTractNumId === tract.id}
+                                          title="Cancel"
+                                          className="p-1.5 rounded bg-gg-gray-800 text-gg-gray-300 border border-gg-gray-700 hover:bg-gg-gray-700 disabled:opacity-50">
+                                          <X size={16} />
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <div className="flex items-center gap-1.5">
+                                        <p className="text-2xl text-white font-extrabold tracking-tight">
+                                          Tract {tract.tract_number}
+                                        </p>
+                                        <button
+                                          onClick={() => { setEditingTractNumId(tract.id); setTractNumDraft(String(tract.tract_number ?? '')) }}
+                                          title="Edit tract number (use if a rescrape pulled it in wrong)"
+                                          className="p-1 rounded text-gg-gray-400 hover:text-gg-pink hover:bg-gg-gray-800">
+                                          <Pencil size={14} />
+                                        </button>
+                                      </div>
+                                    )}
                                     {reviewed && (
                                       <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded bg-green-500/15 text-green-600 border border-green-500/40">
                                         <CheckCircle2 size={12} /> Reviewed
@@ -714,6 +805,8 @@ export default function TractDataCleanupPage() {
                                       hideTillable
                                       tillablePolygon={null}
                                       showTillable={false}
+                                      sourceImageUrl={tract.image_url || loaded.primary_image_url}
+                                      sourceImageKind="listing_image"
                                       listingUrl={loaded.source_url || it.source_url}
                                       listingState={tract.state_abbr || it.state}
                                       scrapedAcres={tract.total_acres}
