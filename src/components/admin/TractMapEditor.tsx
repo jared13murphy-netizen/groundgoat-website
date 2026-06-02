@@ -46,10 +46,13 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import {
   Save, RotateCcw, Trash2, Loader2, ImageIcon, Sprout, EyeOff,
   Maximize2, Minimize2, Crosshair, Camera, Sparkles, Move, Spline,
+  ExternalLink,
 } from 'lucide-react'
 import { polygonPerimeterFeet, formatPerimeter } from '@/lib/polygonGeometry'
+import { fetchWithAuth } from '@/lib/fetchWithAuth'
 
 const SCRAPER_URL = 'https://ground-goat-scraper-production.up.railway.app'
+const API_URL = 'https://practical-serenity-production.up.railway.app'
 const TILE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
 const TILE_ATTRIBUTION = '&copy; Esri, Maxar, Earthstar Geographics'
 
@@ -137,6 +140,15 @@ interface TractMapEditorProps {
    *  extractor can trace every boundary and match each to a tract by label /
    *  acreage, then return THIS tract's polygon. */
   siblingTracts?: { tract_number: number | null; total_acres: number | null; tillable_acres: number | null }[]
+  /** LIVE-TRACT mode (Tract Data Clean-Up screen). When set, this editor
+   *  operates on an already-published tract (tracts.id UUID) instead of a
+   *  staging record. Save writes ONLY the polygon via the restricted
+   *  /api/admin/tract-fix-boundary/{id}/apply endpoint (which can never
+   *  touch status/price/sale_*). The staging-only tools (Upload Image,
+   *  Capture Screenshot, Delete Tract — all of which hit scraper staging
+   *  endpoints keyed by stagingId) are hidden in this mode. When
+   *  undefined, the component behaves EXACTLY as before (staging mode). */
+  liveTractId?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -316,6 +328,7 @@ export default function TractMapEditor({
   hideTillable = false,
   tractNumber,
   siblingTracts,
+  liveTractId,
 }: TractMapEditorProps) {
   // Working polygon state — what's being edited on the map. Diverges
   // from initialPolygon while the user is drawing/clearing; reset on
@@ -1617,6 +1630,28 @@ export default function TractMapEditor({
     setSaving(true)
     setStatus(null)
     try {
+      // LIVE-TRACT mode (cleanup screen): write the polygon straight to the
+      // published tract via the restricted boundary-apply endpoint. It only
+      // updates polygon_coordinates + recomputes boundary_valid + regenerates
+      // the tract image — it can never touch status/price/sale_* fields.
+      if (liveTractId) {
+        const res = await fetchWithAuth(
+          `${API_URL}/api/admin/tract-fix-boundary/${liveTractId}/apply`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ coordinates: points }),
+          }
+        )
+        const data = await res.json()
+        if (!res.ok || !data.success) {
+          throw new Error(data.detail || data.error || `HTTP ${res.status}`)
+        }
+        setStatus(`✓ Saved${data.boundary_valid === false ? ' (acreage check: review)' : ''}`)
+        setDirty(false)
+        if (onUpdate) onUpdate({ polygon_coordinates: points, boundary_valid: data.boundary_valid })
+        return
+      }
       const res = await fetch(
         `${SCRAPER_URL}/api/staging/${stagingId}/tracts/${tractIndex}/save-boundary`,
         {
@@ -2041,6 +2076,33 @@ export default function TractMapEditor({
                   <span className="text-xs">Taking screenshot…</span>
                   <span className="text-[10px] text-gg-gray-600">Opening listing page with Playwright — may take 10–20 s</span>
                 </>
+              ) : liveTractId ? (
+                /* LIVE-TRACT (cleanup) mode: no scraper staging record to
+                   capture against, so we don't offer the Capture button.
+                   The human compares against the source-of-truth listing
+                   page directly — surface a prominent link to open it. */
+                <>
+                  <ExternalLink size={28} />
+                  {listingUrl ? (
+                    <a
+                      href={listingUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-3 py-1.5 text-sm font-semibold bg-gg-pink hover:bg-gg-pink-light text-white rounded-lg flex items-center gap-1"
+                      title="Open the auction / PT listing page — the source of truth for this boundary"
+                    >
+                      <ExternalLink size={14} /> Open Listing Page
+                    </a>
+                  ) : (
+                    <span className="text-xs">No source image — compare against the listing page</span>
+                  )}
+                  {listingUrl && (
+                    <span className="text-[10px] text-gg-gray-500 break-all">
+                      {listingUrl.replace(/^https?:\/\//, '').substring(0, 60)}
+                      {listingUrl.length > 66 ? '…' : ''}
+                    </span>
+                  )}
+                </>
               ) : (
                 <>
                   <Camera size={28} />
@@ -2150,7 +2212,7 @@ export default function TractMapEditor({
               Per user 2026-06-01: the inline staging-card map is a
               read-only preview; the tract polygon may only be edited
               from Full Screen. */}
-          {fullscreen && (
+          {fullscreen && !liveTractId && (
           <button
             onClick={() => setShowUploadPanel(prev => !prev)}
             disabled={extractingFromImage || extractingUrl}
@@ -2360,6 +2422,7 @@ export default function TractMapEditor({
           >
             <Move size={16} /> {moveMode ? 'Moving…' : 'Move'}
           </button>
+          {!liveTractId && (
           <button
             onClick={handleDelete}
             disabled={saving || deleting || deletingTillable}
@@ -2369,6 +2432,7 @@ export default function TractMapEditor({
             {deleting ? <Loader2 className="animate-spin" size={16} /> : <Trash2 size={16} />}
             Delete Tract
           </button>
+          )}
           <button
             onClick={handleCancel}
             disabled={!dirty || saving || deleting}

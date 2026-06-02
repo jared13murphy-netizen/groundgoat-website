@@ -6,8 +6,13 @@ export const dynamic = 'force-dynamic'
 
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
-import { Loader2, ExternalLink, MapPin, ChevronLeft, ChevronRight } from 'lucide-react'
+import {
+  Loader2, ExternalLink, MapPin, ChevronLeft, ChevronRight,
+  ChevronDown, ChevronUp, CheckCircle2, ArrowLeft, AlertTriangle,
+} from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
+import TractMapEditor from '@/components/admin/TractMapEditor'
+import TillableCluWorkshop from '@/components/admin/TillableCluWorkshop'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -17,21 +22,21 @@ const API_URL = 'https://practical-serenity-production.up.railway.app'
 const ACTIONABLE_STATES = ['IL', 'IA', 'MO', 'IN', 'WI', 'MN']
 const STAFF = ['Isaac', 'Haley', 'Brandt', 'Truly', 'Jared']
 const STATUSES = ['queued', 'in_progress', 'done', 'unfixable'] as const
-const PAGE_SIZE = 100
+const PAGE_SIZE = 25
 
 // Defect-reason → short label + tailwind color. These ONLY order/annotate the
 // queue; they never decide "this is the full defect set" (early-scraper fakes
 // pass every check), so a human still eyeballs every tract against the URL.
 const REASON_META: Record<string, { label: string; cls: string }> = {
-  poly_missing:           { label: 'No polygon',        cls: 'bg-red-500/20 text-red-300 border-red-500/40' },
-  poly_invalid:           { label: 'Invalid geom',      cls: 'bg-red-500/20 text-red-300 border-red-500/40' },
-  poly_degenerate:        { label: 'Degenerate',        cls: 'bg-red-500/20 text-red-300 border-red-500/40' },
-  duplicate_polygon:      { label: 'Duplicate',         cls: 'bg-orange-500/20 text-orange-300 border-orange-500/40' },
-  acreage_mismatch:       { label: 'Acreage off',       cls: 'bg-amber-500/20 text-amber-300 border-amber-500/40' },
-  boundary_valid_false:   { label: 'Flagged wrong',     cls: 'bg-amber-500/20 text-amber-300 border-amber-500/40' },
-  tillable_acres_missing: { label: 'No tillable',       cls: 'bg-sky-500/20 text-sky-300 border-sky-500/40' },
-  rating_missing:         { label: 'No soil rating',    cls: 'bg-purple-500/20 text-purple-300 border-purple-500/40' },
-  rating_wrong_type:      { label: 'Wrong rating type', cls: 'bg-purple-500/20 text-purple-300 border-purple-500/40' },
+  poly_missing:           { label: 'No polygon',        cls: 'bg-red-500/20 text-red-600 border-red-500/40' },
+  poly_invalid:           { label: 'Invalid geom',      cls: 'bg-red-500/20 text-red-600 border-red-500/40' },
+  poly_degenerate:        { label: 'Degenerate',        cls: 'bg-red-500/20 text-red-600 border-red-500/40' },
+  duplicate_polygon:      { label: 'Duplicate',         cls: 'bg-orange-500/20 text-orange-600 border-orange-500/40' },
+  acreage_mismatch:       { label: 'Acreage off',       cls: 'bg-amber-500/20 text-amber-600 border-amber-500/40' },
+  boundary_valid_false:   { label: 'Flagged wrong',     cls: 'bg-amber-500/20 text-amber-600 border-amber-500/40' },
+  tillable_acres_missing: { label: 'No tillable',       cls: 'bg-sky-500/20 text-sky-600 border-sky-500/40' },
+  rating_missing:         { label: 'No soil rating',    cls: 'bg-purple-500/20 text-purple-600 border-purple-500/40' },
+  rating_wrong_type:      { label: 'Wrong rating type', cls: 'bg-purple-500/20 text-purple-600 border-purple-500/40' },
 }
 
 type QueueItem = {
@@ -60,6 +65,34 @@ type Stats = {
   by_assignee: Record<string, number>
 }
 
+// Minimal shape we read off /api/listings/{id} tracts. The endpoint returns
+// the full TractResponse; we only touch these fields.
+type LiveTract = {
+  id: string
+  tract_number: number
+  total_acres: number | null
+  tillable_acres: number | null
+  soil_rating: number | null
+  soil_rating_type: string | null
+  county_name: string | null
+  state_abbr: string | null
+  latitude: number | null
+  longitude: number | null
+  polygon_coordinates: [number, number][] | null
+  tillable_polygon: any
+  boundary_valid: boolean | null
+  boundary_reviewed_by: string | null
+  boundary_reviewed_at: string | null
+}
+
+type LoadedListing = {
+  loading: boolean
+  error: string | null
+  source_url: string | null
+  state: string | null
+  tracts: LiveTract[]
+}
+
 function statusLabel(s: string) {
   return s === 'in_progress' ? 'In progress'
     : s.charAt(0).toUpperCase() + s.slice(1)
@@ -82,6 +115,17 @@ export default function TractDataCleanupPage() {
 
   // Per-row in-flight markers so dropdowns disable while saving.
   const [savingId, setSavingId] = useState<string | null>(null)
+
+  // Expanded card → its loaded live tracts (lazy-fetched from /api/listings/{id}).
+  // Only the expanded listing mounts the heavy MapLibre editors, mirroring how
+  // the staging page lazy-mounts maps to avoid WebGL context exhaustion.
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [loadedListings, setLoadedListings] = useState<Record<string, LoadedListing>>({})
+  // Bumped per-tract whenever a boundary is saved so the CLU workshop re-fetches
+  // its field polygons against the new tract polygon.
+  const [cluReloadKeys, setCluReloadKeys] = useState<Record<string, number>>({})
+  // Per-tract in-flight marker for the Mark Reviewed button.
+  const [reviewingTractId, setReviewingTractId] = useState<string | null>(null)
 
   const loadStats = useCallback(async () => {
     try {
@@ -117,11 +161,76 @@ export default function TractDataCleanupPage() {
 
   useEffect(() => { loadStats() }, [loadStats])
   useEffect(() => { loadQueue() }, [loadQueue])
-  // Reset to first page whenever a filter changes.
-  useEffect(() => { setOffset(0) }, [stateFilter, assigneeFilter, statusFilter, soldOnly, priorityOnly])
+  // Reset to first page + collapse whenever a filter changes.
+  useEffect(() => { setOffset(0); setExpandedId(null) }, [stateFilter, assigneeFilter, statusFilter, soldOnly, priorityOnly])
 
   const patchRow = (lid: string, fields: Partial<QueueItem>) =>
     setItems((prev) => prev.map((it) => (it.listing_id === lid ? { ...it, ...fields } : it)))
+
+  // Fetch the full listing (with tracts) for an expanded card. Read-only:
+  // the queue endpoint returns no polygons, so we pull them here.
+  const loadListing = useCallback(async (lid: string) => {
+    setLoadedListings((prev) => ({
+      ...prev,
+      [lid]: { loading: true, error: null, source_url: null, state: null, tracts: prev[lid]?.tracts || [] },
+    }))
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/listings/${lid}`)
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`)
+      const tracts: LiveTract[] = (data.tracts || []).map((t: any) => ({
+        id: t.id,
+        tract_number: t.tract_number,
+        total_acres: t.total_acres != null ? Number(t.total_acres) : null,
+        tillable_acres: t.tillable_acres != null ? Number(t.tillable_acres) : null,
+        soil_rating: t.soil_rating != null ? Number(t.soil_rating) : null,
+        soil_rating_type: t.soil_rating_type ?? null,
+        county_name: t.county_name ?? null,
+        state_abbr: t.state_abbr ?? null,
+        latitude: t.latitude != null ? Number(t.latitude) : null,
+        longitude: t.longitude != null ? Number(t.longitude) : null,
+        polygon_coordinates: Array.isArray(t.polygon_coordinates) ? t.polygon_coordinates : null,
+        tillable_polygon: t.tillable_polygon ?? null,
+        boundary_valid: t.boundary_valid ?? null,
+        boundary_reviewed_by: t.boundary_reviewed_by ?? null,
+        boundary_reviewed_at: t.boundary_reviewed_at ?? null,
+      }))
+      // Sort by tract number so the order matches the listing page.
+      tracts.sort((a, b) => (a.tract_number ?? 0) - (b.tract_number ?? 0))
+      setLoadedListings((prev) => ({
+        ...prev,
+        [lid]: {
+          loading: false, error: null,
+          source_url: data.source_url ?? null,
+          state: data.state ?? (tracts[0]?.state_abbr ?? null),
+          tracts,
+        },
+      }))
+    } catch (e: any) {
+      setLoadedListings((prev) => ({
+        ...prev,
+        [lid]: { loading: false, error: e.message || String(e), source_url: null, state: null, tracts: [] },
+      }))
+    }
+  }, [])
+
+  function toggleExpand(lid: string) {
+    if (expandedId === lid) { setExpandedId(null); return }
+    setExpandedId(lid)
+    if (!loadedListings[lid] || loadedListings[lid].error) loadListing(lid)
+  }
+
+  // Patch a single live tract in the loaded-listing cache.
+  function patchTract(lid: string, tractId: string, fields: Partial<LiveTract>) {
+    setLoadedListings((prev) => {
+      const cur = prev[lid]
+      if (!cur) return prev
+      return {
+        ...prev,
+        [lid]: { ...cur, tracts: cur.tracts.map((t) => (t.id === tractId ? { ...t, ...fields } : t)) },
+      }
+    })
+  }
 
   async function setAssignee(lid: string, value: string) {
     const assigned_to = value || null
@@ -158,20 +267,61 @@ export default function TractDataCleanupPage() {
     } finally { setSavingId(null) }
   }
 
+  // Mark a tract human-reviewed-correct (or clear it). Writes ONLY the review
+  // columns via the restricted endpoint — never polygon/tillable/soil/price.
+  async function toggleReviewed(lid: string, tract: LiveTract) {
+    const next = !tract.boundary_reviewed_by
+    setReviewingTractId(tract.id)
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/admin/tract-cleanup/tract/${tract.id}/review`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reviewed: next }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.success) throw new Error(data.detail || `HTTP ${res.status}`)
+      patchTract(lid, tract.id, {
+        boundary_reviewed_by: next ? 'you' : null,
+        boundary_reviewed_at: next ? new Date().toISOString() : null,
+      })
+    } catch (e: any) {
+      alert(`Could not update review state: ${e.message || e}`)
+    } finally { setReviewingTractId(null) }
+  }
+
   const pageStart = total === 0 ? 0 : offset + 1
   const pageEnd = Math.min(offset + PAGE_SIZE, total)
 
   return (
-    <div className="min-h-screen bg-gg-gray-950 text-white p-6">
-      <div className="max-w-6xl mx-auto">
-        <div className="flex items-center justify-between mb-1">
-          <h1 className="text-2xl font-bold">Tract Data Clean-Up</h1>
-          <Link href="/admin/dashboard" className="text-sm text-gg-pink hover:underline">← Dashboard</Link>
+    // `staging-light` (defined in globals.css) flips the dark gg-* tokens to a
+    // light theme — matches the Auction Staging screen the user wants this to
+    // look and work just like.
+    <div className="staging-light min-h-screen bg-gg-black pt-24 pb-12">
+      <div className="max-w-7xl mx-auto px-6">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-4">
+            <Link href="/admin/dashboard" className="text-gg-gray-400 hover:text-white transition-colors">
+              <ArrowLeft size={24} />
+            </Link>
+            <div>
+              <h1 className="font-display text-3xl font-bold text-white">Tract Data Clean-Up</h1>
+              <p className="text-gg-gray-400 text-sm">
+                {total} listing{total === 1 ? '' : 's'} with tracts{total > PAGE_SIZE && ` (page ${Math.floor(offset / PAGE_SIZE) + 1} of ${Math.ceil(total / PAGE_SIZE)})`}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => { loadQueue(); loadStats() }}
+            className="px-4 py-2 bg-gg-gray-800 text-white rounded-lg hover:bg-gg-gray-700 transition-colors text-sm"
+          >
+            Refresh
+          </button>
         </div>
-        <p className="text-sm text-gg-gray-400 mb-4">
-          Every listing with tracts is here. A human confirms each tract against its
-          source URL — correct polygon, tillable polygon, and soil rating — or flags it.
-          Reason badges only order the queue; they don&apos;t decide what&apos;s wrong.
+        <p className="text-sm text-gg-gray-400 mb-4 max-w-3xl">
+          Every listing with tracts is here. Expand one to fix each tract against
+          its source URL — correct polygon, tillable polygon (CLU workshop), and
+          soil rating — exactly like the staging screen. Reason badges only order
+          the queue; a human still confirms every tract.
         </p>
 
         {/* Header stats */}
@@ -188,7 +338,7 @@ export default function TractDataCleanupPage() {
         <div className="flex flex-wrap items-center gap-2 mb-4">
           <label className="text-xs text-gg-gray-400 uppercase tracking-wide">State:</label>
           <select value={stateFilter} onChange={(e) => setStateFilter(e.target.value)}
-            className="bg-gg-gray-900 border border-gg-gray-700 rounded px-2 py-1 text-sm">
+            className="bg-gg-gray-800 border border-gg-gray-700 rounded px-2 py-1 text-sm text-white">
             <option value="">All states</option>
             {stats && Object.entries(stats.by_state)
               .sort((a, b) => b[1] - a[1])
@@ -201,7 +351,7 @@ export default function TractDataCleanupPage() {
 
           <label className="text-xs text-gg-gray-400 uppercase tracking-wide ml-2">Assigned:</label>
           <select value={assigneeFilter} onChange={(e) => setAssigneeFilter(e.target.value)}
-            className="bg-gg-gray-900 border border-gg-gray-700 rounded px-2 py-1 text-sm">
+            className="bg-gg-gray-800 border border-gg-gray-700 rounded px-2 py-1 text-sm text-white">
             <option value="">All</option>
             <option value="__unassigned__">Unassigned</option>
             {STAFF.map((p) => <option key={p} value={p}>{p}</option>)}
@@ -211,7 +361,7 @@ export default function TractDataCleanupPage() {
           <div className="inline-flex rounded overflow-hidden border border-gg-gray-700">
             {['', ...STATUSES].map((opt) => (
               <button key={opt || 'all'} onClick={() => setStatusFilter(opt)}
-                className={`px-3 py-1 text-xs ${statusFilter === opt ? 'bg-gg-pink/30 text-gg-pink' : 'bg-gg-gray-900 text-gg-gray-300 hover:bg-gg-gray-800'}`}>
+                className={`px-3 py-1 text-xs ${statusFilter === opt ? 'bg-gg-pink/30 text-gg-pink' : 'bg-gg-gray-800 text-gg-gray-300 hover:bg-gg-gray-700'}`}>
                 {opt ? statusLabel(opt) : 'All'}
               </button>
             ))}
@@ -229,12 +379,12 @@ export default function TractDataCleanupPage() {
         <div className="flex items-center justify-between mb-3 text-sm text-gg-gray-400">
           <span>{loading ? 'Loading…' : `${pageStart}–${pageEnd} of ${total} listings`}</span>
           <div className="flex items-center gap-2">
-            <button disabled={offset === 0 || loading} onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
-              className="px-2 py-1 rounded border border-gg-gray-700 disabled:opacity-40 hover:bg-gg-gray-800 flex items-center gap-1">
+            <button disabled={offset === 0 || loading} onClick={() => { setOffset(Math.max(0, offset - PAGE_SIZE)); setExpandedId(null) }}
+              className="px-2 py-1 rounded border border-gg-gray-700 disabled:opacity-40 hover:bg-gg-gray-700 flex items-center gap-1">
               <ChevronLeft size={14} /> Prev
             </button>
-            <button disabled={pageEnd >= total || loading} onClick={() => setOffset(offset + PAGE_SIZE)}
-              className="px-2 py-1 rounded border border-gg-gray-700 disabled:opacity-40 hover:bg-gg-gray-800 flex items-center gap-1">
+            <button disabled={pageEnd >= total || loading} onClick={() => { setOffset(offset + PAGE_SIZE); setExpandedId(null) }}
+              className="px-2 py-1 rounded border border-gg-gray-700 disabled:opacity-40 hover:bg-gg-gray-700 flex items-center gap-1">
               Next <ChevronRight size={14} />
             </button>
           </div>
@@ -250,21 +400,31 @@ export default function TractDataCleanupPage() {
         )}
 
         {!loading && !error && (
-          <div className="space-y-2">
+          <div className="space-y-3">
             {items.map((it) => {
               const actionable = it.state ? ACTIONABLE_STATES.includes(it.state) : false
               const reasons = it.flagged_reasons ? Object.entries(it.flagged_reasons) : []
+              const expanded = expandedId === it.listing_id
+              const loaded = loadedListings[it.listing_id]
               return (
                 <div key={it.listing_id}
-                  className={`bg-gg-gray-900 border rounded-lg p-3 ${it.priority ? 'border-gg-pink/40' : 'border-gg-gray-800'}`}>
-                  <div className="flex items-start gap-3">
-                    <div className="flex-1 min-w-0">
+                  className={`bg-gg-gray-900 border rounded-lg ${it.priority ? 'border-gg-pink/40' : 'border-gg-gray-800'}`}>
+                  {/* Summary row (always shown) */}
+                  <div className="flex items-start gap-3 p-3">
+                    <button
+                      onClick={() => toggleExpand(it.listing_id)}
+                      className="mt-0.5 text-gg-gray-400 hover:text-gg-pink shrink-0"
+                      title={expanded ? 'Collapse' : 'Open editor'}
+                    >
+                      {expanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                    </button>
+                    <div className="flex-1 min-w-0 cursor-pointer" onClick={() => toggleExpand(it.listing_id)}>
                       <div className="flex items-center gap-2 flex-wrap">
-                        <h2 className="font-semibold text-white truncate max-w-md">{it.title || '(untitled)'}</h2>
+                        <h2 className="font-semibold text-white truncate max-w-xl">{it.title || '(untitled)'}</h2>
                         {it.is_sold && <span className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-gg-gray-800 text-gg-gray-300 border border-gg-gray-700">Sold</span>}
                         {it.priority && <span className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-gg-pink/20 text-gg-pink border border-gg-pink/40">Priority</span>}
                         {!actionable && (
-                          <span className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-yellow-500/15 text-yellow-300 border border-yellow-500/40"
+                          <span className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-yellow-500/15 text-yellow-600 border border-yellow-500/40"
                             title="Soil mapping not done for this state — view only, don't update tillable/soil yet">
                             Soil not mapped — hold
                           </span>
@@ -274,7 +434,8 @@ export default function TractDataCleanupPage() {
                         <span className="flex items-center gap-1"><MapPin size={11} />{it.county || '—'}, {it.state || '—'}</span>
                         <span>{it.tract_count} tract{it.tract_count === 1 ? '' : 's'}{it.defect_tract_count > 0 ? ` · ${it.defect_tract_count} flagged` : ''}</span>
                         {it.source_url && (
-                          <a href={it.source_url} target="_blank" rel="noreferrer" className="text-gg-pink hover:underline flex items-center gap-1">
+                          <a href={it.source_url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}
+                            className="text-gg-pink hover:underline flex items-center gap-1">
                             Source <ExternalLink size={10} />
                           </a>
                         )}
@@ -297,22 +458,186 @@ export default function TractDataCleanupPage() {
                     <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
                       <select value={it.assigned_to || ''} disabled={savingId === it.listing_id}
                         onChange={(e) => setAssignee(it.listing_id, e.target.value)}
-                        className="bg-gg-gray-950 border border-gg-gray-700 rounded px-2 py-1 text-xs disabled:opacity-50">
+                        className="bg-gg-gray-800 border border-gg-gray-700 rounded px-2 py-1 text-xs text-white disabled:opacity-50">
                         <option value="">Unassigned</option>
                         {STAFF.map((p) => <option key={p} value={p}>{p}</option>)}
                       </select>
                       <select value={it.cleanup_status} disabled={savingId === it.listing_id}
                         onChange={(e) => setStatus(it.listing_id, e.target.value)}
-                        className="bg-gg-gray-950 border border-gg-gray-700 rounded px-2 py-1 text-xs disabled:opacity-50">
+                        className="bg-gg-gray-800 border border-gg-gray-700 rounded px-2 py-1 text-xs text-white disabled:opacity-50">
                         {STATUSES.map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
                       </select>
-                      <button disabled
-                        title="Per-tract editor — coming in the next stage"
-                        className="text-xs px-2 py-1 rounded border border-gg-gray-700 text-gg-gray-500 cursor-not-allowed">
-                        Edit tracts (soon)
-                      </button>
                     </div>
                   </div>
+
+                  {/* Expanded editor — the staging-style per-tract blocks */}
+                  {expanded && (
+                    <div className="border-t border-gg-gray-800 p-4">
+                      {loaded?.loading && (
+                        <div className="flex items-center gap-2 text-gg-gray-400 py-6 justify-center">
+                          <Loader2 className="animate-spin" size={16} /> Loading tracts…
+                        </div>
+                      )}
+                      {loaded?.error && (
+                        <div className="bg-red-900/40 border border-red-600 rounded p-3 text-red-300 text-sm">
+                          Failed to load tracts: {loaded.error}
+                          <button onClick={() => loadListing(it.listing_id)} className="ml-3 underline">Retry</button>
+                        </div>
+                      )}
+
+                      {!actionable && (
+                        <div className="flex items-center gap-2 mb-4 px-3 py-2 bg-yellow-500/10 border border-yellow-500/40 rounded-lg">
+                          <AlertTriangle size={16} className="text-yellow-600 flex-shrink-0" />
+                          <span className="text-yellow-700 text-sm">
+                            Soil mapping isn&apos;t done for {it.state || 'this state'} yet — tracts are shown for
+                            review but the polygon / tillable / soil editors are locked. Don&apos;t update these yet.
+                          </span>
+                        </div>
+                      )}
+
+                      {loaded && !loaded.loading && !loaded.error && loaded.tracts.length === 0 && (
+                        <div className="text-gg-gray-400 text-sm py-4">This listing has no tracts.</div>
+                      )}
+
+                      {loaded && !loaded.loading && loaded.tracts.length > 0 && (
+                        <div className="space-y-6">
+                          {loaded.tracts.map((tract) => {
+                            const tractKey = `${it.listing_id}-${tract.id}`
+                            const reviewed = !!tract.boundary_reviewed_by
+                            // View on Map target: polygon centroid → tract coord → null.
+                            let fLat: number | null = tract.latitude
+                            let fLng: number | null = tract.longitude
+                            const ring = tract.polygon_coordinates
+                            if (ring && ring.length) {
+                              let sx = 0, sy = 0, n = 0
+                              for (const p of ring) {
+                                if (Array.isArray(p) && p.length >= 2 && Number.isFinite(p[0]) && Number.isFinite(p[1])) {
+                                  sx += p[0]; sy += p[1]; n++
+                                }
+                              }
+                              if (n) { fLng = sx / n; fLat = sy / n }
+                            }
+                            const mapDisabled = fLat == null || fLng == null
+                            return (
+                              <div key={tract.id} className="border-t border-gg-gray-800 pt-4 first:border-t-0 first:pt-0">
+                                {/* Tract header + View on Map */}
+                                <div className="flex items-center justify-between mb-2">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <p className="text-2xl text-white font-extrabold tracking-tight">
+                                      Tract {tract.tract_number}
+                                    </p>
+                                    {reviewed && (
+                                      <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded bg-green-500/15 text-green-600 border border-green-500/40">
+                                        <CheckCircle2 size={12} /> Reviewed
+                                      </span>
+                                    )}
+                                    {tract.boundary_valid === false && (
+                                      <span className="text-[11px] px-2 py-0.5 rounded bg-amber-500/15 text-amber-600 border border-amber-500/40">
+                                        Acreage check
+                                      </span>
+                                    )}
+                                  </div>
+                                  <button
+                                    type="button"
+                                    disabled={mapDisabled}
+                                    title={mapDisabled ? 'No location available for this tract' : 'Open this tract on the Explore map'}
+                                    onClick={() => {
+                                      const params = new URLSearchParams({
+                                        focusLat: String(fLat), focusLng: String(fLng), focusZoom: '15',
+                                      })
+                                      window.open(`/access?${params.toString()}`, '_blank')
+                                    }}
+                                    className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors shadow-sm ${
+                                      mapDisabled ? 'bg-gg-gray-800 text-gg-gray-600 cursor-not-allowed' : 'bg-gg-pink text-white hover:bg-gg-pink-light'
+                                    }`}
+                                  >
+                                    <MapPin size={14} /> View on Map
+                                  </button>
+                                </div>
+
+                                {/* Read-only data summary */}
+                                <div className="flex flex-wrap gap-x-5 gap-y-1 mb-2 text-xs text-gg-gray-400">
+                                  <span>Total: <span className="text-white font-medium">{tract.total_acres != null ? `${tract.total_acres.toFixed(1)} ac` : '—'}</span></span>
+                                  <span>Tillable: <span className="text-white font-medium">{tract.tillable_acres != null ? `${tract.tillable_acres.toFixed(1)} ac` : '—'}</span></span>
+                                  <span>Soil: <span className="text-white font-medium">{tract.soil_rating != null ? `${tract.soil_rating.toFixed(1)} ${tract.soil_rating_type || ''}` : '—'}</span></span>
+                                  <span>Polygon: <span className="text-white font-medium">{ring && ring.length ? `${ring.length} pts` : 'none'}</span></span>
+                                </div>
+
+                                {actionable ? (
+                                  <>
+                                    {/* LIVE-TRACT boundary editor — saves ONLY the polygon via
+                                        the restricted tract-fix-boundary/apply endpoint. */}
+                                    <TractMapEditor
+                                      stagingId={0}
+                                      tractIndex={0}
+                                      liveTractId={tract.id}
+                                      tractNumber={tract.tract_number}
+                                      initialPolygon={ring}
+                                      hideTillable
+                                      tillablePolygon={null}
+                                      showTillable={false}
+                                      listingUrl={loaded.source_url || it.source_url}
+                                      listingState={tract.state_abbr || it.state}
+                                      scrapedAcres={tract.total_acres}
+                                      latitude={tract.latitude}
+                                      longitude={tract.longitude}
+                                      onUpdate={(updated) => {
+                                        patchTract(it.listing_id, tract.id, {
+                                          polygon_coordinates: updated.polygon_coordinates ?? ring,
+                                          boundary_valid: updated.boundary_valid ?? tract.boundary_valid,
+                                        })
+                                        setCluReloadKeys((prev) => ({ ...prev, [tractKey]: (prev[tractKey] || 0) + 1 }))
+                                      }}
+                                    />
+                                    {/* FSA-CLU tillable workshop — live published-tract mode. */}
+                                    <TillableCluWorkshop
+                                      tractId={tract.id}
+                                      reloadKey={cluReloadKeys[tractKey] || 0}
+                                      latitude={tract.latitude}
+                                      longitude={tract.longitude}
+                                      onSaved={(r) => {
+                                        patchTract(it.listing_id, tract.id, {
+                                          tillable_acres: r.tillable_acres ?? tract.tillable_acres,
+                                          soil_rating: r.soil_rating ?? tract.soil_rating,
+                                          soil_rating_type: r.soil_rating_type ?? tract.soil_rating_type,
+                                        })
+                                      }}
+                                    />
+                                    {/* Done = human confirmed polygon + tillable + soil. */}
+                                    <div className="flex items-center gap-3 mt-3">
+                                      <button
+                                        onClick={() => toggleReviewed(it.listing_id, tract)}
+                                        disabled={reviewingTractId === tract.id}
+                                        className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 ${
+                                          reviewed
+                                            ? 'bg-green-600 text-white hover:bg-green-700'
+                                            : 'bg-gg-gray-800 text-white border border-gg-gray-700 hover:bg-gg-gray-700'
+                                        }`}
+                                      >
+                                        {reviewingTractId === tract.id
+                                          ? <Loader2 className="animate-spin" size={16} />
+                                          : <CheckCircle2 size={16} />}
+                                        {reviewed ? 'Reviewed ✓ (click to undo)' : 'Mark tract reviewed'}
+                                      </button>
+                                      {reviewed && tract.boundary_reviewed_at && (
+                                        <span className="text-xs text-gg-gray-500">
+                                          {new Date(tract.boundary_reviewed_at).toLocaleString()}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </>
+                                ) : (
+                                  <div className="text-sm text-gg-gray-500 italic py-2">
+                                    Editors locked — {it.state || 'this state'} soil mapping pending.
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )
             })}
