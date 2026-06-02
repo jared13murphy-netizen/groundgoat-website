@@ -1757,18 +1757,8 @@ export default function AdminStagingPage() {
                           </p>
                         )}
 
-                        {/* Confidence Badge */}
-                        {!listing.is_incomplete && listing.scraped_data?.tracts?.length > 0 && (
-                          <div className="flex items-center gap-2 mb-3 px-3 py-2 bg-green-500/10 border border-green-500/30 rounded-lg">
-                            <CheckCircle size={16} className="text-green-400 flex-shrink-0" />
-                            <span className="text-green-400 font-medium text-sm">COMPLETE</span>
-                            {listing.scraped_data?.tracts?.[0]?._matching_strategy && (
-                              <span className="text-green-400/70 text-xs ml-1">
-                                Matched by: {listing.scraped_data.tracts[0]._matching_strategy}
-                              </span>
-                            )}
-                          </div>
-                        )}
+                        {/* Confidence/COMPLETE badge removed per user
+                            2026-06-02 — redundant status chip on the card. */}
 
                         {/* Action Buttons */}
                         {listingHasUnsaved(listing.id) && (

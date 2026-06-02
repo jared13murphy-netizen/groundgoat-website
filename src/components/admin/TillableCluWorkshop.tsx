@@ -885,7 +885,9 @@ export default function TillableCluWorkshop({
               Tillable: {tillableAcres.toFixed(2)} ac
             </span>
             <span className="text-gg-gray-400">
-              of {tractAcres != null ? tractAcres.toFixed(2) : '?'} tract ac
+              of {tractPolygon && tractPolygon.length >= 3
+                    ? polygonAcres(tractPolygon).toFixed(2)
+                    : tractAcres != null ? tractAcres.toFixed(2) : '?'} tract ac
               {reportedAcres != null && ` · reported ${Number(reportedAcres).toFixed(2)}`}
             </span>
             <span className="text-gg-gray-500">

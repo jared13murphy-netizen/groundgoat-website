@@ -48,7 +48,7 @@ import {
   Maximize2, Minimize2, Crosshair, Camera, Sparkles, Move, Spline,
   ExternalLink,
 } from 'lucide-react'
-import { polygonPerimeterFeet, formatPerimeter } from '@/lib/polygonGeometry'
+import { polygonAcres, polygonPerimeterFeet, formatPerimeter } from '@/lib/polygonGeometry'
 import { fetchWithAuth } from '@/lib/fetchWithAuth'
 
 const SCRAPER_URL = 'https://ground-goat-scraper-production.up.railway.app'
@@ -206,20 +206,14 @@ function buildVertexGeo(points: Pt[]) {
   } as any
 }
 
+// Single source of truth for drawn-acreage: delegate to the shared
+// polygonAcres (111,320 m/deg shoelace). The old local formula used
+// 69.0 miles/deg (≈111,044 m), which read ~0.5% LOW vs the Acres-card
+// sum and the backend/workshop — so the editor preview disagreed with
+// the staging Acres card and the Tillable Workshop tract-acres for the
+// SAME polygon. Now all three compute identically.
 function gisAcres(points: Pt[]): number {
-  if (points.length < 3) return 0
-  let area = 0
-  const n = points.length
-  for (let i = 0; i < n; i++) {
-    const [x1, y1] = points[i]
-    const [x2, y2] = points[(i + 1) % n]
-    area += x1 * y2 - x2 * y1
-  }
-  area = Math.abs(area) / 2
-  const centerLat = points.reduce((s, p) => s + p[1], 0) / n
-  const latMiles = 69.0
-  const lngMiles = 69.0 * Math.cos(centerLat * Math.PI / 180)
-  return area * latMiles * lngMiles * 640
+  return polygonAcres(points)
 }
 
 // ── Douglas–Peucker simplification (per user 2026-06-01) ──
