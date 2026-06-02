@@ -8,6 +8,8 @@ import { Loader2, Pencil, Trash2, Building2, ArrowLeft, ExternalLink, Plus, X } 
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
+const PAGE_SIZE = 50
+
 interface Company {
   id: string
   name: string
@@ -41,6 +43,7 @@ const US_STATES = [
 export default function AdminCompaniesPage() {
   const router = useRouter()
   const [companies, setCompanies] = useState<Company[]>([])
+  const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
   const [showAddModal, setShowAddModal] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -192,6 +195,11 @@ export default function AdminCompaniesPage() {
     )
   }
 
+  const totalPages = Math.max(1, Math.ceil(companies.length / PAGE_SIZE))
+  const safePage = Math.min(page, totalPages)
+  const pageStart = (safePage - 1) * PAGE_SIZE
+  const paginatedCompanies = companies.slice(pageStart, pageStart + PAGE_SIZE)
+
   return (
     <div className="min-h-screen bg-gg-black pt-24 pb-12">
       <div className="max-w-5xl mx-auto px-6">
@@ -203,7 +211,12 @@ export default function AdminCompaniesPage() {
             </Link>
             <div>
               <h1 className="font-display text-3xl font-bold text-white">Companies</h1>
-              <p className="text-gg-gray-400">{companies.length} auction companies</p>
+              <p className="text-gg-gray-400">
+                {companies.length} auction companies
+                {companies.length > PAGE_SIZE && (
+                  <> · showing {pageStart + 1}–{Math.min(pageStart + PAGE_SIZE, companies.length)}</>
+                )}
+              </p>
             </div>
           </div>
           <button
@@ -340,7 +353,7 @@ export default function AdminCompaniesPage() {
 
         {/* Companies List */}
         <div className="space-y-2">
-          {companies.map((company) => (
+          {paginatedCompanies.map((company) => (
             <Link
               key={company.id}
               href={`/admin/listings?company=${company.id}`}
@@ -438,6 +451,29 @@ export default function AdminCompaniesPage() {
             </Link>
           ))}
         </div>
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-center gap-3 mt-6">
+            <button
+              onClick={() => setPage(p => Math.max(1, p - 1))}
+              disabled={safePage <= 1}
+              className="px-4 py-2 bg-gg-gray-800 text-white rounded-lg hover:bg-gg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Previous
+            </button>
+            <span className="text-gg-gray-400 text-sm">
+              Page {safePage} of {totalPages}
+            </span>
+            <button
+              onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+              disabled={safePage >= totalPages}
+              className="px-4 py-2 bg-gg-gray-800 text-white rounded-lg hover:bg-gg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Next
+            </button>
+          </div>
+        )}
 
         {/* Empty State */}
         {companies.length === 0 && (
