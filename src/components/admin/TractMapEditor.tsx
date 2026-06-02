@@ -2329,8 +2329,12 @@ export default function TractMapEditor({
           {/* Tract editing tools (Upload Image) — only in Full Screen.
               Per user 2026-06-01: the inline staging-card map is a
               read-only preview; the tract polygon may only be edited
-              from Full Screen. */}
-          {fullscreen && !liveTractId && (
+              from Full Screen.
+              Per user 2026-06-02: also available in live-tract mode
+              (data-cleanup full-screen builder) — extraction only loads
+              the polygon as an unsaved edit; Save still routes through the
+              restricted tract-fix-boundary/apply endpoint. */}
+          {fullscreen && (
           <button
             onClick={() => setShowUploadPanel(prev => !prev)}
             disabled={extractingFromImage || extractingUrl}
