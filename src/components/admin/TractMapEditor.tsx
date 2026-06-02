@@ -1885,6 +1885,13 @@ export default function TractMapEditor({
               not a percent threshold. One click scales the polygon
               about its centroid to match the scraped value exactly. */}
           {(() => {
+            // Align scales the tract polygon, so it is a tract edit and
+            // must only appear where Save lives: full screen. The inline
+            // staging map is a read-only preview (all point-editing
+            // handlers early-return when not fullscreen). Showing Align
+            // inline let users dirty the tract with no Save button on
+            // screen, which also disabled Verify — a deadlock.
+            if (!fullscreen || drawTillableMode) return null
             const target = Number(scrapedAcres)
             if (!isFinite(target) || target <= 0) return null
             if (points.length < 3) return null

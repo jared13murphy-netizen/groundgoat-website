@@ -1758,17 +1758,6 @@ export default function AdminStagingPage() {
                         )}
 
                         {/* Confidence Badge */}
-                        {listing.is_incomplete && (
-                          <div className="flex items-center gap-2 mb-3 px-3 py-2 bg-orange-500/10 border border-orange-500/30 rounded-lg">
-                            <AlertTriangle size={16} className="text-orange-400 flex-shrink-0" />
-                            <div>
-                              <span className="text-orange-400 font-medium text-sm">INCOMPLETE</span>
-                              {listing.incomplete_reason && (
-                                <span className="text-orange-400/70 text-xs ml-2">{listing.incomplete_reason.replace(/_/g, ' ')}</span>
-                              )}
-                            </div>
-                          </div>
-                        )}
                         {!listing.is_incomplete && listing.scraped_data?.tracts?.length > 0 && (
                           <div className="flex items-center gap-2 mb-3 px-3 py-2 bg-green-500/10 border border-green-500/30 rounded-lg">
                             <CheckCircle size={16} className="text-green-400 flex-shrink-0" />
