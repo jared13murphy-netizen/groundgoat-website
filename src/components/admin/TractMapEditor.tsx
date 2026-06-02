@@ -2052,10 +2052,10 @@ export default function TractMapEditor({
                   <Camera size={28} />
                   <button
                     onClick={handleCaptureSourceImage}
-                    className="px-3 py-1.5 text-xs bg-gg-gray-600 hover:bg-gg-gray-500 text-white border border-gg-gray-400/60 text-white rounded flex items-center gap-1.5"
+                    className="px-3 py-1.5 text-sm font-semibold bg-gg-pink hover:bg-gg-pink-light text-white rounded-lg flex items-center gap-1"
                     title="Take a Playwright screenshot of the listing page and store it here"
                   >
-                    <Camera size={12} /> Capture Screenshot
+                    <Camera size={14} /> Capture Screenshot
                   </button>
                   {listingUrl && (
                     <a
@@ -2175,12 +2175,12 @@ export default function TractMapEditor({
           )}
           <button
             onClick={() => setFullscreen(prev => !prev)}
-            className="px-2 py-1 text-xs bg-gg-gray-600 hover:bg-gg-gray-500 text-white border border-gg-gray-400/60 rounded flex items-center gap-1"
+            className="px-3 py-1.5 text-sm font-semibold bg-gg-pink hover:bg-gg-pink-light text-white rounded-lg flex items-center gap-1"
             title={fullscreen ? 'Exit full screen (Esc)' : 'Open full-screen editor'}
           >
             {fullscreen
-              ? (<><Minimize2 size={12} /> Exit Full Screen</>)
-              : (<><Maximize2 size={12} /> Full Screen</>)}
+              ? (<><Minimize2 size={14} /> Exit Full Screen</>)
+              : (<><Maximize2 size={14} /> Full Screen</>)}
           </button>
           {/* Tillable toolbar — three modes per user 2026-05-26:
               A. Drawing a new tillable polygon (drawTillableMode=true):

@@ -796,12 +796,12 @@ export default function TillableCluWorkshop({
           <button
             onClick={toggleDrawMode}
             disabled={!loaded}
-            className={`px-2 py-1 rounded flex items-center gap-1 font-semibold disabled:opacity-40 ${
-              drawMode ? 'bg-yellow-500 text-black' : 'bg-gg-gray-600 hover:bg-gg-gray-500 border border-gg-gray-400/60 text-white'
+            className={`px-3 py-1.5 text-sm rounded-lg flex items-center gap-1 font-semibold disabled:opacity-40 ${
+              drawMode ? 'bg-yellow-500 text-black' : 'bg-gg-pink hover:bg-gg-pink-light text-white'
             }`}
             title="Draw tillable polygons by hand (use when the 2008 FSA CLU is wrong for this tract)"
           >
-            <Pencil size={12} />
+            <Pencil size={14} />
             {drawMode ? 'Drawing…' : 'Draw Tillable'}
           </button>
           {drawMode && (
@@ -898,19 +898,19 @@ export default function TillableCluWorkshop({
           <button
             onClick={handleComputeSoil}
             disabled={computing || saving || (manualActive ? false : (clus.length === 0 || tillableCount === 0))}
-            className="px-2.5 py-1 text-xs bg-gg-gray-600 hover:bg-gg-gray-500 border border-gg-gray-400/60 disabled:opacity-40 text-white rounded flex items-center gap-1"
+            className="px-3 py-1.5 text-sm bg-gg-pink hover:bg-gg-pink-light disabled:opacity-40 text-white font-semibold rounded-lg flex items-center gap-1"
             title="Area-weight the state soil rating (PI / CSR2 / WAPI / NCCPI) over the tillable selection"
           >
-            {computing ? <Loader2 size={12} className="animate-spin" /> : <Calculator size={12} />}
+            {computing ? <Loader2 size={14} className="animate-spin" /> : <Calculator size={14} />}
             {computing ? 'Computing…' : 'Compute Soil Rating'}
           </button>
           <button
             onClick={handleSave}
             disabled={saving || computing || !isDirty || (!manualActive && clus.length === 0)}
             title={!isDirty ? 'No unsaved changes' : 'Save tillable selection'}
-            className="px-3 py-1 text-xs bg-gg-pink hover:bg-gg-pink-light text-white font-semibold disabled:opacity-40 rounded flex items-center gap-1"
+            className="px-3 py-1.5 text-sm bg-gg-pink hover:bg-gg-pink-light text-white font-semibold disabled:opacity-40 rounded-lg flex items-center gap-1"
           >
-            {saving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
+            {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
             {saving ? 'Saving…' : 'Save'}
           </button>
         </div>

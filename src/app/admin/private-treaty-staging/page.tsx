@@ -1233,6 +1233,18 @@ export default function AdminPrivateTreatyStagingPage() {
                             <h3 className="text-lg font-bold text-white">
                               {listing.company_name || 'Unknown Company'}
                             </h3>
+                            {/* Full source URL shown under the company name
+                                (per user 2026-06-01, replaces the Copy URL
+                                button). Click to open the listing page. */}
+                            <a
+                              href={listing.source_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="block mt-0.5 text-xs text-gg-gray-400 hover:text-gg-pink break-all"
+                              title="Open the listing page in a new tab"
+                            >
+                              {listing.source_url}
+                            </a>
                             <div className="flex items-center gap-4 mt-1 text-sm text-gg-gray-400">
                               <span>Staged {formatDate(listing.created_at)}</span>
                               {listing.scrape_duration_ms != null && (
@@ -1243,12 +1255,10 @@ export default function AdminPrivateTreatyStagingPage() {
                               )}
                             </div>
                           </div>
-                          {/* Per user 2026-05-26: Source + Copy URL
-                              grouped together so they read as one
-                              button bar; Source is solid pink for
-                              visibility against the light staging-page
-                              background. Mirror of auction-staging
-                              layout. */}
+                          {/* Source button — opens the listing page. Solid
+                              pink for visibility against the light staging-page
+                              background. (Copy URL removed 2026-06-01; the full
+                              URL now shows under the company name.) */}
                           <div className="flex items-center gap-2">
                             <a
                               href={listing.source_url}
@@ -1260,18 +1270,6 @@ export default function AdminPrivateTreatyStagingPage() {
                               <ExternalLink size={14} />
                               Source
                             </a>
-                            <button
-                              onClick={() => {
-                                navigator.clipboard.writeText(listing.source_url)
-                                setCopiedId(listing.id)
-                                setTimeout(() => setCopiedId((prev) => prev === listing.id ? null : prev), 2000)
-                              }}
-                              className="flex items-center gap-1 px-3 py-1.5 text-sm text-gg-gray-400 hover:text-white bg-gg-gray-800 hover:bg-gg-gray-700 rounded-lg transition-colors"
-                              title="Copy the source URL to clipboard"
-                            >
-                              {copiedId === listing.id ? <CheckCircle size={14} className="text-green-400" /> : <Copy size={14} />}
-                              {copiedId === listing.id ? 'Copied!' : 'Copy URL'}
-                            </button>
                           </div>
                         </div>
 
@@ -1311,9 +1309,9 @@ export default function AdminPrivateTreatyStagingPage() {
 
                         {/* Key Data */}
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-                          <div className="bg-gg-gray-800 rounded-lg p-3">
-                            <p className="text-xs text-gg-gray-400 mb-1">Acres</p>
-                            <p className="text-white font-semibold">
+                          <div className="bg-white border border-gg-gray-500 rounded-lg p-3 shadow-sm">
+                            <p className="text-xs text-gg-gray-500 mb-1">Acres</p>
+                            <p className="text-gg-gray-900 font-semibold">
                               {info.acres ? `${info.acres}` : 'N/A'}
                             </p>
                             {(info as any).__polySumAc > 0 && (info as any).__acresDelta != null && (
@@ -1341,29 +1339,29 @@ export default function AdminPrivateTreatyStagingPage() {
                               </p>
                             )}
                           </div>
-                          <div className="bg-gg-gray-800 rounded-lg p-3">
-                            <p className="text-xs text-gg-gray-400 mb-1">Location</p>
-                            <p className="text-white font-semibold flex items-center gap-1">
+                          <div className="bg-white border border-gg-gray-500 rounded-lg p-3 shadow-sm">
+                            <p className="text-xs text-gg-gray-500 mb-1">Location</p>
+                            <p className="text-gg-gray-900 font-semibold flex items-center gap-1">
                               <MapPin size={12} className="text-gg-gray-500" />
                               {info.county && info.state
                                 ? `${info.county}, ${info.state}`
                                 : 'N/A'}
                             </p>
                           </div>
-                          <div className="bg-gg-gray-800 rounded-lg p-3">
-                            <p className="text-xs text-gg-gray-400 mb-1">Tracts</p>
-                            <p className="text-white font-semibold flex items-center gap-1">
+                          <div className="bg-white border border-gg-gray-500 rounded-lg p-3 shadow-sm">
+                            <p className="text-xs text-gg-gray-500 mb-1">Tracts</p>
+                            <p className="text-gg-gray-900 font-semibold flex items-center gap-1">
                               <Layers size={12} className="text-gg-gray-500" />
                               {info.tractCount}
                             </p>
                           </div>
-                          <div className="bg-gg-gray-800 rounded-lg p-3">
+                          <div className="bg-white border border-gg-gray-500 rounded-lg p-3 shadow-sm">
                             <div className="flex items-center justify-between mb-1">
-                              <p className="text-xs text-gg-gray-400">Asking Price</p>
+                              <p className="text-xs text-gg-gray-500">Asking Price</p>
                               {priceEditId !== listing.id && (
                                 <button
                                   onClick={() => startPriceEdit(listing, info.askingPrice)}
-                                  className="text-gg-gray-500 hover:text-white transition-colors"
+                                  className="text-gg-gray-500 hover:text-gg-gray-900 transition-colors"
                                   title="Edit price"
                                 >
                                   <Pencil size={12} />
@@ -1404,8 +1402,8 @@ export default function AdminPrivateTreatyStagingPage() {
                                 </button>
                               </div>
                             ) : (
-                              <p className="text-white font-semibold flex items-center gap-1">
-                                <DollarSign size={12} className="text-green-400" />
+                              <p className="text-gg-gray-900 font-semibold flex items-center gap-1">
+                                <DollarSign size={12} className="text-green-600" />
                                 {formatPrice(info.askingPrice)}
                               </p>
                             )}
@@ -1477,13 +1475,13 @@ export default function AdminPrivateTreatyStagingPage() {
                                             })
                                             window.open(`/access?${params.toString()}`, '_blank')
                                           }}
-                                          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+                                          className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors shadow-sm ${
                                             disabled
                                               ? 'bg-gg-gray-800 text-gg-gray-600 cursor-not-allowed'
-                                              : 'bg-gg-pink text-white hover:bg-gg-pink-light shadow-sm'
+                                              : 'bg-gg-pink text-white hover:bg-gg-pink-light'
                                           }`}
                                         >
-                                          <MapPin size={13} /> View on Map
+                                          <MapPin size={14} /> View on Map
                                         </button>
                                       </div>
                                     )
