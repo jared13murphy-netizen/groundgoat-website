@@ -2225,7 +2225,9 @@ export default function TractMapEditor({
               <div className="flex items-center gap-3">
                 <span>
                   {!fullscreen
-                    ? `Read-only preview — click Full Screen to edit the tract polygon (${points.length} vertices)`
+                    ? dirty
+                      ? `Unsaved boundary — click Save to write it to the database, or Cancel to discard (${points.length} vertices)`
+                      : `Read-only preview — click Full Screen to edit the tract polygon (${points.length} vertices)`
                     : moveMode
                     ? 'Move mode — drag the polygon to slide it'
                     : `Click to add · drag a dot to move · double-click a dot to delete (${points.length} vertices)`}
@@ -2482,6 +2484,17 @@ export default function TractMapEditor({
             Delete Tract
           </button>
           )}
+            </>
+          )}
+          {/* Cancel + Save — split out of the full-screen-only group so a
+              PENDING edit can be saved inline without opening Full Screen.
+              Per user 2026-06-01: after creating/editing a tract polygon
+              (e.g. a Rescrape proposal or an edit made in Full Screen then
+              collapsed), I need to save it to the database from the inline
+              card. Point-editing tools above stay Full-Screen-only; these
+              two appear inline whenever there's an unsaved change. */}
+          {!drawTillableMode && (fullscreen || dirty) && (
+            <>
           <button
             onClick={handleCancel}
             disabled={!dirty || saving || deleting}
