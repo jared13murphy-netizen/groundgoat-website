@@ -234,6 +234,13 @@ export default function TractDataCleanupPage() {
   const patchRow = (lid: string, fields: Partial<QueueItem>) =>
     setItems((prev) => prev.map((it) => (it.listing_id === lid ? { ...it, ...fields } : it)))
 
+  // Lightweight toast (no dependency) — auto-dismisses after 4s.
+  const [toast, setToast] = useState<{ msg: string; kind: 'success' | 'error' } | null>(null)
+  const showToast = (msg: string, kind: 'success' | 'error' = 'success') => {
+    setToast({ msg, kind })
+    window.setTimeout(() => setToast(null), 4000)
+  }
+
   // Fetch the full listing (with tracts) for an expanded card. Read-only:
   // the queue endpoint returns no polygons, so we pull them here.
   const loadListing = useCallback(async (lid: string) => {
@@ -395,25 +402,18 @@ export default function TractDataCleanupPage() {
       const res = await fetchWithAuth(`${API_URL}/api/admin/tract-cleanup/${lid}/verify`, { method: 'POST' })
       const data = await res.json()
       if (!res.ok || !data.success) throw new Error(data.detail || `HTTP ${res.status}`)
-      const stamp = new Date().toISOString()
-      // Mark every loaded tract reviewed locally so badges flip immediately.
-      setLoadedListings((prev) => {
-        const cur = prev[lid]
-        if (!cur) return prev
-        return {
-          ...prev,
-          [lid]: {
-            ...cur,
-            tracts: cur.tracts.map((t) => ({
-              ...t, boundary_reviewed_by: t.boundary_reviewed_by || 'you', boundary_reviewed_at: t.boundary_reviewed_at || stamp,
-            })),
-          },
-        }
-      })
-      patchRow(lid, { cleanup_status: 'done' })
+      // Verify marks every tract Reviewed + sets the listing status to Done on
+      // the server in one call — no need for the admin to do either manually.
+      // All its tracts are now reviewed, so it drops off this screen: collapse
+      // + remove the row and decrement the total.
+      const count = data.reviewed_count ?? loadedListings[lid]?.tracts.length ?? 0
+      if (expandedId === lid) setExpandedId(null)
+      setItems((prev) => prev.filter((it) => it.listing_id !== lid))
+      setTotal((prev) => Math.max(0, prev - 1))
       loadStats()
+      showToast(`Listing verified — ${count} tract${count === 1 ? '' : 's'} marked reviewed and set to Done.`, 'success')
     } catch (e: any) {
-      alert(`Could not verify listing: ${e.message || e}`)
+      showToast(`Could not verify listing: ${e.message || e}`, 'error')
     } finally { setVerifyingId(null) }
   }
 
@@ -467,6 +467,24 @@ export default function TractDataCleanupPage() {
     // light theme — matches the Auction Staging screen the user wants this to
     // look and work just like.
     <div className="staging-light min-h-screen bg-gg-black pt-24 pb-12">
+      {/* Toast — fixed, top-right, auto-dismisses. */}
+      {toast && (
+        <div className="fixed top-20 right-6 z-50 max-w-sm">
+          <div className={`flex items-start gap-2 px-4 py-3 rounded-lg shadow-lg border text-sm font-medium ${
+            toast.kind === 'success'
+              ? 'bg-green-600 text-white border-green-500'
+              : 'bg-red-600 text-white border-red-500'
+          }`}>
+            {toast.kind === 'success'
+              ? <CheckCircle2 size={18} className="flex-shrink-0 mt-0.5" />
+              : <AlertTriangle size={18} className="flex-shrink-0 mt-0.5" />}
+            <span>{toast.msg}</span>
+            <button onClick={() => setToast(null)} className="ml-1 opacity-80 hover:opacity-100">
+              <X size={16} />
+            </button>
+          </div>
+        </div>
+      )}
       <div className="max-w-7xl mx-auto px-6">
         {/* Header */}
         <div className="flex items-center justify-between mb-2">
