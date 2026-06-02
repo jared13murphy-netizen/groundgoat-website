@@ -409,23 +409,32 @@ export default function AdminStagingPage() {
         return
       }
 
-      // Poll the status endpoint until the job finishes (up to ~4 min).
+      // Poll the status endpoint until the job finishes. Scrapes can take 5+
+      // minutes (slow auction sites, polygon enrichment), so allow up to 12 min
+      // and surface the live step-by-step stage the scraper reports.
       const jobId = data.job_id
-      setScrapeUrlResult({ success: true, message: 'Scraping… this can take up to a minute.' })
+      setScrapeUrlResult({ success: true, message: 'Starting… (step 0/5)' })
       const started = Date.now()
-      while (Date.now() - started < 240_000) {
+      while (Date.now() - started < 720_000) {
         await new Promise((r) => setTimeout(r, 3000))
         try {
           const sres = await fetch(`${SCRAPER_URL}/api/scraper/scrape-single-url/status/${jobId}`)
           const sdata = await sres.json()
-          if (sdata.status === 'running') continue
+          if (sdata.status === 'running') {
+            const p = sdata.progress
+            const el = sdata.elapsed_s != null ? ` · ${sdata.elapsed_s}s elapsed` : ''
+            if (p && p.label) {
+              setScrapeUrlResult({ success: true, message: `${p.label} (step ${p.step}/${p.total})${el}` })
+            }
+            continue
+          }
           applyResult(sdata)
           return
         } catch {
           // transient network blip while polling — keep trying until timeout
         }
       }
-      setScrapeUrlResult({ success: false, message: 'Timed out waiting for scrape — hit Refresh; it may have finished.' })
+      setScrapeUrlResult({ success: false, message: 'Still running after 12 min — hit Refresh; it may have finished.' })
     } catch (err: any) {
       setScrapeUrlResult({ success: false, message: err.message || 'Network error' })
     } finally {
