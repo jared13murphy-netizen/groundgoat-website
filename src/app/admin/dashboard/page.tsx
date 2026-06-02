@@ -18,7 +18,6 @@ import {
   ClipboardList,
   ClipboardCheck,
   MapPin,
-  Clock,
   Activity,
 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
@@ -318,28 +317,10 @@ export default function AdminDashboard() {
                 icon={<ClipboardList />}
               />
               <QuickActionCard
-                title="Rescrape Listings"
-                description="Fix tracts missing boundary lines"
-                href="/admin/rescrape"
-                icon={<MapPin />}
-              />
-              <QuickActionCard
-                title="Missing Boundaries"
-                description="Hand-draw boundaries for upcoming auction tracts"
-                href="/admin/missing-boundaries"
-                icon={<MapPin />}
-              />
-              <QuickActionCard
                 title="Tract Data Clean-Up"
                 description="Confirm every tract's polygon, tillable & soil vs its source"
                 href="/admin/data-cleanup"
                 icon={<MapPin />}
-              />
-              <QuickActionCard
-                title="Incomplete Listings"
-                description="Auctions awaiting tract details"
-                href="/admin/incomplete"
-                icon={<Clock />}
               />
               <QuickActionCard
                 title="Manage Users"
