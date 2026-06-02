@@ -866,16 +866,24 @@ export default function AdminPrivateTreatyStagingPage() {
     // Extract listing image URL
     const imageUrl = listing.image || listing.primary_image_url || null
 
+    // County arrives in TWO shapes depending on the scraper:
+    //   - flat string: Halderman → `listing.county` / `firstTract.county_name`
+    //   - nested object: Whitetail/magic_lab → `firstTract.county =
+    //     {county_name, state, state_full}` (scraper app.py:3893/4084)
+    // The old chain `listing.county || firstTract.county_name ||
+    // firstTract.county` fell through to the raw OBJECT for the nested case
+    // and rendered "[object Object]". Coerce every candidate to its string
+    // name so BOTH shapes work and an object can never reach the UI.
+    const countyName = (v: any): string | null => {
+      if (!v) return null
+      if (typeof v === 'string') return v.trim() || null
+      if (typeof v === 'object') return v.county_name || v.name || null
+      return null
+    }
     return {
       acres: listing.acres_listed || null,
-      // Per user 2026-05-25 location regression: previous code read
-      // `firstTract.county?.county_name` which only worked if a county
-      // object was nested. Halderman (and most scrapers) put county
-      // as a flat string at `firstTract.county_name` OR at
-      // `listing.county` (after server-side derivation in
-      // scrape_single_url). Check both flat fields with sensible
-      // fallback chain.
-      county: listing.county || firstTract.county_name || firstTract.county || null,
+      county: countyName(listing.county) || firstTract.county_name
+        || countyName(firstTract.county) || null,
       state: listing.state_full || firstTract.state_full || firstTract.state_abbr || firstTract.state || listing.state || null,
       description: listing.description || null,
       tractCount: tracts.length,
