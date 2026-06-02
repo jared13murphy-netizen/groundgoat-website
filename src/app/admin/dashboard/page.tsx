@@ -330,6 +330,12 @@ export default function AdminDashboard() {
                 icon={<MapPin />}
               />
               <QuickActionCard
+                title="Tract Data Clean-Up"
+                description="Confirm every tract's polygon, tillable & soil vs its source"
+                href="/admin/data-cleanup"
+                icon={<MapPin />}
+              />
+              <QuickActionCard
                 title="Incomplete Listings"
                 description="Auctions awaiting tract details"
                 href="/admin/incomplete"
