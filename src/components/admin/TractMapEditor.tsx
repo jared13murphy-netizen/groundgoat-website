@@ -2134,7 +2134,7 @@ export default function TractMapEditor({
             </>
           )}
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-2">
           {/* Tillable toggle — show/hide if Stage 5 already computed,
               compute if it hasn't run yet. Per user 2026-05-25:
               "Only show tract polygon first, then a button to draw
@@ -2154,27 +2154,27 @@ export default function TractMapEditor({
           <button
             onClick={() => setShowUploadPanel(prev => !prev)}
             disabled={extractingFromImage || extractingUrl}
-            className={`px-2 py-1 text-xs rounded flex items-center gap-1 ${
+            className={`flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
               showUploadPanel
-                ? 'bg-gg-pink hover:bg-gg-pink/85 text-white'
-                : 'bg-gg-gray-600 hover:bg-gg-gray-500 text-white border border-gg-gray-400/60 disabled:opacity-40'
+                ? 'bg-gg-pink hover:bg-gg-pink-light'
+                : 'bg-gg-gray-700 hover:bg-gg-gray-600'
             }`}
             title="Open the upload panel — paste/drop/pick an image or enter an auction URL to extract the tract boundary"
           >
             {(extractingFromImage || extractingUrl)
-              ? <Loader2 className="animate-spin" size={12} />
-              : <ImageIcon size={12} />}
+              ? <Loader2 className="animate-spin" size={16} />
+              : <ImageIcon size={16} />}
             {extractingFromImage ? 'Extracting…' : extractingUrl ? 'Fetching…' : 'Upload Image'}
           </button>
           )}
           <button
             onClick={() => setFullscreen(prev => !prev)}
-            className="px-3 py-1.5 text-sm font-semibold bg-gg-pink hover:bg-gg-pink-light text-white rounded-lg flex items-center gap-1"
+            className="flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium text-white transition-colors bg-gg-pink hover:bg-gg-pink-light"
             title={fullscreen ? 'Exit full screen (Esc)' : 'Open full-screen editor'}
           >
             {fullscreen
-              ? (<><Minimize2 size={14} /> Exit Full Screen</>)
-              : (<><Maximize2 size={14} /> Full Screen</>)}
+              ? (<><Minimize2 size={16} /> Exit Full Screen</>)
+              : (<><Maximize2 size={16} /> Full Screen</>)}
           </button>
           {/* Tillable toolbar — three modes per user 2026-05-26:
               A. Drawing a new tillable polygon (drawTillableMode=true):
@@ -2329,59 +2329,59 @@ export default function TractMapEditor({
           <button
             onClick={handleUndo}
             disabled={points.length === 0 || saving || deleting}
-            className="px-2 py-1 text-xs bg-gg-gray-600 hover:bg-gg-gray-500 text-white border border-gg-gray-400/60 disabled:opacity-40 rounded flex items-center gap-1"
+            className="flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium text-white transition-colors bg-gg-gray-700 hover:bg-gg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <RotateCcw size={12} /> Undo
+            <RotateCcw size={16} /> Undo
           </button>
           <button
             onClick={handleClear}
             disabled={points.length === 0 || saving || deleting}
-            className="px-2 py-1 text-xs bg-gg-gray-600 hover:bg-gg-gray-500 text-white border border-gg-gray-400/60 disabled:opacity-40 rounded flex items-center gap-1"
+            className="flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium text-white transition-colors bg-gg-gray-700 hover:bg-gg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <RotateCcw size={12} /> Clear
+            <RotateCcw size={16} /> Clear
           </button>
           <button
             onClick={handleSimplify}
             disabled={points.length < 5 || saving || deleting}
-            className="px-2 py-1 text-xs bg-gg-gray-600 hover:bg-gg-gray-500 text-white border border-gg-gray-400/60 disabled:opacity-40 rounded flex items-center gap-1"
+            className="flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium text-white transition-colors bg-gg-gray-700 hover:bg-gg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
             title="Straighten rounded contours by removing near-collinear vertices"
           >
-            <Spline size={12} /> Simplify
+            <Spline size={16} /> Simplify
           </button>
           <button
             onClick={() => setMoveMode(m => !m)}
             disabled={points.length < 3 || saving || deleting}
-            className={`px-2 py-1 text-xs rounded flex items-center gap-1 disabled:opacity-40 ${
+            className={`flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
               moveMode
-                ? 'bg-gg-pink text-white'
-                : 'bg-gg-gray-600 hover:bg-gg-gray-500 text-white border border-gg-gray-400/60'
+                ? 'bg-gg-pink hover:bg-gg-pink-light'
+                : 'bg-gg-gray-700 hover:bg-gg-gray-600'
             }`}
             title="Toggle move mode — drag anywhere on the polygon to slide the whole shape"
           >
-            <Move size={12} /> {moveMode ? 'Moving…' : 'Move'}
+            <Move size={16} /> {moveMode ? 'Moving…' : 'Move'}
           </button>
           <button
             onClick={handleDelete}
             disabled={saving || deleting || deletingTillable}
-            className="px-2 py-1 text-xs bg-red-600 hover:bg-red-700 text-white disabled:opacity-40 rounded flex items-center gap-1"
+            className="flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium text-white transition-colors bg-red-600 hover:bg-red-500 disabled:opacity-50 disabled:cursor-not-allowed"
             title="Delete the tract polygon, tillable polygon, and image (server-side wipe)"
           >
-            {deleting ? <Loader2 className="animate-spin" size={12} /> : <Trash2 size={12} />}
+            {deleting ? <Loader2 className="animate-spin" size={16} /> : <Trash2 size={16} />}
             Delete Tract
           </button>
           <button
             onClick={handleCancel}
             disabled={!dirty || saving || deleting}
-            className="px-2 py-1 text-xs bg-gg-gray-600 hover:bg-gg-gray-500 text-white border border-gg-gray-400/60 disabled:opacity-40 rounded flex items-center gap-1"
+            className="flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium text-white transition-colors bg-gg-gray-700 hover:bg-gg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Cancel
           </button>
           <button
             onClick={handleSave}
             disabled={points.length < 3 || !dirty || saving || deleting}
-            className="px-3 py-1 text-xs bg-gg-pink hover:bg-gg-pink-light text-white font-semibold disabled:opacity-40 rounded flex items-center gap-1"
+            className="flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium text-white transition-colors bg-green-600 hover:bg-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {saving ? <Loader2 className="animate-spin" size={12} /> : <Save size={12} />}
+            {saving ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
             {saving ? 'Saving…' : 'Save'}
           </button>
             </>
