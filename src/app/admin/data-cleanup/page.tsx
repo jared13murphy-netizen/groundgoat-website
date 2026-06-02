@@ -8,7 +8,7 @@ import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import {
   Loader2, ExternalLink, MapPin, ChevronLeft, ChevronRight,
-  ChevronDown, ChevronUp, CheckCircle2, ArrowLeft, AlertTriangle,
+  ChevronDown, ChevronUp, CheckCircle2, ArrowLeft, AlertTriangle, RefreshCw,
 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import TractMapEditor from '@/components/admin/TractMapEditor'
@@ -126,6 +126,21 @@ export default function TractDataCleanupPage() {
   const [cluReloadKeys, setCluReloadKeys] = useState<Record<string, number>>({})
   // Per-tract in-flight marker for the Mark Reviewed button.
   const [reviewingTractId, setReviewingTractId] = useState<string | null>(null)
+  // Rescrape: listing in-flight + per-listing result banner. Proposals are keyed
+  // by tract id; bumping `nonce` makes that tract's TractMapEditor load the
+  // proposed boundary as a dirty edit for review-then-Save. NOTHING is written
+  // to our DB until the human Saves — and the rescrape never touches Auction/PT
+  // staging (no listing_staging record is created).
+  const [rescrapingId, setRescrapingId] = useState<string | null>(null)
+  const [rescrapeMsg, setRescrapeMsg] = useState<Record<string, string | null>>({})
+  const [proposals, setProposals] = useState<Record<string, {
+    coords: [number, number][]
+    proposed_acres: number | null
+    reported_acres: number | null
+    pct_difference: number | null
+    source: string | null
+    nonce: number
+  }>>({})
 
   const loadStats = useCallback(async () => {
     try {
@@ -286,6 +301,48 @@ export default function TractDataCleanupPage() {
     } catch (e: any) {
       alert(`Could not update review state: ${e.message || e}`)
     } finally { setReviewingTractId(null) }
+  }
+
+  // Rescrape a listing's source URL and load proposed boundaries into each
+  // tract's editor for review. Stays entirely within this screen — the backend
+  // endpoint creates NO staging record, so nothing appears on Auction/PT Staging.
+  async function rescrapeListing(lid: string) {
+    // Editors must be mounted for proposals to land, so expand + load first.
+    setExpandedId(lid)
+    if (!loadedListings[lid] || loadedListings[lid].error) await loadListing(lid)
+    setRescrapingId(lid)
+    setRescrapeMsg((prev) => ({ ...prev, [lid]: null }))
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/admin/tract-cleanup/${lid}/rescrape`, { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok || !data.success) throw new Error(data.detail || `HTTP ${res.status}`)
+      setProposals((prev) => {
+        const next = { ...prev }
+        for (const p of (data.proposals || [])) {
+          if (p.found && Array.isArray(p.proposed_coordinates) && p.proposed_coordinates.length >= 3) {
+            next[p.tract_id] = {
+              coords: p.proposed_coordinates,
+              proposed_acres: p.proposed_acres ?? null,
+              reported_acres: p.reported_acres ?? null,
+              pct_difference: p.pct_difference ?? null,
+              source: p.coordinates_source ?? null,
+              nonce: (prev[p.tract_id]?.nonce || 0) + 1,
+            }
+          }
+        }
+        return next
+      })
+      const matched = data.matched_count || 0
+      const total = (data.proposals || []).length
+      setRescrapeMsg((prev) => ({
+        ...prev,
+        [lid]: matched > 0
+          ? `Loaded ${matched} of ${total} proposed boundar${matched === 1 ? 'y' : 'ies'} onto the map — review each against the source, then Save to apply (or Cancel to discard).`
+          : `Rescrape extracted no usable boundaries (scraped ${data.scraped_tracts_total || 0} tract(s)). Draw or upload manually.`,
+      }))
+    } catch (e: any) {
+      setRescrapeMsg((prev) => ({ ...prev, [lid]: `Rescrape failed: ${e.message || e}` }))
+    } finally { setRescrapingId(null) }
   }
 
   const pageStart = total === 0 ? 0 : offset + 1
@@ -467,6 +524,20 @@ export default function TractDataCleanupPage() {
                         className="bg-gg-gray-800 border border-gg-gray-700 rounded px-2 py-1 text-xs text-white disabled:opacity-50">
                         {STATUSES.map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
                       </select>
+                      {/* Rescrape this listing's source URL and load proposed
+                          boundaries into the editors below. Stays in Data
+                          Clean-Up — never goes to Auction/PT Staging. */}
+                      <button
+                        onClick={() => rescrapeListing(it.listing_id)}
+                        disabled={rescrapingId === it.listing_id || !it.source_url}
+                        title={it.source_url ? 'Re-scrape the source URL for fresh boundaries (review here, not in staging)' : 'No source URL to rescrape'}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium border border-gg-gray-700 bg-gg-gray-800 text-white hover:bg-gg-gray-700 disabled:opacity-50"
+                      >
+                        {rescrapingId === it.listing_id
+                          ? <Loader2 className="animate-spin" size={13} />
+                          : <RefreshCw size={13} />}
+                        Rescrape
+                      </button>
                     </div>
                   </div>
 
@@ -492,6 +563,13 @@ export default function TractDataCleanupPage() {
                             Soil mapping isn&apos;t done for {it.state || 'this state'} yet — tracts are shown for
                             review but the polygon / tillable / soil editors are locked. Don&apos;t update these yet.
                           </span>
+                        </div>
+                      )}
+
+                      {rescrapeMsg[it.listing_id] && (
+                        <div className="flex items-center gap-2 mb-4 px-3 py-2 bg-sky-500/10 border border-sky-500/40 rounded-lg text-sky-700 text-sm">
+                          <RefreshCw size={14} className="flex-shrink-0" />
+                          {rescrapeMsg[it.listing_id]}
                         </div>
                       )}
 
@@ -565,6 +643,18 @@ export default function TractDataCleanupPage() {
 
                                 {actionable ? (
                                   <>
+                                    {proposals[tract.id] && (
+                                      <div className="flex items-start gap-2 mb-2 px-3 py-2 bg-sky-500/10 border border-sky-500/40 rounded-lg text-sky-700 text-xs">
+                                        <RefreshCw size={13} className="flex-shrink-0 mt-0.5" />
+                                        <span>
+                                          Rescrape proposed a boundary: {proposals[tract.id].coords.length} pts
+                                          {proposals[tract.id].proposed_acres != null && ` · ${proposals[tract.id].proposed_acres!.toFixed(1)} ac`}
+                                          {proposals[tract.id].pct_difference != null && ` (${proposals[tract.id].pct_difference}% vs listed ${proposals[tract.id].reported_acres ?? '—'} ac)`}
+                                          {proposals[tract.id].source && ` · ${proposals[tract.id].source}`}.
+                                          {' '}It&apos;s loaded on the map as an unsaved edit — eyeball it against the source, then <b>Save</b> to apply, or <b>Cancel</b> to discard.
+                                        </span>
+                                      </div>
+                                    )}
                                     {/* LIVE-TRACT boundary editor — saves ONLY the polygon via
                                         the restricted tract-fix-boundary/apply endpoint. */}
                                     <TractMapEditor
@@ -573,6 +663,8 @@ export default function TractDataCleanupPage() {
                                       liveTractId={tract.id}
                                       tractNumber={tract.tract_number}
                                       initialPolygon={ring}
+                                      proposedPolygon={proposals[tract.id]?.coords ?? null}
+                                      proposedNonce={proposals[tract.id]?.nonce ?? 0}
                                       hideTillable
                                       tillablePolygon={null}
                                       showTillable={false}
@@ -585,6 +677,11 @@ export default function TractDataCleanupPage() {
                                         patchTract(it.listing_id, tract.id, {
                                           polygon_coordinates: updated.polygon_coordinates ?? ring,
                                           boundary_valid: updated.boundary_valid ?? tract.boundary_valid,
+                                        })
+                                        // Proposal applied → clear it so the banner disappears.
+                                        setProposals((prev) => {
+                                          if (!prev[tract.id]) return prev
+                                          const next = { ...prev }; delete next[tract.id]; return next
                                         })
                                         setCluReloadKeys((prev) => ({ ...prev, [tractKey]: (prev[tractKey] || 0) + 1 }))
                                       }}

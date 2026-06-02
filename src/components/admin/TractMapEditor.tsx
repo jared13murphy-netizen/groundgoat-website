@@ -149,6 +149,15 @@ interface TractMapEditorProps {
    *  endpoints keyed by stagingId) are hidden in this mode. When
    *  undefined, the component behaves EXACTLY as before (staging mode). */
   liveTractId?: string
+  /** Rescrape proposal (Data Clean-Up screen). When `proposedNonce` increments
+   *  to a value > 0, the editor loads `proposedPolygon` into the working map AND
+   *  marks it dirty, so the human can eyeball it against the source listing and
+   *  click Save to apply (via the liveTractId boundary endpoint) — or Cancel to
+   *  discard. Nonce-gated so re-renders don't re-load it; nonce 0 is ignored so
+   *  it never overrides initialPolygon on mount. Additive: staging never passes
+   *  these, so its behavior is unchanged. */
+  proposedPolygon?: Pt[] | null
+  proposedNonce?: number
 }
 
 // ---------------------------------------------------------------------------
@@ -329,6 +338,8 @@ export default function TractMapEditor({
   tractNumber,
   siblingTracts,
   liveTractId,
+  proposedPolygon,
+  proposedNonce = 0,
 }: TractMapEditorProps) {
   // Working polygon state — what's being edited on the map. Diverges
   // from initialPolygon while the user is drawing/clearing; reset on
@@ -485,6 +496,22 @@ export default function TractMapEditor({
     setDirty(false)
     pointsHistory.current = []
   }, [initialPolygon])
+
+  // Rescrape proposal loader (Data Clean-Up screen). A nonce bump > 0 means the
+  // parent just fetched a proposed boundary for this tract; load it onto the map
+  // as a DIRTY edit so Save is enabled and the human can apply it after eyeballing
+  // the source — or Cancel to discard. Guard nonce 0 so we never clobber
+  // initialPolygon on mount. Intentionally keyed on the nonce only.
+  useEffect(() => {
+    if (!proposedNonce) return
+    const ring = normalizeInitialPolygon(proposedPolygon ?? null)
+    if (ring.length >= 3) {
+      setPoints(ring)
+      setDirty(true)
+      pointsHistory.current = []
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [proposedNonce])
 
   // When the stored tillable polygon changes (e.g., after Save or Delete),
   // discard any in-progress vertex edits — the prop is now the source of truth.
