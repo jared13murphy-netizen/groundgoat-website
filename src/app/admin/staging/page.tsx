@@ -219,6 +219,20 @@ export default function AdminStagingPage() {
   // Bumped whenever a tract boundary is saved in TractMapEditor so the
   // TillableCluWorkshop below re-fetches CLUs against the new polygon.
   const [cluReloadKeys, setCluReloadKeys] = useState<Record<string, number>>({})
+  // Tracks unsaved edits per tract editor so the listing's commit buttons stay
+  // disabled until every tract is saved. Keys: `${listingId}::${idx}::map` for
+  // the boundary editor and `::till` for the tillable workshop.
+  const [dirtyTracts, setDirtyTracts] = useState<Record<string, boolean>>({})
+  const setTractDirty = (key: string, dirty: boolean) =>
+    setDirtyTracts(prev => {
+      if (!!prev[key] === dirty) return prev
+      const next = { ...prev }
+      if (dirty) next[key] = true
+      else delete next[key]
+      return next
+    })
+  const listingHasUnsaved = (lid: number) =>
+    Object.keys(dirtyTracts).some(k => k.startsWith(`${lid}::`) && dirtyTracts[k])
 
   // Tillable polygon visibility per `${listingId}-${tractIdx}`. Mirrors
   // the PT staging page — show tract polygon by default, tillable only
@@ -1644,6 +1658,7 @@ export default function AdminStagingPage() {
                                       const rk = `${listing.id}-${idx}`
                                       setCluReloadKeys(prev => ({ ...prev, [rk]: (prev[rk] || 0) + 1 }))
                                     }}
+                                    onDirtyChange={(d) => setTractDirty(`${listing.id}::${idx}::map`, d)}
                                   />
                                   {/* FSA-CLU tillable workshop — admin clicks
                                       the field polygons that count as tillable.
@@ -1678,6 +1693,7 @@ export default function AdminStagingPage() {
                                         return { ...l, scraped_data: sd }
                                       }))
                                     }}
+                                    onDirtyChange={(d) => setTractDirty(`${listing.id}::${idx}::till`, d)}
                                   />
                                   {/* Per-tract scraped-vs-computed side-by-side with
                                       per-field radio selectors. Per user 2026-05-25.
@@ -1766,10 +1782,17 @@ export default function AdminStagingPage() {
                         )}
 
                         {/* Action Buttons */}
+                        {listingHasUnsaved(listing.id) && (
+                          <div className="flex items-center gap-2 mb-2 px-3 py-2 bg-orange-500/10 border border-orange-500/30 rounded-lg">
+                            <AlertTriangle size={16} className="text-orange-400 flex-shrink-0" />
+                            <span className="text-orange-400 text-sm">Save all tract edits before verifying.</span>
+                          </div>
+                        )}
                         <div className="flex items-center gap-3">
                           <button
                             onClick={() => handleVerify(listing.id)}
-                            disabled={actionLoading === listing.id}
+                            disabled={actionLoading === listing.id || listingHasUnsaved(listing.id)}
+                            title={listingHasUnsaved(listing.id) ? 'Save all tract edits first' : undefined}
                             className="flex items-center gap-2 px-5 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-500 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             {actionLoading === listing.id ? <Loader2 className="animate-spin" size={16} /> : <CheckCircle size={16} />}
@@ -1794,7 +1817,8 @@ export default function AdminStagingPage() {
                           {listing.is_incomplete && (
                             <button
                               onClick={() => handlePublishIncomplete(listing.id)}
-                              disabled={actionLoading === listing.id}
+                              disabled={actionLoading === listing.id || listingHasUnsaved(listing.id)}
+                              title={listingHasUnsaved(listing.id) ? 'Save all tract edits first' : undefined}
                               className="flex items-center gap-2 px-5 py-2.5 bg-orange-600 text-white rounded-lg hover:bg-orange-500 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                               {actionLoading === listing.id ? <Loader2 className="animate-spin" size={16} /> : <AlertTriangle size={16} />}

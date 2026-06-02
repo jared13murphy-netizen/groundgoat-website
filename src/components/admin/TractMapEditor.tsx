@@ -106,6 +106,11 @@ interface TractMapEditorProps {
    *  real time, not just on Save. The parent should patch
    *  tract.computed.acres so the radio rows reflect the live shape. */
   onPolygonChange?: (points: [number, number][], gisAcres: number) => void
+  /** Called whenever the editor's unsaved-edits (dirty) state flips. The
+   *  parent uses this to disable listing-level commit buttons (Verify /
+   *  Publish Incomplete) until every tract's edits are saved. Fires false on
+   *  unmount so a collapsed/removed editor never leaves the listing "dirty". */
+  onDirtyChange?: (dirty: boolean) => void
   /** Called when the user clicks "Show Tillable" / "Hide Tillable".
    *  Parent owns the showTillable state so the comparison panel can
    *  reflect what's visible. */
@@ -330,6 +335,7 @@ export default function TractMapEditor({
   editorHeight = 320,
   onUpdate,
   onPolygonChange,
+  onDirtyChange,
   onToggleTillable,
   onComputeTillable,
   listingUrl,
@@ -350,6 +356,15 @@ export default function TractMapEditor({
   // True once any modification has been made — controls whether the
   // Cancel/Save toolbar is enabled.
   const [dirty, setDirty] = useState(false)
+  // Report dirty changes up so the parent can gate listing-level commit
+  // buttons. Keep the callback in a ref so the unmount cleanup below always
+  // sees the latest one without re-running on every render.
+  const onDirtyChangeRef = useRef(onDirtyChange)
+  onDirtyChangeRef.current = onDirtyChange
+  useEffect(() => { onDirtyChangeRef.current?.(dirty) }, [dirty])
+  // On unmount (listing collapsed / editor removed) clear the dirty flag so a
+  // gone editor can't leave the listing permanently blocked.
+  useEffect(() => () => { onDirtyChangeRef.current?.(false) }, [])
   // True after the IntersectionObserver fires once. The map mounts on
   // the first intersection and stays mounted thereafter (re-mounting
   // on scroll-away → scroll-back would cause flicker + re-fetch tiles).

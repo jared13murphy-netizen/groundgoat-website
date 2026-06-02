@@ -104,6 +104,9 @@ interface TillableCluWorkshopProps {
     soil_rating: number | null
     soil_rating_type: string | null
   }) => void
+  /** Called whenever the workshop's unsaved-edits (dirty) state flips, so the
+   *  parent can disable commit buttons until the admin clicks Save. */
+  onDirtyChange?: (dirty: boolean) => void
 }
 
 // ---------------------------------------------------------------------------
@@ -210,6 +213,7 @@ export default function TillableCluWorkshop({
   editorHeight = 380,
   reloadKey = 0,
   onSaved,
+  onDirtyChange,
 }: TillableCluWorkshopProps) {
   // Base URL for the three CLU endpoints — published-tract mode (tractId)
   // vs staging mode (stagingId + tractIndex). Both expose the same
@@ -779,6 +783,14 @@ export default function TillableCluWorkshop({
     [clus, selection, manualPolygons, soil],
   )
   const isDirty = savedSig != null && currentSig !== savedSig
+
+  // Report dirty-state flips to the parent so it can gate commit buttons, and
+  // clear the flag on unmount so a collapsed/closed workshop never leaves the
+  // parent stuck thinking there are unsaved edits.
+  const onDirtyChangeRef = useRef(onDirtyChange)
+  onDirtyChangeRef.current = onDirtyChange
+  useEffect(() => { onDirtyChangeRef.current?.(isDirty) }, [isDirty])
+  useEffect(() => () => { onDirtyChangeRef.current?.(false) }, [])
 
   return (
     <div ref={wrapperRef} className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg overflow-hidden mb-2">

@@ -155,6 +155,20 @@ export default function TractDataCleanupPage() {
   // Bumped per-tract whenever a boundary is saved so the CLU workshop re-fetches
   // its field polygons against the new tract polygon.
   const [cluReloadKeys, setCluReloadKeys] = useState<Record<string, number>>({})
+  // Tracks unsaved edits per tract editor so the listing's Verify button stays
+  // disabled until every tract is saved. Keys: `${listingId}::${tractId}::map`
+  // for the boundary editor and `::till` for the tillable workshop.
+  const [dirtyTracts, setDirtyTracts] = useState<Record<string, boolean>>({})
+  const setTractDirty = (key: string, dirty: boolean) =>
+    setDirtyTracts((prev) => {
+      if (!!prev[key] === dirty) return prev
+      const next = { ...prev }
+      if (dirty) next[key] = true
+      else delete next[key]
+      return next
+    })
+  const listingHasUnsaved = (lid: string) =>
+    Object.keys(dirtyTracts).some((k) => k.startsWith(`${lid}::`) && dirtyTracts[k])
   // Per-tract in-flight marker for the Mark Reviewed button.
   const [reviewingTractId, setReviewingTractId] = useState<string | null>(null)
   // Editable tract number: which tract is being edited, its draft value, and
@@ -857,6 +871,7 @@ export default function TractDataCleanupPage() {
                                         })
                                         setCluReloadKeys((prev) => ({ ...prev, [tractKey]: (prev[tractKey] || 0) + 1 }))
                                       }}
+                                      onDirtyChange={(d) => setTractDirty(`${it.listing_id}::${tract.id}::map`, d)}
                                     />
                                     {/* FSA-CLU tillable workshop — live published-tract mode. */}
                                     <TillableCluWorkshop
@@ -871,6 +886,7 @@ export default function TractDataCleanupPage() {
                                           soil_rating_type: r.soil_rating_type ?? tract.soil_rating_type,
                                         })
                                       }}
+                                      onDirtyChange={(d) => setTractDirty(`${it.listing_id}::${tract.id}::till`, d)}
                                     />
                                     {/* Done = human confirmed polygon + tillable + soil. */}
                                     <div className="flex items-center gap-3 mt-3">
@@ -910,18 +926,26 @@ export default function TractDataCleanupPage() {
                               polygon/tillable/soil (those save on their own editors). */}
                           {(() => {
                             const allReviewed = loaded.tracts.every((t) => !!t.boundary_reviewed_by)
+                            const hasUnsaved = listingHasUnsaved(it.listing_id)
                             return (
                               <div className="flex items-center justify-end gap-3 border-t border-gg-gray-800 pt-4">
-                                {allReviewed && (
+                                {hasUnsaved && (
+                                  <span className="text-xs text-orange-400 inline-flex items-center gap-1">
+                                    <AlertTriangle size={13} /> Save all tract edits first
+                                  </span>
+                                )}
+                                {!hasUnsaved && allReviewed && (
                                   <span className="text-xs text-green-600 inline-flex items-center gap-1">
                                     <CheckCircle2 size={13} /> All tracts reviewed
                                   </span>
                                 )}
                                 <button
                                   onClick={() => verifyListing(it.listing_id)}
-                                  disabled={verifyingId === it.listing_id}
-                                  title="Mark every tract on this listing Reviewed and set the listing to Done"
-                                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-bold bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 shadow-sm"
+                                  disabled={verifyingId === it.listing_id || hasUnsaved}
+                                  title={hasUnsaved
+                                    ? 'Save all tract edits first'
+                                    : 'Mark every tract on this listing Reviewed and set the listing to Done'}
+                                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-bold bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
                                 >
                                   {verifyingId === it.listing_id
                                     ? <Loader2 className="animate-spin" size={16} />
