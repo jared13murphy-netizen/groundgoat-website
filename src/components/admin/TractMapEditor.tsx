@@ -344,6 +344,13 @@ export default function TractMapEditor({
   // re-reads its container dimensions. Per user 2026-05-26: the inline
   // map is too small to accurately draw new polygons.
   const [fullscreen, setFullscreen] = useState(false)
+  // Per user 2026-06-01: the tract polygon may ONLY be edited from the
+  // Full Screen view. The small inline map on the staging card is a
+  // read-only preview — vertex add/drag/delete and the edit toolbar are
+  // gated to fullscreen. This ref mirrors `fullscreen` so the map's
+  // once-attached event handlers read the latest value without stale capture.
+  const fullscreenRef = useRef(false)
+  useEffect(() => { fullscreenRef.current = fullscreen }, [fullscreen])
   // Move-polygon mode (per user 2026-06-01): when on, dragging anywhere
   // on the tract fill translates EVERY vertex by the drag delta so the
   // whole shape slides into position. Vertex dragging and add-vertex are
@@ -689,6 +696,7 @@ export default function TractMapEditor({
       // draw mode. In tillable mode the tract verts are hidden so this
       // shouldn't fire anyway, but guard for safety.
       map.on('mousedown', 'verts', (ev: any) => {
+        if (!fullscreenRef.current) return  // read-only inline; edit in Full Screen
         if (drawTillableModeRef.current) return
         const feature = ev.features?.[0]
         if (!feature) return
@@ -767,6 +775,7 @@ export default function TractMapEditor({
         setTimeout(() => { recentVertexInteraction.current = false }, 0)
       }
       map.on('touchstart', 'verts', (ev: any) => {
+        if (!fullscreenRef.current) return  // read-only inline; edit in Full Screen
         if (drawTillableModeRef.current) return
         const feature = ev.features?.[0]
         if (!feature) return
@@ -801,6 +810,7 @@ export default function TractMapEditor({
       // MapLibre's double-click zoom. Guarded to keep at least 3 points
       // so the polygon stays valid, and snapshots for Undo.
       map.on('dblclick', 'verts', (ev: any) => {
+        if (!fullscreenRef.current) return  // read-only inline; edit in Full Screen
         if (drawTillableModeRef.current) return
         const feature = ev.features?.[0]
         if (!feature) return
@@ -837,6 +847,7 @@ export default function TractMapEditor({
         setTimeout(() => { recentVertexInteraction.current = false }, 0)
       }
       map.on('mousedown', 'drawn-fill', (ev: any) => {
+        if (!fullscreenRef.current) return  // read-only inline; edit in Full Screen
         if (!moveModeRef.current || drawTillableModeRef.current) return
         ev.preventDefault()
         recentVertexInteraction.current = true
@@ -871,6 +882,7 @@ export default function TractMapEditor({
         setTimeout(() => { recentVertexInteraction.current = false }, 0)
       }
       map.on('touchstart', 'drawn-fill', (ev: any) => {
+        if (!fullscreenRef.current) return  // read-only inline; edit in Full Screen
         if (!moveModeRef.current || drawTillableModeRef.current) return
         const touch = ev.points?.[0] || ev.point
         if (!touch) return
@@ -901,6 +913,9 @@ export default function TractMapEditor({
     // every vertex click would stack a new vertex on top.
     map.on('click', (ev) => {
       if (recentVertexInteraction.current) return
+      // Read-only inline preview — tract vertices may only be added/edited
+      // from the Full Screen view (per user 2026-06-01).
+      if (!fullscreenRef.current) return
       // In move mode, clicks pan/slide the polygon — never add vertices.
       if (moveModeRef.current) return
       const layersToCheck = ['verts', 'tillable-verts'].filter(
@@ -2091,7 +2106,9 @@ export default function TractMapEditor({
             <>
               <div className="flex items-center gap-3">
                 <span>
-                  {moveMode
+                  {!fullscreen
+                    ? `Read-only preview — click Full Screen to edit the tract polygon (${points.length} vertices)`
+                    : moveMode
                     ? 'Move mode — drag the polygon to slide it'
                     : `Click to add · drag a dot to move · double-click a dot to delete (${points.length} vertices)`}
                 </span>
@@ -2122,6 +2139,11 @@ export default function TractMapEditor({
           {/* Upload Image — opens an inline panel in the right pane with
               both a URL input (Land ID map extraction) and a paste/drop/
               pick image zone. Matches the upload-boundary-tract page UX. */}
+          {/* Tract editing tools (Upload Image) — only in Full Screen.
+              Per user 2026-06-01: the inline staging-card map is a
+              read-only preview; the tract polygon may only be edited
+              from Full Screen. */}
+          {fullscreen && (
           <button
             onClick={() => setShowUploadPanel(prev => !prev)}
             disabled={extractingFromImage || extractingUrl}
@@ -2137,6 +2159,7 @@ export default function TractMapEditor({
               : <ImageIcon size={12} />}
             {extractingFromImage ? 'Extracting…' : extractingUrl ? 'Fetching…' : 'Upload Image'}
           </button>
+          )}
           <button
             onClick={() => setFullscreen(prev => !prev)}
             className="px-2 py-1 text-xs bg-gg-gray-700 hover:bg-gg-gray-600 rounded flex items-center gap-1"
@@ -2290,8 +2313,11 @@ export default function TractMapEditor({
           {/* Tract-polygon buttons — hidden in tillable draw mode so
               the user can't accidentally edit the tract while drawing
               the tillable. The tillable section above provides its own
-              Undo/Clear/Cancel/Save. */}
-          {!drawTillableMode && (
+              Undo/Clear/Cancel/Save. Per user 2026-06-01: the tract
+              polygon may ONLY be edited from Full Screen, so these are
+              gated to `fullscreen` — the inline staging map is a
+              read-only preview. */}
+          {fullscreen && !drawTillableMode && (
             <>
           <button
             onClick={handleUndo}
