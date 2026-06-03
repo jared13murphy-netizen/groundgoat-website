@@ -176,20 +176,35 @@ function applyEditToScrapedData(original: any, form: EditForm): any {
     const origTract = (original?.tracts || []).find(
       (ot: any) => ot.tract_number === t.tract_number
     ) || {}
+    const acresVal = t.acres ? parseFloat(t.acres) : null
+    const tillVal = t.tillable_acres ? parseFloat(t.tillable_acres) : null
+    const soilVal = t.soil_rating ? parseFloat(t.soil_rating) : null
+    // Record an explicit MANUAL OVERRIDE for any of acres/tillable/soil the
+    // admin actually CHANGED here. Verify reads scraped/computed subtrees first,
+    // so a bare top-level edit was being ignored — `manual` is honored above
+    // everything by the backend _pick(). Only changed fields are flagged, so
+    // we never clobber CLU-computed tillable/soil the admin didn't touch.
+    const manual: Record<string, number | null> = { ...(origTract.manual || {}) }
+    const changed = (orig: any, next: number | null) =>
+      (orig == null ? null : Number(orig)) !== next
+    if (changed(origTract.acres, acresVal)) manual.acres = acresVal
+    if (changed(origTract.tillable_acres, tillVal)) manual.tillable_acres = tillVal
+    if (changed(origTract.soil_rating, soilVal)) manual.soil_rating = soilVal
     return {
       ...origTract,
       tract_number: t.tract_number,
-      acres: t.acres ? parseFloat(t.acres) : null,
-      tillable_acres: t.tillable_acres ? parseFloat(t.tillable_acres) : null,
+      acres: acresVal,
+      tillable_acres: tillVal,
       county: {
         ...(origTract.county || {}),
         county_name: t.county,
         state_full: t.state,
       },
       state_full: t.state,
-      soil_rating: t.soil_rating ? parseFloat(t.soil_rating) : null,
+      soil_rating: soilVal,
       latitude: t.latitude ? parseFloat(t.latitude) : null,
       longitude: t.longitude ? parseFloat(t.longitude) : null,
+      manual,
     }
   })
 
@@ -1752,7 +1767,13 @@ export default function AdminStagingPage() {
                                         if (l.id !== listing.id) return l
                                         const sd = { ...(l.scraped_data || {}) }
                                         const ts = [...((sd.tracts as any[]) || [])]
-                                        ts[idx] = { ...ts[idx], chosen: nextChosen }
+                                        // An explicit Scraped/Computed pick supersedes any
+                                        // earlier Edit-modal manual override for that field.
+                                        const manual = { ...((ts[idx] || {}).manual || {}) }
+                                        for (const f of ['acres', 'tillable_acres', 'soil_rating']) {
+                                          if ((nextChosen as any)[f]) delete (manual as any)[f]
+                                        }
+                                        ts[idx] = { ...ts[idx], chosen: nextChosen, manual }
                                         sd.tracts = ts
                                         return { ...l, scraped_data: sd }
                                       }))
