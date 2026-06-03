@@ -135,7 +135,9 @@ function AdminListingsPageContent() {
     setLoading(true)
     try {
       const offset = (page - 1) * itemsPerPage
-      let url = `${API_URL}/api/listings?limit=${itemsPerPage}&offset=${offset}&sort_order=desc`
+      // marketed_only hides bulk data-feed imports (MyDec / Indiana SDF / ATTOM /
+      // Beacon) — sold comps that aren't marketed listings and never hit the map.
+      let url = `${API_URL}/api/listings?limit=${itemsPerPage}&offset=${offset}&sort_order=desc&marketed_only=true`
 
       if (filterState) url += `&state=${encodeURIComponent(filterState)}`
       if (filterCounty) url += `&county=${encodeURIComponent(filterCounty)}`
