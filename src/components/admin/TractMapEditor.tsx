@@ -458,6 +458,12 @@ export default function TractMapEditor({
   // the image carries no Map Center DMS / PLSS section — so Surety uploads are
   // unaffected. Pre-fills from the listing's stored address when we have one.
   const [uploadAddress, setUploadAddress] = useState(listingAddress ?? '')
+  // Mirror the typed address into a ref so handleImageUpload always reads the
+  // LATEST value. The paste handler (a useEffect keyed on showUploadPanel)
+  // captures handleImageUpload from when the panel opened — before the admin
+  // types — so reading uploadAddress directly there is a stale empty closure.
+  const uploadAddressRef = useRef(uploadAddress)
+  useEffect(() => { uploadAddressRef.current = uploadAddress }, [uploadAddress])
   // Per user 2026-06-01: the source reference image "HAS to show up every
   // time" — it's how the admin verifies the polygon. External source URLs
   // frequently 404 / hotlink-block, leaving a broken-image icon. When that
@@ -1555,7 +1561,7 @@ export default function TractMapEditor({
               // and uses it as the anchor ONLY when the image has no printed
               // georeference (Map Center DMS / PLSS) — Surety maps still
               // self-locate from the image, so this never overrides them.
-              address: (uploadAddress || '').trim() || null,
+              address: (uploadAddressRef.current || '').trim() || null,
               // When we know this tract's number + the listing's full tract
               // list, the backend routes through the validated multi-tract
               // overview extractor and returns THIS tract's traced polygon
