@@ -117,6 +117,7 @@ export default function ListingTractCard({ tract, listing, onChanged }: Props) {
 
   const labelCls = 'block text-[11px] uppercase tracking-wide text-gg-gray-400 mb-1'
   const inputCls = 'w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-3 py-2 text-white text-sm'
+  const selectCls = 'w-full bg-white text-gray-900 border border-gg-gray-300 rounded-lg px-3 py-2 text-sm'
 
   return (
     <div className="border-t border-gg-gray-800 pt-5 first:border-t-0 first:pt-0">
@@ -178,7 +179,7 @@ export default function ListingTractCard({ tract, listing, onChanged }: Props) {
         </div>
         <div>
           <label className={labelCls}>Soil type</label>
-          <select className={inputCls} value={form.soil_rating_type} onChange={(e) => set('soil_rating_type', e.target.value)}>
+          <select className={selectCls} value={form.soil_rating_type} onChange={(e) => set('soil_rating_type', e.target.value)}>
             <option value="">—</option>
             {SOIL_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
@@ -193,14 +194,14 @@ export default function ListingTractCard({ tract, listing, onChanged }: Props) {
         </div>
         <div>
           <label className={labelCls}>Sale status</label>
-          <select className={inputCls} value={form.sale_status} onChange={(e) => set('sale_status', e.target.value)}>
+          <select className={selectCls} value={form.sale_status} onChange={(e) => set('sale_status', e.target.value)}>
             <option value="">—</option>
             {SALE_STATUSES.map((s) => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
           </select>
         </div>
         <div>
           <label className={labelCls}>Land type</label>
-          <select className={inputCls} value={form.land_type} onChange={(e) => set('land_type', e.target.value)}>
+          <select className={selectCls} value={form.land_type} onChange={(e) => set('land_type', e.target.value)}>
             <option value="">—</option>
             {LAND_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
@@ -211,7 +212,7 @@ export default function ListingTractCard({ tract, listing, onChanged }: Props) {
         </div>
         <div>
           <label className={labelCls}>Sale type</label>
-          <select className={inputCls} value={form.sale_type} onChange={(e) => set('sale_type', e.target.value)}>
+          <select className={selectCls} value={form.sale_type} onChange={(e) => set('sale_type', e.target.value)}>
             <option value="">—</option>
             {SALE_TYPES.map((t) => <option key={t} value={t}>{t.replace('_', ' ')}</option>)}
           </select>
