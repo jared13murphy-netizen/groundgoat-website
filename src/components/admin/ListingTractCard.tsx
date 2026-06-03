@@ -257,12 +257,12 @@ export default function ListingTractCard({ tract, listing, onChanged }: Props) {
       <div className="flex justify-end mb-4">
         <button
           onClick={saveScalars}
-          disabled={savingScalars}
+          disabled={!dirty || savingScalars}
           title="Save changes and mark this tract reviewed"
           className="flex items-center gap-2 px-4 py-2 bg-white text-gray-900 font-medium rounded-lg hover:bg-gray-100 disabled:opacity-40"
         >
           {savingScalars ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
-          Save tract {dirty ? '' : '(mark reviewed)'}
+          Save tract
         </button>
       </div>
 
