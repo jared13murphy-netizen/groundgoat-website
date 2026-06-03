@@ -18,11 +18,10 @@ import TillableCluWorkshop from '@/components/admin/TillableCluWorkshop'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
-// States where soil mapping is done → tract polygon + tillable + soil rating
-// can all be completed. Every other state is SHOWN but held read-only until
-// its soil mapping ships. NE + KS finished (soil ratings + FSA CLU polygons),
-// unheld per user 2026-06-03.
-const ACTIONABLE_STATES = ['IL', 'IA', 'MO', 'IN', 'WI', 'MN', 'NE', 'KS']
+// Which states are "not held" (soil + FSA CLU finished) is the BACKEND's call —
+// it's served in the stats response as `actionable_states`, the single source
+// of truth. To unhold a state, edit ACTIONABLE_STATES in the backend (main.py);
+// this screen picks it up automatically. (See `actionableStates` below.)
 const STAFF = ['Isaac', 'Haley', 'Brandt', 'Truly', 'Jared']
 const STATUSES = ['queued', 'in_progress', 'done', 'unfixable'] as const
 const PAGE_SIZE = 25
@@ -67,6 +66,7 @@ type Stats = {
   defect_tracts: number
   priority_listings: number
   tracts_to_verify: number
+  actionable_states: string[]
   by_status: Record<string, number>
   by_state: Record<string, number>
   by_assignee: Record<string, number>
@@ -139,6 +139,12 @@ export default function TractDataCleanupPage() {
   const [stats, setStats] = useState<Stats | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  // Single source of truth = backend stats.actionable_states. null until stats
+  // load (or if stats fail) → treat everything as actionable so a transient
+  // stats hiccup never locks the whole team out of editing.
+  const actionableStates: string[] | null = stats?.actionable_states ?? null
+  const isActionable = (st?: string | null) =>
+    actionableStates == null ? true : (st ? actionableStates.includes(st) : false)
 
   // Filters
   const [stateFilter, setStateFilter] = useState('')
@@ -550,7 +556,7 @@ export default function TractDataCleanupPage() {
               .sort((a, b) => b[1] - a[1])
               .map(([st, n]) => (
                 <option key={st || 'none'} value={st || ''}>
-                  {st || '(none)'} ({n}){ACTIONABLE_STATES.includes(st) ? '' : ' — held'}
+                  {st || '(none)'} ({n}){actionableStates && !actionableStates.includes(st) ? ' — held' : ''}
                 </option>
               ))}
           </select>
@@ -608,7 +614,7 @@ export default function TractDataCleanupPage() {
         {!loading && !error && (
           <div className="space-y-3">
             {items.map((it) => {
-              const actionable = it.state ? ACTIONABLE_STATES.includes(it.state) : false
+              const actionable = isActionable(it.state)
               const reasons = it.flagged_reasons ? Object.entries(it.flagged_reasons) : []
               const expanded = expandedId === it.listing_id
               const loaded = loadedListings[it.listing_id]
