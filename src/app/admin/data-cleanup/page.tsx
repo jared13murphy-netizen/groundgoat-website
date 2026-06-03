@@ -97,6 +97,7 @@ type LoadedListing = {
   source_url: string | null
   primary_image_url: string | null
   state: string | null
+  address: string | null
   tracts: LiveTract[]
 }
 
@@ -247,7 +248,7 @@ export default function TractDataCleanupPage() {
   const loadListing = useCallback(async (lid: string) => {
     setLoadedListings((prev) => ({
       ...prev,
-      [lid]: { loading: true, error: null, source_url: null, primary_image_url: null, state: null, tracts: prev[lid]?.tracts || [] },
+      [lid]: { loading: true, error: null, source_url: null, primary_image_url: null, state: null, address: null, tracts: prev[lid]?.tracts || [] },
     }))
     try {
       const res = await fetchWithAuth(`${API_URL}/api/listings/${lid}`)
@@ -280,13 +281,14 @@ export default function TractDataCleanupPage() {
           source_url: data.source_url ?? null,
           primary_image_url: data.primary_image_url ?? null,
           state: data.state ?? (tracts[0]?.state_abbr ?? null),
+          address: data.address ?? null,
           tracts,
         },
       }))
     } catch (e: any) {
       setLoadedListings((prev) => ({
         ...prev,
-        [lid]: { loading: false, error: e.message || String(e), source_url: null, primary_image_url: null, state: null, tracts: [] },
+        [lid]: { loading: false, error: e.message || String(e), source_url: null, primary_image_url: null, state: null, address: null, tracts: [] },
       }))
     }
   }, [])
@@ -896,6 +898,7 @@ export default function TractDataCleanupPage() {
                                       sourceImageKind="listing_image"
                                       listingUrl={loaded.source_url || it.source_url}
                                       listingState={tract.state_abbr || it.state}
+                                      listingAddress={loaded.address}
                                       scrapedAcres={tract.total_acres}
                                       latitude={tract.latitude}
                                       longitude={tract.longitude}

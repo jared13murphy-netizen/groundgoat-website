@@ -131,6 +131,11 @@ interface TractMapEditorProps {
    *  meridian (e.g. IL has both the 3rd and 4th PM). Improves accuracy for
    *  GIS-printed map images that carry a PLSS section label. */
   listingState?: string | null
+  /** The listing's stored street address, if any. Pre-fills the optional
+   *  "address" box in the Upload Image panel so the admin can geocode-anchor
+   *  a plain aerial (no PLSS/DMS). Left blank when we have no address (e.g.
+   *  listings whose source site our scraper can't read). */
+  listingAddress?: string | null
   /** Hide ALL tillable UI (the green overlay + Draw/Auto/Show-Hide/Delete
    *  Tillable toolbar buttons). Per the 2026-05-31 FSA-CLU rescope: tillable
    *  is no longer derived/drawn here — the TillableCluWorkshop owns it. When
@@ -334,6 +339,7 @@ export default function TractMapEditor({
   onComputeTillable,
   listingUrl,
   listingState,
+  listingAddress,
   hideTillable = false,
   tractNumber,
   siblingTracts,
@@ -446,6 +452,12 @@ export default function TractMapEditor({
   const [showUploadPanel, setShowUploadPanel] = useState(false)
   const [urlInput, setUrlInput] = useState('')
   const [extractingUrl, setExtractingUrl] = useState(false)
+  // Optional street address the admin can type when the uploaded image has no
+  // printed georeference (e.g. a plain auction aerial, not a Surety soils map).
+  // Sent to the scraper, which geocodes it and uses it as the anchor ONLY when
+  // the image carries no Map Center DMS / PLSS section — so Surety uploads are
+  // unaffected. Pre-fills from the listing's stored address when we have one.
+  const [uploadAddress, setUploadAddress] = useState(listingAddress ?? '')
   // Per user 2026-06-01: the source reference image "HAS to show up every
   // time" — it's how the admin verifies the polygon. External source URLs
   // frequently 404 / hotlink-block, leaving a broken-image icon. When that
@@ -1539,6 +1551,11 @@ export default function TractMapEditor({
               lng: longitude,
               acres: scrapedAcres,
               state: listingState,
+              // Optional typed/stored street address. The scraper geocodes it
+              // and uses it as the anchor ONLY when the image has no printed
+              // georeference (Map Center DMS / PLSS) — Surety maps still
+              // self-locate from the image, so this never overrides them.
+              address: (uploadAddress || '').trim() || null,
               // When we know this tract's number + the listing's full tract
               // list, the backend routes through the validated multi-tract
               // overview extractor and returns THIS tract's traced polygon
@@ -2081,6 +2098,25 @@ export default function TractMapEditor({
                 <div className="flex-1 border-t border-gg-gray-700" />
                 <span>or</span>
                 <div className="flex-1 border-t border-gg-gray-700" />
+              </div>
+              {/* Optional address anchor — used only when the image has no
+                  printed georeference (plain aerial). Surety maps ignore it. */}
+              <div className="flex-shrink-0">
+                <div className="text-[10px] text-gg-gray-400 uppercase tracking-wider font-semibold mb-1">
+                  Address (optional)
+                </div>
+                <input
+                  type="text"
+                  value={uploadAddress}
+                  onChange={e => setUploadAddress(e.target.value)}
+                  placeholder="e.g. 8000 Jefferson Rd, Freeburg, IL 62243"
+                  disabled={extractingUrl || extractingFromImage}
+                  className="w-full px-2 py-1.5 bg-gg-gray-900 border border-gg-gray-700 rounded text-xs text-white placeholder-gg-gray-500 focus:outline-none focus:border-gg-pink disabled:opacity-50"
+                />
+                <div className="text-[10px] text-gg-gray-500 mt-0.5">
+                  Only used if the image has no map coordinates (e.g. a plain
+                  auction aerial). Surety maps locate themselves — leave blank.
+                </div>
               </div>
               {/* Image drop/paste/pick zone */}
               <div className="text-[10px] text-gg-gray-400 uppercase tracking-wider font-semibold flex-shrink-0">
