@@ -25,6 +25,7 @@ import Tract3DModal from '@/components/Tract3DModal'
 import GroundTruthPanel from '@/components/portal/GroundTruthPanel'
 import NdviPanel from '@/components/portal/NdviPanel'
 import { countyCentroids } from '@/data/countyCentroids'
+import { getCountiesForState } from '@/data/counties'
 import { STATE_ABBR, STATE_BOUNDS } from './mapConstants'
 import {
   buildRegridParcelFilter,
@@ -5126,8 +5127,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               const activeStates = filters.stateFilter.split(',').filter(Boolean).map(s => s.toUpperCase())
               const countySet = new Set<string>()
               activeStates.forEach(st => {
-                const stateCounties = filterOptions.counties_by_state[st] || []
-                stateCounties.forEach(c => countySet.add(c))
+                // Show ALL counties in the state (static canonical list), not just
+                // counties that happen to have a GG listing — so the admin can
+                // navigate to any county (e.g. to compare against Regrid tiles).
+                // Fall back to the data-derived list only if the static list is
+                // somehow empty for this state code.
+                const stateCounties = getCountiesForState(st)
+                const list = stateCounties.length > 0 ? stateCounties : (filterOptions.counties_by_state[st] || [])
+                list.forEach(c => countySet.add(c))
               })
               const counties = Array.from(countySet).sort()
               if (counties.length === 0) return null
