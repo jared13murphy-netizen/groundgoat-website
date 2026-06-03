@@ -335,12 +335,6 @@ export default function AdminDashboard() {
                 href="/admin/commissions"
                 icon={<DollarSign />}
               />
-              <QuickActionCard
-                title="MyDec Import"
-                description="Import Illinois MyDec declarations"
-                href="/admin/mydec-import"
-                icon={<ClipboardList />}
-              />
             </>
           )}
           {/* Visible to both Admin and Sales */}
@@ -358,17 +352,6 @@ export default function AdminDashboard() {
             icon={<Building2 />}
             count={stats?.total_companies}
           />
-          {/* Admin-only actions */}
-          {user?.account_type === 'groundgoat_admin' && (
-            <>
-              <QuickActionCard
-                title="Settings"
-                description="Configure system settings"
-                href="/admin/settings"
-                icon={<AlertCircle />}
-              />
-            </>
-          )}
         </div>
 
         {/* One-time Script Button */}
