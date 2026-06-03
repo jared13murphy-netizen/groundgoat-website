@@ -309,8 +309,12 @@ export default function EditListingPage() {
       })
 
       if (response.ok) {
-        // Redirect to listings page after successful save
-        router.push('/admin/listings')
+        // Stay on the page — this screen is the combined listing+tract editor,
+        // so the admin keeps working on tracts after saving listing fields.
+        const updated = await response.json()
+        setListing(updated)
+        setSuccess('Listing saved')
+        setTimeout(() => setSuccess(''), 3000)
       } else {
         const data = await response.json()
         setError(data.detail || 'Failed to update listing')
@@ -353,19 +357,30 @@ export default function EditListingPage() {
     const token = localStorage.getItem('auth_token')
 
     try {
-      const response = await fetch(`${API_URL}/api/listings/${listingId}`, {
-        method: 'PATCH',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ verified: !listing.verified }),
-      })
+      let response: Response
+      if (!listing.verified) {
+        // Verify through the human-review endpoint so verified_by + verified_at
+        // get stamped (a plain PATCH {verified:true} leaves them null) and all
+        // tracts are marked reviewed — same path the staging screens use.
+        response = await fetch(`${API_URL}/api/admin/tract-cleanup/${listingId}/verify`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` },
+        })
+      } else {
+        // Un-verify is a simple flag flip.
+        response = await fetch(`${API_URL}/api/listings/${listingId}`, {
+          method: 'PATCH',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ verified: false }),
+        })
+      }
 
       if (response.ok) {
-        const updatedListing = await response.json()
-        setListing(updatedListing)
-        setSuccess(updatedListing.verified ? 'Listing marked as verified!' : 'Listing unmarked as verified')
+        await fetchListing(token!)
+        setSuccess(!listing.verified ? 'Listing verified' : 'Listing unmarked as verified')
         setTimeout(() => setSuccess(''), 3000)
       } else {
         setError('Failed to update verification status')
@@ -514,10 +529,10 @@ export default function EditListingPage() {
             <button
               onClick={handleVerify}
               disabled={verifying}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg ${
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium ${
                 listing.verified
                   ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30'
-                  : 'bg-gg-gray-800 text-white hover:bg-gg-gray-700'
+                  : 'bg-white text-gray-900 hover:bg-gray-100'
               } disabled:opacity-50`}
             >
               {verifying ? (
@@ -834,7 +849,7 @@ export default function EditListingPage() {
               <button
                 type="button"
                 onClick={() => setShowAddTract(!showAddTract)}
-                className="flex items-center gap-2 px-4 py-2 bg-gg-pink text-white rounded-lg hover:bg-gg-pink/80"
+                className="flex items-center gap-2 px-4 py-2 bg-white text-gray-900 font-medium rounded-lg hover:bg-gray-100"
               >
                 <Plus size={16} />
                 Add Tract
@@ -920,7 +935,7 @@ export default function EditListingPage() {
                     type="button"
                     onClick={handleAddTract}
                     disabled={addingTract}
-                    className="flex items-center gap-2 px-4 py-2 bg-gg-pink text-white rounded-lg hover:bg-gg-pink/80 disabled:opacity-50"
+                    className="flex items-center gap-2 px-4 py-2 bg-white text-gray-900 font-medium rounded-lg hover:bg-gray-100 disabled:opacity-50"
                   >
                     {addingTract ? <Loader2 className="animate-spin" size={16} /> : <Plus size={16} />}
                     Add Tract
@@ -967,7 +982,7 @@ export default function EditListingPage() {
             <button
               type="submit"
               disabled={saving}
-              className="flex items-center gap-2 px-6 py-3 bg-gg-pink text-white rounded-lg hover:bg-gg-pink/80 disabled:opacity-50"
+              className="flex items-center gap-2 px-6 py-3 bg-white text-gray-900 font-semibold rounded-lg hover:bg-gray-100 disabled:opacity-50"
             >
               {saving ? (
                 <>
