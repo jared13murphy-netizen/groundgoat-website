@@ -6,6 +6,7 @@ import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Save, Loader2, Trash2, ExternalLink, Pencil, Plus, CheckCircle } from 'lucide-react'
 import { getCountiesForState } from '@/data/counties'
+import ListingTractCard from '@/components/admin/ListingTractCard'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -213,6 +214,13 @@ export default function EditListingPage() {
     } finally {
       setLoading(false)
     }
+  }
+
+  // Re-pull the listing (and its tracts) after a tract sub-editor saves, so the
+  // server-recomputed $/x and listing rollups show up immediately.
+  const refreshListing = async () => {
+    const token = localStorage.getItem('auth_token')
+    if (token) await fetchListing(token)
   }
 
   const fetchCompanies = async (token: string) => {
@@ -944,27 +952,23 @@ export default function EditListingPage() {
               </div>
             )}
 
-            {/* Existing Tracts */}
+            {/* Existing Tracts — full inline editor per tract: editable scalars
+                (acres, tillable, soil, price, status, etc.), boundary polygon
+                map, and the FSA-CLU tillable + soil workshop. Each sub-editor
+                saves through the recompute paths, so $/x update at the tract
+                AND listing level. */}
             {listing.tracts && listing.tracts.length > 0 ? (
               <div className="space-y-2">
-                {listing.tracts.map((tract: any, index: number) => (
-                  <div key={tract.id || index} className="flex justify-between items-center p-3 bg-gg-gray-800 rounded-lg">
-                    <div className="flex-1">
-                      <span className="text-white font-medium">Tract {tract.tract_number || index + 1}</span>
-                      <span className="text-gg-gray-400 ml-4">
-                        {tract.total_acres} acres • {tract.land_type || 'N/A'}
-                        {tract.price_per_acre ? ` • $${tract.price_per_acre.toLocaleString()}/acre` : ''}
-                      </span>
-                    </div>
-                    <Link
-                      href={`/admin/tracts/${tract.id}`}
-                      className="flex items-center gap-2 px-3 py-1 bg-gg-gray-700 text-gg-gray-300 rounded hover:bg-gg-gray-600 hover:text-white transition-colors"
-                    >
-                      <Pencil size={14} />
-                      Edit
-                    </Link>
-                  </div>
-                ))}
+                {[...listing.tracts]
+                  .sort((a: any, b: any) => (a.tract_number || 0) - (b.tract_number || 0))
+                  .map((tract: any) => (
+                    <ListingTractCard
+                      key={tract.id}
+                      tract={tract}
+                      listing={listing}
+                      onChanged={refreshListing}
+                    />
+                  ))}
               </div>
             ) : (
               <p className="text-gg-gray-400 text-center py-4">No tracts added yet</p>

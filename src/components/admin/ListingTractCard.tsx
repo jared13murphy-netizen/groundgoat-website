@@ -1,0 +1,286 @@
+'use client'
+
+import { useMemo, useState } from 'react'
+import { Pencil, Check, X, Loader2, Save } from 'lucide-react'
+import fetchWithAuth from '@/lib/fetchWithAuth'
+import TractMapEditor from '@/components/admin/TractMapEditor'
+import TillableCluWorkshop from '@/components/admin/TillableCluWorkshop'
+
+const API_URL = 'https://practical-serenity-production.up.railway.app'
+
+const LAND_TYPES = ['Farm', 'Recreational', 'Pasture', 'Timber', 'Hunting', 'Vacant Land', 'CRP', 'Commercial', 'Residential', 'Development', 'Other']
+const SOIL_TYPES = ['PI', 'CSR2', 'CPI', 'NCCPI', 'WAPI']
+const SALE_STATUSES = ['auction', 'listed', 'pending', 'sold', 'no_sale']
+const SALE_TYPES = ['auction', 'private_treaty', 'estate', 'exchange', 'other']
+
+type Pt = [number, number]
+
+interface Props {
+  tract: any
+  listing: any
+  /** Refetch the listing after any save so derived $/x + rollups refresh. */
+  onChanged: () => void | Promise<void>
+}
+
+const money = (v: any) =>
+  v == null || v === '' ? '—' : `$${Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 })}`
+const acres = (v: any) =>
+  v == null || v === '' ? '—' : `${Number(v).toFixed(2)} ac`
+
+// Scalar fields the card edits via PATCH /api/tracts/{id}. We send only the
+// fields the admin actually changed, so the backend's price-triangle driver
+// logic fires correctly (edit $/acre → sale_price; edit sale_price → $/acre;
+// edit total_acres → $/acre; etc.) and never gets a conflicting pair.
+const STR_FIELDS = ['name', 'description', 'soil_rating_type', 'land_type', 'sale_status', 'sale_type', 'buyer', 'seller']
+const NUM_FIELDS = ['total_acres', 'tillable_acres', 'soil_rating', 'csr2', 'sale_price', 'price_per_acre']
+const BOOL_FIELDS = ['has_house', 'has_buildings']
+
+export default function ListingTractCard({ tract, listing, onChanged }: Props) {
+  const ring: Pt[] | null = useMemo(() => {
+    const p = tract.polygon_coordinates
+    return Array.isArray(p) && p.length >= 3 ? (p as Pt[]) : null
+  }, [tract.polygon_coordinates])
+
+  // ----- scalar form state (initialized from the tract) -----
+  const initial = useMemo(() => {
+    const o: Record<string, any> = {}
+    for (const f of STR_FIELDS) o[f] = tract[f] ?? ''
+    for (const f of NUM_FIELDS) o[f] = tract[f] != null ? String(tract[f]) : ''
+    for (const f of BOOL_FIELDS) o[f] = !!tract[f]
+    return o
+  }, [tract])
+
+  const [form, setForm] = useState<Record<string, any>>(initial)
+  const [savingScalars, setSavingScalars] = useState(false)
+  const [err, setErr] = useState('')
+
+  const dirty = useMemo(
+    () => [...STR_FIELDS, ...NUM_FIELDS, ...BOOL_FIELDS].some((f) => String(form[f]) !== String(initial[f])),
+    [form, initial]
+  )
+
+  const set = (f: string, v: any) => setForm((p) => ({ ...p, [f]: v }))
+
+  // ----- tract number inline edit (swap-safe endpoint) -----
+  const [editingNum, setEditingNum] = useState(false)
+  const [numDraft, setNumDraft] = useState(String(tract.tract_number ?? ''))
+  const [savingNum, setSavingNum] = useState(false)
+  const [cluReload, setCluReload] = useState(0)
+
+  const saveTractNumber = async () => {
+    const n = parseInt(numDraft, 10)
+    if (!Number.isFinite(n) || n < 1) { setErr('Tract number must be ≥ 1'); return }
+    setSavingNum(true); setErr('')
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/admin/tract-cleanup/tract/${tract.id}/tract-number`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tract_number: n }),
+      })
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || `HTTP ${res.status}`)
+      setEditingNum(false)
+      await onChanged()
+    } catch (e: any) {
+      setErr(e.message || 'Failed to save tract number')
+    } finally {
+      setSavingNum(false)
+    }
+  }
+
+  const saveScalars = async () => {
+    setSavingScalars(true); setErr('')
+    try {
+      const payload: Record<string, any> = {}
+      for (const f of STR_FIELDS) {
+        if (String(form[f]) !== String(initial[f])) payload[f] = form[f] === '' ? null : form[f]
+      }
+      for (const f of NUM_FIELDS) {
+        if (String(form[f]) !== String(initial[f])) payload[f] = form[f] === '' ? null : parseFloat(form[f])
+      }
+      for (const f of BOOL_FIELDS) {
+        if (!!form[f] !== !!initial[f]) payload[f] = !!form[f]
+      }
+      if (Object.keys(payload).length === 0) { setSavingScalars(false); return }
+      const res = await fetchWithAuth(`${API_URL}/api/tracts/${tract.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || `HTTP ${res.status}`)
+      await onChanged()
+    } catch (e: any) {
+      setErr(e.message || 'Failed to save tract')
+    } finally {
+      setSavingScalars(false)
+    }
+  }
+
+  const labelCls = 'block text-[11px] uppercase tracking-wide text-gg-gray-400 mb-1'
+  const inputCls = 'w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-3 py-2 text-white text-sm'
+
+  return (
+    <div className="border-t border-gg-gray-800 pt-5 first:border-t-0 first:pt-0">
+      {/* Header: tract number (editable) + derived summary */}
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        {editingNum ? (
+          <div className="flex items-center gap-1.5">
+            <span className="text-2xl text-white font-extrabold tracking-tight">Tract</span>
+            <input
+              type="number" min={1} step={1} autoFocus
+              value={numDraft}
+              onChange={(e) => setNumDraft(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') saveTractNumber(); if (e.key === 'Escape') setEditingNum(false) }}
+              disabled={savingNum}
+              className="w-20 bg-gg-gray-800 border border-gg-gray-600 rounded px-2 py-1 text-xl text-white font-bold disabled:opacity-50"
+            />
+            <button onClick={saveTractNumber} disabled={savingNum} title="Save tract number"
+              className="p-1.5 rounded bg-white text-gray-900 hover:bg-gray-100 disabled:opacity-50">
+              {savingNum ? <Loader2 className="animate-spin" size={16} /> : <Check size={16} />}
+            </button>
+            <button onClick={() => setEditingNum(false)} disabled={savingNum} title="Cancel"
+              className="p-1.5 rounded bg-gg-gray-800 text-gg-gray-300 border border-gg-gray-700 hover:bg-gg-gray-700 disabled:opacity-50">
+              <X size={16} />
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-1.5">
+            <p className="text-2xl text-white font-extrabold tracking-tight">Tract {tract.tract_number}</p>
+            <button onClick={() => { setEditingNum(true); setNumDraft(String(tract.tract_number ?? '')) }}
+              title="Edit tract number (scraper sometimes orders them wrong)"
+              className="p-1 rounded text-gg-gray-400 hover:text-gg-pink hover:bg-gg-gray-800">
+              <Pencil size={14} />
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Derived, read-only — refreshes after any save (recomputed server-side) */}
+      <div className="flex flex-wrap gap-x-5 gap-y-1 mb-4 text-xs text-gg-gray-400">
+        <span>$/acre: <span className="text-white font-medium">{money(tract.price_per_acre)}</span></span>
+        <span>$/tillable: <span className="text-white font-medium">{money(tract.price_per_tillable_acre)}</span></span>
+        <span>$/soil pt: <span className="text-white font-medium">{money(tract.price_per_soil_rating)}</span></span>
+        <span>Polygon: <span className="text-white font-medium">{ring ? `${ring.length} pts` : 'none'}</span></span>
+      </div>
+
+      {/* Scalar fields */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+        <div>
+          <label className={labelCls}>Total acres</label>
+          <input type="number" step="0.01" className={inputCls} value={form.total_acres} onChange={(e) => set('total_acres', e.target.value)} />
+        </div>
+        <div>
+          <label className={labelCls}>Tillable acres</label>
+          <input type="number" step="0.01" className={inputCls} value={form.tillable_acres} onChange={(e) => set('tillable_acres', e.target.value)} />
+        </div>
+        <div>
+          <label className={labelCls}>Soil rating</label>
+          <input type="number" step="0.01" className={inputCls} value={form.soil_rating} onChange={(e) => set('soil_rating', e.target.value)} />
+        </div>
+        <div>
+          <label className={labelCls}>Soil type</label>
+          <select className={inputCls} value={form.soil_rating_type} onChange={(e) => set('soil_rating_type', e.target.value)}>
+            <option value="">—</option>
+            {SOIL_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className={labelCls}>Sale price ($)</label>
+          <input type="number" step="0.01" className={inputCls} value={form.sale_price} onChange={(e) => set('sale_price', e.target.value)} />
+        </div>
+        <div>
+          <label className={labelCls}>Price / acre ($)</label>
+          <input type="number" step="0.01" className={inputCls} value={form.price_per_acre} onChange={(e) => set('price_per_acre', e.target.value)} />
+        </div>
+        <div>
+          <label className={labelCls}>Sale status</label>
+          <select className={inputCls} value={form.sale_status} onChange={(e) => set('sale_status', e.target.value)}>
+            <option value="">—</option>
+            {SALE_STATUSES.map((s) => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className={labelCls}>Land type</label>
+          <select className={inputCls} value={form.land_type} onChange={(e) => set('land_type', e.target.value)}>
+            <option value="">—</option>
+            {LAND_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className={labelCls}>CSR2</label>
+          <input type="number" step="0.01" className={inputCls} value={form.csr2} onChange={(e) => set('csr2', e.target.value)} />
+        </div>
+        <div>
+          <label className={labelCls}>Sale type</label>
+          <select className={inputCls} value={form.sale_type} onChange={(e) => set('sale_type', e.target.value)}>
+            <option value="">—</option>
+            {SALE_TYPES.map((t) => <option key={t} value={t}>{t.replace('_', ' ')}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className={labelCls}>Buyer</label>
+          <input type="text" className={inputCls} value={form.buyer} onChange={(e) => set('buyer', e.target.value)} />
+        </div>
+        <div>
+          <label className={labelCls}>Seller</label>
+          <input type="text" className={inputCls} value={form.seller} onChange={(e) => set('seller', e.target.value)} />
+        </div>
+        <label className="flex items-center gap-2 text-sm text-white mt-5">
+          <input type="checkbox" checked={!!form.has_house} onChange={(e) => set('has_house', e.target.checked)} />
+          Has house
+        </label>
+        <label className="flex items-center gap-2 text-sm text-white mt-5">
+          <input type="checkbox" checked={!!form.has_buildings} onChange={(e) => set('has_buildings', e.target.checked)} />
+          Has buildings
+        </label>
+      </div>
+
+      {err && <div className="mb-3 text-sm text-red-400">{err}</div>}
+
+      <div className="flex justify-end mb-4">
+        <button
+          onClick={saveScalars}
+          disabled={!dirty || savingScalars}
+          className="flex items-center gap-2 px-4 py-2 bg-white text-gray-900 font-medium rounded-lg hover:bg-gray-100 disabled:opacity-40"
+        >
+          {savingScalars ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
+          Save tract
+        </button>
+      </div>
+
+      {/* Boundary editor — saves polygon via tract-fix-boundary/apply */}
+      <TractMapEditor
+        stagingId={0}
+        tractIndex={0}
+        liveTractId={tract.id}
+        tractNumber={tract.tract_number}
+        siblingTracts={(listing.tracts || []).map((t: any) => ({
+          tract_number: t.tract_number ?? null,
+          total_acres: t.total_acres ?? null,
+          tillable_acres: t.tillable_acres ?? null,
+        }))}
+        initialPolygon={ring}
+        hideTillable
+        tillablePolygon={null}
+        showTillable={false}
+        sourceImageUrl={tract.image_url || listing.primary_image_url}
+        sourceImageKind="listing_image"
+        listingUrl={listing.source_url}
+        listingState={tract.state_abbr || listing.state}
+        listingAddress={listing.address}
+        scrapedAcres={tract.total_acres}
+        latitude={tract.latitude}
+        longitude={tract.longitude}
+        onUpdate={() => { setCluReload((k) => k + 1); onChanged() }}
+      />
+
+      {/* Tillable + soil workshop — saves via tracts/{id}/clu */}
+      <TillableCluWorkshop
+        tractId={tract.id}
+        reloadKey={cluReload}
+        latitude={tract.latitude}
+        longitude={tract.longitude}
+        onSaved={() => onChanged()}
+      />
+    </div>
+  )
+}
