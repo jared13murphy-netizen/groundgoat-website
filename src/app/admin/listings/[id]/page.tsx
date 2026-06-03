@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Save, Loader2, Trash2, ExternalLink, Pencil, Plus, CheckCircle } from 'lucide-react'
+import { ArrowLeft, Save, Loader2, Trash2, ExternalLink, Pencil, Plus, CheckCircle, ChevronDown, ChevronUp } from 'lucide-react'
 import { getCountiesForState } from '@/data/counties'
 import ListingTractCard from '@/components/admin/ListingTractCard'
 
@@ -79,6 +79,7 @@ export default function EditListingPage() {
   const [showAddTract, setShowAddTract] = useState(false)
   const [addingTract, setAddingTract] = useState(false)
   const [verifying, setVerifying] = useState(false)
+  const [detailsOpen, setDetailsOpen] = useState(false)
 
   // Form state
   const [formData, setFormData] = useState({
@@ -572,10 +573,29 @@ export default function EditListingPage() {
           </div>
         )}
 
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="space-y-6">
+        {/* One wide card: collapsible Listing details on top, tract editors below */}
+        <div className="bg-gg-gray-900 border border-gg-gray-700 rounded-lg p-5">
+          {/* Collapsible Listing details header */}
+          <button
+            type="button"
+            onClick={() => setDetailsOpen(o => !o)}
+            className="w-full flex items-center justify-between text-left"
+          >
+            <div className="min-w-0">
+              <h2 className="text-xl font-semibold text-white">Listing details</h2>
+              <p className="text-sm text-gg-gray-400 truncate">
+                {(listing.title || 'Untitled')} · {(listing.status || '').replace('_', ' ')} · {listing.county} County, {listing.state}
+              </p>
+            </div>
+            {detailsOpen
+              ? <ChevronUp size={22} className="text-gg-gray-400 flex-shrink-0" />
+              : <ChevronDown size={22} className="text-gg-gray-400 flex-shrink-0" />}
+          </button>
+
+          {detailsOpen && (
+          <form onSubmit={handleSubmit} className="space-y-5 mt-4">
           {/* Basic Info */}
-          <div className="card">
+          <div className="bg-gg-gray-800/40 rounded-lg p-4">
             <h2 className="text-xl font-semibold text-white mb-4">Basic Information</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="md:col-span-2">
@@ -652,7 +672,7 @@ export default function EditListingPage() {
           </div>
 
           {/* Location */}
-          <div className="card">
+          <div className="bg-gg-gray-800/40 rounded-lg p-4">
             <h2 className="text-xl font-semibold text-white mb-4">Location</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
@@ -718,7 +738,7 @@ export default function EditListingPage() {
 
           {/* Auction Details */}
           {formData.listing_type === 'auction' && (
-            <div className="card">
+            <div className="bg-gg-gray-800/40 rounded-lg p-4">
               <h2 className="text-xl font-semibold text-white mb-4">Auction Details</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
@@ -766,7 +786,7 @@ export default function EditListingPage() {
           )}
 
           {/* Pricing */}
-          <div className="card">
+          <div className="bg-gg-gray-800/40 rounded-lg p-4">
             <h2 className="text-xl font-semibold text-white mb-4">Pricing</h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
@@ -817,7 +837,7 @@ export default function EditListingPage() {
           </div>
 
           {/* Media */}
-          <div className="card">
+          <div className="bg-gg-gray-800/40 rounded-lg p-4">
             <h2 className="text-xl font-semibold text-white mb-4">Media & Links</h2>
             <div className="space-y-4">
               <div>
@@ -850,8 +870,25 @@ export default function EditListingPage() {
             </div>
           </div>
 
+            {/* Save listing-level fields */}
+            <div className="flex justify-end">
+              <button
+                type="submit"
+                disabled={saving}
+                className="flex items-center gap-2 px-6 py-3 bg-white text-gray-900 font-semibold rounded-lg hover:bg-gray-100 disabled:opacity-50"
+              >
+                {saving ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
+                Save listing
+              </button>
+            </div>
+          </form>
+          )}
+
+          {/* Divider */}
+          <div className="border-t border-gg-gray-800 my-5" />
+
           {/* Tracts */}
-          <div className="card">
+          <div>
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-semibold text-white">Tracts ({listing.tracts?.length || 0})</h2>
               <button
@@ -974,34 +1011,7 @@ export default function EditListingPage() {
               <p className="text-gg-gray-400 text-center py-4">No tracts added yet</p>
             )}
           </div>
-
-          {/* Submit */}
-          <div className="flex justify-end gap-4">
-            <Link
-              href="/admin/listings"
-              className="px-6 py-3 bg-gg-gray-800 text-white rounded-lg hover:bg-gg-gray-700"
-            >
-              Cancel
-            </Link>
-            <button
-              type="submit"
-              disabled={saving}
-              className="flex items-center gap-2 px-6 py-3 bg-white text-gray-900 font-semibold rounded-lg hover:bg-gray-100 disabled:opacity-50"
-            >
-              {saving ? (
-                <>
-                  <Loader2 className="animate-spin" size={16} />
-                  Saving...
-                </>
-              ) : (
-                <>
-                  <Save size={16} />
-                  Save Changes
-                </>
-              )}
-            </button>
-          </div>
-        </form>
+        </div>
       </div>
     </div>
   )
