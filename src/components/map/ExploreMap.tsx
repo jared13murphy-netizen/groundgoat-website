@@ -2404,7 +2404,23 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     is_sandbox: boolean
     has_token: boolean
     attribution: string
+    // State-plan gate (basic_state / premium_state subscribers).
+    // unlimited=true → no filter; otherwise show only parcels whose
+    // path starts with /us/<abbrev>/ for one of these.
+    unlimited?: boolean
+    subscribed_state_abbrevs?: string[]
   } | null>(null)
+
+  // Memoized MapLibre filter expression for the state-plan gate.
+  // null = unlimited (no filter applied). The tile carries
+  // `path` = "/us/<state>/<county>/..." in lowercase; slice(4,6)
+  // yields the 2-letter state.
+  const regridStateFilter = useMemo<any | null>(() => {
+    if (!regridConfig || regridConfig.unlimited) return null
+    const states = (regridConfig.subscribed_state_abbrevs || []).map((s) => s.toLowerCase())
+    if (states.length === 0) return null
+    return ['in', ['slice', ['get', 'path'], 4, 6], ['literal', states]]
+  }, [regridConfig])
 
   useEffect(() => {
     let cancelled = false
@@ -2476,6 +2492,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       source: SOURCE_ID,
       'source-layer': sourceLayer,
       minzoom: REGRID_MIN_ZOOM,
+      ...(regridStateFilter ? { filter: regridStateFilter } : {}),
       paint: {
         'fill-color': '#EC4899',
         'fill-opacity': [
@@ -2494,6 +2511,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       source: SOURCE_ID,
       'source-layer': sourceLayer,
       minzoom: REGRID_MIN_ZOOM,
+      ...(regridStateFilter ? { filter: regridStateFilter } : {}),
       paint: {
         'line-color': '#000000',
         'line-width': 2.2,
@@ -2513,6 +2531,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       source: SOURCE_ID,
       'source-layer': sourceLayer,
       minzoom: REGRID_MIN_ZOOM,
+      ...(regridStateFilter ? { filter: regridStateFilter } : {}),
       layout: {
         // Four segments: owner (bold) → acres → $/acre → sale date.
         // Total sale price was removed 2026-05-26 — the per-acre
@@ -2844,13 +2863,19 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       ensureParcelSaleDotImage(map)
       const inCompModeNow = !!subjectTractIdRef.current
       if (!map.getLayer(PARCEL_SALE_PLUS_LAYER)) {
+        // Compose the sale filter with the state-plan gate so basic_state
+        // / premium_state subscribers don't see sale dots outside their
+        // states either.
+        const composedFilter: any = regridStateFilter
+          ? ['all', filterExpr, regridStateFilter]
+          : filterExpr
         map.addLayer({
           id: PARCEL_SALE_PLUS_LAYER,
           type: 'symbol',
           source: REGRID_SOURCE,
           'source-layer': sourceLayer,
           minzoom: REGRID_MIN_ZOOM,
-          filter: filterExpr,
+          filter: composedFilter,
           layout: {
             'icon-image': PARCEL_SALE_DOT_IMAGE,
             'icon-size': inCompModeNow ? PARCEL_COMP_ICON_SIZE : PARCEL_DOT_ICON_SIZE,
@@ -3032,11 +3057,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     if (!REGRID_SALE_PINS_ENABLED) return
     const map = mapRef.current
     if (!map || !mapLoaded) return
-    const expr = buildRegridSaleDotFilter(filters, PARCEL_MIN_SALE_ACRES)
+    const saleExpr: any = buildRegridSaleDotFilter(filters, PARCEL_MIN_SALE_ACRES)
+    // Compose the state-plan gate so sale dots also respect the
+    // subscriber's allowed state(s).
+    const expr: any = regridStateFilter ? ['all', saleExpr, regridStateFilter] : saleExpr
     if (map.getLayer(PARCEL_SALE_PLUS_LAYER)) {
-      try { map.setFilter(PARCEL_SALE_PLUS_LAYER, expr as any) } catch {/* layer torn down */}
+      try { map.setFilter(PARCEL_SALE_PLUS_LAYER, expr) } catch {/* layer torn down */}
     }
-  }, [mapLoaded, filters.dateRange, filters.dateFrom, filters.dateTo, filters.salePriceMin, filters.salePriceMax, filters.acreageMin, filters.acreageMax])
+  }, [mapLoaded, regridStateFilter, filters.dateRange, filters.dateFrom, filters.dateTo, filters.salePriceMin, filters.salePriceMax, filters.acreageMin, filters.acreageMax])
 
   // Flip the Regrid parcel markers between explore form (pink dot only)
   // and comparables form (pink dot + white "+", bigger) when the user
@@ -3069,7 +3097,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded) return
-    const expr = buildRegridParcelFilter(webExploreFiltersToRegrid(filters))
+    const baseExpr = buildRegridParcelFilter(webExploreFiltersToRegrid(filters))
+    // Compose the state-plan gate so the fill / line / label layers
+    // also hide parcels outside the subscriber's allowed state(s).
+    const expr: any = regridStateFilter
+      ? (baseExpr ? ['all', baseExpr, regridStateFilter] : regridStateFilter)
+      : baseExpr
     for (const id of REGRID_PARCEL_LAYER_IDS) {
       if (map.getLayer(id)) {
         try { map.setFilter(id, expr as any) } catch {/* layer torn down */}
@@ -3077,6 +3110,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
   }, [
     mapLoaded,
+    regridStateFilter,
     filters.acreageMin,
     filters.acreageMax,
     filters.stateFilter,

@@ -23,6 +23,23 @@ export interface RegridConfig {
   is_sandbox: boolean
   has_token: boolean
   attribution: string
+  // State-plan gate. unlimited=true → no filter; otherwise show only
+  // parcels whose `path` starts with /us/<one of these>/.
+  unlimited?: boolean
+  subscribed_state_abbrevs?: string[]
+}
+
+// Build the MapLibre filter expression that hides parcels outside
+// the user's subscribed state(s). The Regrid custom tile carries
+// `path` = "/us/<state>/<county>/..." in lowercase. Slice positions
+// 4–6 yields the 2-letter state. Returns `null` when no filter
+// should apply (unlimited or unknown).
+export function buildRegridStateFilter(config: RegridConfig | null): any | null {
+  if (!config) return null
+  if (config.unlimited) return null
+  const states = (config.subscribed_state_abbrevs || []).map((s) => s.toLowerCase())
+  if (states.length === 0) return null
+  return ['in', ['slice', ['get', 'path'], 4, 6], ['literal', states]]
 }
 
 export async function fetchRegridConfig(): Promise<RegridConfig | null> {
@@ -364,12 +381,16 @@ export function addRegridLayer(
     ? options.beforeId
     : undefined
 
+  // State-plan gate filter — null = no filter (unlimited users).
+  const stateFilter = buildRegridStateFilter(config)
+
   map.addLayer({
     id: FILL_LAYER,
     type: 'fill',
     source: SOURCE_ID,
     'source-layer': sourceLayer,
     minzoom,
+    ...(stateFilter ? { filter: stateFilter } : {}),
     paint: {
       'fill-color': '#EC4899',
       'fill-opacity': ['case', ['boolean', ['feature-state', 'hover'], false], 0.22, 0.06],
@@ -381,6 +402,7 @@ export function addRegridLayer(
     source: SOURCE_ID,
     'source-layer': sourceLayer,
     minzoom,
+    ...(stateFilter ? { filter: stateFilter } : {}),
     paint: { 'line-color': '#000000', 'line-width': 2.2, 'line-opacity': 0.85 },
   }, beforeId)
   map.addLayer({
@@ -389,6 +411,7 @@ export function addRegridLayer(
     source: SOURCE_ID,
     'source-layer': sourceLayer,
     minzoom,
+    ...(stateFilter ? { filter: stateFilter } : {}),
     layout: {
       // Four segments: owner (bold) → acres → sale price → sale date.
       // Conditional segments render '' when the underlying property is
