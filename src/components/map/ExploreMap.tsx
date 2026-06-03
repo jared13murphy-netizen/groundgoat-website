@@ -5295,42 +5295,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               </div>
             ))}
 
-            {/* Buildings — show/hide tracts that have buildings or
-                improvements on them. has_buildings is set per-tract at
-                verify (auto from the scraper, admin-editable on staging).
-                Tri-state: Any / With buildings / No buildings. The param
-                is already sent by buildFilterParams + honored by
-                /api/map/tracts and the count endpoints. */}
-            <div style={{ marginBottom: 20 }}>
-              <div style={{ color: '#CCCCCC', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>Buildings</div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                {([
-                  { label: 'Any', value: null },
-                  { label: 'With buildings', value: true },
-                  { label: 'No buildings', value: false },
-                ] as { label: string; value: boolean | null }[]).map(opt => {
-                  const isActive = filters.hasBuildings === opt.value
-                  return (
-                    <button
-                      key={opt.label}
-                      onClick={() => setFilters(f => ({ ...f, hasBuildings: opt.value }))}
-                      style={{
-                        padding: '6px 14px',
-                        borderRadius: 20,
-                        border: `1px solid ${isActive ? '#E91E8C' : 'rgba(255,255,255,0.2)'}`,
-                        backgroundColor: isActive ? 'rgba(233,30,140,0.2)' : 'transparent',
-                        color: isActive ? '#E91E8C' : '#BBBBBB',
-                        fontSize: 13,
-                        fontWeight: 600,
-                        cursor: 'pointer',
-                      }}
-                    >
-                      {opt.label}
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
+            {/* Buildings filter intentionally removed until the
+                has_buildings tract data is cleaned up. The hasBuildings
+                filter state + buildFilterParams plumbing is left intact
+                (defaults to null = no-op) so re-enabling is UI-only. */}
           </div>
 
           {/* Action buttons */}
