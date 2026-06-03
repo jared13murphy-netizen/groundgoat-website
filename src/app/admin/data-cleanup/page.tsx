@@ -66,6 +66,7 @@ type Stats = {
   listings: number
   defect_tracts: number
   priority_listings: number
+  tracts_to_verify: number
   by_status: Record<string, number>
   by_state: Record<string, number>
   by_assignee: Record<string, number>
@@ -533,7 +534,7 @@ export default function TractDataCleanupPage() {
         {stats && (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
             <StatCard label="Listings" value={stats.listings} />
-            <StatCard label="Priority (sold + soil-state)" value={stats.priority_listings} />
+            <StatCard label="Tracts to verify (active states)" value={stats.tracts_to_verify} />
             <StatCard label="Done" value={stats.by_status?.done || 0} />
             <StatCard label="Unfixable" value={stats.by_status?.unfixable || 0} />
           </div>
