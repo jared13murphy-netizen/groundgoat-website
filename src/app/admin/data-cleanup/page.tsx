@@ -20,8 +20,9 @@ const API_URL = 'https://practical-serenity-production.up.railway.app'
 
 // States where soil mapping is done → tract polygon + tillable + soil rating
 // can all be completed. Every other state is SHOWN but held read-only until
-// its soil mapping ships (NE is in progress). Per user 2026-06-02.
-const ACTIONABLE_STATES = ['IL', 'IA', 'MO', 'IN', 'WI', 'MN']
+// its soil mapping ships. NE + KS finished (soil ratings + FSA CLU polygons),
+// unheld per user 2026-06-03.
+const ACTIONABLE_STATES = ['IL', 'IA', 'MO', 'IN', 'WI', 'MN', 'NE', 'KS']
 const STAFF = ['Isaac', 'Haley', 'Brandt', 'Truly', 'Jared']
 const STATUSES = ['queued', 'in_progress', 'done', 'unfixable'] as const
 const PAGE_SIZE = 25
