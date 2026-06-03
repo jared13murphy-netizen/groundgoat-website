@@ -429,8 +429,15 @@ export default function TractDataCleanupPage() {
     if (!loadedListings[lid] || loadedListings[lid].error) await loadListing(lid)
     setRescrapingId(lid)
     setRescrapeMsg((prev) => ({ ...prev, [lid]: null }))
+    // A rescrape re-runs the full extraction pipeline (backend waits up to
+    // 300s on the scraper). fetchWithAuth's default 20s timeout aborts that
+    // mid-flight — surfaced as "signal is aborted without reason". Supplying
+    // our own signal makes fetchWithAuth skip its 20s cap; we abort at 280s,
+    // just under the backend's 300s scraper timeout.
+    const ctrl = new AbortController()
+    const timeoutId = window.setTimeout(() => ctrl.abort(), 280_000)
     try {
-      const res = await fetchWithAuth(`${API_URL}/api/admin/tract-cleanup/${lid}/rescrape`, { method: 'POST' })
+      const res = await fetchWithAuth(`${API_URL}/api/admin/tract-cleanup/${lid}/rescrape`, { method: 'POST', signal: ctrl.signal })
       const data = await res.json()
       if (!res.ok || !data.success) throw new Error(data.detail || `HTTP ${res.status}`)
       setProposals((prev) => {
@@ -458,8 +465,11 @@ export default function TractDataCleanupPage() {
           : `Rescrape extracted no usable boundaries (scraped ${data.scraped_tracts_total || 0} tract(s)). Draw or upload manually.`,
       }))
     } catch (e: any) {
-      setRescrapeMsg((prev) => ({ ...prev, [lid]: `Rescrape failed: ${e.message || e}` }))
-    } finally { setRescrapingId(null) }
+      const msg = e?.name === 'AbortError'
+        ? 'Rescrape timed out (the source page took too long to extract). Try again, or draw/upload manually.'
+        : `Rescrape failed: ${e.message || e}`
+      setRescrapeMsg((prev) => ({ ...prev, [lid]: msg }))
+    } finally { window.clearTimeout(timeoutId); setRescrapingId(null) }
   }
 
   const pageStart = total === 0 ? 0 : offset + 1
