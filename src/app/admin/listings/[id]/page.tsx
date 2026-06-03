@@ -1011,6 +1011,29 @@ export default function EditListingPage() {
               <p className="text-gg-gray-400 text-center py-4">No tracts added yet</p>
             )}
           </div>
+
+          {/* Listing-level Verify — finalize once every tract has been saved
+              (each Save marks that tract reviewed). Stamps verified +
+              verified_by + verified_at. */}
+          <div className="border-t border-gg-gray-800 mt-6 pt-5 flex items-center justify-between gap-3 flex-wrap">
+            <p className="text-sm text-gg-gray-400">
+              {listing.verified
+                ? 'This listing is verified.'
+                : 'Save each tract to mark it reviewed, then verify the whole listing.'}
+            </p>
+            <button
+              onClick={handleVerify}
+              disabled={verifying}
+              className={`flex items-center gap-2 px-6 py-3 rounded-lg font-semibold disabled:opacity-50 ${
+                listing.verified
+                  ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30'
+                  : 'bg-white text-gray-900 hover:bg-gray-100'
+              }`}
+            >
+              {verifying ? <Loader2 className="animate-spin" size={18} /> : <CheckCircle size={18} />}
+              {listing.verified ? 'Verified — click to unverify' : 'Verify Listing'}
+            </button>
+          </div>
         </div>
       </div>
     </div>

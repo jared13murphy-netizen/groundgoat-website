@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { Pencil, Check, X, Loader2, Save } from 'lucide-react'
+import { Pencil, Check, X, Loader2, Save, CheckCircle2 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import TractMapEditor from '@/components/admin/TractMapEditor'
 import TillableCluWorkshop from '@/components/admin/TillableCluWorkshop'
@@ -100,13 +100,23 @@ export default function ListingTractCard({ tract, listing, onChanged }: Props) {
       for (const f of BOOL_FIELDS) {
         if (!!form[f] !== !!initial[f]) payload[f] = !!form[f]
       }
-      if (Object.keys(payload).length === 0) { setSavingScalars(false); return }
-      const res = await fetchWithAuth(`${API_URL}/api/tracts/${tract.id}`, {
-        method: 'PATCH',
+      // Save any changed scalar fields.
+      if (Object.keys(payload).length > 0) {
+        const res = await fetchWithAuth(`${API_URL}/api/tracts/${tract.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        })
+        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || `HTTP ${res.status}`)
+      }
+      // Saving a tract = confirming it: stamp boundary_reviewed_by/at so the
+      // tract counts as reviewed (same flag the data-cleanup screen sets).
+      const rev = await fetchWithAuth(`${API_URL}/api/admin/tract-cleanup/tract/${tract.id}/review`, {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ reviewed: true }),
       })
-      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || `HTTP ${res.status}`)
+      if (!rev.ok) throw new Error((await rev.json().catch(() => ({}))).detail || `HTTP ${rev.status}`)
       await onChanged()
     } catch (e: any) {
       setErr(e.message || 'Failed to save tract')
@@ -123,6 +133,7 @@ export default function ListingTractCard({ tract, listing, onChanged }: Props) {
     <div className="border-t border-gg-gray-800 pt-5 first:border-t-0 first:pt-0">
       {/* Header: tract number (editable) + derived summary */}
       <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
         {editingNum ? (
           <div className="flex items-center gap-1.5">
             <span className="text-2xl text-white font-extrabold tracking-tight">Tract</span>
@@ -153,6 +164,12 @@ export default function ListingTractCard({ tract, listing, onChanged }: Props) {
             </button>
           </div>
         )}
+        {tract.boundary_reviewed_at && (
+          <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded bg-green-500/15 text-green-400 border border-green-500/40">
+            <CheckCircle2 size={12} /> Reviewed
+          </span>
+        )}
+        </div>
       </div>
 
       {/* Derived, read-only — refreshes after any save (recomputed server-side) */}
@@ -240,11 +257,12 @@ export default function ListingTractCard({ tract, listing, onChanged }: Props) {
       <div className="flex justify-end mb-4">
         <button
           onClick={saveScalars}
-          disabled={!dirty || savingScalars}
+          disabled={savingScalars}
+          title="Save changes and mark this tract reviewed"
           className="flex items-center gap-2 px-4 py-2 bg-white text-gray-900 font-medium rounded-lg hover:bg-gray-100 disabled:opacity-40"
         >
           {savingScalars ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
-          Save tract
+          Save tract {dirty ? '' : '(mark reviewed)'}
         </button>
       </div>
 
