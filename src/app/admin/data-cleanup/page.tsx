@@ -54,6 +54,7 @@ type QueueItem = {
   audited_at: string | null
   updated_at: string | null
   title: string | null
+  company_name: string | null
   county: string | null
   source_url: string | null
   listing_type: string | null
@@ -631,8 +632,11 @@ export default function TractDataCleanupPage() {
                       {expanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
                     </button>
                     <div className="flex-1 min-w-0 cursor-pointer" onClick={() => toggleExpand(it.listing_id)}>
+                      {it.company_name && (
+                        <p className="text-lg font-bold text-white truncate max-w-xl leading-tight">{it.company_name}</p>
+                      )}
                       <div className="flex items-center gap-2 flex-wrap">
-                        <h2 className="font-semibold text-white truncate max-w-xl">{it.title || '(untitled)'}</h2>
+                        <h2 className="text-sm font-semibold text-gg-gray-300 truncate max-w-xl">{it.title || '(untitled)'}</h2>
                         {it.is_sold && <span className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-gg-gray-800 text-gg-gray-300 border border-gg-gray-700">Sold</span>}
                         {it.priority && <span className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-gg-pink/20 text-gg-pink border border-gg-pink/40">Priority</span>}
                         {!actionable && (
