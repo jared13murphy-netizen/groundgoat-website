@@ -45,6 +45,8 @@ interface Listing {
   asking_price?: number
   sale_price?: number
   price_per_acre?: number
+  price_basis?: 'sold' | 'asking' | null
+  display_price_per_acre?: number
   company?: Company
   company_name?: string
   tract_count?: number
@@ -341,11 +343,20 @@ function ListingsPageContent() {
   }
 
   const getPricePerAcre = (listing: Listing) => {
+    if (listing.display_price_per_acre != null) return listing.display_price_per_acre
     if (listing.price_per_acre) return listing.price_per_acre
     const price = listing.sale_price || listing.asking_price
     if (price && listing.total_acres) {
       return price / listing.total_acres
     }
+    return null
+  }
+
+  // basis tag: sale wins ('sold'), else asking ('asking')
+  const getPriceBasis = (listing: Listing): 'sold' | 'asking' | null => {
+    if (listing.price_basis) return listing.price_basis
+    if (listing.sale_price) return 'sold'
+    if (listing.asking_price) return 'asking'
     return null
   }
 
@@ -594,7 +605,14 @@ function ListingsPageContent() {
                       <div className="text-white font-medium">
                         {getPricePerAcre(listing) ? formatCurrency(getPricePerAcre(listing)!) : '\u2014'}
                       </div>
-                      <div className="text-gg-gray-500 text-xs">$/Acre</div>
+                      <div className="text-gg-gray-500 text-xs">
+                        $/Acre
+                        {getPriceBasis(listing) && getPricePerAcre(listing) && (
+                          <span className={`ml-1 text-[9px] font-semibold uppercase px-1 py-0.5 rounded ${getPriceBasis(listing) === 'sold' ? 'bg-green-500/15 text-green-400' : 'bg-amber-500/15 text-amber-400'}`}>
+                            {getPriceBasis(listing) === 'sold' ? 'Sold' : 'Asking'}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
 

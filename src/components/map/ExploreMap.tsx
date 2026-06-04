@@ -321,6 +321,9 @@ export interface SaleDetail {
   saleStatus?: string | null
   listingType?: string | null
   askingPrice?: number | null
+  // 'sold' when pricePerAcre is sale-based, 'asking' when it's asking-based.
+  // Always rendered as a tag so the two can never be confused.
+  priceBasis?: 'sold' | 'asking' | null
   landType?: string | null
   landTypes?: string[] | null
   pctTillable?: number | null
@@ -3916,6 +3919,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       const markerPpa = (isPrivateTreaty || isPending) && tract.asking_price && tract.total_acres
         ? tract.asking_price / tract.total_acres
         : tract.price_per_acre
+      // Basis tag for whatever markerPpa represents (asking vs sold).
+      const markerBasis: 'sold' | 'asking' | null =
+        ((isPrivateTreaty || isPending) && tract.asking_price && tract.total_acres)
+          ? 'asking'
+          : (tract.price_per_acre ? 'sold' : null)
 
       // "Auctioning today" — green pin + pulsing ring + top-of-stack z-order.
       // Replaces the older listing_status === 'live' rule so the prominent
@@ -3961,7 +3969,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           tillableAcres: tract.tillable_acres,
           companyName: tract.company_name,
           salePrice: tract.sale_price,
-          pricePerAcre: tract.price_per_acre,
+          pricePerAcre: markerPpa,
+          priceBasis: markerBasis,
           county: tract.county,
           state: tract.state,
           township: tract.township,
@@ -4055,6 +4064,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       lng: number
       lat: number
       ppa: number | null
+      ppaBasis: 'sold' | 'asking' | null
     }
 
     // Pre-compute geographic coords + price-per-acre for every today tract.
@@ -4072,7 +4082,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       const ppa = (isPrivateTreaty || isPending) && tract.asking_price && tract.total_acres
         ? tract.asking_price / tract.total_acres
         : tract.price_per_acre ?? null
-      prepared.push({ tract, lng, lat, ppa: ppa ?? null })
+      const ppaBasis: 'sold' | 'asking' | null =
+        ((isPrivateTreaty || isPending) && tract.asking_price && tract.total_acres)
+          ? 'asking'
+          : (tract.price_per_acre ? 'sold' : null)
+      prepared.push({ tract, lng, lat, ppa: ppa ?? null, ppaBasis })
     }
 
     // Tight cluster radius — tracts that are genuinely close on screen merge,
@@ -4158,7 +4172,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             tillableAcres: tract.tillable_acres,
             companyName: tract.company_name,
             salePrice: tract.sale_price,
-            pricePerAcre: tract.price_per_acre,
+            pricePerAcre: lead.ppa,
+            priceBasis: lead.ppaBasis,
             county: tract.county,
             state: tract.state,
             township: tract.township,
@@ -5513,7 +5528,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               ) : null}
               {selectedSale.pricePerAcre ? (
                 <div className="sale-modal-row">
-                  <span className="sale-modal-label">Price/Acre</span>
+                  <span className="sale-modal-label">
+                    Price/Acre
+                    {selectedSale.priceBasis && (
+                      <span className={`ml-1 text-[9px] font-semibold uppercase px-1 py-0.5 rounded ${selectedSale.priceBasis === 'sold' ? 'bg-green-500/15 text-green-600' : 'bg-amber-500/15 text-amber-600'}`}>
+                        {selectedSale.priceBasis === 'sold' ? 'Sold' : 'Asking'}
+                      </span>
+                    )}
+                  </span>
                   <span className="sale-modal-value">{formatCurrency(selectedSale.pricePerAcre)}/ac</span>
                 </div>
               ) : null}
@@ -5537,13 +5559,27 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               ) : null}
               {selectedSale.tillableAcres && selectedSale.pricePerAcre && selectedSale.totalAcres ? (
                 <div className="sale-modal-row">
-                  <span className="sale-modal-label">$/Tillable Acre</span>
+                  <span className="sale-modal-label">
+                    $/Tillable Acre
+                    {selectedSale.priceBasis && (
+                      <span className={`ml-1 text-[9px] font-semibold uppercase px-1 py-0.5 rounded ${selectedSale.priceBasis === 'sold' ? 'bg-green-500/15 text-green-600' : 'bg-amber-500/15 text-amber-600'}`}>
+                        {selectedSale.priceBasis === 'sold' ? 'Sold' : 'Asking'}
+                      </span>
+                    )}
+                  </span>
                   <span className="sale-modal-value">{formatCurrency((selectedSale.pricePerAcre * selectedSale.totalAcres) / selectedSale.tillableAcres)}/ac</span>
                 </div>
               ) : null}
               {selectedSale.soilRating && selectedSale.pricePerAcre ? (
                 <div className="sale-modal-row">
-                  <span className="sale-modal-label">$/Soil Rating</span>
+                  <span className="sale-modal-label">
+                    $/Soil Rating
+                    {selectedSale.priceBasis && (
+                      <span className={`ml-1 text-[9px] font-semibold uppercase px-1 py-0.5 rounded ${selectedSale.priceBasis === 'sold' ? 'bg-green-500/15 text-green-600' : 'bg-amber-500/15 text-amber-600'}`}>
+                        {selectedSale.priceBasis === 'sold' ? 'Sold' : 'Asking'}
+                      </span>
+                    )}
+                  </span>
                   <span className="sale-modal-value">{formatCurrency(selectedSale.pricePerAcre / selectedSale.soilRating)}</span>
                 </div>
               ) : null}

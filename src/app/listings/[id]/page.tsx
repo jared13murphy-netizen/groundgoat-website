@@ -27,6 +27,8 @@ interface Tract {
   land_types?: string[]
   sale_status?: string
   sale_price?: number
+  price_basis?: 'sold' | 'asking' | null
+  display_price_per_acre?: number
   estimated_value_per_acre?: number
   estimate_confidence?: number
 }
@@ -50,6 +52,10 @@ interface Listing {
   asking_price?: number
   sale_price?: number
   price_per_acre?: number
+  price_basis?: 'sold' | 'asking' | null
+  display_price_per_acre?: number
+  display_price_per_tillable_acre?: number
+  display_price_per_soil_rating?: number
   description?: string
   company?: Company
   company_name?: string
@@ -70,6 +76,18 @@ const LAND_TYPE_COLORS: Record<string, string> = {
   'Commercial': 'bg-purple-500',
   'Residential': 'bg-pink-500',
   'Development': 'bg-red-500',
+}
+
+// Tag every $/x with its basis so an asking-based rate can never be mistaken
+// for a sold rate. Sale always wins; asking is the fallback.
+function BasisTag({ basis }: { basis?: 'sold' | 'asking' | null }) {
+  if (!basis) return null
+  const sold = basis === 'sold'
+  return (
+    <span className={`ml-1.5 align-middle text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded ${sold ? 'bg-green-500/15 text-green-400' : 'bg-amber-500/15 text-amber-400'}`}>
+      {sold ? 'Sold' : 'Asking'}
+    </span>
+  )
 }
 
 export default function ListingDetailPage({ params }: { params: { id: string } }) {
@@ -200,11 +218,22 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
     return { acres: getTotalAcres(), label: 'Total Acres' }
   }
 
+  // $/x display follows the backend single source of truth: sale wins ('sold'),
+  // else asking ('asking'). Always shown WITH the basis tag so an asking figure
+  // can never read as a sold figure.
   const getPricePerAcre = () => {
+    if (listing?.display_price_per_acre != null) return listing.display_price_per_acre
     if (listing?.price_per_acre) return listing.price_per_acre
     const acres = getTotalAcres()
     if (listing?.sale_price && acres) return listing.sale_price / acres
     if (listing?.asking_price && acres) return listing.asking_price / acres
+    return null
+  }
+
+  const getPriceBasis = (): 'sold' | 'asking' | null => {
+    if (listing?.price_basis) return listing.price_basis
+    if (listing?.sale_price) return 'sold'
+    if (listing?.asking_price) return 'asking'
     return null
   }
 
@@ -316,7 +345,7 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
             {getPricePerAcre() && (
               <div className="text-center">
                 <div className="text-2xl font-bold text-white">{formatCurrency(getPricePerAcre()!)}</div>
-                <div className="text-gg-gray-400 text-sm">$/Acre</div>
+                <div className="text-gg-gray-400 text-sm">$/Acre <BasisTag basis={getPriceBasis()} /></div>
               </div>
             )}
           </div>
@@ -370,7 +399,7 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
                   <div className="flex items-center gap-3">
                     <DollarSign size={20} className="text-gg-pink" />
                     <div>
-                      <div className="text-gg-gray-400 text-sm">Price per Acre</div>
+                      <div className="text-gg-gray-400 text-sm">Price per Acre <BasisTag basis={getPriceBasis()} /></div>
                       <div className="text-white">{formatCurrency(getPricePerAcre()!)}</div>
                     </div>
                   </div>
@@ -458,10 +487,10 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
                         <div className="text-gg-gray-500 text-xs">Soil Rating</div>
                       </div>
                     )}
-                    {tract.sale_price && tract.total_acres && (
+                    {(tract.display_price_per_acre ?? (tract.sale_price && tract.total_acres ? tract.sale_price / tract.total_acres : null)) != null && (
                       <div>
-                        <div className="text-white font-medium">{formatCurrency(tract.sale_price / tract.total_acres)}</div>
-                        <div className="text-gg-gray-500 text-xs">$/Acre</div>
+                        <div className="text-white font-medium">{formatCurrency((tract.display_price_per_acre ?? (tract.sale_price! / tract.total_acres!)))}</div>
+                        <div className="text-gg-gray-500 text-xs">$/Acre <BasisTag basis={tract.price_basis ?? (tract.sale_price ? 'sold' : null)} /></div>
                       </div>
                     )}
                   </div>
