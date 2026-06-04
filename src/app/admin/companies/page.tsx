@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Loader2, Pencil, Trash2, Building2, ArrowLeft, ExternalLink, Plus, X } from 'lucide-react'
+import { Loader2, Pencil, Trash2, Building2, ArrowLeft, ExternalLink, Plus, X, Search } from 'lucide-react'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -43,6 +43,7 @@ const US_STATES = [
 export default function AdminCompaniesPage() {
   const router = useRouter()
   const [companies, setCompanies] = useState<Company[]>([])
+  const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
   const [showAddModal, setShowAddModal] = useState(false)
@@ -195,10 +196,20 @@ export default function AdminCompaniesPage() {
     )
   }
 
-  const totalPages = Math.max(1, Math.ceil(companies.length / PAGE_SIZE))
+  // Search by company name, city, or state (case-insensitive substring).
+  const q = search.trim().toLowerCase()
+  const filteredCompanies = q
+    ? companies.filter((c) =>
+        [c.name, c.city, c.state]
+          .filter(Boolean)
+          .some((f) => f!.toLowerCase().includes(q))
+      )
+    : companies
+
+  const totalPages = Math.max(1, Math.ceil(filteredCompanies.length / PAGE_SIZE))
   const safePage = Math.min(page, totalPages)
   const pageStart = (safePage - 1) * PAGE_SIZE
-  const paginatedCompanies = companies.slice(pageStart, pageStart + PAGE_SIZE)
+  const paginatedCompanies = filteredCompanies.slice(pageStart, pageStart + PAGE_SIZE)
 
   return (
     <div className="min-h-screen bg-gg-black pt-24 pb-12">
@@ -212,9 +223,13 @@ export default function AdminCompaniesPage() {
             <div>
               <h1 className="font-display text-3xl font-bold text-white">Companies</h1>
               <p className="text-gg-gray-400">
-                {companies.length} auction companies
-                {companies.length > PAGE_SIZE && (
-                  <> · showing {pageStart + 1}–{Math.min(pageStart + PAGE_SIZE, companies.length)}</>
+                {q ? (
+                  <>{filteredCompanies.length} of {companies.length} companies</>
+                ) : (
+                  <>{companies.length} auction companies</>
+                )}
+                {filteredCompanies.length > PAGE_SIZE && (
+                  <> · showing {pageStart + 1}–{Math.min(pageStart + PAGE_SIZE, filteredCompanies.length)}</>
                 )}
               </p>
             </div>
@@ -226,6 +241,27 @@ export default function AdminCompaniesPage() {
             <Plus size={18} />
             Add Company
           </button>
+        </div>
+
+        {/* Search — filter by company name, city, or state */}
+        <div className="relative mb-6">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gg-gray-500" size={18} />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); setPage(1) }}
+            placeholder="Search by company name, city, or state…"
+            className="w-full bg-gg-gray-900 border border-gg-gray-800 rounded-lg pl-10 pr-10 py-2.5 text-white placeholder-gg-gray-500 focus:outline-none focus:border-gg-pink"
+          />
+          {search && (
+            <button
+              onClick={() => { setSearch(''); setPage(1) }}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gg-gray-500 hover:text-white"
+              aria-label="Clear search"
+            >
+              <X size={18} />
+            </button>
+          )}
         </div>
 
         {/* Add Company Modal */}
@@ -476,10 +512,12 @@ export default function AdminCompaniesPage() {
         )}
 
         {/* Empty State */}
-        {companies.length === 0 && (
+        {filteredCompanies.length === 0 && (
           <div className="text-center py-12">
             <Building2 className="mx-auto text-gg-gray-600 mb-4" size={48} />
-            <p className="text-gg-gray-400">No companies found</p>
+            <p className="text-gg-gray-400">
+              {q ? `No companies match "${search.trim()}"` : 'No companies found'}
+            </p>
           </div>
         )}
       </div>
