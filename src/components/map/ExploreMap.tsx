@@ -733,6 +733,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const mapRef = useRef<maplibregl.Map | null>(null)
   const stateMarkersRef = useRef<maplibregl.Marker[]>([])
   const countyMarkersRef = useRef<maplibregl.Marker[]>([])
+  // Filter-active per-county count bubbles (number + "tracts" label),
+  // shown when zoomed too low for individual tract dots.
+  const countyCountMarkersRef = useRef<maplibregl.Marker[]>([])
   const tractMarkersRef = useRef<maplibregl.Marker[]>([])
   const tractMarkerElementsRef = useRef<Map<string, HTMLDivElement>>(new Map())
   // Today's auctions are rendered as a native MapLibre GeoJSON layer
@@ -4497,7 +4500,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded) return
-    if (currentTier !== 'county' || allCountyCentroids.length === 0) {
+    // When a filter is active we swap these plain county-NAME squares for
+    // the per-county COUNT bubbles (rendered by the effect below), so the
+    // two never stack on the same centroid.
+    if (currentTier !== 'county' || allCountyCentroids.length === 0 || hasActiveFilters) {
       fadeOutAndRemove(countyMarkersRef.current)
       countyMarkersRef.current = []
       return
@@ -4564,7 +4570,88 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       countyMarkersRef.current = []
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allCountyCentroids, mapLoaded, currentTier])
+  }, [allCountyCentroids, mapLoaded, currentTier, hasActiveFilters])
+
+  // Filter-active per-county COUNT bubbles. When a filter is in use AND
+  // the zoom is too low to show individual tract dots (state or county
+  // tier), show one bubble per county that has matching tracts: the
+  // number on top with the word "tracts" beneath — labeled so the user
+  // knows we're counting tracts, not parcels, yet. Driven by the
+  // filter-aware /api/map/county-tract-counts data (already has each
+  // county's averaged centroid). Clipped to the viewport on every move
+  // like the county-name squares; clicking a bubble drills into that
+  // county.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+    if (!hasActiveFilters || currentTier === 'tract' || countyCounts.length === 0) {
+      fadeOutAndRemove(countyCountMarkersRef.current)
+      countyCountMarkersRef.current = []
+      return
+    }
+
+    const rendered = new Map<string, maplibregl.Marker>()
+
+    const renderForBounds = () => {
+      const bounds = map.getBounds()
+      const w = bounds.getWest(), e = bounds.getEast()
+      const s = bounds.getSouth(), n = bounds.getNorth()
+      const mw = (e - w) * 0.05
+      const mh = (n - s) * 0.05
+      const visibleKeys = new Set<string>()
+
+      for (const c of countyCounts) {
+        if (!c.count || c.lat == null || c.lng == null) continue
+        if (c.lng < w - mw || c.lng > e + mw) continue
+        if (c.lat < s - mh || c.lat > n + mh) continue
+        const key = `${c.state}-${c.county}`
+        visibleKeys.add(key)
+        if (rendered.has(key)) continue
+        const el = document.createElement('div')
+        el.style.cssText = [
+          'display:flex', 'flex-direction:column', 'align-items:center',
+          'justify-content:center', 'min-width:42px', 'height:42px',
+          'padding:3px 9px', 'border-radius:21px', 'background:#E91E8C',
+          'border:2px solid #fff', 'box-shadow:0 2px 6px rgba(0,0,0,0.45)',
+          'color:#fff', 'cursor:pointer', 'font-family:inherit',
+          'box-sizing:border-box', 'white-space:nowrap',
+        ].join(';')
+        el.innerHTML =
+          `<div style="font-size:15px;font-weight:700;line-height:1;">${c.count}</div>` +
+          `<div style="font-size:8px;font-weight:600;line-height:1.1;letter-spacing:0.5px;` +
+          `text-transform:uppercase;opacity:0.92;margin-top:1px;">tracts</div>`
+        el.addEventListener('click', () => {
+          map.easeTo({ center: [c.lng as number, c.lat as number], zoom: 10, duration: 800 })
+        })
+        const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
+          .setLngLat([c.lng, c.lat])
+          .addTo(map)
+        rendered.set(key, marker)
+      }
+
+      const keysToRemove: string[] = []
+      rendered.forEach((marker, key) => {
+        if (!visibleKeys.has(key)) { marker.remove(); keysToRemove.push(key) }
+      })
+      keysToRemove.forEach(k => rendered.delete(k))
+      const stillVisible: maplibregl.Marker[] = []
+      rendered.forEach(m => stillVisible.push(m))
+      countyCountMarkersRef.current = stillVisible
+    }
+
+    renderForBounds()
+    map.on('moveend', renderForBounds)
+
+    return () => {
+      map.off('moveend', renderForBounds)
+      const all: maplibregl.Marker[] = []
+      rendered.forEach(m => all.push(m))
+      fadeOutAndRemove(all)
+      rendered.clear()
+      countyCountMarkersRef.current = []
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [countyCounts, mapLoaded, currentTier, hasActiveFilters])
 
   // TRACT PIN VISIBILITY — toggle existing tract pins by tier.
   // Pins are created/maintained by their own effect (downstream);
