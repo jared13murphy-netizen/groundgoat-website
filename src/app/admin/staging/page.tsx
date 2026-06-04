@@ -84,6 +84,9 @@ interface TractForm {
   soil_rating: string
   latitude: string
   longitude: string
+  sale_status: string
+  sale_price: string
+  price_per_acre: string
 }
 
 interface EditForm {
@@ -142,6 +145,9 @@ function buildEditForm(scraped: any): EditForm {
       soil_rating: t.soil_rating != null ? String(t.soil_rating) : '',
       latitude: t.latitude != null ? String(t.latitude) : '',
       longitude: t.longitude != null ? String(t.longitude) : '',
+      sale_status: t.sale_status || '',
+      sale_price: t.sale_price != null ? String(t.sale_price) : '',
+      price_per_acre: t.price_per_acre != null ? String(t.price_per_acre) : '',
     })),
   }
 }
@@ -204,6 +210,11 @@ function applyEditToScrapedData(original: any, form: EditForm): any {
       soil_rating: soilVal,
       latitude: t.latitude ? parseFloat(t.latitude) : null,
       longitude: t.longitude ? parseFloat(t.longitude) : null,
+      // Sale status/price — editable for past (sold) auctions. Verify reads these
+      // top-level fields directly, so a manual change here carries to production.
+      sale_status: t.sale_status || null,
+      sale_price: t.sale_price ? parseFloat(t.sale_price) : null,
+      price_per_acre: t.price_per_acre ? parseFloat(t.price_per_acre) : null,
       manual,
     }
   })
@@ -981,7 +992,7 @@ export default function AdminStagingPage() {
       : 1
     setEditForm((prev) => ({
       ...prev,
-      tracts: [...prev.tracts, { tract_number: nextNum, acres: '', tillable_acres: '', county: '', state: '', soil_rating: '', latitude: '', longitude: '' }],
+      tracts: [...prev.tracts, { tract_number: nextNum, acres: '', tillable_acres: '', county: '', state: '', soil_rating: '', latitude: '', longitude: '', sale_status: '', sale_price: '', price_per_acre: '' }],
     }))
   }
 
@@ -2438,6 +2449,42 @@ export default function AdminStagingPage() {
                             placeholder="e.g. -87.6298"
                             value={tract.longitude}
                             onChange={(e) => updateTract(idx, 'longitude', e.target.value)}
+                            className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-3 py-1.5 text-white text-sm"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-gg-gray-400 mb-1">Status</label>
+                          <select
+                            value={tract.sale_status}
+                            onChange={(e) => updateTract(idx, 'sale_status', e.target.value)}
+                            className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-3 py-1.5 text-white text-sm"
+                          >
+                            <option value="">— (auto)</option>
+                            <option value="auction">Auction (upcoming)</option>
+                            <option value="sold">Sold</option>
+                            <option value="no_sale">No sale</option>
+                            <option value="listed">Listed</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs text-gg-gray-400 mb-1">Sale Price ($)</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            placeholder="total sale $"
+                            value={tract.sale_price}
+                            onChange={(e) => updateTract(idx, 'sale_price', e.target.value)}
+                            className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-3 py-1.5 text-white text-sm"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-gg-gray-400 mb-1">$/acre</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            placeholder="price per acre"
+                            value={tract.price_per_acre}
+                            onChange={(e) => updateTract(idx, 'price_per_acre', e.target.value)}
                             className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-3 py-1.5 text-white text-sm"
                           />
                         </div>
