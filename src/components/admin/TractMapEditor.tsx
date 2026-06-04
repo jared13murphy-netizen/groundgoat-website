@@ -46,7 +46,7 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import {
   Save, RotateCcw, Trash2, Loader2, ImageIcon, Sprout, EyeOff,
   Maximize2, Minimize2, Crosshair, Camera, Sparkles, Move, Spline,
-  ExternalLink,
+  ExternalLink, LandPlot,
 } from 'lucide-react'
 import { polygonAcres, polygonPerimeterFeet, formatPerimeter } from '@/lib/polygonGeometry'
 import { fetchWithAuth } from '@/lib/fetchWithAuth'
@@ -397,6 +397,19 @@ export default function TractMapEditor({
   const [moveMode, setMoveMode] = useState(false)
   const moveModeRef = useRef(false)
   useEffect(() => { moveModeRef.current = moveMode }, [moveMode])
+  // Snap-to-parcel (per user 2026-06-04): show parcel boundary lines from the
+  // Soils-DB `regrid_parcels` vector tiles, and let the admin click the
+  // parcel(s) that make up a tract — the backend ST_Unions them and we adopt
+  // that exact boundary as the tract polygon, so drawn tracts line up with the
+  // real parcel lines. Reads our own DB (no Regrid), auto-fills as it grows.
+  const [snapMode, setSnapMode] = useState(false)
+  const snapModeRef = useRef(false)
+  const selectedParcelsRef = useRef<Set<string>>(new Set())
+  const [selectedParcelCount, setSelectedParcelCount] = useState(0)
+  const [snapBusy, setSnapBusy] = useState(false)
+  // The once-attached map click handler calls the latest snap toggler via this
+  // ref (avoids stale closure over points/selection).
+  const snapClickRef = useRef<(uuid: string) => void>(() => {})
   // Snap-to-fields (per user 2026-06-02): the scraped tract is often
   // offset ~1mi from the real field, so the FSA-CLU tillable workshop comes
   // up empty. This button asks the backend for the translation that lands
@@ -635,11 +648,54 @@ export default function TractMapEditor({
       center: [centerLng, centerLat],
       zoom: initZoom,
       attributionControl: false,
+      // Attach the admin bearer token to our parcel vector-tile requests
+      // (the /api/tiles/parcels endpoint is admin-only).
+      transformRequest: (url: string) => {
+        if (url.includes(`${API_URL}/api/tiles/parcels/`)) {
+          const token = localStorage.getItem('auth_token')
+          return { url, headers: token ? { Authorization: `Bearer ${token}` } : {} }
+        }
+        return { url }
+      },
     })
     mapRef.current = map
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right')
 
     map.on('load', () => {
+      // ── Parcel boundary tiles (Soils-DB regrid_parcels) — added FIRST so
+      // the drawn tract polygon + vertices render on top. Hidden until the
+      // user turns on Snap-to-parcel. Live MVT, so new/edited parcels appear
+      // automatically as the import grows. ──
+      try {
+        map.addSource('parcels', {
+          type: 'vector',
+          tiles: [`${API_URL}/api/tiles/parcels/{z}/{x}/{y}.mvt`],
+          minzoom: 12,
+          maxzoom: 22,
+          promoteId: 'll_uuid',
+        })
+        map.addLayer({
+          id: 'parcels-fill', type: 'fill', source: 'parcels',
+          'source-layer': 'parcels',
+          layout: { visibility: 'none' },
+          paint: {
+            // transparent normally; selected parcels get a cyan wash
+            'fill-color': '#22d3ee',
+            'fill-opacity': ['case', ['boolean', ['feature-state', 'selected'], false], 0.25, 0.0],
+          },
+        })
+        map.addLayer({
+          id: 'parcels-line', type: 'line', source: 'parcels',
+          'source-layer': 'parcels',
+          layout: { visibility: 'none' },
+          paint: {
+            'line-color': ['case', ['boolean', ['feature-state', 'selected'], false], '#06b6d4', '#facc15'],
+            'line-width': ['case', ['boolean', ['feature-state', 'selected'], false], 3.5, 1.5],
+            'line-opacity': 0.95,
+          },
+        })
+      } catch (e) { /* parcels layer is best-effort */ }
+
       map.addSource('drawn', { type: 'geojson', data: buildDrawGeo(points) })
       map.addSource('verts', { type: 'geojson', data: buildVertexGeo(points) })
       // Tillable source — empty FC unless showTillable=true. Per user
@@ -1000,6 +1056,16 @@ export default function TractMapEditor({
       if (!fullscreenRef.current) return
       // In move mode, clicks pan/slide the polygon — never add vertices.
       if (moveModeRef.current) return
+      // Snap-to-parcel mode: a click toggles the parcel under the cursor into
+      // the tract selection (which re-unions the boundary); never adds vertices.
+      if (snapModeRef.current) {
+        const pf = map.getLayer('parcels-fill')
+          ? map.queryRenderedFeatures(ev.point, { layers: ['parcels-fill'] })
+          : []
+        const uuid = pf.length ? (pf[0].properties?.ll_uuid as string | undefined) : undefined
+        if (uuid) snapClickRef.current(uuid)
+        return
+      }
       const layersToCheck = ['verts', 'tillable-verts'].filter(
         l => map.getLayer(l) != null
       )
@@ -1035,6 +1101,87 @@ export default function TractMapEditor({
     // setData effect below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasBeenVisible])
+
+  // ── Snap-to-parcel: toggle parcel layer visibility with snapMode, and clear
+  // the selection (+ its highlight) whenever snap mode turns off. ──
+  useEffect(() => {
+    snapModeRef.current = snapMode
+    const map = mapRef.current
+    if (!map) return
+    const vis = snapMode ? 'visible' : 'none'
+    for (const lyr of ['parcels-fill', 'parcels-line']) {
+      if (map.getLayer(lyr)) { try { map.setLayoutProperty(lyr, 'visibility', vis) } catch {} }
+    }
+    if (!snapMode && selectedParcelsRef.current.size) {
+      Array.from(selectedParcelsRef.current).forEach((uuid) => {
+        try { map.setFeatureState({ source: 'parcels', sourceLayer: 'parcels', id: uuid }, { selected: false }) } catch {}
+      })
+      selectedParcelsRef.current.clear()
+      setSelectedParcelCount(0)
+    }
+  }, [snapMode])
+
+  // Keep the snap click handler fresh — it closes over `points` for undo and
+  // over the current selection. Clicking a parcel toggles it in/out of the
+  // tract, then re-unions all selected parcels server-side (ST_Union) and
+  // adopts that exact boundary as the tract polygon.
+  useEffect(() => {
+    const geojsonToRing = (gj: any): Pt[] | null => {
+      if (!gj) return null
+      let ring: any = null
+      if (gj.type === 'Polygon') ring = gj.coordinates?.[0]
+      else if (gj.type === 'MultiPolygon') {
+        // Adjacent parcels union to one Polygon; a MultiPolygon means the
+        // picks are disjoint — take the largest ring (most vertices).
+        let bestLen = 0
+        for (const poly of gj.coordinates || []) {
+          const r = poly?.[0]
+          if (r && r.length > bestLen) { ring = r; bestLen = r.length }
+        }
+      }
+      if (!ring || ring.length < 4) return null
+      // Drop the closing duplicate vertex (GeoJSON rings are closed; our
+      // polygon_coordinates are stored open).
+      const out = ring.slice(0, -1).map((c: number[]) => [c[0], c[1]] as Pt)
+      return out.length >= 3 ? out : null
+    }
+
+    const applySnap = async (uuids: string[]) => {
+      if (uuids.length === 0) return
+      setSnapBusy(true)
+      try {
+        const res = await fetchWithAuth(`${API_URL}/api/admin/parcels/union`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ll_uuids: uuids }),
+        })
+        if (!res.ok) return
+        const d = await res.json()
+        const ring = geojsonToRing(d.geojson)
+        if (ring) {
+          pointsHistory.current.push(points.map(p => [...p] as Pt))
+          setPoints(ring)
+          setDirty(true)
+          try { onPolygonChange?.(ring, polygonAcres(ring)) } catch {}
+        }
+      } catch { /* leave the polygon as-is on failure */ }
+      finally { setSnapBusy(false) }
+    }
+
+    snapClickRef.current = (uuid: string) => {
+      const map = mapRef.current
+      const sel = selectedParcelsRef.current
+      if (sel.has(uuid)) {
+        sel.delete(uuid)
+        try { map?.setFeatureState({ source: 'parcels', sourceLayer: 'parcels', id: uuid }, { selected: false }) } catch {}
+      } else {
+        sel.add(uuid)
+        try { map?.setFeatureState({ source: 'parcels', sourceLayer: 'parcels', id: uuid }, { selected: true }) } catch {}
+      }
+      setSelectedParcelCount(sel.size)
+      applySnap(Array.from(sel))
+    }
+  }, [points, onPolygonChange])
 
   // Update map sources on points / tillable change.
   // - drawn: tract polygon outline + fill (pink) — always reflects points
@@ -2618,6 +2765,21 @@ export default function TractMapEditor({
             title="Toggle move mode — drag anywhere on the polygon to slide the whole shape"
           >
             <Move size={16} /> {moveMode ? 'Moving…' : 'Move'}
+          </button>
+          <button
+            onClick={() => setSnapMode(s => !s)}
+            disabled={saving || deleting}
+            className={`flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+              snapMode
+                ? 'bg-cyan-600 hover:bg-cyan-500'
+                : 'bg-gg-gray-700 hover:bg-gg-gray-600'
+            }`}
+            title="Show parcel boundaries and click the parcel(s) that make up this tract — the polygon snaps to their exact boundary (unions multiple). Reads our parcel DB; no Regrid."
+          >
+            {snapBusy ? <Loader2 className="animate-spin" size={16} /> : <LandPlot size={16} />}
+            {snapMode
+              ? (selectedParcelCount > 0 ? `Snapped (${selectedParcelCount} parcel${selectedParcelCount === 1 ? '' : 's'})` : 'Click parcels…')
+              : 'Snap to parcel'}
           </button>
           {!liveTractId && (
           <button
