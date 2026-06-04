@@ -495,6 +495,10 @@ export default function ComparablesMap({
       // Create markers for sold tracts with boundaries only
       // When visibleIds is provided, only show tracts in that set
       markerElementsRef.current.clear()
+      // Accumulate per-county counts of the comp dots we actually render
+      // (post-filter, with boundaries) so we can show one count bubble
+      // per county when zoomed too far out to see the individual dots.
+      const countyAgg = new Map<string, { state: string; county: string; count: number; sumLng: number; sumLat: number }>()
       for (const sale of stateSales) {
         // Skip tracts not in visible set (when filtering is active)
         if (visibleIds && !visibleIds.has(String(sale.id)) && !visibleIds.has(String(sale.tract_id))) continue
@@ -510,6 +514,15 @@ export default function ComparablesMap({
           markerLat = centroid[1]
         }
         if (!markerLat || !markerLng) continue
+
+        if (sale.county && sale.state) {
+          const ckey = `${sale.state}-${sale.county}`
+          const cur = countyAgg.get(ckey) || { state: sale.state, county: sale.county, count: 0, sumLng: 0, sumLat: 0 }
+          cur.count += 1
+          cur.sumLng += markerLng
+          cur.sumLat += markerLat
+          countyAgg.set(ckey, cur)
+        }
 
         const el = createMarkerElement(
           sale.price_per_acre || null,
@@ -565,6 +578,61 @@ export default function ComparablesMap({
         }
         map.fitBounds(bounds, { padding: 60, maxZoom: 12 })
       }
+
+      // COUNTY COUNT BUBBLES — when the user zooms out past the point
+      // where individual comp dots are legible (z9, matching the explore
+      // map's tract tier), replace the dots with one bubble per county:
+      // the number on top, "tracts" beneath (labeled so the user knows
+      // we're counting tracts, not parcels, yet). Bubbles are derived
+      // from the comps actually on the map, so the number always matches
+      // the dots they stand in for. Clicking a bubble drills into that
+      // county.
+      const COMP_TRACT_MIN_ZOOM = 9
+      const bubbleMarkers: maplibregl.Marker[] = []
+      const buildBubbles = () => {
+        countyAgg.forEach(v => {
+          if (!v.count) return
+          const lng = v.sumLng / v.count
+          const lat = v.sumLat / v.count
+          const el = document.createElement('div')
+          el.style.cssText = [
+            'display:flex', 'flex-direction:column', 'align-items:center',
+            'justify-content:center', 'min-width:42px', 'height:42px',
+            'padding:3px 9px', 'border-radius:21px', 'background:#E91E8C',
+            'border:2px solid #fff', 'box-shadow:0 2px 6px rgba(0,0,0,0.45)',
+            'color:#fff', 'cursor:pointer', 'font-family:inherit',
+            'box-sizing:border-box', 'white-space:nowrap',
+          ].join(';')
+          el.innerHTML =
+            `<div style="font-size:15px;font-weight:700;line-height:1;">${v.count}</div>` +
+            `<div style="font-size:8px;font-weight:600;line-height:1.1;letter-spacing:0.5px;` +
+            `text-transform:uppercase;opacity:0.92;margin-top:1px;">tracts</div>`
+          el.addEventListener('click', () => {
+            map.easeTo({ center: [lng, lat], zoom: 10, duration: 700 })
+          })
+          bubbleMarkers.push(
+            new maplibregl.Marker({ element: el, anchor: 'center' })
+              .setLngLat([lng, lat])
+              .addTo(map),
+          )
+        })
+      }
+      const removeBubbles = () => {
+        bubbleMarkers.forEach(m => m.remove())
+        bubbleMarkers.length = 0
+      }
+      let bubblesShown = false
+      const syncCountyBubbles = () => {
+        const show = map.getZoom() < COMP_TRACT_MIN_ZOOM && countyAgg.size > 0
+        if (show === bubblesShown) return
+        bubblesShown = show
+        // Swap the comp dots for the count bubbles (subject pin stays).
+        markerElementsRef.current.forEach(el => { el.style.display = show ? 'none' : '' })
+        if (show) buildBubbles()
+        else removeBubbles()
+      }
+      syncCountyBubbles()
+      map.on('zoom', syncCountyBubbles)
     })
 
     return () => {
