@@ -19,6 +19,7 @@ import {
   ClipboardCheck,
   MapPin,
   Activity,
+  ShieldCheck,
 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import type { ApiListing } from '@/components/map/mapTypes'
@@ -57,6 +58,7 @@ export default function AdminDashboard() {
   const router = useRouter()
   const [user, setUser] = useState<any>(null)
   const [stats, setStats] = useState<any>(null)
+  const [auditCount, setAuditCount] = useState<number | undefined>(undefined)
   const [loading, setLoading] = useState(true)
   const [listings, setListings] = useState<ApiListing[]>([])
   const [companies, setCompanies] = useState<{ id: string; name: string }[]>([])
@@ -130,9 +132,20 @@ export default function AdminDashboard() {
       setUser(userData)
       fetchStats()
       fetchListings()
+      if (userData.account_type === 'groundgoat_admin') fetchAuditCount()
     } catch (err) {
       router.push('/signin')
     }
+  }
+
+  const fetchAuditCount = async () => {
+    try {
+      const res = await fetchWithAuth(API_URL + '/api/admin/audit?count_only=1')
+      if (res.ok) {
+        const d = await res.json()
+        setAuditCount(d.flagged_listings ?? 0)
+      }
+    } catch { /* non-critical */ }
   }
 
   const fetchStats = async () => {
@@ -321,6 +334,13 @@ export default function AdminDashboard() {
                 description="Confirm every tract's polygon, tillable & soil vs its source"
                 href="/admin/data-cleanup"
                 icon={<MapPin />}
+              />
+              <QuickActionCard
+                title="Audit"
+                description="Verified listings that may have wrong data — the double-check"
+                href="/admin/audit"
+                icon={<ShieldCheck />}
+                count={auditCount}
               />
               <QuickActionCard
                 title="Manage Users"
