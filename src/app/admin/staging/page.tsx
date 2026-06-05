@@ -722,6 +722,28 @@ export default function AdminStagingPage() {
     }
   }
 
+  // Persist the per-tract "has house" checkbox. Same path as buildings: PATCH
+  // it into scraped_data so the bodyless Verify reads it. (Per user 2026-06-05.)
+  const saveTractHasHouse = async (listing: StagingListing, idx: number, next: boolean) => {
+    const updated = JSON.parse(JSON.stringify(listing.scraped_data || {}))
+    if (!Array.isArray(updated.tracts)) updated.tracts = []
+    if (!updated.tracts[idx]) updated.tracts[idx] = {}
+    updated.tracts[idx].has_house = next
+    setListings((prev) =>
+      prev.map((l) => (l.id === listing.id ? { ...l, scraped_data: updated } : l))
+    )
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/admin/staging/${listing.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scraped_data: updated }),
+      })
+      if (!res.ok) showToast('error', 'Failed to save house flag')
+    } catch {
+      showToast('error', 'Network error — failed to save house flag')
+    }
+  }
+
   const handleVerify = async (id: number) => {
     setActionLoading(id)
     // Check if this is a rescrape item
@@ -1761,6 +1783,8 @@ export default function AdminStagingPage() {
                                     tractIndex={idx}
                                     hasBuilding={!!tract.has_building}
                                     onHasBuildingChange={(next) => saveTractHasBuilding(listing, idx, next)}
+                                    hasHouse={!!tract.has_house}
+                                    onHasHouseChange={(next) => saveTractHasHouse(listing, idx, next)}
                                     siblingTractNumbers={info.tracts.map((t: any) =>
                                       String(t.tract_number ?? ''))}
                                     onTractNumberChange={(newNum) => {
