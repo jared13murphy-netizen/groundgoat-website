@@ -6,7 +6,7 @@ import fetchWithAuth from '@/lib/fetchWithAuth'
 import openListingReport from '@/lib/openListingReport'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Loader2, Trash2, ChevronLeft, ChevronRight, MapPin, ArrowLeft, Filter, Pencil, CheckCircle, ExternalLink, Plus, X, FileText } from 'lucide-react'
+import { Loader2, Trash2, ChevronLeft, ChevronRight, MapPin, ArrowLeft, Filter, Pencil, CheckCircle, ExternalLink, Plus, X, FileText, Search } from 'lucide-react'
 import { getCountiesForState } from '@/data/counties'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
@@ -66,6 +66,11 @@ function AdminListingsPageContent() {
   const [pageInput, setPageInput] = useState('1')
   const itemsPerPage = 50
 
+  // Free-text search (title / description / company / state / county / acres).
+  // Debounced so we don't refetch on every keystroke; searches ALL listings.
+  const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
+
   // Filters
   const [filterCompany, setFilterCompany] = useState(searchParams.get('company') || '')
   const [filterState, setFilterState] = useState('')
@@ -102,7 +107,13 @@ function AdminListingsPageContent() {
 
   useEffect(() => {
     fetchListings()
-  }, [page, filterCompany, filterState, filterCounty, filterListingType, filterStatus, filterVerified, filterConfidence, filterAuctionDate])
+  }, [page, debouncedSearch, filterCompany, filterState, filterCounty, filterListingType, filterStatus, filterVerified, filterConfidence, filterAuctionDate])
+
+  // Debounce the search box, and reset to page 1 when the query changes.
+  useEffect(() => {
+    const t = setTimeout(() => { setDebouncedSearch(search.trim()); setPage(1) }, 350)
+    return () => clearTimeout(t)
+  }, [search])
 
   const checkAuth = async () => {
     try {
@@ -137,8 +148,10 @@ function AdminListingsPageContent() {
       const offset = (page - 1) * itemsPerPage
       // marketed_only hides bulk data-feed imports (MyDec / Indiana SDF / ATTOM /
       // Beacon) — sold comps that aren't marketed listings and never hit the map.
-      let url = `${API_URL}/api/listings?limit=${itemsPerPage}&offset=${offset}&sort_order=desc&marketed_only=true`
+      // has_company=true hides listings with no listing company (per user).
+      let url = `${API_URL}/api/listings?limit=${itemsPerPage}&offset=${offset}&sort_order=desc&marketed_only=true&has_company=true`
 
+      if (debouncedSearch) url += `&search=${encodeURIComponent(debouncedSearch)}`
       if (filterState) url += `&state=${encodeURIComponent(filterState)}`
       if (filterCounty) url += `&county=${encodeURIComponent(filterCounty)}`
       if (filterListingType) url += `&listing_type=${filterListingType}`
@@ -334,6 +347,28 @@ function AdminListingsPageContent() {
               Filters
             </button>
           </div>
+        </div>
+
+        {/* Search — title, description, company, state, county, or acres.
+            Searches ALL listings (server-side), not just this page. */}
+        <div className="relative mb-6">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gg-gray-500" size={18} />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search title, description, company, state, county, or acres…"
+            className="w-full bg-gg-gray-900 border border-gg-gray-800 rounded-lg pl-10 pr-10 py-2.5 text-white placeholder-gg-gray-500 focus:outline-none focus:border-gg-pink"
+          />
+          {search && (
+            <button
+              onClick={() => setSearch('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gg-gray-500 hover:text-white"
+              aria-label="Clear search"
+            >
+              <X size={18} />
+            </button>
+          )}
         </div>
 
         {/* Add Listing Modal */}
