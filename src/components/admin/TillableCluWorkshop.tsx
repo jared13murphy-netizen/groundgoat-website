@@ -835,13 +835,15 @@ export default function TillableCluWorkshop({
         <div className="ml-auto flex items-center gap-1.5">
           <button
             onClick={() => setExpanded(e => !e)}
-            className="px-2 py-1 rounded flex items-center gap-1 bg-gg-gray-600 hover:bg-gg-gray-500 border border-gg-gray-400/60 text-white"
+            // Match the Draw Tillable button's height/shape (px-3 py-1.5
+            // text-sm rounded-lg font-semibold); keep the gray color.
+            className="px-3 py-1.5 text-sm rounded-lg flex items-center gap-1 font-semibold bg-gg-gray-600 hover:bg-gg-gray-500 border border-gg-gray-400/60 text-white"
             // Force white via inline style so a global `button` color rule
             // can't override the text-white utility by specificity.
             style={{ color: '#ffffff' }}
             title={expanded ? 'Shrink the workshop back to normal height' : 'Expand the workshop to double height'}
           >
-            {expanded ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
+            {expanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
             {expanded ? 'Shrink' : 'Expand'}
           </button>
           <button
