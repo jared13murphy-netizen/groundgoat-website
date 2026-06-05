@@ -475,7 +475,13 @@ export default function TractDataCleanupPage() {
         return { ...prev, [lid]: { ...cur, tracts } }
       })
       showToast(`Could not save House flag: ${e.message || e}`, 'error')
+      return
     }
+    // A house on the tract implies a Residential land type — keep them in sync.
+    const cur = (tract.land_types || []).filter(Boolean)
+    const hasRes = cur.includes('Residential')
+    if (next && !hasRes) saveTractLandTypes(lid, tract, [...cur, 'Residential'])
+    else if (!next && hasRes) saveTractLandTypes(lid, tract, cur.filter((t) => t !== 'Residential'))
   }
 
   // Per-tract Land Types — saves immediately via the tract PATCH (update_tract

@@ -1760,8 +1760,14 @@ export default function AdminPrivateTreatyStagingPage() {
                                           comp.tillable_acres = r.tillable_acres
                                           chosen.tillable_acres = 'computed'
                                         }
+                                        // Reflect the freshly-computed soil rating. When none was
+                                        // computed because there's no tillable acreage, clear the
+                                        // stale value to 0 instead of leaving the old rating showing.
                                         if (r.soil_rating != null) {
                                           comp.soil_rating = r.soil_rating
+                                          chosen.soil_rating = 'computed'
+                                        } else if (!r.tillable_acres) {
+                                          comp.soil_rating = 0
                                           chosen.soil_rating = 'computed'
                                         }
                                         if (r.soil_rating_type) comp.soil_rating_type = r.soil_rating_type
