@@ -31,7 +31,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import { Loader2, Save, Calculator, Sprout, Pencil, Check, Undo2, Trash2, Maximize2, Minimize2, Scissors } from 'lucide-react'
+import { Loader2, Save, Calculator, Sprout, Pencil, Check, Undo2, Trash2, Maximize2, Minimize2, Scissors, Spline } from 'lucide-react'
 import { fetchWithAuth } from '@/lib/fetchWithAuth'
 import { polygonAcres } from '@/lib/polygonGeometry'
 
@@ -67,6 +67,7 @@ function tillableSig(
   soilRating: number | null,
   soilType: string,
   cutoutPolygons: Pt[][] = [],
+  cluOverrides: Record<number, Pt[]> = {},
 ): string {
   const sel = clus
     .map((c) => `${c.fsa_clu_id}:${(selection[c.fsa_clu_id] ?? c.default_tillable) ? 1 : 0}`)
@@ -74,8 +75,9 @@ function tillableSig(
     .join(',')
   const man = JSON.stringify(manualPolygons)
   const cut = JSON.stringify(cutoutPolygons)
+  const ov = JSON.stringify(Object.keys(cluOverrides).sort().map((k) => [k, cluOverrides[Number(k)]]))
   const soil = soilRating != null ? `${soilType}:${soilRating}` : ''
-  return `${sel}|${man}|${cut}|${soil}`
+  return `${sel}|${man}|${cut}|${ov}|${soil}`
 }
 
 interface TillableCluWorkshopProps {
@@ -123,7 +125,8 @@ interface TillableCluWorkshopProps {
 // GeoJSON builders
 // ---------------------------------------------------------------------------
 
-function buildCluGeo(clus: Clu[], selection: Record<number, boolean>): any {
+function buildCluGeo(clus: Clu[], selection: Record<number, boolean>,
+                    overrides: Record<number, Pt[]> = {}): any {
   return {
     type: 'FeatureCollection',
     features: clus.map((c) => ({
@@ -133,7 +136,10 @@ function buildCluGeo(clus: Clu[], selection: Record<number, boolean>): any {
         tillable: selection[c.fsa_clu_id] ?? c.default_tillable,
         acres: c.acres_within_tract,
       },
-      geometry: c.geometry,
+      // Use the admin's dragged-vertex override shape when present.
+      geometry: (overrides[c.fsa_clu_id] && overrides[c.fsa_clu_id].length >= 3)
+        ? ringToPolygon(overrides[c.fsa_clu_id])
+        : c.geometry,
     })),
   }
 }
@@ -206,7 +212,10 @@ function buildVertexGeo(points: Pt[]): any {
 // cutout polygon can be edited (vertices moved) after Finish, not just while
 // drawing. Each handle is tagged with its layer (`kind`) + polygon/vertex
 // index so the drag handler knows exactly which point it's moving.
-function buildEditVertexGeo(manualPolys: Pt[][], cutoutPolys: Pt[][]): any {
+// `cluEdit` (optional) adds handles for the FSA CLU currently being reshaped:
+// {id: fsa_clu_id, ring: open Pt[]}. Those handles carry kind:'clu' + poly=id.
+function buildEditVertexGeo(manualPolys: Pt[][], cutoutPolys: Pt[][],
+                            cluEdit?: { id: number; ring: Pt[] } | null): any {
   const features: any[] = []
   manualPolys.forEach((ring, poly) => {
     ring.forEach((p, vert) => {
@@ -226,6 +235,15 @@ function buildEditVertexGeo(manualPolys: Pt[][], cutoutPolys: Pt[][]): any {
       })
     })
   })
+  if (cluEdit && cluEdit.ring.length >= 3) {
+    cluEdit.ring.forEach((p, vert) => {
+      features.push({
+        type: 'Feature',
+        properties: { kind: 'clu', poly: cluEdit.id, vert },
+        geometry: { type: 'Point', coordinates: p },
+      })
+    })
+  }
   return { type: 'FeatureCollection', features }
 }
 
@@ -235,6 +253,64 @@ function geomToRing(geom: any): Pt[] | null {
   const ring = geom?.coordinates?.[0]
   if (!Array.isArray(ring) || ring.length < 3) return null
   return ring.map((p: any) => [Number(p[0]), Number(p[1])] as Pt)
+}
+
+// Strip the trailing closing-duplicate so each vertex is unique (for editing).
+function toOpenRing(ring: Pt[]): Pt[] {
+  if (ring.length >= 2) {
+    const f = ring[0]; const l = ring[ring.length - 1]
+    if (f[0] === l[0] && f[1] === l[1]) return ring.slice(0, -1)
+  }
+  return ring
+}
+
+// Open ring (Pt[]) → closed GeoJSON Polygon geometry (CLU fill + payload).
+function ringToPolygon(ring: Pt[]): any {
+  const r = [...ring]
+  const f = r[0]; const l = r[r.length - 1]
+  if (f && l && (f[0] !== l[0] || f[1] !== l[1])) r.push(r[0])
+  return { type: 'Polygon', coordinates: [r] }
+}
+
+// {fsa_clu_id -> open ring} → {fsa_clu_id -> closed GeoJSON Polygon} for the
+// clu_overrides request payload (backend keys coerce to int).
+function cluOverridesPayload(overrides: Record<number, Pt[]>): Record<string, any> {
+  const out: Record<string, any> = {}
+  for (const [k, ring] of Object.entries(overrides)) {
+    if (ring && ring.length >= 3) out[k] = ringToPolygon(ring)
+  }
+  return out
+}
+
+// The ring an FSA CLU should display/use: the admin's dragged-vertex override
+// (open Pt[]) if present, else the original 2008 FSA geometry's outer ring.
+function effectiveCluRing(c: Clu, overrides: Record<number, Pt[]>): Pt[] | null {
+  const ov = overrides[c.fsa_clu_id]
+  if (ov && ov.length >= 3) return ov
+  const ring = geomToRing(c.geometry)
+  return ring ? toOpenRing(ring) : null
+}
+
+// Insert a new vertex into `ring` at the segment nearest to `pt` (planar) — so
+// clicking on a CLU edge "adds a dot on the line" where the admin clicked.
+function insertOnNearestSegment(ring: Pt[], pt: Pt): Pt[] {
+  if (ring.length < 2) return [...ring, pt]
+  let best = 0
+  let bestD = Infinity
+  for (let i = 0; i < ring.length; i++) {
+    const a = ring[i]
+    const b = ring[(i + 1) % ring.length]
+    const dx = b[0] - a[0]; const dy = b[1] - a[1]
+    const len2 = dx * dx + dy * dy || 1e-12
+    let t = ((pt[0] - a[0]) * dx + (pt[1] - a[1]) * dy) / len2
+    t = Math.max(0, Math.min(1, t))
+    const px = a[0] + t * dx; const py = a[1] + t * dy
+    const d = (pt[0] - px) ** 2 + (pt[1] - py) ** 2
+    if (d < bestD) { bestD = d; best = i }
+  }
+  const out = [...ring]
+  out.splice(best + 1, 0, pt)
+  return out
 }
 
 // ---------------------------------------------------------------------------
@@ -284,12 +360,13 @@ export default function TillableCluWorkshop({
   //    'draw-cutout' = hand-draw a NON-tillable cutout (pond/tree island) that
   //    is subtracted from the tillable area. The map click/dblclick handlers
   //    read modeRef so they never need a stale-captured boolean. ──
-  type Mode = 'toggle' | 'draw-tillable' | 'draw-cutout'
+  type Mode = 'toggle' | 'draw-tillable' | 'draw-cutout' | 'clu-edit'
   const [mode, setMode] = useState<Mode>('toggle')
   const modeRef = useRef<Mode>('toggle')
   useEffect(() => { modeRef.current = mode }, [mode])
   const drawingTillable = mode === 'draw-tillable'
   const drawingCutout = mode === 'draw-cutout'
+  const editingClu = mode === 'clu-edit'
   const anyDrawing = drawingTillable || drawingCutout
 
   // ── Manual draw: used when the 2008 FSA CLU data is wrong for the tract.
@@ -313,8 +390,20 @@ export default function TillableCluWorkshop({
   // Vertex-drag state for editing FINISHED polygons. draggingVertexRef holds
   // which handle is being dragged; didDragRef distinguishes a drag from a
   // plain click so a vertex drag doesn't also toggle a CLU / add a point.
-  const draggingVertexRef = useRef<{ kind: 'manual' | 'cutout'; poly: number; vert: number } | null>(null)
+  const draggingVertexRef = useRef<{ kind: 'manual' | 'cutout' | 'clu'; poly: number; vert: number } | null>(null)
   const didDragRef = useRef(false)
+
+  // ── Edit Shapes (Phase 2): drag an FSA CLU's vertices to reshape it. The
+  //    edited ring is stored per fsa_clu_id as `cluOverrides` and sent to the
+  //    backend as clu_overrides, where it replaces the original 2008 geometry
+  //    for acres + soil. selectedCluId is the CLU whose handles are shown. ──
+  const [selectedCluId, setSelectedCluId] = useState<number | null>(null)
+  const selectedCluIdRef = useRef<number | null>(null)
+  useEffect(() => { selectedCluIdRef.current = selectedCluId }, [selectedCluId])
+  const [cluOverrides, setCluOverrides] = useState<Record<number, Pt[]>>({})
+  const cluOverridesRef = useRef<Record<number, Pt[]>>({})
+  useEffect(() => { cluOverridesRef.current = cluOverrides }, [cluOverrides])
+  const cluActive = Object.keys(cluOverrides).length > 0
 
   // True once the admin has drawn at least one polygon → CLU selection is
   // overridden (drawn polygons are the tillable area).
@@ -363,10 +452,12 @@ export default function TillableCluWorkshop({
       for (const ring of manualPolygons) gross += polygonAcres(ring)
       if (currentDraw.length >= 3) gross += polygonAcres(currentDraw)
     } else {
-      gross = clus.reduce(
-        (sum, c) => sum + ((selection[c.fsa_clu_id] ?? c.default_tillable) ? c.acres_within_tract : 0),
-        0,
-      )
+      gross = clus.reduce((sum, c) => {
+        if (!(selection[c.fsa_clu_id] ?? c.default_tillable)) return sum
+        // An edited CLU's acres come from its dragged shape, not the original.
+        const ov = cluOverrides[c.fsa_clu_id]
+        return sum + (ov && ov.length >= 3 ? polygonAcres(ov) : c.acres_within_tract)
+      }, 0)
     }
     // Subtract the (finished + in-progress) cutout areas. This is an estimate
     // — it ignores whether a cutout actually lies inside the tillable area and
@@ -375,7 +466,7 @@ export default function TillableCluWorkshop({
     for (const ring of cutoutPolygons) cut += polygonAcres(ring)
     if (currentCutout.length >= 3) cut += polygonAcres(currentCutout)
     return Math.max(0, gross - cut)
-  }, [clus, selection, manualPolygons, currentDraw, manualActive, cutoutPolygons, currentCutout])
+  }, [clus, selection, manualPolygons, currentDraw, manualActive, cutoutPolygons, currentCutout, cluOverrides])
 
   // Optimistic: show the instant client value immediately on every change. The
   // server fetch below overwrites it with the authoritative union once settled.
@@ -406,7 +497,8 @@ export default function TillableCluWorkshop({
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ selections, manual_polygons: manualPolygons,
-                                 cutout_polygons: cutoutPolygons }),
+                                 cutout_polygons: cutoutPolygons,
+                                 clu_overrides: cluOverridesPayload(cluOverrides) }),
         })
         if (!res.ok) return
         const data = await res.json()
@@ -418,7 +510,7 @@ export default function TillableCluWorkshop({
       }
     }, 300)
     return () => { cancelled = true; clearTimeout(t) }
-  }, [hasBeenVisible, clus, selection, manualPolygons, currentDraw, cutoutPolygons, currentCutout, baseUrl])
+  }, [hasBeenVisible, clus, selection, manualPolygons, currentDraw, cutoutPolygons, currentCutout, cluOverrides, baseUrl])
 
   // Live tillable-acres total = geometric UNION area of the selected
   // polygons, computed server-side (debounced fetch below). Summing per-CLU
@@ -472,6 +564,15 @@ export default function TillableCluWorkshop({
           .map(geomToRing)
           .filter((r: Pt[] | null): r is Pt[] => r != null)
         setCutoutPolygons(savedCutouts)
+        // Hydrate any saved CLU shape edits ({fsa_clu_id: GeoJSON Polygon}).
+        const savedOverrides: Record<number, Pt[]> = {}
+        const ovObj = (data.clu_overrides || {}) as Record<string, any>
+        for (const [k, g] of Object.entries(ovObj)) {
+          const ring = geomToRing(g)
+          if (ring) savedOverrides[Number(k)] = toOpenRing(ring)
+        }
+        setCluOverrides(savedOverrides)
+        cluOverridesRef.current = savedOverrides
         setTractPolygon(data.tract?.polygon || null)
         setTractAcres(data.tract?.total_acres ?? null)
         setReportedAcres(data.tract?.reported_acres ?? null)
@@ -487,7 +588,7 @@ export default function TillableCluWorkshop({
         }
         // Baseline signature of the just-loaded saved state → Save starts
         // disabled until the admin actually changes something.
-        setSavedSig(tillableSig(list, sel, savedManual, savedRating, savedRatingType, savedCutouts))
+        setSavedSig(tillableSig(list, sel, savedManual, savedRating, savedRatingType, savedCutouts, savedOverrides))
         if (data.error) setError(data.error)
         setLoaded(true)
       } catch (e: any) {
@@ -510,7 +611,7 @@ export default function TillableCluWorkshop({
     if (!map || !loaded) return
     const apply = () => {
       try {
-        ;(map.getSource('clu') as maplibregl.GeoJSONSource | undefined)?.setData(buildCluGeo(clus, selection))
+        ;(map.getSource('clu') as maplibregl.GeoJSONSource | undefined)?.setData(buildCluGeo(clus, selection, cluOverrides))
         ;(map.getSource('tract') as maplibregl.GeoJSONSource | undefined)?.setData(buildTractGeo(tractPolygon))
         ;(map.getSource('manual') as maplibregl.GeoJSONSource | undefined)?.setData(buildManualGeo(manualPolygons))
         ;(map.getSource('cutout') as maplibregl.GeoJSONSource | undefined)?.setData(buildManualGeo(cutoutPolygons))
@@ -536,12 +637,46 @@ export default function TillableCluWorkshop({
       const next = { ...prev, [id]: !(cur ?? base) }
       selectionRef.current = next
       const src = mapRef.current?.getSource('clu') as maplibregl.GeoJSONSource | undefined
-      if (src) src.setData(buildCluGeo(clusRef.current, next))
+      if (src) src.setData(buildCluGeo(clusRef.current, next, cluOverridesRef.current))
       return next
     })
     // Selection changed → any prior soil rating is now stale.
     setSoil(null)
     setStatus(null)
+  }
+
+  // ── Edit Shapes (CLU vertex editing) helpers ──
+  // The effective editable ring for a CLU: the saved override if present, else
+  // the original 2008 FSA outer ring (open). Ref-based for map closures.
+  const effectiveCluRingRef = (id: number): Pt[] | null => {
+    const ov = cluOverridesRef.current[id]
+    if (ov && ov.length >= 3) return ov
+    const c = clusRef.current.find((x) => x.fsa_clu_id === id)
+    return c ? effectiveCluRing(c, {}) : null
+  }
+  // The CLU handles to show right now (only the selected CLU, in edit mode).
+  const cluEditFromRefs = (): { id: number; ring: Pt[] } | null => {
+    const id = selectedCluIdRef.current
+    if (modeRef.current !== 'clu-edit' || id == null) return null
+    const ring = effectiveCluRingRef(id)
+    return (ring && ring.length >= 3) ? { id, ring } : null
+  }
+  // Select a CLU to edit (show its draggable vertex handles).
+  const selectCluForEdit = (id: number) => {
+    selectedCluIdRef.current = id
+    setSelectedCluId(id)
+    // Repaint handles immediately (the state effect also covers this).
+    pushMapSource('edit-vertex', buildEditVertexGeo(
+      manualPolygonsRef.current, cutoutPolygonsRef.current, cluEditFromRefs()))
+  }
+  // Insert a vertex on the CLU's nearest edge (seed override from original).
+  const insertCluVertex = (id: number, pt: Pt) => {
+    const ring = effectiveCluRingRef(id)
+    if (!ring) return
+    const next = { ...cluOverridesRef.current, [id]: insertOnNearestSegment(ring, pt) }
+    cluOverridesRef.current = next
+    setCluOverrides(next)
+    setSoil(null); setStatus(null)
   }
 
   // ── Manual draw helpers ──
@@ -564,9 +699,14 @@ export default function TillableCluWorkshop({
   // covers Finish, Undo, Clear, the initial load, and a committed drag.
   useEffect(() => {
     if (!loaded) return
-    pushMapSource('edit-vertex', buildEditVertexGeo(manualPolygons, cutoutPolygons))
+    const cluEdit = (editingClu && selectedCluId != null
+                     && (cluOverrides[selectedCluId]?.length ?? 0) >= 3)
+      ? { id: selectedCluId, ring: cluOverrides[selectedCluId] } : null
+    pushMapSource('edit-vertex', buildEditVertexGeo(manualPolygons, cutoutPolygons, cluEdit))
+    // Repaint the CLU fill too so an edited shape shows immediately.
+    pushMapSource('clu', buildCluGeo(clus, selection, cluOverrides))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [manualPolygons, cutoutPolygons, loaded])
+  }, [manualPolygons, cutoutPolygons, loaded, editingClu, selectedCluId, cluOverrides, clus, selection])
 
   const finishPolygon = () => {
     // A double-click fires two near-identical click events before dblclick,
@@ -697,10 +837,17 @@ export default function TillableCluWorkshop({
         && currentDrawRef.current.length >= 3) finishPolygon()
     if (modeRef.current === 'draw-cutout' && next !== 'draw-cutout'
         && currentCutoutRef.current.length >= 3) finishCutout()
+    // Leaving Edit Shapes → clear the selected CLU (hides its handles).
+    if (modeRef.current === 'clu-edit' && next !== 'clu-edit') {
+      selectedCluIdRef.current = null
+      setSelectedCluId(null)
+    }
     modeRef.current = next
     setMode(next)
     const map = mapRef.current
     if (map) {
+      // double-click is used to delete a CLU vertex in edit mode, so disable
+      // dbl-click zoom there too.
       if (next === 'toggle') map.doubleClickZoom.enable()
       else map.doubleClickZoom.disable()
     }
@@ -747,7 +894,7 @@ export default function TillableCluWorkshop({
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right')
 
     map.on('load', () => {
-      map.addSource('clu', { type: 'geojson', data: buildCluGeo(clusRef.current, selectionRef.current) })
+      map.addSource('clu', { type: 'geojson', data: buildCluGeo(clusRef.current, selectionRef.current, cluOverridesRef.current) })
       map.addSource('tract', { type: 'geojson', data: buildTractGeo(tractPolygon) })
       map.addSource('manual', { type: 'geojson', data: buildManualGeo(manualPolygonsRef.current) })
       map.addSource('draw', { type: 'geojson', data: buildDrawGeo(currentDrawRef.current) })
@@ -755,8 +902,9 @@ export default function TillableCluWorkshop({
       map.addSource('cutout', { type: 'geojson', data: buildManualGeo(cutoutPolygonsRef.current) })
       map.addSource('cutout-draw', { type: 'geojson', data: buildDrawGeo(currentCutoutRef.current) })
       map.addSource('cutout-vertex', { type: 'geojson', data: buildVertexGeo(currentCutoutRef.current) })
-      // Draggable handles for FINISHED polygons (edit-after-Finish).
-      map.addSource('edit-vertex', { type: 'geojson', data: buildEditVertexGeo(manualPolygonsRef.current, cutoutPolygonsRef.current) })
+      // Draggable handles for FINISHED polygons (edit-after-Finish) + the
+      // selected FSA CLU's vertices in Edit Shapes mode.
+      map.addSource('edit-vertex', { type: 'geojson', data: buildEditVertexGeo(manualPolygonsRef.current, cutoutPolygonsRef.current, cluEditFromRefs()) })
 
       // CLU fill — data-driven green (tillable) / red (not). Click toggles.
       map.addLayer({
@@ -843,7 +991,10 @@ export default function TillableCluWorkshop({
         id: 'edit-vertex', type: 'circle', source: 'edit-vertex',
         paint: {
           'circle-radius': 6,
-          'circle-color': ['case', ['==', ['get', 'kind'], 'cutout'], '#ef4444', '#22c55e'],
+          'circle-color': ['case',
+            ['==', ['get', 'kind'], 'cutout'], '#ef4444',
+            ['==', ['get', 'kind'], 'clu'], '#06b6d4',
+            '#22c55e'],
           'circle-stroke-color': '#ffffff',
           'circle-stroke-width': 2,
         },
@@ -865,14 +1016,31 @@ export default function TillableCluWorkshop({
       // map-level click handler below lays vertices instead).
       map.on('click', 'clu-fill', (ev) => {
         if (didDragRef.current) { didDragRef.current = false; return }  // just dragged a vertex
-        if (modeRef.current !== 'toggle') return
         const feat = ev.features?.[0]
         const id = (feat?.properties as any)?.fsa_clu_id
-        if (typeof id === 'number') toggleClu(id)
+        if (typeof id !== 'number') return
+        if (modeRef.current === 'clu-edit') {
+          // Don't treat a click that landed on a vertex handle as select/insert.
+          const onHandle = map.getLayer('edit-vertex')
+            ? map.queryRenderedFeatures(ev.point, { layers: ['edit-vertex'] }).length > 0
+            : false
+          if (onHandle) return
+          if (selectedCluIdRef.current === id) {
+            // Same field already selected → add a dot on its nearest edge.
+            insertCluVertex(id, [ev.lngLat.lng, ev.lngLat.lat])
+          } else {
+            selectCluForEdit(id)
+          }
+          return
+        }
+        if (modeRef.current !== 'toggle') return
+        toggleClu(id)
       })
 
       // Map-level click: in a draw mode, add a vertex to the current polygon
       // (tillable or cutout depending on the active mode).
+      // (Edit Shapes select/insert is handled by the clu-fill click above, so
+      // it can't double-fire with this map-level handler.)
       map.on('click', (ev) => {
         if (didDragRef.current) { didDragRef.current = false; return }  // just dragged a vertex
         const m = modeRef.current
@@ -904,6 +1072,20 @@ export default function TillableCluWorkshop({
         const d = draggingVertexRef.current
         if (!d) return
         didDragRef.current = true
+        if (d.kind === 'clu') {
+          // d.poly = fsa_clu_id; move that vertex of the CLU's editable ring
+          // (seeded from the original FSA shape on the first drag).
+          const id = d.poly
+          const ring = (effectiveCluRingRef(id) || []).slice()
+          if (!ring.length) return
+          ring[d.vert] = [ev.lngLat.lng, ev.lngLat.lat]
+          const next = { ...cluOverridesRef.current, [id]: ring }
+          cluOverridesRef.current = next
+          pushMapSource('clu', buildCluGeo(clusRef.current, selectionRef.current, next))
+          pushMapSource('edit-vertex', buildEditVertexGeo(
+            manualPolygonsRef.current, cutoutPolygonsRef.current, cluEditFromRefs()))
+          return
+        }
         const arrRef = d.kind === 'manual' ? manualPolygonsRef : cutoutPolygonsRef
         if (!arrRef.current[d.poly]) return
         const polys = arrRef.current.map((r) => r.slice())
@@ -911,7 +1093,8 @@ export default function TillableCluWorkshop({
         arrRef.current = polys
         // Live update the polygon outline + the handles as the vertex moves.
         pushMapSource(d.kind === 'manual' ? 'manual' : 'cutout', buildManualGeo(polys))
-        pushMapSource('edit-vertex', buildEditVertexGeo(manualPolygonsRef.current, cutoutPolygonsRef.current))
+        pushMapSource('edit-vertex', buildEditVertexGeo(
+          manualPolygonsRef.current, cutoutPolygonsRef.current, cluEditFromRefs()))
       })
       map.on('mouseup', () => {
         const d = draggingVertexRef.current
@@ -920,8 +1103,24 @@ export default function TillableCluWorkshop({
         map.dragPan.enable()
         // Commit to state → recomputes tillable acres + dirty flag, clears the
         // now-stale soil rating. The sync effect repaints the handles.
-        if (d.kind === 'manual') setManualPolygons(manualPolygonsRef.current.map((r) => r.slice()))
+        if (d.kind === 'clu') setCluOverrides({ ...cluOverridesRef.current })
+        else if (d.kind === 'manual') setManualPolygons(manualPolygonsRef.current.map((r) => r.slice()))
         else setCutoutPolygons(cutoutPolygonsRef.current.map((r) => r.slice()))
+        setSoil(null); setStatus(null)
+      })
+      // Double-click a CLU handle deletes that vertex (keep ≥3).
+      map.on('dblclick', 'edit-vertex', (ev) => {
+        const f = ev.features?.[0]
+        const props = f?.properties as any
+        if (!props || props.kind !== 'clu') return
+        ev.preventDefault?.()
+        const id = props.poly as number
+        const ring = (effectiveCluRingRef(id) || []).slice()
+        if (ring.length <= 3) return
+        ring.splice(props.vert, 1)
+        const next = { ...cluOverridesRef.current, [id]: ring }
+        cluOverridesRef.current = next
+        setCluOverrides(next)
         setSoil(null); setStatus(null)
       })
 
@@ -964,7 +1163,8 @@ export default function TillableCluWorkshop({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ selections, manual_polygons: manualPolygons,
-                               cutout_polygons: cutoutPolygons }),
+                               cutout_polygons: cutoutPolygons,
+                               clu_overrides: cluOverridesPayload(cluOverrides) }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`)
@@ -999,6 +1199,7 @@ export default function TillableCluWorkshop({
         selections,
         manual_polygons: manualPolygons,
         cutout_polygons: cutoutPolygons,
+        clu_overrides: cluOverridesPayload(cluOverrides),
         tillable_acres: Math.round(tillableAcres * 100) / 100,
       }
       if (soil?.soil_rating != null) {
@@ -1020,7 +1221,7 @@ export default function TillableCluWorkshop({
       // Persisted → this is the new baseline, so Save re-disables itself
       // until the admin changes something again.
       setSavedSig(tillableSig(clus, selection, manualPolygons,
-        soil?.soil_rating ?? null, soil?.soil_rating_type ?? '', cutoutPolygons))
+        soil?.soil_rating ?? null, soil?.soil_rating_type ?? '', cutoutPolygons, cluOverrides))
       onSaved?.({
         tillable_acres: data.tillable_acres ?? null,
         soil_rating: data.soil_rating ?? null,
@@ -1040,8 +1241,8 @@ export default function TillableCluWorkshop({
   // Live signature vs the last-saved baseline → is there anything to save?
   const currentSig = useMemo(
     () => tillableSig(clus, selection, manualPolygons,
-      soil?.soil_rating ?? null, soil?.soil_rating_type ?? '', cutoutPolygons),
-    [clus, selection, manualPolygons, soil, cutoutPolygons],
+      soil?.soil_rating ?? null, soil?.soil_rating_type ?? '', cutoutPolygons, cluOverrides),
+    [clus, selection, manualPolygons, soil, cutoutPolygons, cluOverrides],
   )
   const isDirty = savedSig != null && currentSig !== savedSig
 
@@ -1059,13 +1260,15 @@ export default function TillableCluWorkshop({
         <Sprout size={13} className="text-green-500" />
         <span className="font-semibold">Tillable Workshop</span>
         <span className="text-gg-gray-500 hidden sm:inline">
-          {drawingTillable
-            ? '— click to add points, double-click to finish a tillable field'
-            : drawingCutout
-              ? '— draw a non-tillable area (pond / trees) to subtract from tillable'
-              : manualActive
-                ? '— drawn polygons override FSA CLUs'
-                : '— click field polygons to toggle tillable (green) / not (red)'}
+          {editingClu
+            ? '— click a field, then drag its dots to reshape it (double-click a dot to delete)'
+            : drawingTillable
+              ? '— click to add points, double-click to finish a tillable field'
+              : drawingCutout
+                ? '— draw a non-tillable area (pond / trees) to subtract from tillable'
+                : manualActive
+                  ? '— drawn polygons override FSA CLUs'
+                  : '— click field polygons to toggle tillable (green) / not (red)'}
         </span>
         <div className="ml-auto flex items-center gap-1.5">
           <button
@@ -1077,6 +1280,17 @@ export default function TillableCluWorkshop({
           >
             {expanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
             {expanded ? 'Shrink' : 'Expand'}
+          </button>
+          <button
+            onClick={() => setWorkshopMode(editingClu ? 'toggle' : 'clu-edit')}
+            disabled={!loaded || clus.length === 0}
+            className={`px-3 py-1.5 text-sm rounded-lg flex items-center gap-1 font-semibold disabled:opacity-40 ${
+              editingClu ? 'bg-yellow-500 text-black' : 'bg-cyan-700 hover:bg-cyan-600 text-white'
+            }`}
+            title="Edit FSA field shapes — click a field, then drag its dots (double-click a dot to delete, click an edge to add a dot)"
+          >
+            <Spline size={14} />
+            {editingClu ? 'Editing…' : 'Edit Shapes'}
           </button>
           <button
             onClick={() => setWorkshopMode(drawingTillable ? 'toggle' : 'draw-tillable')}
@@ -1100,6 +1314,18 @@ export default function TillableCluWorkshop({
             <Scissors size={14} />
             {drawingCutout ? 'Drawing…' : 'Draw Cutout'}
           </button>
+          {editingClu && selectedCluId != null && cluOverrides[selectedCluId] && (
+            <button
+              onClick={() => {
+                const n = { ...cluOverrides }; delete n[selectedCluId]
+                cluOverridesRef.current = n; setCluOverrides(n); setSoil(null); setStatus(null)
+              }}
+              className="px-2 py-1 rounded flex items-center gap-1 bg-gg-gray-600 hover:bg-gg-gray-500 border border-gg-gray-400/60 text-white"
+              title="Discard edits to this field — restore the original FSA shape"
+            >
+              <Undo2 size={12} /> Reset shape
+            </button>
+          )}
           {drawingTillable && (
             <button
               onClick={finishPolygon}
@@ -1191,6 +1417,13 @@ export default function TillableCluWorkshop({
               : 'Click to add points · double-click (or Finish) to close · draw multiple fields'}
           </div>
         )}
+        {editingClu && (
+          <div className="absolute top-2 left-2 px-2 py-1 rounded bg-black/70 text-[11px] text-cyan-300 pointer-events-none">
+            {selectedCluId == null
+              ? 'Click a field to edit its shape'
+              : 'Drag a dot to move it · double-click a dot to delete · click an edge to add a dot'}
+          </div>
+        )}
       </div>
 
       {/* Toolbar — totals + actions. */}
@@ -1214,6 +1447,11 @@ export default function TillableCluWorkshop({
             {cutoutActive && (
               <span className="text-red-400 font-semibold">
                 − {cutoutPolygons.length} cutout{cutoutPolygons.length === 1 ? '' : 's'}
+              </span>
+            )}
+            {cluActive && (
+              <span className="text-cyan-400 font-semibold">
+                · {Object.keys(cluOverrides).length} edited shape{Object.keys(cluOverrides).length === 1 ? '' : 's'}
               </span>
             )}
           </div>
