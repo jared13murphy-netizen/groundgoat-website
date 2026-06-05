@@ -1,10 +1,11 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Pencil, Check, X, Loader2, Save, CheckCircle2 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import TractMapEditor from '@/components/admin/TractMapEditor'
 import TillableCluWorkshop from '@/components/admin/TillableCluWorkshop'
+import LandTypeButtons from '@/components/admin/LandTypeButtons'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -31,7 +32,9 @@ const acres = (v: any) =>
 // fields the admin actually changed, so the backend's price-triangle driver
 // logic fires correctly (edit $/acre → sale_price; edit sale_price → $/acre;
 // edit total_acres → $/acre; etc.) and never gets a conflicting pair.
-const STR_FIELDS = ['name', 'description', 'soil_rating_type', 'land_type', 'sale_status', 'sale_type', 'buyer', 'seller']
+// 'land_type' is NOT here — land types are managed by the auto-saving
+// LandTypeButtons (multi-value land_types), not the scalar form Save.
+const STR_FIELDS = ['name', 'description', 'soil_rating_type', 'sale_status', 'sale_type', 'buyer', 'seller']
 const NUM_FIELDS = ['total_acres', 'tillable_acres', 'soil_rating', 'csr2', 'sale_price', 'price_per_acre']
 const BOOL_FIELDS = ['has_house', 'has_buildings']
 
@@ -122,6 +125,36 @@ export default function ListingTractCard({ tract, listing, onChanged }: Props) {
       setErr(e.message || 'Failed to save tract')
     } finally {
       setSavingScalars(false)
+    }
+  }
+
+  // ----- Land Types: add/remove buttons, auto-saved (no Save button) -----
+  const [landTypes, setLandTypes] = useState<string[]>(
+    Array.isArray(tract.land_types) && tract.land_types.length
+      ? tract.land_types
+      : (tract.land_type ? [tract.land_type] : [])
+  )
+  useEffect(() => {
+    setLandTypes(
+      Array.isArray(tract.land_types) && tract.land_types.length
+        ? tract.land_types
+        : (tract.land_type ? [tract.land_type] : [])
+    )
+  }, [tract])
+  const saveLandTypes = async (next: string[]) => {
+    const prev = landTypes
+    setLandTypes(next)
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/tracts/${tract.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ land_types: next }),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      await onChanged()
+    } catch (e: any) {
+      setLandTypes(prev)
+      setErr(e.message || 'Failed to save land types')
     }
   }
 
@@ -216,12 +249,9 @@ export default function ListingTractCard({ tract, listing, onChanged }: Props) {
             {SALE_STATUSES.map((s) => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
           </select>
         </div>
-        <div>
-          <label className={labelCls}>Land type</label>
-          <select className={selectCls} value={form.land_type} onChange={(e) => set('land_type', e.target.value)}>
-            <option value="">—</option>
-            {LAND_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-          </select>
+        <div className="col-span-2">
+          <label className={labelCls}>Land types (click to add / remove — saves instantly)</label>
+          <LandTypeButtons value={landTypes} onChange={saveLandTypes} />
         </div>
         <div>
           <label className={labelCls}>CSR2</label>

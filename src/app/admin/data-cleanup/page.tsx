@@ -15,6 +15,7 @@ import fetchWithAuth from '@/lib/fetchWithAuth'
 import openListingReport from '@/lib/openListingReport'
 import TractMapEditor from '@/components/admin/TractMapEditor'
 import TillableCluWorkshop from '@/components/admin/TillableCluWorkshop'
+import LandTypeButtons from '@/components/admin/LandTypeButtons'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -83,6 +84,7 @@ type LiveTract = {
   soil_rating: number | null
   soil_rating_type: string | null
   has_house: boolean | null
+  land_types: string[] | null
   county_name: string | null
   state_abbr: string | null
   latitude: number | null
@@ -272,6 +274,7 @@ export default function TractDataCleanupPage() {
         soil_rating: t.soil_rating != null ? Number(t.soil_rating) : null,
         soil_rating_type: t.soil_rating_type ?? null,
         has_house: t.has_house ?? null,
+        land_types: Array.isArray(t.land_types) ? t.land_types : (t.land_type ? [t.land_type] : []),
         county_name: t.county_name ?? null,
         state_abbr: t.state_abbr ?? null,
         latitude: t.latitude != null ? Number(t.latitude) : null,
@@ -433,6 +436,33 @@ export default function TractDataCleanupPage() {
         return { ...prev, [lid]: { ...cur, tracts } }
       })
       showToast(`Could not save House flag: ${e.message || e}`, 'error')
+    }
+  }
+
+  // Per-tract Land Types — saves immediately via the tract PATCH (update_tract
+  // syncs the legacy land_type singular server-side).
+  async function saveTractLandTypes(lid: string, tract: LiveTract, next: string[]) {
+    const prevTypes = tract.land_types
+    setLoadedListings((prev) => {
+      const cur = prev[lid]
+      if (!cur) return prev
+      const tracts = cur.tracts.map((t) => (t.id === tract.id ? { ...t, land_types: next } : t))
+      return { ...prev, [lid]: { ...cur, tracts } }
+    })
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/tracts/${tract.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ land_types: next }),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    } catch (e: any) {
+      setLoadedListings((prev) => {
+        const cur = prev[lid]
+        if (!cur) return prev
+        const tracts = cur.tracts.map((t) => (t.id === tract.id ? { ...t, land_types: prevTypes } : t))
+        return { ...prev, [lid]: { ...cur, tracts } }
+      })
+      showToast(`Could not save land types: ${e.message || e}`, 'error')
     }
   }
 
@@ -908,6 +938,15 @@ export default function TractDataCleanupPage() {
                                     />
                                     <span className="text-white font-medium">House</span>
                                   </label>
+                                </div>
+
+                                {/* Land Types — add/remove, saves instantly */}
+                                <div className="mb-2">
+                                  <div className="text-[10px] text-gg-gray-500 mb-1 uppercase tracking-wide">Land Types (click to add / remove)</div>
+                                  <LandTypeButtons
+                                    value={tract.land_types}
+                                    onChange={(next) => saveTractLandTypes(it.listing_id, tract, next)}
+                                  />
                                 </div>
 
                                 {actionable ? (

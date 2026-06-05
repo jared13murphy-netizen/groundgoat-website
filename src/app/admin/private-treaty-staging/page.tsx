@@ -845,6 +845,28 @@ export default function AdminPrivateTreatyStagingPage() {
     }
   }
 
+  // Per-tract Land Types — auto-saves into scraped_data so Verify persists it.
+  const saveTractLandTypes = async (listing: StagingListing, idx: number, next: string[]) => {
+    const updated = JSON.parse(JSON.stringify(listing.scraped_data || {}))
+    if (!Array.isArray(updated.tracts)) updated.tracts = []
+    if (!updated.tracts[idx]) updated.tracts[idx] = {}
+    updated.tracts[idx].land_types = next
+    updated.tracts[idx].land_type = next[0] || null
+    setListings((prev) =>
+      prev.map((l) => (l.id === listing.id ? { ...l, scraped_data: updated } : l))
+    )
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/admin/staging/${listing.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scraped_data: updated }),
+      })
+      if (!res.ok) showToast('error', 'Failed to save land types')
+    } catch {
+      showToast('error', 'Network error — land types not saved')
+    }
+  }
+
   const openEditModal = (listing: StagingListing) => {
     setEditingListing(listing)
     setEditForm(buildEditForm(listing.scraped_data))
@@ -1723,6 +1745,8 @@ export default function AdminPrivateTreatyStagingPage() {
                                       }))
                                     }}
                                     onChosenChange={(nextChosen) => saveTractChosen(listing, idx, nextChosen)}
+                                    landTypes={(tract.land_types && tract.land_types.length) ? tract.land_types : (tract.land_type ? [tract.land_type] : [])}
+                                    onLandTypesChange={(next) => saveTractLandTypes(listing, idx, next)}
                                   />
                                   {/* Second per-tract details box removed
                                       per user 2026-05-25 — redundant with
