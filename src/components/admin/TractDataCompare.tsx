@@ -251,6 +251,7 @@ export default function TractDataCompare({
     onHasBuildingChange?.(next)
   }
   const BuildingCheckbox = () => (
+    !onHasBuildingChange ? null :
     <label
       className="flex items-center gap-2 mt-2 pt-2 border-t border-gg-gray-700 cursor-pointer text-xs text-gg-gray-300 select-none"
       title="Auto-checked when the scraper detects buildings on this tract. Uncheck if the scraper is wrong. Feeds the map's 'has buildings' filter."
@@ -275,8 +276,17 @@ export default function TractDataCompare({
     const next = !house
     setHouse(next)
     onHasHouseChange?.(next)
+    // A house on the tract implies a Residential land type. Add it when the
+    // box is checked, remove it when unchecked — keeps the two in sync.
+    if (onLandTypesChange) {
+      const cur = (landTypes || []).filter(Boolean)
+      const hasRes = cur.includes('Residential')
+      if (next && !hasRes) onLandTypesChange([...cur, 'Residential'])
+      else if (!next && hasRes) onLandTypesChange(cur.filter((t) => t !== 'Residential'))
+    }
   }
   const HouseCheckbox = () => (
+    !onHasHouseChange ? null :
     <label
       className="flex items-center gap-2 mt-2 pt-2 border-t border-gg-gray-700 cursor-pointer text-xs text-gg-gray-300 select-none"
       title="Auto-checked when the scraper detects a house on this tract. Uncheck if the scraper is wrong. Saved on Verify."
@@ -410,14 +420,16 @@ export default function TractDataCompare({
               style={{ backgroundColor: '#ffffff', color: '#000000', caretColor: '#000000' }}
               className={`w-36 px-2 py-0.5 text-xs font-mono rounded border focus:outline-none ${hasManual ? 'border-gg-pink ring-1 ring-gg-pink' : 'border-gg-gray-600'}`}
             />
-            <button
-              type="button"
-              onClick={() => commitManual(f)}
-              title="Save this value to the tract"
-              className="inline-flex items-center justify-center w-6 h-6 rounded bg-green-600 hover:bg-green-700 text-white flex-shrink-0"
-            >
-              <Check size={14} />
-            </button>
+            {hasManual && (
+              <button
+                type="button"
+                onClick={() => commitManual(f)}
+                title="Save this value to the tract"
+                className="px-2 py-1 text-xs bg-green-600 hover:bg-green-700 text-white rounded flex items-center gap-1 flex-shrink-0"
+              >
+                <Check size={14} />
+              </button>
+            )}
             {hasManual && <span className="text-[10px] text-gg-pink font-semibold">← saving this</span>}
             {hasManual && (
               <button type="button" onClick={() => clearManual(f)}
