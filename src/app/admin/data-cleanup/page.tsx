@@ -1012,14 +1012,18 @@ export default function TractDataCleanupPage() {
                                   </label>
                                 </div>
 
-                                {/* Land Types — add/remove, saves instantly */}
-                                <div className="mb-2">
-                                  <div className="text-[10px] text-gg-gray-500 mb-1 uppercase tracking-wide">Land Types (click to add / remove)</div>
-                                  <LandTypeButtons
-                                    value={tract.land_types}
-                                    onChange={(next) => saveTractLandTypes(it.listing_id, tract, next)}
-                                  />
-                                </div>
+                                {/* Land Types — add/remove, saves instantly. For actionable
+                                    tracts this lives INSIDE the comparison box below; here we
+                                    only render it for locked tracts so they can still edit it. */}
+                                {!actionable && (
+                                  <div className="mb-2">
+                                    <div className="text-[10px] text-gg-gray-500 mb-1 uppercase tracking-wide">Land Types (click to add / remove)</div>
+                                    <LandTypeButtons
+                                      value={tract.land_types}
+                                      onChange={(next) => saveTractLandTypes(it.listing_id, tract, next)}
+                                    />
+                                  </div>
+                                )}
 
                                 {actionable ? (
                                   <>
@@ -1110,6 +1114,8 @@ export default function TractDataCleanupPage() {
                                       <TractDataCompare
                                         scrapedLabel="Current (saved)"
                                         computedLabel="Computed"
+                                        landTypes={tract.land_types}
+                                        onLandTypesChange={(next) => saveTractLandTypes(it.listing_id, tract, next)}
                                         scraped={{
                                           acres: tract.total_acres,
                                           tillable_acres: tract.tillable_acres,
