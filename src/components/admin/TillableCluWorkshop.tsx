@@ -933,7 +933,7 @@ export default function TillableCluWorkshop({
         <div className="flex items-center gap-1.5">
           <button
             onClick={handleComputeSoil}
-            disabled={computing || saving || (manualActive ? false : (clus.length === 0 || tillableCount === 0))}
+            disabled={computing || saving}
             className="px-3 py-1.5 text-sm bg-gg-pink hover:bg-gg-pink-light disabled:opacity-40 text-white font-semibold rounded-lg flex items-center gap-1"
             title="Area-weight the state soil rating (PI / CSR2 / WAPI / NCCPI) over the tillable selection"
           >
@@ -942,8 +942,8 @@ export default function TillableCluWorkshop({
           </button>
           <button
             onClick={handleSave}
-            disabled={saving || computing || !isDirty || (!manualActive && clus.length === 0)}
-            title={!isDirty ? 'No unsaved changes' : 'Save tillable selection'}
+            disabled={saving || computing}
+            title="Save tillable selection + computed soil rating"
             className="px-3 py-1.5 text-sm bg-gg-pink hover:bg-gg-pink-light text-white font-semibold disabled:opacity-40 rounded-lg flex items-center gap-1"
           >
             {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}

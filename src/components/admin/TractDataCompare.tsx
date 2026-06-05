@@ -56,6 +56,17 @@ interface TractDataCompareProps {
   computed?: ScrapedComputed | null
   chosen?: Chosen | null
   onChosenChange?: (next: Chosen) => void
+  /** Per-field hand-typed overrides (acres / tillable_acres / soil_rating).
+   *  When a field has a value here it WINS over Scraped/Computed, which then
+   *  show un-highlighted. onManualChange fires with the parsed number (or null
+   *  to clear). */
+  manual?: ScrapedComputed | null
+  onManualChange?: (field: 'acres' | 'tillable_acres' | 'soil_rating', value: number | null) => void
+  /** Labels for the two source columns. Defaults to Scraped/Computed; the
+   *  data-cleanup screen passes "Current (saved)" for the left column since
+   *  that value is the live DB value, not scraper output. */
+  scrapedLabel?: string
+  computedLabel?: string
   /** Old-format tract dict (acres/tillable_acres at top level). When
    *  the new scraped/computed split isn't present, render this as the
    *  single source. */
@@ -113,6 +124,10 @@ export default function TractDataCompare({
   computed,
   chosen,
   onChosenChange,
+  manual,
+  onManualChange,
+  scrapedLabel = 'Scraped',
+  computedLabel = 'Computed',
   fallbackTract,
   siblingTractNumbers,
   stagingId,
@@ -199,6 +214,30 @@ export default function TractDataCompare({
   // is to ALWAYS call every hook on every render; the conditional
   // early-return now happens AFTER all hooks have been declared.
   const [local, setLocal] = useState<Chosen>(chosen || {})
+
+  // Hand-typed override drafts (string per field, seeded from the persisted
+  // `manual` values). When a draft is non-empty it WINS over Scraped/Computed.
+  // Declared before the early-return to satisfy Rules of Hooks.
+  const seedManual = (): Record<string, string> => ({
+    acres: manual?.acres != null ? String(manual.acres) : '',
+    tillable_acres: manual?.tillable_acres != null ? String(manual.tillable_acres) : '',
+    soil_rating: manual?.soil_rating != null ? String(manual.soil_rating) : '',
+  })
+  const [manualDraft, setManualDraft] = useState<Record<string, string>>(seedManual)
+  useEffect(() => { setManualDraft(seedManual()) },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [manual?.acres, manual?.tillable_acres, manual?.soil_rating])
+  // Commit a manual draft → parse + tell the parent to save (or clear on empty).
+  const commitManual = (field: 'acres' | 'tillable_acres' | 'soil_rating') => {
+    const raw = (manualDraft[field] ?? '').trim()
+    if (raw === '') { onManualChange?.(field, null); return }
+    const n = parseFloat(raw)
+    onManualChange?.(field, isFinite(n) ? n : null)
+  }
+  const clearManual = (field: 'acres' | 'tillable_acres' | 'soil_rating') => {
+    setManualDraft((p) => ({ ...p, [field]: '' }))
+    onManualChange?.(field, null)
+  }
 
   // Has-buildings checkbox state. Seeded from the scraper's value;
   // local copy keeps the checkbox snappy before the parent commits.
@@ -318,59 +357,66 @@ export default function TractDataCompare({
     scrapedVal: string
     computedVal: string
   }) => {
+    const f = field as 'acres' | 'tillable_acres' | 'soil_rating'
     const picked = local[field] || defaultFor(field)
     const isDefault = !local[field]
+    // A non-empty hand-typed value WINS — neither source is then highlighted.
+    const hasManual = (manualDraft[f] ?? '').trim() !== ''
+    const scrapedActive = !hasManual && picked === 'scraped'
+    const computedActive = !hasManual && picked === 'computed'
     const cardCls = (active: boolean) => active
       ? 'bg-gg-pink border border-gg-pink text-white'
       : 'border border-gg-gray-700 hover:bg-gg-gray-800/40 text-gg-gray-300'
-    // Inside-card colors flip with active state so contrast is
-    // legible on pink and on dark.
-    const prefixCls = (active: boolean) => active
-      ? 'text-white/80'
-      : 'text-gg-gray-500'
-    const valueCls = (active: boolean) => active
-      ? 'text-white font-mono font-semibold'
-      : 'font-mono'
-    const defaultCls = (active: boolean) => active
-      ? 'ml-1 text-[10px] text-white/70'
-      : 'ml-1 text-[10px] text-gg-gray-500'
+    const prefixCls = (active: boolean) => active ? 'text-white/80' : 'text-gg-gray-500'
+    const valueCls = (active: boolean) => active ? 'text-white font-mono font-semibold' : 'font-mono'
+    const defaultCls = (active: boolean) => active ? 'ml-1 text-[10px] text-white/70' : 'ml-1 text-[10px] text-gg-gray-500'
+    const dim = hasManual ? 'opacity-50' : ''
     return (
-      <div className="grid grid-cols-12 gap-2 items-center py-1.5 border-b border-gg-gray-700 last:border-0">
-        <div className="col-span-3 text-xs font-medium text-gg-gray-400">
-          {label}
+      <div className="py-1.5 border-b border-gg-gray-700 last:border-0">
+        <div className="grid grid-cols-12 gap-2 items-center">
+          <div className="col-span-3 text-xs font-medium text-gg-gray-400">{label}</div>
+          <label className={`col-span-4 flex items-center gap-2 px-2 py-1 rounded cursor-pointer text-xs ${dim} ${cardCls(scrapedActive)}`}>
+            <input type="radio" name={`${field}-${tractNumber ?? 'x'}`} checked={scrapedActive}
+              onChange={() => { setManualDraft((p) => ({ ...p, [f]: '' })); pick(field, 'scraped') }}
+              className="cursor-pointer accent-gg-pink" />
+            <span>
+              <span className={prefixCls(scrapedActive)}>{scrapedLabel}: </span>
+              <span className={valueCls(scrapedActive)}>{scrapedVal}</span>
+              {isDefault && scrapedActive && <span className={defaultCls(true)}>(default)</span>}
+            </span>
+          </label>
+          <label className={`col-span-5 flex items-center gap-2 px-2 py-1 rounded cursor-pointer text-xs ${dim} ${cardCls(computedActive)}`}>
+            <input type="radio" name={`${field}-${tractNumber ?? 'x'}`} checked={computedActive}
+              onChange={() => { setManualDraft((p) => ({ ...p, [f]: '' })); pick(field, 'computed') }}
+              className="cursor-pointer accent-gg-pink" />
+            <span>
+              <span className={prefixCls(computedActive)}>{computedLabel}: </span>
+              <span className={valueCls(computedActive)}>{computedVal}</span>
+              {isDefault && computedActive && <span className={defaultCls(true)}>(default)</span>}
+            </span>
+          </label>
         </div>
-        <label className={`col-span-4 flex items-center gap-2 px-2 py-1 rounded cursor-pointer text-xs ${cardCls(picked === 'scraped')}`}>
-          <input
-            type="radio"
-            name={`${field}-${tractNumber ?? 'x'}`}
-            checked={picked === 'scraped'}
-            onChange={() => pick(field, 'scraped')}
-            className="cursor-pointer accent-gg-pink"
-          />
-          <span>
-            <span className={prefixCls(picked === 'scraped')}>Scraped: </span>
-            <span className={valueCls(picked === 'scraped')}>{scrapedVal}</span>
-            {isDefault && picked === 'scraped' && (
-              <span className={defaultCls(true)}>(default)</span>
+        {/* Hand-typed override — wins over both sources when filled. */}
+        <div className="grid grid-cols-12 gap-2 items-center mt-1">
+          <div className="col-span-3 text-[10px] text-gg-gray-500">↳ or hand-type</div>
+          <div className="col-span-9 flex items-center gap-2">
+            <input
+              type="text" inputMode="decimal"
+              value={manualDraft[f] ?? ''}
+              onChange={(e) => setManualDraft((p) => ({ ...p, [f]: e.target.value }))}
+              onBlur={() => commitManual(f)}
+              onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+              placeholder="type a value to override"
+              style={{ backgroundColor: '#ffffff', color: '#000000', caretColor: '#000000' }}
+              className={`w-36 px-2 py-0.5 text-xs font-mono rounded border focus:outline-none ${hasManual ? 'border-gg-pink ring-1 ring-gg-pink' : 'border-gg-gray-600'}`}
+            />
+            {hasManual && <span className="text-[10px] text-gg-pink font-semibold">← saving this</span>}
+            {hasManual && (
+              <button type="button" onClick={() => clearManual(f)}
+                className="text-[10px] text-gg-gray-400 hover:text-white underline">clear</button>
             )}
-          </span>
-        </label>
-        <label className={`col-span-5 flex items-center gap-2 px-2 py-1 rounded cursor-pointer text-xs ${cardCls(picked === 'computed')}`}>
-          <input
-            type="radio"
-            name={`${field}-${tractNumber ?? 'x'}`}
-            checked={picked === 'computed'}
-            onChange={() => pick(field, 'computed')}
-            className="cursor-pointer accent-gg-pink"
-          />
-          <span>
-            <span className={prefixCls(picked === 'computed')}>Computed: </span>
-            <span className={valueCls(picked === 'computed')}>{computedVal}</span>
-            {isDefault && picked === 'computed' && (
-              <span className={defaultCls(true)}>(default)</span>
-            )}
-          </span>
-        </label>
+          </div>
+        </div>
       </div>
     )
   }
