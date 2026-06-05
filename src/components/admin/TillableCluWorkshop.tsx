@@ -31,7 +31,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import { Loader2, Save, Calculator, Sprout, Pencil, Check, Undo2, Trash2 } from 'lucide-react'
+import { Loader2, Save, Calculator, Sprout, Pencil, Check, Undo2, Trash2, Maximize2, Minimize2 } from 'lucide-react'
 import { fetchWithAuth } from '@/lib/fetchWithAuth'
 import { polygonAcres } from '@/lib/polygonGeometry'
 
@@ -260,6 +260,20 @@ export default function TillableCluWorkshop({
   const wrapperRef = useRef<HTMLDivElement | null>(null)
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
+
+  // Expand toggle — doubles the map height so the admin has more room to
+  // see/draw tillable fields. Off by default; persists only for the
+  // current session per workshop instance.
+  const [expanded, setExpanded] = useState(false)
+  // After the container height changes, MapLibre must be told to re-read
+  // its size or the canvas keeps the old dimensions (gray bar / clipped map).
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    const t1 = setTimeout(() => map.resize(), 0)
+    const t2 = setTimeout(() => map.resize(), 220)
+    return () => { clearTimeout(t1); clearTimeout(t2) }
+  }, [expanded])
 
   // Ref mirrors so the map's click closure reads the latest data without
   // stale capture (same trick TractMapEditor uses for its drag handlers).
@@ -806,6 +820,14 @@ export default function TillableCluWorkshop({
         </span>
         <div className="ml-auto flex items-center gap-1.5">
           <button
+            onClick={() => setExpanded(e => !e)}
+            className="px-2 py-1 rounded flex items-center gap-1 bg-gg-gray-600 hover:bg-gg-gray-500 border border-gg-gray-400/60 text-white"
+            title={expanded ? 'Shrink the workshop back to normal height' : 'Expand the workshop to double height'}
+          >
+            {expanded ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
+            {expanded ? 'Shrink' : 'Expand'}
+          </button>
+          <button
             onClick={toggleDrawMode}
             disabled={!loaded}
             className={`px-3 py-1.5 text-sm rounded-lg flex items-center gap-1 font-semibold disabled:opacity-40 ${
@@ -850,7 +872,7 @@ export default function TillableCluWorkshop({
       <div className="relative bg-gg-gray-800">
         <div
           ref={containerRef}
-          style={{ width: '100%', height: editorHeight }}
+          style={{ width: '100%', height: expanded ? editorHeight * 2 : editorHeight }}
           className={loaded && !error ? '' : 'flex items-center justify-center'}
         >
           {!hasBeenVisible && (
