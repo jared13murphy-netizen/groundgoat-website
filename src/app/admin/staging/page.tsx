@@ -351,6 +351,15 @@ export default function AdminStagingPage() {
     companies_total: number
     companies_checked: number
     discovery_urls_found: number
+    last_run_summary?: {
+      staged: number
+      skipped_total: number
+      skipped_by_reason: Record<string, number>
+      errors_total: number
+      error_samples: { company?: string | null; url?: string | null; error?: string | null }[]
+      total_attempted?: number
+      completed_at?: string
+    } | null
   } | null>(null)
   const [stoppingScraper, setStoppingScraper] = useState(false)
   const [startingScraper, setStartingScraper] = useState(false)
@@ -1176,6 +1185,8 @@ export default function AdminStagingPage() {
     )
   }
 
+  const lastRun = scraperStatus?.last_run_summary
+
   return (
     // `staging-light` (defined in globals.css) flips the dark gg-* tokens
     // used throughout this page to a light theme — easier to read during
@@ -1219,6 +1230,75 @@ export default function AdminStagingPage() {
             </button>
           </div>
         </div>
+
+        {/* Last-run breakdown cards. Splits the old "N scraped, M errors"
+            into an honest tally: newly staged vs. benign skips (already
+            known / past auctions) vs. genuine errors (with details). */}
+        {lastRun && !scraperStatus?.running && (
+          <div className="mb-6">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-xs font-semibold text-gg-gray-400 uppercase tracking-wide">Last Scrape Run</h2>
+              {lastRun.completed_at && (
+                <span className="text-xs text-gg-gray-500">
+                  {new Date(lastRun.completed_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}
+                  {typeof lastRun.total_attempted === 'number' && ` · ${lastRun.total_attempted} URLs checked`}
+                </span>
+              )}
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {/* Newly staged */}
+              <div className="rounded-xl border border-green-500/30 bg-green-500/5 p-4">
+                <div className="text-3xl font-bold text-green-400">{lastRun.staged}</div>
+                <div className="text-sm text-gg-gray-300 mt-1">Newly staged</div>
+                <div className="text-xs text-gg-gray-500 mt-0.5">added to the review queue</div>
+              </div>
+              {/* Skipped (benign) */}
+              <div className="rounded-xl border border-gg-gray-700 bg-gg-gray-800/40 p-4">
+                <div className="text-3xl font-bold text-white">{lastRun.skipped_total}</div>
+                <div className="text-sm text-gg-gray-300 mt-1">Skipped (normal)</div>
+                <div className="text-xs text-gg-gray-500 mt-1.5 space-y-0.5">
+                  {Object.entries(lastRun.skipped_by_reason || {}).sort((a, b) => b[1] - a[1]).map(([reason, n]) => (
+                    <div key={reason} className="flex justify-between gap-2">
+                      <span className="truncate">{reason}</span>
+                      <span className="shrink-0 tabular-nums">{n}</span>
+                    </div>
+                  ))}
+                  {Object.keys(lastRun.skipped_by_reason || {}).length === 0 && <div>—</div>}
+                </div>
+              </div>
+              {/* Real errors */}
+              <div className={`rounded-xl border p-4 ${lastRun.errors_total > 0 ? 'border-red-500/40 bg-red-500/5' : 'border-gg-gray-700 bg-gg-gray-800/40'}`}>
+                <div className={`text-3xl font-bold ${lastRun.errors_total > 0 ? 'text-red-400' : 'text-gg-gray-300'}`}>{lastRun.errors_total}</div>
+                <div className="text-sm text-gg-gray-300 mt-1">Real errors</div>
+                <div className="text-xs text-gg-gray-500 mt-0.5">
+                  {lastRun.errors_total > 0 ? 'failed to scrape — details below' : 'none — all good'}
+                </div>
+              </div>
+            </div>
+            {/* Error detail list */}
+            {lastRun.errors_total > 0 && (lastRun.error_samples?.length ?? 0) > 0 && (
+              <div className="mt-3 rounded-xl border border-red-500/30 bg-gg-gray-900/60 p-4">
+                <div className="text-xs font-semibold text-red-400 mb-2">
+                  Error details
+                  {lastRun.error_samples.length < lastRun.errors_total && ` (showing ${lastRun.error_samples.length} of ${lastRun.errors_total})`}
+                </div>
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {lastRun.error_samples.map((s, i) => (
+                    <div key={i} className="text-xs border-b border-gg-gray-800 pb-2 last:border-0 last:pb-0">
+                      <div className="text-gg-gray-200 font-medium">{s.company?.trim() || 'Unknown company'}</div>
+                      {s.url && (
+                        <a href={s.url} target="_blank" rel="noopener noreferrer" className="text-gg-pink hover:underline break-all">
+                          {s.url}
+                        </a>
+                      )}
+                      <div className="text-red-300/80 mt-0.5 break-words">{s.error}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Single URL Scrape */}
         <div className="mb-4 flex items-center gap-3">
