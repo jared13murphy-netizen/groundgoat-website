@@ -16,6 +16,7 @@ import openListingReport from '@/lib/openListingReport'
 import TractMapEditor from '@/components/admin/TractMapEditor'
 import TillableCluWorkshop from '@/components/admin/TillableCluWorkshop'
 import LandTypeButtons from '@/components/admin/LandTypeButtons'
+import TractDataCompare from '@/components/admin/TractDataCompare'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -323,6 +324,44 @@ export default function TractDataCleanupPage() {
         [lid]: { ...cur, tracts: cur.tracts.map((t) => (t.id === tractId ? { ...t, ...fields } : t)) },
       }
     })
+  }
+
+  // Edit 3: TractDataCompare on Data Clean-Up. For each tract we hold the
+  // freshly-COMPUTED values (acres from the map editor's live polygon, tillable
+  // + soil from the CLU workshop's Compute) and the per-field source PICK. The
+  // left "Current (saved)" column is the live DB value; choosing Computed or
+  // typing a Manual value writes through update_tract (PATCH /api/tracts/{id}),
+  // which reconciles $/acre + rolls listing totals via recalculate_listing_totals.
+  const [computedVals, setComputedVals] = useState<Record<string, {
+    acres?: number | null; tillable_acres?: number | null
+    soil_rating?: number | null; soil_rating_type?: string | null
+  }>>({})
+  const [chosenVals, setChosenVals] = useState<Record<string, {
+    acres?: 'scraped' | 'computed' | null
+    tillable_acres?: 'scraped' | 'computed' | null
+    soil_rating?: 'scraped' | 'computed' | null
+  }>>({})
+
+  function setComputedField(tractId: string, patch: Record<string, number | string | null>) {
+    setComputedVals((prev) => ({ ...prev, [tractId]: { ...(prev[tractId] || {}), ...patch } }))
+  }
+
+  // Save resolved field(s) to a live tract through the canonical update_tract
+  // endpoint, then optimistically reflect locally. Fields use DB column names
+  // (total_acres / tillable_acres / soil_rating / soil_rating_type).
+  async function saveTractFields(lid: string, tract: LiveTract, fields: Record<string, any>) {
+    if (!Object.keys(fields).length) return
+    patchTract(lid, tract.id, fields as Partial<LiveTract>)
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/tracts/${tract.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(fields),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    } catch (e: any) {
+      alert(`Could not save tract value: ${e.message || e}`)
+      loadListing(lid) // reload to revert the optimistic patch
+    }
   }
 
   async function setAssignee(lid: string, value: string) {
@@ -1039,6 +1078,9 @@ export default function TractDataCleanupPage() {
                                         setCluReloadKeys((prev) => ({ ...prev, [tractKey]: (prev[tractKey] || 0) + 1 }))
                                       }}
                                       onDirtyChange={(d) => setTractDirty(`${it.listing_id}::${tract.id}::map`, d)}
+                                      // Capture the live polygon's GIS acreage as the "Computed"
+                                      // total-acres source for the comparison box below.
+                                      onPolygonChange={(_pts, ac) => setComputedField(tract.id, { acres: ac })}
                                     />
                                     {/* FSA-CLU tillable workshop — live published-tract mode. */}
                                     <TillableCluWorkshop
@@ -1053,8 +1095,58 @@ export default function TractDataCleanupPage() {
                                           soil_rating_type: r.soil_rating_type ?? tract.soil_rating_type,
                                         })
                                       }}
+                                      // Capture the freshly-computed tillable + soil as the "Computed"
+                                      // source (fires on Compute, BEFORE the admin saves).
+                                      onComputed={(c) => setComputedField(tract.id, {
+                                        tillable_acres: c.tillable_acres ?? null,
+                                        soil_rating: c.soil_rating ?? null,
+                                        soil_rating_type: c.soil_rating_type ?? null,
+                                      })}
                                       onDirtyChange={(d) => setTractDirty(`${it.listing_id}::${tract.id}::till`, d)}
                                     />
+                                    {/* Edit 3: source comparison — Current (saved) vs Computed vs hand-typed,
+                                        per field. Writes through update_tract so $/acre + listing totals follow. */}
+                                    <div className="mt-3">
+                                      <TractDataCompare
+                                        scrapedLabel="Current (saved)"
+                                        computedLabel="Computed"
+                                        scraped={{
+                                          acres: tract.total_acres,
+                                          tillable_acres: tract.tillable_acres,
+                                          soil_rating: tract.soil_rating,
+                                          soil_rating_type: tract.soil_rating_type,
+                                        }}
+                                        computed={computedVals[tract.id] || {}}
+                                        chosen={chosenVals[tract.id] || null}
+                                        onChosenChange={(next) => {
+                                          const prev = chosenVals[tract.id] || {}
+                                          setChosenVals((p) => ({ ...p, [tract.id]: next }))
+                                          const cv = computedVals[tract.id] || {}
+                                          const fields: Record<string, any> = {}
+                                          ;(['acres', 'tillable_acres', 'soil_rating'] as const).forEach((f) => {
+                                            if (next[f] === prev[f]) return
+                                            if (next[f] !== 'computed') return // 'current' = already in DB, no-op
+                                            const val = (cv as any)[f]
+                                            if (val == null) return
+                                            if (f === 'acres') fields.total_acres = val
+                                            else if (f === 'tillable_acres') fields.tillable_acres = val
+                                            else {
+                                              fields.soil_rating = val
+                                              if (cv.soil_rating_type) fields.soil_rating_type = cv.soil_rating_type
+                                            }
+                                          })
+                                          saveTractFields(it.listing_id, tract, fields)
+                                        }}
+                                        onManualChange={(field, value) => {
+                                          if (value == null) return // clearing on a live tract keeps the saved value
+                                          const fields: Record<string, any> = {}
+                                          if (field === 'acres') fields.total_acres = value
+                                          else if (field === 'tillable_acres') fields.tillable_acres = value
+                                          else fields.soil_rating = value // keep existing soil_rating_type
+                                          saveTractFields(it.listing_id, tract, fields)
+                                        }}
+                                      />
+                                    </div>
                                     {/* Done = human confirmed polygon + tillable + soil. */}
                                     <div className="flex items-center gap-3 mt-3">
                                       <button
