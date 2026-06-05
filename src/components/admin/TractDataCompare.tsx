@@ -34,6 +34,7 @@
  */
 
 import { useEffect, useState } from 'react'
+import { Check } from 'lucide-react'
 import LandTypeButtons from '@/components/admin/LandTypeButtons'
 
 interface ScrapedComputed {
@@ -404,12 +405,19 @@ export default function TractDataCompare({
               type="text" inputMode="decimal"
               value={manualDraft[f] ?? ''}
               onChange={(e) => setManualDraft((p) => ({ ...p, [f]: e.target.value }))}
-              onBlur={() => commitManual(f)}
-              onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
-              placeholder="type a value to override"
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commitManual(f) } }}
+              placeholder="type a value, then ✓ to save"
               style={{ backgroundColor: '#ffffff', color: '#000000', caretColor: '#000000' }}
               className={`w-36 px-2 py-0.5 text-xs font-mono rounded border focus:outline-none ${hasManual ? 'border-gg-pink ring-1 ring-gg-pink' : 'border-gg-gray-600'}`}
             />
+            <button
+              type="button"
+              onClick={() => commitManual(f)}
+              title="Save this value to the tract"
+              className="inline-flex items-center justify-center w-6 h-6 rounded bg-green-600 hover:bg-green-700 text-white flex-shrink-0"
+            >
+              <Check size={14} />
+            </button>
             {hasManual && <span className="text-[10px] text-gg-pink font-semibold">← saving this</span>}
             {hasManual && (
               <button type="button" onClick={() => clearManual(f)}
@@ -491,24 +499,27 @@ export default function TractDataCompare({
           ✗ Another tract in this listing is already number {normalize(numDraft)} — pick a unique number.
         </div>
       )}
-      <Row
-        label="Acres"
-        field="acres"
-        scrapedVal={fmtAcres(s.acres)}
-        computedVal={fmtAcres(c.acres)}
-      />
-      <Row
-        label="Tillable"
-        field="tillable_acres"
-        scrapedVal={fmtAcres(s.tillable_acres)}
-        computedVal={fmtAcres(c.tillable_acres)}
-      />
-      <Row
-        label="Soil rating"
-        field="soil_rating"
-        scrapedVal={fmtSoil(s.soil_rating, s.soil_rating_type)}
-        computedVal={fmtSoil(c.soil_rating, c.soil_rating_type)}
-      />
+      {/* Call Row as a function (not <Row/>) so it does NOT remount on every
+          keystroke — otherwise the hand-typed input loses focus after one
+          character (and previously auto-saved on that blur). */}
+      {Row({
+        label: 'Acres',
+        field: 'acres',
+        scrapedVal: fmtAcres(s.acres),
+        computedVal: fmtAcres(c.acres),
+      })}
+      {Row({
+        label: 'Tillable',
+        field: 'tillable_acres',
+        scrapedVal: fmtAcres(s.tillable_acres),
+        computedVal: fmtAcres(c.tillable_acres),
+      })}
+      {Row({
+        label: 'Soil rating',
+        field: 'soil_rating',
+        scrapedVal: fmtSoil(s.soil_rating, s.soil_rating_type),
+        computedVal: fmtSoil(c.soil_rating, c.soil_rating_type),
+      })}
       <HouseCheckbox />
       <BuildingCheckbox />
       <LandTypeRow />
