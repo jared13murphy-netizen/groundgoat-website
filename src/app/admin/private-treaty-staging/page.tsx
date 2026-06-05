@@ -867,6 +867,34 @@ export default function AdminPrivateTreatyStagingPage() {
     }
   }
 
+  // Add a new empty tract to a PT staging listing (seeded near a sibling).
+  const [addingTractFor, setAddingTractFor] = useState<number | null>(null)
+  const addStagingTract = async (listing: StagingListing) => {
+    if (addingTractFor === listing.id) return
+    setAddingTractFor(listing.id)
+    try {
+      const updated = JSON.parse(JSON.stringify(listing.scraped_data || {}))
+      if (!Array.isArray(updated.tracts)) updated.tracts = []
+      const nums = updated.tracts.map((t: any) => Number(t.tract_number) || 0)
+      const nextNum = (nums.length ? Math.max(...nums) : 0) + 1
+      const sib = updated.tracts.find((t: any) => t.latitude != null && t.longitude != null)
+      const newTract: any = { tract_number: nextNum }
+      if (sib) { newTract.latitude = sib.latitude; newTract.longitude = sib.longitude }
+      updated.tracts.push(newTract)
+      setListings((prev) => prev.map((l) => (l.id === listing.id ? { ...l, scraped_data: updated } : l)))
+      const res = await fetchWithAuth(`${API_URL}/api/admin/staging/${listing.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scraped_data: updated }),
+      })
+      if (!res.ok) showToast('error', 'Failed to add tract')
+    } catch {
+      showToast('error', 'Network error — tract not added')
+    } finally {
+      setAddingTractFor(null)
+    }
+  }
+
   const openEditModal = (listing: StagingListing) => {
     setEditingListing(listing)
     setEditForm(buildEditForm(listing.scraped_data))
@@ -1755,6 +1783,15 @@ export default function AdminPrivateTreatyStagingPage() {
                                 </div>
                                 )
                               })}
+                              {/* Add a new empty tract (seeded near the others). */}
+                              <button
+                                onClick={() => addStagingTract(listing)}
+                                disabled={addingTractFor === listing.id}
+                                className="mt-1 inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-gg-gray-700 text-white hover:bg-gg-gray-600 disabled:opacity-50"
+                              >
+                                {addingTractFor === listing.id ? <Loader2 className="animate-spin" size={15} /> : <Plus size={15} />}
+                                Add Tract
+                              </button>
                             </div>
                           </div>
                         )}

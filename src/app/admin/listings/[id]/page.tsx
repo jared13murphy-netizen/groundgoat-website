@@ -224,6 +224,42 @@ export default function EditListingPage() {
     if (token) await fetchListing(token)
   }
 
+  // Add a new (empty) tract to this listing. Seeds the new tract's location
+  // from a sibling tract so its map opens near the others; everything else is
+  // blank until the admin draws the boundary (which recomputes acres/tillable/
+  // soil exactly like every other tract). create_tract recalcs listing totals.
+  const [addingBlankTract, setAddingBlankTract] = useState(false)
+  const addTract = async () => {
+    if (!listing || addingBlankTract) return
+    setAddingBlankTract(true)
+    try {
+      const tracts: any[] = listing.tracts || []
+      const nextNum = (tracts.length ? Math.max(...tracts.map((t: any) => t.tract_number || 0)) : 0) + 1
+      const sib = tracts.find((t: any) => t.latitude != null && t.longitude != null)
+      const lat = sib?.latitude ?? (listing as any).latitude ?? null
+      const lng = sib?.longitude ?? (listing as any).longitude ?? null
+      const res = await fetchWithAuth(`${API_URL}/api/listings/${listing.id}/tracts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tract_number: nextNum }),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const created = await res.json()
+      if (created?.id && lat != null && lng != null) {
+        await fetchWithAuth(`${API_URL}/api/tracts/${created.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ latitude: lat, longitude: lng }),
+        })
+      }
+      await refreshListing()
+    } catch (e: any) {
+      alert(`Failed to add tract: ${e.message || e}`)
+    } finally {
+      setAddingBlankTract(false)
+    }
+  }
+
   const fetchCompanies = async (token: string) => {
     try {
       const response = await fetch(`${API_URL}/api/companies`, {
@@ -893,10 +929,12 @@ export default function EditListingPage() {
               <h2 className="text-xl font-semibold text-white">Tracts ({listing.tracts?.length || 0})</h2>
               <button
                 type="button"
-                onClick={() => setShowAddTract(!showAddTract)}
-                className="flex items-center gap-2 px-4 py-2 bg-white text-gray-900 font-medium rounded-lg hover:bg-gray-100"
+                onClick={addTract}
+                disabled={addingBlankTract}
+                title="Add a new empty tract (seeded near the others). Draw its boundary to compute acres/tillable/soil."
+                className="flex items-center gap-2 px-4 py-2 bg-white text-gray-900 font-medium rounded-lg hover:bg-gray-100 disabled:opacity-50"
               >
-                <Plus size={16} />
+                {addingBlankTract ? <Loader2 className="animate-spin" size={16} /> : <Plus size={16} />}
                 Add Tract
               </button>
             </div>

@@ -9,7 +9,7 @@ import Link from 'next/link'
 import {
   Loader2, ExternalLink, MapPin, ChevronLeft, ChevronRight,
   ChevronDown, ChevronUp, CheckCircle2, ArrowLeft, AlertTriangle, RefreshCw,
-  Pencil, Check, X,
+  Pencil, Check, X, Plus,
 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import openListingReport from '@/lib/openListingReport'
@@ -463,6 +463,39 @@ export default function TractDataCleanupPage() {
         return { ...prev, [lid]: { ...cur, tracts } }
       })
       showToast(`Could not save land types: ${e.message || e}`, 'error')
+    }
+  }
+
+  // Add a new empty tract to a listing — seeds location from a sibling tract so
+  // the map opens near the others; everything else is blank until the admin
+  // draws the boundary. create_tract recalcs listing totals server-side.
+  const [addingTractFor, setAddingTractFor] = useState<string | null>(null)
+  async function addTractToListing(lid: string) {
+    const cur = loadedListings[lid]
+    if (!cur || addingTractFor) return
+    setAddingTractFor(lid)
+    try {
+      const nums = cur.tracts.map((t) => t.tract_number || 0)
+      const nextNum = (nums.length ? Math.max(...nums) : 0) + 1
+      const sib = cur.tracts.find((t) => t.latitude != null && t.longitude != null)
+      const res = await fetchWithAuth(`${API_URL}/api/listings/${lid}/tracts`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tract_number: nextNum }),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const created = await res.json()
+      if (created?.id && sib?.latitude != null && sib?.longitude != null) {
+        await fetchWithAuth(`${API_URL}/api/tracts/${created.id}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ latitude: sib.latitude, longitude: sib.longitude }),
+        })
+      }
+      await loadListing(lid)
+      showToast(`Tract ${nextNum} added — draw its boundary to compute acres/soil.`, 'success')
+    } catch (e: any) {
+      showToast(`Could not add tract: ${e.message || e}`, 'error')
+    } finally {
+      setAddingTractFor(null)
     }
   }
 
@@ -1053,6 +1086,18 @@ export default function TractDataCleanupPage() {
                               </div>
                             )
                           })}
+
+                          {/* Add a new empty tract to this listing. */}
+                          <button
+                            onClick={() => addTractToListing(it.listing_id)}
+                            disabled={addingTractFor === it.listing_id}
+                            className="mt-2 mb-3 inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-gg-gray-700 text-white hover:bg-gg-gray-600 disabled:opacity-50"
+                          >
+                            {addingTractFor === it.listing_id
+                              ? <Loader2 className="animate-spin" size={15} />
+                              : <Plus size={15} />}
+                            Add Tract
+                          </button>
 
                           {/* Listing-level Verify — finalize once every tract has
                               been updated + saved. Marks ALL tracts Reviewed and
