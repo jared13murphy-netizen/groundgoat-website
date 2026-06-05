@@ -744,6 +744,38 @@ export default function AdminStagingPage() {
     }
   }
 
+  // Persist the per-tract Scraped/Computed selection (acres / tillable_acres /
+  // soil_rating). CRITICAL: Verify POSTs with no body and reads the STORED
+  // staging record, so a pick that only lived in React state was silently
+  // ignored — Verify fell back to the default source (computed). This PATCHes
+  // the pick into scraped_data so Verify saves exactly what you selected.
+  // (Per user 2026-06-05.)
+  const saveTractChosen = async (listing: StagingListing, idx: number, nextChosen: any) => {
+    const updated = JSON.parse(JSON.stringify(listing.scraped_data || {}))
+    if (!Array.isArray(updated.tracts)) updated.tracts = []
+    if (!updated.tracts[idx]) updated.tracts[idx] = {}
+    // An explicit pick supersedes any earlier Edit-modal manual override for
+    // that field (the radio is the more recent, authoritative choice).
+    const manual = { ...((updated.tracts[idx] || {}).manual || {}) }
+    for (const f of ['acres', 'tillable_acres', 'soil_rating']) {
+      if (nextChosen?.[f]) delete manual[f]
+    }
+    updated.tracts[idx] = { ...updated.tracts[idx], chosen: nextChosen, manual }
+    setListings((prev) =>
+      prev.map((l) => (l.id === listing.id ? { ...l, scraped_data: updated } : l))
+    )
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/admin/staging/${listing.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scraped_data: updated }),
+      })
+      if (!res.ok) showToast('error', 'Failed to save Scraped/Computed selection')
+    } catch {
+      showToast('error', 'Network error — selection not saved')
+    }
+  }
+
   const handleVerify = async (id: number) => {
     setActionLoading(id)
     // Check if this is a rescrape item
@@ -1797,22 +1829,7 @@ export default function AdminStagingPage() {
                                         return { ...l, scraped_data: sd }
                                       }))
                                     }}
-                                    onChosenChange={(nextChosen) => {
-                                      setListings(prev => prev.map(l => {
-                                        if (l.id !== listing.id) return l
-                                        const sd = { ...(l.scraped_data || {}) }
-                                        const ts = [...((sd.tracts as any[]) || [])]
-                                        // An explicit Scraped/Computed pick supersedes any
-                                        // earlier Edit-modal manual override for that field.
-                                        const manual = { ...((ts[idx] || {}).manual || {}) }
-                                        for (const f of ['acres', 'tillable_acres', 'soil_rating']) {
-                                          if ((nextChosen as any)[f]) delete (manual as any)[f]
-                                        }
-                                        ts[idx] = { ...ts[idx], chosen: nextChosen, manual }
-                                        sd.tracts = ts
-                                        return { ...l, scraped_data: sd }
-                                      }))
-                                    }}
+                                    onChosenChange={(nextChosen) => saveTractChosen(listing, idx, nextChosen)}
                                   />
                                   {/* Second per-tract details box removed
                                       per user 2026-05-25 — redundant with
