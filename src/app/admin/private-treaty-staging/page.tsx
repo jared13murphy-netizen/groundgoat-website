@@ -1787,7 +1787,7 @@ export default function AdminPrivateTreatyStagingPage() {
                               <button
                                 onClick={() => addStagingTract(listing)}
                                 disabled={addingTractFor === listing.id}
-                                className="mt-1 inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-gg-gray-700 text-white hover:bg-gg-gray-600 disabled:opacity-50"
+                                className="mt-1 inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-gg-pink text-white hover:bg-gg-pink/80 disabled:opacity-50"
                               >
                                 {addingTractFor === listing.id ? <Loader2 className="animate-spin" size={15} /> : <Plus size={15} />}
                                 Add Tract

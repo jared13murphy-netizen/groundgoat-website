@@ -932,7 +932,7 @@ export default function EditListingPage() {
                 onClick={addTract}
                 disabled={addingBlankTract}
                 title="Add a new empty tract (seeded near the others). Draw its boundary to compute acres/tillable/soil."
-                className="flex items-center gap-2 px-4 py-2 bg-white text-gray-900 font-medium rounded-lg hover:bg-gray-100 disabled:opacity-50"
+                className="flex items-center gap-2 px-4 py-2 bg-gg-pink text-white font-medium rounded-lg hover:bg-gg-pink/80 disabled:opacity-50"
               >
                 {addingBlankTract ? <Loader2 className="animate-spin" size={16} /> : <Plus size={16} />}
                 Add Tract

@@ -1091,7 +1091,7 @@ export default function TractDataCleanupPage() {
                           <button
                             onClick={() => addTractToListing(it.listing_id)}
                             disabled={addingTractFor === it.listing_id}
-                            className="mt-2 mb-3 inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-gg-gray-700 text-white hover:bg-gg-gray-600 disabled:opacity-50"
+                            className="mt-2 mb-3 inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-gg-pink text-white hover:bg-gg-pink/80 disabled:opacity-50"
                           >
                             {addingTractFor === it.listing_id
                               ? <Loader2 className="animate-spin" size={15} />
