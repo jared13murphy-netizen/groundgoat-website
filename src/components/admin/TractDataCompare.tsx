@@ -34,6 +34,7 @@
  */
 
 import { useEffect, useState } from 'react'
+import LandTypeButtons from '@/components/admin/LandTypeButtons'
 
 interface ScrapedComputed {
   acres?: number | null
@@ -84,6 +85,10 @@ interface TractDataCompareProps {
    *  persists it. */
   hasHouse?: boolean
   onHasHouseChange?: (next: boolean) => void
+  /** Current land_types for this tract + an auto-save callback. Rendered as
+   *  the add/remove Land Types buttons; saved into scraped_data on change. */
+  landTypes?: string[] | null
+  onLandTypesChange?: (next: string[]) => void
 }
 
 function fmtAcres(v?: number | null): string {
@@ -117,6 +122,8 @@ export default function TractDataCompare({
   onHasBuildingChange,
   hasHouse,
   onHasHouseChange,
+  landTypes,
+  onLandTypesChange,
 }: TractDataCompareProps) {
   // Editable tract number — per user 2026-05-26: when the scraper paired
   // the wrong polygon with the wrong tract number (Steffes-class bug),
@@ -245,6 +252,16 @@ export default function TractDataCompare({
     </label>
   )
 
+  // Land Types add/remove buttons — auto-save into scraped_data on each click.
+  const LandTypeRow = () => (
+    onLandTypesChange ? (
+      <div className="mt-2 pt-2 border-t border-gg-gray-700">
+        <div className="text-[10px] text-gg-gray-500 mb-1 uppercase tracking-wide">Land Types (click to add / remove — saves instantly)</div>
+        <LandTypeButtons value={landTypes} onChange={onLandTypesChange} />
+      </div>
+    ) : null
+  )
+
   // Backwards compat: if neither scraped nor computed is present, this
   // is an old-format staging row. Render single-source view from the
   // fallback tract dict.
@@ -263,6 +280,7 @@ export default function TractDataCompare({
         <span>Soil: {fmtSoil(t.soil_rating, t.soil_rating_type)}</span>
         <HouseCheckbox />
         <BuildingCheckbox />
+        <LandTypeRow />
       </div>
     )
   }
@@ -447,6 +465,7 @@ export default function TractDataCompare({
       />
       <HouseCheckbox />
       <BuildingCheckbox />
+      <LandTypeRow />
       <div className="flex justify-between mt-1 pt-1 text-[10px] text-gg-gray-600">
         <span>Scraped source: {s.source || 'unknown'}</span>
         <span>Computed source: {c.source || 'magic-lab'}</span>
