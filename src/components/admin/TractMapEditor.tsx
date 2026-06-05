@@ -2109,14 +2109,19 @@ export default function TractMapEditor({
   const wrapperClass = fullscreen
     ? 'fixed inset-0 z-50 bg-gg-gray-900 border-0 rounded-none overflow-hidden mb-0 flex flex-col'
     : 'w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg overflow-hidden mb-2'
-  // When fullscreen, the map fills the viewport (minus ~120px reserved
-  // for the toolbar + status). When inline, use the editorHeight prop.
-  const mapHeight = fullscreen ? 'calc(100vh - 120px)' : editorHeight
+  // When fullscreen, the map fills whatever height the flex column leaves
+  // after the toolbar (height:'100%' resolves against the flex-1 row), so
+  // it can never spill over the toolbar/status the way a hardcoded
+  // calc(100vh - 120px) did when the toolbar wrapped taller than 120px.
+  // When inline, use the editorHeight prop.
+  const mapHeight = fullscreen ? '100%' : editorHeight
 
   return (
     <div ref={wrapperRef} className={wrapperClass}>
-      {/* Map + image side-by-side. Stacks vertically on small screens. */}
-      <div className={`flex flex-col md:flex-row ${fullscreen ? 'flex-1 min-h-0' : ''}`}>
+      {/* Map + image side-by-side. Stacks vertically on small screens.
+          In fullscreen this row flexes to fill the space above the toolbar
+          and clips its own overflow so the map can't cover the toolbar. */}
+      <div className={`flex flex-col md:flex-row ${fullscreen ? 'flex-1 min-h-0 overflow-hidden' : ''}`}>
         {/* LEFT: interactive map (~60% on md+). The container is
             always in the DOM (so IntersectionObserver has something
             to observe) but MapLibre only mounts after first
@@ -2328,12 +2333,12 @@ export default function TractMapEditor({
                   </span>
                 </div>
               )}
-              <span className="absolute top-1 right-1 px-1.5 py-0.5 text-[10px] bg-black/60 text-white rounded">
+              <span className="absolute top-2 right-2 px-3 py-1.5 text-sm font-semibold bg-black/70 text-white rounded">
                 {extractingFromImage ? 'extracting…' : 'uploaded'}
               </span>
               <button
                 onClick={() => setUploadedImage(null)}
-                className="absolute top-1 left-1 px-1.5 py-0.5 text-[10px] bg-black/60 hover:bg-black/80 text-white rounded"
+                className="absolute top-2 left-2 w-9 h-9 flex items-center justify-center text-3xl leading-none font-semibold bg-black/70 hover:bg-black/90 text-white rounded"
                 title="Clear uploaded image"
               >
                 ×
@@ -2473,8 +2478,10 @@ export default function TractMapEditor({
         </div>
       </div>
 
-      {/* Toolbar — full-width below the map + image. */}
-      <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-gg-gray-800 border-t border-gg-gray-700">
+      {/* Toolbar — full-width below the map + image. shrink-0 keeps its
+          natural height (never squeezed) and relative z-10 keeps it above
+          the map so its buttons are always visible + clickable. */}
+      <div className="shrink-0 relative z-10 flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-gg-gray-800 border-t border-gg-gray-700">
         <div className="flex flex-col gap-0.5 text-xs text-gg-gray-300">
           {drawTillableMode ? (
             <>
