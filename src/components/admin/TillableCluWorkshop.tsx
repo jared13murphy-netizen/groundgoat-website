@@ -678,6 +678,30 @@ export default function TillableCluWorkshop({
     setCluOverrides(next)
     setSoil(null); setStatus(null)
   }
+  // Insert / delete vertices on a finished tillable (manual) or cutout polygon.
+  const insertManualVertex = (idx: number, pt: Pt) => {
+    const cur = manualPolygonsRef.current
+    if (!cur[idx]) return
+    const next = cur.map((r, i) => (i === idx ? insertOnNearestSegment(r, pt) : r))
+    manualPolygonsRef.current = next
+    setManualPolygons(next); setSoil(null); setStatus(null)
+  }
+  const insertCutoutVertex = (idx: number, pt: Pt) => {
+    const cur = cutoutPolygonsRef.current
+    if (!cur[idx]) return
+    const next = cur.map((r, i) => (i === idx ? insertOnNearestSegment(r, pt) : r))
+    cutoutPolygonsRef.current = next
+    setCutoutPolygons(next); setSoil(null); setStatus(null)
+  }
+  const deletePolyVertex = (kind: 'manual' | 'cutout', idx: number, vert: number) => {
+    const ref = kind === 'manual' ? manualPolygonsRef : cutoutPolygonsRef
+    const setter = kind === 'manual' ? setManualPolygons : setCutoutPolygons
+    const cur = ref.current
+    if (!cur[idx] || cur[idx].length <= 3) return  // keep a valid polygon
+    const next = cur.map((r, i) => (i === idx ? r.filter((_, v) => v !== vert) : r))
+    ref.current = next
+    setter(next); setSoil(null); setStatus(null)
+  }
 
   // ── Manual draw helpers ──
   const pushMapSource = (id: string, data: any) => {
@@ -943,6 +967,11 @@ export default function TillableCluWorkshop({
         id: 'manual-line', type: 'line', source: 'manual',
         paint: { 'line-color': '#15803d', 'line-width': 2 },
       })
+      // Wide invisible click target over the tillable boundary (insert vertex).
+      map.addLayer({
+        id: 'manual-line-hit', type: 'line', source: 'manual',
+        paint: { 'line-color': '#000', 'line-opacity': 0, 'line-width': 16 },
+      })
       // In-progress polygon being drawn — dashed yellow line + fill + vertices.
       map.addLayer({
         id: 'draw-fill', type: 'fill', source: 'draw',
@@ -968,6 +997,11 @@ export default function TillableCluWorkshop({
       map.addLayer({
         id: 'cutout-line', type: 'line', source: 'cutout',
         paint: { 'line-color': '#b91c1c', 'line-width': 2, 'line-dasharray': [2, 1] },
+      })
+      // Wide invisible click target over the cutout boundary (insert vertex).
+      map.addLayer({
+        id: 'cutout-line-hit', type: 'line', source: 'cutout',
+        paint: { 'line-color': '#000', 'line-opacity': 0, 'line-width': 16 },
       })
       // In-progress cutout being drawn — red dashed line + fill + vertices.
       map.addLayer({
@@ -1034,18 +1068,37 @@ export default function TillableCluWorkshop({
           return
         }
         if (modeRef.current !== 'toggle') return
+        // If the click landed on a finished tillable/cutout boundary or a vertex
+        // handle, let the insert/drag handlers own it (don't toggle the CLU).
+        const blockers = ['manual-line-hit', 'cutout-line-hit', 'edit-vertex'].filter((l) => map.getLayer(l))
+        if (blockers.length && map.queryRenderedFeatures(ev.point, { layers: blockers }).length) return
         toggleClu(id)
       })
 
-      // Map-level click: in a draw mode, add a vertex to the current polygon
-      // (tillable or cutout depending on the active mode).
-      // (Edit Shapes select/insert is handled by the clu-fill click above, so
-      // it can't double-fire with this map-level handler.)
+      // Map-level click: in a draw mode, add a vertex to the current polygon.
+      // In toggle mode, a click ON a finished tillable/cutout boundary inserts a
+      // vertex there. (Edit Shapes select/insert is handled by clu-fill above.)
       map.on('click', (ev) => {
         if (didDragRef.current) { didDragRef.current = false; return }  // just dragged a vertex
         const m = modeRef.current
         if (m === 'draw-tillable') addVertex([ev.lngLat.lng, ev.lngLat.lat])
         else if (m === 'draw-cutout') addCutoutVertex([ev.lngLat.lng, ev.lngLat.lat])
+        else if (m === 'toggle') {
+          // A handle click is for drag/delete, not insert.
+          if (map.getLayer('edit-vertex')
+              && map.queryRenderedFeatures(ev.point, { layers: ['edit-vertex'] }).length) return
+          const mh = map.getLayer('manual-line-hit')
+            ? map.queryRenderedFeatures(ev.point, { layers: ['manual-line-hit'] }) : []
+          if (mh.length) {
+            insertManualVertex(Number((mh[0].properties as any)?.idx ?? 0), [ev.lngLat.lng, ev.lngLat.lat])
+            return
+          }
+          const ch = map.getLayer('cutout-line-hit')
+            ? map.queryRenderedFeatures(ev.point, { layers: ['cutout-line-hit'] }) : []
+          if (ch.length) {
+            insertCutoutVertex(Number((ch[0].properties as any)?.idx ?? 0), [ev.lngLat.lng, ev.lngLat.lat])
+          }
+        }
       })
       // Double-click finishes the current polygon (zoom already disabled).
       map.on('dblclick', (ev) => {
@@ -1108,20 +1161,25 @@ export default function TillableCluWorkshop({
         else setCutoutPolygons(cutoutPolygonsRef.current.map((r) => r.slice()))
         setSoil(null); setStatus(null)
       })
-      // Double-click a CLU handle deletes that vertex (keep ≥3).
+      // Double-click any handle deletes that vertex (keep ≥3) — works for an
+      // edited CLU shape and for finished tillable / cutout polygons.
       map.on('dblclick', 'edit-vertex', (ev) => {
         const f = ev.features?.[0]
         const props = f?.properties as any
-        if (!props || props.kind !== 'clu') return
+        if (!props) return
         ev.preventDefault?.()
-        const id = props.poly as number
-        const ring = (effectiveCluRingRef(id) || []).slice()
-        if (ring.length <= 3) return
-        ring.splice(props.vert, 1)
-        const next = { ...cluOverridesRef.current, [id]: ring }
-        cluOverridesRef.current = next
-        setCluOverrides(next)
-        setSoil(null); setStatus(null)
+        if (props.kind === 'clu') {
+          const id = props.poly as number
+          const ring = (effectiveCluRingRef(id) || []).slice()
+          if (ring.length <= 3) return
+          ring.splice(props.vert, 1)
+          const next = { ...cluOverridesRef.current, [id]: ring }
+          cluOverridesRef.current = next
+          setCluOverrides(next)
+          setSoil(null); setStatus(null)
+        } else if (props.kind === 'manual' || props.kind === 'cutout') {
+          deletePolyVertex(props.kind, props.poly as number, props.vert as number)
+        }
       })
 
       const t1 = setTimeout(() => map.resize(), 50)

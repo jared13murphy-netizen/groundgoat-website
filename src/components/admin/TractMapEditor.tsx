@@ -221,6 +221,30 @@ function gisAcres(points: Pt[]): number {
   return polygonAcres(points)
 }
 
+// Pixel distance from screen point p to segment a–b (all {x,y}).
+function _segDistPx(p: {x: number; y: number}, a: {x: number; y: number}, b: {x: number; y: number}): number {
+  const dx = b.x - a.x; const dy = b.y - a.y
+  const len2 = dx * dx + dy * dy || 1e-9
+  let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2
+  t = Math.max(0, Math.min(1, t))
+  const cx = a.x + t * dx; const cy = a.y + t * dy
+  return Math.hypot(p.x - cx, p.y - cy)
+}
+
+// Index of the ring segment (i → i+1) whose screen projection is nearest the
+// clicked screen point — so a new vertex is inserted on the edge the user
+// clicked, not appended to the end of the ring.
+function nearestSegmentIndex(map: maplibregl.Map, ring: Pt[], screenPt: {x: number; y: number}): number {
+  let best = 0; let bestD = Infinity
+  for (let i = 0; i < ring.length; i++) {
+    const a = map.project(ring[i] as [number, number])
+    const b = map.project(ring[(i + 1) % ring.length] as [number, number])
+    const d = _segDistPx(screenPt, a, b)
+    if (d < bestD) { bestD = d; best = i }
+  }
+  return best
+}
+
 // ── Douglas–Peucker simplification (per user 2026-06-01) ──
 // The Surety overview tracer follows the painted boundary contour and
 // emits many vertices on gentle curves, so corners look "rounded".
@@ -730,6 +754,12 @@ export default function TractMapEditor({
         id: 'drawn-line', type: 'line', source: 'drawn',
         paint: { 'line-color': '#f58cde', 'line-width': 3 },
       })
+      // Invisible WIDE line over the boundary — a fat click target so clicking
+      // "on the line" to insert a vertex is forgiving (the visible line is 3px).
+      map.addLayer({
+        id: 'drawn-line-hit', type: 'line', source: 'drawn',
+        paint: { 'line-color': '#000000', 'line-opacity': 0, 'line-width': 18 },
+      })
       // Tillable rendered ON TOP of the tract polygon, semi-transparent
       // green so user can see the tract underneath. Same color pattern
       // as the magic-lab probe result panel (Cropland legend swatch).
@@ -1083,8 +1113,17 @@ export default function TractMapEditor({
           return [...prev, [lng, lat]]
         })
       } else {
+        // Click ON the tract boundary line → insert a vertex on that edge.
+        // Click anywhere else → append (continue drawing a new boundary).
+        const onLine = map.getLayer('drawn-line-hit')
+          ? map.queryRenderedFeatures(ev.point, { layers: ['drawn-line-hit'] }).length > 0
+          : false
         setPoints(prev => {
           pointsHistory.current.push(prev.map(p => [...p] as Pt))
+          if (onLine && prev.length >= 3) {
+            const i = nearestSegmentIndex(map, prev, ev.point)
+            const out = [...prev]; out.splice(i + 1, 0, [lng, lat]); return out
+          }
           return [...prev, [lng, lat]]
         })
         setDirty(true)
