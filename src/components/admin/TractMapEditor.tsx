@@ -677,7 +677,10 @@ export default function TractMapEditor({
         map.addLayer({
           id: 'parcels-fill', type: 'fill', source: 'parcels',
           'source-layer': 'parcels',
-          layout: { visibility: 'none' },
+          // Always present (transparent) so parcel boundaries show without
+          // entering snap mode, and so snap-mode click hit-testing works
+          // (queryRenderedFeatures only returns features from visible layers).
+          layout: { visibility: 'visible' },
           paint: {
             // transparent normally; selected parcels get a cyan wash
             'fill-color': '#22d3ee',
@@ -687,7 +690,9 @@ export default function TractMapEditor({
         map.addLayer({
           id: 'parcels-line', type: 'line', source: 'parcels',
           'source-layer': 'parcels',
-          layout: { visibility: 'none' },
+          // Parcel boundary lines are now always visible (were hidden until
+          // snap mode) so admins can see the parcels available to snap to.
+          layout: { visibility: 'visible' },
           paint: {
             'line-color': ['case', ['boolean', ['feature-state', 'selected'], false], '#06b6d4', '#facc15'],
             'line-width': ['case', ['boolean', ['feature-state', 'selected'], false], 3.5, 1.5],
@@ -1102,16 +1107,14 @@ export default function TractMapEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasBeenVisible])
 
-  // ── Snap-to-parcel: toggle parcel layer visibility with snapMode, and clear
-  // the selection (+ its highlight) whenever snap mode turns off. ──
+  // ── Snap-to-parcel: parcel boundaries are ALWAYS visible now; snap mode
+  // only controls whether clicking a parcel SELECTS it (and unions the
+  // selection into the tract). When snap turns off we clear any selection
+  // (+ its cyan highlight). ──
   useEffect(() => {
     snapModeRef.current = snapMode
     const map = mapRef.current
     if (!map) return
-    const vis = snapMode ? 'visible' : 'none'
-    for (const lyr of ['parcels-fill', 'parcels-line']) {
-      if (map.getLayer(lyr)) { try { map.setLayoutProperty(lyr, 'visibility', vis) } catch {} }
-    }
     if (!snapMode && selectedParcelsRef.current.size) {
       Array.from(selectedParcelsRef.current).forEach((uuid) => {
         try { map.setFeatureState({ source: 'parcels', sourceLayer: 'parcels', id: uuid }, { selected: false }) } catch {}
