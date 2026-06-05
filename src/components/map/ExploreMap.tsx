@@ -4070,12 +4070,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // Pre-compute geographic coords + price-per-acre for every today tract.
     const prepared: PreparedTract[] = []
     for (const tract of todayTracts) {
-      let lng = tract.longitude as number | null
-      let lat = tract.latitude as number | null
-      if (tract.polygon_coordinates && tract.polygon_coordinates.length > 2) {
-        const c = getPolygonCentroid(tract.polygon_coordinates as [number, number][])
-        if (c) { lng = c[0]; lat = c[1] }
-      }
+      // Use the tract's stored lat/lng for the green dot — NOT the polygon
+      // centroid. These dots now include boundary_valid=false tracts whose
+      // polygons are unreliable; their centroid lands in the wrong place,
+      // while the stored point is the tract's recorded location.
+      // (Per user 2026-06-05.)
+      const lng = tract.longitude as number | null
+      const lat = tract.latitude as number | null
       if (lat == null || lng == null) continue
       const isPrivateTreaty = (tract.listing_type || '').toLowerCase() === 'private_treaty'
       const isPending = (tract.sale_status || '').toLowerCase() === 'pending'
@@ -4153,46 +4154,46 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
         el.addEventListener('click', (e) => {
           // Suppress the underlying Regrid parcel-fill click so a tract pin
-          // layered over a parcel doesn't open two popups (see the same
-          // guard on the regular-tract markers above).
+          // layered over a parcel doesn't open two popups.
           e.stopPropagation()
-          if (isCluster) {
-            // Zoom in by ~2 levels (capped at 13) so the cluster breaks.
-            const next = Math.min(map.getZoom() + 2.5, 13)
-            map.easeTo({ center: [centerLng, centerLat], zoom: next, duration: 500 })
+          const tract = lead.tract
+          // The green "auctioning today" dot represents the WHOLE auction (not
+          // a single tract), so a click opens the full Listing Details — unlike
+          // every other dot, which opens Tract Details. (Per user 2026-06-05;
+          // previously a single dot opened tract detail and a cluster just
+          // zoomed.) In the firm portal we keep the tract-selected callback so
+          // the portal flow isn't broken.
+          if (portalMode && onTractSelected) {
+            onTractSelected({
+              id: tract.id,
+              listingId: tract.listing_id,
+              tractId: tract.id,
+              auctionDate: tract.auction_date,
+              totalAcres: tract.total_acres,
+              tillableAcres: tract.tillable_acres,
+              companyName: tract.company_name,
+              salePrice: tract.sale_price,
+              pricePerAcre: lead.ppa,
+              priceBasis: lead.ppaBasis,
+              county: tract.county,
+              state: tract.state,
+              township: tract.township,
+              soilRating: tract.soil_rating,
+              polygonCoordinates: tract.polygon_coordinates,
+              saleStatus: tract.sale_status,
+              listingType: tract.listing_type,
+              askingPrice: tract.asking_price,
+              landType: tract.land_type,
+              landTypes: tract.land_types,
+              pctTillable: tract.pct_tillable,
+              pricePerTillableAcre: tract.price_per_tillable_acre,
+              pricePerSoilRating: tract.price_per_soil_rating,
+              sourceUrl: tract.source_url,
+            })
             return
           }
-          const tract = lead.tract
-          const saleData: SaleDetail = {
-            id: tract.id,
-            listingId: tract.listing_id,
-            tractId: tract.id,
-            auctionDate: tract.auction_date,
-            totalAcres: tract.total_acres,
-            tillableAcres: tract.tillable_acres,
-            companyName: tract.company_name,
-            salePrice: tract.sale_price,
-            pricePerAcre: lead.ppa,
-            priceBasis: lead.ppaBasis,
-            county: tract.county,
-            state: tract.state,
-            township: tract.township,
-            soilRating: tract.soil_rating,
-            polygonCoordinates: tract.polygon_coordinates,
-            saleStatus: tract.sale_status,
-            listingType: tract.listing_type,
-            askingPrice: tract.asking_price,
-            landType: tract.land_type,
-            landTypes: tract.land_types,
-            pctTillable: tract.pct_tillable,
-            pricePerTillableAcre: tract.price_per_tillable_acre,
-            pricePerSoilRating: tract.price_per_soil_rating,
-            sourceUrl: tract.source_url,
-          }
-          if (portalMode && onTractSelected) {
-            onTractSelected(saleData)
-          } else {
-            setSelectedSale(saleData)
+          if (tract.listing_id) {
+            window.location.href = `/listings/${tract.listing_id}`
           }
         })
 
@@ -5899,32 +5900,8 @@ function createTodayMarkerElement(
     'cursor: pointer',
   ].join(';')
 
-  const label = document.createElement('div')
-  label.className = 'comp-marker-label'
-  label.style.cssText = [
-    'position: absolute',
-    'bottom: 100%',
-    'left: 50%',
-    'transform: translateX(-50%)',
-    'margin-bottom: 6px',
-    'pointer-events: none',
-  ].join(';')
-
-  if (pricePerAcre) {
-    const priceEl = document.createElement('div')
-    priceEl.className = 'comp-marker-price'
-    priceEl.textContent = `${formatCurrency(pricePerAcre)}/ac`
-    label.appendChild(priceEl)
-  }
-  if (acres) {
-    const acresEl = document.createElement('div')
-    acresEl.className = 'comp-marker-acres'
-    acresEl.textContent = `${formatAcres(acres)} ac`
-    label.appendChild(acresEl)
-  }
-  if (label.childElementCount > 0) {
-    container.appendChild(label)
-  }
+  // No price/acres label on the green "auctioning today" dot — it marks the
+  // whole auction, not a single tract's acreage. (Per user 2026-06-05.)
 
   // Pulse ring — centered on the pin.
   const pulseRing = document.createElement('div')
