@@ -104,6 +104,14 @@ interface TillableCluWorkshopProps {
     soil_rating: number | null
     soil_rating_type: string | null
   }) => void
+  /** Called on each Compute Soil Rating (BEFORE save) with the freshly computed
+   *  values, so a parent can show them as the "Computed" option in a
+   *  Current/Computed/Manual comparison (data-cleanup). */
+  onComputed?: (r: {
+    tillable_acres: number | null
+    soil_rating: number | null
+    soil_rating_type: string | null
+  }) => void
   /** Called whenever the workshop's unsaved-edits (dirty) state flips, so the
    *  parent can disable commit buttons until the admin clicks Save. */
   onDirtyChange?: (dirty: boolean) => void
@@ -213,6 +221,7 @@ export default function TillableCluWorkshop({
   editorHeight = 380,
   reloadKey = 0,
   onSaved,
+  onComputed,
   onDirtyChange,
 }: TillableCluWorkshopProps) {
   // Base URL for the three CLU endpoints — published-tract mode (tractId)
@@ -728,6 +737,11 @@ export default function TillableCluWorkshop({
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`)
       setSoil(data)
+      onComputed?.({
+        tillable_acres: data.tillable_acres ?? null,
+        soil_rating: data.soil_rating ?? null,
+        soil_rating_type: data.soil_rating_type ?? null,
+      })
       setStatus(
         data.soil_rating != null
           ? `✓ ${data.soil_rating_type}: ${data.soil_rating} over ${data.tillable_acres} tillable ac`
