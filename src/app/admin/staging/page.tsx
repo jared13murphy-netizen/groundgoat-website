@@ -807,6 +807,37 @@ export default function AdminStagingPage() {
     }
   }
 
+  // Persist a hand-typed override for one field (acres / tillable_acres /
+  // soil_rating). value=null clears it. A manual value supersedes the
+  // Scraped/Computed pick (Verify reads tract.manual first). (Per user.)
+  const saveTractManual = async (
+    listing: StagingListing, idx: number,
+    field: 'acres' | 'tillable_acres' | 'soil_rating', value: number | null,
+  ) => {
+    const updated = JSON.parse(JSON.stringify(listing.scraped_data || {}))
+    if (!Array.isArray(updated.tracts)) updated.tracts = []
+    if (!updated.tracts[idx]) updated.tracts[idx] = {}
+    const manual = { ...((updated.tracts[idx] || {}).manual || {}) }
+    if (value == null) delete manual[field]
+    else manual[field] = value
+    updated.tracts[idx].manual = manual
+    // A hand-typed value supersedes any Scraped/Computed pick for that field.
+    const chosen = { ...((updated.tracts[idx] || {}).chosen || {}) }
+    if (value != null) delete chosen[field]
+    updated.tracts[idx].chosen = chosen
+    setListings((prev) => prev.map((l) => (l.id === listing.id ? { ...l, scraped_data: updated } : l)))
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/admin/staging/${listing.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scraped_data: updated }),
+      })
+      if (!res.ok) showToast('error', 'Failed to save value')
+    } catch {
+      showToast('error', 'Network error — value not saved')
+    }
+  }
+
   // Add a new empty tract to a staging listing. Seeds the map location from a
   // sibling tract so the editor opens near the others; everything else blank.
   // Verify creates the real tract from this object. (Per user 2026-06-05.)
@@ -1962,6 +1993,8 @@ export default function AdminStagingPage() {
                                       }))
                                     }}
                                     onChosenChange={(nextChosen) => saveTractChosen(listing, idx, nextChosen)}
+                                    manual={tract.manual}
+                                    onManualChange={(field, value) => saveTractManual(listing, idx, field, value)}
                                     landTypes={(tract.land_types && tract.land_types.length) ? tract.land_types : (tract.land_type ? [tract.land_type] : [])}
                                     onLandTypesChange={(next) => saveTractLandTypes(listing, idx, next)}
                                   />
