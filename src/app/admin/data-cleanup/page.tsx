@@ -82,6 +82,7 @@ type LiveTract = {
   tillable_acres: number | null
   soil_rating: number | null
   soil_rating_type: string | null
+  has_house: boolean | null
   county_name: string | null
   state_abbr: string | null
   latitude: number | null
@@ -270,6 +271,7 @@ export default function TractDataCleanupPage() {
         tillable_acres: t.tillable_acres != null ? Number(t.tillable_acres) : null,
         soil_rating: t.soil_rating != null ? Number(t.soil_rating) : null,
         soil_rating_type: t.soil_rating_type ?? null,
+        has_house: t.has_house ?? null,
         county_name: t.county_name ?? null,
         state_abbr: t.state_abbr ?? null,
         latitude: t.latitude != null ? Number(t.latitude) : null,
@@ -403,6 +405,35 @@ export default function TractDataCleanupPage() {
     } catch (e: any) {
       alert(`Could not update tract number: ${e.message || e}`)
     } finally { setSavingTractNumId(null) }
+  }
+
+  // Per-tract "House on this tract" — saves immediately via the tract PATCH
+  // (update_tract). (Per user 2026-06-05: the staging screens need an editable
+  // Has House checkbox that saves correctly.)
+  async function saveTractHasHouse(lid: string, tract: LiveTract, next: boolean) {
+    // optimistic
+    setLoadedListings((prev) => {
+      const cur = prev[lid]
+      if (!cur) return prev
+      const tracts = cur.tracts.map((t) => (t.id === tract.id ? { ...t, has_house: next } : t))
+      return { ...prev, [lid]: { ...cur, tracts } }
+    })
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/tracts/${tract.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ has_house: next }),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    } catch (e: any) {
+      // revert on failure
+      setLoadedListings((prev) => {
+        const cur = prev[lid]
+        if (!cur) return prev
+        const tracts = cur.tracts.map((t) => (t.id === tract.id ? { ...t, has_house: !next } : t))
+        return { ...prev, [lid]: { ...cur, tracts } }
+      })
+      showToast(`Could not save House flag: ${e.message || e}`, 'error')
+    }
   }
 
   // Verify the whole listing: mark every tract Reviewed and flip status to Done.
@@ -868,6 +899,15 @@ export default function TractDataCleanupPage() {
                                   <span>Tillable: <span className="text-white font-medium">{tract.tillable_acres != null ? `${tract.tillable_acres.toFixed(1)} ac` : '—'}</span></span>
                                   <span>Soil: <span className="text-white font-medium">{tract.soil_rating != null ? `${tract.soil_rating.toFixed(1)} ${tract.soil_rating_type || ''}` : '—'}</span></span>
                                   <span>Polygon: <span className="text-white font-medium">{ring && ring.length ? `${ring.length} pts` : 'none'}</span></span>
+                                  <label className="flex items-center gap-1.5 cursor-pointer select-none" title="Check if this tract has a house. Saves immediately.">
+                                    <input
+                                      type="checkbox"
+                                      checked={!!tract.has_house}
+                                      onChange={(e) => saveTractHasHouse(it.listing_id, tract, e.target.checked)}
+                                      className="cursor-pointer accent-gg-pink w-4 h-4"
+                                    />
+                                    <span className="text-white font-medium">House</span>
+                                  </label>
                                 </div>
 
                                 {actionable ? (
