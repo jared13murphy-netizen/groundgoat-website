@@ -202,6 +202,33 @@ function buildVertexGeo(points: Pt[]): any {
   }
 }
 
+// Draggable vertex handles for FINISHED polygons — so a drawn tillable or
+// cutout polygon can be edited (vertices moved) after Finish, not just while
+// drawing. Each handle is tagged with its layer (`kind`) + polygon/vertex
+// index so the drag handler knows exactly which point it's moving.
+function buildEditVertexGeo(manualPolys: Pt[][], cutoutPolys: Pt[][]): any {
+  const features: any[] = []
+  manualPolys.forEach((ring, poly) => {
+    ring.forEach((p, vert) => {
+      features.push({
+        type: 'Feature',
+        properties: { kind: 'manual', poly, vert },
+        geometry: { type: 'Point', coordinates: p },
+      })
+    })
+  })
+  cutoutPolys.forEach((ring, poly) => {
+    ring.forEach((p, vert) => {
+      features.push({
+        type: 'Feature',
+        properties: { kind: 'cutout', poly, vert },
+        geometry: { type: 'Point', coordinates: p },
+      })
+    })
+  })
+  return { type: 'FeatureCollection', features }
+}
+
 // GeoJSON Polygon geometry → outer ring (Pt[]). Used to hydrate saved
 // manual polygons (backend returns them as GeoJSON geometries).
 function geomToRing(geom: any): Pt[] | null {
@@ -282,6 +309,12 @@ export default function TillableCluWorkshop({
   const currentCutoutRef = useRef<Pt[]>([])
   useEffect(() => { cutoutPolygonsRef.current = cutoutPolygons }, [cutoutPolygons])
   useEffect(() => { currentCutoutRef.current = currentCutout }, [currentCutout])
+
+  // Vertex-drag state for editing FINISHED polygons. draggingVertexRef holds
+  // which handle is being dragged; didDragRef distinguishes a drag from a
+  // plain click so a vertex drag doesn't also toggle a CLU / add a point.
+  const draggingVertexRef = useRef<{ kind: 'manual' | 'cutout'; poly: number; vert: number } | null>(null)
+  const didDragRef = useRef(false)
 
   // True once the admin has drawn at least one polygon → CLU selection is
   // overridden (drawn polygons are the tillable area).
@@ -527,6 +560,14 @@ export default function TillableCluWorkshop({
     })
   }
 
+  // Keep the editable vertex handles in sync with the finished polygons —
+  // covers Finish, Undo, Clear, the initial load, and a committed drag.
+  useEffect(() => {
+    if (!loaded) return
+    pushMapSource('edit-vertex', buildEditVertexGeo(manualPolygons, cutoutPolygons))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [manualPolygons, cutoutPolygons, loaded])
+
   const finishPolygon = () => {
     // A double-click fires two near-identical click events before dblclick,
     // so drop consecutive duplicate vertices before closing.
@@ -714,6 +755,8 @@ export default function TillableCluWorkshop({
       map.addSource('cutout', { type: 'geojson', data: buildManualGeo(cutoutPolygonsRef.current) })
       map.addSource('cutout-draw', { type: 'geojson', data: buildDrawGeo(currentCutoutRef.current) })
       map.addSource('cutout-vertex', { type: 'geojson', data: buildVertexGeo(currentCutoutRef.current) })
+      // Draggable handles for FINISHED polygons (edit-after-Finish).
+      map.addSource('edit-vertex', { type: 'geojson', data: buildEditVertexGeo(manualPolygonsRef.current, cutoutPolygonsRef.current) })
 
       // CLU fill — data-driven green (tillable) / red (not). Click toggles.
       map.addLayer({
@@ -793,6 +836,19 @@ export default function TillableCluWorkshop({
                  'circle-stroke-color': '#fff', 'circle-stroke-width': 1 },
       })
 
+      // Editable handles on FINISHED polygons — bigger, white-ringed dots
+      // (green = tillable, red = cutout) the admin can drag to move a vertex.
+      // Drawn last so they sit on top and are easy to grab.
+      map.addLayer({
+        id: 'edit-vertex', type: 'circle', source: 'edit-vertex',
+        paint: {
+          'circle-radius': 6,
+          'circle-color': ['case', ['==', ['get', 'kind'], 'cutout'], '#ef4444', '#22c55e'],
+          'circle-stroke-color': '#ffffff',
+          'circle-stroke-width': 2,
+        },
+      })
+
       if (tractPolygon && tractPolygon.length >= 3) {
         const bounds = new maplibregl.LngLatBounds()
         for (const p of tractPolygon) bounds.extend(p as [number, number])
@@ -808,6 +864,7 @@ export default function TillableCluWorkshop({
       // CLU click toggles — but only in toggle mode (in a draw mode the
       // map-level click handler below lays vertices instead).
       map.on('click', 'clu-fill', (ev) => {
+        if (didDragRef.current) { didDragRef.current = false; return }  // just dragged a vertex
         if (modeRef.current !== 'toggle') return
         const feat = ev.features?.[0]
         const id = (feat?.properties as any)?.fsa_clu_id
@@ -817,6 +874,7 @@ export default function TillableCluWorkshop({
       // Map-level click: in a draw mode, add a vertex to the current polygon
       // (tillable or cutout depending on the active mode).
       map.on('click', (ev) => {
+        if (didDragRef.current) { didDragRef.current = false; return }  // just dragged a vertex
         const m = modeRef.current
         if (m === 'draw-tillable') addVertex([ev.lngLat.lng, ev.lngLat.lat])
         else if (m === 'draw-cutout') addCutoutVertex([ev.lngLat.lng, ev.lngLat.lat])
@@ -826,6 +884,45 @@ export default function TillableCluWorkshop({
         const m = modeRef.current
         if (m === 'draw-tillable') { ev.preventDefault?.(); finishPolygon() }
         else if (m === 'draw-cutout') { ev.preventDefault?.(); finishCutout() }
+      })
+
+      // ── Edit finished polygons: drag a vertex handle to move it. ──
+      map.on('mouseenter', 'edit-vertex', () => { map.getCanvas().style.cursor = 'move' })
+      map.on('mouseleave', 'edit-vertex', () => {
+        map.getCanvas().style.cursor = modeRef.current === 'toggle' ? '' : 'crosshair'
+      })
+      map.on('mousedown', 'edit-vertex', (ev) => {
+        const f = ev.features?.[0]
+        if (!f) return
+        const props = f.properties as any
+        draggingVertexRef.current = { kind: props.kind, poly: props.poly, vert: props.vert }
+        didDragRef.current = false
+        ev.preventDefault()        // stop the map from panning while we drag
+        map.dragPan.disable()
+      })
+      map.on('mousemove', (ev) => {
+        const d = draggingVertexRef.current
+        if (!d) return
+        didDragRef.current = true
+        const arrRef = d.kind === 'manual' ? manualPolygonsRef : cutoutPolygonsRef
+        if (!arrRef.current[d.poly]) return
+        const polys = arrRef.current.map((r) => r.slice())
+        polys[d.poly][d.vert] = [ev.lngLat.lng, ev.lngLat.lat]
+        arrRef.current = polys
+        // Live update the polygon outline + the handles as the vertex moves.
+        pushMapSource(d.kind === 'manual' ? 'manual' : 'cutout', buildManualGeo(polys))
+        pushMapSource('edit-vertex', buildEditVertexGeo(manualPolygonsRef.current, cutoutPolygonsRef.current))
+      })
+      map.on('mouseup', () => {
+        const d = draggingVertexRef.current
+        if (!d) return
+        draggingVertexRef.current = null
+        map.dragPan.enable()
+        // Commit to state → recomputes tillable acres + dirty flag, clears the
+        // now-stale soil rating. The sync effect repaints the handles.
+        if (d.kind === 'manual') setManualPolygons(manualPolygonsRef.current.map((r) => r.slice()))
+        else setCutoutPolygons(cutoutPolygonsRef.current.map((r) => r.slice()))
+        setSoil(null); setStatus(null)
       })
 
       const t1 = setTimeout(() => map.resize(), 50)
