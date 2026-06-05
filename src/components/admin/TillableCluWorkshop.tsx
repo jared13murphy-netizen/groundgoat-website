@@ -31,7 +31,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import { Loader2, Save, Calculator, Sprout, Pencil, Check, Undo2, Trash2, Maximize2, Minimize2 } from 'lucide-react'
+import { Loader2, Save, Calculator, Sprout, Pencil, Check, Undo2, Trash2, Maximize2, Minimize2, Scissors } from 'lucide-react'
 import { fetchWithAuth } from '@/lib/fetchWithAuth'
 import { polygonAcres } from '@/lib/polygonGeometry'
 
@@ -66,14 +66,16 @@ function tillableSig(
   manualPolygons: Pt[][],
   soilRating: number | null,
   soilType: string,
+  cutoutPolygons: Pt[][] = [],
 ): string {
   const sel = clus
     .map((c) => `${c.fsa_clu_id}:${(selection[c.fsa_clu_id] ?? c.default_tillable) ? 1 : 0}`)
     .sort()
     .join(',')
   const man = JSON.stringify(manualPolygons)
+  const cut = JSON.stringify(cutoutPolygons)
   const soil = soilRating != null ? `${soilType}:${soilRating}` : ''
-  return `${sel}|${man}|${soil}`
+  return `${sel}|${man}|${cut}|${soil}`
 }
 
 interface TillableCluWorkshopProps {
@@ -250,21 +252,41 @@ export default function TillableCluWorkshop({
   // Save button is dirty only when the live signature diverges from this.
   const [savedSig, setSavedSig] = useState<string | null>(null)
 
+  // ── Interaction mode (mutually exclusive). 'toggle' = click CLUs green/red;
+  //    'draw-tillable' = hand-draw the tillable area (overrides CLUs);
+  //    'draw-cutout' = hand-draw a NON-tillable cutout (pond/tree island) that
+  //    is subtracted from the tillable area. The map click/dblclick handlers
+  //    read modeRef so they never need a stale-captured boolean. ──
+  type Mode = 'toggle' | 'draw-tillable' | 'draw-cutout'
+  const [mode, setMode] = useState<Mode>('toggle')
+  const modeRef = useRef<Mode>('toggle')
+  useEffect(() => { modeRef.current = mode }, [mode])
+  const drawingTillable = mode === 'draw-tillable'
+  const drawingCutout = mode === 'draw-cutout'
+  const anyDrawing = drawingTillable || drawingCutout
+
   // ── Manual draw: used when the 2008 FSA CLU data is wrong for the tract.
   //    When ≥1 polygon is drawn it OVERRIDES the CLU selection entirely. ──
-  const [drawMode, setDrawMode] = useState(false)
   const [manualPolygons, setManualPolygons] = useState<Pt[][]>([])
   const [currentDraw, setCurrentDraw] = useState<Pt[]>([])
-  const drawModeRef = useRef(false)
   const manualPolygonsRef = useRef<Pt[][]>([])
   const currentDrawRef = useRef<Pt[]>([])
-  useEffect(() => { drawModeRef.current = drawMode }, [drawMode])
   useEffect(() => { manualPolygonsRef.current = manualPolygons }, [manualPolygons])
   useEffect(() => { currentDrawRef.current = currentDraw }, [currentDraw])
+
+  // ── Non-tillable cutouts (ponds, tree islands) — SUBTRACTED from the
+  //    tillable area, whether that area is CLU-derived or hand-drawn. ──
+  const [cutoutPolygons, setCutoutPolygons] = useState<Pt[][]>([])
+  const [currentCutout, setCurrentCutout] = useState<Pt[]>([])
+  const cutoutPolygonsRef = useRef<Pt[][]>([])
+  const currentCutoutRef = useRef<Pt[]>([])
+  useEffect(() => { cutoutPolygonsRef.current = cutoutPolygons }, [cutoutPolygons])
+  useEffect(() => { currentCutoutRef.current = currentCutout }, [currentCutout])
 
   // True once the admin has drawn at least one polygon → CLU selection is
   // overridden (drawn polygons are the tillable area).
   const manualActive = manualPolygons.length > 0
+  const cutoutActive = cutoutPolygons.length > 0
 
   const wrapperRef = useRef<HTMLDivElement | null>(null)
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -302,17 +324,25 @@ export default function TillableCluWorkshop({
   //    The debounced server fetch below then reconciles (it's authoritative for
   //    the union of OVERLAPPING drawn fields, and is what Save persists). ──
   const clientTillableAcres = useMemo(() => {
+    let gross: number
     if (manualActive || currentDraw.length >= 3) {
-      let a = 0
-      for (const ring of manualPolygons) a += polygonAcres(ring)
-      if (currentDraw.length >= 3) a += polygonAcres(currentDraw)
-      return a
+      gross = 0
+      for (const ring of manualPolygons) gross += polygonAcres(ring)
+      if (currentDraw.length >= 3) gross += polygonAcres(currentDraw)
+    } else {
+      gross = clus.reduce(
+        (sum, c) => sum + ((selection[c.fsa_clu_id] ?? c.default_tillable) ? c.acres_within_tract : 0),
+        0,
+      )
     }
-    return clus.reduce(
-      (sum, c) => sum + ((selection[c.fsa_clu_id] ?? c.default_tillable) ? c.acres_within_tract : 0),
-      0,
-    )
-  }, [clus, selection, manualPolygons, currentDraw, manualActive])
+    // Subtract the (finished + in-progress) cutout areas. This is an estimate
+    // — it ignores whether a cutout actually lies inside the tillable area and
+    // ignores overlaps; the debounced /tillable-acres call is authoritative.
+    let cut = 0
+    for (const ring of cutoutPolygons) cut += polygonAcres(ring)
+    if (currentCutout.length >= 3) cut += polygonAcres(currentCutout)
+    return Math.max(0, gross - cut)
+  }, [clus, selection, manualPolygons, currentDraw, manualActive, cutoutPolygons, currentCutout])
 
   // Optimistic: show the instant client value immediately on every change. The
   // server fetch below overwrites it with the authoritative union once settled.
@@ -327,7 +357,7 @@ export default function TillableCluWorkshop({
     // Mid-draw (vertices being placed) the server can't union an open ring —
     // the instant client estimate above carries the badge until the field is
     // finished, at which point manualPolygons changes and this re-reconciles.
-    if (currentDraw.length > 0) return
+    if (currentDraw.length > 0 || currentCutout.length > 0) return
     if (clus.length === 0 && manualPolygons.length === 0) {
       setTillableAcres(0)
       return
@@ -342,7 +372,8 @@ export default function TillableCluWorkshop({
         const res = await fetchWithAuth(`${baseUrl}/tillable-acres`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ selections, manual_polygons: manualPolygons }),
+          body: JSON.stringify({ selections, manual_polygons: manualPolygons,
+                                 cutout_polygons: cutoutPolygons }),
         })
         if (!res.ok) return
         const data = await res.json()
@@ -354,7 +385,7 @@ export default function TillableCluWorkshop({
       }
     }, 300)
     return () => { cancelled = true; clearTimeout(t) }
-  }, [hasBeenVisible, clus, selection, manualPolygons, currentDraw, baseUrl])
+  }, [hasBeenVisible, clus, selection, manualPolygons, currentDraw, cutoutPolygons, currentCutout, baseUrl])
 
   // Live tillable-acres total = geometric UNION area of the selected
   // polygons, computed server-side (debounced fetch below). Summing per-CLU
@@ -403,6 +434,11 @@ export default function TillableCluWorkshop({
           .map(geomToRing)
           .filter((r: Pt[] | null): r is Pt[] => r != null)
         setManualPolygons(savedManual)
+        // Hydrate any saved non-tillable cutouts.
+        const savedCutouts: Pt[][] = ((data.cutout_polygons || []) as any[])
+          .map(geomToRing)
+          .filter((r: Pt[] | null): r is Pt[] => r != null)
+        setCutoutPolygons(savedCutouts)
         setTractPolygon(data.tract?.polygon || null)
         setTractAcres(data.tract?.total_acres ?? null)
         setReportedAcres(data.tract?.reported_acres ?? null)
@@ -418,7 +454,7 @@ export default function TillableCluWorkshop({
         }
         // Baseline signature of the just-loaded saved state → Save starts
         // disabled until the admin actually changes something.
-        setSavedSig(tillableSig(list, sel, savedManual, savedRating, savedRatingType))
+        setSavedSig(tillableSig(list, sel, savedManual, savedRating, savedRatingType, savedCutouts))
         if (data.error) setError(data.error)
         setLoaded(true)
       } catch (e: any) {
@@ -444,6 +480,7 @@ export default function TillableCluWorkshop({
         ;(map.getSource('clu') as maplibregl.GeoJSONSource | undefined)?.setData(buildCluGeo(clus, selection))
         ;(map.getSource('tract') as maplibregl.GeoJSONSource | undefined)?.setData(buildTractGeo(tractPolygon))
         ;(map.getSource('manual') as maplibregl.GeoJSONSource | undefined)?.setData(buildManualGeo(manualPolygons))
+        ;(map.getSource('cutout') as maplibregl.GeoJSONSource | undefined)?.setData(buildManualGeo(cutoutPolygons))
         if (tractPolygon && tractPolygon.length >= 3) {
           const bounds = new maplibregl.LngLatBounds()
           for (const p of tractPolygon) bounds.extend(p as [number, number])
@@ -547,19 +584,85 @@ export default function TillableCluWorkshop({
     setSoil(null); setStatus(null)
   }
 
-  const toggleDrawMode = () => {
-    setDrawMode((prev) => {
-      const next = !prev
-      drawModeRef.current = next
-      const map = mapRef.current
-      if (map) {
-        if (next) map.doubleClickZoom.disable()
-        else map.doubleClickZoom.enable()
-      }
-      // Leaving draw mode with an unfinished polygon → auto-finish it.
-      if (!next && currentDrawRef.current.length >= 3) finishPolygon()
+  // ── Cutout draw helpers — mirror the tillable draw helpers, writing the
+  //    cutout stores + the red cutout map layers. ──
+  const addCutoutVertex = (pt: Pt) => {
+    setCurrentCutout((prev) => {
+      const next = [...prev, pt]
+      currentCutoutRef.current = next
+      pushMapSource('cutout-draw', buildDrawGeo(next))
+      pushMapSource('cutout-vertex', buildVertexGeo(next))
       return next
     })
+  }
+
+  const finishCutout = () => {
+    const raw = currentCutoutRef.current
+    const pts = raw.filter((p, i) =>
+      i === 0 || Math.abs(p[0] - raw[i - 1][0]) > 1e-7 || Math.abs(p[1] - raw[i - 1][1]) > 1e-7,
+    )
+    if (pts.length < 3) return
+    setCutoutPolygons((prev) => {
+      const next = [...prev, pts]
+      cutoutPolygonsRef.current = next
+      pushMapSource('cutout', buildManualGeo(next))
+      return next
+    })
+    setCurrentCutout(() => {
+      currentCutoutRef.current = []
+      pushMapSource('cutout-draw', buildDrawGeo([]))
+      pushMapSource('cutout-vertex', buildVertexGeo([]))
+      return []
+    })
+    setSoil(null); setStatus(null)
+  }
+
+  const undoCutout = () => {
+    if (currentCutoutRef.current.length > 0) {
+      setCurrentCutout((prev) => {
+        const next = prev.slice(0, -1)
+        currentCutoutRef.current = next
+        pushMapSource('cutout-draw', buildDrawGeo(next))
+        pushMapSource('cutout-vertex', buildVertexGeo(next))
+        return next
+      })
+    } else if (cutoutPolygonsRef.current.length > 0) {
+      setCutoutPolygons((prev) => {
+        const next = prev.slice(0, -1)
+        cutoutPolygonsRef.current = next
+        pushMapSource('cutout', buildManualGeo(next))
+        return next
+      })
+      setSoil(null)
+    }
+    setStatus(null)
+  }
+
+  const clearCutouts = () => {
+    setCutoutPolygons(() => { cutoutPolygonsRef.current = []; pushMapSource('cutout', buildManualGeo([])); return [] })
+    setCurrentCutout(() => {
+      currentCutoutRef.current = []
+      pushMapSource('cutout-draw', buildDrawGeo([]))
+      pushMapSource('cutout-vertex', buildVertexGeo([]))
+      return []
+    })
+    setSoil(null); setStatus(null)
+  }
+
+  // Switch the interaction mode. Auto-finishes any in-progress polygon of the
+  // mode being left, and toggles double-click zoom (off while drawing).
+  const setWorkshopMode = (next: Mode) => {
+    if (modeRef.current === 'draw-tillable' && next !== 'draw-tillable'
+        && currentDrawRef.current.length >= 3) finishPolygon()
+    if (modeRef.current === 'draw-cutout' && next !== 'draw-cutout'
+        && currentCutoutRef.current.length >= 3) finishCutout()
+    modeRef.current = next
+    setMode(next)
+    const map = mapRef.current
+    if (map) {
+      if (next === 'toggle') map.doubleClickZoom.enable()
+      else map.doubleClickZoom.disable()
+    }
   }
 
   // ── Map lifecycle: create once data is loaded + container visible. ──
@@ -608,6 +711,9 @@ export default function TillableCluWorkshop({
       map.addSource('manual', { type: 'geojson', data: buildManualGeo(manualPolygonsRef.current) })
       map.addSource('draw', { type: 'geojson', data: buildDrawGeo(currentDrawRef.current) })
       map.addSource('draw-vertex', { type: 'geojson', data: buildVertexGeo(currentDrawRef.current) })
+      map.addSource('cutout', { type: 'geojson', data: buildManualGeo(cutoutPolygonsRef.current) })
+      map.addSource('cutout-draw', { type: 'geojson', data: buildDrawGeo(currentCutoutRef.current) })
+      map.addSource('cutout-vertex', { type: 'geojson', data: buildVertexGeo(currentCutoutRef.current) })
 
       // CLU fill — data-driven green (tillable) / red (not). Click toggles.
       map.addLayer({
@@ -661,6 +767,32 @@ export default function TillableCluWorkshop({
                  'circle-stroke-color': '#000', 'circle-stroke-width': 1 },
       })
 
+      // Non-tillable cutouts (ponds/tree islands) — translucent red fill +
+      // dashed red outline, drawn ON TOP of the tillable layers so the
+      // subtracted area reads clearly.
+      map.addLayer({
+        id: 'cutout-fill', type: 'fill', source: 'cutout',
+        paint: { 'fill-color': '#ef4444', 'fill-opacity': 0.35 },
+      })
+      map.addLayer({
+        id: 'cutout-line', type: 'line', source: 'cutout',
+        paint: { 'line-color': '#b91c1c', 'line-width': 2, 'line-dasharray': [2, 1] },
+      })
+      // In-progress cutout being drawn — red dashed line + fill + vertices.
+      map.addLayer({
+        id: 'cutout-draw-fill', type: 'fill', source: 'cutout-draw',
+        paint: { 'fill-color': '#ef4444', 'fill-opacity': 0.2 },
+      })
+      map.addLayer({
+        id: 'cutout-draw-line', type: 'line', source: 'cutout-draw',
+        paint: { 'line-color': '#ef4444', 'line-width': 2, 'line-dasharray': [2, 1] },
+      })
+      map.addLayer({
+        id: 'cutout-vertex', type: 'circle', source: 'cutout-vertex',
+        paint: { 'circle-radius': 4, 'circle-color': '#ef4444',
+                 'circle-stroke-color': '#fff', 'circle-stroke-width': 1 },
+      })
+
       if (tractPolygon && tractPolygon.length >= 3) {
         const bounds = new maplibregl.LngLatBounds()
         for (const p of tractPolygon) bounds.extend(p as [number, number])
@@ -668,30 +800,32 @@ export default function TillableCluWorkshop({
       }
 
       map.on('mouseenter', 'clu-fill', () => {
-        if (!drawModeRef.current) map.getCanvas().style.cursor = 'pointer'
+        if (modeRef.current === 'toggle') map.getCanvas().style.cursor = 'pointer'
       })
       map.on('mouseleave', 'clu-fill', () => {
-        if (!drawModeRef.current) map.getCanvas().style.cursor = ''
+        if (modeRef.current === 'toggle') map.getCanvas().style.cursor = ''
       })
-      // CLU click toggles — but only when NOT drawing (in draw mode the
+      // CLU click toggles — but only in toggle mode (in a draw mode the
       // map-level click handler below lays vertices instead).
       map.on('click', 'clu-fill', (ev) => {
-        if (drawModeRef.current) return
+        if (modeRef.current !== 'toggle') return
         const feat = ev.features?.[0]
         const id = (feat?.properties as any)?.fsa_clu_id
         if (typeof id === 'number') toggleClu(id)
       })
 
-      // Map-level click: in draw mode, add a vertex to the current polygon.
+      // Map-level click: in a draw mode, add a vertex to the current polygon
+      // (tillable or cutout depending on the active mode).
       map.on('click', (ev) => {
-        if (!drawModeRef.current) return
-        addVertex([ev.lngLat.lng, ev.lngLat.lat])
+        const m = modeRef.current
+        if (m === 'draw-tillable') addVertex([ev.lngLat.lng, ev.lngLat.lat])
+        else if (m === 'draw-cutout') addCutoutVertex([ev.lngLat.lng, ev.lngLat.lat])
       })
       // Double-click finishes the current polygon (zoom already disabled).
       map.on('dblclick', (ev) => {
-        if (!drawModeRef.current) return
-        ev.preventDefault?.()
-        finishPolygon()
+        const m = modeRef.current
+        if (m === 'draw-tillable') { ev.preventDefault?.(); finishPolygon() }
+        else if (m === 'draw-cutout') { ev.preventDefault?.(); finishCutout() }
       })
 
       const t1 = setTimeout(() => map.resize(), 50)
@@ -717,8 +851,8 @@ export default function TillableCluWorkshop({
       map.setPaintProperty('clu-fill', 'fill-opacity', manualActive ? 0.12 : 0.4)
       map.setPaintProperty('clu-line', 'line-opacity', manualActive ? 0.3 : 1)
     } catch {/* layers not ready yet */}
-    map.getCanvas().style.cursor = drawMode ? 'crosshair' : ''
-  }, [manualActive, drawMode, loaded])
+    map.getCanvas().style.cursor = anyDrawing ? 'crosshair' : ''
+  }, [manualActive, anyDrawing, loaded])
 
   // ── Compute Soil Rating (state-aware, on demand). ──
   const handleComputeSoil = async () => {
@@ -732,7 +866,8 @@ export default function TillableCluWorkshop({
       const res = await fetchWithAuth(`${baseUrl}/compute-soil`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ selections, manual_polygons: manualPolygons }),
+        body: JSON.stringify({ selections, manual_polygons: manualPolygons,
+                               cutout_polygons: cutoutPolygons }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`)
@@ -766,6 +901,7 @@ export default function TillableCluWorkshop({
       const body: any = {
         selections,
         manual_polygons: manualPolygons,
+        cutout_polygons: cutoutPolygons,
         tillable_acres: Math.round(tillableAcres * 100) / 100,
       }
       if (soil?.soil_rating != null) {
@@ -787,7 +923,7 @@ export default function TillableCluWorkshop({
       // Persisted → this is the new baseline, so Save re-disables itself
       // until the admin changes something again.
       setSavedSig(tillableSig(clus, selection, manualPolygons,
-        soil?.soil_rating ?? null, soil?.soil_rating_type ?? ''))
+        soil?.soil_rating ?? null, soil?.soil_rating_type ?? '', cutoutPolygons))
       onSaved?.({
         tillable_acres: data.tillable_acres ?? null,
         soil_rating: data.soil_rating ?? null,
@@ -807,8 +943,8 @@ export default function TillableCluWorkshop({
   // Live signature vs the last-saved baseline → is there anything to save?
   const currentSig = useMemo(
     () => tillableSig(clus, selection, manualPolygons,
-      soil?.soil_rating ?? null, soil?.soil_rating_type ?? ''),
-    [clus, selection, manualPolygons, soil],
+      soil?.soil_rating ?? null, soil?.soil_rating_type ?? '', cutoutPolygons),
+    [clus, selection, manualPolygons, soil, cutoutPolygons],
   )
   const isDirty = savedSig != null && currentSig !== savedSig
 
@@ -826,11 +962,13 @@ export default function TillableCluWorkshop({
         <Sprout size={13} className="text-green-500" />
         <span className="font-semibold">Tillable Workshop</span>
         <span className="text-gg-gray-500 hidden sm:inline">
-          {drawMode
-            ? '— click to add points, double-click to finish a field'
-            : manualActive
-              ? '— drawn polygons override FSA CLUs'
-              : '— click field polygons to toggle tillable (green) / not (red)'}
+          {drawingTillable
+            ? '— click to add points, double-click to finish a tillable field'
+            : drawingCutout
+              ? '— draw a non-tillable area (pond / trees) to subtract from tillable'
+              : manualActive
+                ? '— drawn polygons override FSA CLUs'
+                : '— click field polygons to toggle tillable (green) / not (red)'}
         </span>
         <div className="ml-auto flex items-center gap-1.5">
           <button
@@ -844,43 +982,84 @@ export default function TillableCluWorkshop({
             {expanded ? 'Shrink' : 'Expand'}
           </button>
           <button
-            onClick={toggleDrawMode}
+            onClick={() => setWorkshopMode(drawingTillable ? 'toggle' : 'draw-tillable')}
             disabled={!loaded}
             className={`px-3 py-1.5 text-sm rounded-lg flex items-center gap-1 font-semibold disabled:opacity-40 ${
-              drawMode ? 'bg-yellow-500 text-black' : 'bg-gg-pink hover:bg-gg-pink-light text-white'
+              drawingTillable ? 'bg-yellow-500 text-black' : 'bg-gg-pink hover:bg-gg-pink-light text-white'
             }`}
             title="Draw tillable polygons by hand (use when the 2008 FSA CLU is wrong for this tract)"
           >
             <Pencil size={14} />
-            {drawMode ? 'Drawing…' : 'Draw Tillable'}
+            {drawingTillable ? 'Drawing…' : 'Draw Tillable'}
           </button>
-          {drawMode && (
+          <button
+            onClick={() => setWorkshopMode(drawingCutout ? 'toggle' : 'draw-cutout')}
+            disabled={!loaded}
+            className={`px-3 py-1.5 text-sm rounded-lg flex items-center gap-1 font-semibold disabled:opacity-40 ${
+              drawingCutout ? 'bg-yellow-500 text-black' : 'bg-red-700 hover:bg-red-600 text-white'
+            }`}
+            title="Draw a NON-tillable area (pond, tree island) to subtract from the tillable acres + soil rating"
+          >
+            <Scissors size={14} />
+            {drawingCutout ? 'Drawing…' : 'Draw Cutout'}
+          </button>
+          {drawingTillable && (
             <button
               onClick={finishPolygon}
               disabled={currentDraw.length < 3}
               className="px-2 py-1 rounded flex items-center gap-1 bg-green-700 hover:bg-green-600 text-white disabled:opacity-40"
-              title="Close the current polygon and start a new one"
+              title="Close the current tillable polygon and start a new one"
             >
               <Check size={12} /> Finish
             </button>
           )}
-          {(currentDraw.length > 0 || manualActive) && (
+          {drawingCutout && (
             <button
-              onClick={undoDraw}
-              className="px-2 py-1 rounded flex items-center gap-1 bg-gg-gray-600 hover:bg-gg-gray-500 border border-gg-gray-400/60 text-white"
-              title="Undo last point / last polygon"
+              onClick={finishCutout}
+              disabled={currentCutout.length < 3}
+              className="px-2 py-1 rounded flex items-center gap-1 bg-green-700 hover:bg-green-600 text-white disabled:opacity-40"
+              title="Close the current cutout and start a new one"
             >
-              <Undo2 size={12} /> Undo
+              <Check size={12} /> Finish
             </button>
           )}
-          {(currentDraw.length > 0 || manualActive) && (
-            <button
-              onClick={clearManual}
-              className="px-2 py-1 rounded flex items-center gap-1 bg-red-800 hover:bg-red-700 text-white"
-              title="Clear all drawn polygons"
-            >
-              <Trash2 size={12} /> Clear
-            </button>
+          {/* Tillable Undo/Clear — while drawing tillable, or in toggle mode with drawn fields. */}
+          {(drawingTillable || (mode === 'toggle' && manualActive)) && (currentDraw.length > 0 || manualActive) && (
+            <>
+              <button
+                onClick={undoDraw}
+                className="px-2 py-1 rounded flex items-center gap-1 bg-gg-gray-600 hover:bg-gg-gray-500 border border-gg-gray-400/60 text-white"
+                title="Undo last tillable point / last tillable polygon"
+              >
+                <Undo2 size={12} /> Undo
+              </button>
+              <button
+                onClick={clearManual}
+                className="px-2 py-1 rounded flex items-center gap-1 bg-red-800 hover:bg-red-700 text-white"
+                title="Clear all drawn tillable polygons"
+              >
+                <Trash2 size={12} /> Clear
+              </button>
+            </>
+          )}
+          {/* Cutout Undo/Clear — while drawing cutouts, or in toggle mode with cutouts. */}
+          {(drawingCutout || (mode === 'toggle' && cutoutActive)) && (currentCutout.length > 0 || cutoutActive) && (
+            <>
+              <button
+                onClick={undoCutout}
+                className="px-2 py-1 rounded flex items-center gap-1 bg-gg-gray-600 hover:bg-gg-gray-500 border border-gg-gray-400/60 text-white"
+                title="Undo last cutout point / last cutout"
+              >
+                <Undo2 size={12} /> Undo cut
+              </button>
+              <button
+                onClick={clearCutouts}
+                className="px-2 py-1 rounded flex items-center gap-1 bg-red-800 hover:bg-red-700 text-white"
+                title="Clear all non-tillable cutouts"
+              >
+                <Trash2 size={12} /> Clear cuts
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -908,9 +1087,11 @@ export default function TillableCluWorkshop({
             </span>
           )}
         </div>
-        {drawMode && (
-          <div className="absolute top-2 left-2 px-2 py-1 rounded bg-black/70 text-yellow-300 text-[11px] pointer-events-none">
-            Click to add points · double-click (or Finish) to close · draw multiple fields
+        {anyDrawing && (
+          <div className={`absolute top-2 left-2 px-2 py-1 rounded bg-black/70 text-[11px] pointer-events-none ${drawingCutout ? 'text-red-300' : 'text-yellow-300'}`}>
+            {drawingCutout
+              ? 'Draw a non-tillable area (pond / trees) · double-click (or Finish) to close · draws multiple'
+              : 'Click to add points · double-click (or Finish) to close · draw multiple fields'}
           </div>
         )}
       </div>
@@ -933,6 +1114,11 @@ export default function TillableCluWorkshop({
                 ? `(${manualPolygons.length} drawn field${manualPolygons.length === 1 ? '' : 's'} · CLUs overridden)`
                 : `(${tillableCount}/${clus.length} CLUs)`}
             </span>
+            {cutoutActive && (
+              <span className="text-red-400 font-semibold">
+                − {cutoutPolygons.length} cutout{cutoutPolygons.length === 1 ? '' : 's'}
+              </span>
+            )}
           </div>
           <div className="text-[11px]">
             {soil?.soil_rating != null ? (
