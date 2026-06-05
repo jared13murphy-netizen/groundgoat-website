@@ -173,13 +173,10 @@ export default function NightlyUpdatesPage() {
       })
 
       if (response.ok) {
-        // Remove the deleted listing from the selected report's updates
-        if (selectedReport) {
-          const updatedUpdates = selectedReport.updates.filter(u => u.listing_id !== listingId)
-          const updatedReport = { ...selectedReport, updates: updatedUpdates, total_updated: updatedUpdates.length }
-          setSelectedReport(updatedReport)
-          setReports(prev => prev.map(r => r.id === updatedReport.id ? updatedReport : r))
-        }
+        // Backend now also drops deleted listings server-side on next load,
+        // so the card won't reappear on refresh. Remove it locally for
+        // immediate feedback.
+        removeItemLocally(listingId)
       } else {
         const error = await response.json()
         alert(`Failed to delete listing: ${error.detail || 'Unknown error'}`)
@@ -187,6 +184,44 @@ export default function NightlyUpdatesPage() {
     } catch (err: any) {
       console.error('Failed to delete listing:', err)
       alert(`Failed to delete listing: ${err?.message || 'Network error'}`)
+    }
+  }
+
+  // Remove a card from the current view locally (both the updates list and
+  // the errors list, since a listing can appear in either).
+  const removeItemLocally = (listingId: string) => {
+    if (!selectedReport) return
+    const updatedUpdates = selectedReport.updates.filter(u => u.listing_id !== listingId)
+    const updatedErrors = (selectedReport.errors_list || []).filter(e => e.listing_id !== listingId)
+    const updatedReport = {
+      ...selectedReport,
+      updates: updatedUpdates,
+      errors_list: updatedErrors,
+      total_updated: updatedUpdates.length,
+    }
+    setSelectedReport(updatedReport)
+    setReports(prev => prev.map(r => r.id === updatedReport.id ? updatedReport : r))
+  }
+
+  // Skip: hide this card from the page WITHOUT changing or deleting the
+  // listing. Persisted on the backend so it stays hidden after a refresh.
+  const skipUpdate = async (listingId: string) => {
+    if (!selectedReport) return
+    try {
+      const response = await fetchWithAuth(`${API_URL}/api/admin/nightly-updates/dismiss`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ report_id: selectedReport.id, listing_id: listingId }),
+      })
+      if (response.ok) {
+        removeItemLocally(listingId)
+      } else {
+        const error = await response.json().catch(() => ({}))
+        alert(`Failed to skip: ${error.detail || 'Unknown error'}`)
+      }
+    } catch (err: any) {
+      console.error('Failed to skip listing:', err)
+      alert(`Failed to skip: ${err?.message || 'Network error'}`)
     }
   }
 
@@ -426,7 +461,7 @@ export default function NightlyUpdatesPage() {
                               </div>
                               <div className="flex items-center gap-2">
                                 <Link
-                                  href={`/admin/scraper?edit=${item.listing_id}`}
+                                  href={`/admin/listings/${item.listing_id}`}
                                   className="text-gg-gray-400 hover:text-gg-pink transition-colors"
                                   title="Edit Listing"
                                 >
@@ -441,6 +476,13 @@ export default function NightlyUpdatesPage() {
                                 >
                                   <ExternalLink size={18} />
                                 </a>
+                                <button
+                                  onClick={() => skipUpdate(item.listing_id)}
+                                  className="text-xs text-gg-gray-400 hover:text-white border border-gg-gray-600 hover:border-gg-gray-400 rounded px-2 py-0.5 transition-colors"
+                                  title="Skip — hide from this page without changing or deleting the listing"
+                                >
+                                  Skip
+                                </button>
                                 <button
                                   onClick={() => deleteListing(item.listing_id, item.county, item.state)}
                                   className="text-gg-gray-400 hover:text-red-400 transition-colors"
@@ -506,6 +548,13 @@ export default function NightlyUpdatesPage() {
                               >
                                 <ExternalLink size={16} />
                               </a>
+                              <button
+                                onClick={() => skipUpdate(item.listing_id)}
+                                className="text-xs text-gg-gray-400 hover:text-white border border-gg-gray-600 hover:border-gg-gray-400 rounded px-2 py-0.5 transition-colors"
+                                title="Skip — hide from this page without changing or deleting the listing"
+                              >
+                                Skip
+                              </button>
                               <button
                                 onClick={() => deleteListing(item.listing_id, item.county, item.state)}
                                 className="text-gg-gray-400 hover:text-red-400 transition-colors"
