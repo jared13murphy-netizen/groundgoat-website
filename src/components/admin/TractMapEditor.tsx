@@ -557,21 +557,22 @@ export default function TractMapEditor({
     return rings
   }
 
-  // Snap a lng/lat to the nearest neighbor/parcel VERTEX (≤14px) — giving an
-  // identical shared vertex — else onto the nearest EDGE (≤9px). Returns the
-  // original point when nothing is close or snapping is off.
-  const snapLngLat = (map: maplibregl.Map, screenPt: { x: number; y: number }, lngLat: Pt): Pt => {
-    if (!snapEnabledRef.current) return lngLat
+  // The snap TARGET for a screen point: nearest neighbor/parcel VERTEX (≤18px)
+  // — an identical shared vertex — else nearest EDGE (≤14px). null when nothing
+  // close or snapping is off. Used both to snap clicks/drags AND to draw the
+  // live cyan preview ring so snapping is visible.
+  const findSnap = (map: maplibregl.Map, screenPt: { x: number; y: number }): Pt | null => {
+    if (!snapEnabledRef.current) return null
     const rings = snapRingsNear(map, screenPt)
-    if (!rings.length) return lngLat
-    let bestV: Pt | null = null; let bestVd = 14
+    if (!rings.length) return null
+    let bestV: Pt | null = null; let bestVd = 18
     for (const r of rings) for (const v of r) {
       const p = map.project(v as [number, number])
       const d = Math.hypot(p.x - screenPt.x, p.y - screenPt.y)
       if (d < bestVd) { bestVd = d; bestV = [v[0], v[1]] }
     }
     if (bestV) return bestV
-    let bestE: { x: number; y: number } | null = null; let bestEd = 9
+    let bestE: { x: number; y: number } | null = null; let bestEd = 14
     for (const r of rings) for (let i = 0; i < r.length - 1; i++) {
       const a = map.project(r[i] as [number, number]); const b = map.project(r[i + 1] as [number, number])
       const dx = b.x - a.x; const dy = b.y - a.y; const len2 = dx * dx + dy * dy || 1e-9
@@ -582,8 +583,10 @@ export default function TractMapEditor({
       if (d < bestEd) { bestEd = d; bestE = { x: px, y: py } }
     }
     if (bestE) { const ll = map.unproject([bestE.x, bestE.y]); return [ll.lng, ll.lat] }
-    return lngLat
+    return null
   }
+  const snapLngLat = (map: maplibregl.Map, screenPt: { x: number; y: number }, lngLat: Pt): Pt =>
+    findSnap(map, screenPt) ?? lngLat
 
   // Nearest neighbor-tract vertex to a screen point (≤22px) → {ring, idx}.
   // Copy-edge only targets the neighbor TRACTS (full rings); parcel geometry
@@ -1004,6 +1007,18 @@ export default function TractMapEditor({
         },
       })
 
+      // Live snap-preview ring — a cyan circle that appears where the next
+      // click/drag will SNAP onto a neighbor tract or the parcel boundary, so
+      // snapping is visible. Empty until the cursor nears a snap target.
+      map.addSource('snap-preview', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } as any })
+      map.addLayer({
+        id: 'snap-preview', type: 'circle', source: 'snap-preview',
+        paint: {
+          'circle-radius': 8, 'circle-color': '#22d3ee', 'circle-opacity': 0.35,
+          'circle-stroke-color': '#22d3ee', 'circle-stroke-width': 2.5,
+        },
+      })
+
       // Frame the polygon if we have one.
       if (points.length >= 3) {
         const bounds = new maplibregl.LngLatBounds()
@@ -1012,6 +1027,21 @@ export default function TractMapEditor({
           map.fitBounds(bounds, { padding: 30, duration: 0, maxZoom: 17 })
         } catch {}
       }
+
+      // Move the snap-preview ring to follow the cursor's snap target (Full
+      // Screen, snapping on, normal tract-draw — not while dragging/snap-parcel/
+      // copy-edge/move/tillable). Clears when nothing is in range.
+      map.on('mousemove', (ev) => {
+        const src = map.getSource('snap-preview') as maplibregl.GeoJSONSource | undefined
+        if (!src) return
+        const active = fullscreenRef.current && snapEnabledRef.current
+          && !moveModeRef.current && !snapModeRef.current && !copyEdgeRef.current
+          && !drawTillableModeRef.current && draggingVertexIdx.current == null
+        const t = active ? findSnap(map, ev.point) : null
+        src.setData(t
+          ? { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: t } }] } as any
+          : { type: 'FeatureCollection', features: [] } as any)
+      })
 
       // ── Vertex hover cursor (both tract + tillable verts) ──
       map.on('mouseenter', 'verts', () => {
