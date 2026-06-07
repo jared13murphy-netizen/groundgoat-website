@@ -46,7 +46,7 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import {
   Save, RotateCcw, Trash2, Loader2, ImageIcon, Sprout, EyeOff,
   Maximize2, Minimize2, Crosshair, Camera, Sparkles, Move, Spline,
-  ExternalLink, LandPlot,
+  ExternalLink, LandPlot, Search,
 } from 'lucide-react'
 import { polygonAcres, polygonPerimeterFeet, formatPerimeter } from '@/lib/polygonGeometry'
 import { fetchWithAuth } from '@/lib/fetchWithAuth'
@@ -414,6 +414,52 @@ export default function TractMapEditor({
   // once-attached event handlers read the latest value without stale capture.
   const fullscreenRef = useRef(false)
   useEffect(() => { fullscreenRef.current = fullscreen }, [fullscreen])
+
+  // ── "Move map to location" (Full Screen) — recenter the map by typing a
+  //    lat/lng or a US address. Used when a scrape lands the boundary in the
+  //    wrong place: jump the map to the real spot, then draw the tract. ──
+  const [locQuery, setLocQuery] = useState('')
+  const [locBusy, setLocBusy] = useState(false)
+  const [locMsg, setLocMsg] = useState<string | null>(null)
+  const locMarkerRef = useRef<maplibregl.Marker | null>(null)
+  const recenterMap = (lat: number, lng: number) => {
+    const map = mapRef.current
+    if (!map) return
+    map.flyTo({ center: [lng, lat], zoom: 15 })
+    // Drop / move a small pin so the admin sees exactly where it landed.
+    if (locMarkerRef.current) locMarkerRef.current.setLngLat([lng, lat])
+    else locMarkerRef.current = new maplibregl.Marker({ color: '#06b6d4' })
+      .setLngLat([lng, lat]).addTo(map)
+  }
+  const goToLocation = async () => {
+    const q = locQuery.trim()
+    if (!q) return
+    setLocMsg(null)
+    // "lat, lng" (comma or space separated) → recenter directly, no geocode.
+    const m = q.match(/^\s*(-?\d{1,2}(?:\.\d+)?)\s*[, ]\s*(-?\d{1,3}(?:\.\d+)?)\s*$/)
+    if (m) {
+      const lat = parseFloat(m[1]); const lng = parseFloat(m[2])
+      if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+        recenterMap(lat, lng); return
+      }
+      setLocMsg('Lat/Lng out of range'); return
+    }
+    // Otherwise treat as an address → geocode (US, Census).
+    setLocBusy(true)
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/admin/geocode?q=${encodeURIComponent(q)}`)
+      const data = await res.json().catch(() => ({}))
+      if (res.ok && data.lat != null && data.lng != null) {
+        recenterMap(Number(data.lat), Number(data.lng))
+      } else {
+        setLocMsg(res.status === 404 ? 'No match — try a lat, lng' : 'Geocode failed')
+      }
+    } catch {
+      setLocMsg('Geocode failed')
+    } finally {
+      setLocBusy(false)
+    }
+  }
   // Move-polygon mode (per user 2026-06-01): when on, dragging anywhere
   // on the tract fill translates EVERY vertex by the drag delta so the
   // whole shape slides into position. Vertex dragging and add-vertex are
@@ -1138,6 +1184,8 @@ export default function TractMapEditor({
 
     return () => {
       clearTimeout(t1); clearTimeout(t2); clearTimeout(t3)
+      try { locMarkerRef.current?.remove() } catch {}
+      locMarkerRef.current = null
       try { map.remove() } catch {}
       mapRef.current = null
     }
@@ -2176,6 +2224,36 @@ export default function TractMapEditor({
               <span className="text-xs text-gg-gray-500">Map loads on scroll</span>
             )}
           </div>
+          {/* Move-map-to-location box (Full Screen). Type a lat/lng or a US
+              address to recenter the map — used when a scrape lands the tract
+              in the wrong spot. Centered at top so it clears the Snap button
+              (top-left) and the zoom controls (top-right). */}
+          {fullscreen && (
+            <div className="absolute top-2 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-1">
+              <div className="flex items-center gap-1 bg-black/75 backdrop-blur-sm rounded shadow-lg px-1.5 py-1">
+                <Search size={14} className="text-gg-gray-300 ml-1" />
+                <input
+                  value={locQuery}
+                  onChange={(e) => setLocQuery(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); goToLocation() } }}
+                  placeholder="Lat, Lng or address — move map here"
+                  style={{ backgroundColor: '#ffffff', color: '#000000' }}
+                  className="w-64 px-2 py-1 text-xs rounded border border-gg-gray-600 focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={goToLocation}
+                  disabled={locBusy || !locQuery.trim()}
+                  className="px-2.5 py-1 text-xs font-semibold bg-gg-pink hover:bg-gg-pink-light text-white rounded disabled:opacity-50 flex items-center gap-1"
+                >
+                  {locBusy ? <Loader2 size={14} className="animate-spin" /> : 'Go'}
+                </button>
+              </div>
+              {locMsg && (
+                <span className="text-[11px] px-2 py-0.5 rounded bg-red-700 text-white shadow">{locMsg}</span>
+              )}
+            </div>
+          )}
           {/* Snap-to-fields overlay button (per user 2026-06-02). The
               scraped tract often lands ~1mi off the real field, so the
               FSA-CLU tillable workshop is empty. One click asks the backend
