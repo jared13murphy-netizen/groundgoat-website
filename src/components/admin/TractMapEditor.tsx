@@ -521,8 +521,11 @@ export default function TractMapEditor({
   const neighborRingsRef = useRef<Pt[][]>([])
   useEffect(() => { neighborRingsRef.current = neighborPolygons ?? [] }, [neighborPolygons])
   const hasNeighbors = (neighborPolygons?.length ?? 0) > 0
-  const [snapEnabled, setSnapEnabled] = useState(true)
-  const snapEnabledRef = useRef(true)
+  // Off by default — the primary way to share a boundary is Snap-to-parcel,
+  // which now fills the parcel REMAINDER (parcel − existing tracts). This
+  // per-vertex magnet is an optional extra.
+  const [snapEnabled, setSnapEnabled] = useState(false)
+  const snapEnabledRef = useRef(false)
   useEffect(() => { snapEnabledRef.current = snapEnabled }, [snapEnabled])
   // Copy-edge mode: click a start then end vertex on a neighbor tract to copy
   // that exact run of vertices into the current tract.
@@ -1470,7 +1473,10 @@ export default function TractMapEditor({
         const res = await fetchWithAuth(`${API_URL}/api/admin/parcels/union`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ll_uuids: uuids }),
+          // Subtract the OTHER tracts already drawn on this listing → the snap
+          // returns the REMAINDER of the parcel (parcel − existing tracts), so
+          // the new tract shares their exact boundary and fills what's left.
+          body: JSON.stringify({ ll_uuids: uuids, subtract: neighborRingsRef.current }),
         })
         if (!res.ok) return
         const d = await res.json()
@@ -3172,7 +3178,7 @@ export default function TractMapEditor({
                 ? 'bg-cyan-600 hover:bg-cyan-500'
                 : 'bg-gg-gray-700 hover:bg-gg-gray-600'
             }`}
-            title="Show parcel boundaries and click the parcel(s) that make up this tract — the polygon snaps to their exact boundary (unions multiple). Reads our parcel DB; no Regrid."
+            title="Show parcel boundaries and click the parcel(s) that make up this tract — the polygon snaps to their exact boundary (unions multiple). When another tract on this listing is already inside that parcel, it's subtracted so the new tract fills the REMAINDER and shares the exact boundary. Reads our parcel DB; no Regrid."
           >
             {snapBusy ? <Loader2 className="animate-spin" size={16} /> : <LandPlot size={16} />}
             {snapMode
