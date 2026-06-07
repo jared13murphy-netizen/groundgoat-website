@@ -1478,7 +1478,16 @@ export default function TractMapEditor({
           // Subtract the OTHER tracts already drawn on this listing → the snap
           // returns the REMAINDER of the parcel (parcel − existing tracts), so
           // the new tract shares their exact boundary and fills what's left.
-          body: JSON.stringify({ ll_uuids: uuids, subtract: neighborRingsRef.current }),
+          // Also pass the listing context so the backend can fetch the sibling
+          // tracts straight from the DB (authoritative, even if local state is
+          // stale).
+          body: JSON.stringify({
+            ll_uuids: uuids,
+            subtract: neighborRingsRef.current,
+            ...(liveTractId
+              ? { tract_id: liveTractId }
+              : { staging_id: stagingId, tract_index: tractIndex }),
+          }),
         })
         if (!res.ok) return
         const d = await res.json()
