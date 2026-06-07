@@ -55,6 +55,10 @@ const SCRAPER_URL = 'https://ground-goat-scraper-production.up.railway.app'
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 const TILE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
 const TILE_ATTRIBUTION = '&copy; Esri, Maxar, Earthstar Geographics'
+// Transparent Esri reference overlays so the satellite map shows place + road
+// labels (the imagery alone has none). Same public Esri tile service.
+const LABELS_PLACES_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}'
+const LABELS_ROADS_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}'
 
 type Pt = [number, number]    // [lng, lat]
 
@@ -474,6 +478,22 @@ export default function TractMapEditor({
   // real parcel lines. Reads our own DB (no Regrid), auto-fills as it grows.
   const [snapMode, setSnapMode] = useState(false)
   const snapModeRef = useRef(false)
+  // Show/hide the parcel-boundary overlay. Default on. The parcels-fill layer
+  // stays present for snap hit-testing; this toggles the visible boundary
+  // lines (and is force-shown while Snap-to-parcel is active).
+  const [showParcels, setShowParcels] = useState(true)
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    const apply = () => {
+      const vis = (showParcels || snapMode) ? 'visible' : 'none'
+      try {
+        if (map.getLayer('parcels-line')) map.setLayoutProperty('parcels-line', 'visibility', vis)
+        if (map.getLayer('parcels-fill')) map.setLayoutProperty('parcels-fill', 'visibility', vis)
+      } catch {/* style not ready */}
+    }
+    if (map.isStyleLoaded()) apply(); else map.once('idle', apply)
+  }, [showParcels, snapMode, fullscreen])
   const selectedParcelsRef = useRef<Set<string>>(new Set())
   const [selectedParcelCount, setSelectedParcelCount] = useState(0)
   const [snapBusy, setSnapBusy] = useState(false)
@@ -712,8 +732,16 @@ export default function TractMapEditor({
             tileSize: 256,
             attribution: TILE_ATTRIBUTION,
           },
+          'labels-roads': { type: 'raster', tiles: [LABELS_ROADS_URL], tileSize: 256 },
+          'labels-places': { type: 'raster', tiles: [LABELS_PLACES_URL], tileSize: 256 },
         },
-        layers: [{ id: 'imagery', type: 'raster', source: 'imagery' }],
+        layers: [
+          { id: 'imagery', type: 'raster', source: 'imagery' },
+          // City/road labels overlaid on the satellite imagery (transparent
+          // PNGs). Drawn-tract + parcel layers add on top in map.on('load').
+          { id: 'labels-roads', type: 'raster', source: 'labels-roads' },
+          { id: 'labels-places', type: 'raster', source: 'labels-places' },
+        ],
       },
       center: [centerLng, centerLat],
       zoom: initZoom,
@@ -2253,6 +2281,20 @@ export default function TractMapEditor({
                 <span className="text-[11px] px-2 py-0.5 rounded bg-red-700 text-white shadow">{locMsg}</span>
               )}
             </div>
+          )}
+          {/* Show/hide parcel boundaries (Full Screen). Forced on while
+              Snap-to-parcel is active so the parcels stay clickable. */}
+          {fullscreen && (
+            <button
+              type="button"
+              onClick={() => setShowParcels((v) => !v)}
+              disabled={snapMode}
+              title={snapMode ? 'Parcels stay on while snapping' : (showParcels ? 'Hide parcel boundaries' : 'Show parcel boundaries')}
+              className="absolute bottom-3 left-2 z-10 px-2.5 py-1.5 text-xs font-semibold bg-black/70 hover:bg-black/90 disabled:opacity-60 text-white rounded shadow-lg flex items-center gap-1.5 backdrop-blur-sm"
+            >
+              <LandPlot size={14} className={(showParcels || snapMode) ? 'text-yellow-300' : 'text-gg-gray-400'} />
+              {(showParcels || snapMode) ? 'Parcels: On' : 'Parcels: Off'}
+            </button>
           )}
           {/* Snap-to-fields overlay button (per user 2026-06-02). The
               scraped tract often lands ~1mi off the real field, so the
