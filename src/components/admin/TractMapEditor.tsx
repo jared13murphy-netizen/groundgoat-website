@@ -1534,11 +1534,20 @@ export default function TractMapEditor({
   //   green dots don't linger after Save.
   useEffect(() => {
     const map = mapRef.current
-    if (!map || !map.isStyleLoaded()) return
-    const drawSrc = map.getSource('drawn') as maplibregl.GeoJSONSource | undefined
-    const vertSrc = map.getSource('verts') as maplibregl.GeoJSONSource | undefined
-    if (drawSrc) drawSrc.setData(buildDrawGeo(points))
-    if (vertSrc) vertSrc.setData(buildVertexGeo(points))
+    if (!map) return
+    // NOTE: do NOT gate on map.isStyleLoaded() — the Esri label raster layers
+    // keep it reporting "not loaded" while their tiles stream in, which would
+    // silently skip this sync (e.g. Clear leaving the old polygon on screen).
+    // setData works on an existing source regardless; the getSource() guards
+    // handle the pre-load case, and the idle fallback covers early mount.
+    const apply = () => {
+      const drawSrc = map.getSource('drawn') as maplibregl.GeoJSONSource | undefined
+      const vertSrc = map.getSource('verts') as maplibregl.GeoJSONSource | undefined
+      if (drawSrc) drawSrc.setData(buildDrawGeo(points))
+      if (vertSrc) vertSrc.setData(buildVertexGeo(points))
+    }
+    apply()
+    if (!map.getSource('drawn')) map.once('idle', apply)
   }, [points])
 
   // Update tillable-verts in three situations:
