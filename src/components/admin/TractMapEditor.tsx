@@ -2487,49 +2487,18 @@ export default function TractMapEditor({
               )}
             </div>
           )}
-          {/* Bottom-left map controls (Full Screen): parcel show/hide, snap
-              to neighbor tracts + parcel boundary, and copy a shared edge. */}
+          {/* Bottom-left: parcel show/hide toggle (Full Screen). */}
           {fullscreen && (
-            <div className="absolute bottom-3 left-2 z-10 flex flex-col items-start gap-1.5">
-              {copyMsg && (
-                <span className="text-[11px] px-2 py-0.5 rounded bg-cyan-700 text-white shadow">{copyMsg}</span>
-              )}
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => setShowParcels((v) => !v)}
-                  disabled={snapMode}
-                  title={snapMode ? 'Parcels stay on while snapping' : (showParcels ? 'Hide parcel boundaries' : 'Show parcel boundaries')}
-                  className="px-2.5 py-1.5 text-xs font-semibold bg-black/70 hover:bg-black/90 disabled:opacity-60 text-white rounded shadow-lg flex items-center gap-1.5 backdrop-blur-sm"
-                >
-                  <LandPlot size={14} className={(showParcels || snapMode) ? 'text-yellow-300' : 'text-gg-gray-400'} />
-                  {(showParcels || snapMode) ? 'Parcels: On' : 'Parcels: Off'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSnapEnabled((v) => !v)}
-                  title="Snap new/dragged points to the neighbor tracts + the parcel boundary so adjacent tracts share an exact line"
-                  className={`px-2.5 py-1.5 text-xs font-semibold rounded shadow-lg flex items-center gap-1.5 backdrop-blur-sm ${snapEnabled ? 'bg-cyan-700 hover:bg-cyan-600 text-white' : 'bg-black/70 hover:bg-black/90 text-gg-gray-300'}`}
-                >
-                  <Crosshair size={14} /> Snap: {snapEnabled ? 'On' : 'Off'}
-                </button>
-                {hasNeighbors && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const next = !copyEdgeRef.current
-                      copyEdgeRef.current = next; setCopyEdge(next)
-                      copyStartRef.current = null
-                      setCopyMsg(next ? 'Click one end of the shared edge on a neighbor tract' : null)
-                    }}
-                    title="Copy a shared boundary from a neighbor tract: click each end of the shared edge and the exact run of points is added to this tract"
-                    className={`px-2.5 py-1.5 text-xs font-semibold rounded shadow-lg flex items-center gap-1.5 backdrop-blur-sm ${copyEdge ? 'bg-amber-500 text-black' : 'bg-black/70 hover:bg-black/90 text-white'}`}
-                  >
-                    <Spline size={14} /> {copyEdge ? 'Pick ends…' : 'Copy edge'}
-                  </button>
-                )}
-              </div>
-            </div>
+            <button
+              type="button"
+              onClick={() => setShowParcels((v) => !v)}
+              disabled={snapMode}
+              title={snapMode ? 'Parcels stay on while snapping' : (showParcels ? 'Hide parcel boundaries' : 'Show parcel boundaries')}
+              className="absolute bottom-3 left-2 z-10 px-2.5 py-1.5 text-xs font-semibold bg-black/70 hover:bg-black/90 disabled:opacity-60 text-white rounded shadow-lg flex items-center gap-1.5 backdrop-blur-sm"
+            >
+              <LandPlot size={14} className={(showParcels || snapMode) ? 'text-yellow-300' : 'text-gg-gray-400'} />
+              {(showParcels || snapMode) ? 'Parcels: On' : 'Parcels: Off'}
+            </button>
           )}
           {/* Snap-to-fields overlay button (per user 2026-06-02). The
               scraped tract often lands ~1mi off the real field, so the
