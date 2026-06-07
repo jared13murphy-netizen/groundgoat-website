@@ -299,7 +299,13 @@ button {
 .staging-light .bg-yellow-700.text-white,
 /* gg-gray-600 stays a dark pill in light mode (no bg override), so its
    white label must stay white — e.g. the Tillable Workshop Expand button. */
-.staging-light .bg-gg-gray-600.text-white {
+.staging-light .bg-gg-gray-600.text-white,
+/* Map overlay controls (full-screen tract editor) — dark/colored pills over
+   the satellite map; their white labels must stay white. */
+.staging-light .bg-black\/70.text-white,
+.staging-light .bg-emerald-600.text-white,
+.staging-light .bg-cyan-600.text-white,
+.staging-light .bg-cyan-700.text-white {
   color: #ffffff !important;
 }
 
