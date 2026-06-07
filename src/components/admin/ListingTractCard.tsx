@@ -307,6 +307,11 @@ export default function ListingTractCard({ tract, listing, onChanged }: Props) {
           total_acres: t.total_acres ?? null,
           tillable_acres: t.tillable_acres ?? null,
         }))}
+        // OTHER tracts' polygons → shared-boundary reference + snap targets.
+        neighborPolygons={(listing.tracts || [])
+          .filter((t: any) => t.id !== tract.id)
+          .map((t: any) => t.polygon_coordinates)
+          .filter((p: any) => Array.isArray(p) && p.length >= 3)}
         initialPolygon={ring}
         hideTillable
         tillablePolygon={null}

@@ -154,6 +154,11 @@ interface TractMapEditorProps {
    *  extractor can trace every boundary and match each to a tract by label /
    *  acreage, then return THIS tract's polygon. */
   siblingTracts?: { tract_number: number | null; total_acres: number | null; tillable_acres: number | null }[]
+  /** The OTHER tracts' saved polygons on this listing (exclude THIS tract).
+   *  Each is an outer ring [[lng,lat],…]. Rendered as a dashed reference
+   *  overlay and used as snap / copy-edge targets so adjacent tracts share an
+   *  exact boundary (no slivers). Optional — empty when there are no others. */
+  neighborPolygons?: Pt[][]
   /** LIVE-TRACT mode (Tract Data Clean-Up screen). When set, this editor
    *  operates on an already-published tract (tracts.id UUID) instead of a
    *  staging record. Save writes ONLY the polygon via the restricted
@@ -178,6 +183,21 @@ interface TractMapEditorProps {
 // GeoJSON helpers — copied verbatim from /admin/boundary-draw so polygons
 // render identically across surfaces.
 // ---------------------------------------------------------------------------
+
+// The OTHER tracts' saved polygons → a FeatureCollection for the dashed
+// reference overlay (and the snap / copy-edge targets).
+function buildNeighborsGeo(rings: Pt[][]) {
+  return {
+    type: 'FeatureCollection',
+    features: (rings || []).filter(r => Array.isArray(r) && r.length >= 3).map((r, i) => {
+      const ring = [...r]
+      const f = ring[0]; const l = ring[ring.length - 1]
+      if (f[0] !== l[0] || f[1] !== l[1]) ring.push(f)
+      return { type: 'Feature', properties: { i },
+        geometry: { type: 'Polygon', coordinates: [ring] } }
+    }),
+  } as any
+}
 
 function buildDrawGeo(points: Pt[]) {
   if (points.length === 0) {
@@ -371,6 +391,7 @@ export default function TractMapEditor({
   hideTillable = false,
   tractNumber,
   siblingTracts,
+  neighborPolygons,
   liveTractId,
   proposedPolygon,
   proposedNonce = 0,
@@ -494,6 +515,109 @@ export default function TractMapEditor({
     }
     if (map.isStyleLoaded()) apply(); else map.once('idle', apply)
   }, [showParcels, snapMode, fullscreen])
+
+  // ── Shared-boundary tools: snap to / copy the neighbor tracts + the parcel
+  //    boundary so adjacent tracts share an EXACT line (no slivers). ──
+  const neighborRingsRef = useRef<Pt[][]>([])
+  useEffect(() => { neighborRingsRef.current = neighborPolygons ?? [] }, [neighborPolygons])
+  const hasNeighbors = (neighborPolygons?.length ?? 0) > 0
+  const [snapEnabled, setSnapEnabled] = useState(true)
+  const snapEnabledRef = useRef(true)
+  useEffect(() => { snapEnabledRef.current = snapEnabled }, [snapEnabled])
+  // Copy-edge mode: click a start then end vertex on a neighbor tract to copy
+  // that exact run of vertices into the current tract.
+  const [copyEdge, setCopyEdge] = useState(false)
+  const copyEdgeRef = useRef(false)
+  useEffect(() => { copyEdgeRef.current = copyEdge }, [copyEdge])
+  const copyStartRef = useRef<{ ring: number; idx: number } | null>(null)
+  const [copyMsg, setCopyMsg] = useState<string | null>(null)
+  // Keep the dashed neighbor overlay in sync with the prop.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    const apply = () => { try { (map.getSource('neighbors') as maplibregl.GeoJSONSource | undefined)?.setData(buildNeighborsGeo(neighborPolygons ?? [])) } catch {} }
+    if (map.isStyleLoaded()) apply(); else map.once('idle', apply)
+  }, [neighborPolygons])
+
+  // All rings available as snap targets near the cursor: the neighbor tract
+  // rings (always) + any parcel polygons rendered under the pointer.
+  const snapRingsNear = (map: maplibregl.Map, screenPt: { x: number; y: number }): Pt[][] => {
+    const rings: Pt[][] = [...neighborRingsRef.current]
+    try {
+      if (map.getLayer('parcels-fill')) {
+        const box: [[number, number], [number, number]] = [
+          [screenPt.x - 40, screenPt.y - 40], [screenPt.x + 40, screenPt.y + 40]]
+        for (const f of map.queryRenderedFeatures(box, { layers: ['parcels-fill'] })) {
+          const g: any = f.geometry
+          if (g?.type === 'Polygon') for (const r of g.coordinates) rings.push(r as Pt[])
+          else if (g?.type === 'MultiPolygon') for (const p of g.coordinates) for (const r of p) rings.push(r as Pt[])
+        }
+      }
+    } catch {/* parcels not ready */}
+    return rings
+  }
+
+  // Snap a lng/lat to the nearest neighbor/parcel VERTEX (≤14px) — giving an
+  // identical shared vertex — else onto the nearest EDGE (≤9px). Returns the
+  // original point when nothing is close or snapping is off.
+  const snapLngLat = (map: maplibregl.Map, screenPt: { x: number; y: number }, lngLat: Pt): Pt => {
+    if (!snapEnabledRef.current) return lngLat
+    const rings = snapRingsNear(map, screenPt)
+    if (!rings.length) return lngLat
+    let bestV: Pt | null = null; let bestVd = 14
+    for (const r of rings) for (const v of r) {
+      const p = map.project(v as [number, number])
+      const d = Math.hypot(p.x - screenPt.x, p.y - screenPt.y)
+      if (d < bestVd) { bestVd = d; bestV = [v[0], v[1]] }
+    }
+    if (bestV) return bestV
+    let bestE: { x: number; y: number } | null = null; let bestEd = 9
+    for (const r of rings) for (let i = 0; i < r.length - 1; i++) {
+      const a = map.project(r[i] as [number, number]); const b = map.project(r[i + 1] as [number, number])
+      const dx = b.x - a.x; const dy = b.y - a.y; const len2 = dx * dx + dy * dy || 1e-9
+      let t = ((screenPt.x - a.x) * dx + (screenPt.y - a.y) * dy) / len2
+      t = Math.max(0, Math.min(1, t))
+      const px = a.x + t * dx; const py = a.y + t * dy
+      const d = Math.hypot(px - screenPt.x, py - screenPt.y)
+      if (d < bestEd) { bestEd = d; bestE = { x: px, y: py } }
+    }
+    if (bestE) { const ll = map.unproject([bestE.x, bestE.y]); return [ll.lng, ll.lat] }
+    return lngLat
+  }
+
+  // Nearest neighbor-tract vertex to a screen point (≤22px) → {ring, idx}.
+  // Copy-edge only targets the neighbor TRACTS (full rings); parcel geometry
+  // is tile-clipped so a clean run can't be guaranteed.
+  const nearestNeighborVertex = (map: maplibregl.Map, screenPt: { x: number; y: number }) => {
+    let best: { ring: number; idx: number } | null = null; let bestD = 22
+    const rings = neighborRingsRef.current
+    for (let ri = 0; ri < rings.length; ri++) {
+      const r = rings[ri]
+      for (let vi = 0; vi < r.length; vi++) {
+        const p = map.project(r[vi] as [number, number])
+        const d = Math.hypot(p.x - screenPt.x, p.y - screenPt.y)
+        if (d < bestD) { bestD = d; best = { ring: ri, idx: vi } }
+      }
+    }
+    return best
+  }
+
+  // The run of vertices between idx a and b on a (possibly closed) ring, taking
+  // the SHORTER arc, returned in a→b order (closing dup stripped first).
+  const ringRun = (ring: Pt[], a: number, b: number): Pt[] => {
+    let r = ring
+    if (r.length >= 2) {
+      const f = r[0]; const l = r[r.length - 1]
+      if (f[0] === l[0] && f[1] === l[1]) r = r.slice(0, -1)
+    }
+    const n = r.length
+    const fwd: Pt[] = []
+    for (let i = a; ; i = (i + 1) % n) { fwd.push([r[i][0], r[i][1]]); if (i === b) break; if (fwd.length > n) break }
+    const bwd: Pt[] = []
+    for (let i = a; ; i = (i - 1 + n) % n) { bwd.push([r[i][0], r[i][1]]); if (i === b) break; if (bwd.length > n) break }
+    return fwd.length <= bwd.length ? fwd : bwd
+  }
+
   const selectedParcelsRef = useRef<Set<string>>(new Set())
   const [selectedParcelCount, setSelectedParcelCount] = useState(0)
   const [snapBusy, setSnapBusy] = useState(false)
@@ -799,6 +923,19 @@ export default function TractMapEditor({
         })
       } catch (e) { /* parcels layer is best-effort */ }
 
+      // Neighbor tracts (the OTHER saved tracts) — dashed reference overlay so
+      // the admin can trace / snap / copy a shared boundary. Below the drawn
+      // tract so the active polygon + its vertices stay on top.
+      map.addSource('neighbors', { type: 'geojson', data: buildNeighborsGeo(neighborRingsRef.current) })
+      map.addLayer({
+        id: 'neighbors-fill', type: 'fill', source: 'neighbors',
+        paint: { 'fill-color': '#fb923c', 'fill-opacity': 0.06 },
+      })
+      map.addLayer({
+        id: 'neighbors-line', type: 'line', source: 'neighbors',
+        paint: { 'line-color': '#fb923c', 'line-width': 2, 'line-dasharray': [2, 1.5], 'line-opacity': 0.9 },
+      })
+
       map.addSource('drawn', { type: 'geojson', data: buildDrawGeo(points) })
       map.addSource('verts', { type: 'geojson', data: buildVertexGeo(points) })
       // Tillable source — empty FC unless showTillable=true. Per user
@@ -923,12 +1060,15 @@ export default function TractMapEditor({
             })
           }
         } else {
+          // Snap the dragged tract vertex to a neighbor tract / parcel
+          // vertex or edge so a shared boundary stays exact.
+          const [slng, slat] = snapLngLat(map, mev.point, [lng, lat])
           setPoints(prev => {
             if (!dragHistoryPushed.current) {
               pointsHistory.current.push(prev.map(p => [...p] as Pt))
               dragHistoryPushed.current = true
             }
-            return prev.map((p, i) => i === idx ? [lng, lat] : p)
+            return prev.map((p, i) => i === idx ? [slng, slat] : p)
           })
           setDirty(true)
         }
@@ -1175,6 +1315,32 @@ export default function TractMapEditor({
         if (uuid) snapClickRef.current(uuid)
         return
       }
+      // Copy-edge: click a start then end vertex on a neighbor tract to copy
+      // that exact run of vertices into the current tract (shared boundary).
+      if (copyEdgeRef.current && !drawTillableModeRef.current) {
+        const hit = nearestNeighborVertex(map, ev.point)
+        if (!hit) { setCopyMsg('Click a dot on a neighbor tract boundary'); return }
+        if (!copyStartRef.current) {
+          copyStartRef.current = hit
+          setCopyMsg('Now click the OTHER end of the shared edge')
+          return
+        }
+        if (hit.ring !== copyStartRef.current.ring) {
+          setCopyMsg('Pick both ends on the SAME neighbor tract'); return
+        }
+        const run = ringRun(neighborRingsRef.current[hit.ring], copyStartRef.current.idx, hit.idx)
+        copyStartRef.current = null
+        setCopyEdge(false); copyEdgeRef.current = false
+        setCopyMsg(null)
+        if (run.length >= 2) {
+          setPoints(prev => {
+            pointsHistory.current.push(prev.map(p => [...p] as Pt))
+            return [...prev, ...run]
+          })
+          setDirty(true)
+        }
+        return
+      }
       const layersToCheck = ['verts', 'tillable-verts'].filter(
         l => map.getLayer(l) != null
       )
@@ -1187,6 +1353,9 @@ export default function TractMapEditor({
           return [...prev, [lng, lat]]
         })
       } else {
+        // Snap the new point to a neighbor tract / parcel vertex or edge so
+        // adjacent tracts share an exact line.
+        const [slng, slat] = snapLngLat(map, ev.point, [lng, lat])
         // Click ON the tract boundary line → insert a vertex on that edge.
         // Click anywhere else → append (continue drawing a new boundary).
         const onLine = map.getLayer('drawn-line-hit')
@@ -1196,9 +1365,9 @@ export default function TractMapEditor({
           pointsHistory.current.push(prev.map(p => [...p] as Pt))
           if (onLine && prev.length >= 3) {
             const i = nearestSegmentIndex(map, prev, ev.point)
-            const out = [...prev]; out.splice(i + 1, 0, [lng, lat]); return out
+            const out = [...prev]; out.splice(i + 1, 0, [slng, slat]); return out
           }
-          return [...prev, [lng, lat]]
+          return [...prev, [slng, slat]]
         })
         setDirty(true)
       }
@@ -2282,19 +2451,49 @@ export default function TractMapEditor({
               )}
             </div>
           )}
-          {/* Show/hide parcel boundaries (Full Screen). Forced on while
-              Snap-to-parcel is active so the parcels stay clickable. */}
+          {/* Bottom-left map controls (Full Screen): parcel show/hide, snap
+              to neighbor tracts + parcel boundary, and copy a shared edge. */}
           {fullscreen && (
-            <button
-              type="button"
-              onClick={() => setShowParcels((v) => !v)}
-              disabled={snapMode}
-              title={snapMode ? 'Parcels stay on while snapping' : (showParcels ? 'Hide parcel boundaries' : 'Show parcel boundaries')}
-              className="absolute bottom-3 left-2 z-10 px-2.5 py-1.5 text-xs font-semibold bg-black/70 hover:bg-black/90 disabled:opacity-60 text-white rounded shadow-lg flex items-center gap-1.5 backdrop-blur-sm"
-            >
-              <LandPlot size={14} className={(showParcels || snapMode) ? 'text-yellow-300' : 'text-gg-gray-400'} />
-              {(showParcels || snapMode) ? 'Parcels: On' : 'Parcels: Off'}
-            </button>
+            <div className="absolute bottom-3 left-2 z-10 flex flex-col items-start gap-1.5">
+              {copyMsg && (
+                <span className="text-[11px] px-2 py-0.5 rounded bg-cyan-700 text-white shadow">{copyMsg}</span>
+              )}
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setShowParcels((v) => !v)}
+                  disabled={snapMode}
+                  title={snapMode ? 'Parcels stay on while snapping' : (showParcels ? 'Hide parcel boundaries' : 'Show parcel boundaries')}
+                  className="px-2.5 py-1.5 text-xs font-semibold bg-black/70 hover:bg-black/90 disabled:opacity-60 text-white rounded shadow-lg flex items-center gap-1.5 backdrop-blur-sm"
+                >
+                  <LandPlot size={14} className={(showParcels || snapMode) ? 'text-yellow-300' : 'text-gg-gray-400'} />
+                  {(showParcels || snapMode) ? 'Parcels: On' : 'Parcels: Off'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSnapEnabled((v) => !v)}
+                  title="Snap new/dragged points to the neighbor tracts + the parcel boundary so adjacent tracts share an exact line"
+                  className={`px-2.5 py-1.5 text-xs font-semibold rounded shadow-lg flex items-center gap-1.5 backdrop-blur-sm ${snapEnabled ? 'bg-cyan-700 hover:bg-cyan-600 text-white' : 'bg-black/70 hover:bg-black/90 text-gg-gray-300'}`}
+                >
+                  <Crosshair size={14} /> Snap: {snapEnabled ? 'On' : 'Off'}
+                </button>
+                {hasNeighbors && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = !copyEdgeRef.current
+                      copyEdgeRef.current = next; setCopyEdge(next)
+                      copyStartRef.current = null
+                      setCopyMsg(next ? 'Click one end of the shared edge on a neighbor tract' : null)
+                    }}
+                    title="Copy a shared boundary from a neighbor tract: click each end of the shared edge and the exact run of points is added to this tract"
+                    className={`px-2.5 py-1.5 text-xs font-semibold rounded shadow-lg flex items-center gap-1.5 backdrop-blur-sm ${copyEdge ? 'bg-amber-500 text-black' : 'bg-black/70 hover:bg-black/90 text-white'}`}
+                  >
+                    <Spline size={14} /> {copyEdge ? 'Pick ends…' : 'Copy edge'}
+                  </button>
+                )}
+              </div>
+            </div>
           )}
           {/* Snap-to-fields overlay button (per user 2026-06-02). The
               scraped tract often lands ~1mi off the real field, so the
