@@ -499,6 +499,8 @@ export default function TractMapEditor({
   // real parcel lines. Reads our own DB (no Regrid), auto-fills as it grows.
   const [snapMode, setSnapMode] = useState(false)
   const snapModeRef = useRef(false)
+  // Short confirmation after a parcel snap (whether existing tracts were cut).
+  const [snapStatus, setSnapStatus] = useState<string | null>(null)
   // Show/hide the parcel-boundary overlay. Default on. The parcels-fill layer
   // stays present for snap hit-testing; this toggles the visible boundary
   // lines (and is force-shown while Snap-to-parcel is active).
@@ -1486,6 +1488,13 @@ export default function TractMapEditor({
           setPoints(ring)
           setDirty(true)
           try { onPolygonChange?.(ring, polygonAcres(ring)) } catch {}
+          // Confirm whether existing tracts were cut out (helps catch a case
+          // where no neighbor polygon reached the request).
+          const sc = d.subtract_count || 0
+          const ac = typeof d.acres === 'number' ? `${d.acres.toFixed(0)} ac` : ''
+          setSnapStatus(sc > 0
+            ? `Snapped to remainder · ${ac} (−${sc} existing tract${sc > 1 ? 's' : ''})`
+            : `Snapped to full parcel · ${ac} (no other tracts to subtract)`)
         }
       } catch { /* leave the polygon as-is on failure */ }
       finally { setSnapBusy(false) }
@@ -2499,6 +2508,11 @@ export default function TractMapEditor({
               <LandPlot size={14} className={(showParcels || snapMode) ? 'text-yellow-300' : 'text-gg-gray-400'} />
               {(showParcels || snapMode) ? 'Parcels: On' : 'Parcels: Off'}
             </button>
+          )}
+          {fullscreen && snapStatus && (
+            <div className={`absolute bottom-3 left-1/2 -translate-x-1/2 z-10 px-3 py-1.5 text-xs font-semibold rounded shadow-lg backdrop-blur-sm ${snapStatus.startsWith('Snapped to remainder') ? 'bg-emerald-600 text-white' : 'bg-amber-600 text-white'}`}>
+              {snapStatus}
+            </div>
           )}
           {/* Snap-to-fields overlay button (per user 2026-06-02). The
               scraped tract often lands ~1mi off the real field, so the
