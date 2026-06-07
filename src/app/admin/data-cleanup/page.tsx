@@ -1103,6 +1103,12 @@ export default function TractDataCleanupPage() {
                                         total_acres: t.total_acres ?? null,
                                         tillable_acres: t.tillable_acres ?? null,
                                       }))}
+                                      // OTHER live tracts' polygons → shared-boundary
+                                      // reference + snap / copy-edge targets.
+                                      neighborPolygons={loaded.tracts
+                                        .filter((t) => t.id !== tract.id)
+                                        .map((t) => t.polygon_coordinates as any)
+                                        .filter((p) => Array.isArray(p) && p.length >= 3)}
                                       initialPolygon={ring}
                                       proposedPolygon={proposals[tract.id]?.coords ?? null}
                                       proposedNonce={proposals[tract.id]?.nonce ?? 0}

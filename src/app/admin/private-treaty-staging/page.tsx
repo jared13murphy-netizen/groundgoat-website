@@ -1686,6 +1686,12 @@ export default function AdminPrivateTreatyStagingPage() {
                                       total_acres: t.scraped?.acres ?? t.acres ?? null,
                                       tillable_acres: t.tillable_acres ?? null,
                                     }))}
+                                    // OTHER tracts' saved polygons → shared-boundary
+                                    // reference + snap / copy-edge targets.
+                                    neighborPolygons={((listing.scraped_data?.tracts as any[]) || [])
+                                      .filter((_t: any, i: number) => i !== idx)
+                                      .map((t: any) => t.polygon_coordinates)
+                                      .filter((p: any) => Array.isArray(p) && p.length >= 3)}
                                     initialPolygon={Array.isArray(tract.polygon_coordinates) ? tract.polygon_coordinates : null}
                                     // FSA-CLU rescope: tillable is owned by the
                                     // TillableCluWorkshop below. The map editor is
