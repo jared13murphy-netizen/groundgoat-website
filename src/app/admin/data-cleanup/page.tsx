@@ -85,6 +85,7 @@ type LiveTract = {
   soil_rating: number | null
   soil_rating_type: string | null
   has_house: boolean | null
+  has_buildings: boolean | null
   land_types: string[] | null
   county_name: string | null
   state_abbr: string | null
@@ -275,6 +276,7 @@ export default function TractDataCleanupPage() {
         soil_rating: t.soil_rating != null ? Number(t.soil_rating) : null,
         soil_rating_type: t.soil_rating_type ?? null,
         has_house: t.has_house ?? null,
+        has_buildings: t.has_buildings ?? null,
         land_types: Array.isArray(t.land_types) ? t.land_types : (t.land_type ? [t.land_type] : []),
         county_name: t.county_name ?? null,
         state_abbr: t.state_abbr ?? null,
@@ -482,6 +484,31 @@ export default function TractDataCleanupPage() {
     const hasRes = cur.includes('Residential')
     if (next && !hasRes) saveTractLandTypes(lid, tract, [...cur, 'Residential'])
     else if (!next && hasRes) saveTractLandTypes(lid, tract, cur.filter((t) => t !== 'Residential'))
+  }
+
+  // Per-tract "Buildings on this tract" — saves immediately via the tract PATCH.
+  async function saveTractHasBuilding(lid: string, tract: LiveTract, next: boolean) {
+    setLoadedListings((prev) => {
+      const cur = prev[lid]
+      if (!cur) return prev
+      const tracts = cur.tracts.map((t) => (t.id === tract.id ? { ...t, has_buildings: next } : t))
+      return { ...prev, [lid]: { ...cur, tracts } }
+    })
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/tracts/${tract.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ has_buildings: next }),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    } catch (e: any) {
+      setLoadedListings((prev) => {
+        const cur = prev[lid]
+        if (!cur) return prev
+        const tracts = cur.tracts.map((t) => (t.id === tract.id ? { ...t, has_buildings: !next } : t))
+        return { ...prev, [lid]: { ...cur, tracts } }
+      })
+      showToast(`Could not save Buildings flag: ${e.message || e}`, 'error')
+    }
   }
 
   // Per-tract Land Types — saves immediately via the tract PATCH (update_tract
@@ -1007,15 +1034,30 @@ export default function TractDataCleanupPage() {
                                   <span>Tillable: <span className="text-white font-medium">{tract.tillable_acres != null ? `${tract.tillable_acres.toFixed(1)} ac` : '—'}</span></span>
                                   <span>Soil: <span className="text-white font-medium">{tract.soil_rating != null ? `${tract.soil_rating.toFixed(1)} ${tract.soil_rating_type || ''}` : '—'}</span></span>
                                   <span>Polygon: <span className="text-white font-medium">{ring && ring.length ? `${ring.length} pts` : 'none'}</span></span>
-                                  <label className="flex items-center gap-1.5 cursor-pointer select-none" title="Check if this tract has a house. Saves immediately.">
-                                    <input
-                                      type="checkbox"
-                                      checked={!!tract.has_house}
-                                      onChange={(e) => saveTractHasHouse(it.listing_id, tract, e.target.checked)}
-                                      className="cursor-pointer accent-gg-pink w-4 h-4"
-                                    />
-                                    <span className="text-white font-medium">House</span>
-                                  </label>
+                                  {/* For actionable tracts, Has House / Has Buildings live inside the
+                                      comparison box below; show them here only for locked tracts. */}
+                                  {!actionable && (
+                                    <>
+                                      <label className="flex items-center gap-1.5 cursor-pointer select-none" title="Check if this tract has a house. Saves immediately.">
+                                        <input
+                                          type="checkbox"
+                                          checked={!!tract.has_house}
+                                          onChange={(e) => saveTractHasHouse(it.listing_id, tract, e.target.checked)}
+                                          className="cursor-pointer accent-gg-pink w-4 h-4"
+                                        />
+                                        <span className="text-white font-medium">House</span>
+                                      </label>
+                                      <label className="flex items-center gap-1.5 cursor-pointer select-none" title="Check if this tract has buildings. Saves immediately.">
+                                        <input
+                                          type="checkbox"
+                                          checked={!!tract.has_buildings}
+                                          onChange={(e) => saveTractHasBuilding(it.listing_id, tract, e.target.checked)}
+                                          className="cursor-pointer accent-gg-pink w-4 h-4"
+                                        />
+                                        <span className="text-white font-medium">Buildings</span>
+                                      </label>
+                                    </>
+                                  )}
                                 </div>
 
                                 {/* Land Types — add/remove, saves instantly. For actionable
@@ -1120,6 +1162,10 @@ export default function TractDataCleanupPage() {
                                       <TractDataCompare
                                         scrapedLabel="Current (saved)"
                                         computedLabel="Computed"
+                                        hasHouse={!!tract.has_house}
+                                        onHasHouseChange={(next) => saveTractHasHouse(it.listing_id, tract, next)}
+                                        hasBuilding={!!tract.has_buildings}
+                                        onHasBuildingChange={(next) => saveTractHasBuilding(it.listing_id, tract, next)}
                                         landTypes={tract.land_types}
                                         onLandTypesChange={(next) => saveTractLandTypes(it.listing_id, tract, next)}
                                         scraped={{
