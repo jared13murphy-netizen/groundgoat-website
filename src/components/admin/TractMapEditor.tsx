@@ -469,18 +469,36 @@ export default function TractMapEditor({
       }
       setLocMsg('Lat/Lng out of range'); return
     }
-    // Otherwise treat as an address → geocode (US, Census).
     setLocBusy(true)
     try {
+      // Parcel number → look it up in our parcel DB (Soils-DB regrid_parcels)
+      // and recenter on its centroid. Heuristic: parcel numbers have no
+      // spaces and contain a digit (addresses have spaces), so we only try
+      // the parcel path for those — and fall through to geocode on a miss.
+      const looksLikeParcel = !/\s/.test(q) && /\d/.test(q)
+      if (looksLikeParcel) {
+        const pres = await fetchWithAuth(
+          `${API_URL}/api/admin/parcel-lookup?parcelnumb=${encodeURIComponent(q)}&state=${encodeURIComponent(listingState || '')}`
+        )
+        if (pres.ok) {
+          const pd = await pres.json().catch(() => ({}))
+          if (pd.lat != null && pd.lng != null) {
+            recenterMap(Number(pd.lat), Number(pd.lng))
+            return
+          }
+        }
+        // miss → fall through to address geocode below
+      }
+      // Otherwise treat as an address → geocode (US, Census).
       const res = await fetchWithAuth(`${API_URL}/api/admin/geocode?q=${encodeURIComponent(q)}`)
       const data = await res.json().catch(() => ({}))
       if (res.ok && data.lat != null && data.lng != null) {
         recenterMap(Number(data.lat), Number(data.lng))
       } else {
-        setLocMsg(res.status === 404 ? 'No match — try a lat, lng' : 'Geocode failed')
+        setLocMsg(res.status === 404 ? 'No match — try a lat, lng or parcel #' : 'Lookup failed')
       }
     } catch {
-      setLocMsg('Geocode failed')
+      setLocMsg('Lookup failed')
     } finally {
       setLocBusy(false)
     }
@@ -2504,7 +2522,7 @@ export default function TractMapEditor({
                   value={locQuery}
                   onChange={(e) => setLocQuery(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); goToLocation() } }}
-                  placeholder="Lat, Lng or address — move map here"
+                  placeholder="Lat, Lng · address · parcel # — move map here"
                   style={{ backgroundColor: '#ffffff', color: '#000000' }}
                   className="w-64 px-2 py-1 text-xs rounded border border-gg-gray-600 focus:outline-none"
                 />
