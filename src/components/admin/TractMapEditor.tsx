@@ -1489,24 +1489,29 @@ export default function TractMapEditor({
     const applySnap = async (uuids: string[]) => {
       if (uuids.length === 0) return
       setSnapBusy(true)
+      // Subtract the OTHER tracts already drawn on this listing → the snap
+      // returns the REMAINDER of the parcel (parcel − existing tracts), so the
+      // new tract shares their exact boundary and fills what's left. Also pass
+      // the listing context so the backend can fetch the sibling tracts
+      // straight from the DB (authoritative, even if local state is stale).
+      const postUnion = () => fetchWithAuth(`${API_URL}/api/admin/parcels/union`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ll_uuids: uuids,
+          subtract: neighborRingsRef.current,
+          ...(liveTractId
+            ? { tract_id: liveTractId }
+            : { staging_id: stagingId, tract_index: tractIndex }),
+        }),
+      })
       try {
-        const res = await fetchWithAuth(`${API_URL}/api/admin/parcels/union`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          // Subtract the OTHER tracts already drawn on this listing → the snap
-          // returns the REMAINDER of the parcel (parcel − existing tracts), so
-          // the new tract shares their exact boundary and fills what's left.
-          // Also pass the listing context so the backend can fetch the sibling
-          // tracts straight from the DB (authoritative, even if local state is
-          // stale).
-          body: JSON.stringify({
-            ll_uuids: uuids,
-            subtract: neighborRingsRef.current,
-            ...(liveTractId
-              ? { tract_id: liveTractId }
-              : { staging_id: stagingId, tract_index: tractIndex }),
-          }),
-        })
+        // One retry — the ST_Union can briefly time out / hit a transient
+        // network blip (the "Snap failed (network error)" the admin saw);
+        // a single retry clears most of those without a manual re-click.
+        let res: Response
+        try { res = await postUnion() }
+        catch { res = await postUnion() }
         if (!res.ok) {
           // Surface the failure instead of silently doing nothing — a silent
           // return here is what made a backend 503 look like "snap is broken
@@ -2481,7 +2486,7 @@ export default function TractMapEditor({
   // resized in-place via the useEffect above.
   const wrapperClass = fullscreen
     ? 'fixed inset-0 z-50 bg-gg-gray-900 border-0 rounded-none overflow-hidden mb-0 flex flex-col'
-    : 'w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg overflow-hidden mb-2'
+    : 'relative w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg overflow-hidden mb-2'
   // When fullscreen, the map fills whatever height the flex column leaves
   // after the toolbar (height:'100%' resolves against the flex-1 row), so
   // it can never spill over the toolbar/status the way a hardcoded
@@ -2491,6 +2496,24 @@ export default function TractMapEditor({
 
   return (
     <div ref={wrapperRef} className={wrapperClass}>
+      {/* Blocking overlay while a snap is in flight. Covers the WHOLE editor
+          (incl. the toolbar at z-10) and captures every click, so the admin
+          can't hit Save mid-snap and persist an empty/partial polygon. */}
+      {(snapBusy || snapping) && (
+        <div
+          className="absolute inset-0 z-[60] flex items-center justify-center bg-black/45 cursor-wait"
+          aria-busy="true"
+          // Belt-and-suspenders: swallow any click/keydown that reaches it.
+          onClickCapture={(e) => { e.preventDefault(); e.stopPropagation() }}
+        >
+          <div className="flex items-center gap-3 px-5 py-3 rounded-xl bg-gg-gray-900/95 border border-gg-gray-600 text-white shadow-xl">
+            <Loader2 className="animate-spin text-gg-pink" size={22} />
+            <span className="text-sm font-medium">
+              {snapping ? 'Snapping to fields…' : 'Snapping to parcel…'}
+            </span>
+          </div>
+        </div>
+      )}
       {/* Map + image side-by-side. Stacks vertically on small screens.
           In fullscreen this row flexes to fill the space above the toolbar
           and clips its own overflow so the map can't cover the toolbar. */}
@@ -3243,7 +3266,7 @@ export default function TractMapEditor({
           </button>
           <button
             onClick={handleSave}
-            disabled={points.length < 3 || !dirty || saving || deleting}
+            disabled={points.length < 3 || !dirty || saving || deleting || snapBusy || snapping}
             className="flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium text-white transition-colors bg-green-600 hover:bg-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {saving ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
