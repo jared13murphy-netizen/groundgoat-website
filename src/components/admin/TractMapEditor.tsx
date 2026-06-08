@@ -1489,7 +1489,15 @@ export default function TractMapEditor({
               : { staging_id: stagingId, tract_index: tractIndex }),
           }),
         })
-        if (!res.ok) return
+        if (!res.ok) {
+          // Surface the failure instead of silently doing nothing — a silent
+          // return here is what made a backend 503 look like "snap is broken
+          // and nothing happens."
+          let msg = `Snap failed (${res.status})`
+          try { const e = await res.json(); if (e?.detail) msg = `Snap failed: ${e.detail}` } catch {}
+          setSnapStatus(msg)
+          return
+        }
         const d = await res.json()
         const ring = geojsonToRing(d.geojson)
         if (ring) {
@@ -1505,7 +1513,7 @@ export default function TractMapEditor({
             ? `Snapped to remainder · ${ac} (−${sc} existing tract${sc > 1 ? 's' : ''})`
             : `Snapped to full parcel · ${ac} (no other tracts to subtract)`)
         }
-      } catch { /* leave the polygon as-is on failure */ }
+      } catch { setSnapStatus('Snap failed (network error)') }
       finally { setSnapBusy(false) }
     }
 
