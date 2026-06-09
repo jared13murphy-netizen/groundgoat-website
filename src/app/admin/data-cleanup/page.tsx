@@ -1011,8 +1011,8 @@ export default function TractDataCleanupPage() {
                             const basisGate = needsBasis && !hasValidBasis
                             // The basis question block — loud colors, shown for result-recorded tracts.
                             const basisBlock = needsBasis ? (
-                              <div className={`mb-4 rounded-lg border-2 px-4 py-3 ${tract.price_basis ? 'border-gg-gray-700 bg-gg-gray-900' : 'border-amber-400 bg-amber-400/15'}`}>
-                                <div className="flex items-center gap-3 flex-wrap">
+                              <div className={`mb-4 rounded-lg border-2 px-4 py-3 text-center ${tract.price_basis ? 'border-gg-gray-700 bg-gg-gray-900' : 'border-amber-400 bg-amber-400/15'}`}>
+                                <div className="flex items-center justify-center gap-3 flex-wrap">
                                   <span className={`text-sm font-bold ${tract.price_basis ? 'text-white' : 'text-amber-300'}`}>
                                     {tract.price_basis
                                       ? 'Which price is correct?'
@@ -1040,6 +1040,12 @@ export default function TractDataCleanupPage() {
                                   >
                                     {tract.price_basis === 'per_acre' ? '✓ ' : ''}$/acre is correct
                                   </button>
+                                </div>
+                                {/* Current values to help decide which price is correct. */}
+                                <div className="mt-2 flex flex-wrap justify-center gap-x-5 gap-y-1 text-xs text-gg-gray-400">
+                                  <span>Total price: <span className="text-white font-semibold">{fmtMoney(tract.sale_price)}</span></span>
+                                  <span>$/acre: <span className="text-white font-semibold">{fmtMoney(tract.price_per_acre)}</span></span>
+                                  <span>Saved acres: <span className="text-white font-semibold">{tract.total_acres != null ? `${tract.total_acres.toFixed(2)} ac` : '—'}</span></span>
                                 </div>
                                 <p className="text-[11px] text-gg-gray-400 mt-1.5">
                                   {tract.price_basis === 'per_acre'
