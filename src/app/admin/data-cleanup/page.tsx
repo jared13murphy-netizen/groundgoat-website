@@ -1564,6 +1564,19 @@ export default function TractDataCleanupPage() {
                 </p>
               )
             })()}
+            {deleteRescrapeTarget.source_url && (
+              <a
+                href={deleteRescrapeTarget.source_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                title="Open this listing in a new tab to confirm it's the right one"
+                className="flex items-start gap-1.5 mb-4 text-xs text-gg-pink hover:underline break-all"
+              >
+                <ExternalLink size={13} className="flex-shrink-0 mt-0.5" />
+                {deleteRescrapeTarget.source_url}
+              </a>
+            )}
             <ul className="text-xs text-gg-gray-400 list-disc pl-5 mb-5 space-y-1">
               <li>The current listing is removed <span className="text-gg-gray-300">immediately — there is no undo</span>.</li>
               <li>Nothing from the old (wrong) data carries over — including sale price/date.</li>
