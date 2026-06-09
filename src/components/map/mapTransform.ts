@@ -1,4 +1,5 @@
 import type { ApiListing, MapTract, StateAggregate } from './mapTypes'
+import { largestRing, ringsToGeometry } from '@/lib/polygonRings'
 import countyCentroids from '@/data/countyCentroids'
 import { STATE_ABBR, STATE_BOUNDS, STATE_CENTERS, STATE_NAMES } from './mapConstants'
 
@@ -53,9 +54,9 @@ export function transformListingsToMapTracts(
 
     if (listing.tracts && listing.tracts.length > 0) {
       for (const tract of listing.tracts) {
-        const hasPolygon = tract.polygon_coordinates
-          && Array.isArray(tract.polygon_coordinates)
-          && tract.polygon_coordinates.length >= 3
+        // Ring-aware: a multi-piece tract's polygon_coordinates is a list of
+        // rings, so a plain length check would mis-read it as a point.
+        const hasPolygon = ringsToGeometry(tract.polygon_coordinates) !== null
         const hasLatLng = tract.latitude != null && tract.longitude != null
 
         let dataResolution: 'polygon' | 'point' | 'centroid'
@@ -128,13 +129,13 @@ export function transformListingsToMapTracts(
 
 function getTractPointCoords(tract: MapTract): [number, number] {
   if (tract.dataResolution === 'polygon' && tract.polygon) {
-    // Centroid of polygon for the point layer
-    let sumLng = 0, sumLat = 0
-    for (const [lng, lat] of tract.polygon) {
-      sumLng += lng
-      sumLat += lat
+    // Centroid of the largest ring (handles multi-polygon tracts).
+    const ring = largestRing(tract.polygon)
+    if (ring && ring.length) {
+      let sumLng = 0, sumLat = 0
+      for (const [lng, lat] of ring) { sumLng += lng; sumLat += lat }
+      return [sumLng / ring.length, sumLat / ring.length]
     }
-    return [sumLng / tract.polygon.length, sumLat / tract.polygon.length]
   }
   if (tract.dataResolution === 'point' && tract.lat != null && tract.lng != null) {
     return [tract.lng, tract.lat]
@@ -175,26 +176,20 @@ export function buildPointGeoJSON(tracts: MapTract[]): GeoJSON.FeatureCollection
 }
 
 export function buildPolygonGeoJSON(tracts: MapTract[]): GeoJSON.FeatureCollection {
-  const polygonTracts = tracts.filter(t => t.dataResolution === 'polygon' && t.polygon)
+  const polygonTracts = tracts.filter(
+    t => t.dataResolution === 'polygon' && ringsToGeometry(t.polygon) !== null
+  )
 
   return {
     type: 'FeatureCollection',
     features: polygonTracts.map(tract => {
-      // Close the ring if not already closed
-      const coords = [...tract.polygon!]
-      const first = coords[0]
-      const last = coords[coords.length - 1]
-      if (first[0] !== last[0] || first[1] !== last[1]) {
-        coords.push([first[0], first[1]])
-      }
+      // Polygon for one ring, MultiPolygon for a multi-piece tract.
+      const geometry = ringsToGeometry(tract.polygon)!
 
       return {
         type: 'Feature' as const,
         id: tract.tractId,
-        geometry: {
-          type: 'Polygon' as const,
-          coordinates: [coords],
-        },
+        geometry,
         properties: {
           tractId: tract.tractId,
           listingId: tract.listingId,
