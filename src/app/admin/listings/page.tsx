@@ -39,6 +39,8 @@ interface Listing {
   data_confidence?: number
   source_url?: string
   tract_count?: number
+  updated_at?: string
+  created_at?: string
   company?: {
     id: string
     name: string
@@ -82,6 +84,10 @@ function AdminListingsPageContent() {
   const [filterAuctionDate, setFilterAuctionDate] = useState('')
   const [showFilters, setShowFilters] = useState(false)
 
+  // Sort: default keeps the existing auction-date ordering; "updated_at" lets
+  // the admin sort by Last Modified (most recently edited first).
+  const [sortBy, setSortBy] = useState<'auction_datetime' | 'updated_at'>('auction_datetime')
+
   // Add listing modal
   const [showAddModal, setShowAddModal] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -107,7 +113,7 @@ function AdminListingsPageContent() {
 
   useEffect(() => {
     fetchListings()
-  }, [page, debouncedSearch, filterCompany, filterState, filterCounty, filterListingType, filterStatus, filterVerified, filterConfidence, filterAuctionDate])
+  }, [page, debouncedSearch, filterCompany, filterState, filterCounty, filterListingType, filterStatus, filterVerified, filterConfidence, filterAuctionDate, sortBy])
 
   // Debounce the search box, and reset to page 1 when the query changes.
   useEffect(() => {
@@ -149,7 +155,7 @@ function AdminListingsPageContent() {
       // marketed_only hides bulk data-feed imports (MyDec / Indiana SDF / ATTOM /
       // Beacon) — sold comps that aren't marketed listings and never hit the map.
       // has_company=true hides listings with no listing company (per user).
-      let url = `${API_URL}/api/listings?limit=${itemsPerPage}&offset=${offset}&sort_order=desc&marketed_only=true&has_company=true`
+      let url = `${API_URL}/api/listings?limit=${itemsPerPage}&offset=${offset}&sort_order=desc&sort_by=${sortBy}&marketed_only=true&has_company=true`
 
       if (debouncedSearch) url += `&search=${encodeURIComponent(debouncedSearch)}`
       if (filterState) url += `&state=${encodeURIComponent(filterState)}`
@@ -346,6 +352,15 @@ function AdminListingsPageContent() {
               <Filter size={16} />
               Filters
             </button>
+            <select
+              value={sortBy}
+              onChange={(e) => { setSortBy(e.target.value as 'auction_datetime' | 'updated_at'); setPage(1) }}
+              title="Sort listings"
+              className="px-3 py-2 rounded-lg bg-gg-gray-800 text-white border border-gg-gray-700 hover:bg-gg-gray-700 focus:outline-none focus:border-gg-pink text-sm"
+            >
+              <option value="auction_datetime">Sort: Auction date</option>
+              <option value="updated_at">Sort: Last modified</option>
+            </select>
           </div>
         </div>
 
@@ -691,6 +706,12 @@ function AdminListingsPageContent() {
                   <div className="text-center">
                     <div className="text-white font-medium capitalize">{listing.listing_type?.replace('_', ' ')}</div>
                     <div className="text-gg-gray-500 text-xs">type</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-white font-medium">
+                      {listing.updated_at ? new Date(listing.updated_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
+                    </div>
+                    <div className="text-gg-gray-500 text-xs">modified</div>
                   </div>
                 </div>
 
