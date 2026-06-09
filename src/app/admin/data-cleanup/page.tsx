@@ -983,6 +983,20 @@ export default function TractDataCleanupPage() {
                               if (n) { fLng = sx / n; fLat = sy / n }
                             }
                             const mapDisabled = fLat == null || fLng == null
+                            // Read-only stat box — dark, centered, shown down by the action button.
+                            const statsBox = (
+                              <div className="flex-1 flex flex-wrap items-center justify-center gap-x-5 gap-y-1 rounded-lg bg-gg-gray-900 border border-gg-gray-800 px-4 py-3 text-xs text-gg-gray-300 text-center">
+                                <span>Total: <span className="text-white font-medium">{tract.total_acres != null ? `${tract.total_acres.toFixed(1)} ac` : '—'}</span></span>
+                                <span>Tillable: <span className="text-white font-medium">{tract.tillable_acres != null ? `${tract.tillable_acres.toFixed(1)} ac` : '—'}</span></span>
+                                <span>Soil: <span className="text-white font-medium">{tract.soil_rating != null ? `${tract.soil_rating.toFixed(1)} ${tract.soil_rating_type || ''}` : '—'}</span></span>
+                                <span>Sale: <span className="text-white font-medium">{tract.sale_status ? tract.sale_status.replace('_', ' ') : '—'}</span></span>
+                                <span>Sold price: <span className="text-white font-medium">{fmtMoney(tract.sale_price)}</span></span>
+                                <span>$/acre: <span className="text-white font-medium">{fmtMoney(tract.price_per_acre)}</span></span>
+                                <span>$/tillable: <span className="text-white font-medium">{fmtMoney(tract.price_per_tillable_acre)}</span></span>
+                                <span>$/soil pt: <span className="text-white font-medium">{fmtMoney(tract.price_per_soil_rating)}</span></span>
+                                <span>Polygon: <span className="text-white font-medium">{ring && ring.length ? `${ring.length} pts` : 'none'}</span></span>
+                              </div>
+                            )
                             return (
                               <div key={tract.id} className="border-t border-gg-gray-800 pt-4 first:border-t-0 first:pt-0">
                                 {/* Tract header + View on Map */}
@@ -1059,42 +1073,31 @@ export default function TractDataCleanupPage() {
                                   </button>
                                 </div>
 
-                                {/* Read-only data summary */}
-                                <div className="flex flex-wrap gap-x-5 gap-y-1 mb-2 text-xs text-gg-gray-400">
-                                  <span>Total: <span className="text-white font-medium">{tract.total_acres != null ? `${tract.total_acres.toFixed(1)} ac` : '—'}</span></span>
-                                  <span>Tillable: <span className="text-white font-medium">{tract.tillable_acres != null ? `${tract.tillable_acres.toFixed(1)} ac` : '—'}</span></span>
-                                  <span>Soil: <span className="text-white font-medium">{tract.soil_rating != null ? `${tract.soil_rating.toFixed(1)} ${tract.soil_rating_type || ''}` : '—'}</span></span>
-                                  <span>Sale: <span className="text-white font-medium">{tract.sale_status ? tract.sale_status.replace('_', ' ') : '—'}</span></span>
-                                  <span>Sold price: <span className="text-white font-medium">{fmtMoney(tract.sale_price)}</span></span>
-                                  <span>$/acre: <span className="text-white font-medium">{fmtMoney(tract.price_per_acre)}</span></span>
-                                  <span>$/tillable: <span className="text-white font-medium">{fmtMoney(tract.price_per_tillable_acre)}</span></span>
-                                  <span>$/soil pt: <span className="text-white font-medium">{fmtMoney(tract.price_per_soil_rating)}</span></span>
-                                  <span>Polygon: <span className="text-white font-medium">{ring && ring.length ? `${ring.length} pts` : 'none'}</span></span>
-                                  {/* For actionable tracts, Has House / Has Buildings live inside the
-                                      comparison box below; show them here only for locked tracts. */}
-                                  {!actionable && (
-                                    <>
-                                      <label className="flex items-center gap-1.5 cursor-pointer select-none" title="Check if this tract has a house. Saves immediately.">
-                                        <input
-                                          type="checkbox"
-                                          checked={!!tract.has_house}
-                                          onChange={(e) => saveTractHasHouse(it.listing_id, tract, e.target.checked)}
-                                          className="cursor-pointer accent-gg-pink w-4 h-4"
-                                        />
-                                        <span className="text-white font-medium">House</span>
-                                      </label>
-                                      <label className="flex items-center gap-1.5 cursor-pointer select-none" title="Check if this tract has buildings. Saves immediately.">
-                                        <input
-                                          type="checkbox"
-                                          checked={!!tract.has_buildings}
-                                          onChange={(e) => saveTractHasBuilding(it.listing_id, tract, e.target.checked)}
-                                          className="cursor-pointer accent-gg-pink w-4 h-4"
-                                        />
-                                        <span className="text-white font-medium">Buildings</span>
-                                      </label>
-                                    </>
-                                  )}
-                                </div>
+                                {/* Has House / Has Buildings — for locked tracts only (actionable
+                                    tracts edit these in the comparison box below). The read-only
+                                    stat box moved down next to the action button (see statsBox). */}
+                                {!actionable && (
+                                  <div className="flex flex-wrap gap-x-5 gap-y-1 mb-2 text-xs text-gg-gray-400">
+                                    <label className="flex items-center gap-1.5 cursor-pointer select-none" title="Check if this tract has a house. Saves immediately.">
+                                      <input
+                                        type="checkbox"
+                                        checked={!!tract.has_house}
+                                        onChange={(e) => saveTractHasHouse(it.listing_id, tract, e.target.checked)}
+                                        className="cursor-pointer accent-gg-pink w-4 h-4"
+                                      />
+                                      <span className="text-white font-medium">House</span>
+                                    </label>
+                                    <label className="flex items-center gap-1.5 cursor-pointer select-none" title="Check if this tract has buildings. Saves immediately.">
+                                      <input
+                                        type="checkbox"
+                                        checked={!!tract.has_buildings}
+                                        onChange={(e) => saveTractHasBuilding(it.listing_id, tract, e.target.checked)}
+                                        className="cursor-pointer accent-gg-pink w-4 h-4"
+                                      />
+                                      <span className="text-white font-medium">Buildings</span>
+                                    </label>
+                                  </div>
+                                )}
 
                                 {/* Land Types — add/remove, saves instantly. For actionable
                                     tracts this lives INSIDE the comparison box below; here we
@@ -1270,15 +1273,19 @@ export default function TractDataCleanupPage() {
                                         {reviewed ? 'Reviewed ✓ (click to undo)' : 'Mark tract reviewed'}
                                       </button>
                                       {reviewed && tract.boundary_reviewed_at && (
-                                        <span className="text-xs text-gg-gray-500">
+                                        <span className="text-xs text-gg-gray-500 whitespace-nowrap">
                                           {new Date(tract.boundary_reviewed_at).toLocaleString()}
                                         </span>
                                       )}
+                                      {statsBox}
                                     </div>
                                   </>
                                 ) : (
-                                  <div className="text-sm text-gg-gray-500 italic py-2">
-                                    Editors locked — {it.state || 'this state'} soil mapping pending.
+                                  <div className="flex items-center gap-3 py-2">
+                                    <span className="text-sm text-gg-gray-500 italic whitespace-nowrap">
+                                      Editors locked — {it.state || 'this state'} soil mapping pending.
+                                    </span>
+                                    {statsBox}
                                   </div>
                                 )}
                               </div>
