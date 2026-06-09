@@ -29,7 +29,8 @@ import {
   Copy,
   StopCircle,
   Play,
-  Link2
+  Link2,
+  Search
 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import openListingReport from '@/lib/openListingReport'
@@ -222,12 +223,114 @@ function applyEditToScrapedData(original: any, form: EditForm): any {
   return updated
 }
 
+interface CompanyOption { id: string; name: string }
+
+/**
+ * Inline searchable picker to link a listing company to a staged listing.
+ * Type to filter the company list; click a match to PATCH the staging row's
+ * listing_company_id and report the resolved name back to the parent.
+ */
+function CompanyLinkEditor({
+  stagingId,
+  companies,
+  onLinked,
+  onClose,
+}: {
+  stagingId: number
+  companies: CompanyOption[]
+  onLinked: (companyId: string, companyName: string) => void
+  onClose: () => void
+}) {
+  const [query, setQuery] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  useEffect(() => { inputRef.current?.focus() }, [])
+
+  const matches = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    const list = q ? companies.filter((c) => c.name.toLowerCase().includes(q)) : companies
+    return list.slice(0, 10)
+  }, [query, companies])
+
+  async function pick(c: CompanyOption) {
+    setSaving(true)
+    setError(null)
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/admin/staging/${stagingId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ listing_company_id: c.id }),
+      })
+      const d = await res.json()
+      if (!res.ok || !d.success) throw new Error(d.detail || `HTTP ${res.status}`)
+      onLinked(c.id, d.company_name || c.name)
+    } catch (e: any) {
+      setError(e.message || 'Failed to link company')
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="relative w-72">
+      <div className="flex items-center gap-2">
+        <Search size={14} className="text-gg-gray-400 shrink-0" />
+        <input
+          ref={inputRef}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Escape') onClose() }}
+          placeholder="Search listing companies…"
+          disabled={saving}
+          className="flex-1 bg-gg-gray-800 border border-gg-gray-700 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-gg-pink"
+        />
+        <button onClick={onClose} className="text-gg-gray-400 hover:text-white shrink-0" title="Cancel">
+          <X size={16} />
+        </button>
+      </div>
+      {error && <div className="text-xs text-red-400 mt-1">{error}</div>}
+      <div className="absolute left-0 right-0 z-30 mt-1 max-h-64 overflow-auto bg-gg-gray-800 border border-gg-gray-700 rounded shadow-lg">
+        {matches.length === 0 ? (
+          <div className="px-3 py-2 text-sm text-gg-gray-500">No matching companies</div>
+        ) : (
+          matches.map((c) => (
+            <button
+              key={c.id}
+              onClick={() => pick(c)}
+              disabled={saving}
+              className="block w-full text-left px-3 py-2 text-sm text-white hover:bg-gg-pink/20 disabled:opacity-50"
+            >
+              {c.name}
+            </button>
+          ))
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function AdminStagingPage() {
   const router = useRouter()
   const [loading, setLoading] = useState(true)
   const [fetchError, setFetchError] = useState<string | null>(null)
   const [listings, setListings] = useState<StagingListing[]>([])
   const [screenshotModal, setScreenshotModal] = useState<string | null>(null)
+
+  // Listing-company picker (fix an "Unknown Company" staged listing). The full
+  // company list is small + bounded, so fetch once and filter client-side.
+  const [companies, setCompanies] = useState<CompanyOption[]>([])
+  const [editingCompanyId, setEditingCompanyId] = useState<number | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    fetchWithAuth(`${API_URL}/api/companies`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data) => {
+        if (cancelled || !Array.isArray(data)) return
+        setCompanies(data.map((c: any) => ({ id: c.id, name: c.name })))
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
 
   // Pagination
   const PAGE_SIZE = 20
@@ -1612,12 +1715,38 @@ export default function AdminStagingPage() {
                         {/* Company & Date Row */}
                         <div className="flex items-start justify-between mb-4">
                           <div>
-                            <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                              {listing.company_name || 'Unknown Company'}
-                              {listing.scraped_data?.rescrape_listing_id && (
-                                <span className="px-2 py-0.5 bg-orange-500/20 text-orange-400 text-xs font-medium rounded-full">RESCRAPE</span>
-                              )}
-                            </h3>
+                            {editingCompanyId === listing.id ? (
+                              <div className="mb-1">
+                                <CompanyLinkEditor
+                                  stagingId={listing.id}
+                                  companies={companies}
+                                  onLinked={(cid, cname) => {
+                                    setListings((prev) => prev.map((l) =>
+                                      l.id === listing.id
+                                        ? { ...l, listing_company_id: cid, company_name: cname }
+                                        : l))
+                                    setEditingCompanyId(null)
+                                  }}
+                                  onClose={() => setEditingCompanyId(null)}
+                                />
+                              </div>
+                            ) : (
+                              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                                {listing.company_name
+                                  ? listing.company_name
+                                  : <span className="text-orange-400">Unknown Company</span>}
+                                <button
+                                  onClick={() => setEditingCompanyId(listing.id)}
+                                  title="Link a listing company"
+                                  className="text-gg-gray-400 hover:text-gg-pink"
+                                >
+                                  <Pencil size={14} />
+                                </button>
+                                {listing.scraped_data?.rescrape_listing_id && (
+                                  <span className="px-2 py-0.5 bg-orange-500/20 text-orange-400 text-xs font-medium rounded-full">RESCRAPE</span>
+                                )}
+                              </h3>
+                            )}
                             {/* Full source URL shown under the company name
                                 (per user 2026-06-01, replaces the Copy URL
                                 button). Click to open the listing page. */}
