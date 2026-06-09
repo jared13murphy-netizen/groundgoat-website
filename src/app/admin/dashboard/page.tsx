@@ -343,6 +343,12 @@ export default function AdminDashboard() {
                 count={auditCount}
               />
               <QuickActionCard
+                title="Activity"
+                description="Every database change — who, when, what changed"
+                href="/admin/activity"
+                icon={<Activity />}
+              />
+              <QuickActionCard
                 title="Manage Users"
                 description="View and manage user accounts"
                 href="/admin/users"
