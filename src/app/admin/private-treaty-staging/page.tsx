@@ -31,6 +31,7 @@ import {
   Check
 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
+import CompanyLinkEditor, { type CompanyOption } from '@/components/admin/CompanyLinkEditor'
 import openListingReport from '@/lib/openListingReport'
 import TractMapEditor from '@/components/admin/TractMapEditor'
 import TillableCluWorkshop from '@/components/admin/TillableCluWorkshop'
@@ -176,6 +177,22 @@ export default function AdminPrivateTreatyStagingPage() {
   const [fetchError, setFetchError] = useState<string | null>(null)
   const [listings, setListings] = useState<StagingListing[]>([])
   const [screenshotModal, setScreenshotModal] = useState<string | null>(null)
+
+  // Listing-company picker (fix an "Unknown Company" staged listing). The full
+  // company list is small + bounded, so fetch once and filter client-side.
+  const [companies, setCompanies] = useState<CompanyOption[]>([])
+  const [editingCompanyId, setEditingCompanyId] = useState<number | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    fetchWithAuth(`${API_URL}/api/companies`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data) => {
+        if (cancelled || !Array.isArray(data)) return
+        setCompanies(data.map((c: any) => ({ id: c.id, name: c.name })))
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
   // PT pending stagings have ballooned to 200+ rows with ~100MB+ of
   // scraped_data total. Without pagination the page was downloading
   // the entire payload on every load and either timing out or running
@@ -1415,9 +1432,41 @@ export default function AdminPrivateTreatyStagingPage() {
                         {/* Company & Info Row */}
                         <div className="flex items-start justify-between mb-4">
                           <div>
-                            <h3 className="text-lg font-bold text-white">
-                              {listing.company_name || 'Unknown Company'}
-                            </h3>
+                            {editingCompanyId === listing.id ? (
+                              <div className="mb-1">
+                                <CompanyLinkEditor
+                                  companies={companies}
+                                  onPick={async (c) => {
+                                    const res = await fetchWithAuth(`${API_URL}/api/admin/staging/${listing.id}`, {
+                                      method: 'PATCH',
+                                      headers: { 'Content-Type': 'application/json' },
+                                      body: JSON.stringify({ listing_company_id: c.id }),
+                                    })
+                                    const d = await res.json()
+                                    if (!res.ok || !d.success) throw new Error(d.detail || `HTTP ${res.status}`)
+                                    setListings((prev) => prev.map((l) =>
+                                      l.id === listing.id
+                                        ? { ...l, listing_company_id: c.id, company_name: d.company_name || c.name }
+                                        : l))
+                                    setEditingCompanyId(null)
+                                  }}
+                                  onClose={() => setEditingCompanyId(null)}
+                                />
+                              </div>
+                            ) : (
+                              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                                {listing.company_name
+                                  ? listing.company_name
+                                  : <span className="text-orange-400">Unknown Company</span>}
+                                <button
+                                  onClick={() => setEditingCompanyId(listing.id)}
+                                  title="Link a listing company"
+                                  className="text-gg-gray-400 hover:text-gg-pink"
+                                >
+                                  <Pencil size={14} />
+                                </button>
+                              </h3>
+                            )}
                             {/* Full source URL shown under the company name
                                 (per user 2026-06-01, replaces the Copy URL
                                 button). Click to open the listing page. */}

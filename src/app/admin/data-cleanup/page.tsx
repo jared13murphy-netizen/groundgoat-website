@@ -12,6 +12,7 @@ import {
   Pencil, Check, X, Plus,
 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
+import CompanyLinkEditor, { type CompanyOption } from '@/components/admin/CompanyLinkEditor'
 import openListingReport from '@/lib/openListingReport'
 import TractMapEditor from '@/components/admin/TractMapEditor'
 import TillableCluWorkshop from '@/components/admin/TillableCluWorkshop'
@@ -152,6 +153,22 @@ function listingMeta(it: QueueItem): { typeLabel: string; dateLabel: string } {
 export default function TractDataCleanupPage() {
   const [items, setItems] = useState<QueueItem[]>([])
   const [total, setTotal] = useState(0)
+
+  // Listing-company picker (fix an "Unknown Company" listing). These edit
+  // PUBLISHED listings, so the save goes to the tract-cleanup company endpoint.
+  const [companies, setCompanies] = useState<CompanyOption[]>([])
+  const [editingCompanyId, setEditingCompanyId] = useState<string | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    fetchWithAuth(`${API_URL}/api/companies`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data) => {
+        if (cancelled || !Array.isArray(data)) return
+        setCompanies(data.map((c: any) => ({ id: c.id, name: c.name })))
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
   const [stats, setStats] = useState<Stats | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -848,8 +865,37 @@ export default function TractDataCleanupPage() {
                       {expanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
                     </button>
                     <div className="flex-1 min-w-0 cursor-pointer" onClick={() => toggleExpand(it.listing_id)}>
-                      {it.company_name && (
-                        <p className="text-lg font-bold text-white truncate max-w-xl leading-tight">{it.company_name}</p>
+                      {editingCompanyId === it.listing_id ? (
+                        <div className="mb-1" onClick={(e) => e.stopPropagation()}>
+                          <CompanyLinkEditor
+                            companies={companies}
+                            onPick={async (c) => {
+                              const res = await fetchWithAuth(`${API_URL}/api/admin/tract-cleanup/${it.listing_id}/company`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ listing_company_id: c.id }),
+                              })
+                              const d = await res.json()
+                              if (!res.ok || !d.success) throw new Error(d.detail || `HTTP ${res.status}`)
+                              patchRow(it.listing_id, { company_name: d.company_name || c.name })
+                              setEditingCompanyId(null)
+                            }}
+                            onClose={() => setEditingCompanyId(null)}
+                          />
+                        </div>
+                      ) : (
+                        <p className="text-lg font-bold text-white truncate max-w-xl leading-tight flex items-center gap-2">
+                          {it.company_name
+                            ? <span className="truncate">{it.company_name}</span>
+                            : <span className="text-orange-400">Unknown Company</span>}
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setEditingCompanyId(it.listing_id) }}
+                            title="Link a listing company"
+                            className="text-gg-gray-400 hover:text-gg-pink shrink-0"
+                          >
+                            <Pencil size={14} />
+                          </button>
+                        </p>
                       )}
                       <div className="flex items-center gap-2 flex-wrap">
                         <h2 className="text-sm font-semibold text-gg-gray-300 truncate max-w-xl">{it.title || '(untitled)'}</h2>
