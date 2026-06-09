@@ -294,26 +294,34 @@ export default function ListingTractCard({ tract, listing, onChanged }: Props) {
 
       {/* PRICE BASIS — required on a sold tract before its acres can change, so an
           acre edit recomputes the correct field instead of corrupting the price. */}
-      {(form.sale_price !== '' && form.sale_price != null) && (
-        <div className={`mb-3 rounded-lg border px-3 py-2 ${form.price_basis ? 'border-gg-gray-700 bg-gg-gray-900' : 'border-amber-500/60 bg-amber-500/10'}`}>
+      {['sold', 'pending', 'no_sale'].includes(form.sale_status) && (
+        <div className={`mb-3 rounded-lg border-2 px-3 py-2 ${form.price_basis ? 'border-gg-gray-700 bg-gg-gray-900' : 'border-amber-400 bg-amber-400/15'}`}>
           <div className="flex items-center gap-2 flex-wrap">
-            <span className={`text-sm font-semibold ${form.price_basis ? 'text-white' : 'text-amber-400'}`}>
+            <span className={`text-sm font-bold ${form.price_basis ? 'text-white' : 'text-amber-300'}`}>
               {form.price_basis ? 'Which price is correct?' : '⚠ Set which price is correct before changing acres:'}
             </span>
-            {([['lump_sum', 'Total price'], ['per_acre', '$/acre']] as const).map(([val, label]) => (
-              <button
-                key={val}
-                type="button"
-                onClick={() => set('price_basis', val)}
-                className={`px-3 py-1 rounded-full text-xs font-semibold border transition-colors ${
-                  form.price_basis === val
-                    ? 'bg-gg-pink text-white border-gg-pink'
-                    : 'bg-gg-gray-800 text-gg-gray-300 border-gg-gray-700 hover:bg-gg-gray-700'
-                }`}
-              >
-                {form.price_basis === val ? '✓ ' : ''}{label} is correct
-              </button>
-            ))}
+            <button
+              type="button"
+              onClick={() => set('price_basis', 'lump_sum')}
+              className={`px-4 py-2 rounded-lg text-sm font-bold border-2 transition-colors ${
+                form.price_basis === 'lump_sum'
+                  ? 'bg-sky-500 text-white border-sky-400 ring-2 ring-sky-300'
+                  : 'bg-sky-600/90 text-white border-sky-400 hover:bg-sky-500'
+              }`}
+            >
+              {form.price_basis === 'lump_sum' ? '✓ ' : ''}Total price is correct
+            </button>
+            <button
+              type="button"
+              onClick={() => set('price_basis', 'per_acre')}
+              className={`px-4 py-2 rounded-lg text-sm font-bold border-2 transition-colors ${
+                form.price_basis === 'per_acre'
+                  ? 'bg-emerald-500 text-white border-emerald-400 ring-2 ring-emerald-300'
+                  : 'bg-emerald-600/90 text-white border-emerald-400 hover:bg-emerald-500'
+              }`}
+            >
+              {form.price_basis === 'per_acre' ? '✓ ' : ''}$/acre is correct
+            </button>
           </div>
           <p className="text-[11px] text-gg-gray-500 mt-1">
             {form.price_basis === 'per_acre'

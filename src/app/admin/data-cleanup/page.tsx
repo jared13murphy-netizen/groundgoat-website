@@ -373,8 +373,8 @@ export default function TractDataCleanupPage() {
     // declared which price is the truth. Block the edit client-side with a clear
     // prompt (the backend also rejects it as a hard backstop).
     const changingAcres = 'total_acres' in fields && fields.total_acres != null
-    const hasPrice = tract.sale_price != null
-    if (changingAcres && hasPrice && !tract.price_basis && fields.price_basis == null) {
+    const needsBasis = ['sold', 'pending', 'no_sale'].includes(String(tract.sale_status || ''))
+    if (changingAcres && needsBasis && !tract.price_basis && fields.price_basis == null) {
       alert('Before changing this sold tract’s acres, choose which price is correct — the total price or the $/acre — using the "Which price is correct?" selector above. That keeps the price from being changed incorrectly.')
       patchTract(lid, tract.id, { total_acres: tract.total_acres })  // revert optimistic
       return
@@ -1002,6 +1002,52 @@ export default function TractDataCleanupPage() {
                               if (n) { fLng = sx / n; fLat = sy / n }
                             }
                             const mapDisabled = fLat == null || fLng == null
+                            // Price basis only applies to result-recorded auctions (sold / pending /
+                            // no_sale). Listed / Live (asking-price) tracts skip it entirely. When a
+                            // result tract has no basis yet, ALL editing is gated until it's picked.
+                            const needsBasis = ['sold', 'pending', 'no_sale'].includes(String(tract.sale_status || ''))
+                            const basisGate = needsBasis && !tract.price_basis
+                            // The basis question block — loud colors, shown for result-recorded tracts.
+                            const basisBlock = needsBasis ? (
+                              <div className={`mb-4 rounded-lg border-2 px-4 py-3 ${tract.price_basis ? 'border-gg-gray-700 bg-gg-gray-900' : 'border-amber-400 bg-amber-400/15'}`}>
+                                <div className="flex items-center gap-3 flex-wrap">
+                                  <span className={`text-sm font-bold ${tract.price_basis ? 'text-white' : 'text-amber-300'}`}>
+                                    {tract.price_basis
+                                      ? 'Which price is correct?'
+                                      : '⚠ First, which price is correct for this sale?'}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => saveTractFields(it.listing_id, tract, { price_basis: 'lump_sum' })}
+                                    className={`px-4 py-2 rounded-lg text-sm font-bold border-2 transition-colors ${
+                                      tract.price_basis === 'lump_sum'
+                                        ? 'bg-sky-500 text-white border-sky-400 ring-2 ring-sky-300'
+                                        : 'bg-sky-600/90 text-white border-sky-400 hover:bg-sky-500'
+                                    }`}
+                                  >
+                                    {tract.price_basis === 'lump_sum' ? '✓ ' : ''}Total price is correct
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => saveTractFields(it.listing_id, tract, { price_basis: 'per_acre' })}
+                                    className={`px-4 py-2 rounded-lg text-sm font-bold border-2 transition-colors ${
+                                      tract.price_basis === 'per_acre'
+                                        ? 'bg-emerald-500 text-white border-emerald-400 ring-2 ring-emerald-300'
+                                        : 'bg-emerald-600/90 text-white border-emerald-400 hover:bg-emerald-500'
+                                    }`}
+                                  >
+                                    {tract.price_basis === 'per_acre' ? '✓ ' : ''}$/acre is correct
+                                  </button>
+                                </div>
+                                <p className="text-[11px] text-gg-gray-400 mt-1.5">
+                                  {tract.price_basis === 'per_acre'
+                                    ? 'Locked: $/acre. Changing acres will recompute the TOTAL price.'
+                                    : tract.price_basis === 'lump_sum'
+                                    ? 'Locked: total price. Changing acres will recompute the $/acre.'
+                                    : 'You must answer this before editing the polygon, tillable, or acres.'}
+                                </p>
+                              </div>
+                            ) : null
                             // Read-only stat box — dark, centered, shown down by the action button.
                             const statsBox = (
                               <div className="flex-1 flex flex-wrap items-center justify-center gap-x-5 gap-y-1 rounded-lg bg-gg-gray-900 border border-gg-gray-800 px-4 py-3 text-xs text-gg-gray-300 text-center">
@@ -1133,6 +1179,15 @@ export default function TractDataCleanupPage() {
 
                                 {actionable ? (
                                   <>
+                                    {/* The price-basis question comes FIRST and gates all editing for
+                                        result-recorded tracts (sold/pending/no_sale). */}
+                                    {basisBlock}
+                                    {basisGate ? (
+                                      <div className="mb-2 text-sm text-gg-gray-400 italic">
+                                        Answer the price question above to unlock the polygon, tillable, and acreage editors.
+                                      </div>
+                                    ) : (
+                                    <>
                                     {proposals[tract.id] && (
                                       <div className="flex items-start gap-2 mb-2 px-3 py-2 bg-sky-500/10 border border-sky-500/40 rounded-lg text-sky-700 text-xs">
                                         <RefreshCw size={13} className="flex-shrink-0 mt-0.5" />
@@ -1226,38 +1281,6 @@ export default function TractDataCleanupPage() {
                                       })}
                                       onDirtyChange={(d) => setTractDirty(`${it.listing_id}::${tract.id}::till`, d)}
                                     />
-                                    {/* PRICE BASIS — must be set on a sold tract BEFORE its acres can be
-                                        changed, so an acre edit recomputes the correct field (never corrupts
-                                        the recorded price). */}
-                                    {tract.sale_price != null && (
-                                      <div className={`mt-3 rounded-lg border px-3 py-2 ${tract.price_basis ? 'border-gg-gray-700 bg-gg-gray-900' : 'border-amber-500/60 bg-amber-500/10'}`}>
-                                        <div className="flex items-center gap-2 flex-wrap">
-                                          <span className={`text-sm font-semibold ${tract.price_basis ? 'text-white' : 'text-amber-500'}`}>
-                                            {tract.price_basis ? 'Which price is correct?' : '⚠ Set which price is correct before changing acres:'}
-                                          </span>
-                                          {([['lump_sum','Total price'],['per_acre','$/acre']] as const).map(([val,label]) => (
-                                            <button
-                                              key={val}
-                                              onClick={() => saveTractFields(it.listing_id, tract, { price_basis: val })}
-                                              className={`px-3 py-1 rounded-full text-xs font-semibold border transition-colors ${
-                                                tract.price_basis === val
-                                                  ? 'bg-gg-pink text-white border-gg-pink'
-                                                  : 'bg-gg-gray-800 text-gg-gray-300 border-gg-gray-700 hover:bg-gg-gray-700'
-                                              }`}
-                                            >
-                                              {tract.price_basis === val ? '✓ ' : ''}{label} is correct
-                                            </button>
-                                          ))}
-                                        </div>
-                                        <p className="text-[11px] text-gg-gray-500 mt-1">
-                                          {tract.price_basis === 'per_acre'
-                                            ? 'Changing acres will recompute the TOTAL price ($/acre held).'
-                                            : tract.price_basis === 'lump_sum'
-                                            ? 'Changing acres will recompute the $/acre (total price held).'
-                                            : 'Pick the one your records show as correct for this sale.'}
-                                        </p>
-                                      </div>
-                                    )}
                                     {/* Edit 3: source comparison — Current (saved) vs Computed vs hand-typed,
                                         per field. Writes through update_tract so $/acre + listing totals follow. */}
                                     <div className="mt-3">
@@ -1330,6 +1353,8 @@ export default function TractDataCleanupPage() {
                                       )}
                                       {statsBox}
                                     </div>
+                                    </>
+                                    )}
                                   </>
                                 ) : (
                                   <div className="flex items-center gap-3 py-2">
