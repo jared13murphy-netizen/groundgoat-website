@@ -21,6 +21,7 @@ import {
   STATUS_COLORS,
 } from './mapConstants'
 import fetchWithAuth from '@/lib/fetchWithAuth'
+import { toRings as toTractRings, ringsToGeometry } from '@/lib/polygonRings'
 import Tract3DModal from '@/components/Tract3DModal'
 import GroundTruthPanel from '@/components/portal/GroundTruthPanel'
 import NdviPanel from '@/components/portal/NdviPanel'
@@ -317,7 +318,7 @@ export interface SaleDetail {
   state: string
   township?: string | null
   soilRating?: number | null
-  polygonCoordinates?: [number, number][] | null
+  polygonCoordinates?: [number, number][] | [number, number][][] | null
   saleStatus?: string | null
   listingType?: string | null
   askingPrice?: number | null
@@ -3891,11 +3892,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // Get marker position
       let markerLng = tract.longitude
       let markerLat = tract.latitude
-      if (tract.polygon_coordinates && tract.polygon_coordinates.length > 2) {
-        const centroid = getPolygonCentroid(tract.polygon_coordinates)
-        if (centroid) {
-          markerLng = centroid[0]
-          markerLat = centroid[1]
+      {
+        // Largest ring (handles multi-polygon tracts) for marker placement.
+        const _rings = toTractRings(tract.polygon_coordinates)
+        const _big = _rings.length ? _rings.reduce((a, b) => (b.length > a.length ? b : a)) : null
+        if (_big && _big.length > 2) {
+          const centroid = getPolygonCentroid(_big)
+          if (centroid) { markerLng = centroid[0]; markerLat = centroid[1] }
         }
       }
       if (!markerLat || !markerLng) continue

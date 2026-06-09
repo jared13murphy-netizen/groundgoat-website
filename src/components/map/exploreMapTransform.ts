@@ -15,6 +15,22 @@ function getPolygonCentroid(polygon: [number, number][]): [number, number] {
   return [sumLng / polygon.length, sumLat / polygon.length]
 }
 
+// A tract boundary is one ring [[lng,lat],...] (legacy) or a list of rings
+// [[[lng,lat],...],...] for a multi-piece tract. toRings normalizes either to a
+// list of rings (a single ring → one-element list).
+type Ring = [number, number][]
+function toRings(coords: any): Ring[] {
+  if (!Array.isArray(coords) || coords.length === 0) return []
+  const first = coords[0]
+  if (Array.isArray(first) && typeof first[0] === 'number') return [coords as Ring]
+  return (coords as any[]).filter((r) => Array.isArray(r) && r.length >= 3) as Ring[]
+}
+function closeRing(ring: Ring): Ring {
+  if (ring.length < 3) return ring
+  const f = ring[0]; const l = ring[ring.length - 1]
+  return (f[0] !== l[0] || f[1] !== l[1]) ? [...ring, [f[0], f[1]]] : ring
+}
+
 export function buildExplorePointGeoJSON(tracts: ApiMapTract[]): GeoJSON.FeatureCollection {
   const filtered = tracts.filter(t => t.latitude != null && t.longitude != null)
 
@@ -27,10 +43,12 @@ export function buildExplorePointGeoJSON(tracts: ApiMapTract[]): GeoJSON.Feature
       let lng = t.longitude!
       let lat = t.latitude!
 
-      // Use polygon centroid for point placement if available
-      const poly = t.polygon_coordinates
-      if (poly && poly.length >= 3) {
-        const centroid = getPolygonCentroid(poly)
+      // Use polygon centroid for point placement if available. For a
+      // multi-piece tract, place the dot on the LARGEST piece's centroid.
+      const rings = toRings(t.polygon_coordinates).filter(r => r.length >= 3)
+      if (rings.length) {
+        const biggest = rings.reduce((a, b) => (b.length > a.length ? b : a))
+        const centroid = getPolygonCentroid(biggest)
         lng = centroid[0]
         lat = centroid[1]
       }
@@ -46,7 +64,7 @@ export function buildExplorePointGeoJSON(tracts: ApiMapTract[]): GeoJSON.Feature
         lat += offset * Math.sin(angle)
       }
 
-      const hasPolygon = poly && poly.length >= 3
+      const hasPolygon = rings.length > 0
       const dataResolution = hasPolygon ? 'polygon' : 'point'
 
       // Private-treaty listings (status=listed) show asking-price/acre.
@@ -91,18 +109,17 @@ export function buildExplorePointGeoJSON(tracts: ApiMapTract[]): GeoJSON.Feature
 
 export function buildExplorePolygonGeoJSON(tracts: ApiMapTract[]): GeoJSON.FeatureCollection {
   const polygonTracts = tracts.filter(
-    t => t.polygon_coordinates && t.polygon_coordinates.length >= 3
+    t => toRings(t.polygon_coordinates).some(r => r.length >= 3)
   )
 
   return {
     type: 'FeatureCollection',
     features: polygonTracts.map(t => {
-      const coords = [...t.polygon_coordinates!]
-      const first = coords[0]
-      const last = coords[coords.length - 1]
-      if (first[0] !== last[0] || first[1] !== last[1]) {
-        coords.push([first[0], first[1]])
-      }
+      // All rings (each closed). One ring → Polygon; multiple → MultiPolygon.
+      const rings = toRings(t.polygon_coordinates).filter(r => r.length >= 3).map(closeRing)
+      const geometry = rings.length <= 1
+        ? { type: 'Polygon' as const, coordinates: [rings[0]] }
+        : { type: 'MultiPolygon' as const, coordinates: rings.map(r => [r]) }
 
       // Same display-price-per-acre rule as the point layer
       const isPrivateTreaty = (t.listing_type || '').toLowerCase() === 'private_treaty'
@@ -114,10 +131,7 @@ export function buildExplorePolygonGeoJSON(tracts: ApiMapTract[]): GeoJSON.Featu
       return {
         type: 'Feature' as const,
         id: t.id,
-        geometry: {
-          type: 'Polygon' as const,
-          coordinates: [coords],
-        },
+        geometry,
         properties: {
           tractId: t.id,
           listingId: t.listing_id,

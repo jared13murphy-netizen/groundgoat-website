@@ -15,7 +15,7 @@ export interface ApiMapTract {
   asking_price: number | null
   pct_tillable: number | null
   township: string | null
-  polygon_coordinates: [number, number][] | null
+  polygon_coordinates: [number, number][] | [number, number][][] | null
   county: string
   state: string
   auction_date: string | null

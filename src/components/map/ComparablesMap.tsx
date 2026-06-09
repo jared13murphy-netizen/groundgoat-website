@@ -2,6 +2,7 @@
 
 import { useRef, useEffect, useState } from 'react'
 import maplibregl from 'maplibre-gl'
+import { ringsToGeometry, largestRing } from '@/lib/polygonRings'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import './ComparablesMap.css'
 import { TILE_URL, TILE_ATTRIBUTION, GLYPH_URL, LABEL_TILE_URL } from './mapConstants'
@@ -43,7 +44,7 @@ interface StateSale {
   township: string | null
   auction_date: string | null
   company_name: string | null
-  polygon_coordinates?: number[][] | null
+  polygon_coordinates?: number[][] | number[][][] | null
   tillable_acres?: number | null
   soil_rating?: number | null
   source_url?: string | null
@@ -62,7 +63,7 @@ interface SaleDetail {
   township?: string | null
   tillableAcres?: number | null
   soilRating?: number | null
-  polygonCoordinates?: number[][] | null
+  polygonCoordinates?: number[][] | number[][][] | null
   sourceUrl?: string | null
 }
 
@@ -415,31 +416,24 @@ export default function ComparablesMap({
         },
       })
 
-      // Add tract polygon boundaries (filtered by visibleIds when provided)
+      // Add tract polygon boundaries (filtered by visibleIds when provided).
+      // ringsToGeometry handles single-ring OR multi-polygon tracts.
       const polygonFeatures: any[] = []
       for (const sale of stateSales) {
         if (visibleIds && !visibleIds.has(String(sale.id)) && !visibleIds.has(String(sale.tract_id))) continue
-        if (sale.polygon_coordinates && sale.polygon_coordinates.length > 2) {
-          polygonFeatures.push({
-            type: 'Feature',
-            properties: { id: sale.id },
-            geometry: {
-              type: 'Polygon',
-              coordinates: [sale.polygon_coordinates],
-            },
-          })
+        const geom = ringsToGeometry(sale.polygon_coordinates)
+        if (geom) {
+          polygonFeatures.push({ type: 'Feature', properties: { id: sale.id }, geometry: geom })
         }
       }
 
       // Add subject tract polygon
-      if (subjectPolygon && subjectPolygon.length > 2) {
+      const subjGeom = ringsToGeometry(subjectPolygon)
+      if (subjGeom) {
         polygonFeatures.push({
           type: 'Feature',
           properties: { id: 'subject', isSubject: true },
-          geometry: {
-            type: 'Polygon',
-            coordinates: [subjectPolygon],
-          },
+          geometry: subjGeom,
         })
       }
 
@@ -502,13 +496,14 @@ export default function ComparablesMap({
       for (const sale of stateSales) {
         // Skip tracts not in visible set (when filtering is active)
         if (visibleIds && !visibleIds.has(String(sale.id)) && !visibleIds.has(String(sale.tract_id))) continue
-        // Skip tracts without boundary data
-        if (!sale.polygon_coordinates || !Array.isArray(sale.polygon_coordinates) || sale.polygon_coordinates.length < 3) continue
+        // Skip tracts without boundary data (single ring OR multi-polygon)
+        const _ring = largestRing(sale.polygon_coordinates)
+        if (!_ring) continue
 
-        // Use polygon centroid for marker placement
+        // Use the largest ring's centroid for marker placement
         let markerLng = sale.longitude
         let markerLat = sale.latitude
-        const centroid = getPolygonCentroid(sale.polygon_coordinates)
+        const centroid = getPolygonCentroid(_ring)
         if (centroid) {
           markerLng = centroid[0]
           markerLat = centroid[1]

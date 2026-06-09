@@ -10,7 +10,7 @@ export interface ApiTract {
   sale_status: string | null
   latitude: number | null
   longitude: number | null
-  polygon_coordinates: [number, number][] | null
+  polygon_coordinates: [number, number][] | [number, number][][] | null
 }
 
 export interface ApiListing {
@@ -38,7 +38,7 @@ export interface MapTract {
   salePrice: number
   pricePerAcre: number
   status: string
-  polygon: [number, number][] | null
+  polygon: [number, number][] | [number, number][][] | null
   lat: number | null
   lng: number | null
   countyLat: number
