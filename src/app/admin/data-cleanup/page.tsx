@@ -1014,7 +1014,7 @@ export default function TractDataCleanupPage() {
                         onClick={() => setDeleteRescrapeTarget(it)}
                         disabled={deleteRescrapingId === it.listing_id || !it.source_url}
                         title={it.source_url ? 'Delete this listing and re-scrape the URL from scratch (clean slate)' : 'No source URL to rescrape'}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium border border-red-800 bg-red-900/30 text-red-300 hover:bg-red-900/50 disabled:opacity-50"
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
                       >
                         {deleteRescrapingId === it.listing_id
                           ? <Loader2 className="animate-spin" size={13} />
