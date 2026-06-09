@@ -53,12 +53,13 @@ import { fetchWithAuth } from '@/lib/fetchWithAuth'
 
 const SCRAPER_URL = 'https://ground-goat-scraper-production.up.railway.app'
 const API_URL = 'https://practical-serenity-production.up.railway.app'
-// Multi-polygon CREATION gate. While false, the editor behaves exactly as the
-// single-polygon editor (snap keeps the largest piece, no "Add polygon"
-// control), so no multi-piece tract can be created before the renderers
-// (web maps, mobile, PDF) can draw all rings. Flipped on in Phase 9. Reading +
-// editing + saving an already-multi tract works regardless of this flag.
-const MULTI_POLY_ENABLED = false
+// Multi-polygon CREATION gate. ON now that every display surface (website
+// maps, mobile, PDF report) + enrichment + validation render/handle all rings.
+// Multi creation is additionally limited to LIVE-tract (data-cleanup) mode via
+// liveTractId (see usages) — the staging save path (scraper) is still
+// single-ring, so the "Add polygon"/multi-snap controls only appear when
+// editing a published tract.
+const MULTI_POLY_ENABLED = true
 const TILE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
 const TILE_ATTRIBUTION = '&copy; Esri, Maxar, Earthstar Geographics'
 // Transparent Esri reference overlays so the satellite map shows place + road
@@ -1630,7 +1631,7 @@ export default function TractMapEditor({
         // multiple disjoint pieces, keep ALL of them (largest active, rest as
         // extras) instead of collapsing to the largest. Gated so single-poly
         // behavior (the else branch) is unchanged until the renderers are ready.
-        const pieces = MULTI_POLY_ENABLED ? geojsonToRings(d.pieces_geojson) : []
+        const pieces = (MULTI_POLY_ENABLED && liveTractId) ? geojsonToRings(d.pieces_geojson) : []
         if (pieces.length > 1) {
           pieces.sort((a, b) => polygonAcres(b) - polygonAcres(a))
           pointsHistory.current.push(points.map(p => [...p] as Pt))
@@ -3333,7 +3334,7 @@ export default function TractMapEditor({
           {/* Multi-polygon: finalize the current piece and start another.
               Gated by MULTI_POLY_ENABLED until the renderers can draw all
               rings. Only meaningful once the active ring is a closed polygon. */}
-          {MULTI_POLY_ENABLED && (
+          {MULTI_POLY_ENABLED && liveTractId && (
             <button
               onClick={handleAddPolygon}
               disabled={points.length < 3 || saving || deleting}
