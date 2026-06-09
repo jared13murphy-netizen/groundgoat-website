@@ -53,6 +53,12 @@ import { fetchWithAuth } from '@/lib/fetchWithAuth'
 
 const SCRAPER_URL = 'https://ground-goat-scraper-production.up.railway.app'
 const API_URL = 'https://practical-serenity-production.up.railway.app'
+// Multi-polygon CREATION gate. While false, the editor behaves exactly as the
+// single-polygon editor (snap keeps the largest piece, no "Add polygon"
+// control), so no multi-piece tract can be created before the renderers
+// (web maps, mobile, PDF) can draw all rings. Flipped on in Phase 9. Reading +
+// editing + saving an already-multi tract works regardless of this flag.
+const MULTI_POLY_ENABLED = false
 const TILE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
 const TILE_ATTRIBUTION = '&copy; Esri, Maxar, Earthstar Geographics'
 // Transparent Esri reference overlays so the satellite map shows place + road
@@ -66,7 +72,7 @@ interface TractMapEditorProps {
   stagingId: number
   tractIndex: number
   /** Existing polygon, if any. null/empty → user draws from scratch. */
-  initialPolygon: Pt[] | null
+  initialPolygon: Pt[] | Pt[][] | null   // single ring OR list of rings (multi-polygon tract)
   /** Tillable polygon (single ring) or array of rings from magic-lab
    *  Stage 5. When non-null + showTillable=true, drawn as a green
    *  overlay on top of the pink tract polygon. */
@@ -235,6 +241,41 @@ function buildVertexGeo(points: Pt[]) {
   } as any
 }
 
+// ── Multi-polygon support ────────────────────────────────────────────────
+// A tract boundary can be ONE ring [[lng,lat],...] (legacy) or a LIST OF RINGS
+// [[[lng,lat],...],...] for a tract made of multiple disjoint pieces. The
+// editor keeps the ACTIVE ring in `points` (all existing edit logic untouched)
+// and the OTHER finished pieces in `extraPolygons`. toRingsFE normalizes either
+// stored shape into a list of rings; a single ring → a one-element list.
+function toRingsFE(coords: any): Pt[][] {
+  if (!Array.isArray(coords) || coords.length === 0) return []
+  const first = coords[0]
+  // Single ring: first element is a coordinate pair [lng, lat] (numbers).
+  if (Array.isArray(first) && typeof first[0] === 'number' && typeof first[1] === 'number') {
+    return [coords as Pt[]]
+  }
+  // Multipolygon: each element is itself a ring.
+  return (coords as any[]).filter(
+    (r) => Array.isArray(r) && r.length >= 3 && Array.isArray(r[0]),
+  ) as Pt[][]
+}
+
+// FeatureCollection of polygons for the NON-active finished pieces. Rendered
+// the same pink as the active tract (it's all one tract) but without editable
+// vertex dots — click one to make it the active ring.
+function buildMultiPolyGeo(rings: Pt[][]) {
+  return {
+    type: 'FeatureCollection',
+    features: rings
+      .filter((r) => r.length >= 3)
+      .map((r, i) => ({
+        type: 'Feature',
+        properties: { idx: i },
+        geometry: { type: 'Polygon', coordinates: [[...r, r[0]]] },
+      })),
+  } as any
+}
+
 // Single source of truth for drawn-acreage: delegate to the shared
 // polygonAcres (111,320 m/deg shoelace). The old local formula used
 // 69.0 miles/deg (≈111,044 m), which read ~0.5% LOW vs the Acres-card
@@ -320,6 +361,16 @@ function normalizeInitialPolygon(poly: Pt[] | null | undefined): Pt[] {
   return [...poly] as Pt[]
 }
 
+/** Split a stored boundary (single ring OR list of rings) into the active,
+ *  editable ring (the largest piece) + the remaining pieces. Used to load a
+ *  multi-polygon tract into the editor's active-ring + extra-rings model. */
+function splitInitialRings(poly: Pt[] | Pt[][] | null | undefined): { active: Pt[]; extras: Pt[][] } {
+  const rings = toRingsFE(poly).map(normalizeInitialPolygon).filter((r) => r.length >= 3)
+  if (rings.length === 0) return { active: [], extras: [] }
+  rings.sort((a, b) => polygonAcres(b) - polygonAcres(a))  // largest first
+  return { active: rings[0], extras: rings.slice(1) }
+}
+
 /** Build a GeoJSON FeatureCollection for the tillable polygon overlay.
  *  Tillable can be a single ring (Pt[]) or an array of rings (Pt[][])
  *  per the magic-lab Stage 5 hybrid output. Returns an empty FC if
@@ -396,12 +447,24 @@ export default function TractMapEditor({
   proposedPolygon,
   proposedNonce = 0,
 }: TractMapEditorProps) {
-  // Working polygon state — what's being edited on the map. Diverges
-  // from initialPolygon while the user is drawing/clearing; reset on
-  // Cancel or after a successful Save.
+  // Working polygon state — what's being edited on the map. `points` is the
+  // ACTIVE ring; `extraPolygons` holds the OTHER finished pieces of a
+  // multi-polygon tract (the largest piece loads as active). All existing
+  // edit logic operates on `points`; a single-polygon tract has no extras, so
+  // behavior is unchanged. Diverges from initialPolygon while drawing/clearing;
+  // reset on Cancel or after a successful Save.
   const [points, setPoints] = useState<Pt[]>(
-    () => normalizeInitialPolygon(initialPolygon)
+    () => splitInitialRings(initialPolygon).active
   )
+  const [extraPolygons, setExtraPolygons] = useState<Pt[][]>(
+    () => splitInitialRings(initialPolygon).extras
+  )
+  const extraPolygonsRef = useRef<Pt[][]>([])
+  useEffect(() => { extraPolygonsRef.current = extraPolygons }, [extraPolygons])
+  // All rings of the tract = active + extras (≥3 pts each). The single source
+  // of truth for acreage and for what Save persists.
+  const allRings = (): Pt[][] =>
+    [points, ...extraPolygons].filter((r) => r.length >= 3)
   // True once any modification has been made — controls whether the
   // Cancel/Save toolbar is enabled.
   const [dirty, setDirty] = useState(false)
@@ -778,7 +841,9 @@ export default function TractMapEditor({
   // history — a fresh polygon means the previous history is no longer
   // meaningful.
   useEffect(() => {
-    setPoints(normalizeInitialPolygon(initialPolygon))
+    const { active, extras } = splitInitialRings(initialPolygon)
+    setPoints(active)
+    setExtraPolygons(extras)
     setDirty(false)
     pointsHistory.current = []
   }, [initialPolygon])
@@ -964,6 +1029,10 @@ export default function TractMapEditor({
 
       map.addSource('drawn', { type: 'geojson', data: buildDrawGeo(points) })
       map.addSource('verts', { type: 'geojson', data: buildVertexGeo(points) })
+      // Extra (non-active) pieces of a multi-polygon tract. Same pink as the
+      // active ring (it's one tract) but with no editable vertex dots; click
+      // one to make it the active ring.
+      map.addSource('extras', { type: 'geojson', data: buildMultiPolyGeo(extraPolygonsRef.current) })
       // Tillable source — empty FC unless showTillable=true. Per user
       // 2026-05-25 UX: show tract polygon by default, tillable only
       // when the user clicks the toggle. Magic-lab Stage 5 hybrid
@@ -981,6 +1050,15 @@ export default function TractMapEditor({
       map.addSource('tillable-verts', {
         type: 'geojson',
         data: { type: 'FeatureCollection', features: [] },
+      })
+      // Extra pieces drawn FIRST (beneath the active ring's fill/line/dots).
+      map.addLayer({
+        id: 'extras-fill', type: 'fill', source: 'extras',
+        paint: { 'fill-color': '#f58cde', 'fill-opacity': 0.22 },
+      })
+      map.addLayer({
+        id: 'extras-line', type: 'line', source: 'extras',
+        paint: { 'line-color': '#f58cde', 'line-width': 2, 'line-dasharray': [3, 2] },
       })
       map.addLayer({
         id: 'drawn-fill', type: 'fill', source: 'drawn',
@@ -1581,6 +1659,18 @@ export default function TractMapEditor({
     if (!map.getSource('drawn')) map.once('idle', apply)
   }, [points])
 
+  // Keep the extra (non-active) multi-polygon pieces in sync on the map.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    const apply = () => {
+      const src = map.getSource('extras') as maplibregl.GeoJSONSource | undefined
+      if (src) src.setData(buildMultiPolyGeo(extraPolygons))
+    }
+    apply()
+    if (!map.getSource('extras')) map.once('idle', apply)
+  }, [extraPolygons])
+
   // Update tillable-verts in three situations:
   //   1. Drawing new: show live tillableDrawPoints (green, in draw mode)
   //   2. Editing existing: show tillable polygon vertices (green, when shown)
@@ -1738,6 +1828,7 @@ export default function TractMapEditor({
       pointsHistory.current.push(prev.map(p => [...p] as Pt))
       return []
     })
+    setExtraPolygons([])  // Clear wipes the whole tract, including extra pieces.
     setDirty(true)
   }
   // ── Simplify (per user 2026-06-01) ──
@@ -1777,7 +1868,9 @@ export default function TractMapEditor({
     moveDragBase.current = null
     setMoveMode(false)
     pointsHistory.current = []
-    setPoints(normalizeInitialPolygon(initialPolygon))
+    const { active, extras } = splitInitialRings(initialPolygon)
+    setPoints(active)
+    setExtraPolygons(extras)
     setDirty(false)
     setStatus(null)
   }
@@ -2297,10 +2390,15 @@ export default function TractMapEditor({
   }
 
   const handleSave = async () => {
-    if (points.length < 3) {
+    const rings = allRings()
+    if (rings.length === 0 || points.length < 3) {
       setStatus('Need at least 3 points to save a boundary')
       return
     }
+    // Persist a single ring for a single-piece tract (unchanged), or the full
+    // list of rings for a multi-piece tract. The backend save endpoint accepts
+    // either shape (to_rings).
+    const boundaryPayload: Pt[] | Pt[][] = extraPolygons.length > 0 ? rings : points
     setSaving(true)
     setStatus(null)
     try {
@@ -2314,7 +2412,7 @@ export default function TractMapEditor({
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ coordinates: points }),
+            body: JSON.stringify({ coordinates: boundaryPayload }),
           }
         )
         const data = await res.json()
@@ -2323,7 +2421,7 @@ export default function TractMapEditor({
         }
         setStatus(`✓ Saved${data.boundary_valid === false ? ' (acreage check: review)' : ''}`)
         setDirty(false)
-        if (onUpdate) onUpdate({ polygon_coordinates: points, boundary_valid: data.boundary_valid })
+        if (onUpdate) onUpdate({ polygon_coordinates: boundaryPayload as any, boundary_valid: data.boundary_valid })
         return
       }
       const res = await fetch(
@@ -2477,7 +2575,9 @@ export default function TractMapEditor({
   // Render — magic-lab style: map left ~60%, image right ~40%,
   // toolbar below.
   // ===========================================================
-  const drawnAcres = gisAcres(points)
+  // Acreage = sum across the active ring + every extra piece (single-polygon
+  // tracts have no extras, so this is just gisAcres(points)).
+  const drawnAcres = allRings().reduce((s, r) => s + gisAcres(r), 0)
 
   // In fullscreen mode the editor pops out as a fixed full-viewport
   // overlay (covers the rest of the staging page). The map container
