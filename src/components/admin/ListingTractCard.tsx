@@ -303,22 +303,20 @@ export default function ListingTractCard({ tract, listing, onChanged }: Props) {
             <button
               type="button"
               onClick={() => set('price_basis', 'lump_sum')}
-              className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors ${
-                form.price_basis === 'lump_sum'
-                  ? 'bg-gg-pink text-white border-2 border-black'
-                  : 'bg-gg-gray-700 text-gg-gray-300 hover:bg-gg-gray-600'
-              }`}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors"
+              style={form.price_basis === 'lump_sum'
+                ? { backgroundColor: '#c563ad', color: '#ffffff', border: '2px solid #000000' }
+                : { backgroundColor: '#2a2a2a', color: '#bbbbbb' }}
             >
               {form.price_basis === 'lump_sum' ? '✓ ' : ''}Total price is correct
             </button>
             <button
               type="button"
               onClick={() => set('price_basis', 'per_acre')}
-              className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors ${
-                form.price_basis === 'per_acre'
-                  ? 'bg-gg-pink text-white border-2 border-black'
-                  : 'bg-gg-gray-700 text-gg-gray-300 hover:bg-gg-gray-600'
-              }`}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors"
+              style={form.price_basis === 'per_acre'
+                ? { backgroundColor: '#c563ad', color: '#ffffff', border: '2px solid #000000' }
+                : { backgroundColor: '#2a2a2a', color: '#bbbbbb' }}
             >
               {form.price_basis === 'per_acre' ? '✓ ' : ''}$/acre is correct
             </button>
