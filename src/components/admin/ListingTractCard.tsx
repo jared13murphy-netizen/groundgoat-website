@@ -55,6 +55,7 @@ export default function ListingTractCard({ tract, listing, onChanged }: Props) {
 
   const [form, setForm] = useState<Record<string, any>>(initial)
   const [savingScalars, setSavingScalars] = useState(false)
+  const [saved, setSaved] = useState(false)
   const [err, setErr] = useState('')
 
   const dirty = useMemo(
@@ -62,7 +63,9 @@ export default function ListingTractCard({ tract, listing, onChanged }: Props) {
     [form, initial]
   )
 
-  const set = (f: string, v: any) => setForm((p) => ({ ...p, [f]: v }))
+  // Editing any field clears the "Saved ✓" confirmation. Nothing here writes to
+  // the server — scalar fields persist ONLY when the user clicks Save tract.
+  const set = (f: string, v: any) => { setSaved(false); setForm((p) => ({ ...p, [f]: v })) }
 
   // ----- tract number inline edit (swap-safe endpoint) -----
   const [editingNum, setEditingNum] = useState(false)
@@ -121,6 +124,7 @@ export default function ListingTractCard({ tract, listing, onChanged }: Props) {
       })
       if (!rev.ok) throw new Error((await rev.json().catch(() => ({}))).detail || `HTTP ${rev.status}`)
       await onChanged()
+      setSaved(true)  // show "Saved ✓" until the next edit
     } catch (e: any) {
       setErr(e.message || 'Failed to save tract')
     } finally {
@@ -284,15 +288,20 @@ export default function ListingTractCard({ tract, listing, onChanged }: Props) {
 
       {err && <div className="mb-3 text-sm text-red-400">{err}</div>}
 
-      <div className="flex justify-end mb-4">
+      <div className="flex justify-end items-center gap-3 mb-4">
+        {saved && !dirty && !savingScalars && (
+          <span className="inline-flex items-center gap-1 text-sm text-green-400 font-medium">
+            <CheckCircle2 size={16} /> Saved
+          </span>
+        )}
         <button
           onClick={saveScalars}
           disabled={!dirty || savingScalars}
-          title="Save changes and mark this tract reviewed"
+          title={dirty ? 'Save changes and mark this tract reviewed' : 'No unsaved changes'}
           className="flex items-center gap-2 px-4 py-2 bg-white text-gray-900 font-medium rounded-lg hover:bg-gray-100 disabled:opacity-40"
         >
           {savingScalars ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
-          Save tract
+          {savingScalars ? 'Saving…' : 'Save tract'}
         </button>
       </div>
 
