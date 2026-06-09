@@ -14,7 +14,7 @@
 //  /api/admin/audit-log/record/{table}/{record_id} endpoint.
 // ───────────────────────────────────────────────────────────────────────
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import {
@@ -161,7 +161,23 @@ function valueRepr(v: any): string {
 }
 
 // ── Page ──────────────────────────────────────────────────────────────
+// Next.js 14 requires useSearchParams() to be inside a Suspense boundary
+// at build time (or the page bails out of static prerendering). Wrap the
+// real component in <Suspense> here in the default export, do everything
+// else in AdminActivityPageInner below.
 export default function AdminActivityPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gg-gray-900 text-white flex items-center justify-center">
+        <Loader2 className="animate-spin" size={20} />
+      </div>
+    }>
+      <AdminActivityPageInner />
+    </Suspense>
+  )
+}
+
+function AdminActivityPageInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
 
