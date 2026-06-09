@@ -1006,7 +1006,9 @@ export default function TractDataCleanupPage() {
                             // no_sale). Listed / Live (asking-price) tracts skip it entirely. When a
                             // result tract has no basis yet, ALL editing is gated until it's picked.
                             const needsBasis = ['sold', 'pending', 'no_sale'].includes(String(tract.sale_status || ''))
-                            const basisGate = needsBasis && !tract.price_basis
+                            // Only an EXACT valid basis unlocks editing — any other value (null, '', junk) gates.
+                            const hasValidBasis = tract.price_basis === 'per_acre' || tract.price_basis === 'lump_sum'
+                            const basisGate = needsBasis && !hasValidBasis
                             // The basis question block — loud colors, shown for result-recorded tracts.
                             const basisBlock = needsBasis ? (
                               <div className={`mb-4 rounded-lg border-2 px-4 py-3 ${tract.price_basis ? 'border-gg-gray-700 bg-gg-gray-900' : 'border-amber-400 bg-amber-400/15'}`}>
@@ -1019,10 +1021,10 @@ export default function TractDataCleanupPage() {
                                   <button
                                     type="button"
                                     onClick={() => saveTractFields(it.listing_id, tract, { price_basis: 'lump_sum' })}
-                                    className={`px-4 py-2 rounded-lg text-sm font-bold border-2 transition-colors ${
+                                    className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors ${
                                       tract.price_basis === 'lump_sum'
-                                        ? 'bg-sky-500 text-white border-sky-400 ring-2 ring-sky-300'
-                                        : 'bg-sky-600/90 text-white border-sky-400 hover:bg-sky-500'
+                                        ? 'bg-gg-pink text-white border-2 border-black'
+                                        : 'bg-gg-gray-700 text-gg-gray-300 hover:bg-gg-gray-600'
                                     }`}
                                   >
                                     {tract.price_basis === 'lump_sum' ? '✓ ' : ''}Total price is correct
@@ -1030,10 +1032,10 @@ export default function TractDataCleanupPage() {
                                   <button
                                     type="button"
                                     onClick={() => saveTractFields(it.listing_id, tract, { price_basis: 'per_acre' })}
-                                    className={`px-4 py-2 rounded-lg text-sm font-bold border-2 transition-colors ${
+                                    className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors ${
                                       tract.price_basis === 'per_acre'
-                                        ? 'bg-emerald-500 text-white border-emerald-400 ring-2 ring-emerald-300'
-                                        : 'bg-emerald-600/90 text-white border-emerald-400 hover:bg-emerald-500'
+                                        ? 'bg-gg-pink text-white border-2 border-black'
+                                        : 'bg-gg-gray-700 text-gg-gray-300 hover:bg-gg-gray-600'
                                     }`}
                                   >
                                     {tract.price_basis === 'per_acre' ? '✓ ' : ''}$/acre is correct
