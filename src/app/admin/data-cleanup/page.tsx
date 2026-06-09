@@ -9,7 +9,7 @@ import Link from 'next/link'
 import {
   Loader2, ExternalLink, MapPin, ChevronLeft, ChevronRight,
   ChevronDown, ChevronUp, CheckCircle2, ArrowLeft, AlertTriangle, RefreshCw,
-  Pencil, Check, X, Plus,
+  Pencil, Check, X, Plus, Trash2,
 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import CompanyLinkEditor, { type CompanyOption } from '@/components/admin/CompanyLinkEditor'
@@ -227,6 +227,10 @@ export default function TractDataCleanupPage() {
   // to our DB until the human Saves — and the rescrape never touches Auction/PT
   // staging (no listing_staging record is created).
   const [rescrapingId, setRescrapingId] = useState<string | null>(null)
+  // Delete & Rescrape (destructive clean re-scrape). Target = the row awaiting
+  // confirmation in the modal; deleteRescrapingId = the row mid-request.
+  const [deleteRescrapeTarget, setDeleteRescrapeTarget] = useState<QueueItem | null>(null)
+  const [deleteRescrapingId, setDeleteRescrapingId] = useState<string | null>(null)
   const [rescrapeMsg, setRescrapeMsg] = useState<Record<string, string | null>>({})
   const [proposals, setProposals] = useState<Record<string, {
     coords: [number, number][]
@@ -667,6 +671,32 @@ export default function TractDataCleanupPage() {
   // Rescrape a listing's source URL and load proposed boundaries into each
   // tract's editor for review. Stays entirely within this screen — the backend
   // endpoint creates NO staging record, so nothing appears on Auction/PT Staging.
+  // DESTRUCTIVE: delete this listing and re-scrape its URL from scratch into
+  // Staging. Confirmed via the modal. Removes the row on success.
+  async function deleteAndRescrape(item: QueueItem) {
+    const lid = item.listing_id
+    setDeleteRescrapingId(lid)
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/admin/tract-cleanup/${lid}/delete-and-rescrape`, { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok || !data.success) throw new Error(data.detail || `HTTP ${res.status}`)
+      if (expandedId === lid) setExpandedId(null)
+      setItems((prev) => prev.filter((i) => i.listing_id !== lid))
+      setTotal((prev) => Math.max(0, prev - 1))
+      setDeleteRescrapeTarget(null)
+      showToast(
+        data.rescrape_started
+          ? 'Listing deleted. Re-scraping now — it will appear in Auction/PT Staging for review in a few minutes.'
+          : 'Listing deleted, but the re-scrape did not start. Re-scrape the URL manually from the Scraper page.',
+        data.rescrape_started ? 'success' : 'error',
+      )
+    } catch (e: any) {
+      showToast(`Delete & Rescrape failed: ${e.message || e}`, 'error')
+    } finally {
+      setDeleteRescrapingId(null)
+    }
+  }
+
   async function rescrapeListing(lid: string) {
     // Editors must be mounted for proposals to land, so expand + load first.
     setExpandedId(lid)
@@ -976,6 +1006,20 @@ export default function TractDataCleanupPage() {
                           ? <Loader2 className="animate-spin" size={13} />
                           : <RefreshCw size={13} />}
                         Rescrape
+                      </button>
+                      {/* DESTRUCTIVE: delete the listing and re-scrape its URL
+                          from scratch into Staging. For listings whose scraped
+                          data is wrong end-to-end. Confirmed via modal. */}
+                      <button
+                        onClick={() => setDeleteRescrapeTarget(it)}
+                        disabled={deleteRescrapingId === it.listing_id || !it.source_url}
+                        title={it.source_url ? 'Delete this listing and re-scrape the URL from scratch (clean slate)' : 'No source URL to rescrape'}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium border border-red-800 bg-red-900/30 text-red-300 hover:bg-red-900/50 disabled:opacity-50"
+                      >
+                        {deleteRescrapingId === it.listing_id
+                          ? <Loader2 className="animate-spin" size={13} />
+                          : <Trash2 size={13} />}
+                        Delete &amp; Rescrape
                       </button>
                     </div>
                   </div>
@@ -1482,6 +1526,55 @@ export default function TractDataCleanupPage() {
           </div>
         )}
       </div>
+
+      {/* Delete & Rescrape confirmation — destructive, so make the consequence
+          explicit before anything is deleted. */}
+      {deleteRescrapeTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          onClick={() => { if (!deleteRescrapingId) setDeleteRescrapeTarget(null) }}
+        >
+          <div
+            className="bg-gg-gray-900 border border-red-800 rounded-lg max-w-lg w-full p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-2 mb-3">
+              <AlertTriangle className="text-red-400 flex-shrink-0" size={22} />
+              <h3 className="text-lg font-bold text-white">Delete &amp; Rescrape this listing?</h3>
+            </div>
+            <p className="text-sm text-gg-gray-300 mb-3">
+              This will <span className="text-red-400 font-semibold">permanently delete</span>{' '}
+              <span className="text-white font-medium">
+                {deleteRescrapeTarget.company_name || deleteRescrapeTarget.title || deleteRescrapeTarget.listing_id}
+              </span>{' '}
+              and all of its tracts, then scrape its source URL{' '}
+              <span className="font-semibold">from scratch</span> into Staging as a brand-new listing.
+            </p>
+            <ul className="text-xs text-gg-gray-400 list-disc pl-5 mb-5 space-y-1">
+              <li>The current listing is removed <span className="text-gg-gray-300">immediately — there is no undo</span>.</li>
+              <li>Nothing from the old (wrong) data carries over — including sale price/date.</li>
+              <li>The fresh scrape lands in <span className="text-white">Auction / PT Staging</span> for you to review and Verify (it can take a few minutes).</li>
+            </ul>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setDeleteRescrapeTarget(null)}
+                disabled={!!deleteRescrapingId}
+                className="px-4 py-2 rounded text-sm font-medium border border-gg-gray-700 bg-gg-gray-800 text-white hover:bg-gg-gray-700 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => deleteAndRescrape(deleteRescrapeTarget)}
+                disabled={!!deleteRescrapingId}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded text-sm font-semibold bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                {deleteRescrapingId ? <Loader2 className="animate-spin" size={15} /> : <Trash2 size={15} />}
+                Delete &amp; Rescrape
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
