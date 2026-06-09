@@ -33,7 +33,7 @@ import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { Loader2, Save, Calculator, Sprout, Pencil, Check, Undo2, Trash2, Maximize2, Minimize2, Scissors, Spline } from 'lucide-react'
 import { fetchWithAuth } from '@/lib/fetchWithAuth'
-import { polygonAcres } from '@/lib/polygonGeometry'
+import { polygonAcres, toRings, multiPolygonAcres } from '@/lib/polygonGeometry'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 const TILE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
@@ -144,22 +144,25 @@ function buildCluGeo(clus: Clu[], selection: Record<number, boolean>,
   }
 }
 
-function buildTractGeo(poly: Pt[] | null): any {
-  if (!poly || poly.length < 3) {
+function buildTractGeo(poly: Pt[] | Pt[][] | null): any {
+  // A tract can be a single ring OR a multi-polygon (disjoint pieces). Render
+  // every ring as its own closed Polygon so multi-piece tracts draw fully.
+  const rings = toRings(poly)
+  if (rings.length === 0) {
     return { type: 'FeatureCollection', features: [] }
   }
-  const ring = [...poly]
-  const f = ring[0]
-  const l = ring[ring.length - 1]
-  if (f[0] !== l[0] || f[1] !== l[1]) ring.push(f)
-  return {
-    type: 'FeatureCollection',
-    features: [{
+  const features = rings.map((r) => {
+    const ring = [...r]
+    const f = ring[0]
+    const l = ring[ring.length - 1]
+    if (f[0] !== l[0] || f[1] !== l[1]) ring.push(f)
+    return {
       type: 'Feature',
       properties: {},
       geometry: { type: 'Polygon', coordinates: [ring] },
-    }],
-  }
+    }
+  })
+  return { type: 'FeatureCollection', features }
 }
 
 // Finished, admin-drawn tillable polygons (green override layer).
@@ -343,7 +346,7 @@ export default function TillableCluWorkshop({
 
   const [clus, setClus] = useState<Clu[]>([])
   const [selection, setSelection] = useState<Record<number, boolean>>({})
-  const [tractPolygon, setTractPolygon] = useState<Pt[] | null>(null)
+  const [tractPolygon, setTractPolygon] = useState<Pt[] | Pt[][] | null>(null)
   const [tractAcres, setTractAcres] = useState<number | null>(null)
   const [reportedAcres, setReportedAcres] = useState<number | null>(null)
 
@@ -615,9 +618,10 @@ export default function TillableCluWorkshop({
         ;(map.getSource('tract') as maplibregl.GeoJSONSource | undefined)?.setData(buildTractGeo(tractPolygon))
         ;(map.getSource('manual') as maplibregl.GeoJSONSource | undefined)?.setData(buildManualGeo(manualPolygons))
         ;(map.getSource('cutout') as maplibregl.GeoJSONSource | undefined)?.setData(buildManualGeo(cutoutPolygons))
-        if (tractPolygon && tractPolygon.length >= 3) {
+        const tRings = toRings(tractPolygon)
+        if (tRings.length > 0) {
           const bounds = new maplibregl.LngLatBounds()
-          for (const p of tractPolygon) bounds.extend(p as [number, number])
+          for (const r of tRings) for (const p of r) bounds.extend(p as [number, number])
           map.fitBounds(bounds, { padding: 30, duration: 0, maxZoom: 17 })
         }
       } catch {/* style not ready */}
@@ -886,9 +890,11 @@ export default function TillableCluWorkshop({
     let centerLng = -93.5
     let centerLat = 41.9
     let initZoom = 14
-    if (tractPolygon && tractPolygon.length >= 3) {
-      centerLng = tractPolygon.reduce((s, p) => s + p[0], 0) / tractPolygon.length
-      centerLat = tractPolygon.reduce((s, p) => s + p[1], 0) / tractPolygon.length
+    const initRings = toRings(tractPolygon)
+    if (initRings.length > 0) {
+      const allPts = initRings.flat()
+      centerLng = allPts.reduce((s, p) => s + p[0], 0) / allPts.length
+      centerLat = allPts.reduce((s, p) => s + p[1], 0) / allPts.length
       initZoom = 15
     } else if (longitude != null && latitude != null) {
       centerLng = Number(longitude)
@@ -1034,9 +1040,10 @@ export default function TillableCluWorkshop({
         },
       })
 
-      if (tractPolygon && tractPolygon.length >= 3) {
+      const tRings = toRings(tractPolygon)
+      if (tRings.length > 0) {
         const bounds = new maplibregl.LngLatBounds()
-        for (const p of tractPolygon) bounds.extend(p as [number, number])
+        for (const r of tRings) for (const p of r) bounds.extend(p as [number, number])
         try { map.fitBounds(bounds, { padding: 30, duration: 0, maxZoom: 17 }) } catch {}
       }
 
@@ -1492,8 +1499,8 @@ export default function TillableCluWorkshop({
               Tillable: {tillableAcres.toFixed(2)} ac
             </span>
             <span className="text-gg-gray-400">
-              of {tractPolygon && tractPolygon.length >= 3
-                    ? polygonAcres(tractPolygon).toFixed(2)
+              of {multiPolygonAcres(tractPolygon) > 0
+                    ? multiPolygonAcres(tractPolygon).toFixed(2)
                     : tractAcres != null ? tractAcres.toFixed(2) : '?'} tract ac
               {reportedAcres != null && ` · reported ${Number(reportedAcres).toFixed(2)}`}
             </span>

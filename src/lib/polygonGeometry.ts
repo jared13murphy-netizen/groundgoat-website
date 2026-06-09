@@ -50,6 +50,34 @@ export function polygonAcres(poly: LngLatPt[] | null | undefined): number {
   return Math.abs(areaM2) / 2 / 4046.86 // m² → acres
 }
 
+/** Normalize a tract boundary to a list of rings. Mirrors the backend
+ *  `to_rings()` (tract_enrichment_service.py): a tract's coordinates can be a
+ *  single ring [[lng,lat],...] (legacy) OR a multi-polygon [[[lng,lat],...],...]
+ *  for tracts made of disjoint pieces. Returns one ring for the legacy shape so
+ *  every single-polygon caller is unchanged. */
+export function toRings(poly: any): LngLatPt[][] {
+  if (!Array.isArray(poly) || poly.length === 0) return []
+  const first = poly[0]
+  // Single ring: first element is a coordinate pair (two numbers).
+  if (Array.isArray(first) && typeof first[0] === 'number' && typeof first[1] === 'number') {
+    return poly.length >= 3 ? [poly as LngLatPt[]] : []
+  }
+  // Multi-polygon: each element is itself a ring (a list of coord pairs).
+  const rings: LngLatPt[][] = []
+  for (const ring of poly) {
+    if (Array.isArray(ring) && ring.length >= 3 && Array.isArray(ring[0])) {
+      rings.push(ring as LngLatPt[])
+    }
+  }
+  return rings
+}
+
+/** Total acres across ALL rings of a tract boundary (single or multi). Sums
+ *  per-ring shoelace areas — correct for disjoint pieces. */
+export function multiPolygonAcres(poly: any): number {
+  return toRings(poly).reduce((s, r) => s + polygonAcres(r), 0)
+}
+
 /** Perimeter (in feet) for a [lng, lat] polygon ring using haversine
  *  great-circle distance between consecutive vertices. Accepts open
  *  or closed rings — auto-closes if needed. Returns 0 for degenerate
