@@ -231,6 +231,10 @@ export default function TractDataCleanupPage() {
   // confirmation in the modal; deleteRescrapingId = the row mid-request.
   const [deleteRescrapeTarget, setDeleteRescrapeTarget] = useState<QueueItem | null>(null)
   const [deleteRescrapingId, setDeleteRescrapingId] = useState<string | null>(null)
+  // Which staging screen the fresh scrape should land on. Defaults to the
+  // listing's current type but is overridable in the modal — a listing's type
+  // can change (e.g. an unsold auction relisted as a private treaty).
+  const [rescrapeAsType, setRescrapeAsType] = useState<'auction' | 'private_treaty'>('auction')
   const [rescrapeMsg, setRescrapeMsg] = useState<Record<string, string | null>>({})
   const [proposals, setProposals] = useState<Record<string, {
     coords: [number, number][]
@@ -677,7 +681,11 @@ export default function TractDataCleanupPage() {
     const lid = item.listing_id
     setDeleteRescrapingId(lid)
     try {
-      const res = await fetchWithAuth(`${API_URL}/api/admin/tract-cleanup/${lid}/delete-and-rescrape`, { method: 'POST' })
+      const res = await fetchWithAuth(`${API_URL}/api/admin/tract-cleanup/${lid}/delete-and-rescrape`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ listing_type: rescrapeAsType }),
+      })
       const data = await res.json()
       if (!res.ok || !data.success) throw new Error(data.detail || `HTTP ${res.status}`)
       if (expandedId === lid) setExpandedId(null)
@@ -1011,7 +1019,10 @@ export default function TractDataCleanupPage() {
                           from scratch into Staging. For listings whose scraped
                           data is wrong end-to-end. Confirmed via modal. */}
                       <button
-                        onClick={() => setDeleteRescrapeTarget(it)}
+                        onClick={() => {
+                          setRescrapeAsType(it.listing_type === 'private_treaty' ? 'private_treaty' : 'auction')
+                          setDeleteRescrapeTarget(it)
+                        }}
                         disabled={deleteRescrapingId === it.listing_id || !it.source_url}
                         title={it.source_url ? 'Delete this listing and re-scrape the URL from scratch (clean slate)' : 'No source URL to rescrape'}
                         className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
@@ -1577,6 +1588,40 @@ export default function TractDataCleanupPage() {
                 {deleteRescrapeTarget.source_url}
               </a>
             )}
+            {/* Destination staging screen. Defaults to the listing's current
+                type, but a listing's type can change (unsold auction -> PT), so
+                let the operator pick where the fresh scrape lands. */}
+            <div className="mb-5">
+              <div className="text-xs text-gg-gray-400 mb-1.5">Re-scrape into:</div>
+              <div className="inline-flex rounded-md overflow-hidden border border-gg-gray-700">
+                {([
+                  ['auction', 'Auction Staging'],
+                  ['private_treaty', 'PT Staging'],
+                ] as const).map(([val, label]) => (
+                  <button
+                    key={val}
+                    onClick={() => setRescrapeAsType(val)}
+                    disabled={!!deleteRescrapingId}
+                    className={`px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-50 ${
+                      rescrapeAsType === val
+                        ? 'bg-gg-pink text-white'
+                        : 'bg-gg-gray-800 text-gg-gray-300 hover:bg-gg-gray-700'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {deleteRescrapeTarget.listing_type
+                && rescrapeAsType !== deleteRescrapeTarget.listing_type && (
+                <div className="text-[11px] text-amber-400 mt-1.5">
+                  Note: this listing is currently{' '}
+                  {deleteRescrapeTarget.listing_type === 'private_treaty' ? 'private treaty' : 'an auction'},
+                  but you’re sending the rescrape to{' '}
+                  {rescrapeAsType === 'private_treaty' ? 'PT' : 'Auction'} Staging.
+                </div>
+              )}
+            </div>
             <ul className="text-xs text-gg-gray-400 list-disc pl-5 mb-5 space-y-1">
               <li>The current listing is removed <span className="text-gg-gray-300">immediately — there is no undo</span>.</li>
               <li>Nothing from the old (wrong) data carries over — including sale price/date.</li>
