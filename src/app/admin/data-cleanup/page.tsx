@@ -1542,14 +1542,28 @@ export default function TractDataCleanupPage() {
               <AlertTriangle className="text-red-400 flex-shrink-0" size={22} />
               <h3 className="text-lg font-bold text-white">Delete &amp; Rescrape this listing?</h3>
             </div>
-            <p className="text-sm text-gg-gray-300 mb-3">
-              This will <span className="text-red-400 font-semibold">permanently delete</span>{' '}
-              <span className="text-white font-medium">
-                {deleteRescrapeTarget.company_name || deleteRescrapeTarget.title || deleteRescrapeTarget.listing_id}
-              </span>{' '}
-              and all of its tracts, then scrape its source URL{' '}
-              <span className="font-semibold">from scratch</span> into Staging as a brand-new listing.
-            </p>
+            {(() => {
+              const t = deleteRescrapeTarget
+              const kind = t.listing_type === 'private_treaty' ? 'private-treaty listing'
+                : t.listing_type === 'auction' ? 'auction listing' : 'listing'
+              const loc = [t.county ? `${t.county} County` : null, t.state].filter(Boolean).join(', ')
+              const when = (t.listing_type === 'auction' && t.auction_datetime)
+                ? new Date(t.auction_datetime).toLocaleString(undefined, {
+                    month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit',
+                  })
+                : null
+              const descriptor = [t.company_name || 'Unknown Company', loc || null, when]
+                .filter(Boolean).join(' · ')
+              return (
+                <p className="text-sm text-gg-gray-300 mb-3">
+                  This <span className="text-red-400 font-semibold">permanently deletes this {kind}</span>:{' '}
+                  <span className="text-white font-medium">{descriptor}</span> — and all of its tracts.{' '}
+                  <span className="text-gg-gray-400">(The listing company is not affected — only this one listing.)</span>{' '}
+                  It then scrapes its source URL <span className="font-semibold">from scratch</span> into
+                  Staging as a brand-new listing.
+                </p>
+              )
+            })()}
             <ul className="text-xs text-gg-gray-400 list-disc pl-5 mb-5 space-y-1">
               <li>The current listing is removed <span className="text-gg-gray-300">immediately — there is no undo</span>.</li>
               <li>Nothing from the old (wrong) data carries over — including sale price/date.</li>
