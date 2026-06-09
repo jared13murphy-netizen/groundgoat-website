@@ -34,7 +34,7 @@ const acres = (v: any) =>
 // edit total_acres → $/acre; etc.) and never gets a conflicting pair.
 // 'land_type' is NOT here — land types are managed by the auto-saving
 // LandTypeButtons (multi-value land_types), not the scalar form Save.
-const STR_FIELDS = ['name', 'description', 'soil_rating_type', 'sale_status', 'sale_type', 'buyer', 'seller']
+const STR_FIELDS = ['name', 'description', 'soil_rating_type', 'sale_status', 'sale_type', 'price_basis', 'buyer', 'seller']
 const NUM_FIELDS = ['total_acres', 'tillable_acres', 'soil_rating', 'csr2', 'sale_price', 'price_per_acre']
 const BOOL_FIELDS = ['has_house', 'has_buildings']
 
@@ -113,7 +113,13 @@ export default function ListingTractCard({ tract, listing, onChanged }: Props) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         })
-        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || `HTTP ${res.status}`)
+        if (!res.ok) {
+          const detail = (await res.json().catch(() => ({})))?.detail || `HTTP ${res.status}`
+          if (String(detail).includes('PRICE_BASIS_REQUIRED')) {
+            throw new Error('Choose which price is correct (Total price or $/acre) below before changing this tract’s acres.')
+          }
+          throw new Error(String(detail))
+        }
       }
       // Saving a tract = confirming it: stamp boundary_reviewed_by/at so the
       // tract counts as reviewed (same flag the data-cleanup screen sets).
@@ -285,6 +291,39 @@ export default function ListingTractCard({ tract, listing, onChanged }: Props) {
           Has buildings
         </label>
       </div>
+
+      {/* PRICE BASIS — required on a sold tract before its acres can change, so an
+          acre edit recomputes the correct field instead of corrupting the price. */}
+      {(form.sale_price !== '' && form.sale_price != null) && (
+        <div className={`mb-3 rounded-lg border px-3 py-2 ${form.price_basis ? 'border-gg-gray-700 bg-gg-gray-900' : 'border-amber-500/60 bg-amber-500/10'}`}>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className={`text-sm font-semibold ${form.price_basis ? 'text-white' : 'text-amber-400'}`}>
+              {form.price_basis ? 'Which price is correct?' : '⚠ Set which price is correct before changing acres:'}
+            </span>
+            {([['lump_sum', 'Total price'], ['per_acre', '$/acre']] as const).map(([val, label]) => (
+              <button
+                key={val}
+                type="button"
+                onClick={() => set('price_basis', val)}
+                className={`px-3 py-1 rounded-full text-xs font-semibold border transition-colors ${
+                  form.price_basis === val
+                    ? 'bg-gg-pink text-white border-gg-pink'
+                    : 'bg-gg-gray-800 text-gg-gray-300 border-gg-gray-700 hover:bg-gg-gray-700'
+                }`}
+              >
+                {form.price_basis === val ? '✓ ' : ''}{label} is correct
+              </button>
+            ))}
+          </div>
+          <p className="text-[11px] text-gg-gray-500 mt-1">
+            {form.price_basis === 'per_acre'
+              ? 'Changing acres recomputes the TOTAL price ($/acre held). Save to apply.'
+              : form.price_basis === 'lump_sum'
+              ? 'Changing acres recomputes the $/acre (total price held). Save to apply.'
+              : 'Pick the one your records show as correct, then Save.'}
+          </p>
+        </div>
+      )}
 
       {err && <div className="mb-3 text-sm text-red-400">{err}</div>}
 

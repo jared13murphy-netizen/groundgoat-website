@@ -89,6 +89,7 @@ type LiveTract = {
   price_per_acre: number | null
   price_per_tillable_acre: number | null
   price_per_soil_rating: number | null
+  price_basis: 'per_acre' | 'lump_sum' | null
   has_house: boolean | null
   has_buildings: boolean | null
   land_types: string[] | null
@@ -289,6 +290,7 @@ export default function TractDataCleanupPage() {
         price_per_acre: t.price_per_acre != null ? Number(t.price_per_acre) : null,
         price_per_tillable_acre: t.price_per_tillable_acre != null ? Number(t.price_per_tillable_acre) : null,
         price_per_soil_rating: t.price_per_soil_rating != null ? Number(t.price_per_soil_rating) : null,
+        price_basis: t.price_basis ?? null,
         has_house: t.has_house ?? null,
         has_buildings: t.has_buildings ?? null,
         land_types: Array.isArray(t.land_types) ? t.land_types : (t.land_type ? [t.land_type] : []),
@@ -367,13 +369,29 @@ export default function TractDataCleanupPage() {
   // (total_acres / tillable_acres / soil_rating / soil_rating_type).
   async function saveTractFields(lid: string, tract: LiveTract, fields: Record<string, any>) {
     if (!Object.keys(fields).length) return
+    // GUARD: never let an acre change touch a recorded price until the admin has
+    // declared which price is the truth. Block the edit client-side with a clear
+    // prompt (the backend also rejects it as a hard backstop).
+    const changingAcres = 'total_acres' in fields && fields.total_acres != null
+    const hasPrice = tract.sale_price != null
+    if (changingAcres && hasPrice && !tract.price_basis && fields.price_basis == null) {
+      alert('Before changing this sold tract’s acres, choose which price is correct — the total price or the $/acre — using the "Which price is correct?" selector above. That keeps the price from being changed incorrectly.')
+      patchTract(lid, tract.id, { total_acres: tract.total_acres })  // revert optimistic
+      return
+    }
     patchTract(lid, tract.id, fields as Partial<LiveTract>)
     try {
       const res = await fetchWithAuth(`${API_URL}/api/tracts/${tract.id}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(fields),
       })
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      if (!res.ok) {
+        const detail = (await res.json().catch(() => ({})))?.detail || `HTTP ${res.status}`
+        if (String(detail).includes('PRICE_BASIS_REQUIRED')) {
+          throw new Error('Choose which price is correct (total or $/acre) before changing this tract’s acres.')
+        }
+        throw new Error(String(detail))
+      }
       // The PATCH reconciles the price triangle + rolls listing totals, so the
       // response carries the recomputed $/x. Reflect them so the read-only
       // panel updates immediately when acres / tillable / price changed.
@@ -389,6 +407,7 @@ export default function TractDataCleanupPage() {
           price_per_acre: u.price_per_acre != null ? Number(u.price_per_acre) : null,
           price_per_tillable_acre: u.price_per_tillable_acre != null ? Number(u.price_per_tillable_acre) : null,
           price_per_soil_rating: u.price_per_soil_rating != null ? Number(u.price_per_soil_rating) : null,
+          price_basis: u.price_basis ?? null,
         })
       }
     } catch (e: any) {
@@ -1207,6 +1226,38 @@ export default function TractDataCleanupPage() {
                                       })}
                                       onDirtyChange={(d) => setTractDirty(`${it.listing_id}::${tract.id}::till`, d)}
                                     />
+                                    {/* PRICE BASIS — must be set on a sold tract BEFORE its acres can be
+                                        changed, so an acre edit recomputes the correct field (never corrupts
+                                        the recorded price). */}
+                                    {tract.sale_price != null && (
+                                      <div className={`mt-3 rounded-lg border px-3 py-2 ${tract.price_basis ? 'border-gg-gray-700 bg-gg-gray-900' : 'border-amber-500/60 bg-amber-500/10'}`}>
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                          <span className={`text-sm font-semibold ${tract.price_basis ? 'text-white' : 'text-amber-500'}`}>
+                                            {tract.price_basis ? 'Which price is correct?' : '⚠ Set which price is correct before changing acres:'}
+                                          </span>
+                                          {([['lump_sum','Total price'],['per_acre','$/acre']] as const).map(([val,label]) => (
+                                            <button
+                                              key={val}
+                                              onClick={() => saveTractFields(it.listing_id, tract, { price_basis: val })}
+                                              className={`px-3 py-1 rounded-full text-xs font-semibold border transition-colors ${
+                                                tract.price_basis === val
+                                                  ? 'bg-gg-pink text-white border-gg-pink'
+                                                  : 'bg-gg-gray-800 text-gg-gray-300 border-gg-gray-700 hover:bg-gg-gray-700'
+                                              }`}
+                                            >
+                                              {tract.price_basis === val ? '✓ ' : ''}{label} is correct
+                                            </button>
+                                          ))}
+                                        </div>
+                                        <p className="text-[11px] text-gg-gray-500 mt-1">
+                                          {tract.price_basis === 'per_acre'
+                                            ? 'Changing acres will recompute the TOTAL price ($/acre held).'
+                                            : tract.price_basis === 'lump_sum'
+                                            ? 'Changing acres will recompute the $/acre (total price held).'
+                                            : 'Pick the one your records show as correct for this sale.'}
+                                        </p>
+                                      </div>
+                                    )}
                                     {/* Edit 3: source comparison — Current (saved) vs Computed vs hand-typed,
                                         per field. Writes through update_tract so $/acre + listing totals follow. */}
                                     <div className="mt-3">
