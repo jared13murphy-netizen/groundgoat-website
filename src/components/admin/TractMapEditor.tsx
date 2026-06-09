@@ -461,10 +461,20 @@ export default function TractMapEditor({
   )
   const extraPolygonsRef = useRef<Pt[][]>([])
   useEffect(() => { extraPolygonsRef.current = extraPolygons }, [extraPolygons])
+  const pointsRefMP = useRef<Pt[]>([])  // latest active ring for once-attached map handlers
+  useEffect(() => { pointsRefMP.current = points }, [points])
   // All rings of the tract = active + extras (≥3 pts each). The single source
   // of truth for acreage and for what Save persists.
   const allRings = (): Pt[][] =>
     [points, ...extraPolygons].filter((r) => r.length >= 3)
+  // Finalize the active piece and start a fresh one (multi-polygon tracts).
+  const handleAddPolygon = () => {
+    if (pointsRefMP.current.length < 3) return
+    pointsHistory.current.push(pointsRefMP.current.map((p) => [...p] as Pt))
+    setExtraPolygons((prev) => [...prev, pointsRefMP.current.map((p) => [...p] as Pt)])
+    setPoints([])
+    setDirty(true)
+  }
   // True once any modification has been made — controls whether the
   // Cancel/Save toolbar is enabled.
   const [dirty, setDirty] = useState(false)
@@ -1563,6 +1573,22 @@ export default function TractMapEditor({
       const out = ring.slice(0, -1).map((c: number[]) => [c[0], c[1]] as Pt)
       return out.length >= 3 ? out : null
     }
+    // ALL exterior rings (open) of a Polygon/MultiPolygon — used to capture
+    // every disjoint piece of a multi-parcel snap, not just the largest.
+    const geojsonToRings = (gj: any): Pt[][] => {
+      if (!gj) return []
+      const polys: any[] = gj.type === 'Polygon' ? [gj.coordinates]
+        : gj.type === 'MultiPolygon' ? (gj.coordinates || []) : []
+      const rings: Pt[][] = []
+      for (const poly of polys) {
+        const r = poly?.[0]
+        if (r && r.length >= 4) {
+          const open = r.slice(0, -1).map((c: number[]) => [c[0], c[1]] as Pt)
+          if (open.length >= 3) rings.push(open)
+        }
+      }
+      return rings
+    }
 
     const applySnap = async (uuids: string[]) => {
       if (uuids.length === 0) return
@@ -1600,19 +1626,37 @@ export default function TractMapEditor({
           return
         }
         const d = await res.json()
-        const ring = geojsonToRing(d.geojson)
-        if (ring) {
+        // MULTI-PIECE capture: when enabled and the selected parcels produce
+        // multiple disjoint pieces, keep ALL of them (largest active, rest as
+        // extras) instead of collapsing to the largest. Gated so single-poly
+        // behavior (the else branch) is unchanged until the renderers are ready.
+        const pieces = MULTI_POLY_ENABLED ? geojsonToRings(d.pieces_geojson) : []
+        if (pieces.length > 1) {
+          pieces.sort((a, b) => polygonAcres(b) - polygonAcres(a))
           pointsHistory.current.push(points.map(p => [...p] as Pt))
-          setPoints(ring)
+          setPoints(pieces[0])
+          setExtraPolygons(pieces.slice(1))
           setDirty(true)
-          try { onPolygonChange?.(ring, polygonAcres(ring)) } catch {}
-          // Confirm whether existing tracts were cut out (helps catch a case
-          // where no neighbor polygon reached the request).
-          const sc = d.subtract_count || 0
-          const ac = typeof d.acres === 'number' ? `${d.acres.toFixed(0)} ac` : ''
-          setSnapStatus(sc > 0
-            ? `Snapped to remainder · ${ac} (−${sc} existing tract${sc > 1 ? 's' : ''})`
-            : `Snapped to full parcel · ${ac} (no other tracts to subtract)`)
+          const totalAc = pieces.reduce((s, r) => s + polygonAcres(r), 0)
+          try { onPolygonChange?.(pieces[0], totalAc) } catch {}
+          const tac = typeof d.total_acres === 'number' ? d.total_acres : totalAc
+          setSnapStatus(`Snapped ${pieces.length} pieces · ${tac.toFixed(0)} ac`)
+        } else {
+          const ring = geojsonToRing(d.geojson)
+          if (ring) {
+            pointsHistory.current.push(points.map(p => [...p] as Pt))
+            setPoints(ring)
+            setExtraPolygons([])  // single-piece snap defines the whole tract
+            setDirty(true)
+            try { onPolygonChange?.(ring, polygonAcres(ring)) } catch {}
+            // Confirm whether existing tracts were cut out (helps catch a case
+            // where no neighbor polygon reached the request).
+            const sc = d.subtract_count || 0
+            const ac = typeof d.acres === 'number' ? `${d.acres.toFixed(0)} ac` : ''
+            setSnapStatus(sc > 0
+              ? `Snapped to remainder · ${ac} (−${sc} existing tract${sc > 1 ? 's' : ''})`
+              : `Snapped to full parcel · ${ac} (no other tracts to subtract)`)
+          }
         }
       } catch { setSnapStatus('Snap failed (network error)') }
       finally { setSnapBusy(false) }
@@ -3286,6 +3330,19 @@ export default function TractMapEditor({
               read-only preview. */}
           {fullscreen && !drawTillableMode && (
             <>
+          {/* Multi-polygon: finalize the current piece and start another.
+              Gated by MULTI_POLY_ENABLED until the renderers can draw all
+              rings. Only meaningful once the active ring is a closed polygon. */}
+          {MULTI_POLY_ENABLED && (
+            <button
+              onClick={handleAddPolygon}
+              disabled={points.length < 3 || saving || deleting}
+              title="Save this piece and start another separate polygon for the same tract"
+              className="flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium text-white transition-colors bg-gg-gray-700 hover:bg-gg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              + Add polygon{extraPolygons.length > 0 ? ` (${extraPolygons.length + 1})` : ''}
+            </button>
+          )}
           <button
             onClick={handleUndo}
             disabled={points.length === 0 || saving || deleting}
