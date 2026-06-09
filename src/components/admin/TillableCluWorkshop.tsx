@@ -107,6 +107,11 @@ interface TillableCluWorkshopProps {
     tillable_acres: number | null
     soil_rating: number | null
     soil_rating_type: string | null
+    price_per_acre?: number | null
+    price_per_tillable_acre?: number | null
+    price_per_soil_rating?: number | null
+    sale_price?: number | null
+    sale_status?: string | null
   }) => void
   /** Called on each Compute Soil Rating (BEFORE save) with the freshly computed
    *  values, so a parent can show them as the "Computed" option in a
@@ -1291,6 +1296,11 @@ export default function TillableCluWorkshop({
         tillable_acres: data.tillable_acres ?? null,
         soil_rating: data.soil_rating ?? null,
         soil_rating_type: data.soil_rating_type ?? null,
+        price_per_acre: data.price_per_acre ?? null,
+        price_per_tillable_acre: data.price_per_tillable_acre ?? null,
+        price_per_soil_rating: data.price_per_soil_rating ?? null,
+        sale_price: data.sale_price ?? null,
+        sale_status: data.sale_status ?? null,
       })
     } catch (e: any) {
       setStatus(`✗ Save failed: ${e.message || e}`)

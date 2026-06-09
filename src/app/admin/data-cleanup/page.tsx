@@ -84,6 +84,11 @@ type LiveTract = {
   tillable_acres: number | null
   soil_rating: number | null
   soil_rating_type: string | null
+  sale_status: string | null
+  sale_price: number | null
+  price_per_acre: number | null
+  price_per_tillable_acre: number | null
+  price_per_soil_rating: number | null
   has_house: boolean | null
   has_buildings: boolean | null
   land_types: string[] | null
@@ -98,6 +103,10 @@ type LiveTract = {
   boundary_reviewed_at: string | null
   image_url: string | null
 }
+
+// $ formatter for the read-only derived stats (— when null/blank).
+const fmtMoney = (v: number | null | undefined) =>
+  v == null ? '—' : `$${Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 })}`
 
 type LoadedListing = {
   loading: boolean
@@ -275,6 +284,11 @@ export default function TractDataCleanupPage() {
         tillable_acres: t.tillable_acres != null ? Number(t.tillable_acres) : null,
         soil_rating: t.soil_rating != null ? Number(t.soil_rating) : null,
         soil_rating_type: t.soil_rating_type ?? null,
+        sale_status: t.sale_status ?? null,
+        sale_price: t.sale_price != null ? Number(t.sale_price) : null,
+        price_per_acre: t.price_per_acre != null ? Number(t.price_per_acre) : null,
+        price_per_tillable_acre: t.price_per_tillable_acre != null ? Number(t.price_per_tillable_acre) : null,
+        price_per_soil_rating: t.price_per_soil_rating != null ? Number(t.price_per_soil_rating) : null,
         has_house: t.has_house ?? null,
         has_buildings: t.has_buildings ?? null,
         land_types: Array.isArray(t.land_types) ? t.land_types : (t.land_type ? [t.land_type] : []),
@@ -360,6 +374,23 @@ export default function TractDataCleanupPage() {
         body: JSON.stringify(fields),
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      // The PATCH reconciles the price triangle + rolls listing totals, so the
+      // response carries the recomputed $/x. Reflect them so the read-only
+      // panel updates immediately when acres / tillable / price changed.
+      const u = await res.json().catch(() => null)
+      if (u) {
+        patchTract(lid, tract.id, {
+          total_acres: u.total_acres != null ? Number(u.total_acres) : null,
+          tillable_acres: u.tillable_acres != null ? Number(u.tillable_acres) : null,
+          soil_rating: u.soil_rating != null ? Number(u.soil_rating) : null,
+          soil_rating_type: u.soil_rating_type ?? null,
+          sale_status: u.sale_status ?? null,
+          sale_price: u.sale_price != null ? Number(u.sale_price) : null,
+          price_per_acre: u.price_per_acre != null ? Number(u.price_per_acre) : null,
+          price_per_tillable_acre: u.price_per_tillable_acre != null ? Number(u.price_per_tillable_acre) : null,
+          price_per_soil_rating: u.price_per_soil_rating != null ? Number(u.price_per_soil_rating) : null,
+        })
+      }
     } catch (e: any) {
       alert(`Could not save tract value: ${e.message || e}`)
       loadListing(lid) // reload to revert the optimistic patch
@@ -1033,6 +1064,11 @@ export default function TractDataCleanupPage() {
                                   <span>Total: <span className="text-white font-medium">{tract.total_acres != null ? `${tract.total_acres.toFixed(1)} ac` : '—'}</span></span>
                                   <span>Tillable: <span className="text-white font-medium">{tract.tillable_acres != null ? `${tract.tillable_acres.toFixed(1)} ac` : '—'}</span></span>
                                   <span>Soil: <span className="text-white font-medium">{tract.soil_rating != null ? `${tract.soil_rating.toFixed(1)} ${tract.soil_rating_type || ''}` : '—'}</span></span>
+                                  <span>Sale: <span className="text-white font-medium">{tract.sale_status ? tract.sale_status.replace('_', ' ') : '—'}</span></span>
+                                  <span>Sold price: <span className="text-white font-medium">{fmtMoney(tract.sale_price)}</span></span>
+                                  <span>$/acre: <span className="text-white font-medium">{fmtMoney(tract.price_per_acre)}</span></span>
+                                  <span>$/tillable: <span className="text-white font-medium">{fmtMoney(tract.price_per_tillable_acre)}</span></span>
+                                  <span>$/soil pt: <span className="text-white font-medium">{fmtMoney(tract.price_per_soil_rating)}</span></span>
                                   <span>Polygon: <span className="text-white font-medium">{ring && ring.length ? `${ring.length} pts` : 'none'}</span></span>
                                   {/* For actionable tracts, Has House / Has Buildings live inside the
                                       comparison box below; show them here only for locked tracts. */}
@@ -1151,6 +1187,12 @@ export default function TractDataCleanupPage() {
                                           tillable_acres: r.tillable_acres ?? tract.tillable_acres,
                                           soil_rating: r.soil_rating ?? tract.soil_rating,
                                           soil_rating_type: r.soil_rating_type ?? tract.soil_rating_type,
+                                          // Derived $/x recomputed server-side on save → refresh the panel.
+                                          sale_price: r.sale_price ?? tract.sale_price,
+                                          sale_status: r.sale_status ?? tract.sale_status,
+                                          price_per_acre: r.price_per_acre ?? tract.price_per_acre,
+                                          price_per_tillable_acre: r.price_per_tillable_acre ?? tract.price_per_tillable_acre,
+                                          price_per_soil_rating: r.price_per_soil_rating ?? tract.price_per_soil_rating,
                                         })
                                       }}
                                       // Capture the freshly-computed tillable + soil as the "Computed"
