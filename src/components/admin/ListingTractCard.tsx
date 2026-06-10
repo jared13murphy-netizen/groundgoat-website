@@ -11,8 +11,7 @@ const API_URL = 'https://practical-serenity-production.up.railway.app'
 
 const LAND_TYPES = ['Farm', 'Recreational', 'Pasture', 'Timber', 'Hunting', 'Vacant Land', 'CRP', 'Commercial', 'Residential', 'Development', 'Other']
 const SOIL_TYPES = ['PI', 'CSR2', 'CPI', 'NCCPI', 'WAPI']
-const SALE_STATUSES = ['auction', 'listed', 'pending', 'sold', 'no_sale']
-const SALE_TYPES = ['auction', 'private_treaty', 'estate', 'exchange', 'other']
+const SALE_STATUSES = ['listed', 'live', 'pending', 'sold', 'no_sale']  // 'auction' retired
 
 type Pt = [number, number]
 
@@ -34,8 +33,8 @@ const acres = (v: any) =>
 // edit total_acres → $/acre; etc.) and never gets a conflicting pair.
 // 'land_type' is NOT here — land types are managed by the auto-saving
 // LandTypeButtons (multi-value land_types), not the scalar form Save.
-const STR_FIELDS = ['name', 'description', 'soil_rating_type', 'sale_status', 'sale_type', 'price_basis', 'buyer', 'seller']
-const NUM_FIELDS = ['total_acres', 'tillable_acres', 'soil_rating', 'csr2', 'sale_price', 'price_per_acre']
+const STR_FIELDS = ['name', 'description', 'soil_rating_type', 'sale_status', 'price_basis', 'buyer', 'seller']
+const NUM_FIELDS = ['total_acres', 'tillable_acres', 'soil_rating', 'sale_price', 'price_per_acre']
 const BOOL_FIELDS = ['has_house', 'has_buildings']
 
 export default function ListingTractCard({ tract, listing, onChanged }: Props) {
@@ -263,17 +262,8 @@ export default function ListingTractCard({ tract, listing, onChanged }: Props) {
           <label className={labelCls}>Land types (click to add / remove — saves instantly)</label>
           <LandTypeButtons value={landTypes} onChange={saveLandTypes} />
         </div>
-        <div>
-          <label className={labelCls}>CSR2</label>
-          <input type="number" step="0.01" className={inputCls} value={form.csr2} onChange={(e) => set('csr2', e.target.value)} />
-        </div>
-        <div>
-          <label className={labelCls}>Sale type</label>
-          <select className={selectCls} value={form.sale_type} onChange={(e) => set('sale_type', e.target.value)}>
-            <option value="">—</option>
-            {SALE_TYPES.map((t) => <option key={t} value={t}>{t.replace('_', ' ')}</option>)}
-          </select>
-        </div>
+        {/* CSR2 field removed (captured by soil rating + type). Sale type removed —
+            it's now auto-derived from the listing's type on the backend. */}
         <div>
           <label className={labelCls}>Buyer</label>
           <input type="text" className={inputCls} value={form.buyer} onChange={(e) => set('buyer', e.target.value)} />
