@@ -610,68 +610,100 @@ function SignUpContent() {
     try {
       const trimmedEmail = formData.email.trim().toLowerCase()
 
-      // Check if email already exists — if so, skip registration and log in directly
-      let authData
-      const checkResponse = await fetch(`${API_URL}/api/auth/check-email?email=${encodeURIComponent(trimmedEmail)}`)
-      const checkData = checkResponse.ok ? await checkResponse.json() : { exists: false }
+      let accessToken: string
 
-      if (checkData.exists) {
-        // Account already exists — log in and continue to checkout
-        const loginResponse = await fetch(`${API_URL}/api/auth/login`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            email: trimmedEmail,
-            password: formData.password,
-          }),
-        })
-        if (!loginResponse.ok) {
-          throw new Error('This email is already registered. Please check your password and try again.')
+      if (!trimmedEmail) {
+        // No account details on the form — the user arrived directly at plan
+        // selection (redirected from /signin or the "Choose a Plan" banner)
+        // and is already signed in. Use the existing session for checkout.
+        const existingToken = localStorage.getItem('auth_token')
+        if (!existingToken) {
+          router.push('/signin')
+          return
         }
-        authData = await loginResponse.json()
-      } else {
-        // Register the user with referral code and verification token
-        const registerResponse = await fetch(`${API_URL}/api/auth/register`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            first_name: formData.firstName,
-            last_name: formData.lastName,
-            email: trimmedEmail,
-            password: formData.password,
-            home_state: getStateAbbreviation(formData.homeState),
-            home_county: formData.homeCounty,
-            referral_code: referralCode,
-            verification_token: verificationToken,
-          }),
+        const meResponse = await fetch(`${API_URL}/api/auth/me`, {
+          headers: { 'Authorization': `Bearer ${existingToken}` }
         })
-
-        if (!registerResponse.ok) {
-          const data = await registerResponse.json().catch(() => ({}))
-          throw new Error(parseApiError(data, 'Registration failed. Please try again.'))
+        if (!meResponse.ok) {
+          // Stale session — have them sign in again
+          localStorage.removeItem('auth_token')
+          router.push('/signin')
+          return
         }
-        authData = await registerResponse.json()
-      }
-
-      localStorage.setItem('auth_token', authData.access_token)
-      if (authData.refresh_token) {
-        localStorage.setItem('refresh_token', authData.refresh_token)
-      }
-      // Clear referral code after successful registration
-      localStorage.removeItem('groundgoat_referral_code')
-
-      const userResponse = await fetch(`${API_URL}/api/auth/me`, {
-        headers: { 'Authorization': `Bearer ${authData.access_token}` }
-      })
-      
-      if (userResponse.ok) {
-        const userData = await userResponse.json()
+        accessToken = existingToken
+        const userData = await meResponse.json()
         localStorage.setItem('user', JSON.stringify(userData))
-        
+
         // Skip subscription for Ground Goat employees
         if (userData.account_type === 'groundgoat_sales' || userData.account_type === 'groundgoat_admin') {
           router.push('/account?welcome=true')
           return
+        }
+      } else {
+        // Check if email already exists — if so, skip registration and log in directly
+        let authData
+        const checkResponse = await fetch(`${API_URL}/api/auth/check-email?email=${encodeURIComponent(trimmedEmail)}`)
+        const checkData = checkResponse.ok ? await checkResponse.json() : { exists: false }
+
+        if (checkData.exists) {
+          // Account already exists — log in and continue to checkout
+          const loginResponse = await fetch(`${API_URL}/api/auth/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              email: trimmedEmail,
+              password: formData.password,
+            }),
+          })
+          if (!loginResponse.ok) {
+            throw new Error('This email is already registered. Please check your password and try again.')
+          }
+          authData = await loginResponse.json()
+        } else {
+          // Register the user with referral code and verification token
+          const registerResponse = await fetch(`${API_URL}/api/auth/register`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              first_name: formData.firstName,
+              last_name: formData.lastName,
+              email: trimmedEmail,
+              password: formData.password,
+              home_state: getStateAbbreviation(formData.homeState),
+              home_county: formData.homeCounty,
+              referral_code: referralCode,
+              verification_token: verificationToken,
+            }),
+          })
+
+          if (!registerResponse.ok) {
+            const data = await registerResponse.json().catch(() => ({}))
+            throw new Error(parseApiError(data, 'Registration failed. Please try again.'))
+          }
+          authData = await registerResponse.json()
+        }
+
+        accessToken = authData.access_token
+        localStorage.setItem('auth_token', authData.access_token)
+        if (authData.refresh_token) {
+          localStorage.setItem('refresh_token', authData.refresh_token)
+        }
+        // Clear referral code after successful registration
+        localStorage.removeItem('groundgoat_referral_code')
+
+        const userResponse = await fetch(`${API_URL}/api/auth/me`, {
+          headers: { 'Authorization': `Bearer ${accessToken}` }
+        })
+
+        if (userResponse.ok) {
+          const userData = await userResponse.json()
+          localStorage.setItem('user', JSON.stringify(userData))
+
+          // Skip subscription for Ground Goat employees
+          if (userData.account_type === 'groundgoat_sales' || userData.account_type === 'groundgoat_admin') {
+            router.push('/account?welcome=true')
+            return
+          }
         }
       }
 
@@ -681,7 +713,7 @@ function SignUpContent() {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${authData.access_token}`
+            'Authorization': `Bearer ${accessToken}`
           },
           body: JSON.stringify({
             subscription_type: selectedPlan,
