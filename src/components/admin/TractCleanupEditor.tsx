@@ -38,6 +38,16 @@ interface TractCleanupEditorProps {
   onChanged: () => void | Promise<void>
 }
 
+// Whether the "Which price is correct?" basis question applies (and therefore
+// gates the editors). Result-recorded AUCTIONS (sold/pending/no_sale) need it.
+// PRIVATE TREATY listings only need it when SOLD — a listed/active or unsold PT
+// has only an asking price, so there's no sale total vs $/acre to reconcile.
+function priceBasisApplies(tract: any, listing: any): boolean {
+  const status = String(tract?.sale_status || '')
+  if (listing?.listing_type === 'private_treaty') return status === 'sold'
+  return ['sold', 'pending', 'no_sale'].includes(status)
+}
+
 export default function TractCleanupEditor({ tract, listing, onChanged }: TractCleanupEditorProps) {
   // Per-tract COMPUTED values (acres from the map editor's live polygon, tillable
   // + soil from the CLU workshop's Compute) and the per-field source PICK.
@@ -71,7 +81,7 @@ export default function TractCleanupEditor({ tract, listing, onChanged }: TractC
     // declared which price is the truth. Block the edit client-side with a clear
     // prompt (the backend also rejects it as a hard backstop).
     const changingAcres = 'total_acres' in fields && fields.total_acres != null
-    const needsBasis = ['sold', 'pending', 'no_sale'].includes(String(tract.sale_status || ''))
+    const needsBasis = priceBasisApplies(tract, listing)
     if (changingAcres && needsBasis && !tract.edit_price_basis && fields.price_basis == null) {
       alert('Before changing this sold tract’s acres, choose which price is correct — the total price or the $/acre — using the "Which price is correct?" selector above. That keeps the price from being changed incorrectly.')
       await onChanged()  // revert optimistic
@@ -174,10 +184,10 @@ export default function TractCleanupEditor({ tract, listing, onChanged }: TractC
 
   const reviewed = !!tract.boundary_reviewed_by
 
-  // Price basis only applies to result-recorded auctions (sold / pending /
-  // no_sale). Listed / Live (asking-price) tracts skip it entirely. When a
-  // result tract has no basis yet, ALL editing is gated until it's picked.
-  const needsBasis = ['sold', 'pending', 'no_sale'].includes(String(tract.sale_status || ''))
+  // See priceBasisApplies(): result-recorded auctions need it; private treaty
+  // needs it only when SOLD. When it applies and no basis is picked yet, ALL
+  // editing is gated until the admin chooses.
+  const needsBasis = priceBasisApplies(tract, listing)
   // Only an EXACT valid basis unlocks editing — any other value (null, '', junk) gates.
   const hasValidBasis = tract.edit_price_basis === 'per_acre' || tract.edit_price_basis === 'lump_sum'
   const basisGate = needsBasis && !hasValidBasis
