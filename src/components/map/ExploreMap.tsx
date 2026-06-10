@@ -19,6 +19,7 @@ import {
   GLYPH_URL,
   LABEL_TILE_URL,
   STATUS_COLORS,
+  derivePinStatus,
 } from './mapConstants'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { toRings as toTractRings, ringsToGeometry } from '@/lib/polygonRings'
@@ -3938,10 +3939,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // tract as a "+" button instead of the regular labeled pin so
       // admin can scan the area and click in for sale details.
       const inCompMode = !!subjectTractIdRef.current
+      // Blue 'auction' pin now derives from listing_type + an upcoming status
+      // (the 'auction' status value was retired). derivePinStatus handles data
+      // before and after the auction→listed migration.
+      const pinStatus = derivePinStatus(tract.sale_status, tract.listing_type)
       const el = createMarkerElement(
         markerPpa,
         tract.total_acres,
-        tract.sale_status,
+        pinStatus,
         isAuctionToday,
         inCompMode,
       )
@@ -3951,7 +3956,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // state + county badges and any other pin.
       // Stashed in a dataset so the report-highlight effect can restore it.
       const isLive = isAuctionToday
-      const statusZ = String(getStatusPinZ(tract.sale_status, isLive))
+      const statusZ = String(getStatusPinZ(pinStatus, isLive))
       el.dataset.statusZ = statusZ
       el.style.zIndex = statusZ
 
