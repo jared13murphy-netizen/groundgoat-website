@@ -221,12 +221,6 @@ export default function TractDataCleanupPage() {
   const [savingTractNumId, setSavingTractNumId] = useState<string | null>(null)
   // Listing-level Verify: in-flight marker for the whole-listing verify button.
   const [verifyingId, setVerifyingId] = useState<string | null>(null)
-  // Rescrape: listing in-flight + per-listing result banner. Proposals are keyed
-  // by tract id; bumping `nonce` makes that tract's TractMapEditor load the
-  // proposed boundary as a dirty edit for review-then-Save. NOTHING is written
-  // to our DB until the human Saves — and the rescrape never touches Auction/PT
-  // staging (no listing_staging record is created).
-  const [rescrapingId, setRescrapingId] = useState<string | null>(null)
   // Delete & Rescrape (destructive clean re-scrape). Target = the row awaiting
   // confirmation in the modal; deleteRescrapingId = the row mid-request.
   const [deleteRescrapeTarget, setDeleteRescrapeTarget] = useState<QueueItem | null>(null)
@@ -235,7 +229,8 @@ export default function TractDataCleanupPage() {
   // listing's current type but is overridable in the modal — a listing's type
   // can change (e.g. an unsold auction relisted as a private treaty).
   const [rescrapeAsType, setRescrapeAsType] = useState<'auction' | 'private_treaty'>('auction')
-  const [rescrapeMsg, setRescrapeMsg] = useState<Record<string, string | null>>({})
+  // Proposed boundaries keyed by tract id; bumping `nonce` makes that tract's
+  // TractMapEditor load the proposed boundary as a dirty edit for review.
   const [proposals, setProposals] = useState<Record<string, {
     coords: [number, number][]
     proposed_acres: number | null
@@ -672,9 +667,6 @@ export default function TractDataCleanupPage() {
     } finally { setVerifyingId(null) }
   }
 
-  // Rescrape a listing's source URL and load proposed boundaries into each
-  // tract's editor for review. Stays entirely within this screen — the backend
-  // endpoint creates NO staging record, so nothing appears on Auction/PT Staging.
   // DESTRUCTIVE: delete this listing and re-scrape its URL from scratch into
   // Staging. Confirmed via the modal. Removes the row on success.
   async function deleteAndRescrape(item: QueueItem) {
@@ -703,55 +695,6 @@ export default function TractDataCleanupPage() {
     } finally {
       setDeleteRescrapingId(null)
     }
-  }
-
-  async function rescrapeListing(lid: string) {
-    // Editors must be mounted for proposals to land, so expand + load first.
-    setExpandedId(lid)
-    if (!loadedListings[lid] || loadedListings[lid].error) await loadListing(lid)
-    setRescrapingId(lid)
-    setRescrapeMsg((prev) => ({ ...prev, [lid]: null }))
-    // A rescrape re-runs the full extraction pipeline (backend waits up to
-    // 300s on the scraper). fetchWithAuth's default 20s timeout aborts that
-    // mid-flight — surfaced as "signal is aborted without reason". Supplying
-    // our own signal makes fetchWithAuth skip its 20s cap; we abort at 280s,
-    // just under the backend's 300s scraper timeout.
-    const ctrl = new AbortController()
-    const timeoutId = window.setTimeout(() => ctrl.abort(), 280_000)
-    try {
-      const res = await fetchWithAuth(`${API_URL}/api/admin/tract-cleanup/${lid}/rescrape`, { method: 'POST', signal: ctrl.signal })
-      const data = await res.json()
-      if (!res.ok || !data.success) throw new Error(data.detail || `HTTP ${res.status}`)
-      setProposals((prev) => {
-        const next = { ...prev }
-        for (const p of (data.proposals || [])) {
-          if (p.found && Array.isArray(p.proposed_coordinates) && p.proposed_coordinates.length >= 3) {
-            next[p.tract_id] = {
-              coords: p.proposed_coordinates,
-              proposed_acres: p.proposed_acres ?? null,
-              reported_acres: p.reported_acres ?? null,
-              pct_difference: p.pct_difference ?? null,
-              source: p.coordinates_source ?? null,
-              nonce: (prev[p.tract_id]?.nonce || 0) + 1,
-            }
-          }
-        }
-        return next
-      })
-      const matched = data.matched_count || 0
-      const total = (data.proposals || []).length
-      setRescrapeMsg((prev) => ({
-        ...prev,
-        [lid]: matched > 0
-          ? `Loaded ${matched} of ${total} proposed boundar${matched === 1 ? 'y' : 'ies'} onto the map — review each against the source, then Save to apply (or Cancel to discard).`
-          : `Rescrape extracted no usable boundaries (scraped ${data.scraped_tracts_total || 0} tract(s)). Draw or upload manually.`,
-      }))
-    } catch (e: any) {
-      const msg = e?.name === 'AbortError'
-        ? 'Rescrape timed out (the source page took too long to extract). Try again, or draw/upload manually.'
-        : `Rescrape failed: ${e.message || e}`
-      setRescrapeMsg((prev) => ({ ...prev, [lid]: msg }))
-    } finally { window.clearTimeout(timeoutId); setRescrapingId(null) }
   }
 
   const pageStart = total === 0 ? 0 : offset + 1
@@ -1001,20 +944,14 @@ export default function TractDataCleanupPage() {
                         className="bg-gg-gray-800 border border-gg-gray-700 rounded px-2 py-1 text-xs text-white disabled:opacity-50">
                         {STATUSES.map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
                       </select>
-                      {/* Rescrape this listing's source URL and load proposed
-                          boundaries into the editors below. Stays in Data
-                          Clean-Up — never goes to Auction/PT Staging. */}
-                      <button
-                        onClick={() => rescrapeListing(it.listing_id)}
-                        disabled={rescrapingId === it.listing_id || !it.source_url}
-                        title={it.source_url ? 'Re-scrape the source URL for fresh boundaries (review here, not in staging)' : 'No source URL to rescrape'}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium border border-gg-gray-700 bg-gg-gray-800 text-white hover:bg-gg-gray-700 disabled:opacity-50"
+                      {/* Open this listing in the full Edit Listing screen. */}
+                      <Link
+                        href={`/admin/listings/${it.listing_id}`}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium border border-gg-gray-700 bg-gg-gray-800 text-white hover:bg-gg-gray-700"
                       >
-                        {rescrapingId === it.listing_id
-                          ? <Loader2 className="animate-spin" size={13} />
-                          : <RefreshCw size={13} />}
-                        Rescrape
-                      </button>
+                        <Pencil size={13} />
+                        Edit Listing
+                      </Link>
                       {/* DESTRUCTIVE: delete the listing and re-scrape its URL
                           from scratch into Staging. For listings whose scraped
                           data is wrong end-to-end. Confirmed via modal. */}
@@ -1070,13 +1007,6 @@ export default function TractDataCleanupPage() {
                             Soil mapping isn&apos;t done for {it.state || 'this state'} yet — tracts are shown for
                             review but the polygon / tillable / soil editors are locked. Don&apos;t update these yet.
                           </span>
-                        </div>
-                      )}
-
-                      {rescrapeMsg[it.listing_id] && (
-                        <div className="flex items-center gap-2 mb-4 px-3 py-2 bg-sky-500/10 border border-sky-500/40 rounded-lg text-sky-700 text-sm">
-                          <RefreshCw size={14} className="flex-shrink-0" />
-                          {rescrapeMsg[it.listing_id]}
                         </div>
                       )}
 
