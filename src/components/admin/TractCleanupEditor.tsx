@@ -72,7 +72,7 @@ export default function TractCleanupEditor({ tract, listing, onChanged }: TractC
     // prompt (the backend also rejects it as a hard backstop).
     const changingAcres = 'total_acres' in fields && fields.total_acres != null
     const needsBasis = ['sold', 'pending', 'no_sale'].includes(String(tract.sale_status || ''))
-    if (changingAcres && needsBasis && !tract.price_basis && fields.price_basis == null) {
+    if (changingAcres && needsBasis && !tract.edit_price_basis && fields.price_basis == null) {
       alert('Before changing this sold tract’s acres, choose which price is correct — the total price or the $/acre — using the "Which price is correct?" selector above. That keeps the price from being changed incorrectly.')
       await onChanged()  // revert optimistic
       return
@@ -179,15 +179,15 @@ export default function TractCleanupEditor({ tract, listing, onChanged }: TractC
   // result tract has no basis yet, ALL editing is gated until it's picked.
   const needsBasis = ['sold', 'pending', 'no_sale'].includes(String(tract.sale_status || ''))
   // Only an EXACT valid basis unlocks editing — any other value (null, '', junk) gates.
-  const hasValidBasis = tract.price_basis === 'per_acre' || tract.price_basis === 'lump_sum'
+  const hasValidBasis = tract.edit_price_basis === 'per_acre' || tract.edit_price_basis === 'lump_sum'
   const basisGate = needsBasis && !hasValidBasis
 
   // The basis question block — loud colors, shown for result-recorded tracts.
   const basisBlock = needsBasis ? (
-    <div className={`mb-4 rounded-lg border-2 px-4 py-3 text-center ${tract.price_basis ? 'border-gg-gray-700 bg-gg-gray-900' : 'border-amber-400 bg-amber-400/15'}`}>
+    <div className={`mb-4 rounded-lg border-2 px-4 py-3 text-center ${tract.edit_price_basis ? 'border-gg-gray-700 bg-gg-gray-900' : 'border-amber-400 bg-amber-400/15'}`}>
       <div className="flex items-center justify-center gap-3 flex-wrap">
-        <span className={`text-sm font-bold ${tract.price_basis ? 'text-white' : 'text-amber-300'}`}>
-          {tract.price_basis
+        <span className={`text-sm font-bold ${tract.edit_price_basis ? 'text-white' : 'text-amber-300'}`}>
+          {tract.edit_price_basis
             ? 'Which price is correct?'
             : '⚠ First, which price is correct for this sale?'}
         </span>
@@ -195,21 +195,21 @@ export default function TractCleanupEditor({ tract, listing, onChanged }: TractC
           type="button"
           onClick={() => saveTractFields({ price_basis: 'lump_sum' })}
           className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors"
-          style={tract.price_basis === 'lump_sum'
+          style={tract.edit_price_basis === 'lump_sum'
             ? { backgroundColor: '#c563ad', color: '#ffffff', border: '2px solid #000000' }
             : { backgroundColor: '#2a2a2a', color: '#bbbbbb' }}
         >
-          {tract.price_basis === 'lump_sum' ? '✓ ' : ''}Total price is correct
+          {tract.edit_price_basis === 'lump_sum' ? '✓ ' : ''}Total price is correct
         </button>
         <button
           type="button"
           onClick={() => saveTractFields({ price_basis: 'per_acre' })}
           className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors"
-          style={tract.price_basis === 'per_acre'
+          style={tract.edit_price_basis === 'per_acre'
             ? { backgroundColor: '#c563ad', color: '#ffffff', border: '2px solid #000000' }
             : { backgroundColor: '#2a2a2a', color: '#bbbbbb' }}
         >
-          {tract.price_basis === 'per_acre' ? '✓ ' : ''}$/acre is correct
+          {tract.edit_price_basis === 'per_acre' ? '✓ ' : ''}$/acre is correct
         </button>
       </div>
       {/* Current values to help decide which price is correct. */}
@@ -219,9 +219,9 @@ export default function TractCleanupEditor({ tract, listing, onChanged }: TractC
         <span>Saved acres: <span className="text-white font-semibold">{num(tract.total_acres) != null ? `${num(tract.total_acres)!.toFixed(2)} ac` : '—'}</span></span>
       </div>
       <p className="text-[11px] text-gg-gray-400 mt-1.5">
-        {tract.price_basis === 'per_acre'
+        {tract.edit_price_basis === 'per_acre'
           ? 'Locked: $/acre. Changing acres will recompute the TOTAL price.'
-          : tract.price_basis === 'lump_sum'
+          : tract.edit_price_basis === 'lump_sum'
           ? 'Locked: total price. Changing acres will recompute the $/acre.'
           : 'You must answer this before editing the polygon, tillable, or acres.'}
       </p>
