@@ -26,6 +26,12 @@ const API_URL = 'https://practical-serenity-production.up.railway.app'
 const fmtMoney = (n: any) =>
   n != null && n !== '' ? '$' + Math.round(Number(n)).toLocaleString() : '—'
 
+// The listings API serializes Decimal columns (total_acres, soil_rating, …) as
+// STRINGS. Coerce to a real number (or null) before any .toFixed()/math or before
+// passing to sub-components that expect numbers — otherwise "167.16".toFixed() throws
+// and crashes the whole editor. (data-cleanup holds these as Numbers already.)
+const num = (v: any): number | null => (v == null || v === '' ? null : Number(v))
+
 interface TractCleanupEditorProps {
   tract: any
   listing: any
@@ -210,7 +216,7 @@ export default function TractCleanupEditor({ tract, listing, onChanged }: TractC
       <div className="mt-2 flex flex-wrap justify-center gap-x-5 gap-y-1 text-xs text-gg-gray-400">
         <span>Total price: <span className="text-white font-semibold">{fmtMoney(tract.sale_price)}</span></span>
         <span>$/acre: <span className="text-white font-semibold">{fmtMoney(tract.price_per_acre)}</span></span>
-        <span>Saved acres: <span className="text-white font-semibold">{tract.total_acres != null ? `${tract.total_acres.toFixed(2)} ac` : '—'}</span></span>
+        <span>Saved acres: <span className="text-white font-semibold">{num(tract.total_acres) != null ? `${num(tract.total_acres)!.toFixed(2)} ac` : '—'}</span></span>
       </div>
       <p className="text-[11px] text-gg-gray-400 mt-1.5">
         {tract.price_basis === 'per_acre'
@@ -225,9 +231,9 @@ export default function TractCleanupEditor({ tract, listing, onChanged }: TractC
   // Read-only stat box — dark, centered, shown down by the action button.
   const statsBox = (
     <div className="flex-1 flex flex-wrap items-center justify-center gap-x-5 gap-y-1 rounded-lg bg-gg-gray-900 border border-gg-gray-800 px-4 py-3 text-xs text-gg-gray-300 text-center">
-      <span>Total: <span className="text-white font-medium">{tract.total_acres != null ? `${tract.total_acres.toFixed(1)} ac` : '—'}</span></span>
-      <span>Tillable: <span className="text-white font-medium">{tract.tillable_acres != null ? `${tract.tillable_acres.toFixed(1)} ac` : '—'}</span></span>
-      <span>Soil: <span className="text-white font-medium">{tract.soil_rating != null ? `${tract.soil_rating.toFixed(1)} ${tract.soil_rating_type || ''}` : '—'}</span></span>
+      <span>Total: <span className="text-white font-medium">{num(tract.total_acres) != null ? `${num(tract.total_acres)!.toFixed(1)} ac` : '—'}</span></span>
+      <span>Tillable: <span className="text-white font-medium">{num(tract.tillable_acres) != null ? `${num(tract.tillable_acres)!.toFixed(1)} ac` : '—'}</span></span>
+      <span>Soil: <span className="text-white font-medium">{num(tract.soil_rating) != null ? `${num(tract.soil_rating)!.toFixed(1)} ${tract.soil_rating_type || ''}` : '—'}</span></span>
       <span>Sale: <span className="text-white font-medium">{tract.sale_status ? tract.sale_status.replace('_', ' ') : '—'}</span></span>
       <span>Sold price: <span className="text-white font-medium">{fmtMoney(tract.sale_price)}</span></span>
       <span>$/acre: <span className="text-white font-medium">{fmtMoney(tract.price_per_acre)}</span></span>
@@ -279,9 +285,9 @@ export default function TractCleanupEditor({ tract, listing, onChanged }: TractC
             listingUrl={listing.source_url}
             listingState={tract.state_abbr || listing.state}
             listingAddress={listing.address}
-            scrapedAcres={tract.total_acres}
-            latitude={tract.latitude}
-            longitude={tract.longitude}
+            scrapedAcres={num(tract.total_acres)}
+            latitude={num(tract.latitude)}
+            longitude={num(tract.longitude)}
             onUpdate={() => {
               setCluReload((n) => n + 1)
               onChanged()
@@ -295,8 +301,8 @@ export default function TractCleanupEditor({ tract, listing, onChanged }: TractC
           <TillableCluWorkshop
             tractId={tract.id}
             reloadKey={cluReload}
-            latitude={tract.latitude}
-            longitude={tract.longitude}
+            latitude={num(tract.latitude)}
+            longitude={num(tract.longitude)}
             onSaved={() => { onChanged() }}
             // Capture the freshly-computed tillable + soil as the "Computed"
             // source (fires on Compute, BEFORE the admin saves).
@@ -321,9 +327,9 @@ export default function TractCleanupEditor({ tract, listing, onChanged }: TractC
               landTypes={tract.land_types}
               onLandTypesChange={(next) => saveTractLandTypes(next)}
               scraped={{
-                acres: tract.total_acres,
-                tillable_acres: tract.tillable_acres,
-                soil_rating: tract.soil_rating,
+                acres: num(tract.total_acres),
+                tillable_acres: num(tract.tillable_acres),
+                soil_rating: num(tract.soil_rating),
                 soil_rating_type: tract.soil_rating_type,
               }}
               computed={computed}
