@@ -6,7 +6,7 @@ import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Save, Loader2, Trash2, ExternalLink, Pencil, Plus, CheckCircle, ChevronDown, ChevronUp } from 'lucide-react'
 import { getCountiesForState } from '@/data/counties'
-import ListingTractCard from '@/components/admin/ListingTractCard'
+import TractCleanupEditor from '@/components/admin/TractCleanupEditor'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -1049,7 +1049,7 @@ export default function EditListingPage() {
                         </button>
                         {isOpen && (
                           <div className="px-3 pb-3">
-                            <ListingTractCard tract={tract} listing={listing} onChanged={refreshListing} />
+                            <TractCleanupEditor tract={tract} listing={listing} onChanged={refreshListing} />
                           </div>
                         )}
                       </div>
