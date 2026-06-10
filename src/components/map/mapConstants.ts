@@ -21,6 +21,21 @@ export const STATUS_COLORS: Record<string, { fill: string; border: string; opaci
 
 export const HOVER_OPACITY = 0.45
 
+// Pin status used for Explore-map COLORING. An upcoming/active AUCTION listing
+// shows the blue 'auction' pin even though its stored status is 'listed' — the
+// 'auction' STATUS value was retired, so blue now derives from
+// listing_type === 'auction' + an upcoming status (handles data before AND
+// after the auction→listed migration). Sold/pending/live/no_sale are unchanged.
+export function derivePinStatus(
+  saleStatus: string | null | undefined,
+  listingType: string | null | undefined,
+): string {
+  const s = (saleStatus || '').toLowerCase()
+  const upcoming = s === '' || s === 'listed' || s === 'active' || s === 'auction'
+  if (upcoming && (listingType || '').toLowerCase() === 'auction') return 'auction'
+  return saleStatus || 'listed'
+}
+
 // State bounding boxes: [[sw_lng, sw_lat], [ne_lng, ne_lat]]
 export const STATE_BOUNDS: Record<string, [[number, number], [number, number]]> = {
   IL: [[-91.513, 36.970], [-87.019, 42.508]],

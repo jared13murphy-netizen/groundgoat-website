@@ -1,6 +1,6 @@
 import type { ApiMapTract } from './exploreMapTypes'
 import type { StateAggregate } from './mapTypes'
-import { STATE_ABBR, STATE_BOUNDS, STATE_CENTERS, STATE_NAMES } from './mapConstants'
+import { STATE_ABBR, STATE_BOUNDS, STATE_CENTERS, STATE_NAMES, derivePinStatus } from './mapConstants'
 
 function getStateAbbr(state: string): string {
   return STATE_ABBR[state] || state
@@ -90,7 +90,7 @@ export function buildExplorePointGeoJSON(tracts: ApiMapTract[]): GeoJSON.Feature
           salePrice: t.sale_price,
           pricePerAcre: displayPricePerAcre,
           askingPrice: t.asking_price,
-          status: t.sale_status || 'listed',
+          status: derivePinStatus(t.sale_status, t.listing_type),
           dataResolution,
           companyName: t.company_name || 'Unknown',
           county: t.county,
@@ -135,7 +135,7 @@ export function buildExplorePolygonGeoJSON(tracts: ApiMapTract[]): GeoJSON.Featu
         properties: {
           tractId: t.id,
           listingId: t.listing_id,
-          status: t.sale_status || 'listed',
+          status: derivePinStatus(t.sale_status, t.listing_type),
           totalAcres: t.total_acres,
           pricePerAcre: displayPricePerAcre,
           salePrice: t.sale_price,
@@ -162,7 +162,7 @@ export function buildExploreStateAggregates(tracts: ApiMapTract[]): StateAggrega
     }
     const entry = stateMap.get(abbr)!
     entry.count++
-    const status = tract.sale_status || 'listed'
+    const status = derivePinStatus(tract.sale_status, tract.listing_type)
     entry.statusBreakdown[status] = (entry.statusBreakdown[status] || 0) + 1
   }
 
