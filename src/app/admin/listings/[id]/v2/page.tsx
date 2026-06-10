@@ -761,36 +761,8 @@ export default function EditListingPage() {
                   ))}
                 </select>
               </div>
-              <div>
-                <label className="block text-gg-gray-400 text-sm mb-1">City</label>
-                <input
-                  type="text"
-                  name="city"
-                  value={formData.city}
-                  onChange={handleChange}
-                  className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white"
-                />
-              </div>
-              <div>
-                <label className="block text-gg-gray-400 text-sm mb-1">ZIP</label>
-                <input
-                  type="text"
-                  name="zip"
-                  value={formData.zip}
-                  onChange={handleChange}
-                  className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white"
-                />
-              </div>
-              <div className="md:col-span-2">
-                <label className="block text-gg-gray-400 text-sm mb-1">Address</label>
-                <input
-                  type="text"
-                  name="address"
-                  value={formData.address}
-                  onChange={handleChange}
-                  className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white"
-                />
-              </div>
+              {/* City / ZIP / Address removed — location is identified by parcel # or lat/lng.
+                  Fields kept in the DB; just not edited here. */}
             </div>
           </div>
 
@@ -819,16 +791,7 @@ export default function EditListingPage() {
                     className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white"
                   />
                 </div>
-                <div className="md:col-span-2">
-                  <label className="block text-gg-gray-400 text-sm mb-1">Auction Location</label>
-                  <input
-                    type="text"
-                    name="auction_location"
-                    value={formData.auction_location}
-                    onChange={handleChange}
-                    className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white"
-                  />
-                </div>
+                {/* Auction Location input removed (kept in DB). */}
                 <div className="md:col-span-2">
                   <label className="block text-gg-gray-400 text-sm mb-1">Bidding URL</label>
                   <input
@@ -847,17 +810,19 @@ export default function EditListingPage() {
           <div className="bg-gg-gray-800/40 rounded-lg p-4">
             <h2 className="text-xl font-semibold text-white mb-4">Pricing</h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-gg-gray-400 text-sm mb-1">Asking Price ($)</label>
-                <input
-                  type="number"
-                  name="asking_price"
-                  value={formData.asking_price}
-                  onChange={handleChange}
-                  step="0.01"
-                  className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white"
-                />
-              </div>
+              {formData.listing_type === 'private_treaty' && (
+                <div>
+                  <label className="block text-gg-gray-400 text-sm mb-1">Asking Price ($)</label>
+                  <input
+                    type="number"
+                    name="asking_price"
+                    value={formData.asking_price}
+                    onChange={handleChange}
+                    step="0.01"
+                    className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white"
+                  />
+                </div>
+              )}
               <div>
                 <label className="block text-gg-gray-400 text-sm mb-1">Price per Acre ($)</label>
                 <input
