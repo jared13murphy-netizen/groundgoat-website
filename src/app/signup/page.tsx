@@ -95,7 +95,6 @@ function SignUpContent() {
   // Territory selection state
   const [availableStates, setAvailableStates] = useState<string[]>([])
   const [loadingStates, setLoadingStates] = useState(false)
-  const [selectedState, setSelectedState] = useState('')
   const [selectedAreas, setSelectedAreas] = useState<SelectedArea[]>([])
   const [showStateDropdown, setShowStateDropdown] = useState(false)
   
@@ -252,21 +251,17 @@ function SignUpContent() {
     return null
   }
 
-  const addArea = () => {
-    if (!selectedState) {
-      setError('Please select a state')
-      return
-    }
+  const addArea = (state: string) => {
     if (selectedAreas.length >= 5) {
       setError('Maximum of 5 states allowed')
       return
     }
-    const exists = selectedAreas.some(a => a.state === selectedState)
+    const exists = selectedAreas.some(a => a.state === state)
     if (exists) {
       setError('This state is already selected')
       return
     }
-    setSelectedAreas([...selectedAreas, { state: selectedState }])
+    setSelectedAreas([...selectedAreas, { state }])
     setError('')
   }
 
@@ -1247,8 +1242,8 @@ function SignUpContent() {
                       onClick={() => setShowStateDropdown(!showStateDropdown)}
                       className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-left text-white flex items-center justify-between focus:border-gg-pink focus:outline-none"
                     >
-                      <span className={selectedState ? 'text-white' : 'text-gg-gray-500'}>
-                        {selectedState || 'Select a state...'}
+                      <span className="text-gg-gray-500">
+                        Add a state...
                       </span>
                       <ChevronDown size={20} className={`text-gg-gray-500 transition-transform ${showStateDropdown ? 'rotate-180' : ''}`} />
                     </button>
@@ -1267,7 +1262,7 @@ function SignUpContent() {
                             <button
                               key={state}
                               onClick={() => {
-                                setSelectedState(state)
+                                addArea(state)
                                 setShowStateDropdown(false)
                               }}
                               className="w-full px-4 py-3 text-left text-gg-gray-300 hover:bg-gg-gray-700 hover:text-white transition-colors"
@@ -1280,15 +1275,6 @@ function SignUpContent() {
                     )}
                   </div>
                 </div>
-
-                <button
-                  onClick={addArea}
-                  disabled={selectedAreas.length >= 5}
-                  className="btn-secondary w-full flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <MapPin size={18} />
-                  Add State
-                </button>
               </div>
 
               {selectedAreas.length > 0 && (
