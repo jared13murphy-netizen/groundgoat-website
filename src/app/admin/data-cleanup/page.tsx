@@ -359,7 +359,15 @@ export default function TractDataCleanupPage() {
   }, [])
 
   function toggleExpand(lid: string) {
-    if (expandedId === lid) { setExpandedId(null); return }
+    if (expandedId === lid) {
+      // Collapsing — check if any tract under this listing has unsaved edits.
+      const hasDirty = Object.keys(dirtyTracts).some(k => k.startsWith(`${lid}::`) && dirtyTracts[k])
+      if (hasDirty && !window.confirm('Unsaved changes on one or more tracts will be discarded. Collapse anyway?')) {
+        return
+      }
+      setExpandedId(null)
+      return
+    }
     setExpandedId(lid)
     if (!loadedListings[lid] || loadedListings[lid].error) loadListing(lid)
   }
@@ -673,7 +681,10 @@ export default function TractDataCleanupPage() {
       loadStats()
       showToast(`Listing verified — ${count} tract${count === 1 ? '' : 's'} marked reviewed and set to Done.`, 'success')
       // Open the branded report PDF so the admin can double-check the data.
-      openListingReport(lid, { force: true })
+      const opened = await openListingReport(lid, { force: true })
+      if (!opened) {
+        showToast('Listing verified, but the PDF could not be regenerated — open the report manually from the Edit Listing screen.', 'error')
+      }
     } catch (e: any) {
       showToast(`Could not verify listing: ${e.message || e}`, 'error')
     } finally { setVerifyingId(null) }
@@ -1475,11 +1486,27 @@ export default function TractDataCleanupPage() {
                                           saveTractFields(it.listing_id, tract, fields)
                                         }}
                                         onManualChange={(field, value) => {
-                                          if (value == null) return // clearing on a live tract keeps the saved value
+                                          // value == null means the admin cleared the field — send null
+                                          // so the backend persists the clear (D11 fix).
                                           const fields: Record<string, any> = {}
                                           if (field === 'acres') fields.total_acres = value
                                           else if (field === 'tillable_acres') fields.tillable_acres = value
-                                          else fields.soil_rating = value // keep existing soil_rating_type
+                                          else {
+                                            fields.soil_rating = value
+                                            // D12: derive soil_rating_type from the tract's state so a
+                                            // manual rating entry doesn't leave a stale mismatched type.
+                                            if (value != null) {
+                                              const STATE_SOIL_LABELS: Record<string, string> = {
+                                                IL: 'PI', IA: 'CSR2', IN: 'WAPI', MO: 'NCCPI', MN: 'CPI',
+                                                NE: 'NCCPI', SD: 'PI', ND: 'PI', KS: 'NCCPI', OH: 'NCCPI',
+                                                MI: 'NCCPI', WI: 'PI', KY: 'NCCPI', TN: 'NCCPI', WV: 'NCCPI', VA: 'NCCPI',
+                                              }
+                                              const st = (tract.state_abbr || '').toUpperCase()
+                                              fields.soil_rating_type = STATE_SOIL_LABELS[st] ?? tract.soil_rating_type ?? null
+                                            } else {
+                                              fields.soil_rating_type = null
+                                            }
+                                          }
                                           saveTractFields(it.listing_id, tract, fields)
                                         }}
                                         onDirtyChange={(d) => setTractDirty(`${it.listing_id}::${tract.id}::data`, d)}
@@ -1489,8 +1516,8 @@ export default function TractDataCleanupPage() {
                                     <div className="flex items-center gap-3 mt-3">
                                       <button
                                         onClick={() => toggleReviewed(it.listing_id, tract)}
-                                        disabled={reviewingTractId === tract.id || !!dirtyTracts[`${it.listing_id}::${tract.id}::data`]}
-                                        title={dirtyTracts[`${it.listing_id}::${tract.id}::data`] ? 'Save changes first' : undefined}
+                                        disabled={reviewingTractId === tract.id || !!dirtyTracts[`${it.listing_id}::${tract.id}::data`] || !!dirtyTracts[`${it.listing_id}::${tract.id}::map`] || !!dirtyTracts[`${it.listing_id}::${tract.id}::till`]}
+                                        title={dirtyTracts[`${it.listing_id}::${tract.id}::data`] || dirtyTracts[`${it.listing_id}::${tract.id}::map`] || dirtyTracts[`${it.listing_id}::${tract.id}::till`] ? 'Save changes first' : undefined}
                                         className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                                           reviewed
                                             ? 'bg-green-600 text-white hover:bg-green-700'

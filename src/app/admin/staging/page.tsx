@@ -287,6 +287,17 @@ export default function AdminStagingPage() {
   // Default: all collapsed. Empty set = all collapsed.
   const [openTractIds, setOpenTractIds] = useState<Set<string>>(new Set())
   const toggleTract = (key: string) => {
+    const isOpen = openTractIds.has(key)
+    if (isOpen) {
+      // Collapsing — check if this tract has unsaved edits.
+      // Key format: "${listingId}-${tractIndex}"; dirty keys: "${listingId}::${tractIndex}::*"
+      const [listingIdStr, tractIdxStr] = key.split('-')
+      const dirtyPrefix = `${listingIdStr}::${tractIdxStr}::`
+      const hasDirty = Object.keys(dirtyTracts).some(k => k.startsWith(dirtyPrefix) && dirtyTracts[k])
+      if (hasDirty && !window.confirm('Unsaved changes on this tract will be discarded. Collapse anyway?')) {
+        return
+      }
+    }
     setOpenTractIds(prev => {
       const s = new Set(prev)
       if (s.has(key)) s.delete(key); else s.add(key)
@@ -940,7 +951,9 @@ export default function AdminStagingPage() {
       // unsaved in-memory edits (TractDataCompare Scraped/Computed picks, tract
       // number changes) must be PATCHed into scraped_data FIRST or they're lost.
       // Per user 2026-06-02: chosen "Scraped" picks were being ignored at verify.
-      if (item && !isRescrape) {
+      // Flush in-memory scraped_data (TractDataCompare picks, tract number
+      // changes) before any verify variant — rescrape reads scraped_data too.
+      if (item) {
         const patchRes = await fetchWithAuth(`${API_URL}/api/admin/staging/${id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
@@ -1007,6 +1020,22 @@ export default function AdminStagingPage() {
   const handlePublishIncomplete = async (id: number) => {
     setActionLoading(id)
     try {
+      // Flush in-memory scraped_data edits before publishing, same as the
+      // !isRescrape verify path — otherwise TractDataCompare picks, tract
+      // numbers, etc. are silently discarded.
+      const item = listings.find(l => l.id === id)
+      if (item) {
+        const patchRes = await fetchWithAuth(`${API_URL}/api/admin/staging/${id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ scraped_data: item.scraped_data }),
+        })
+        if (!patchRes.ok) {
+          showToast('error', 'Failed to save your selections before publishing — not published')
+          setActionLoading(null)
+          return
+        }
+      }
       const response = await fetchWithAuth(`${API_URL}/api/admin/staging/${id}/publish-incomplete`, {
         method: 'POST',
       })
@@ -1029,6 +1058,22 @@ export default function AdminStagingPage() {
     if (!duplicateModal) return
     setDuplicateModal(prev => prev ? { ...prev, loading: true } : null)
     try {
+      // Flush in-memory scraped_data edits before verify-replace, same as
+      // the !isRescrape verify path — TractDataCompare picks and tract number
+      // changes would otherwise be silently discarded.
+      const item = listings.find(l => l.id === duplicateModal.stagingId)
+      if (item) {
+        const patchRes = await fetchWithAuth(`${API_URL}/api/admin/staging/${duplicateModal.stagingId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ scraped_data: item.scraped_data }),
+        })
+        if (!patchRes.ok) {
+          showToast('error', 'Failed to save your selections before replacing — not replaced')
+          setDuplicateModal(prev => prev ? { ...prev, loading: false } : null)
+          return
+        }
+      }
       const response = await fetchWithAuth(`${API_URL}/api/admin/staging/${duplicateModal.stagingId}/verify-replace`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1109,7 +1154,11 @@ export default function AdminStagingPage() {
   }
 
   const handleClearAll = async () => {
-    if (!confirm(`Are you sure you want to clear all ${filteredListings.length} staging listings? This will NOT add them to rejected URLs.`)) {
+    const hasDirty = Object.keys(dirtyTracts).some(k => dirtyTracts[k])
+    const msg = hasDirty
+      ? `You have unsaved tract edits that will be discarded. Are you sure you want to clear all ${filteredListings.length} staging listings? This will NOT add them to rejected URLs.`
+      : `Are you sure you want to clear all ${filteredListings.length} staging listings? This will NOT add them to rejected URLs.`
+    if (!confirm(msg)) {
       return
     }
     try {
@@ -1186,7 +1235,17 @@ export default function AdminStagingPage() {
   const updateTract = (index: number, field: keyof TractForm, value: string | number) => {
     setEditForm((prev) => {
       const tracts = [...prev.tracts]
-      tracts[index] = { ...tracts[index], [field]: value }
+      const updated = { ...tracts[index], [field]: value }
+      // D13: auto-compute price_per_acre from sale_price / acres when
+      // sale_price is edited, keeping price_per_acre consistent.
+      if (field === 'sale_price') {
+        const sp = parseFloat(String(value))
+        const ac = parseFloat(String(updated.acres))
+        if (sp > 0 && ac > 0) {
+          updated.price_per_acre = String(Math.round(sp / ac * 100) / 100)
+        }
+      }
+      tracts[index] = updated
       return { ...prev, tracts }
     })
   }
@@ -1834,6 +1893,23 @@ export default function AdminStagingPage() {
                                 setListings((prev) =>
                                   prev.map((l) => (l.id === listing.id ? { ...l, scraped_data: updated } : l))
                                 )
+                                // D16: reset per-tract React state keyed by index so stale
+                                // cluReloadKeys and dirtyTracts don't attach to the wrong tract.
+                                const lid = listing.id
+                                setCluReloadKeys((prev) => {
+                                  const next = { ...prev }
+                                  updatedTracts.forEach((_: any, idx: number) => {
+                                    delete next[`${lid}-${idx}`]
+                                  })
+                                  return next
+                                })
+                                setDirtyTracts((prev) => {
+                                  const next = { ...prev }
+                                  Object.keys(next).forEach((k) => {
+                                    if (k.startsWith(`${lid}::`)) delete next[k]
+                                  })
+                                  return next
+                                })
                                 try {
                                   const res = await fetchWithAuth(`${API_URL}/api/admin/staging/${listing.id}`, {
                                     method: 'PATCH',
@@ -2135,17 +2211,24 @@ export default function AdminStagingPage() {
                                           comp.tillable_acres = r.tillable_acres
                                           chosen.tillable_acres = 'computed'
                                         }
-                                        // Reflect the freshly-computed soil rating. When none was
-                                        // computed because there's no tillable acreage, clear the
-                                        // stale value to 0 instead of leaving the old rating showing.
+                                        // Reflect the freshly-computed soil rating. When the backend
+                                        // returns null (no tillable, or no SSURGO data), clear the
+                                        // stale value to null so pre-verify PATCH doesn't restore a
+                                        // stale rating that the backend already cleared.
                                         if (r.soil_rating != null) {
                                           comp.soil_rating = r.soil_rating
                                           chosen.soil_rating = 'computed'
-                                        } else if (!r.tillable_acres) {
-                                          comp.soil_rating = 0
+                                        } else {
+                                          // Covers both zero-tillable and no-SSURGO cases — null is
+                                          // always correct when the backend returns null (A1 fix).
+                                          comp.soil_rating = null
+                                          comp.soil_rating_type = null
                                           chosen.soil_rating = 'computed'
                                         }
-                                        if (r.soil_rating_type) comp.soil_rating_type = r.soil_rating_type
+                                        // Always sync soil_rating_type from the backend response so a
+                                        // stale type (e.g. 'CSR2') is never left in memory after a
+                                        // workshop Save that cleared the rating (LOW fix).
+                                        comp.soil_rating_type = r.soil_rating_type ?? null
                                         ts[idx] = { ...cur, computed: comp, chosen }
                                         sd.tracts = ts
                                         return { ...l, scraped_data: sd }

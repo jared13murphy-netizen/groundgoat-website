@@ -326,7 +326,7 @@ export default function TractDataCompare({
   )
   const bldgDirty = bldg !== !!hasBuilding
   const houseDirty = house !== !!hasHouse
-  const dataCompareDirty = hasManualPending || chosenDirty || bldgDirty || houseDirty
+  const dataCompareDirty = hasManualPending || chosenDirty || bldgDirty || houseDirty || isDirty
 
   const onDirtyChangeRef = useRef(onDirtyChange)
   onDirtyChangeRef.current = onDirtyChange

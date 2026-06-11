@@ -238,17 +238,22 @@ export default function AdminPrivateTreatyStagingPage() {
   // Default: all collapsed. Empty set = all collapsed.
   const [openTractIds, setOpenTractIds] = useState<Set<string>>(new Set())
   const toggleTract = (key: string) => {
+    const isOpen = openTractIds.has(key)
+    if (isOpen) {
+      const [listingIdStr, tractIdxStr] = key.split('-')
+      const dirtyPrefix = `${listingIdStr}::${tractIdxStr}::`
+      const hasDirty = Object.keys(dirtyTracts).some(k => k.startsWith(dirtyPrefix) && dirtyTracts[k])
+      if (hasDirty && !window.confirm('Unsaved changes on this tract will be discarded. Collapse anyway?')) {
+        return
+      }
+    }
     setOpenTractIds(prev => {
       const s = new Set(prev)
       if (s.has(key)) s.delete(key); else s.add(key)
       return s
     })
-    // When expanding any tract in a listing, eagerly load images for ALL
-    // tracts in that listing so the collapsed-row thumbnails are ready.
-    // Parse listingId from the key format "${listingId}-${tractIndex}".
     const listingId = parseInt(key.split('-')[0], 10)
     if (!openTractIds.has(key)) {
-      // Tract is being opened — prefetch siblings too
       const listing = listings.find(l => l.id === listingId)
       const tracts: any[] = listing?.scraped_data?.tracts || []
       tracts.forEach((_t: any, idx: number) => {
@@ -709,7 +714,9 @@ export default function AdminPrivateTreatyStagingPage() {
       // unsaved in-memory edits (TractDataCompare Scraped/Computed picks, tract
       // number changes) must be PATCHed into scraped_data FIRST or they're lost.
       // Per user 2026-06-02: chosen "Scraped" picks were being ignored at verify.
-      if (item && !isRescrape) {
+      // Flush in-memory scraped_data before any verify variant — rescrape
+      // reads scraped_data too, so the flush is needed for both paths.
+      if (item) {
         const patchRes = await fetchWithAuth(`${API_URL}/api/admin/staging/${id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
@@ -764,7 +771,11 @@ export default function AdminPrivateTreatyStagingPage() {
   }
 
   const handleClearAll = async () => {
-    if (!confirm(`Are you sure you want to clear all ${filteredListings.length} staging listings? This will NOT add them to rejected URLs.`)) {
+    const hasDirty = Object.keys(dirtyTracts).some(k => dirtyTracts[k])
+    const msg = hasDirty
+      ? `You have unsaved tract edits that will be discarded. Are you sure you want to clear all ${filteredListings.length} staging listings? This will NOT add them to rejected URLs.`
+      : `Are you sure you want to clear all ${filteredListings.length} staging listings? This will NOT add them to rejected URLs.`
+    if (!confirm(msg)) {
       return
     }
     try {
@@ -1700,6 +1711,23 @@ export default function AdminPrivateTreatyStagingPage() {
                                 setListings((prev) =>
                                   prev.map((l) => (l.id === listing.id ? { ...l, scraped_data: updated } : l))
                                 )
+                                // D16: reset per-tract React state keyed by index so stale
+                                // cluReloadKeys and dirtyTracts don't attach to the wrong tract.
+                                const lid = listing.id
+                                setCluReloadKeys((prev) => {
+                                  const next = { ...prev }
+                                  updatedTracts.forEach((_: any, idx: number) => {
+                                    delete next[`${lid}-${idx}`]
+                                  })
+                                  return next
+                                })
+                                setDirtyTracts((prev) => {
+                                  const next = { ...prev }
+                                  Object.keys(next).forEach((k) => {
+                                    if (k.startsWith(`${lid}::`)) delete next[k]
+                                  })
+                                  return next
+                                })
                                 try {
                                   const res = await fetchWithAuth(`${API_URL}/api/admin/staging/${listing.id}`, {
                                     method: 'PATCH',
@@ -1976,17 +2004,20 @@ export default function AdminPrivateTreatyStagingPage() {
                                           comp.tillable_acres = r.tillable_acres
                                           chosen.tillable_acres = 'computed'
                                         }
-                                        // Reflect the freshly-computed soil rating. When none was
-                                        // computed because there's no tillable acreage, clear the
-                                        // stale value to 0 instead of leaving the old rating showing.
+                                        // Reflect the freshly-computed soil rating. When the backend
+                                        // returns null (no tillable, or no SSURGO data), clear the
+                                        // stale value to null so pre-verify PATCH doesn't restore a
+                                        // stale rating that the backend already cleared.
                                         if (r.soil_rating != null) {
                                           comp.soil_rating = r.soil_rating
                                           chosen.soil_rating = 'computed'
-                                        } else if (!r.tillable_acres) {
-                                          comp.soil_rating = 0
+                                        } else {
+                                          comp.soil_rating = null
+                                          comp.soil_rating_type = null
                                           chosen.soil_rating = 'computed'
                                         }
-                                        if (r.soil_rating_type) comp.soil_rating_type = r.soil_rating_type
+                                        // Always sync soil_rating_type from the backend response.
+                                        comp.soil_rating_type = r.soil_rating_type ?? null
                                         ts[idx] = { ...cur, computed: comp, chosen }
                                         sd.tracts = ts
                                         return { ...l, scraped_data: sd }
@@ -2070,8 +2101,8 @@ export default function AdminPrivateTreatyStagingPage() {
                         <div className="flex items-center gap-3">
                           <button
                             onClick={() => handleVerify(listing.id)}
-                            disabled={actionLoading === listing.id || listingHasUnsaved(listing.id)}
-                            title={listingHasUnsaved(listing.id) ? 'Save all tract edits first' : undefined}
+                            disabled={actionLoading === listing.id || listingHasUnsaved(listing.id) || priceEditId === listing.id}
+                            title={priceEditId === listing.id ? 'Save the asking price first' : listingHasUnsaved(listing.id) ? 'Save all tract edits first' : undefined}
                             className="flex items-center gap-2 px-5 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-500 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             {actionLoading === listing.id ? <Loader2 className="animate-spin" size={16} /> : <CheckCircle size={16} />}

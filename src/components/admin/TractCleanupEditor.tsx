@@ -67,6 +67,8 @@ export default function TractCleanupEditor({ tract, listing, onChanged, onDirtyC
   const [cluReload, setCluReload] = useState(0)
   const [reviewing, setReviewing] = useState(false)
   const [dataCompareDirty, setDataCompareDirty] = useState(false)
+  const [mapDirty, setMapDirty] = useState(false)
+  const [tillDirty, setTillDirty] = useState(false)
 
   // First ring of the saved polygon (data-cleanup uses tract.polygon_coordinates
   // directly; here we normalize through toRings so multi-polygon tracts work).
@@ -304,7 +306,10 @@ export default function TractCleanupEditor({ tract, listing, onChanged, onDirtyC
               setCluReload((n) => n + 1)
               onChanged()
             }}
-            onDirtyChange={() => {}}
+            onDirtyChange={(d) => {
+              setMapDirty(d)
+              onDirtyChange?.(d || tillDirty || dataCompareDirty)
+            }}
             // Capture the live polygon's GIS acreage as the "Computed"
             // total-acres source for the comparison box below.
             onPolygonChange={(_pts, ac) => setComputed((prev) => ({ ...prev, acres: ac }))}
@@ -324,7 +329,10 @@ export default function TractCleanupEditor({ tract, listing, onChanged, onDirtyC
               soil_rating: c.soil_rating ?? null,
               soil_rating_type: c.soil_rating_type ?? null,
             }))}
-            onDirtyChange={() => {}}
+            onDirtyChange={(d) => {
+              setTillDirty(d)
+              onDirtyChange?.(d || mapDirty || dataCompareDirty)
+            }}
           />
           {/* Source comparison — Current (saved) vs Computed vs hand-typed,
               per field. Writes through update_tract so $/acre + listing totals follow. */}
@@ -375,22 +383,38 @@ export default function TractCleanupEditor({ tract, listing, onChanged, onDirtyC
                 saveTractFields(fields)
               }}
               onManualChange={(field, value) => {
-                if (value == null) return // clearing on a live tract keeps the saved value
+                // value == null means the admin cleared the field — send null
+                // so the backend persists the clear (D11 fix).
                 const fields: Record<string, any> = {}
                 if (field === 'acres') fields.total_acres = value
                 else if (field === 'tillable_acres') fields.tillable_acres = value
-                else fields.soil_rating = value // keep existing soil_rating_type
+                else {
+                  fields.soil_rating = value
+                  // D12: derive soil_rating_type from the tract's state so a
+                  // manual rating entry doesn't leave a stale mismatched type.
+                  if (value != null) {
+                    const STATE_SOIL_LABELS: Record<string, string> = {
+                      IL: 'PI', IA: 'CSR2', IN: 'WAPI', MO: 'NCCPI', MN: 'CPI',
+                      NE: 'NCCPI', SD: 'PI', ND: 'PI', KS: 'NCCPI', OH: 'NCCPI',
+                      MI: 'NCCPI', WI: 'PI', KY: 'NCCPI', TN: 'NCCPI', WV: 'NCCPI', VA: 'NCCPI',
+                    }
+                    const st = (tract.state_abbr || '').toUpperCase()
+                    fields.soil_rating_type = STATE_SOIL_LABELS[st] ?? tract.soil_rating_type ?? null
+                  } else {
+                    fields.soil_rating_type = null
+                  }
+                }
                 saveTractFields(fields)
               }}
-              onDirtyChange={(d) => { setDataCompareDirty(d); onDirtyChange?.(d) }}
+              onDirtyChange={(d) => { setDataCompareDirty(d); onDirtyChange?.(d || mapDirty || tillDirty) }}
             />
           </div>
           {/* Done = human confirmed polygon + tillable + soil. */}
           <div className="flex items-center gap-3 mt-3">
             <button
               onClick={() => toggleReviewed()}
-              disabled={reviewing || dataCompareDirty}
-              title={dataCompareDirty ? 'Save changes first' : undefined}
+              disabled={reviewing || dataCompareDirty || mapDirty || tillDirty}
+              title={dataCompareDirty || mapDirty || tillDirty ? 'Save changes first' : undefined}
               className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                 reviewed
                   ? 'bg-green-600 text-white hover:bg-green-700'

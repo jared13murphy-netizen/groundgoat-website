@@ -101,8 +101,13 @@ export default function EditListingPage() {
   const [verifying, setVerifying] = useState(false)
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [openTracts, setOpenTracts] = useState<Set<string>>(new Set())
-  const toggleTract = (id: string) =>
+  const toggleTract = (id: string) => {
+    const isOpen = openTracts.has(id)
+    if (isOpen && dirtyTracts[id]) {
+      if (!window.confirm('Unsaved changes on this tract will be discarded. Collapse anyway?')) return
+    }
     setOpenTracts(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
+  }
   const [dirtyTracts, setDirtyTracts] = useState<Record<string, boolean>>({})
   const setTractDirty = (key: string, dirty: boolean) =>
     setDirtyTracts(prev => {
@@ -113,6 +118,9 @@ export default function EditListingPage() {
       return next
     })
   const anyTractDirty = Object.keys(dirtyTracts).some((k) => dirtyTracts[k])
+
+  // Gate Verify on unsaved listing-level form fields.
+  const [listingFormDirty, setListingFormDirty] = useState(false)
 
   // Form state
   const [formData, setFormData] = useState({
@@ -311,6 +319,7 @@ export default function EditListingPage() {
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target
     setFormData(prev => ({ ...prev, [name]: value }))
+    setListingFormDirty(true)
   }
 
   const handleLandTypeChange = (type: string) => {
@@ -320,6 +329,7 @@ export default function EditListingPage() {
         ? prev.land_types.filter(t => t !== type)
         : [...prev.land_types, type]
     }))
+    setListingFormDirty(true)
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -333,49 +343,52 @@ export default function EditListingPage() {
     try {
       const updateData: any = {}
       
-      // Text fields - always include if they have a value
-      if (formData.title) updateData.title = formData.title
-      if (formData.description) updateData.description = formData.description
+      // Text fields — send unconditionally so clearing is possible.
+      // Backend uses exclude_unset=True, so we must always include fields we want written.
+      updateData.title = formData.title || null
+      updateData.description = formData.description || null
       if (formData.listing_type) updateData.listing_type = formData.listing_type
       // Status is a rollup of the tracts (read-only here) — never sent from this screen.
-      
-      // Location fields
-      if (formData.county) updateData.county = formData.county
-      if (formData.state) updateData.state = formData.state
-      if (formData.city) updateData.city = formData.city
-      if (formData.zip) updateData.zip = formData.zip
-      if (formData.address) updateData.address = formData.address
-      
-      // Numeric fields
-      if (formData.total_acres) updateData.total_acres = parseFloat(formData.total_acres)
-      if (formData.price_per_acre) updateData.price_per_acre = parseFloat(formData.price_per_acre)
-      if (formData.sale_price) updateData.sale_price = parseFloat(formData.sale_price)
-      if (formData.sold_acres) updateData.sold_acres = parseFloat(formData.sold_acres)
-      if (formData.asking_price) updateData.asking_price = parseFloat(formData.asking_price)
-      
-      // URL fields - allow clearing by sending empty string or null
+
+      // Location fields — send unconditionally so clearing works.
+      updateData.county = formData.county || null
+      updateData.state = formData.state || null
+      updateData.city = formData.city || null
+      updateData.zip = formData.zip || null
+      updateData.address = formData.address || null
+
+      // Numeric fields — map empty string to null so a cleared field is persisted.
+      updateData.total_acres = formData.total_acres ? parseFloat(formData.total_acres) : null
+      updateData.price_per_acre = formData.price_per_acre ? parseFloat(formData.price_per_acre) : null
+      updateData.sale_price = formData.sale_price ? parseFloat(formData.sale_price) : null
+      updateData.sold_acres = formData.sold_acres ? parseFloat(formData.sold_acres) : null
+      updateData.asking_price = formData.asking_price ? parseFloat(formData.asking_price) : null
+
+      // URL fields - allow clearing by sending null
       updateData.primary_image_url = formData.primary_image_url || null
       updateData.brochure_url = formData.brochure_url || null
       updateData.source_url = formData.source_url || null
       updateData.bidding_url = formData.bidding_url || null
-      
-      // Company
-      if (formData.listing_company_id) updateData.listing_company_id = formData.listing_company_id
-      
-      // Auction fields
-      if (formData.auction_location) updateData.auction_location = formData.auction_location
-      if (formData.auction_date) {
+
+      // Company — send null to allow disassociation when the blank option is selected.
+      updateData.listing_company_id = formData.listing_company_id || null
+
+      // Auction fields — send null to allow clearing.
+      updateData.auction_location = formData.auction_location || null
+      if (formData.listing_type === 'private_treaty') {
+        // Switching to private treaty clears the auction date.
+        updateData.auction_datetime = null
+      } else if (formData.auction_date) {
         // Combine date and time into auction_datetime (the primary field)
-        // Create a local datetime and convert to true UTC
         const timeStr = formData.auction_time || '00:00'
         const localDateTime = new Date(`${formData.auction_date}T${timeStr}:00`)
         updateData.auction_datetime = localDateTime.toISOString()
+      } else {
+        updateData.auction_datetime = null
       }
-      
-      // Land types array
-      if (formData.land_types && formData.land_types.length > 0) {
-        updateData.land_types = formData.land_types
-      }
+
+      // Land types array — always send so an empty array clears the field.
+      updateData.land_types = formData.land_types
 
       const response = await fetch(`${API_URL}/api/listings/${listingId}`, {
         method: 'PATCH',
@@ -391,6 +404,7 @@ export default function EditListingPage() {
         // so the admin keeps working on tracts after saving listing fields.
         const updated = await response.json()
         setListing(updated)
+        setListingFormDirty(false)
         setSuccess('Listing saved')
         setTimeout(() => setSuccess(''), 3000)
       } else {
@@ -606,8 +620,8 @@ export default function EditListingPage() {
             )}
             <button
               onClick={handleVerify}
-              disabled={verifying || anyTractDirty}
-              title={anyTractDirty ? 'Save changes first' : undefined}
+              disabled={verifying || anyTractDirty || listingFormDirty}
+              title={listingFormDirty ? 'Save listing details first' : anyTractDirty ? 'Save changes first' : undefined}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium ${
                 listing.verified
                   ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30'
@@ -1077,7 +1091,9 @@ export default function EditListingPage() {
               verified_by + verified_at. */}
           <div className="border-t border-gg-gray-800 mt-6 pt-5 flex items-center justify-between gap-3 flex-wrap">
             <p className="text-sm text-gg-gray-400">
-              {anyTractDirty
+              {listingFormDirty
+                ? 'Save listing details before verifying.'
+                : anyTractDirty
                 ? 'Save changes in the Data comparison panel before verifying.'
                 : listing.verified
                 ? 'This listing is verified.'
@@ -1085,8 +1101,8 @@ export default function EditListingPage() {
             </p>
             <button
               onClick={handleVerify}
-              disabled={verifying || anyTractDirty}
-              title={anyTractDirty ? 'Save changes first' : undefined}
+              disabled={verifying || anyTractDirty || listingFormDirty}
+              title={listingFormDirty ? 'Save listing details first' : anyTractDirty ? 'Save changes first' : undefined}
               className={`flex items-center gap-2 px-6 py-3 rounded-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed ${
                 listing.verified
                   ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30'
