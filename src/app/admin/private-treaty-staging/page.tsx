@@ -1764,7 +1764,7 @@ export default function AdminPrivateTreatyStagingPage() {
                                     </div>
                                   </button>
 
-                                  {tractIsOpen && (<>
+                                  <div className={tractIsOpen ? '' : 'hidden'}>
                                   {/* View on Map — opens the Explore portal map
                                       in a new tab, zoomed to this tract. */}
                                   {(() => {
@@ -1965,7 +1965,7 @@ export default function AdminPrivateTreatyStagingPage() {
                                       per user 2026-05-25 — redundant with
                                       TractDataCompare above + perimeter
                                       moved into the editor toolbar. */}
-                                  </>)} {/* end tractIsOpen */}
+                                  </div> {/* end tractIsOpen */}
                                 </div>
                                 )
                               })}

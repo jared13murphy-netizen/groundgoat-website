@@ -1904,7 +1904,7 @@ export default function AdminStagingPage() {
                                     </div>
                                   </button>
 
-                                  {tractIsOpen && (<>
+                                  <div className={tractIsOpen ? '' : 'hidden'}>
                                   {/* View on Map — opens the Explore portal map
                                       in a new tab, zoomed to this tract. Prefers
                                       the tract polygon centroid (most accurate),
@@ -2128,7 +2128,7 @@ export default function AdminStagingPage() {
                                       per user 2026-05-25 — redundant with
                                       TractDataCompare above + perimeter
                                       moved into the editor toolbar. */}
-                                  </>)} {/* end tractIsOpen */}
+                                  </div> {/* end tractIsOpen */}
                                 </div>
                                 )
                               })}

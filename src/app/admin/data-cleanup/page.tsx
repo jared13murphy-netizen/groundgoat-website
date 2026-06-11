@@ -1175,7 +1175,7 @@ export default function TractDataCleanupPage() {
                                   </div>
                                 </button>
 
-                                {tractIsOpen && (<>
+                                <div className={tractIsOpen ? '' : 'hidden'}>
                                 {/* Tract header + View on Map */}
                                 <div className="flex items-center justify-between mb-2">
                                   <div className="flex items-center gap-2 flex-wrap">
@@ -1471,7 +1471,7 @@ export default function TractDataCleanupPage() {
                                     {statsBox}
                                   </div>
                                 )}
-                                </>)} {/* end tractIsOpen */}
+                                </div> {/* end tractIsOpen */}
                               </div>
                             )
                           })}

@@ -204,10 +204,7 @@ export default function ListingTractCard({ tract, listing, onChanged }: Props) {
       {/* Always-visible collapsed summary row */}
       <button
         type="button"
-        onClick={() => {
-          if (isOpen && dirty && !confirm('Unsaved changes will be lost. Collapse anyway?')) return
-          setIsOpen((o) => !o)
-        }}
+        onClick={() => setIsOpen((o) => !o)}
         className="w-full flex items-center gap-2 py-2 text-left hover:bg-gg-pink hover:text-white rounded-lg px-2 -mx-2 transition-colors"
       >
         <span className="text-gg-gray-400 text-xs w-3 shrink-0">{isOpen ? '▼' : '▶'}</span>
@@ -233,8 +230,7 @@ export default function ListingTractCard({ tract, listing, onChanged }: Props) {
         </div>
       </button>
 
-      {isOpen && (
-      <div className="pt-2">
+      <div className={isOpen ? 'pt-2' : 'hidden'}>
       {/* Header: tract number (editable) + derived summary */}
       <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
         <div className="flex items-center gap-2 flex-wrap">
@@ -437,7 +433,6 @@ export default function ListingTractCard({ tract, listing, onChanged }: Props) {
         onSaved={() => onChanged()}
       />
       </div>
-      )} {/* end isOpen */}
     </div>
   )
 }
