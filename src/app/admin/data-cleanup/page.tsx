@@ -1373,6 +1373,7 @@ export default function TractDataCleanupPage() {
                                         patchTract(it.listing_id, tract.id, {
                                           polygon_coordinates: updated.polygon_coordinates ?? ring,
                                           boundary_valid: updated.boundary_valid ?? tract.boundary_valid,
+                                          ...(updated.image_url !== undefined ? { image_url: updated.image_url } : {}),
                                         })
                                         // Proposal applied → clear it so the banner disappears.
                                         setProposals((prev) => {
