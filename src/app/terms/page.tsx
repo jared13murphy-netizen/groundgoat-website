@@ -112,7 +112,10 @@ export default function TermsPage() {
 
           <section>
             <h2 className="font-display text-2xl font-bold text-white mb-4">15. Governing Law and Dispute Resolution</h2>
-            <p>These Terms are governed by the laws of the State of Illinois, without regard to its conflict-of-law principles. The state and federal courts located in Illinois have exclusive jurisdiction over any dispute arising from or related to these Terms, and you consent to personal jurisdiction in those courts.</p>
+            <p>These Terms are governed by the laws of the State of Illinois, without regard to its conflict-of-law principles.</p>
+            <p className="mt-4"><strong className="text-white">Binding Arbitration.</strong> Any dispute, claim, or controversy arising out of or relating to these Terms or the Service that cannot be resolved informally shall be resolved by binding individual arbitration administered by the American Arbitration Association (AAA) under its Consumer Arbitration Rules, rather than in court. The arbitration will take place in Illinois or via video conference. Each party will bear its own costs unless the arbitrator rules otherwise.</p>
+            <p className="mt-4"><strong className="text-white">Class Action Waiver.</strong> You and Ground Goat agree that each may bring claims against the other only in your or its individual capacity and not as a plaintiff or class member in any purported class, consolidated, or representative proceeding. The arbitrator may not consolidate more than one person&apos;s claims.</p>
+            <p className="mt-4"><strong className="text-white">Opt-Out.</strong> You may opt out of binding arbitration by notifying us in writing at <a href="mailto:info@groundgoat.com" className="text-gg-pink hover:underline">info@groundgoat.com</a> within 30 days of first accepting these Terms. Opting out does not affect any other provision of these Terms.</p>
           </section>
 
           <section>

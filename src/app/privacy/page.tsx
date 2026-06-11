@@ -73,6 +73,7 @@ export default function PrivacyPage() {
           <section>
             <h2 className="font-display text-2xl font-bold text-white mb-4">Data Security</h2>
             <p>We implement appropriate technical and organizational measures to protect your personal information against unauthorized access, alteration, disclosure, or destruction. However, no method of transmission over the Internet is 100% secure.</p>
+            <p className="mt-4"><strong className="text-white">Breach Notification.</strong> In the event of a data breach affecting your personal information, Ground Goat will notify affected users and relevant authorities as required by applicable law, including the Illinois Personal Information Protection Act (815 ILCS 530). We will provide notice within a reasonable time after discovering the breach and will include information about what data was affected and what steps you can take to protect yourself. Notifications will be sent to the email address associated with your account.</p>
           </section>
 
           <section>
