@@ -3399,6 +3399,17 @@ export default function TractMapEditor({
                 {deletingTillable ? <Loader2 className="animate-spin" size={12} /> : <Trash2 size={12} />}
                 Delete Tillable
               </button>
+              {liveTractId && points.length >= 3 && (
+                <button
+                  onClick={handleProposeTillableFromCSB}
+                  disabled={proposingTillable}
+                  className="px-2 py-1 text-xs bg-teal-600 hover:bg-teal-700 text-white disabled:opacity-40 rounded flex items-center gap-1"
+                  title="Replace existing tillable polygon with a CSB-based proposal (based on last 8 years of planted crops)"
+                >
+                  {proposingTillable ? <Loader2 className="animate-spin" size={12} /> : <Sprout size={12} />}
+                  {proposingTillable ? 'Proposing…' : 'Propose from CSB'}
+                </button>
+              )}
             </>
           ) : (
             <>

@@ -1030,15 +1030,20 @@ export default function EditListingPage() {
 
             {/* Swap Tracts — only shown when >= 2 tracts exist */}
             {listing.tracts && listing.tracts.length >= 2 && (
-              <SwapTractsPanel
-                listingId={listing.id}
-                tracts={(listing.tracts as any[]).map((t) => ({
-                  id: t.id,
-                  tract_number: t.tract_number,
-                  total_acres: t.total_acres,
-                }))}
-                onSwapped={refreshListing}
-              />
+              <div className="mb-4 p-3 bg-yellow-900/20 border border-yellow-700/40 rounded-lg">
+                <p className="text-xs text-yellow-300/80 mb-2">
+                  <strong>Tract data mismatched?</strong> If you changed a tract number and the acres, soil rating, or polygon are now on the wrong tract, use Swap Tracts to fix it.
+                </p>
+                <SwapTractsPanel
+                  listingId={listing.id}
+                  tracts={(listing.tracts as any[]).map((t) => ({
+                    id: t.id,
+                    tract_number: t.tract_number,
+                    total_acres: t.total_acres,
+                  }))}
+                  onSwapped={refreshListing}
+                />
+              </div>
             )}
 
             {/* Existing Tracts — full inline editor per tract: editable scalars

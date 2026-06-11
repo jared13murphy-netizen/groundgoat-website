@@ -1647,28 +1647,33 @@ export default function AdminPrivateTreatyStagingPage() {
 
                         {/* Swap Tracts — only shown when >= 2 tracts */}
                         {info.tracts.length >= 2 && (
-                          <SwapStagingTractsPanel
-                            tracts={info.tracts}
-                            onSwap={async (updatedTracts) => {
-                              const original = listings
-                              const updated = JSON.parse(JSON.stringify(listing.scraped_data || {}))
-                              updated.tracts = updatedTracts
-                              setListings((prev) =>
-                                prev.map((l) => (l.id === listing.id ? { ...l, scraped_data: updated } : l))
-                              )
-                              try {
-                                const res = await fetchWithAuth(`${API_URL}/api/admin/staging/${listing.id}`, {
-                                  method: 'PATCH',
-                                  headers: { 'Content-Type': 'application/json' },
-                                  body: JSON.stringify({ scraped_data: updated }),
-                                })
-                                if (!res.ok) throw new Error('Failed to save swap')
-                              } catch (e) {
-                                setListings(original)
-                                throw e
-                              }
-                            }}
-                          />
+                          <div className="mb-4 p-3 bg-yellow-900/20 border border-yellow-700/40 rounded-lg">
+                            <p className="text-xs text-yellow-300/80 mb-2">
+                              <strong>Tract data mismatched?</strong> If you changed a tract number and the acres, soil rating, or polygon are now on the wrong tract, use Swap Tracts to fix it.
+                            </p>
+                            <SwapStagingTractsPanel
+                              tracts={info.tracts}
+                              onSwap={async (updatedTracts) => {
+                                const original = listings
+                                const updated = JSON.parse(JSON.stringify(listing.scraped_data || {}))
+                                updated.tracts = updatedTracts
+                                setListings((prev) =>
+                                  prev.map((l) => (l.id === listing.id ? { ...l, scraped_data: updated } : l))
+                                )
+                                try {
+                                  const res = await fetchWithAuth(`${API_URL}/api/admin/staging/${listing.id}`, {
+                                    method: 'PATCH',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ scraped_data: updated }),
+                                  })
+                                  if (!res.ok) throw new Error('Failed to save swap')
+                                } catch (e) {
+                                  setListings(original)
+                                  throw e
+                                }
+                              }}
+                            />
+                          </div>
                         )}
 
                         {/* Tract Details — each tract is a vertical block:
