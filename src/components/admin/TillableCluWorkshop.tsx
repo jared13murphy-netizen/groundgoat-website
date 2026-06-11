@@ -358,6 +358,8 @@ export default function TillableCluWorkshop({
   const [soil, setSoil] = useState<SoilResult | null>(null)
   const [computing, setComputing] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [proposingCsb, setProposingCsb] = useState(false)
+  const [csbError, setCsbError] = useState<string | null>(null)
 
   // Signature of the last-saved state (set on load + after each save). The
   // Save button is dirty only when the live signature diverges from this.
@@ -1220,6 +1222,69 @@ export default function TillableCluWorkshop({
     map.getCanvas().style.cursor = anyDrawing ? 'crosshair' : ''
   }, [manualActive, anyDrawing, loaded])
 
+  // ── Propose tillable from CSB (USDA Crop Sequence Boundaries). ──
+  const handleProposeCsb = async () => {
+    setCsbError(null)
+    setProposingCsb(true)
+    try {
+      let url: string
+      if (tractId != null) {
+        // Published-tract mode — use existing GET endpoint.
+        url = `${API_URL}/api/admin/tract-fix-boundary/${tractId}/propose-tillable`
+      } else {
+        // Staging mode — new endpoint that resolves county/state from DB.
+        url = `${API_URL}/api/admin/staging/${stagingId}/tracts/${tractIndex}/clu/propose-csb`
+      }
+      const res = await fetchWithAuth(url, tractId != null ? undefined : { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok || !data.success) {
+        throw new Error(data.detail || data.error || `HTTP ${res.status}`)
+      }
+      // Extract all outer rings from the returned geometry (Polygon or MultiPolygon).
+      const geojson = data.geojson as { type: string; coordinates: any }
+      const rings: Pt[][] = []
+      if (geojson.type === 'Polygon') {
+        const ring = geojson.coordinates[0] as Pt[]
+        if (ring && ring.length >= 3) rings.push(ring)
+      } else if (geojson.type === 'MultiPolygon') {
+        for (const poly of geojson.coordinates as Pt[][][]) {
+          const ring = poly[0]
+          if (ring && ring.length >= 3) rings.push(ring)
+        }
+      }
+      if (rings.length === 0) {
+        throw new Error(`Unexpected geometry type: ${geojson.type}`)
+      }
+      // Drop trailing closing duplicate on each ring (open rings for editing).
+      const openRings = rings.map((ring) => {
+        const r = ring.slice()
+        if (r.length > 1) {
+          const f = r[0]; const l = r[r.length - 1]
+          if (f[0] === l[0] && f[1] === l[1]) return r.slice(0, -1)
+        }
+        return r
+      })
+      // Populate the drawn-polygon state — same as if the admin had drawn them.
+      manualPolygonsRef.current = openRings
+      setManualPolygons(openRings)
+      pushMapSource('manual', buildManualGeo(openRings))
+      // Clear any in-progress drawing and switch to toggle mode.
+      setCurrentDraw(() => {
+        currentDrawRef.current = []
+        pushMapSource('draw', buildDrawGeo([]))
+        pushMapSource('draw-vertex', buildVertexGeo([]))
+        return []
+      })
+      setWorkshopMode('toggle')
+      setSoil(null)
+      setStatus(`✓ CSB proposal loaded — ${data.csb_polygon_count} field${data.csb_polygon_count !== 1 ? 's' : ''} in ${data.county}, ${data.state}. Adjust if needed, then Save.`)
+    } catch (e: any) {
+      setCsbError(e.message || String(e))
+    } finally {
+      setProposingCsb(false)
+    }
+  }
+
   // ── Compute Soil Rating (state-aware, on demand). ──
   const handleComputeSoil = async () => {
     setComputing(true)
@@ -1544,6 +1609,15 @@ export default function TillableCluWorkshop({
         </div>
         <div className="flex items-center gap-1.5">
           <button
+            onClick={handleProposeCsb}
+            disabled={proposingCsb || saving || computing || !loaded}
+            className="px-3 py-1.5 text-sm bg-green-700 hover:bg-green-600 disabled:opacity-40 text-white font-semibold rounded-lg flex items-center gap-1"
+            title="Propose tillable from USDA CSB — intersects the tract boundary with the pre-computed crop-sequence tillable mask for this county"
+          >
+            {proposingCsb ? <Loader2 size={14} className="animate-spin" /> : <Sprout size={14} />}
+            {proposingCsb ? 'Proposing…' : 'Propose CSB'}
+          </button>
+          <button
             onClick={handleComputeSoil}
             disabled={computing || saving}
             className="px-3 py-1.5 text-sm bg-gg-pink hover:bg-gg-pink-light disabled:opacity-40 text-white font-semibold rounded-lg flex items-center gap-1"
@@ -1563,6 +1637,17 @@ export default function TillableCluWorkshop({
           </button>
         </div>
       </div>
+
+      {csbError && (
+        <div
+          onClick={() => setCsbError(null)}
+          className="px-3 py-2 text-sm cursor-pointer flex items-center justify-between bg-orange-700 text-white border-t border-orange-600"
+          title="Click to dismiss"
+        >
+          <span>CSB: {csbError}</span>
+          <span className="text-xs opacity-70 ml-3">Dismiss ×</span>
+        </div>
+      )}
 
       {status && (
         <div
