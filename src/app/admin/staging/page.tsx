@@ -286,12 +286,25 @@ export default function AdminStagingPage() {
   // Per-tract expand/collapse. Key: `${listingId}-${tractIndex}`.
   // Default: all collapsed. Empty set = all collapsed.
   const [openTractIds, setOpenTractIds] = useState<Set<string>>(new Set())
-  const toggleTract = (key: string) =>
+  const toggleTract = (key: string) => {
     setOpenTractIds(prev => {
       const s = new Set(prev)
       if (s.has(key)) s.delete(key); else s.add(key)
       return s
     })
+    // When expanding any tract in a listing, eagerly load images for ALL
+    // tracts in that listing so the collapsed-row thumbnails are ready.
+    // Parse listingId from the key format "${listingId}-${tractIndex}".
+    const listingId = parseInt(key.split('-')[0], 10)
+    if (!openTractIds.has(key)) {
+      // Tract is being opened — prefetch siblings too
+      const listing = listings.find(l => l.id === listingId)
+      const tracts: any[] = listing?.scraped_data?.tracts || []
+      tracts.forEach((_t: any, idx: number) => {
+        if (_t.has_tract_image) loadTractImage(listingId, idx)
+      })
+    }
+  }
 
   // Inverted set — tracks which tracts have tillable HIDDEN.
   // Default behaviour: tillable is SHOWN whenever tract.tillable_polygon exists.
@@ -529,6 +542,23 @@ export default function AdminStagingPage() {
     }
     checkAuth()
   }, [router])
+
+  // Pre-load tract images for every listing as soon as the listings array
+  // changes (initial load + page turns). Without this, collapsed tract rows
+  // never show their thumbnails until the user manually expands at least one
+  // tract per listing (which triggers the sibling prefetch in toggleTract).
+  // loadTractImage guards against double-fetching internally, so it's safe to
+  // call for every tract on every render of this effect.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    listings.forEach((listing) => {
+      (listing.scraped_data?.tracts || []).forEach((tract: any, idx: number) => {
+        if (tract.has_tract_image) {
+          loadTractImage(listing.id, idx)
+        }
+      })
+    })
+  }, [listings])
 
   const checkAuth = async () => {
     try {
