@@ -103,6 +103,16 @@ export default function EditListingPage() {
   const [openTracts, setOpenTracts] = useState<Set<string>>(new Set())
   const toggleTract = (id: string) =>
     setOpenTracts(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
+  const [dirtyTracts, setDirtyTracts] = useState<Record<string, boolean>>({})
+  const setTractDirty = (key: string, dirty: boolean) =>
+    setDirtyTracts(prev => {
+      if (!!prev[key] === dirty) return prev
+      const next = { ...prev }
+      if (dirty) next[key] = true
+      else delete next[key]
+      return next
+    })
+  const anyTractDirty = Object.keys(dirtyTracts).some((k) => dirtyTracts[k])
 
   // Form state
   const [formData, setFormData] = useState({
@@ -596,12 +606,13 @@ export default function EditListingPage() {
             )}
             <button
               onClick={handleVerify}
-              disabled={verifying}
+              disabled={verifying || anyTractDirty}
+              title={anyTractDirty ? 'Save changes first' : undefined}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium ${
                 listing.verified
                   ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30'
                   : 'bg-white text-gray-900 hover:bg-gray-100'
-              } disabled:opacity-50`}
+              } disabled:opacity-50 disabled:cursor-not-allowed`}
             >
               {verifying ? (
                 <Loader2 className="animate-spin" size={16} />
@@ -1049,7 +1060,7 @@ export default function EditListingPage() {
                         </button>
                         {isOpen && (
                           <div className="px-3 pb-3">
-                            <TractCleanupEditor tract={tract} listing={listing} onChanged={refreshListing} />
+                            <TractCleanupEditor tract={tract} listing={listing} onChanged={refreshListing} onDirtyChange={(d) => setTractDirty(tract.id, d)} />
                           </div>
                         )}
                       </div>
@@ -1066,14 +1077,17 @@ export default function EditListingPage() {
               verified_by + verified_at. */}
           <div className="border-t border-gg-gray-800 mt-6 pt-5 flex items-center justify-between gap-3 flex-wrap">
             <p className="text-sm text-gg-gray-400">
-              {listing.verified
+              {anyTractDirty
+                ? 'Save changes in the Data comparison panel before verifying.'
+                : listing.verified
                 ? 'This listing is verified.'
                 : 'Save each tract to mark it reviewed, then verify the whole listing.'}
             </p>
             <button
               onClick={handleVerify}
-              disabled={verifying}
-              className={`flex items-center gap-2 px-6 py-3 rounded-lg font-semibold disabled:opacity-50 ${
+              disabled={verifying || anyTractDirty}
+              title={anyTractDirty ? 'Save changes first' : undefined}
+              className={`flex items-center gap-2 px-6 py-3 rounded-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed ${
                 listing.verified
                   ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30'
                   : 'bg-white text-gray-900 hover:bg-gray-100'

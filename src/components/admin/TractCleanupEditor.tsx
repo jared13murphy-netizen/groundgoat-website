@@ -36,6 +36,7 @@ interface TractCleanupEditorProps {
   tract: any
   listing: any
   onChanged: () => void | Promise<void>
+  onDirtyChange?: (dirty: boolean) => void
 }
 
 // Whether the "Which price is correct?" basis question applies (and therefore
@@ -48,7 +49,7 @@ function priceBasisApplies(tract: any, listing: any): boolean {
   return ['sold', 'pending', 'no_sale'].includes(status)
 }
 
-export default function TractCleanupEditor({ tract, listing, onChanged }: TractCleanupEditorProps) {
+export default function TractCleanupEditor({ tract, listing, onChanged, onDirtyChange }: TractCleanupEditorProps) {
   // Per-tract COMPUTED values (acres from the map editor's live polygon, tillable
   // + soil from the CLU workshop's Compute) and the per-field source PICK.
   const [computed, setComputed] = useState<{
@@ -65,6 +66,7 @@ export default function TractCleanupEditor({ tract, listing, onChanged }: TractC
   // CLUs against the now-current polygon (mirrors cluReloadKeys in data-cleanup).
   const [cluReload, setCluReload] = useState(0)
   const [reviewing, setReviewing] = useState(false)
+  const [dataCompareDirty, setDataCompareDirty] = useState(false)
 
   // First ring of the saved polygon (data-cleanup uses tract.polygon_coordinates
   // directly; here we normalize through toRings so multi-polygon tracts work).
@@ -370,14 +372,16 @@ export default function TractCleanupEditor({ tract, listing, onChanged }: TractC
                 else fields.soil_rating = value // keep existing soil_rating_type
                 saveTractFields(fields)
               }}
+              onDirtyChange={(d) => { setDataCompareDirty(d); onDirtyChange?.(d) }}
             />
           </div>
           {/* Done = human confirmed polygon + tillable + soil. */}
           <div className="flex items-center gap-3 mt-3">
             <button
               onClick={() => toggleReviewed()}
-              disabled={reviewing}
-              className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 ${
+              disabled={reviewing || dataCompareDirty}
+              title={dataCompareDirty ? 'Save changes first' : undefined}
+              className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                 reviewed
                   ? 'bg-green-600 text-white hover:bg-green-700'
                   : 'bg-gg-gray-800 text-white border border-gg-gray-700 hover:bg-gg-gray-700'

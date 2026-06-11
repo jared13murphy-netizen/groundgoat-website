@@ -1467,14 +1467,16 @@ export default function TractDataCleanupPage() {
                                           else fields.soil_rating = value // keep existing soil_rating_type
                                           saveTractFields(it.listing_id, tract, fields)
                                         }}
+                                        onDirtyChange={(d) => setTractDirty(`${it.listing_id}::${tract.id}::data`, d)}
                                       />
                                     </div>
                                     {/* Done = human confirmed polygon + tillable + soil. */}
                                     <div className="flex items-center gap-3 mt-3">
                                       <button
                                         onClick={() => toggleReviewed(it.listing_id, tract)}
-                                        disabled={reviewingTractId === tract.id}
-                                        className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 ${
+                                        disabled={reviewingTractId === tract.id || !!dirtyTracts[`${it.listing_id}::${tract.id}::data`]}
+                                        title={dirtyTracts[`${it.listing_id}::${tract.id}::data`] ? 'Save changes first' : undefined}
+                                        className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                                           reviewed
                                             ? 'bg-green-600 text-white hover:bg-green-700'
                                             : 'bg-gg-gray-800 text-white border border-gg-gray-700 hover:bg-gg-gray-700'

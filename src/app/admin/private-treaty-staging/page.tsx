@@ -2028,6 +2028,7 @@ export default function AdminPrivateTreatyStagingPage() {
                                     onManualChange={(field, value) => saveTractManual(listing, idx, field, value)}
                                     landTypes={(tract.land_types && tract.land_types.length) ? tract.land_types : (tract.land_type ? [tract.land_type] : [])}
                                     onLandTypesChange={(next) => saveTractLandTypes(listing, idx, next)}
+                                    onDirtyChange={(d) => setTractDirty(`${listing.id}::${idx}::data`, d)}
                                   />
                                   {/* Second per-tract details box removed
                                       per user 2026-05-25 — redundant with
