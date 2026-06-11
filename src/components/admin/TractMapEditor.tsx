@@ -549,11 +549,15 @@ export default function TractMapEditor({
       /[Ss]ec(?:tion)?\s*(\d{1,2})\s*[-,]?\s*[Tt](?:wp|ownship)?\s*(\d{1,3})\s*(N|S)?\s*[-,]?\s*[Rr](?:ng|ange)?\s*(\d{1,3})\s*(E|W)?/i
     )
     if (plssKeyword) {
+      const [, sec, twp, twpDir, rng, rngDir] = plssKeyword
+      if (!twpDir || !rngDir) {
+        setLocMsg('Add direction letters — e.g. "Township 141N" and "Range 32W"')
+        return
+      }
       setLocBusy(true)
       try {
-        const [, sec, twp, twpDir, rng, rngDir] = plssKeyword
         const res = await fetchWithAuth(
-          `${API_URL}/api/admin/plss-lookup?section=${sec}&township=${twp}&township_dir=${(twpDir || 'N').toUpperCase()}&range=${rng}&range_dir=${(rngDir || 'W').toUpperCase()}&state=${encodeURIComponent(listingState || '')}`
+          `${API_URL}/api/admin/plss-lookup?section=${sec}&township=${twp}&township_dir=${twpDir.toUpperCase()}&range=${rng}&range_dir=${rngDir.toUpperCase()}&state=${encodeURIComponent(listingState || '')}`
         )
         const data = await res.json().catch(() => ({}))
         if (res.ok && data.lat != null && data.lng != null) {
