@@ -1449,13 +1449,12 @@ export default function TractDataCleanupPage() {
                                           ;(['acres', 'tillable_acres', 'soil_rating'] as const).forEach((f) => {
                                             if (next[f] === prev[f]) return
                                             if (next[f] !== 'computed') return // 'current' = already in DB, no-op
-                                            const val = (cv as any)[f]
-                                            if (val == null) return
+                                            const val = (cv as any)[f] ?? null
                                             if (f === 'acres') fields.total_acres = val
                                             else if (f === 'tillable_acres') fields.tillable_acres = val
                                             else {
                                               fields.soil_rating = val
-                                              if (cv.soil_rating_type) fields.soil_rating_type = cv.soil_rating_type
+                                              fields.soil_rating_type = val != null && cv.soil_rating_type ? cv.soil_rating_type : null
                                             }
                                           })
                                           saveTractFields(it.listing_id, tract, fields)
