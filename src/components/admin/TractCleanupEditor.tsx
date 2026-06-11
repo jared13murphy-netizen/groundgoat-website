@@ -353,13 +353,23 @@ export default function TractCleanupEditor({ tract, listing, onChanged, onDirtyC
                 const fields: Record<string, any> = {}
                 ;(['acres', 'tillable_acres', 'soil_rating'] as const).forEach((f) => {
                   if (next[f] === prev[f]) return
-                  if (next[f] !== 'computed') return // 'current' = already in DB, no-op
-                  const val = (cv as any)[f] ?? null
-                  if (f === 'acres') fields.total_acres = val
-                  else if (f === 'tillable_acres') fields.tillable_acres = val
-                  else {
-                    fields.soil_rating = val
-                    fields.soil_rating_type = val != null && cv.soil_rating_type ? cv.soil_rating_type : null
+                  if (next[f] === 'computed') {
+                    const val = (cv as any)[f] ?? null
+                    if (f === 'acres') fields.total_acres = val
+                    else if (f === 'tillable_acres') fields.tillable_acres = val
+                    else {
+                      fields.soil_rating = val
+                      fields.soil_rating_type = val != null && cv.soil_rating_type ? cv.soil_rating_type : null
+                    }
+                  } else if (next[f] === 'scraped') {
+                    // Admin reverted to Current (saved). Re-send the tract's
+                    // current DB values so a prior Computed click is undone.
+                    if (f === 'acres') fields.total_acres = tract.total_acres
+                    else if (f === 'tillable_acres') fields.tillable_acres = tract.tillable_acres
+                    else {
+                      fields.soil_rating = tract.soil_rating
+                      fields.soil_rating_type = tract.soil_rating_type
+                    }
                   }
                 })
                 saveTractFields(fields)
