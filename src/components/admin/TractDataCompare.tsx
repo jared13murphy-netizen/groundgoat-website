@@ -33,7 +33,7 @@
  * panel reading from top-level tract fields. Old rows still display.
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Check } from 'lucide-react'
 import LandTypeButtons from '@/components/admin/LandTypeButtons'
 
@@ -101,6 +101,10 @@ interface TractDataCompareProps {
    *  the add/remove Land Types buttons; saved into scraped_data on change. */
   landTypes?: string[] | null
   onLandTypesChange?: (next: string[]) => void
+  /** Fires true when the comparison box has unsaved changes (manual text typed
+   *  but not committed, or a radio/checkbox changed but the parent hasn't
+   *  updated the corresponding prop yet). Fires false once clean. */
+  onDirtyChange?: (dirty: boolean) => void
 }
 
 function fmtAcres(v?: number | null): string {
@@ -140,6 +144,7 @@ export default function TractDataCompare({
   onHasHouseChange,
   landTypes,
   onLandTypesChange,
+  onDirtyChange,
 }: TractDataCompareProps) {
   // Editable tract number — per user 2026-05-26: when the scraper paired
   // the wrong polygon with the wrong tract number (Steffes-class bug),
@@ -312,6 +317,22 @@ export default function TractDataCompare({
     ) : null
   )
 
+  // Dirty: any manual draft is non-empty (typed but not committed with ✓),
+  // OR local chosen differs from the saved chosen prop (radio changed, parent
+  // hasn't confirmed the save yet), OR a checkbox differs from its saved prop.
+  const hasManualPending = Object.values(manualDraft).some((v) => (v ?? '').trim() !== '')
+  const chosenDirty = ((['acres', 'tillable_acres', 'soil_rating'] as const) as string[]).some(
+    (f) => (local as any)[f] !== ((chosen || {}) as any)[f]
+  )
+  const bldgDirty = bldg !== !!hasBuilding
+  const houseDirty = house !== !!hasHouse
+  const dataCompareDirty = hasManualPending || chosenDirty || bldgDirty || houseDirty
+
+  const onDirtyChangeRef = useRef(onDirtyChange)
+  onDirtyChangeRef.current = onDirtyChange
+  useEffect(() => { onDirtyChangeRef.current?.(dataCompareDirty) }, [dataCompareDirty])
+  useEffect(() => () => { onDirtyChangeRef.current?.(false) }, [])
+
   // Backwards compat: if neither scraped nor computed is present, this
   // is an old-format staging row. Render single-source view from the
   // fallback tract dict.
@@ -388,7 +409,7 @@ export default function TractDataCompare({
           <div className="col-span-3 text-xs font-medium text-gg-gray-400">{label}</div>
           <label className={`col-span-4 flex items-center gap-2 px-2 py-1 rounded cursor-pointer text-xs ${dim} ${cardCls(scrapedActive)}`}>
             <input type="radio" name={`${field}-${tractNumber ?? 'x'}`} checked={scrapedActive}
-              onChange={() => { setManualDraft((p) => ({ ...p, [f]: '' })); pick(field, 'scraped') }}
+              onClick={() => { setManualDraft((p) => ({ ...p, [f]: '' })); pick(field, 'scraped') }}
               className="cursor-pointer accent-gg-pink" />
             <span>
               <span className={prefixCls(scrapedActive)}>{scrapedLabel}: </span>
@@ -398,7 +419,7 @@ export default function TractDataCompare({
           </label>
           <label className={`col-span-5 flex items-center gap-2 px-2 py-1 rounded cursor-pointer text-xs ${dim} ${cardCls(computedActive)}`}>
             <input type="radio" name={`${field}-${tractNumber ?? 'x'}`} checked={computedActive}
-              onChange={() => { setManualDraft((p) => ({ ...p, [f]: '' })); pick(field, 'computed') }}
+              onClick={() => { setManualDraft((p) => ({ ...p, [f]: '' })); pick(field, 'computed') }}
               className="cursor-pointer accent-gg-pink" />
             <span>
               <span className={prefixCls(computedActive)}>{computedLabel}: </span>
