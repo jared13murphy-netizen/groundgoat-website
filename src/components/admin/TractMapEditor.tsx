@@ -2615,7 +2615,11 @@ export default function TractMapEditor({
         }
         setStatus(`✓ Saved${data.boundary_valid === false ? ' (acreage check: review)' : ''}`)
         setDirty(false)
-        if (onUpdate) onUpdate({ polygon_coordinates: boundaryPayload as any, boundary_valid: data.boundary_valid })
+        if (onUpdate) onUpdate({
+          polygon_coordinates: boundaryPayload as any,
+          boundary_valid: data.boundary_valid,
+          ...(data.image_url ? { image_url: data.image_url, image_base64: null } : {}),
+        })
         return
       }
       const res = await fetch(
