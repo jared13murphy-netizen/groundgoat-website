@@ -7,6 +7,7 @@ import Link from 'next/link'
 import { ArrowLeft, Save, Loader2, Trash2, ExternalLink, Pencil, Plus, CheckCircle, ChevronDown, ChevronUp } from 'lucide-react'
 import { getCountiesForState } from '@/data/counties'
 import ListingTractCard from '@/components/admin/ListingTractCard'
+import SwapTractsPanel from '@/components/admin/SwapTractsPanel'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -1025,6 +1026,19 @@ export default function EditListingPage() {
                   </button>
                 </div>
               </div>
+            )}
+
+            {/* Swap Tracts — only shown when >= 2 tracts exist */}
+            {listing.tracts && listing.tracts.length >= 2 && (
+              <SwapTractsPanel
+                listingId={listing.id}
+                tracts={(listing.tracts as any[]).map((t) => ({
+                  id: t.id,
+                  tract_number: t.tract_number,
+                  total_acres: t.total_acres,
+                }))}
+                onSwapped={refreshListing}
+              />
             )}
 
             {/* Existing Tracts — full inline editor per tract: editable scalars

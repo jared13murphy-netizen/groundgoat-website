@@ -18,6 +18,7 @@ import TractMapEditor from '@/components/admin/TractMapEditor'
 import TillableCluWorkshop from '@/components/admin/TillableCluWorkshop'
 import LandTypeButtons from '@/components/admin/LandTypeButtons'
 import TractDataCompare from '@/components/admin/TractDataCompare'
+import SwapTractsPanel from '@/components/admin/SwapTractsPanel'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -1012,6 +1013,19 @@ export default function TractDataCleanupPage() {
 
                       {loaded && !loaded.loading && !loaded.error && loaded.tracts.length === 0 && (
                         <div className="text-gg-gray-400 text-sm py-4">This listing has no tracts.</div>
+                      )}
+
+                      {/* Swap Tracts — only shown when >= 2 live tracts are loaded */}
+                      {loaded && !loaded.loading && loaded.tracts.length >= 2 && (
+                        <SwapTractsPanel
+                          listingId={it.listing_id}
+                          tracts={loaded.tracts.map((t) => ({
+                            id: t.id,
+                            tract_number: t.tract_number,
+                            total_acres: t.total_acres,
+                          }))}
+                          onSwapped={() => loadListing(it.listing_id)}
+                        />
                       )}
 
                       {loaded && !loaded.loading && loaded.tracts.length > 0 && (

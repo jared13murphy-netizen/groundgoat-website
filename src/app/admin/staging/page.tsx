@@ -39,6 +39,7 @@ import NassStagingPreview from '@/components/admin/NassStagingPreview'
 import TractMapEditor from '@/components/admin/TractMapEditor'
 import TillableCluWorkshop from '@/components/admin/TillableCluWorkshop'
 import TractDataCompare from '@/components/admin/TractDataCompare'
+import SwapStagingTractsPanel from '@/components/admin/SwapStagingTractsPanel'
 import { polygonAcres, polygonPerimeterFeet, formatPerimeter } from '@/lib/polygonGeometry'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
@@ -1807,6 +1808,32 @@ export default function AdminStagingPage() {
                             county={info.county}
                           />
                         </div>
+
+                        {/* Swap Tracts — only shown when >= 2 tracts */}
+                        {info.tracts.length >= 2 && (
+                          <SwapStagingTractsPanel
+                            tracts={info.tracts}
+                            onSwap={async (updatedTracts) => {
+                              const original = listings
+                              const updated = JSON.parse(JSON.stringify(listing.scraped_data || {}))
+                              updated.tracts = updatedTracts
+                              setListings((prev) =>
+                                prev.map((l) => (l.id === listing.id ? { ...l, scraped_data: updated } : l))
+                              )
+                              try {
+                                const res = await fetchWithAuth(`${API_URL}/api/admin/staging/${listing.id}`, {
+                                  method: 'PATCH',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ scraped_data: updated }),
+                                })
+                                if (!res.ok) throw new Error('Failed to save swap')
+                              } catch (e) {
+                                setListings(original)
+                                throw e
+                              }
+                            }}
+                          />
+                        )}
 
                         {/* Tract Details — each tract is now a vertical
                             block: map+image header on top (magic-lab pattern),
