@@ -383,14 +383,22 @@ export default function TractDataCompare({
     field,
     scrapedVal,
     computedVal,
+    computedRaw,
   }: {
     label: string
     field: keyof Chosen
     scrapedVal: string
     computedVal: string
+    /** Raw (unformatted) computed value — used to decide the default highlight.
+     *  When null/undefined, Computed is not a meaningful default. */
+    computedRaw?: number | string | null
   }) => {
     const f = field as 'acres' | 'tillable_acres' | 'soil_rating'
-    const picked = local[field] || defaultFor(field)
+    // Only default to 'computed' when the computed value is actually present;
+    // when computed is null/undefined the "Computed: —" card was being
+    // highlighted even though no value had been saved, making it look like null
+    // was selected when no save had ever fired.
+    const picked = local[field] || (computedRaw != null ? defaultFor(field) : 'scraped')
     const isDefault = !local[field]
     // A non-empty hand-typed value WINS — neither source is then highlighted.
     const hasManual = (manualDraft[f] ?? '').trim() !== ''
@@ -540,18 +548,21 @@ export default function TractDataCompare({
         field: 'acres',
         scrapedVal: fmtAcres(s.acres),
         computedVal: fmtAcres(c.acres),
+        computedRaw: c.acres,
       })}
       {Row({
         label: 'Tillable',
         field: 'tillable_acres',
         scrapedVal: fmtAcres(s.tillable_acres),
         computedVal: fmtAcres(c.tillable_acres),
+        computedRaw: c.tillable_acres,
       })}
       {Row({
         label: 'Soil rating',
         field: 'soil_rating',
         scrapedVal: fmtSoil(s.soil_rating, s.soil_rating_type),
         computedVal: fmtSoil(c.soil_rating, c.soil_rating_type),
+        computedRaw: c.soil_rating,
       })}
       <HouseCheckbox />
       <BuildingCheckbox />

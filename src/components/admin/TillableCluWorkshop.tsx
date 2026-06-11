@@ -1337,10 +1337,11 @@ export default function TillableCluWorkshop({
         clu_overrides: cluOverridesPayload(cluOverrides),
         tillable_acres: Math.round(tillableAcres * 100) / 100,
       }
-      if (soil !== null) {
-        body.soil_rating = soil.soil_rating ?? null
-        body.soil_rating_type = soil.soil_rating != null ? soil.soil_rating_type : null
-      }
+      // Always include soil_rating so the backend can distinguish "client
+      // explicitly sent null" from "client sent nothing" (belt-and-suspenders
+      // with the server-side else-clear added on 2026-06-11).
+      body.soil_rating = soil !== null ? (soil.soil_rating ?? null) : null
+      body.soil_rating_type = soil !== null && soil.soil_rating != null ? soil.soil_rating_type : null
       const res = await fetchWithAuth(baseUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

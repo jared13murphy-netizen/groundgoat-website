@@ -1401,15 +1401,20 @@ export default function TractDataCleanupPage() {
                                       longitude={tract.longitude}
                                       onSaved={(r) => {
                                         patchTract(it.listing_id, tract.id, {
-                                          tillable_acres: r.tillable_acres ?? tract.tillable_acres,
-                                          soil_rating: r.soil_rating ?? tract.soil_rating,
-                                          soil_rating_type: r.soil_rating_type ?? tract.soil_rating_type,
+                                          // Use key-presence so a successful null save
+                                          // (e.g. soil_rating cleared) is reflected in the
+                                          // UI rather than silently falling back to the old
+                                          // value.  The CLU save endpoint always returns
+                                          // these keys (even when null) so `in` is reliable.
+                                          tillable_acres: 'tillable_acres' in r ? r.tillable_acres : tract.tillable_acres,
+                                          soil_rating: 'soil_rating' in r ? r.soil_rating : tract.soil_rating,
+                                          soil_rating_type: 'soil_rating_type' in r ? r.soil_rating_type : tract.soil_rating_type,
                                           // Derived $/x recomputed server-side on save → refresh the panel.
-                                          sale_price: r.sale_price ?? tract.sale_price,
-                                          sale_status: r.sale_status ?? tract.sale_status,
-                                          price_per_acre: r.price_per_acre ?? tract.price_per_acre,
-                                          price_per_tillable_acre: r.price_per_tillable_acre ?? tract.price_per_tillable_acre,
-                                          price_per_soil_rating: r.price_per_soil_rating ?? tract.price_per_soil_rating,
+                                          sale_price: 'sale_price' in r ? r.sale_price : tract.sale_price,
+                                          sale_status: 'sale_status' in r ? r.sale_status : tract.sale_status,
+                                          price_per_acre: 'price_per_acre' in r ? r.price_per_acre : tract.price_per_acre,
+                                          price_per_tillable_acre: 'price_per_tillable_acre' in r ? r.price_per_tillable_acre : tract.price_per_tillable_acre,
+                                          price_per_soil_rating: 'price_per_soil_rating' in r ? r.price_per_soil_rating : tract.price_per_soil_rating,
                                         })
                                       }}
                                       // Capture the freshly-computed tillable + soil as the "Computed"
@@ -1448,13 +1453,23 @@ export default function TractDataCleanupPage() {
                                           const fields: Record<string, any> = {}
                                           ;(['acres', 'tillable_acres', 'soil_rating'] as const).forEach((f) => {
                                             if (next[f] === prev[f]) return
-                                            if (next[f] !== 'computed') return // 'current' = already in DB, no-op
-                                            const val = (cv as any)[f] ?? null
-                                            if (f === 'acres') fields.total_acres = val
-                                            else if (f === 'tillable_acres') fields.tillable_acres = val
-                                            else {
-                                              fields.soil_rating = val
-                                              fields.soil_rating_type = val != null && cv.soil_rating_type ? cv.soil_rating_type : null
+                                            if (next[f] === 'computed') {
+                                              const val = (cv as any)[f] ?? null
+                                              if (f === 'acres') fields.total_acres = val
+                                              else if (f === 'tillable_acres') fields.tillable_acres = val
+                                              else {
+                                                fields.soil_rating = val
+                                                fields.soil_rating_type = val != null && cv.soil_rating_type ? cv.soil_rating_type : null
+                                              }
+                                            } else if (next[f] === 'scraped') {
+                                              // Admin reverted to Current (saved). Re-send the tract's
+                                              // current DB values so a prior Computed click is undone.
+                                              if (f === 'acres') fields.total_acres = tract.total_acres
+                                              else if (f === 'tillable_acres') fields.tillable_acres = tract.tillable_acres
+                                              else {
+                                                fields.soil_rating = tract.soil_rating
+                                                fields.soil_rating_type = tract.soil_rating_type
+                                              }
                                             }
                                           })
                                           saveTractFields(it.listing_id, tract, fields)
