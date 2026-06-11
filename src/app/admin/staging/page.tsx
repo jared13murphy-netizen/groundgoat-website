@@ -1357,7 +1357,7 @@ export default function AdminStagingPage() {
                 </span>
               )}
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {/* Newly staged */}
               <div className="rounded-xl border border-green-500/30 bg-green-500/5 p-4">
                 <div className="text-3xl font-bold text-green-400">{lastRun.staged}</div>
@@ -1378,37 +1378,7 @@ export default function AdminStagingPage() {
                   {Object.keys(lastRun.skipped_by_reason || {}).length === 0 && <div>—</div>}
                 </div>
               </div>
-              {/* Real errors */}
-              <div className={`rounded-xl border p-4 ${lastRun.errors_total > 0 ? 'border-red-500/40 bg-red-500/5' : 'border-gg-gray-700 bg-gg-gray-800/40'}`}>
-                <div className={`text-3xl font-bold ${lastRun.errors_total > 0 ? 'text-red-400' : 'text-gg-gray-300'}`}>{lastRun.errors_total}</div>
-                <div className="text-sm text-gg-gray-300 mt-1">Real errors</div>
-                <div className="text-xs text-gg-gray-500 mt-0.5">
-                  {lastRun.errors_total > 0 ? 'failed to scrape — details below' : 'none — all good'}
-                </div>
-              </div>
             </div>
-            {/* Error detail list */}
-            {lastRun.errors_total > 0 && (lastRun.error_samples?.length ?? 0) > 0 && (
-              <div className="mt-3 rounded-xl border border-red-500/30 bg-gg-gray-900/60 p-4">
-                <div className="text-xs font-semibold text-red-400 mb-2">
-                  Error details
-                  {lastRun.error_samples.length < lastRun.errors_total && ` (showing ${lastRun.error_samples.length} of ${lastRun.errors_total})`}
-                </div>
-                <div className="space-y-2 max-h-64 overflow-y-auto">
-                  {lastRun.error_samples.map((s, i) => (
-                    <div key={i} className="text-xs border-b border-gg-gray-800 pb-2 last:border-0 last:pb-0">
-                      <div className="text-gg-gray-200 font-medium">{s.company?.trim() || 'Unknown company'}</div>
-                      {s.url && (
-                        <a href={s.url} target="_blank" rel="noopener noreferrer" className="text-gg-pink hover:underline break-all">
-                          {s.url}
-                        </a>
-                      )}
-                      <div className="text-red-300/80 mt-0.5 break-words">{s.error}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
         )}
 
