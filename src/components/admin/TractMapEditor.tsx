@@ -543,6 +543,37 @@ export default function TractMapEditor({
       }
       setLocMsg('Lat/Lng out of range'); return
     }
+
+    // PLSS verbose: "Sec 10 T141N R32W"  or  "S10 T141N R32W"  or  "Section 10 T141N R32W"
+    const plss = q.match(
+      /^[Ss](?:ec(?:tion)?)?\s*(\d{1,2})[,\s\-]+[Tt]?(\d{1,3})\s*(N|S)[,\s\-]+[Rr]?(\d{1,3})\s*(E|W)\b/i
+    )
+    // PLSS compact: "10-141N-32W"  or  "10 141N 32W"
+    const plssCompact = !plss
+      ? q.match(/^(\d{1,2})[- ]+(\d{1,3})(N|S)[- ]+(\d{1,3})(E|W)$/i)
+      : null
+    const plssMatch = plss || plssCompact
+    if (plssMatch) {
+      setLocBusy(true)
+      try {
+        const [, sec, twp, twpDir, rng, rngDir] = plssMatch
+        const res = await fetchWithAuth(
+          `${API_URL}/api/admin/plss-lookup?section=${sec}&township=${twp}&township_dir=${twpDir.toUpperCase()}&range=${rng}&range_dir=${rngDir.toUpperCase()}&state=${encodeURIComponent(listingState || '')}`
+        )
+        const data = await res.json().catch(() => ({}))
+        if (res.ok && data.lat != null && data.lng != null) {
+          recenterMap(Number(data.lat), Number(data.lng))
+        } else {
+          setLocMsg('Section not found — check township/range numbers')
+        }
+      } catch {
+        setLocMsg('PLSS lookup failed')
+      } finally {
+        setLocBusy(false)
+        return
+      }
+    }
+
     setLocBusy(true)
     try {
       // Parcel number → look it up in our parcel DB (Soils-DB regrid_parcels)
@@ -2800,7 +2831,7 @@ export default function TractMapEditor({
                   value={locQuery}
                   onChange={(e) => setLocQuery(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); goToLocation() } }}
-                  placeholder="Lat, Lng · address · parcel # — move map here"
+                  placeholder="Lat, Lng · address · parcel # · 10-141N-32W"
                   style={{ backgroundColor: '#ffffff', color: '#000000' }}
                   className="w-64 px-2 py-1 text-xs rounded border border-gg-gray-600 focus:outline-none"
                 />
