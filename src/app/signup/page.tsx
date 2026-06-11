@@ -118,7 +118,9 @@ function SignUpContent() {
     valid: boolean; discount_type?: string; discount_value?: number; description?: string; error?: string
   } | null>(null)
   const [validatingPromo, setValidatingPromo] = useState(false)
-  
+  const [agreedToTerms, setAgreedToTerms] = useState(false)
+  const [agreedToPrivacy, setAgreedToPrivacy] = useState(false)
+
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -452,6 +454,8 @@ function SignUpContent() {
               home_county: formData.homeCounty,
               referral_code: referralCode,  // Pass referral code
               verification_token: data.verification_token,  // Pass verification token
+              terms_accepted: agreedToTerms,
+              privacy_accepted: agreedToPrivacy,
             }),
           })
 
@@ -497,6 +501,10 @@ function SignUpContent() {
         const validationError = validateStep1()
         if (validationError) {
           setError(validationError)
+          return
+        }
+        if (!agreedToTerms || !agreedToPrivacy) {
+          setError('You must agree to the Terms of Service and Privacy Policy to create an account.')
           return
         }
         await sendVerificationCode()
@@ -673,6 +681,8 @@ function SignUpContent() {
               home_county: formData.homeCounty,
               referral_code: referralCode,
               verification_token: verificationToken,
+              terms_accepted: agreedToTerms,
+              privacy_accepted: agreedToPrivacy,
             }),
           })
 
@@ -966,8 +976,8 @@ function SignUpContent() {
 
                 <button
                   onClick={handleContinue}
-                  disabled={loading}
-                  className="btn-primary w-full flex items-center justify-center gap-2"
+                  disabled={loading || !agreedToTerms || !agreedToPrivacy}
+                  className="btn-primary w-full flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {loading ? <Loader2 size={20} className="animate-spin" /> : <>Send Verification Code <ArrowRight size={20} /></>}
                 </button>
@@ -1641,12 +1651,35 @@ function SignUpContent() {
         </div>
 
         {/* Terms */}
-        <p className="text-center text-gg-gray-500 text-sm mt-8">
-          By creating an account, you agree to our{' '}
-          <Link href="/terms" className="text-gg-pink hover:underline">Terms of Service</Link>
-          {' '}and{' '}
-          <Link href="/privacy" className="text-gg-pink hover:underline">Privacy Policy</Link>
-        </p>
+        <div className="mt-8 space-y-3">
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={agreedToTerms}
+              onChange={(e) => setAgreedToTerms(e.target.checked)}
+              className="mt-0.5 h-4 w-4 rounded border-gg-gray-600 bg-gg-gray-900 text-gg-pink accent-gg-pink cursor-pointer flex-shrink-0"
+            />
+            <span className="text-gg-gray-400 text-sm">
+              I have read and agree to the{' '}
+              <Link href="/terms" className="text-gg-pink hover:underline">Terms of Service</Link>
+            </span>
+          </label>
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={agreedToPrivacy}
+              onChange={(e) => setAgreedToPrivacy(e.target.checked)}
+              className="mt-0.5 h-4 w-4 rounded border-gg-gray-600 bg-gg-gray-900 text-gg-pink accent-gg-pink cursor-pointer flex-shrink-0"
+            />
+            <span className="text-gg-gray-400 text-sm">
+              I have read and agree to the{' '}
+              <Link href="/privacy" className="text-gg-pink hover:underline">Privacy Policy</Link>
+            </span>
+          </label>
+          {error === 'You must agree to the Terms of Service and Privacy Policy to create an account.' && (
+            <p className="text-red-400 text-sm">{error}</p>
+          )}
+        </div>
       </div>
     </div>
   )

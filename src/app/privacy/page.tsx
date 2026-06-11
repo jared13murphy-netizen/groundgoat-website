@@ -6,7 +6,7 @@ export default function PrivacyPage() {
       <div className="max-w-4xl mx-auto px-6">
         <div className="mb-12">
           <h1 className="font-display text-4xl md:text-5xl font-bold text-white mb-4">Privacy Policy</h1>
-          <p className="text-gg-gray-400">Last Updated: December 28, 2025</p>
+          <p className="text-gg-gray-400">Last Updated: June 10, 2026</p>
         </div>
 
         <div className="space-y-8 text-gg-gray-300">
@@ -34,8 +34,15 @@ export default function PrivacyPage() {
               <li>Search queries and filters used</li>
             </ul>
 
+            <p className="mt-4">We do not collect biometric identifiers or biometric information as defined under the Illinois Biometric Information Privacy Act (740 ILCS 14), including fingerprints, retinal scans, face geometry, or voiceprints.</p>
+
             <h3 className="font-semibold text-white mt-4 mb-2">Location Information</h3>
-            <p>With your permission, we may collect your location to provide relevant local auction listings. You can disable location services at any time through your device settings.</p>
+            <p>With your permission, we may collect your device's location to surface farmland listings and auction events near you. We collect approximate location (county or region level) rather than continuous precise GPS tracking. Location data is used only to filter and rank content within the Service; it is not sold or shared with third parties for advertising purposes. Location data is retained only for the duration of your session unless you have enabled location-based notifications, in which case we retain your most recently permitted location until you disable that feature or delete your account. You may disable location access at any time through your device settings, which will not affect your ability to use the core features of the Service.</p>
+          </section>
+
+          <section>
+            <h2 className="font-display text-2xl font-bold text-white mb-4">Cookies and Analytics</h2>
+            <p>We may use cookies, web beacons, and similar tracking technologies on our website to understand how users interact with our content and to maintain session state. We may use third-party analytics services to collect aggregated, anonymized usage statistics. These services may set their own cookies subject to their own privacy policies. You can control cookie preferences through your browser settings; disabling cookies may affect website functionality.</p>
           </section>
 
           <section>
@@ -49,6 +56,7 @@ export default function PrivacyPage() {
               <li>Respond to your inquiries and support requests</li>
               <li>Send important updates about the service</li>
             </ul>
+            <p className="mt-4">We do not use your personal information, your usage activity, or any content derived from your use of Ground Goat to train, fine-tune, evaluate, or otherwise improve any artificial intelligence, machine learning, or generative model, whether operated by Ground Goat or any third party. Ground Goat data, listings, maps, soil data, and sale information are also subject to the automated-collection and AI-training prohibitions in our Terms of Service.</p>
           </section>
 
           <section>
@@ -59,6 +67,7 @@ export default function PrivacyPage() {
               <li>Payment processors for subscription billing</li>
               <li>Law enforcement when required by law</li>
             </ul>
+            <p className="mt-4">Our payment processor is Stripe, Inc., which collects billing information (credit card number, billing address) directly from you under Stripe's own privacy policy, available at stripe.com/privacy. We do not store your full payment card details on our servers. For users who subscribe through Apple's App Store, Apple processes your payment directly under Apple's privacy policy. We receive from Apple only confirmation of your subscription status.</p>
           </section>
 
           <section>
@@ -81,6 +90,7 @@ export default function PrivacyPage() {
               <li>Opt out of marketing communications</li>
               <li>Export your data in a portable format</li>
             </ul>
+            <p className="mt-4"><strong className="text-white">California Residents (CCPA/CPRA).</strong> We do not sell or share your personal information with third parties for cross-context behavioral advertising. California residents have the right to: (1) know what personal information we collect and how it is used; (2) request deletion of personal information; (3) correct inaccurate personal information; and (4) not be discriminated against for exercising these rights. To exercise any of these rights, contact us at info@groundgoat.com. We will respond within 45 days as required by law.</p>
           </section>
 
           <section>
@@ -96,6 +106,15 @@ export default function PrivacyPage() {
           <section>
             <h2 className="font-display text-2xl font-bold text-white mb-4">Changes to This Policy</h2>
             <p>We may update this Privacy Policy from time to time. We will notify you of any changes by posting the new Privacy Policy on this page and updating the "Last Updated" date.</p>
+          </section>
+
+          <section>
+            <h2 className="font-display text-2xl font-bold text-white mb-4">Data Accuracy and Financial Decisions</h2>
+            <p>Information available through Ground Goat — including acreage, soil ratings, estimated values, and sale data — is compiled from third-party and public sources and may be incomplete or inaccurate. It is provided for informational purposes only and must not be used as the sole basis for any financial, investment, or real estate decision. See our Terms of Service for full accuracy disclaimers.</p>
+          </section>
+
+          <section>
+            <p>This Privacy Policy is governed by and construed in accordance with the laws of the State of Illinois. Any dispute arising from this Privacy Policy is subject to the exclusive jurisdiction of the state and federal courts located in Illinois.</p>
           </section>
 
           <section>

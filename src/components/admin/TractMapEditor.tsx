@@ -2436,8 +2436,52 @@ export default function TractMapEditor({
 
   const handleSave = async () => {
     const rings = allRings()
-    if (rings.length === 0 || points.length < 3) {
+    if (points.length > 0 && points.length < 3) {
       setStatus('Need at least 3 points to save a boundary')
+      return
+    }
+
+    // Saving a cleared polygon: route to the appropriate delete/clear endpoint
+    if (points.length === 0) {
+      setSaving(true)
+      setStatus(null)
+      try {
+        if (liveTractId) {
+          const res = await fetchWithAuth(
+            `${API_URL}/api/admin/tract-fix-boundary/${liveTractId}/clear`,
+            { method: 'POST' }
+          )
+          const data = await res.json()
+          if (!res.ok || !data.success) throw new Error(data.detail || data.error || `HTTP ${res.status}`)
+          setStatus('✓ Polygon cleared')
+          setDirty(false)
+          if (onUpdate) onUpdate({ polygon_coordinates: null, polygon_holes: null, boundary_valid: null, tract_image_base64: null, has_tract_image: false, tillable_polygon: null, tillable_acres: null })
+        } else {
+          const res = await fetch(
+            `${SCRAPER_URL}/api/staging/${stagingId}/tracts/${tractIndex}/boundary`,
+            { method: 'DELETE' }
+          )
+          const data = await res.json()
+          if (!res.ok || !data.success) throw new Error(data.error || `HTTP ${res.status}`)
+          setStatus('✓ Polygon cleared')
+          setDirty(false)
+          if (onUpdate && data.tract) {
+            onUpdate({
+              ...data.tract,
+              polygon_coordinates: null,
+              polygon_holes: null,
+              tillable_polygon: null,
+              tillable_acres: null,
+              tract_image_base64: null,
+              has_tract_image: false,
+            })
+          }
+        }
+      } catch (e: any) {
+        setStatus(`✗ Clear failed: ${e.message || e}`)
+      } finally {
+        setSaving(false)
+      }
       return
     }
     // Persist a single ring for a single-piece tract (unchanged), or the full
@@ -2584,30 +2628,51 @@ export default function TractMapEditor({
     setDeleting(true)
     setStatus(null)
     try {
-      const res = await fetch(
-        `${SCRAPER_URL}/api/staging/${stagingId}/tracts/${tractIndex}/boundary`,
-        { method: 'DELETE' }
-      )
-      const data = await res.json()
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || `HTTP ${res.status}`)
-      }
-      setStatus('✓ Polygon deleted')
-      setPoints([])
-      setDirty(false)
-      if (onUpdate && data.tract) {
-        // Explicitly null the keys the server wiped — same reason as
-        // handleDeleteTillable: parent uses spread-merge so missing
-        // keys don't clear old values.
-        onUpdate({
-          ...data.tract,
-          polygon_coordinates: null,
-          polygon_holes: null,
-          tillable_polygon: null,
-          tillable_acres: null,
-          tract_image_base64: null,
-          has_tract_image: false,
-        })
+      if (liveTractId) {
+        const res = await fetchWithAuth(
+          `${API_URL}/api/admin/tract-fix-boundary/${liveTractId}/clear`,
+          { method: 'POST' }
+        )
+        const data = await res.json()
+        if (!res.ok || !data.success) {
+          throw new Error(data.detail || data.error || `HTTP ${res.status}`)
+        }
+        setStatus('✓ Polygon deleted')
+        setPoints([])
+        setDirty(false)
+        if (onUpdate) {
+          onUpdate({
+            polygon_coordinates: null,
+            polygon_holes: null,
+            tillable_polygon: null,
+            tillable_acres: null,
+            tract_image_base64: null,
+            has_tract_image: false,
+          })
+        }
+      } else {
+        const res = await fetch(
+          `${SCRAPER_URL}/api/staging/${stagingId}/tracts/${tractIndex}/boundary`,
+          { method: 'DELETE' }
+        )
+        const data = await res.json()
+        if (!res.ok || !data.success) {
+          throw new Error(data.error || `HTTP ${res.status}`)
+        }
+        setStatus('✓ Polygon deleted')
+        setPoints([])
+        setDirty(false)
+        if (onUpdate && data.tract) {
+          onUpdate({
+            ...data.tract,
+            polygon_coordinates: null,
+            polygon_holes: null,
+            tillable_polygon: null,
+            tillable_acres: null,
+            tract_image_base64: null,
+            has_tract_image: false,
+          })
+        }
       }
     } catch (e: any) {
       setStatus(`✗ Delete failed: ${e.message || e}`)
@@ -3424,7 +3489,7 @@ export default function TractMapEditor({
           </button>
           <button
             onClick={handleSave}
-            disabled={points.length < 3 || !dirty || saving || deleting || snapBusy || snapping}
+            disabled={(points.length > 0 && points.length < 3) || !dirty || saving || deleting || snapBusy || snapping}
             className="flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium text-white transition-colors bg-green-600 hover:bg-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {saving ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}

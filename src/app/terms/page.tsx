@@ -6,7 +6,7 @@ export default function TermsPage() {
       <div className="max-w-4xl mx-auto px-6">
         <div className="mb-12">
           <h1 className="font-display text-4xl md:text-5xl font-bold text-white mb-4">Terms of Service</h1>
-          <p className="text-gg-gray-400">Last Updated: May 4, 2026</p>
+          <p className="text-gg-gray-400">Last Updated: June 10, 2026</p>
         </div>
 
         <div className="space-y-8 text-gg-gray-300">
@@ -51,6 +51,11 @@ export default function TermsPage() {
           </section>
 
           <section>
+            <h2 className="font-display text-2xl font-bold text-white mb-4">User Submissions</h2>
+            <p>If you submit feedback, bug reports, feature requests, listing corrections, or any other content to Ground Goat through any channel, you grant Ground Goat a perpetual, worldwide, royalty-free, irrevocable license to use, reproduce, modify, and incorporate that content into the Service without compensation or attribution. You represent that you have the right to grant this license and that your submission does not infringe any third-party rights.</p>
+          </section>
+
+          <section>
             <h2 className="font-display text-2xl font-bold text-white mb-4">7. Acceptable Use of the Network</h2>
             <p>You will not interfere with or disrupt the Service, attempt to access any account other than your own, probe for vulnerabilities, or send traffic intended to overload our servers. You will not use the Service for any unlawful purpose or in violation of any applicable export, sanction, or trade-control law.</p>
           </section>
@@ -64,11 +69,13 @@ export default function TermsPage() {
               <li>Management Firm subscriptions at $2,400/year for up to 3 users, plus $9.99/month per additional user (billed annually) for users 4–10</li>
               <li>All plans include a 30-day free trial and are billed annually</li>
             </ul>
+            <p className="mt-4">To cancel a subscription purchased through the Ground Goat website or Stripe billing portal, log in to your account at groundgoat.com and navigate to Settings &gt; Subscription, or contact us at info@groundgoat.com. Subscriptions purchased through the Apple App Store are managed by Apple; to cancel, visit your Apple ID subscription settings. Ground Goat has no ability to issue refunds for App Store purchases — those are governed by Apple's refund policy.</p>
           </section>
 
           <section>
             <h2 className="font-display text-2xl font-bold text-white mb-4">9. Information Accuracy</h2>
-            <p>Ground Goat compiles data from many sources and applies significant enrichment. Despite our best efforts, the data may contain errors, omissions, lag, or interpretive judgments. You should independently verify any information before making a financial or transactional decision. Ground Goat makes no warranty of accuracy, completeness, fitness for a particular purpose, or fitness for any specific transaction. You assume all risk for decisions made on the basis of information provided through the Service.</p>
+            <p>Ground Goat compiles data from many sources — including public records, partner feeds, and proprietary processing — and applies significant normalization and enrichment. Despite our best efforts, data appearing in the Service, including but not limited to: acreage figures, soil productivity ratings (CSR, PI, or similar scores), estimated land values, sale prices, comparable transactions, and parcel boundaries, may contain errors, omissions, lag, or interpretive judgments that differ materially from ground truth. THIS DATA IS PROVIDED FOR INFORMATIONAL PURPOSES ONLY AND DOES NOT CONSTITUTE FINANCIAL, INVESTMENT, APPRAISAL, OR LEGAL ADVICE. YOU MUST NOT RELY ON GROUND GOAT DATA AS THE SOLE OR PRIMARY BASIS FOR ANY FINANCIAL DECISION, REAL ESTATE TRANSACTION, LENDING DECISION, APPRAISAL, OR INVESTMENT COMMITMENT. Ground Goat makes no warranty of accuracy, completeness, timeliness, fitness for a particular purpose, or fitness for any specific transaction. You assume all risk for decisions made in reliance on information provided through the Service. Always obtain a professional appraisal, conduct independent due diligence, and consult qualified legal, financial, and agricultural advisors before committing to any transaction.</p>
+            <p className="mt-4">Ground Goat's data includes information compiled from government databases (including USDA NASS, county recorder offices, FIPS-coded public land records, and FSA data), third-party auction firms, and other sources outside Ground Goat's control. Ground Goat does not audit, certify, or independently verify the accuracy of data received from these sources. Errors in government records, recording lags, boundary discrepancies, and typographic or digitization errors in source data may be reflected in the Service without correction. Ground Goat is not responsible for errors originating in third-party or government data.</p>
           </section>
 
           <section>
