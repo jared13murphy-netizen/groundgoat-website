@@ -1160,11 +1160,19 @@ export default function TractDataCleanupPage() {
                                   {dcSummaryParts && (
                                     <span className="text-xs text-gg-gray-400 ml-1">{dcSummaryParts}</span>
                                   )}
-                                  {tract.boundary_reviewed_at && (
-                                    <span className="ml-auto inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded bg-green-500/15 text-green-400 border border-green-500/40 shrink-0">
-                                      ✓ Reviewed
+                                  <div className="ml-auto flex items-center gap-3 shrink-0">
+                                    {tract.total_acres != null && (
+                                      <span className="text-xs text-gg-gray-300">{Number(tract.total_acres).toFixed(2)} ac</span>
+                                    )}
+                                    <span className={`text-xs ${tract.polygon_coordinates ? 'text-green-400' : 'text-yellow-400'}`}>
+                                      {tract.polygon_coordinates ? '◼ Polygon' : '○ No polygon'}
                                     </span>
-                                  )}
+                                    {tract.boundary_reviewed_at && (
+                                      <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded bg-green-500/15 text-green-400 border border-green-500/40 shrink-0">
+                                        ✓ Reviewed
+                                      </span>
+                                    )}
+                                  </div>
                                 </button>
 
                                 {tractIsOpen && (<>

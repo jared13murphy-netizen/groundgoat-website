@@ -1889,11 +1889,19 @@ export default function AdminStagingPage() {
                                     {stSummaryParts && (
                                       <span className="text-xs text-gg-gray-400 ml-1">{stSummaryParts}</span>
                                     )}
-                                    {stReviewed && (
-                                      <span className="ml-auto inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded bg-green-500/15 text-green-400 border border-green-500/40 shrink-0">
-                                        ✓ Reviewed
+                                    <div className="ml-auto flex items-center gap-3 shrink-0">
+                                      {stAcres != null && (
+                                        <span className="text-xs text-gg-gray-300">{Number(stAcres).toFixed(2)} ac</span>
+                                      )}
+                                      <span className={`text-xs ${tract.polygon_coordinates ? 'text-green-400' : 'text-yellow-400'}`}>
+                                        {tract.polygon_coordinates ? '◼ Polygon' : '○ No polygon'}
                                       </span>
-                                    )}
+                                      {stReviewed && (
+                                        <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded bg-green-500/15 text-green-400 border border-green-500/40 shrink-0">
+                                          ✓ Reviewed
+                                        </span>
+                                      )}
+                                    </div>
                                   </button>
 
                                   {tractIsOpen && (<>

@@ -218,11 +218,19 @@ export default function ListingTractCard({ tract, listing, onChanged }: Props) {
         {summaryParts && (
           <span className="text-xs text-gg-gray-400 ml-1">{summaryParts}</span>
         )}
-        {tract.boundary_reviewed_at && (
-          <span className="ml-auto inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded bg-green-500/15 text-green-400 border border-green-500/40 shrink-0">
-            <CheckCircle2 size={12} /> Reviewed
+        <div className="ml-auto flex items-center gap-3 shrink-0">
+          {tract.total_acres != null && (
+            <span className="text-xs text-gg-gray-300">{Number(tract.total_acres).toFixed(2)} ac</span>
+          )}
+          <span className={`text-xs ${hasPolygon ? 'text-green-400' : 'text-yellow-400'}`}>
+            {hasPolygon ? '◼ Polygon' : '○ No polygon'}
           </span>
-        )}
+          {tract.boundary_reviewed_at && (
+            <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded bg-green-500/15 text-green-400 border border-green-500/40 shrink-0">
+              <CheckCircle2 size={12} /> Reviewed
+            </span>
+          )}
+        </div>
       </button>
 
       {isOpen && (
