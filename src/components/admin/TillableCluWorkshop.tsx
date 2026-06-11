@@ -1337,9 +1337,9 @@ export default function TillableCluWorkshop({
         clu_overrides: cluOverridesPayload(cluOverrides),
         tillable_acres: Math.round(tillableAcres * 100) / 100,
       }
-      if (soil?.soil_rating != null) {
-        body.soil_rating = soil.soil_rating
-        body.soil_rating_type = soil.soil_rating_type
+      if (soil !== null) {
+        body.soil_rating = soil.soil_rating ?? null
+        body.soil_rating_type = soil.soil_rating != null ? soil.soil_rating_type : null
       }
       const res = await fetchWithAuth(baseUrl, {
         method: 'POST',
