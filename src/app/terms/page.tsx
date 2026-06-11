@@ -28,6 +28,7 @@ export default function TermsPage() {
           <section>
             <h2 className="font-display text-2xl font-bold text-white mb-4">4. Account Use Is Personal</h2>
             <p>Each Ground Goat account is intended for use by a single individual. You may not share your login credentials, access tokens, biometric or session data with any other person. If your subscription is purchased by an employer or organization, the named user remains the only person permitted to use the credentials. Allowing a person who has not paid for their own Ground Goat access to view, search, or otherwise interact with the Service through your account — including by screen-share, screen-recording, remote-desktop session, or any indirect means — is a material breach of these Terms.</p>
+            <p className="mt-4">You are responsible for maintaining the confidentiality of your password and for all activity that occurs under your account. You must notify us immediately at <a href="mailto:info@groundgoat.com" className="text-gg-pink hover:underline">info@groundgoat.com</a> if you believe your account has been compromised or accessed without your authorization. Ground Goat is not liable for any loss or damage arising from unauthorized access to your account resulting from your failure to keep your credentials secure.</p>
           </section>
 
           <section>

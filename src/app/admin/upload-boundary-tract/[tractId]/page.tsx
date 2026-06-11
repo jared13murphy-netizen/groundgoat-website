@@ -693,7 +693,6 @@ export default function UploadBoundaryTractPage() {
   }
 
   const extractFromSurety = async () => {
-    console.log('[SuretyExtract] clicked, url:', suretyUrlInput)
     const url = suretyUrlInput.trim()
     if (!url) {
       setStatusMsg('✗ Paste a Surety image URL first')
@@ -717,7 +716,6 @@ export default function UploadBoundaryTractPage() {
       // Backend fetches the Surety per-tract JPG, OCRs the composition
       // table via Claude Vision, traces the outer boundary, snaps to
       // SSURGO via composition matching, and returns the polygon.
-      console.log('[SuretyExtract] POST', `${SCRAPER_URL}/api/admin/tracts/${tractId}/extract-boundary-from-surety`)
       const res = await fetch(
         `${SCRAPER_URL}/api/admin/tracts/${tractId}/extract-boundary-from-surety`,
         {
@@ -727,7 +725,6 @@ export default function UploadBoundaryTractPage() {
           signal: controller.signal,
         }
       )
-      console.log('[SuretyExtract] response status:', res.status)
       const body = await res.json()
       if (!res.ok || !body.success) throw new Error(body.error || `HTTP ${res.status}`)
       const poly: Pt[] = (body.polygon || []).map((p: any) => [Number(p[0]), Number(p[1])])

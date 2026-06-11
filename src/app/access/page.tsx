@@ -287,10 +287,8 @@ function AccessPortalPageInner() {
       const res = await fetchWithAuth(`${API_URL}/api/watchlist`)
       if (res.ok) {
         const data = await res.json()
-        console.log('Watchlist API response:', data.length, 'items', data.length > 0 ? JSON.stringify(data[0]).slice(0, 200) : 'empty')
         const ids = new Set<string>(data.map((w: any) => String(w.listing_id || w.listing?.id)))
         const listings = data.map((w: any) => w.listing).filter(Boolean)
-        console.log('Watchlist IDs:', Array.from(ids))
         setWatchlistIds(ids)
         setWatchlistListings(listings)
       } else {
@@ -335,7 +333,7 @@ function AccessPortalPageInner() {
           // Ignore "Already watching" — it means it worked on a previous attempt
           const errText = await res.text().catch(() => '')
           if (res.status === 400 && errText.includes('Already watching')) {
-            console.log('Already on watchlist, ignoring')
+            // already watching — no-op
           } else {
             console.error('Watchlist POST failed:', res.status, errText)
             throw new Error('Add failed')
