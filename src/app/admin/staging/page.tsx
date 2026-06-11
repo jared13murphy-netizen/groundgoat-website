@@ -1875,7 +1875,7 @@ export default function AdminStagingPage() {
                                   <button
                                     type="button"
                                     onClick={() => toggleTract(tractKey)}
-                                    className="w-full flex items-center gap-2 py-2 text-left hover:bg-gg-pink hover:text-white rounded-lg px-2 -mx-2 transition-colors"
+                                    className="group w-full flex items-center gap-2 py-2 text-left hover:bg-gg-pink hover:text-white rounded-lg px-2 -mx-2 transition-colors"
                                   >
                                     <span className="text-gg-gray-400 text-xs w-3 shrink-0">{tractIsOpen ? '▼' : '▶'}</span>
                                     <span className="text-base text-white font-bold tracking-tight shrink-0">
@@ -1901,6 +1901,37 @@ export default function AdminStagingPage() {
                                           ✓ Reviewed
                                         </span>
                                       )}
+                                      {/* Tract image thumbnail */}
+                                      {(() => {
+                                        const hasPolygon = !!tract.polygon_coordinates;
+                                        if (!hasPolygon) return null;
+                                        const imageSource = tractImageCache[`${listing.id}-${idx}`]
+                                          ? `data:image/png;base64,${tractImageCache[`${listing.id}-${idx}`]}`
+                                          : null;
+                                        return (
+                                          <>
+                                            {imageSource ? (
+                                              <img
+                                                src={imageSource}
+                                                alt="Tract polygon"
+                                                onError={(e) => {
+                                                  (e.currentTarget as HTMLImageElement).style.display = 'none';
+                                                  (e.currentTarget.nextSibling as HTMLElement).style.display = 'flex';
+                                                }}
+                                                className="w-12 h-12 rounded-md object-cover border border-white/20 flex-none group-hover:border-white/40"
+                                              />
+                                            ) : null}
+                                            <div
+                                              style={{ display: imageSource ? 'none' : 'flex' }}
+                                              className="w-12 h-12 rounded-md border border-white/20 bg-gray-700 flex-none items-center justify-center group-hover:border-white/40"
+                                            >
+                                              <svg className="w-5 h-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                                <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3 20.25h18M3.75 3h16.5A.75.75 0 0121 3.75v16.5a.75.75 0 01-.75.75H3.75a.75.75 0 01-.75-.75V3.75A.75.75 0 013.75 3z" />
+                                              </svg>
+                                            </div>
+                                          </>
+                                        );
+                                      })()}
                                     </div>
                                   </button>
 
@@ -2035,6 +2066,13 @@ export default function AdminStagingPage() {
                                         sd.tracts = ts
                                         return { ...l, scraped_data: sd }
                                       }))
+                                      // If a new polygon image was saved, update the thumbnail cache.
+                                      if (updatedTract.tract_image_base64) {
+                                        setTractImageCache(prev => ({
+                                          ...prev,
+                                          [`${listing.id}-${idx}`]: updatedTract.tract_image_base64,
+                                        }));
+                                      }
                                       // Boundary just saved → tell the CLU
                                       // workshop below to re-fetch against the
                                       // new polygon (it loaded empty before the
