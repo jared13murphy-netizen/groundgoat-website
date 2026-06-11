@@ -2618,7 +2618,7 @@ export default function TractMapEditor({
         if (onUpdate) onUpdate({
           polygon_coordinates: boundaryPayload as any,
           boundary_valid: data.boundary_valid,
-          ...(data.image_url ? { image_url: data.image_url, image_base64: null } : {}),
+          ...(data.image_base64 ? { image_base64: data.image_base64, image_url: data.image_url ?? null } : {}),
         })
         return
       }

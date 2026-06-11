@@ -105,6 +105,7 @@ type LiveTract = {
   boundary_reviewed_by: string | null
   boundary_reviewed_at: string | null
   image_url: string | null
+  image_base64: string | null
 }
 
 // $ formatter for the read-only derived stats (— when null/blank).
@@ -334,6 +335,7 @@ export default function TractDataCleanupPage() {
         boundary_reviewed_by: t.boundary_reviewed_by ?? null,
         boundary_reviewed_at: t.boundary_reviewed_at ?? null,
         image_url: t.image_url ?? null,
+        image_base64: null,
       }))
       // Sort by tract number so the order matches the listing page.
       tracts.sort((a, b) => (a.tract_number ?? 0) - (b.tract_number ?? 0))
@@ -1174,11 +1176,14 @@ export default function TractDataCleanupPage() {
                                     )}
                                     {/* Tract image thumbnail — only shown when a polygon exists */}
                                     {tract.polygon_coordinates && (() => {
+                                      const imgSrc = tract.image_base64
+                                        ? `data:image/png;base64,${tract.image_base64}`
+                                        : tract.image_url ?? null
                                       return (
                                         <>
-                                          {tract.image_url ? (
+                                          {imgSrc ? (
                                             <img
-                                              src={tract.image_url}
+                                              src={imgSrc}
                                               alt="Tract polygon"
                                               onError={(e) => {
                                                 (e.currentTarget as HTMLImageElement).style.display = 'none';
@@ -1188,7 +1193,7 @@ export default function TractDataCleanupPage() {
                                             />
                                           ) : null}
                                           <div
-                                            style={{ display: tract.image_url ? 'none' : 'flex' }}
+                                            style={{ display: imgSrc ? 'none' : 'flex' }}
                                             className="w-12 h-12 rounded-md border border-white/20 bg-gray-700 flex-none items-center justify-center group-hover:border-white/40"
                                           >
                                             <svg className="w-5 h-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -1374,6 +1379,7 @@ export default function TractDataCleanupPage() {
                                           polygon_coordinates: updated.polygon_coordinates ?? ring,
                                           boundary_valid: updated.boundary_valid ?? tract.boundary_valid,
                                           ...(updated.image_url !== undefined ? { image_url: updated.image_url } : {}),
+                                          ...(updated.image_base64 !== undefined ? { image_base64: updated.image_base64 } : {}),
                                         })
                                         // Proposal applied → clear it so the banner disappears.
                                         setProposals((prev) => {
