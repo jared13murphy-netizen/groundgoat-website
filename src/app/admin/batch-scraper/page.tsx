@@ -210,7 +210,7 @@ export default function BatchScraperPage() {
 
     try {
       const urlList = landUrls.map(u => u.url)
-      const response = await fetch(API_URL + '/api/listings/check-urls', {
+      const response = await fetchWithAuth(API_URL + '/api/listings/check-urls', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ urls: urlList })

@@ -976,7 +976,7 @@ export default function TractMapEditor({
       // Attach the admin bearer token to our parcel vector-tile requests
       // (the /api/tiles/parcels endpoint is admin-only).
       transformRequest: (url: string) => {
-        if (url.includes(`${API_URL}/api/tiles/parcels/`)) {
+        if (url.includes(`${API_URL}/api/tiles/parcels/`) || url.includes(`${API_URL}/api/tiles/soils/`)) {
           const token = localStorage.getItem('auth_token')
           return { url, headers: token ? { Authorization: `Bearer ${token}` } : {} }
         }

@@ -1805,6 +1805,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       center: initialCenter,
       zoom: initialZoom,
       maxZoom: 18,
+      transformRequest: (url: string) => {
+        if (url.includes(`${API_URL}/api/tiles/soils/`)) {
+          const token = localStorage.getItem('auth_token')
+          return { url, headers: token ? { Authorization: `Bearer ${token}` } : {} }
+        }
+        return { url }
+      },
     })
 
     map.addControl(new maplibregl.NavigationControl(), 'top-right')
