@@ -753,6 +753,7 @@ export default function TractMapEditor({
     loading: boolean
   } | null>(null)
   const [savingTillable, setSavingTillable] = useState(false)
+  const [proposingTillable, setProposingTillable] = useState(false)
   // Capture-screenshot state — populated when user clicks "Capture Screenshot"
   // in the right pane. Lets us show the result immediately without a full
   // page reload. capturedSourceImage persists until the component unmounts.
@@ -1936,6 +1937,50 @@ export default function TractMapEditor({
     tillableHistory.current = []
     setTillablePreview(null)
     setStatus('Tillable draw mode — click on the map to add vertices (need at least 3). Use Seed from Tract to start with the tract outline.')
+  }
+
+  const handleProposeTillableFromCSB = async () => {
+    if (!liveTractId) return
+    setProposingTillable(true)
+    setStatus(null)
+    try {
+      const res = await fetchWithAuth(
+        `${API_URL}/api/admin/tract-fix-boundary/${liveTractId}/propose-tillable`
+      )
+      const data = await res.json()
+      if (!res.ok || !data.success) {
+        throw new Error(data.detail || data.error || `HTTP ${res.status}`)
+      }
+      const geojson = data.geojson as { type: string; coordinates: any }
+      let ring: Pt[] = []
+      if (geojson.type === 'Polygon') {
+        ring = geojson.coordinates[0] as Pt[]
+      } else if (geojson.type === 'MultiPolygon') {
+        // Pick the largest ring by area (shoelace)
+        let bestArea = 0
+        for (const poly of geojson.coordinates as Pt[][][]) {
+          const r = poly[0]
+          let area = 0
+          for (let i = 0; i < r.length - 1; i++)
+            area += r[i][0] * r[i + 1][1] - r[i + 1][0] * r[i][1]
+          if (Math.abs(area) / 2 > bestArea) { bestArea = Math.abs(area) / 2; ring = r }
+        }
+      }
+      if (ring.length === 0)
+        throw new Error(`Unexpected geometry type: ${geojson.type}`)
+      // GeoJSON rings close back to first point — drop the duplicate
+      if (ring.length > 1 && ring[0][0] === ring[ring.length - 1][0] && ring[0][1] === ring[ring.length - 1][1])
+        ring = ring.slice(0, -1)
+      tillableHistory.current = []
+      setTillableDrawPoints(ring)
+      setDrawTillableMode(true)
+      setTillablePreview(null)
+      setStatus(`CSB proposal loaded — ${data.csb_polygon_count} field${data.csb_polygon_count !== 1 ? 's' : ''} in ${data.county}, ${data.state}. Adjust if needed, then Save Tillable.`)
+    } catch (e: any) {
+      setStatus(`✗ CSB proposal failed: ${e.message || e}`)
+    } finally {
+      setProposingTillable(false)
+    }
   }
   // Optional: seed the current tillable drawing with the tract polygon's
   // vertices. Useful when the tillable is "tract minus a few cutouts"
@@ -3366,6 +3411,17 @@ export default function TractMapEditor({
               >
                 <Sprout size={12} /> Draw Tillable
               </button>
+              {liveTractId && points.length >= 3 && (
+                <button
+                  onClick={handleProposeTillableFromCSB}
+                  disabled={proposingTillable}
+                  className="px-2 py-1 text-xs bg-teal-600 hover:bg-teal-700 text-white disabled:opacity-40 rounded flex items-center gap-1"
+                  title="Auto-propose tillable polygon from USDA Crop Sequence Boundaries (CSB) — based on last 8 years of planted crops, excludes grassland/CRP"
+                >
+                  {proposingTillable ? <Loader2 className="animate-spin" size={12} /> : <Sprout size={12} />}
+                  {proposingTillable ? 'Proposing…' : 'Propose from CSB'}
+                </button>
+              )}
               {onComputeTillable && (
                 <button
                   onClick={async () => {
