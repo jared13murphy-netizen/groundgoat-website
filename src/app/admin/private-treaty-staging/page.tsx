@@ -234,6 +234,16 @@ export default function AdminPrivateTreatyStagingPage() {
   // user clicks Show Tillable on the per-tract map. Lifted to page
   // level so each tract toggles independently without re-mounting
   // the whole list.
+  // Per-tract expand/collapse. Key: `${listingId}-${tractIndex}`.
+  // Default: all collapsed. Empty set = all collapsed.
+  const [openTractIds, setOpenTractIds] = useState<Set<string>>(new Set())
+  const toggleTract = (key: string) =>
+    setOpenTractIds(prev => {
+      const s = new Set(prev)
+      if (s.has(key)) s.delete(key); else s.add(key)
+      return s
+    })
+
   // Inverted set — tracks which tracts have tillable HIDDEN.
   // Default: tillable is SHOWN whenever tract.tillable_polygon exists.
   const [tillableHidden, setTillableHidden] = useState<Set<string>>(new Set())
@@ -1702,8 +1712,51 @@ export default function AdminPrivateTreatyStagingPage() {
                                   setTimeout(() => loadTractImage(listing.id, idx), 0)
                                 }
                                 const cachedSrc = sourceImageCache[listing.id]
+                                const tractIsOpen = openTractIds.has(tractKey)
+                                const stAcres = tract.scraped?.acres ?? tract.acres
+                                const stPpa = tract.display_price_per_acre ?? tract.price_per_acre ?? tract.scraped?.price_per_acre
+                                const stTotal = tract.sale_price ?? tract.scraped?.sale_price
+                                const stStatus = tract.sale_status ?? tract.scraped?.sale_status ?? null
+                                const stReviewed = tract.boundary_reviewed_at ?? null
+                                const stSummaryParts = [
+                                  stAcres != null ? `${Number(stAcres).toFixed(2)} ac` : null,
+                                  stPpa != null ? `$${Number(stPpa).toLocaleString(undefined, { maximumFractionDigits: 0 })}/ac` : null,
+                                  stTotal != null ? `$${Number(stTotal).toLocaleString(undefined, { maximumFractionDigits: 0 })} total` : null,
+                                ].filter(Boolean).join(' · ')
+                                const stStatusCls =
+                                  stStatus === 'sold'    ? 'bg-green-500/15 text-green-400 border border-green-500/40' :
+                                  stStatus === 'pending' ? 'bg-yellow-500/15 text-yellow-400 border border-yellow-500/40' :
+                                  stStatus === 'live'    ? 'bg-blue-500/15 text-blue-400 border border-blue-500/40' :
+                                  stStatus === 'no_sale' ? 'bg-red-500/15 text-red-400 border border-red-500/40' :
+                                  stStatus              ? 'bg-gg-gray-700 text-gg-gray-300 border border-gg-gray-600' : ''
                                 return (
-                                <div key={idx}>
+                                <div key={idx} className="border-t border-gg-gray-800 pt-2 first:border-t-0 first:pt-0">
+                                  {/* Collapsed summary row */}
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleTract(tractKey)}
+                                    className="w-full flex items-center gap-2 py-2 text-left hover:bg-gg-gray-900 rounded-lg px-2 -mx-2 transition-colors"
+                                  >
+                                    <span className="text-gg-gray-400 text-xs w-3 shrink-0">{tractIsOpen ? '▼' : '▶'}</span>
+                                    <span className="text-base text-white font-bold tracking-tight shrink-0">
+                                      Tract {tract.tract_number ?? idx + 1}
+                                    </span>
+                                    {stStatus && (
+                                      <span className={`inline-flex items-center text-[11px] px-2 py-0.5 rounded font-medium capitalize ${stStatusCls}`}>
+                                        {stStatus.replace('_', ' ')}
+                                      </span>
+                                    )}
+                                    {stSummaryParts && (
+                                      <span className="text-xs text-gg-gray-400 ml-1">{stSummaryParts}</span>
+                                    )}
+                                    {stReviewed && (
+                                      <span className="ml-auto inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded bg-green-500/15 text-green-400 border border-green-500/40 shrink-0">
+                                        ✓ Reviewed
+                                      </span>
+                                    )}
+                                  </button>
+
+                                  {tractIsOpen && (<>
                                   {/* View on Map — opens the Explore portal map
                                       in a new tab, zoomed to this tract. */}
                                   {(() => {
@@ -1904,6 +1957,7 @@ export default function AdminPrivateTreatyStagingPage() {
                                       per user 2026-05-25 — redundant with
                                       TractDataCompare above + perimeter
                                       moved into the editor toolbar. */}
+                                  </>)} {/* end tractIsOpen */}
                                 </div>
                                 )
                               })}

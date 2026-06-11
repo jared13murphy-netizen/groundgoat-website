@@ -213,6 +213,15 @@ export default function TractDataCleanupPage() {
     })
   const listingHasUnsaved = (lid: string) =>
     Object.keys(dirtyTracts).some((k) => k.startsWith(`${lid}::`) && dirtyTracts[k])
+  // Per-tract expand/collapse. Key: tract.id. Default: all collapsed.
+  const [openTractIds, setOpenTractIds] = useState<Set<string>>(new Set())
+  const toggleTract = (id: string) =>
+    setOpenTractIds(prev => {
+      const s = new Set(prev)
+      if (s.has(id)) s.delete(id); else s.add(id)
+      return s
+    })
+
   // Per-tract in-flight marker for the Mark Reviewed button.
   const [reviewingTractId, setReviewingTractId] = useState<string | null>(null)
   // Editable tract number: which tract is being edited, its draft value, and
@@ -1118,8 +1127,47 @@ export default function TractDataCleanupPage() {
                                 <span>Polygon: <span className="text-white font-medium">{ring && ring.length ? `${ring.length} pts` : 'none'}</span></span>
                               </div>
                             )
+                            const tractIsOpen = openTractIds.has(tract.id)
+                            const dcStatus = tract.sale_status ?? null
+                            const dcStatusCls =
+                              dcStatus === 'sold'    ? 'bg-green-500/15 text-green-400 border border-green-500/40' :
+                              dcStatus === 'pending' ? 'bg-yellow-500/15 text-yellow-400 border border-yellow-500/40' :
+                              dcStatus === 'live'    ? 'bg-blue-500/15 text-blue-400 border border-blue-500/40' :
+                              dcStatus === 'no_sale' ? 'bg-red-500/15 text-red-400 border border-red-500/40' :
+                              dcStatus              ? 'bg-gg-gray-700 text-gg-gray-300 border border-gg-gray-600' : ''
+                            const dcSummaryParts = [
+                              tract.total_acres != null ? `${Number(tract.total_acres).toFixed(2)} ac` : null,
+                              tract.price_per_acre != null ? `$${Number(tract.price_per_acre).toLocaleString(undefined, { maximumFractionDigits: 0 })}/ac` : null,
+                              tract.sale_price != null ? `$${Number(tract.sale_price).toLocaleString(undefined, { maximumFractionDigits: 0 })} total` : null,
+                            ].filter(Boolean).join(' · ')
                             return (
-                              <div key={tract.id} className="border-t border-gg-gray-800 pt-4 first:border-t-0 first:pt-0">
+                              <div key={tract.id} className="border-t border-gg-gray-800 pt-2 first:border-t-0 first:pt-0">
+                                {/* Collapsed summary row */}
+                                <button
+                                  type="button"
+                                  onClick={() => toggleTract(tract.id)}
+                                  className="w-full flex items-center gap-2 py-2 text-left hover:bg-gg-gray-900 rounded-lg px-2 -mx-2 transition-colors"
+                                >
+                                  <span className="text-gg-gray-400 text-xs w-3 shrink-0">{tractIsOpen ? '▼' : '▶'}</span>
+                                  <span className="text-base text-white font-bold tracking-tight shrink-0">
+                                    Tract {tract.tract_number}
+                                  </span>
+                                  {dcStatus && (
+                                    <span className={`inline-flex items-center text-[11px] px-2 py-0.5 rounded font-medium capitalize ${dcStatusCls}`}>
+                                      {dcStatus.replace('_', ' ')}
+                                    </span>
+                                  )}
+                                  {dcSummaryParts && (
+                                    <span className="text-xs text-gg-gray-400 ml-1">{dcSummaryParts}</span>
+                                  )}
+                                  {tract.boundary_reviewed_at && (
+                                    <span className="ml-auto inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded bg-green-500/15 text-green-400 border border-green-500/40 shrink-0">
+                                      ✓ Reviewed
+                                    </span>
+                                  )}
+                                </button>
+
+                                {tractIsOpen && (<>
                                 {/* Tract header + View on Map */}
                                 <div className="flex items-center justify-between mb-2">
                                   <div className="flex items-center gap-2 flex-wrap">
@@ -1164,11 +1212,6 @@ export default function TractDataCleanupPage() {
                                           <Pencil size={14} />
                                         </button>
                                       </div>
-                                    )}
-                                    {reviewed && (
-                                      <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded bg-green-500/15 text-green-600 border border-green-500/40">
-                                        <CheckCircle2 size={12} /> Reviewed
-                                      </span>
                                     )}
                                     {tract.boundary_valid === false && (
                                       <span className="text-[11px] px-2 py-0.5 rounded bg-amber-500/15 text-amber-600 border border-amber-500/40">
@@ -1420,6 +1463,7 @@ export default function TractDataCleanupPage() {
                                     {statsBox}
                                   </div>
                                 )}
+                                </>)} {/* end tractIsOpen */}
                               </div>
                             )
                           })}

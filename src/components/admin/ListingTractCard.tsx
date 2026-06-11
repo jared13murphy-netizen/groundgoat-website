@@ -37,11 +37,32 @@ const STR_FIELDS = ['name', 'description', 'soil_rating_type', 'sale_status', 'p
 const NUM_FIELDS = ['total_acres', 'tillable_acres', 'soil_rating', 'sale_price', 'price_per_acre']
 const BOOL_FIELDS = ['has_house', 'has_buildings']
 
+// Status badge colours — same palette used across admin screens.
+function SaleStatusBadge({ status }: { status: string | null | undefined }) {
+  if (!status) return null
+  const label = status.replace('_', ' ')
+  const cls =
+    status === 'sold'    ? 'bg-green-500/15 text-green-400 border border-green-500/40' :
+    status === 'pending' ? 'bg-yellow-500/15 text-yellow-400 border border-yellow-500/40' :
+    status === 'live'    ? 'bg-blue-500/15 text-blue-400 border border-blue-500/40' :
+    status === 'no_sale' ? 'bg-red-500/15 text-red-400 border border-red-500/40' :
+                           'bg-gg-gray-700 text-gg-gray-300 border border-gg-gray-600'
+  return (
+    <span className={`inline-flex items-center text-[11px] px-2 py-0.5 rounded font-medium capitalize ${cls}`}>
+      {label}
+    </span>
+  )
+}
+
 export default function ListingTractCard({ tract, listing, onChanged }: Props) {
   const ring: Pt[] | null = useMemo(() => {
     const p = tract.polygon_coordinates
     return Array.isArray(p) && p.length >= 3 ? (p as Pt[]) : null
   }, [tract.polygon_coordinates])
+
+  // Collapsed by default; auto-expand tracts with no polygon (they need attention).
+  const hasPolygon = ring !== null
+  const [isOpen, setIsOpen] = useState(!hasPolygon)
 
   // ----- scalar form state (initialized from the tract) -----
   const initial = useMemo(() => {
@@ -171,8 +192,41 @@ export default function ListingTractCard({ tract, listing, onChanged }: Props) {
   const inputCls = 'w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-3 py-2 text-white text-sm'
   const selectCls = 'w-full bg-white text-gray-900 border border-gg-gray-300 rounded-lg px-3 py-2 text-sm'
 
+  // Summary stats for the collapsed row.
+  const summaryAcres = tract.total_acres != null ? `${Number(tract.total_acres).toFixed(2)} ac` : null
+  const summaryPpa = tract.display_price_per_acre ?? tract.price_per_acre
+  const summaryPpaFmt = summaryPpa != null ? `$${Number(summaryPpa).toLocaleString(undefined, { maximumFractionDigits: 0 })}/ac` : null
+  const summaryTotal = tract.sale_price != null ? `$${Number(tract.sale_price).toLocaleString(undefined, { maximumFractionDigits: 0 })} total` : null
+  const summaryParts = [summaryAcres, summaryPpaFmt, summaryTotal].filter(Boolean).join(' · ')
+
   return (
-    <div className="border-t border-gg-gray-800 pt-5 first:border-t-0 first:pt-0">
+    <div className="border-t border-gg-gray-800 pt-3 first:border-t-0 first:pt-0">
+      {/* Always-visible collapsed summary row */}
+      <button
+        type="button"
+        onClick={() => {
+          if (isOpen && dirty && !confirm('Unsaved changes will be lost. Collapse anyway?')) return
+          setIsOpen((o) => !o)
+        }}
+        className="w-full flex items-center gap-2 py-2 text-left hover:bg-gg-gray-900 rounded-lg px-2 -mx-2 transition-colors"
+      >
+        <span className="text-gg-gray-400 text-xs w-3 shrink-0">{isOpen ? '▼' : '▶'}</span>
+        <span className="text-base text-white font-bold tracking-tight shrink-0">
+          Tract {tract.tract_number}
+        </span>
+        <SaleStatusBadge status={tract.sale_status} />
+        {summaryParts && (
+          <span className="text-xs text-gg-gray-400 ml-1">{summaryParts}</span>
+        )}
+        {tract.boundary_reviewed_at && (
+          <span className="ml-auto inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded bg-green-500/15 text-green-400 border border-green-500/40 shrink-0">
+            <CheckCircle2 size={12} /> Reviewed
+          </span>
+        )}
+      </button>
+
+      {isOpen && (
+      <div className="pt-2">
       {/* Header: tract number (editable) + derived summary */}
       <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
         <div className="flex items-center gap-2 flex-wrap">
@@ -205,11 +259,6 @@ export default function ListingTractCard({ tract, listing, onChanged }: Props) {
               <Pencil size={14} />
             </button>
           </div>
-        )}
-        {tract.boundary_reviewed_at && (
-          <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded bg-green-500/15 text-green-400 border border-green-500/40">
-            <CheckCircle2 size={12} /> Reviewed
-          </span>
         )}
         </div>
       </div>
@@ -379,6 +428,8 @@ export default function ListingTractCard({ tract, listing, onChanged }: Props) {
         longitude={tract.longitude}
         onSaved={() => onChanged()}
       />
+      </div>
+      )} {/* end isOpen */}
     </div>
   )
 }
