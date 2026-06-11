@@ -544,6 +544,31 @@ export default function TractMapEditor({
       setLocMsg('Lat/Lng out of range'); return
     }
 
+    // "Section 10 - Township 141 - Range 32" (auction website format, directions optional)
+    const plssKeyword = q.match(
+      /[Ss]ec(?:tion)?\s*(\d{1,2})\s*[-,]?\s*[Tt](?:wp|ownship)?\s*(\d{1,3})\s*(N|S)?\s*[-,]?\s*[Rr](?:ng|ange)?\s*(\d{1,3})\s*(E|W)?/i
+    )
+    if (plssKeyword) {
+      setLocBusy(true)
+      try {
+        const [, sec, twp, twpDir, rng, rngDir] = plssKeyword
+        const res = await fetchWithAuth(
+          `${API_URL}/api/admin/plss-lookup?section=${sec}&township=${twp}&township_dir=${(twpDir || 'N').toUpperCase()}&range=${rng}&range_dir=${(rngDir || 'W').toUpperCase()}&state=${encodeURIComponent(listingState || '')}`
+        )
+        const data = await res.json().catch(() => ({}))
+        if (res.ok && data.lat != null && data.lng != null) {
+          recenterMap(Number(data.lat), Number(data.lng))
+        } else {
+          setLocMsg('Section not found — check township/range numbers')
+        }
+      } catch {
+        setLocMsg('PLSS lookup failed')
+      } finally {
+        setLocBusy(false)
+        return
+      }
+    }
+
     // PLSS verbose: "Sec 10 T141N R32W"  or  "S10 T141N R32W"  or  "Section 10 T141N R32W"
     const plss = q.match(
       /^[Ss](?:ec(?:tion)?)?\s*(\d{1,2})[,\s\-]+[Tt]?(\d{1,3})\s*(N|S)[,\s\-]+[Rr]?(\d{1,3})\s*(E|W)\b/i
@@ -2831,7 +2856,7 @@ export default function TractMapEditor({
                   value={locQuery}
                   onChange={(e) => setLocQuery(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); goToLocation() } }}
-                  placeholder="Lat, Lng · address · parcel # · 10-141N-32W"
+                  placeholder="Lat, Lng · address · parcel # · 10-141N-32W · Sec 10 Twp 141 Rng 32"
                   style={{ backgroundColor: '#ffffff', color: '#000000' }}
                   className="w-64 px-2 py-1 text-xs rounded border border-gg-gray-600 focus:outline-none"
                 />
