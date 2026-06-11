@@ -417,11 +417,23 @@ export default function ControlCenterPage() {
       totalSalePrice += tractSalePrice
     })
     const listingStatus = calculateListingStatus(allTracts, tractStatesNow, listing.status)
-    const soldAcres = calculateSoldAcres(allTracts, tractStatesNow)
     const listingPricePerAcre = newListingTotalAcres > 0 ? Math.round(totalSalePrice / newListingTotalAcres) : null
     const listingPPTA = totalTillableAcres > 0 ? Math.round(totalSalePrice / totalTillableAcres) : null
     const weightedAvgSoilRating = soilRatingAcresSum > 0 ? weightedSoilRatingSum / soilRatingAcresSum : null
     const listingPPSR = totalSalePrice && weightedAvgSoilRating ? Math.round(totalSalePrice / weightedAvgSoilRating) : null
+
+    // Only include sold_acres when the listing has fully closed. Every tract must
+    // have a final status (Sold or No Sale) AND the resolved listing status must
+    // itself be terminal (Sold / No Sale / Results). Mid-auction or active listings
+    // must never receive a sold_acres value.
+    const tractStatuses = allTracts.map(t => tractStatesNow[t.id]?.status || normalizeStatus(t.sale_status || 'listed'))
+    const allTractsFinal = allTracts.length > 0 && tractStatuses.every(s => s === 'Sold' || s === 'No Sale')
+    const listingTerminal = listingStatus === 'Sold' || listingStatus === 'No Sale' || listingStatus === 'Results'
+    const soldAcresPayload: { sold_acres?: number } = {}
+    if (allTractsFinal && listingTerminal) {
+      soldAcresPayload.sold_acres = calculateSoldAcres(allTracts, tractStatesNow)
+    }
+
     return {
       body: {
         sale_price: totalSalePrice,
@@ -429,7 +441,7 @@ export default function ControlCenterPage() {
         price_per_tillable_acre: listingPPTA,
         price_per_soil_rating: listingPPSR,
         status: toDbStatus(listingStatus),
-        sold_acres: soldAcres,
+        ...soldAcresPayload,
         total_acres: newListingTotalAcres,
       },
       listingStatus,
