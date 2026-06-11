@@ -208,7 +208,7 @@ export default function ListingTractCard({ tract, listing, onChanged }: Props) {
           if (isOpen && dirty && !confirm('Unsaved changes will be lost. Collapse anyway?')) return
           setIsOpen((o) => !o)
         }}
-        className="w-full flex items-center gap-2 py-2 text-left hover:bg-gg-gray-900 rounded-lg px-2 -mx-2 transition-colors"
+        className="w-full flex items-center gap-2 py-2 text-left hover:bg-gg-pink hover:text-white rounded-lg px-2 -mx-2 transition-colors"
       >
         <span className="text-gg-gray-400 text-xs w-3 shrink-0">{isOpen ? '▼' : '▶'}</span>
         <span className="text-base text-white font-bold tracking-tight shrink-0">
