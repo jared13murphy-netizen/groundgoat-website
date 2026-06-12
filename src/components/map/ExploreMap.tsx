@@ -1806,7 +1806,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       zoom: initialZoom,
       maxZoom: 18,
       transformRequest: (url: string) => {
-        if (url.includes(`${API_URL}/api/tiles/soils/`)) {
+        if (url.includes(`${API_URL}/api/tiles/soils/`) || url.includes(`${API_URL}/api/regrid/tile/`)) {
           const token = localStorage.getItem('auth_token')
           return { url, headers: token ? { Authorization: `Bearer ${token}` } : {} }
         }

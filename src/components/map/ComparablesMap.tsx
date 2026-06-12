@@ -17,6 +17,8 @@ import {
 } from '@/lib/regridParcelFilter'
 import type { FilterState as CompFilterState } from '@/components/ComparablesFilterPanel'
 
+const API_URL = 'https://practical-serenity-production.up.railway.app'
+
 interface ComparablePin {
   id: string
   county: string
@@ -356,6 +358,13 @@ export default function ComparablesMap({
       center: [subjectLng, subjectLat],
       zoom: 9,
       maxZoom: 16,
+      transformRequest: (url: string) => {
+        if (url.includes(`${API_URL}/api/regrid/tile/`)) {
+          const token = localStorage.getItem('auth_token')
+          return { url, headers: token ? { Authorization: `Bearer ${token}` } : {} }
+        }
+        return { url }
+      },
     })
 
     map.addControl(new maplibregl.NavigationControl(), 'top-right')
