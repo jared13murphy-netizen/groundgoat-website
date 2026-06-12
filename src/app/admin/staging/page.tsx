@@ -40,6 +40,7 @@ import TractMapEditor from '@/components/admin/TractMapEditor'
 import TillableCluWorkshop from '@/components/admin/TillableCluWorkshop'
 import TractDataCompare from '@/components/admin/TractDataCompare'
 import SwapStagingTractsPanel from '@/components/admin/SwapStagingTractsPanel'
+import SaleStatusChips from '@/components/admin/SaleStatusChips'
 import { polygonAcres, polygonPerimeterFeet, formatPerimeter } from '@/lib/polygonGeometry'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
@@ -820,6 +821,28 @@ export default function AdminStagingPage() {
       if (!res.ok) showToast('error', 'Failed to save house flag')
     } catch {
       showToast('error', 'Network error — failed to save house flag')
+    }
+  }
+
+  // Persist the per-tract sale_status override into scraped_data so Verify
+  // carries it through. Auto-saves like has_buildings (no dirty flag).
+  const saveTractSaleStatus = async (listing: StagingListing, idx: number, next: string) => {
+    const updated = JSON.parse(JSON.stringify(listing.scraped_data || {}))
+    if (!Array.isArray(updated.tracts)) updated.tracts = []
+    if (!updated.tracts[idx]) updated.tracts[idx] = {}
+    updated.tracts[idx].sale_status = next || null
+    setListings((prev) =>
+      prev.map((l) => (l.id === listing.id ? { ...l, scraped_data: updated } : l))
+    )
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/admin/staging/${listing.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scraped_data: updated }),
+      })
+      if (!res.ok) showToast('error', 'Failed to save sale status')
+    } catch {
+      showToast('error', 'Network error — failed to save sale status')
     }
   }
 
@@ -2042,6 +2065,13 @@ export default function AdminStagingPage() {
                                   </button>
 
                                   <div className={tractIsOpen ? '' : 'hidden'}>
+                                  {/* Sale Status chips — top of expanded tract panel.
+                                      Auto-saves into scraped_data so Verify carries it. */}
+                                  <SaleStatusChips
+                                    status={tract.sale_status ?? tract.scraped?.sale_status ?? ''}
+                                    onChange={(next) => saveTractSaleStatus(listing, idx, next)}
+                                    disabled={actionLoading === listing.id}
+                                  />
                                   {/* View on Map — opens the Explore portal map
                                       in a new tab, zoomed to this tract. Prefers
                                       the tract polygon centroid (most accurate),

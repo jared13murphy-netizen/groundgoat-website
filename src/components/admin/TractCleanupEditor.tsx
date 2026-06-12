@@ -18,6 +18,7 @@ import fetchWithAuth from '@/lib/fetchWithAuth'
 import TractMapEditor from '@/components/admin/TractMapEditor'
 import TillableCluWorkshop from '@/components/admin/TillableCluWorkshop'
 import TractDataCompare from '@/components/admin/TractDataCompare'
+import SaleStatusChips from '@/components/admin/SaleStatusChips'
 import { toRings } from '@/lib/polygonGeometry'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
@@ -259,6 +260,13 @@ export default function TractCleanupEditor({ tract, listing, onChanged, onDirtyC
 
   return (
     <div>
+      {/* Sale Status chips — always accessible regardless of basisGate.
+          Saves via existing saveTractFields so prices + listing rollup follow. */}
+      <SaleStatusChips
+        status={tract.sale_status}
+        onChange={(next) => saveTractFields({ sale_status: next || null })}
+        disabled={reviewing}
+      />
       {/* The price-basis question comes FIRST and gates all editing for
           result-recorded tracts (sold/pending/no_sale). */}
       {basisBlock}

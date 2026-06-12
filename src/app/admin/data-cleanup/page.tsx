@@ -19,6 +19,7 @@ import TillableCluWorkshop from '@/components/admin/TillableCluWorkshop'
 import LandTypeButtons from '@/components/admin/LandTypeButtons'
 import TractDataCompare from '@/components/admin/TractDataCompare'
 import SwapTractsPanel from '@/components/admin/SwapTractsPanel'
+import SaleStatusChips from '@/components/admin/SaleStatusChips'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -1327,6 +1328,13 @@ export default function TractDataCleanupPage() {
 
                                 {actionable ? (
                                   <>
+                                    {/* Sale Status chips — always accessible regardless of basisGate.
+                                        Saves via saveTractFields so prices + listing rollup follow. */}
+                                    <SaleStatusChips
+                                      status={tract.sale_status}
+                                      onChange={(next) => saveTractFields(it.listing_id, tract, { sale_status: next || null })}
+                                      disabled={savingId === it.listing_id}
+                                    />
                                     {/* The price-basis question comes FIRST and gates all editing for
                                         result-recorded tracts (sold/pending/no_sale). */}
                                     {basisBlock}
