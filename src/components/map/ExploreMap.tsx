@@ -1899,14 +1899,16 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // Added here once so the 3D terrain effect can reference it.
       // Public tiles — no auth header needed.
       // minzoom:5 prevents MapLibre from requesting DEM tiles at continental
-      // scales where terrain is not meaningfully visible; maxzoom:13 caps the
-      // DEM resolution (higher doesn't improve visual quality but costs tiles).
+      // scales where terrain is not meaningfully visible; maxzoom:15 matches the
+      // native AWS Terrarium tile resolution (z16 returns 404s) — using the real
+      // max eliminates the overzoom/stair-step/curtain artifacts that appeared
+      // under the tilted 3D camera when zoomed past the old z13 cap.
       map.addSource('terrarium-dem', {
         type: 'raster-dem',
         tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{y}/{x}.png'],
         encoding: 'terrarium',
         minzoom: 5,
-        maxzoom: 13,
+        maxzoom: 15,
         tileSize: 256,
       })
 
@@ -3804,9 +3806,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   //     of mountains looking like needles at z=4.
   //   • No feedback loop: zoom handlers call map.setTerrain() directly
   //     and NEVER call React setState, so they cannot re-trigger effects.
-  //   • DEM source has minzoom:5/maxzoom:13 (set at addSource time) to
-  //     bound tile requests — MapLibre will up-sample/down-sample as
-  //     needed rather than fetching thousands of tiles at low zoom.
+  //   • DEM source has minzoom:5/maxzoom:15 (set at addSource time) —
+  //     z15 is the native AWS Terrarium max (z16 404s); using it prevents
+  //     overzoom/curtain artifacts under the tilted 3D camera at close zoom.
   //   • Max pitch is clamped by zoom so the horizon doesn't pull in a
   //     huge tile footprint at continental scale.
   //
