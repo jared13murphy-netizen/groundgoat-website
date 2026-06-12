@@ -776,10 +776,9 @@ export default function TractDataCleanupPage() {
 
         {/* Header stats */}
         {stats && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
-            <StatCard label="Listings" value={stats.listings} />
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-5">
+            <StatCard label="Listings to verify" value={stats.listings - (stats.by_status?.done ?? 0)} />
             <StatCard label="Tracts to verify (active states)" value={stats.tracts_to_verify} />
-            <StatCard label="Done" value={stats.by_status?.done || 0} />
             <StatCard label="Unfixable" value={stats.by_status?.unfixable || 0} />
           </div>
         )}
