@@ -3,7 +3,9 @@
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { Loader2, ExternalLink, Check, X, Play, RefreshCw } from 'lucide-react'
+import { fetchScraperProxy } from '@/lib/fetchWithAuth'
 
+const SCRAPER_PROXY = '/api/scraper-proxy'
 const SCRAPER_URL = 'https://ground-goat-scraper-production.up.railway.app'
 
 type Proposal = {
@@ -68,7 +70,7 @@ export default function LandIdBatchFixPage() {
       if (statusFilter) qs.set('status', statusFilter)
       if (reviewFilter) qs.set('review', reviewFilter)
       if (stateFilter) qs.set('state', stateFilter)
-      const r = await fetch(`${SCRAPER_URL}/api/admin/landid-batch-fix/proposals?${qs.toString()}`)
+      const r = await fetchScraperProxy(`/api/admin/landid-batch-fix/proposals?${qs.toString()}`)
       const data = await r.json()
       if (!r.ok || !data.success) throw new Error(data.error || `HTTP ${r.status}`)
       setProposals(data.items || [])
@@ -84,7 +86,7 @@ export default function LandIdBatchFixPage() {
   async function runBatch() {
     setRunning(true); setRunResult(null); setError(null)
     try {
-      const r = await fetch(`${SCRAPER_URL}/api/admin/landid-batch-fix/preview`, {
+      const r = await fetchScraperProxy(`/api/admin/landid-batch-fix/preview`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ state: stateFilter || undefined, limit }),
@@ -105,7 +107,7 @@ export default function LandIdBatchFixPage() {
       return
     setBusyProposal(p.id)
     try {
-      const r = await fetch(`${SCRAPER_URL}/api/admin/landid-batch-fix/proposal/${p.id}/reject`, {
+      const r = await fetchScraperProxy(`/api/admin/landid-batch-fix/proposal/${p.id}/reject`, {
         method: 'POST',
       })
       const data = await r.json()

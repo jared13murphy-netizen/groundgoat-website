@@ -28,8 +28,9 @@ import { useRouter, useParams } from 'next/navigation'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { ArrowLeft, Sparkles, Save, Loader2, RotateCcw, ImageIcon } from 'lucide-react'
+import { fetchScraperProxy } from '@/lib/fetchWithAuth'
 
-const SCRAPER_URL = 'https://ground-goat-scraper-production.up.railway.app'
+const SCRAPER_PROXY = '/api/scraper-proxy'
 const TILE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
 const TILE_ATTRIBUTION = '&copy; Esri, Maxar, Earthstar Geographics'
 
@@ -198,7 +199,7 @@ export default function UploadBoundaryTractPage() {
   // existing /admin/boundary-draw-tract page's behavior.
   useEffect(() => {
     let cancelled = false
-    fetch(`${SCRAPER_URL}/api/admin/tracts/${tractId}/details`)
+    fetchScraperProxy(`/api/admin/tracts/${tractId}/details`)
       .then(r => r.json())
       .then(body => {
         if (cancelled) return
@@ -542,8 +543,8 @@ export default function UploadBoundaryTractPage() {
       //      Center, scaled by the scale bar (or acreage as fallback).
       // This produces accurate polygons that match the auctioneer's
       // hand-drawn boundary (Surety, Wheeler, Halderman, etc.).
-      const res = await fetch(
-        `${SCRAPER_URL}/api/admin/tracts/${tractId}/extract-boundary-from-image`,
+      const res = await fetchScraperProxy(
+        `/api/admin/tracts/${tractId}/extract-boundary-from-image`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -620,8 +621,8 @@ export default function UploadBoundaryTractPage() {
         setSavingAnchor(false)
         return
       }
-      const res = await fetch(
-        `${SCRAPER_URL}/api/admin/tracts/${tractId}/set-anchor`,
+      const res = await fetchScraperProxy(
+        `/api/admin/tracts/${tractId}/set-anchor`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -657,8 +658,8 @@ export default function UploadBoundaryTractPage() {
       // Backend fetches the URL, scans the HTML for a Land ID iframe,
       // pulls the GeoJSON via Land ID's API, and picks the polygon
       // whose acreage best matches this tract's expected total.
-      const res = await fetch(
-        `${SCRAPER_URL}/api/admin/tracts/${tractId}/extract-boundary-from-url`,
+      const res = await fetchScraperProxy(
+        `/api/admin/tracts/${tractId}/extract-boundary-from-url`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -716,8 +717,8 @@ export default function UploadBoundaryTractPage() {
       // Backend fetches the Surety per-tract JPG, OCRs the composition
       // table via Claude Vision, traces the outer boundary, snaps to
       // SSURGO via composition matching, and returns the polygon.
-      const res = await fetch(
-        `${SCRAPER_URL}/api/admin/tracts/${tractId}/extract-boundary-from-surety`,
+      const res = await fetchScraperProxy(
+        `/api/admin/tracts/${tractId}/extract-boundary-from-surety`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -780,8 +781,8 @@ export default function UploadBoundaryTractPage() {
       // soil rating immediately. (Rare on this page; tillable is normally
       // drawn from the missing-boundaries screen.)
       if (isTillable) {
-        const res = await fetch(
-          `${SCRAPER_URL}/api/admin/tracts/${tractId}/save-tillable-polygon`,
+        const res = await fetchScraperProxy(
+          `/api/admin/tracts/${tractId}/save-tillable-polygon`,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -808,8 +809,8 @@ export default function UploadBoundaryTractPage() {
       // back to /admin/missing-boundaries with the tract focused, so the
       // admin can Align → draw Tillable → Align Tillable → Soil Rating →
       // Approve using the same workflow as Auto-Extract.
-      const res = await fetch(
-        `${SCRAPER_URL}/api/admin/tracts/${tractId}/save-draft`,
+      const res = await fetchScraperProxy(
+        `/api/admin/tracts/${tractId}/save-draft`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

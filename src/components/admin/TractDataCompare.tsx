@@ -36,6 +36,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Check } from 'lucide-react'
 import LandTypeButtons from '@/components/admin/LandTypeButtons'
+import { fetchScraperProxy } from '@/lib/fetchWithAuth'
 
 interface ScrapedComputed {
   acres?: number | null
@@ -121,7 +122,7 @@ function fmtSoil(rating?: number | null, type?: string | null): string {
   return type ? `${n.toFixed(1)} ${type}` : n.toFixed(1)
 }
 
-const SCRAPER_URL = 'https://ground-goat-scraper-production.up.railway.app'
+const SCRAPER_PROXY = '/api/scraper-proxy'
 
 export default function TractDataCompare({
   tractNumber,
@@ -185,8 +186,8 @@ export default function TractDataCompare({
     setNumSaving(true)
     setNumStatus(null)
     try {
-      const res = await fetch(
-        `${SCRAPER_URL}/api/staging/${stagingId}/tracts/${tractIndex}/tract-number`,
+      const res = await fetchScraperProxy(
+        `/api/staging/${stagingId}/tracts/${tractIndex}/tract-number`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

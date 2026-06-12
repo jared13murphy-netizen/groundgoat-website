@@ -5,10 +5,10 @@ import { useRouter, useSearchParams, useParams } from 'next/navigation'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { ArrowLeft, Save, RotateCcw, Trash2, Loader2, ExternalLink, X } from 'lucide-react'
-import fetchWithAuth from '@/lib/fetchWithAuth'
+import fetchWithAuth, { fetchScraperProxy } from '@/lib/fetchWithAuth'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
-const SCRAPER_URL = 'https://ground-goat-scraper-production.up.railway.app'
+const SCRAPER_PROXY = '/api/scraper-proxy'
 
 const TILE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
 const TILE_ATTRIBUTION = '&copy; Esri, Maxar, Earthstar Geographics'
@@ -157,7 +157,7 @@ export default function BoundaryDrawPage() {
     if (!src) return
     let cancelled = false
     setImagesLoading(true)
-    fetch(`${SCRAPER_URL}/api/admin/scrape-source-images?url=${encodeURIComponent(src)}`)
+    fetchScraperProxy(`/api/admin/scrape-source-images?url=${encodeURIComponent(src)}`)
       .then(r => r.json())
       .then(body => {
         if (cancelled) return
@@ -278,8 +278,8 @@ export default function BoundaryDrawPage() {
     setAligning(true)
     setSaveResult(null)
     try {
-      const res = await fetch(
-        `${SCRAPER_URL}/api/staging/${stagingId}/tracts/${tractIndex}/align-and-rebuild`,
+      const res = await fetchScraperProxy(
+        `/api/staging/${stagingId}/tracts/${tractIndex}/align-and-rebuild`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -341,8 +341,8 @@ export default function BoundaryDrawPage() {
     setSaving(true)
     setSaveResult(null)
     try {
-      const res = await fetch(
-        `${SCRAPER_URL}/api/staging/${stagingId}/tracts/${tractIndex}/save-boundary`,
+      const res = await fetchScraperProxy(
+        `/api/staging/${stagingId}/tracts/${tractIndex}/save-boundary`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

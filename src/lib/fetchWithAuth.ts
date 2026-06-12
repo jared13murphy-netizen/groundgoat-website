@@ -166,6 +166,14 @@ async function fetchWithTransientRetry(
   throw lastError ?? new Error('fetchWithTransientRetry: exhausted retries')
 }
 
+export async function fetchScraperProxy(path: string, init: RequestInit = {}): Promise<Response> {
+  const SCRAPER_PROXY_BASE = '/api/scraper-proxy'
+  const token = (typeof localStorage !== 'undefined' ? localStorage.getItem('auth_token') : null) || ''
+  const headers = new Headers(init.headers || {})
+  headers.set('Authorization', `Bearer ${token}`)
+  return fetch(`${SCRAPER_PROXY_BASE}${path}`, { ...init, headers })
+}
+
 export async function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Response> {
   const token = localStorage.getItem('auth_token')
 

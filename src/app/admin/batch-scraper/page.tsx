@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import fetchWithAuth from '@/lib/fetchWithAuth'
+import fetchWithAuth, { fetchScraperProxy } from '@/lib/fetchWithAuth'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -24,7 +24,7 @@ import {
 } from 'lucide-react'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
-const SCRAPER_URL = 'https://ground-goat-scraper-production.up.railway.app'
+const SCRAPER_PROXY = '/api/scraper-proxy'
 
 interface DiscoveredUrl {
   url: string
@@ -150,7 +150,7 @@ export default function BatchScraperPage() {
     setExcludedUrls([])
 
     try {
-      const response = await fetch(SCRAPER_URL + '/api/batch-discover', {
+      const response = await fetchScraperProxy('/api/batch-discover', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -246,7 +246,7 @@ export default function BatchScraperPage() {
     setCurrentIndex(0)
 
     try {
-      const response = await fetch(SCRAPER_URL + '/api/batch-scrape', {
+      const response = await fetchScraperProxy('/api/batch-scrape', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ urls, listing_type: listingType })

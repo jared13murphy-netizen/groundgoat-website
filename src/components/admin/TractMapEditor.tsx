@@ -49,9 +49,9 @@ import {
   ExternalLink, LandPlot, Search,
 } from 'lucide-react'
 import { polygonAcres, polygonPerimeterFeet, formatPerimeter } from '@/lib/polygonGeometry'
-import { fetchWithAuth } from '@/lib/fetchWithAuth'
+import { fetchWithAuth, fetchScraperProxy } from '@/lib/fetchWithAuth'
 
-const SCRAPER_URL = 'https://ground-goat-scraper-production.up.railway.app'
+const SCRAPER_PROXY = '/api/scraper-proxy'
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 // Multi-polygon CREATION gate. ON now that every display surface (website
 // maps, mobile, PDF report) + enrichment + validation render/handle all rings.
@@ -2096,8 +2096,8 @@ export default function TractMapEditor({
     setSavingTillable(true)
     setStatus(null)
     try {
-      const res = await fetch(
-        `${SCRAPER_URL}/api/staging/${stagingId}/tracts/${tractIndex}/tillable`,
+      const res = await fetchScraperProxy(
+        `/api/staging/${stagingId}/tracts/${tractIndex}/tillable`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -2137,8 +2137,8 @@ export default function TractMapEditor({
     setSavingTillable(true)
     setStatus(null)
     try {
-      const res = await fetch(
-        `${SCRAPER_URL}/api/staging/${stagingId}/tracts/${tractIndex}/tillable`,
+      const res = await fetchScraperProxy(
+        `/api/staging/${stagingId}/tracts/${tractIndex}/tillable`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -2205,8 +2205,8 @@ export default function TractMapEditor({
     // Server-side soil rating, debounced
     const handle = setTimeout(async () => {
       try {
-        const res = await fetch(
-          `${SCRAPER_URL}/api/staging/${stagingId}/tracts/${tractIndex}/tillable-preview`,
+        const res = await fetchScraperProxy(
+          `/api/staging/${stagingId}/tracts/${tractIndex}/tillable-preview`,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -2244,8 +2244,8 @@ export default function TractMapEditor({
     setCapturingSource(true)
     setStatus(null)
     try {
-      const res = await fetch(
-        `${SCRAPER_URL}/api/staging/${stagingId}/capture-source-image`,
+      const res = await fetchScraperProxy(
+        `/api/staging/${stagingId}/capture-source-image`,
         { method: 'POST' }
       )
       const data = await res.json()
@@ -2317,8 +2317,8 @@ export default function TractMapEditor({
       setExtractingFromImage(true)
       setStatus('Extracting boundary from image…')
       try {
-        const res = await fetch(
-          `${SCRAPER_URL}/api/admin/tracts/vision-upload/extract-boundary-from-image`,
+        const res = await fetchScraperProxy(
+          `/api/admin/tracts/vision-upload/extract-boundary-from-image`,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -2429,8 +2429,8 @@ export default function TractMapEditor({
     setShowUploadPanel(false)
     setStatus('Fetching Land ID map from URL…')
     try {
-      const res = await fetch(
-        `${SCRAPER_URL}/api/admin/tracts/vision-upload/extract-boundary-from-url`,
+      const res = await fetchScraperProxy(
+        `/api/admin/tracts/vision-upload/extract-boundary-from-url`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -2562,8 +2562,8 @@ export default function TractMapEditor({
           setDirty(false)
           if (onUpdate) onUpdate({ polygon_coordinates: null, polygon_holes: null, boundary_valid: null, tract_image_base64: null, has_tract_image: false, tillable_polygon: null, tillable_acres: null })
         } else {
-          const res = await fetch(
-            `${SCRAPER_URL}/api/staging/${stagingId}/tracts/${tractIndex}/boundary`,
+          const res = await fetchScraperProxy(
+            `/api/staging/${stagingId}/tracts/${tractIndex}/boundary`,
             { method: 'DELETE' }
           )
           const data = await res.json()
@@ -2622,8 +2622,8 @@ export default function TractMapEditor({
         })
         return
       }
-      const res = await fetch(
-        `${SCRAPER_URL}/api/staging/${stagingId}/tracts/${tractIndex}/save-boundary`,
+      const res = await fetchScraperProxy(
+        `/api/staging/${stagingId}/tracts/${tractIndex}/save-boundary`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -2694,8 +2694,8 @@ export default function TractMapEditor({
     setDeletingTillable(true)
     setStatus(null)
     try {
-      const res = await fetch(
-        `${SCRAPER_URL}/api/staging/${stagingId}/tracts/${tractIndex}/tillable`,
+      const res = await fetchScraperProxy(
+        `/api/staging/${stagingId}/tracts/${tractIndex}/tillable`,
         { method: 'DELETE' }
       )
       const data = await res.json()
@@ -2760,8 +2760,8 @@ export default function TractMapEditor({
           })
         }
       } else {
-        const res = await fetch(
-          `${SCRAPER_URL}/api/staging/${stagingId}/tracts/${tractIndex}/boundary`,
+        const res = await fetchScraperProxy(
+          `/api/staging/${stagingId}/tracts/${tractIndex}/boundary`,
           { method: 'DELETE' }
         )
         const data = await res.json()

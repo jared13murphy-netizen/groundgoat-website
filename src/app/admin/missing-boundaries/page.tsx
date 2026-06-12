@@ -11,9 +11,10 @@ import Link from 'next/link'
 import { Loader2, ExternalLink, MapPin, Trash2 } from 'lucide-react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import fetchWithAuth from '@/lib/fetchWithAuth'
+import fetchWithAuth, { fetchScraperProxy } from '@/lib/fetchWithAuth'
 import TillableCluWorkshop from '@/components/admin/TillableCluWorkshop'
 
+const SCRAPER_PROXY = '/api/scraper-proxy'
 const SCRAPER_URL = 'https://ground-goat-scraper-production.up.railway.app'
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 const TILE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
@@ -1095,7 +1096,7 @@ export default function MissingBoundariesPage() {
   // doesn't lose work. Best-effort — failures log but don't alert.
   const saveDraftNow = useCallback(async (tractId: string, fields: any) => {
     try {
-      await fetch(`${SCRAPER_URL}/api/admin/tracts/${tractId}/save-draft`, {
+      await fetchScraperProxy(`/api/admin/tracts/${tractId}/save-draft`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(fields),
@@ -1144,9 +1145,9 @@ export default function MissingBoundariesPage() {
         if (companyFilter) qs.set('company', companyFilter)
         if (assigneeFilter) qs.set('assigned_to', assigneeFilter)
         if (listingIdFilter) qs.set('listing_id', listingIdFilter)
-        const url = `${SCRAPER_URL}/api/admin/missing-boundary-tracts${qs.toString() ? '?' + qs.toString() : ''}`
+        const path = `/api/admin/missing-boundary-tracts${qs.toString() ? '?' + qs.toString() : ''}`
         setLoading(true)
-        const res = await fetch(url)
+        const res = await fetchScraperProxy(path)
         const data = await res.json()
         if (!res.ok || !data.success) throw new Error(data.error || `HTTP ${res.status}`)
         if (!cancelled) {
@@ -1180,7 +1181,7 @@ export default function MissingBoundariesPage() {
     const timer = setTimeout(() => {
       if (cancelled) return
       setGeocodeStatus('Geocoding listings in background…')
-      fetch(`${SCRAPER_URL}/api/admin/geocode-missing-listings`, { method: 'POST' })
+      fetchScraperProxy(`/api/admin/geocode-missing-listings`, { method: 'POST' })
         .then(r => r.json())
         .then(body => {
           if (cancelled) return
@@ -1279,8 +1280,8 @@ export default function MissingBoundariesPage() {
       const next = { ...prev }; delete next[listingId]; return next
     })
     try {
-      const res = await fetch(
-        `${SCRAPER_URL}/api/admin/listings/${listingId}/auto-extract`,
+      const res = await fetchScraperProxy(
+        `/api/admin/listings/${listingId}/auto-extract`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1368,8 +1369,8 @@ export default function MissingBoundariesPage() {
       if (edit?.current_soil_rating_type) payload.soil_rating_type = edit.current_soil_rating_type
       if (edit?.current_no_cropland) payload.no_cropland = true
 
-      const res = await fetch(
-        `${SCRAPER_URL}/api/admin/tracts/${tractId}/approve-proposed`,
+      const res = await fetchScraperProxy(
+        `/api/admin/tracts/${tractId}/approve-proposed`,
         { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }
       )
       const body = await res.json()
@@ -1526,8 +1527,8 @@ export default function MissingBoundariesPage() {
     // so backend runs the CDL inverse-mask pipeline).
     setCalculatingTractId(tractId)
     try {
-      const res = await fetch(
-        `${SCRAPER_URL}/api/admin/tracts/${tractId}/recalculate-from-polygon`,
+      const res = await fetchScraperProxy(
+        `/api/admin/tracts/${tractId}/recalculate-from-polygon`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1649,8 +1650,8 @@ export default function MissingBoundariesPage() {
       const payload: any = { polygon: edit.current_polygon }
       if (scaledTils.length === 1) payload.tillable_polygon = scaledTils[0]
       else payload.tillable_polygons = scaledTils
-      const res = await fetch(
-        `${SCRAPER_URL}/api/admin/tracts/${tractId}/recalculate-from-polygon`,
+      const res = await fetchScraperProxy(
+        `/api/admin/tracts/${tractId}/recalculate-from-polygon`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1760,8 +1761,8 @@ export default function MissingBoundariesPage() {
           const payload: any = { polygon: e.current_polygon }
           if (tils.length === 1) payload.tillable_polygon = tils[0]
           else payload.tillable_polygons = tils
-          const res = await fetch(
-            `${SCRAPER_URL}/api/admin/tracts/${tractId}/recalculate-from-polygon`,
+          const res = await fetchScraperProxy(
+            `/api/admin/tracts/${tractId}/recalculate-from-polygon`,
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -2079,8 +2080,8 @@ export default function MissingBoundariesPage() {
     if (!window.confirm('Reject this proposed boundary? It will be discarded. Live data is NOT changed; tract stays on the list so you can re-extract / upload / draw.')) return
     setRejectingTractId(tractId)
     try {
-      const res = await fetch(
-        `${SCRAPER_URL}/api/admin/tracts/${tractId}/reject-proposed`,
+      const res = await fetchScraperProxy(
+        `/api/admin/tracts/${tractId}/reject-proposed`,
         { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }
       )
       const body = await res.json()
@@ -2110,8 +2111,8 @@ export default function MissingBoundariesPage() {
   const approveAllTracts = async (listingId: string) => {
     setApproveAllRunningId(listingId)
     try {
-      const res = await fetch(
-        `${SCRAPER_URL}/api/admin/listings/${listingId}/approve-all-proposed`,
+      const res = await fetchScraperProxy(
+        `/api/admin/listings/${listingId}/approve-all-proposed`,
         { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }
       )
       const body = await res.json()

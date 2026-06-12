@@ -23,11 +23,11 @@ import {
   TreePine,
   Eye,
 } from 'lucide-react'
-import fetchWithAuth from '@/lib/fetchWithAuth'
+import fetchWithAuth, { fetchScraperProxy } from '@/lib/fetchWithAuth'
 import NassStagingPreview from '@/components/admin/NassStagingPreview'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
-const SCRAPER_URL = 'https://ground-goat-scraper-production.up.railway.app'
+const SCRAPER_PROXY = '/api/scraper-proxy'
 
 // Must match ALLOWED_LAND_TYPES in main.py:11654
 const LAND_TYPE_OPTIONS = [
@@ -463,7 +463,7 @@ export default function MyDecImportPage() {
       `/api/mydec/import/status/${jobId}`
     const poll = async () => {
       try {
-        const res = await fetch(`${SCRAPER_URL}${statusPath}`)
+        const res = await fetchScraperProxy(statusPath)
         const data = await res.json()
         setActiveJobs(prev => ({ ...prev, [jobId]: { ...data, county: jobCounty } }))
         if (data.status === 'running') {
@@ -502,7 +502,7 @@ export default function MyDecImportPage() {
     if (activeState === 'NE') body.county_slug = (county || '').toLowerCase().trim()
     else body.county = county || null
     try {
-      const res = await fetch(`${SCRAPER_URL}${endpoint}`, {
+      const res = await fetchScraperProxy(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -653,7 +653,7 @@ export default function MyDecImportPage() {
   const keepSkipSiblings = async (stagingId: number) => {
     setProcessingIds(prev => new Set(prev).add(stagingId))
     try {
-      const res = await fetch(`${SCRAPER_URL}/api/mydec/staging/${stagingId}/keep-skip-siblings`, { method: 'POST' })
+      const res = await fetchScraperProxy(`/api/mydec/staging/${stagingId}/keep-skip-siblings`, { method: 'POST' })
       const data = await res.json()
       if (res.ok && data.success) {
         // Remove siblings from the visible list
@@ -990,7 +990,7 @@ export default function MyDecImportPage() {
                           const cancelPath = job.state === 'NE'
                             ? `/api/nebraska/import/cancel/${jobId}`
                             : `/api/mydec/import/cancel/${jobId}`
-                          await fetch(`${SCRAPER_URL}${cancelPath}`, { method: 'POST' })
+                          await fetchScraperProxy(cancelPath, { method: 'POST' })
                         }}
                         className="text-xs text-red-400 hover:text-red-300 px-2 py-0.5 rounded bg-red-900/30 hover:bg-red-900/50"
                       >

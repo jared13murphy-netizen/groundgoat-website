@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import fetchWithAuth from '@/lib/fetchWithAuth'
+import fetchWithAuth, { fetchScraperProxy } from '@/lib/fetchWithAuth'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { 
@@ -16,7 +16,7 @@ import {
 } from 'lucide-react'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
-const SCRAPER_URL = 'https://ground-goat-scraper-production.up.railway.app'
+const SCRAPER_PROXY = '/api/scraper-proxy'
 
 interface ReportItem {
   listing_id: string
@@ -78,7 +78,7 @@ export default function PrivateTreatyReportsPage() {
   const runCheckNow = async () => {
     setRunning(true)
     try {
-      const response = await fetch(SCRAPER_URL + '/api/cron/private-treaty-check', {
+      const response = await fetchScraperProxy('/api/cron/private-treaty-check', {
         method: 'POST',
       })
       

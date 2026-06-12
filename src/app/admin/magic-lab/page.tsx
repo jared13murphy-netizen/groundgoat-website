@@ -23,9 +23,9 @@ import { useRouter } from 'next/navigation'
 import { Loader2, Play, FileJson, CheckCircle2, XCircle, MapIcon, ImageIcon } from 'lucide-react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import fetchWithAuth from '@/lib/fetchWithAuth'
+import fetchWithAuth, { fetchScraperProxy } from '@/lib/fetchWithAuth'
 
-const SCRAPER_URL = 'https://ground-goat-scraper-production.up.railway.app'
+const SCRAPER_PROXY = '/api/scraper-proxy'
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 const TILE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
 const TILE_ATTRIBUTION = '© Esri, Maxar, Earthstar Geographics'
@@ -241,7 +241,7 @@ export default function MagicLabPage() {
     let cancelled = false
     const fetchRecent = async () => {
       try {
-        const r = await fetch(`${SCRAPER_URL}/api/admin/magic-lab/recent-probes?limit=20`)
+        const r = await fetchScraperProxy(`/api/admin/magic-lab/recent-probes?limit=20`)
         if (!r.ok) throw new Error(`HTTP ${r.status}`)
         const data = await r.json()
         if (!cancelled) {
@@ -307,7 +307,7 @@ export default function MagicLabPage() {
     let cumResult: any = { success: true, url: trimmed, stage_1c_subpages: [] }
 
     try {
-      const res = await fetch(`${SCRAPER_URL}/api/admin/magic-lab/probe-stream`, {
+      const res = await fetchScraperProxy(`/api/admin/magic-lab/probe-stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: trimmed }),
@@ -598,7 +598,7 @@ export default function MagicLabPage() {
                   if (!confirm(`Delete all ${serverProbes.length} probes? This cannot be undone.`)) return
                   try {
                     const resp = await fetchWithAuth(
-                      `${SCRAPER_URL}/api/admin/magic-lab/clear-probes`,
+                      `${SCRAPER_PROXY}/api/admin/magic-lab/clear-probes`,
                       { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' },
                     )
                     if (!resp.ok) {

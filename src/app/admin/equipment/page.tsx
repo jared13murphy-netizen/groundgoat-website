@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import fetchWithAuth from '@/lib/fetchWithAuth'
+import fetchWithAuth, { fetchScraperProxy } from '@/lib/fetchWithAuth'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -19,7 +19,7 @@ import {
 } from 'lucide-react'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
-const SCRAPER_URL = 'https://ground-goat-scraper-production.up.railway.app'
+const SCRAPER_PROXY = '/api/scraper-proxy'
 
 interface EquipmentItem {
   id: number
@@ -105,12 +105,12 @@ export default function EquipmentPage() {
 
   const fetchEquipment = async () => {
     try {
-      let url = `${SCRAPER_URL}/api/equipment?limit=${ITEMS_PER_PAGE}&offset=${offset}`
-      if (filterCategory) url += `&category=${encodeURIComponent(filterCategory)}`
-      if (filterMonth) url += `&sale_month=${filterMonth}`
-      if (filterYear) url += `&sale_year=${filterYear}`
+      let path = `/api/equipment?limit=${ITEMS_PER_PAGE}&offset=${offset}`
+      if (filterCategory) path += `&category=${encodeURIComponent(filterCategory)}`
+      if (filterMonth) path += `&sale_month=${filterMonth}`
+      if (filterYear) path += `&sale_year=${filterYear}`
 
-      const response = await fetch(url)
+      const response = await fetchScraperProxy(path)
       if (response.ok) {
         const data = await response.json()
         setEquipment(data.sales || [])
@@ -134,7 +134,7 @@ export default function EquipmentPage() {
   const saveCategory = async (id: number) => {
     setSaving(true)
     try {
-      const response = await fetch(`${SCRAPER_URL}/api/equipment/${id}`, {
+      const response = await fetchScraperProxy(`/api/equipment/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ category: editCategory })
@@ -159,7 +159,7 @@ export default function EquipmentPage() {
     if (!confirm('Delete this item?')) return
 
     try {
-      const response = await fetch(`${SCRAPER_URL}/api/equipment/${id}`, {
+      const response = await fetchScraperProxy(`/api/equipment/${id}`, {
         method: 'DELETE'
       })
       if (response.ok) {
@@ -171,8 +171,24 @@ export default function EquipmentPage() {
     }
   }
 
-  const exportToExcel = () => {
-    window.open(SCRAPER_URL + '/api/equipment/export', '_blank')
+  const exportToExcel = async () => {
+    try {
+      const res = await fetchScraperProxy(`/api/equipment/export`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      const cd = res.headers.get('content-disposition')
+      const match = cd && cd.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/)
+      a.download = match ? match[1].replace(/['"]/g, '') : 'equipment-export.xlsx'
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      console.error('Export failed:', err)
+    }
   }
 
   const clearFilters = () => {

@@ -20,8 +20,9 @@
 import { useEffect, useState } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { Loader2 } from 'lucide-react'
+import { fetchScraperProxy } from '@/lib/fetchWithAuth'
 
-const SCRAPER_URL = 'https://ground-goat-scraper-production.up.railway.app'
+const SCRAPER_PROXY = '/api/scraper-proxy'
 
 export default function BoundaryDrawTractRedirect() {
   const params = useParams()
@@ -33,7 +34,7 @@ export default function BoundaryDrawTractRedirect() {
     let cancelled = false
     async function go() {
       try {
-        const res = await fetch(`${SCRAPER_URL}/api/admin/tracts/${tractId}/details`)
+        const res = await fetchScraperProxy(`/api/admin/tracts/${tractId}/details`)
         const body = await res.json()
         if (!res.ok || !body.success) throw new Error(body.error || `HTTP ${res.status}`)
         if (cancelled) return

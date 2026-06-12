@@ -32,7 +32,7 @@ import {
   Link2,
   Search
 } from 'lucide-react'
-import fetchWithAuth from '@/lib/fetchWithAuth'
+import fetchWithAuth, { fetchScraperProxy } from '@/lib/fetchWithAuth'
 import CompanyLinkEditor, { type CompanyOption } from '@/components/admin/CompanyLinkEditor'
 import openListingReport from '@/lib/openListingReport'
 import NassStagingPreview from '@/components/admin/NassStagingPreview'
@@ -44,7 +44,7 @@ import SaleStatusChips from '@/components/admin/SaleStatusChips'
 import { polygonAcres, polygonPerimeterFeet, formatPerimeter } from '@/lib/polygonGeometry'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
-const SCRAPER_URL = 'https://ground-goat-scraper-production.up.railway.app'
+const SCRAPER_PROXY = '/api/scraper-proxy'
 
 interface StagingListing {
   id: number
@@ -427,7 +427,7 @@ export default function AdminStagingPage() {
   useEffect(() => {
     const fetchStatus = async () => {
       try {
-        const res = await fetch(`${SCRAPER_URL}/api/scraper/status`)
+        const res = await fetchScraperProxy(`/api/scraper/status`)
         if (res.ok) {
           const data = await res.json()
           setScraperStatus(data)
@@ -449,7 +449,7 @@ export default function AdminStagingPage() {
   const stopScraper = async () => {
     setStoppingScraper(true)
     try {
-      const res = await fetch(`${SCRAPER_URL}/api/scraper/stop`, { method: 'POST' })
+      const res = await fetchScraperProxy(`/api/scraper/stop`, { method: 'POST' })
       if (res.ok) {
         // Status will update via the polling interval
       }
@@ -463,7 +463,7 @@ export default function AdminStagingPage() {
   const runScraper = async () => {
     setStartingScraper(true)
     try {
-      const res = await fetch(`${SCRAPER_URL}/api/nightly/scrape-and-stage`, {
+      const res = await fetchScraperProxy(`/api/nightly/scrape-and-stage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ async: true }),
@@ -489,7 +489,7 @@ export default function AdminStagingPage() {
       // thread and returns a job_id immediately. We poll for completion so
       // the long request never trips the browser/edge timeout ("Failed to
       // fetch"). The server still finishes even if this tab closes.
-      const res = await fetch(`${SCRAPER_URL}/api/scraper/scrape-single-url`, {
+      const res = await fetchScraperProxy(`/api/scraper/scrape-single-url`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: scrapeUrl.trim(), force: true, async: true }),
@@ -522,7 +522,7 @@ export default function AdminStagingPage() {
       while (Date.now() - started < 720_000) {
         await new Promise((r) => setTimeout(r, 3000))
         try {
-          const sres = await fetch(`${SCRAPER_URL}/api/scraper/scrape-single-url/status/${jobId}`)
+          const sres = await fetchScraperProxy(`/api/scraper/scrape-single-url/status/${jobId}`)
           const sdata = await sres.json()
           if (sdata.status === 'running') {
             const p = sdata.progress
@@ -668,7 +668,7 @@ export default function AdminStagingPage() {
   const fetchRunLog = async () => {
     setRunLogLoading(true)
     try {
-      const response = await fetch(`${SCRAPER_URL}/api/scraper-run-log?limit=500`)
+      const response = await fetchScraperProxy(`/api/scraper-run-log?limit=500`)
       if (response.ok) {
         const data = await response.json()
         // API returns { success: true, entries: [...] }
