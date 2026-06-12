@@ -1905,7 +1905,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // under the tilted 3D camera when zoomed past the old z13 cap.
       map.addSource('terrarium-dem', {
         type: 'raster-dem',
-        tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{y}/{x}.png'],
+        tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
         encoding: 'terrarium',
         minzoom: 5,
         maxzoom: 15,
