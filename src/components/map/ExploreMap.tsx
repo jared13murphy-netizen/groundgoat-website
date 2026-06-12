@@ -3776,9 +3776,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // markers via display:none. MapLibre skips the reprojection for
   // hidden markers. Restore them when terrain is turned OFF.
   //
-  // The county-labels symbol layer (county names, minzoom:7) is a
-  // WebGL layer — it runs on the GPU and is NOT affected by terrain
-  // in the same catastrophic way, so it stays visible.
+  // The county-labels symbol layer (county names, minzoom:7) is also
+  // suppressed while 3D is ON: MapLibre re-lays-out hundreds of county
+  // name glyphs onto the terrain mesh = glyph reprojection storm = freeze.
+  // It is restored (visibility:'visible') when terrain turns OFF; MapLibre
+  // still obeys the layer's own minzoom:7, so it won't appear below zoom 7.
   //
   // This helper is called from the terrain toggle effect AND from the
   // tract/today-marker creation effects (so markers created while
@@ -3811,6 +3813,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       const el = m.getElement()
       if (el) el.style.display = display
     })
+    // Hide the county-labels symbol layer while 3D terrain is ON to prevent
+    // MapLibre from re-projecting hundreds of county glyphs onto the terrain
+    // mesh every frame (causes a hard freeze on zoom-in). Restore when OFF;
+    // the layer's own minzoom:7 still governs actual visibility below zoom 7.
+    const map = mapRef.current
+    if (map && map.getLayer('county-labels')) {
+      map.setLayoutProperty('county-labels', 'visibility', terrainOn ? 'none' : 'visible')
+    }
   }, [])
 
   // 3D terrain toggle effect.
