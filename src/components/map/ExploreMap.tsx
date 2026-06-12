@@ -729,6 +729,71 @@ interface ExploreMapProps {
   neighborsLoading?: boolean
 }
 
+// ── OverlayButton — mutually-exclusive overlay row in the Layers panel ──────
+function OverlayButton({
+  active,
+  label,
+  swatchGradient,
+  swatchColor,
+  onClick,
+}: {
+  active: boolean
+  label: string
+  swatchGradient?: string
+  swatchColor?: string
+  onClick: () => void
+}) {
+  const [hovered, setHovered] = useState(false)
+  const base: Record<string, string | number> = active
+    ? {
+        background: 'linear-gradient(135deg,#E91E8C 0%,#c4186f 100%)',
+        border: '1px solid #E91E8C',
+        color: '#fff',
+        boxShadow: '0 2px 10px rgba(233,30,140,0.40)',
+      }
+    : hovered
+    ? {
+        background: 'rgba(255,255,255,0.10)',
+        border: '1px solid rgba(255,255,255,0.22)',
+        color: 'rgba(255,255,255,0.80)',
+      }
+    : {
+        background: 'rgba(255,255,255,0.05)',
+        border: '1px solid rgba(255,255,255,0.15)',
+        color: 'rgba(255,255,255,0.55)',
+      }
+  return (
+    <div
+      onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        height: 32,
+        borderRadius: 7,
+        padding: '0 9px',
+        fontSize: 11,
+        fontWeight: 500,
+        cursor: 'pointer',
+        gap: 7,
+        transition: 'background 0.12s, border-color 0.12s, color 0.12s',
+        ...base,
+      }}
+    >
+      <span style={{
+        width: 12,
+        height: 12,
+        borderRadius: 3,
+        flexShrink: 0,
+        ...(swatchGradient ? { background: swatchGradient } : { backgroundColor: swatchColor }),
+      }} />
+      <span style={{ flex: 1 }}>{label}</span>
+      <span style={{ fontSize: 10, opacity: active ? 1 : 0, transition: 'opacity 0.12s' }}>✓</span>
+    </div>
+  )
+}
+
 export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, chatSearchEndSignal, comparableVisibleIds, neighborParcels, neighborsLoading }: ExploreMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
@@ -970,13 +1035,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // ── Layer control panel state ──────────────────────────────────────
   // layerPanelOpen: whether the layers panel is visible.
   // baseOverlay: radio-exclusive base overlay ('csb' = tillable CSB,
-  //   'ssurgo' = soil types SSURGO, null = none). Toggling one off
-  //   turns the other off.
-  // soilRatingOn: independent soil-rating choropleth.
+  //   'ssurgo' = soil types SSURGO, 'soil_rating' = soil-rating heatmap,
+  //   null = none). Toggling one off turns the others off.
+  // soilRatingOn: DERIVED from baseOverlay — true when baseOverlay === 'soil_rating'.
+  //   All useEffect/visibility code that reads soilRatingOn continues to work.
   // terrain3DOn: independent 3D pitch toggle.
   const [layerPanelOpen, setLayerPanelOpen] = useState(false)
-  const [baseOverlay, setBaseOverlay] = useState<'csb' | 'ssurgo' | null>(null)
-  const [soilRatingOn, setSoilRatingOn] = useState(false)
+  const [baseOverlay, setBaseOverlay] = useState<'csb' | 'ssurgo' | 'soil_rating' | null>(null)
+  const soilRatingOn = baseOverlay === 'soil_rating'
   const [terrain3DOn, setTerrain3DOn] = useState(false)
   const [terrainExaggeration, setTerrainExaggeration] = useState(1.3)
 
@@ -3228,6 +3294,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // Sync baseOverlay (layer panel radio) → enrichmentOverlay / tillableSource.
   // This is separate from the soilMapsOpen effect so the layer panel
   // can drive the overlay independently of the nav-bar button.
+  // 'soil_rating' turns enrichmentOverlay OFF (categorical soils fill is off)
+  // while the rating heat layer visibility is driven by derived soilRatingOn.
   useEffect(() => {
     if (baseOverlay === 'csb') {
       setEnrichmentOverlay(true)
@@ -3236,7 +3304,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       setEnrichmentOverlay(true)
       setTillableSource('ssurgo')
     } else {
-      // null = both off
+      // null or 'soil_rating' = categorical soils fill off
       setEnrichmentOverlay(false)
     }
   }, [baseOverlay])
@@ -5312,79 +5380,62 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           position: 'absolute',
           bottom: 100,
           left: 16,
-          width: 220,
           zIndex: 20,
-          background: 'rgba(14,14,14,0.92)',
-          backdropFilter: 'blur(8px)',
-          WebkitBackdropFilter: 'blur(8px)',
-          border: '0.5px solid rgba(255,255,255,0.12)',
-          borderRadius: 10,
+          background: 'linear-gradient(175deg, #2a2a2a 0%, #1a1a1a 35%, #111111 70%, #0a0a0a 100%)',
+          boxShadow: '0 0 0 0.5px rgba(255,255,255,0.06) inset, 0 1px 0 rgba(255,255,255,0.10) inset, 0 20px 60px rgba(0,0,0,0.85), 0 8px 24px rgba(0,0,0,0.70), 0 2px 8px rgba(0,0,0,0.50)',
+          border: '0.5px solid rgba(255,255,255,0.14)',
+          backdropFilter: 'blur(16px)',
+          WebkitBackdropFilter: 'blur(16px)',
+          borderRadius: 12,
+          width: 220,
           padding: '12px 0 8px',
         }}>
-          {/* ── Ground Overlays (radio-exclusive) ── */}
-          <div style={{ padding: '0 12px 6px', color: 'rgba(255,255,255,0.45)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8 }}>
-            Ground Overlays
+          {/* ── Overlays (mutually-exclusive buttons) ── */}
+          <div style={{ padding: '0 10px 6px', color: 'rgba(255,255,255,0.40)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8 }}>
+            Overlays
           </div>
-          {([
-            { key: 'csb' as const,   label: 'Tillable Ground',   swatch: '#00e64d' },
-            { key: 'ssurgo' as const, label: 'Soil Types', swatch: '#b07030', swatchGradient: 'linear-gradient(to right,#c94040,#c4b030,#29a068,#2878c8,#b03890)' },
-          ] as Array<{ key: 'csb' | 'ssurgo'; label: string; swatch: string; swatchGradient?: string }>).map(({ key, label, swatch, swatchGradient }) => {
-            const active = baseOverlay === key
-            return (
-              <div
-                key={key}
-                onClick={() => {
-                  setBaseOverlay(active ? null : key)
-                  if (!active && mapRef.current && mapRef.current.getZoom() < 11) {
-                    showZoomToast('Zoom in to view soil maps')
-                  }
-                }}
-                style={{ display: 'flex', alignItems: 'center', height: 36, padding: '0 12px', cursor: 'pointer', gap: 8 }}
-              >
-                <span style={{ width: 14, height: 14, borderRadius: 2, flexShrink: 0, border: '1px solid rgba(255,255,255,0.2)', ...(swatchGradient ? { background: swatchGradient } : { backgroundColor: swatch }) }} />
-                <span style={{ flex: 1, color: 'rgba(255,255,255,0.8)', fontSize: 11 }}>{label}</span>
-                {/* Pill toggle */}
-                <span style={{
-                  width: 28, height: 16, borderRadius: 8, flexShrink: 0,
-                  background: active ? '#E91E8C' : 'rgba(255,255,255,0.2)',
-                  position: 'relative', transition: 'background 0.15s',
-                }}>
-                  <span style={{
-                    position: 'absolute', top: 2, left: active ? 12 : 2, width: 12, height: 12,
-                    borderRadius: '50%', background: '#fff', transition: 'left 0.15s',
-                  }} />
-                </span>
-              </div>
-            )
-          })}
-
-          <div style={{ height: 1, background: 'rgba(255,255,255,0.08)', margin: '6px 0' }} />
-
-          {/* ── Soil Rating (independent) ── */}
-          <div style={{ padding: '0 12px 6px', color: 'rgba(255,255,255,0.45)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8 }}>
-            Soil Rating
+          <div style={{ padding: '0 10px 4px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {([
+              {
+                key: 'ssurgo' as const,
+                label: 'Soil Types',
+                swatchGradient: 'linear-gradient(to right,#c94040,#c4b030,#29a068,#2878c8,#b03890)',
+              },
+              {
+                key: 'csb' as const,
+                label: 'Tillable Ground',
+                swatchColor: '#00e64d',
+              },
+              {
+                key: 'soil_rating' as const,
+                label: 'Soil Rating',
+                swatchGradient: 'linear-gradient(to right,#67000d,#fdae61,#1a7836)',
+              },
+            ] as Array<{ key: 'ssurgo' | 'csb' | 'soil_rating'; label: string; swatchGradient?: string; swatchColor?: string }>).map(({ key, label, swatchGradient, swatchColor }) => {
+              const active = baseOverlay === key
+              return (
+                <OverlayButton
+                  key={key}
+                  active={active}
+                  label={label}
+                  swatchGradient={swatchGradient}
+                  swatchColor={swatchColor}
+                  onClick={() => {
+                    setBaseOverlay(active ? null : key)
+                    if (!active && key !== 'soil_rating' && mapRef.current && mapRef.current.getZoom() < 11) {
+                      showZoomToast('Zoom in to view soil maps')
+                    }
+                    if (!active && key === 'soil_rating' && mapRef.current && mapRef.current.getZoom() < 11) {
+                      showZoomToast('Zoom in to view soil ratings')
+                    }
+                  }}
+                />
+              )
+            })}
           </div>
-          <div
-            onClick={() => setSoilRatingOn(v => !v)}
-            style={{ display: 'flex', alignItems: 'center', height: 36, padding: '0 12px', cursor: 'pointer', gap: 8 }}
-          >
-            {/* gradient swatch */}
-            <span style={{ width: 14, height: 14, borderRadius: 2, flexShrink: 0, background: 'linear-gradient(to right,#67000d,#f46d43,#fee08b,#66bd63,#1a7836)', border: '1px solid rgba(255,255,255,0.2)' }} />
-            <span style={{ flex: 1, color: 'rgba(255,255,255,0.8)', fontSize: 11 }}>Soil Rating (NCCPI)</span>
-            <span style={{
-              width: 28, height: 16, borderRadius: 8, flexShrink: 0,
-              background: soilRatingOn ? '#E91E8C' : 'rgba(255,255,255,0.2)',
-              position: 'relative', transition: 'background 0.15s',
-            }}>
-              <span style={{
-                position: 'absolute', top: 2, left: soilRatingOn ? 12 : 2, width: 12, height: 12,
-                borderRadius: '50%', background: '#fff', transition: 'left 0.15s',
-              }} />
-            </span>
-          </div>
-          {/* Legend footer for soil rating */}
+          {/* NCCPI legend — shown only when soil_rating is active */}
           {soilRatingOn && (
-            <div style={{ padding: '0 12px 4px', display: 'flex', gap: 2 }}>
+            <div style={{ padding: '2px 10px 4px', display: 'flex', gap: 2 }}>
               {[['#67000d','0'],['#d73027','20'],['#f46d43','40'],['#fdae61','55'],['#fee08b','65'],['#d9ef8b','75'],['#66bd63','85'],['#1a7836','100']].map(([c, l]) => (
                 <div key={l} style={{ flex: 1, textAlign: 'center' }}>
                   <div style={{ height: 5, background: c, borderRadius: 2 }} />
@@ -5393,14 +5444,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               ))}
             </div>
           )}
-          <div style={{ padding: '2px 12px 4px', color: 'rgba(255,255,255,0.3)', fontSize: 9 }}>
-            9 states: IA IL IN KS KY MN MO NE WI
-          </div>
 
-          <div style={{ height: 1, background: 'rgba(255,255,255,0.08)', margin: '6px 0' }} />
+          <div style={{ height: 1, background: 'rgba(255,255,255,0.07)', margin: '6px 0' }} />
 
           {/* ── Terrain (independent) ── */}
-          <div style={{ padding: '0 12px 6px', color: 'rgba(255,255,255,0.45)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8 }}>
+          <div style={{ padding: '0 10px 6px', color: 'rgba(255,255,255,0.40)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8 }}>
             Terrain
           </div>
           <div
@@ -5408,10 +5456,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             style={{ display: 'flex', alignItems: 'center', height: 36, padding: '0 12px', cursor: 'pointer', gap: 8 }}
           >
             <span style={{ width: 14, height: 14, borderRadius: 2, flexShrink: 0, backgroundColor: '#60a5fa', border: '1px solid rgba(255,255,255,0.2)' }} />
-            <span style={{ flex: 1, color: 'rgba(255,255,255,0.8)', fontSize: 11 }}>3D Terrain</span>
+            <span style={{ flex: 1, color: 'rgba(255,255,255,0.75)', fontSize: 11 }}>3D Terrain</span>
             <span style={{
               width: 28, height: 16, borderRadius: 8, flexShrink: 0,
-              background: terrain3DOn ? '#E91E8C' : 'rgba(255,255,255,0.2)',
+              background: terrain3DOn ? '#E91E8C' : 'rgba(255,255,255,0.18)',
               position: 'relative', transition: 'background 0.15s',
             }}>
               <span style={{
@@ -5436,10 +5484,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             </div>
           )}
 
-          <div style={{ height: 1, background: 'rgba(255,255,255,0.08)', margin: '6px 0' }} />
+          <div style={{ height: 1, background: 'rgba(255,255,255,0.07)', margin: '6px 0' }} />
 
           {/* ── Tract Status Legend (non-togglable) ── */}
-          <div style={{ padding: '0 12px 6px', color: 'rgba(255,255,255,0.45)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8 }}>
+          <div style={{ padding: '0 10px 6px', color: 'rgba(255,255,255,0.40)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8 }}>
             Tract Status
           </div>
           {[
@@ -5449,9 +5497,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             { label: "Today's Auctions", color: '#22c55e' },
             { label: 'No Sale',         color: '#9ca3af' },
           ].map(({ label, color }) => (
-            <div key={label} style={{ display: 'flex', alignItems: 'center', height: 36, padding: '0 12px', gap: 8 }}>
+            <div key={label} style={{ display: 'flex', alignItems: 'center', height: 36, padding: '0 10px', gap: 8 }}>
               <span style={{ width: 14, height: 14, borderRadius: '50%', backgroundColor: color, flexShrink: 0, border: '1.5px solid rgba(255,255,255,0.5)' }} />
-              <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: 11 }}>{label}</span>
+              <span style={{ color: 'rgba(255,255,255,0.75)', fontSize: 11 }}>{label}</span>
             </div>
           ))}
         </div>
