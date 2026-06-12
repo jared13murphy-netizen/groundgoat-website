@@ -1880,6 +1880,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       center: initialCenter,
       zoom: initialZoom,
       maxZoom: 18,
+      // Cap VRAM consumption from unbounded tile caching during heavy
+      // terrain panning — without this the tile cache grows until the
+      // GPU runs out of memory and loses the WebGL context.
+      maxTileCacheSize: 200,
       transformRequest: (url: string) => {
         if (url.includes(`${API_URL}/api/tiles/soils/`) || url.includes(`${API_URL}/api/regrid/tile/`)) {
           const token = localStorage.getItem('auth_token')
@@ -1890,6 +1894,23 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     })
 
     map.addControl(new maplibregl.NavigationControl(), 'top-right')
+
+    // WebGL context-loss recovery. Without preventDefault() the browser
+    // marks the canvas permanently lost; with it, the driver can restore
+    // the context. On restore, trigger a full style repaint so tiles
+    // and terrain re-upload cleanly instead of leaving a black canvas.
+    const canvas = map.getCanvas()
+    canvas.addEventListener('webglcontextlost', (e) => {
+      e.preventDefault()
+      console.warn('[ExploreMap] WebGL context lost — waiting for restore')
+    })
+    canvas.addEventListener('webglcontextrestored', () => {
+      console.warn('[ExploreMap] WebGL context restored — repainting')
+      try {
+        // Re-trigger a render pass so MapLibre re-uploads all GPU resources.
+        map.triggerRepaint()
+      } catch {/* map may be mid-destroy */}
+    })
 
     map.on('load', () => {
       mapRef.current = map
@@ -1975,7 +1996,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       })
     })
 
-    map.on('zoom', () => {
+    map.on('zoomend', () => {
       setCurrentZoom(map.getZoom())
     })
 
@@ -3846,16 +3867,18 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // markers via display:none. MapLibre skips the reprojection for
   // hidden markers. Restore them when terrain is turned OFF.
   //
-  // The county-labels symbol layer (county names, minzoom:7) is also
-  // suppressed while 3D is ON: MapLibre re-lays-out hundreds of county
-  // name glyphs onto the terrain mesh = glyph reprojection storm = freeze.
-  // It is restored (visibility:'visible') when terrain turns OFF; MapLibre
-  // still obeys the layer's own minzoom:7, so it won't appear below zoom 7.
-  //
   // This helper is called from the terrain toggle effect AND from the
   // tract/today-marker creation effects (so markers created while
   // terrain is already on are born hidden). It reads refs only and
   // NEVER calls setState, so it cannot trigger a re-render loop.
+  //
+  // NOTE: the native county-labels SYMBOL layer is intentionally NOT
+  // suppressed here. It is a GPU-rendered symbol layer (cheap, terrain-safe)
+  // and the real crash cause (per-frame re-render loop + per-frame setTerrain
+  // + GPU exhaustion) has been fixed. county-labels stays visible in 3D so
+  // county names render on the terrain; the layer's own minzoom:7 still
+  // governs actual visibility below zoom 7. Only expensive DOM markers below
+  // are hidden in 3D.
   const suppressDOMMarkersForTerrain = useCallback((terrainOn: boolean) => {
     const display = terrainOn ? 'none' : ''
     // Tract pins (regular, up to ~1000 DOM markers)
@@ -3883,14 +3906,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       const el = m.getElement()
       if (el) el.style.display = display
     })
-    // Hide the county-labels symbol layer while 3D terrain is ON to prevent
-    // MapLibre from re-projecting hundreds of county glyphs onto the terrain
-    // mesh every frame (causes a hard freeze on zoom-in). Restore when OFF;
-    // the layer's own minzoom:7 still governs actual visibility below zoom 7.
-    const map = mapRef.current
-    if (map && map.getLayer('county-labels')) {
-      map.setLayoutProperty('county-labels', 'visibility', terrainOn ? 'none' : 'visible')
-    }
   }, [])
 
   // 3D terrain toggle effect.
@@ -3943,13 +3958,16 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     } catch {/* map not ready */}
   }, [terrainExaggeration, terrain3DOn, mapLoaded, computeEffectiveExaggeration])
 
-  // Zoom handler: update terrain exaggeration on every zoom tick so the
-  // scale factor stays correct as the user zooms. Reads refs — NEVER calls
-  // setState — so it cannot trigger a React re-render loop.
+  // Zoom handler: update terrain exaggeration once per zoom gesture (on
+  // zoomend) so the scale factor stays correct after the user zooms.
+  // Firing on every 'zoom' frame called setTerrain 60×/sec, re-uploading
+  // the terrain mesh to the GPU on each call — the primary crash trigger.
+  // Reads refs — NEVER calls setState — so it cannot trigger a React
+  // re-render loop.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded) return
-    const onZoom = () => {
+    const onZoomEnd = () => {
       if (!terrain3DOnRef.current) return
       try {
         if (map.getSource('terrarium-dem')) {
@@ -3958,8 +3976,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         }
       } catch {/* map not ready */}
     }
-    map.on('zoom', onZoom)
-    return () => { map.off('zoom', onZoom) }
+    map.on('zoomend', onZoomEnd)
+    return () => { map.off('zoomend', onZoomEnd) }
   }, [mapLoaded, computeEffectiveExaggeration])
 
   // ─────────────────────────────────────────────────────────────────
@@ -4368,23 +4386,21 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       el.dataset.tractId = tract.id
       tractMarkerElementsRef.current.set(tract.id, el)
 
+      // Pre-suppress: if 3D terrain is on, hide the element BEFORE
+      // addTo(map) so the marker is never momentarily visible in a
+      // state it shouldn't be. This avoids the flash that occurs when
+      // the old post-loop sweep hid markers after they were already
+      // inserted into the DOM. Labels are NOT removed — the terrain
+      // visibility effect re-shows them when terrain is toggled off.
+      if (terrain3DOnRef.current) {
+        el.style.display = 'none'
+      }
+
       const marker = new maplibregl.Marker({ element: el })
         .setLngLat([markerLng, markerLat])
         .addTo(map)
 
       tractMarkersRef.current.push(marker)
-    }
-
-    // If 3D terrain is currently on, immediately hide all newly-created
-    // tract DOM markers so they don't trigger per-frame terrain reprojection.
-    // The existing tier-visibility effect still handles the non-terrain
-    // hide-at-state/county-tier path; we only need to suppress when
-    // terrain is the active concern.
-    if (terrain3DOnRef.current) {
-      tractMarkersRef.current.forEach(m => {
-        const el = m.getElement()
-        if (el) el.style.display = 'none'
-      })
     }
     // `todayTracts` is in the deps so the loop re-runs after today's
     // tracts arrive — that's when the dedup ref gets populated and we
