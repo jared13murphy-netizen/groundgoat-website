@@ -977,13 +977,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   //   'ssurgo' = soil types SSURGO, null = none). Toggling one off
   //   turns the other off.
   // soilRatingOn: independent soil-rating choropleth.
-  // hillshadeOn: independent terrain hillshade layer.
   // terrain3DOn: independent 3D pitch toggle.
   const [layerPanelOpen, setLayerPanelOpen] = useState(false)
   const [baseOverlay, setBaseOverlay] = useState<'csb' | 'ssurgo' | null>(null)
   const [soilRatingOn, setSoilRatingOn] = useState(false)
-  const [hillshadeOn, setHillshadeOn] = useState(false)
   const [terrain3DOn, setTerrain3DOn] = useState(false)
+  const [terrainExaggeration, setTerrainExaggeration] = useState(1.3)
 
   // Filter options — fetched once on mount, always shows ALL available states/counties
   const [filterOptions, setFilterOptions] = useState<{ states: string[]; counties_by_state: Record<string, string[]>; townships_by_county: Record<string, string[]> }>({ states: [], counties_by_state: {}, townships_by_county: {} })
@@ -1835,8 +1834,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       setMapLoaded(true)
 
       // ── Terrain DEM source (Terrarium encoding) ──────────────────
-      // Added here once so the hillshade + 3D terrain effects can
-      // reference it. Public tiles — no auth header needed.
+      // Added here once so the 3D terrain effect can reference it.
+      // Public tiles — no auth header needed.
       map.addSource('terrarium-dem', {
         type: 'raster-dem',
         tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{y}/{x}.png'],
@@ -1844,27 +1843,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         maxzoom: 14,
         tileSize: 256,
       })
-
-      // ── Hillshade layer ──────────────────────────────────────────
-      // Inserted ABOVE osm-tiles but BELOW city-label-tiles so the
-      // shading drapes over the base map but labels still render on
-      // top. Starts hidden; visibility toggled by hillshadeOn state.
-      map.addLayer({
-        id: 'terrain-hillshade',
-        type: 'hillshade',
-        source: 'terrarium-dem',
-        layout: { visibility: 'none' },
-        paint: {
-          'hillshade-shadow-color': '#2c1f0e',
-          'hillshade-highlight-color': '#ffffff',
-          'hillshade-exaggeration': [
-            'interpolate', ['linear'], ['zoom'],
-            7, 0,
-            9, 0.45,
-          ],
-          'hillshade-illumination-direction': 335,
-        },
-      }, 'city-label-tiles')
 
       // Add county boundaries
       map.addSource('counties', {
@@ -3417,9 +3395,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           visibility: (enrichmentOverlay && tillableSource === 'cdl') ? 'visible' : 'none',
         },
         paint: {
-          'fill-color': '#22a050',
-          'fill-opacity': 0.40,
-          'fill-outline-color': 'rgba(20, 80, 30, 0.8)',
+          'fill-color': '#00e64d',
+          'fill-opacity': 0.55,
+          'fill-outline-color': 'rgba(0,200,60,0.9)',
         },
       })
     }
@@ -3434,9 +3412,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         paint: {
           // Slightly more teal so it's obvious when the operator is
           // looking at WorldCover vs CDL.
-          'fill-color': '#0ea674',
-          'fill-opacity': 0.40,
-          'fill-outline-color': 'rgba(8, 80, 60, 0.8)',
+          'fill-color': '#00ccff',
+          'fill-opacity': 0.55,
+          'fill-outline-color': 'rgba(0,160,200,0.9)',
         },
       })
     }
@@ -3461,30 +3439,40 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           visibility: (enrichmentOverlay && (tillableSource === 'ssurgo' || tillableSource === 'ssurgo_csb')) ? 'visible' : 'none',
         },
         paint: {
-          // Hash mukey → HSL hue in a warm range (30°-65°: yellow,
-          // orange, tan, brown). Each unique mukey gets a stable
-          // distinct shade matching Land ID's appearance.
+          // Map mukey → a full-360° 16-color categorical palette so every
+          // soil map unit gets a visually distinct, stable color. Using a
+          // fixed step palette (mukey % 16) avoids HSL-concat expression
+          // fragility and is tsc-clean.
+          // 16 colors: 8 primary hues × 2 lightness levels (~45% and ~63%)
+          // spanning the full hue wheel — red, orange, yellow, lime, teal,
+          // blue, violet, magenta at saturated, readable values.
           'fill-color': [
-            'let', 'h',
-            ['+', 30, ['%', ['to-number', ['get', 'mukey']], 36]],
-            ['concat',
-              'hsl(', ['var', 'h'], ', 60%, ',
-              ['concat',
-                ['to-string', ['+', 55,
-                  ['%', ['floor', ['/', ['to-number', ['get', 'mukey']], 7]], 25],
-                ]],
-                '%',
-              ],
-              ')',
-            ],
+            'step',
+            ['%', ['to-number', ['get', 'mukey']], 16],
+            '#c94040',   // 0  — red (dark)
+            1,  '#d4753a', // 1  — orange (dark)
+            2,  '#c4b030', // 2  — yellow (dark)
+            3,  '#5aaa2e', // 3  — lime (dark)
+            4,  '#29a068', // 4  — teal (dark)
+            5,  '#2878c8', // 5  — blue (dark)
+            6,  '#6050c0', // 6  — violet (dark)
+            7,  '#b03890', // 7  — magenta (dark)
+            8,  '#e06060', // 8  — red (light)
+            9,  '#e0a060', // 9  — orange (light)
+            10, '#d8d055', // 10 — yellow (light)
+            11, '#80cc55', // 11 — lime (light)
+            12, '#50c090', // 12 — teal (light)
+            13, '#5598e0', // 13 — blue (light)
+            14, '#9080d8', // 14 — violet (light)
+            15, '#d060b0', // 15 — magenta (light)
           ],
-          // Fade in from invisible at z=10 to 55% opacity at z=11.5.
+          // Fade in from invisible at z=10 to 60% opacity at z=11.5.
           // The smooth ramp means zooming in/out animates the overlay
           // in/out instead of popping on at a hard threshold.
           'fill-opacity': [
             'interpolate', ['linear'], ['zoom'],
             10, 0,
-            11.5, 0.55,
+            11.5, 0.60,
           ],
           'fill-outline-color': 'rgba(40, 30, 10, 0.5)',
         },
@@ -3567,20 +3555,20 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         minzoom: 10,
         layout: { visibility: 'none' },
         paint: {
-          'fill-color': [
-            'interpolate', ['linear'], ['get', 'rating'],
-            0,   '#b91c1c',
-            30,  '#ef4444',
-            50,  '#fbbf24',
-            70,  '#a3e635',
-            100, '#15803d',
+          'fill-color': ['interpolate', ['linear'], ['get', 'rating'],
+            0,   '#67000d',
+            20,  '#d73027',
+            40,  '#f46d43',
+            55,  '#fdae61',
+            65,  '#fee08b',
+            75,  '#d9ef8b',
+            85,  '#66bd63',
+            100, '#1a7836',
           ],
-          'fill-opacity': [
-            'case',
-            ['==', ['get', 'rating'], null], 0,
+          'fill-opacity': ['case', ['==', ['get', 'rating'], null], 0,
             ['interpolate', ['linear'], ['zoom'],
               10, 0,
-              11, 0.55,
+              11, 0.70,
             ],
           ],
         },
@@ -3754,16 +3742,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
   }, [enrichmentOverlay, tillableSource, mapLoaded, isEnrichmentPilot])
 
-  // Toggle hillshade visibility when hillshadeOn changes.
-  useEffect(() => {
-    const map = mapRef.current
-    if (!map || !mapLoaded) return
-    if (!map.getLayer('terrain-hillshade')) return
-    try {
-      map.setLayoutProperty('terrain-hillshade', 'visibility', hillshadeOn ? 'visible' : 'none')
-    } catch {/* layer not ready */}
-  }, [hillshadeOn, mapLoaded])
-
   // Toggle soil-rating layer visibility.
   useEffect(() => {
     const map = mapRef.current
@@ -3785,7 +3763,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       if (terrain3DOn) {
         // Guard: source must exist before setTerrain
         if (map.getSource('terrarium-dem')) {
-          map.setTerrain({ source: 'terrarium-dem', exaggeration: 1.2 })
+          map.setTerrain({ source: 'terrarium-dem', exaggeration: terrainExaggeration })
         }
         map.easeTo({ pitch: 45, duration: 600 })
       } else {
@@ -3793,7 +3771,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         map.easeTo({ pitch: 0, bearing: 0, duration: 600 })
       }
     } catch {/* map not ready */}
-  }, [terrain3DOn, mapLoaded])
+  }, [terrain3DOn, mapLoaded, terrainExaggeration])
+
+  // Live-update terrain exaggeration when slider changes (without re-pitching).
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded || !terrain3DOn) return
+    try { map.setTerrain({ source: 'terrarium-dem', exaggeration: terrainExaggeration }) } catch {/* */}
+  }, [terrainExaggeration, terrain3DOn, mapLoaded])
 
   // ─────────────────────────────────────────────────────────────────
   // Enforce canonical map-layer stack order.
@@ -3829,9 +3814,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // i.e. just below tracts — which is exactly Regrid Parcel
       // Labels per the spec above.
       const desiredBottomToTop = [
-        // Hillshade sits lowest so base map imagery drapes over it
-        // while labels stay on top.
-        'terrain-hillshade',
         // SSURGO soil polygons (Land ID-style) — fill + outline
         // share the same z-slot as the green tillable; only one
         // is visible at a time depending on the data-source toggle.
@@ -3861,7 +3843,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   }, [
     mapLoaded, regridConfig, isEnrichmentPilot,
     enrichmentOverlay, tillableSource,
-    hillshadeOn, soilRatingOn,
+    soilRatingOn,
     // Deliberately NOT including tracts.length — that state changes
     // every viewport tick and would cause our reorder to thrash
     // (potentially racing with the Regrid label refresh). Tracts get
@@ -5173,7 +5155,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             height: 36,
             borderRadius: 6,
             border: 'none',
-            backgroundColor: (baseOverlay !== null || soilRatingOn || hillshadeOn || terrain3DOn)
+            backgroundColor: (baseOverlay !== null || soilRatingOn || terrain3DOn)
               ? '#E91E8C'
               : 'rgba(0,0,0,0.75)',
             color: '#fff',
@@ -5213,9 +5195,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             Base Overlays
           </div>
           {([
-            { key: 'csb' as const,   label: 'Tillable CSB',   swatch: '#22a050' },
-            { key: 'ssurgo' as const, label: 'Soil Types (SSURGO)', swatch: '#b07030' },
-          ]).map(({ key, label, swatch }) => {
+            { key: 'csb' as const,   label: 'Tillable CSB',   swatch: '#00e64d' },
+            { key: 'ssurgo' as const, label: 'Soil Types (SSURGO)', swatch: '#b07030', swatchGradient: 'linear-gradient(to right,#c94040,#c4b030,#29a068,#2878c8,#b03890)' },
+          ] as Array<{ key: 'csb' | 'ssurgo'; label: string; swatch: string; swatchGradient?: string }>).map(({ key, label, swatch, swatchGradient }) => {
             const active = baseOverlay === key
             return (
               <div
@@ -5228,7 +5210,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                 }}
                 style={{ display: 'flex', alignItems: 'center', height: 36, padding: '0 12px', cursor: 'pointer', gap: 8 }}
               >
-                <span style={{ width: 14, height: 14, borderRadius: 2, backgroundColor: swatch, flexShrink: 0, border: '1px solid rgba(255,255,255,0.2)' }} />
+                <span style={{ width: 14, height: 14, borderRadius: 2, flexShrink: 0, border: '1px solid rgba(255,255,255,0.2)', ...(swatchGradient ? { background: swatchGradient } : { backgroundColor: swatch }) }} />
                 <span style={{ flex: 1, color: 'rgba(255,255,255,0.8)', fontSize: 11 }}>{label}</span>
                 {/* Pill toggle */}
                 <span style={{
@@ -5256,7 +5238,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             style={{ display: 'flex', alignItems: 'center', height: 36, padding: '0 12px', cursor: 'pointer', gap: 8 }}
           >
             {/* gradient swatch */}
-            <span style={{ width: 14, height: 14, borderRadius: 2, flexShrink: 0, background: 'linear-gradient(to right,#b91c1c,#fbbf24,#15803d)', border: '1px solid rgba(255,255,255,0.2)' }} />
+            <span style={{ width: 14, height: 14, borderRadius: 2, flexShrink: 0, background: 'linear-gradient(to right,#67000d,#f46d43,#fee08b,#66bd63,#1a7836)', border: '1px solid rgba(255,255,255,0.2)' }} />
             <span style={{ flex: 1, color: 'rgba(255,255,255,0.8)', fontSize: 11 }}>NCCPI / CSR2 / PI</span>
             <span style={{
               width: 28, height: 16, borderRadius: 8, flexShrink: 0,
@@ -5272,7 +5254,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           {/* Legend footer for soil rating */}
           {soilRatingOn && (
             <div style={{ padding: '0 12px 4px', display: 'flex', gap: 2 }}>
-              {[['#b91c1c','0'],['#ef4444','30'],['#fbbf24','50'],['#a3e635','70'],['#15803d','100']].map(([c, l]) => (
+              {[['#67000d','0'],['#d73027','20'],['#f46d43','40'],['#fdae61','55'],['#fee08b','65'],['#d9ef8b','75'],['#66bd63','85'],['#1a7836','100']].map(([c, l]) => (
                 <div key={l} style={{ flex: 1, textAlign: 'center' }}>
                   <div style={{ height: 5, background: c, borderRadius: 2 }} />
                   <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 8 }}>{l}</span>
@@ -5290,29 +5272,38 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           <div style={{ padding: '0 12px 6px', color: 'rgba(255,255,255,0.45)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8 }}>
             Terrain
           </div>
-          {([
-            { label: 'Hillshade', active: hillshadeOn, onToggle: () => setHillshadeOn(v => !v), swatch: '#888' },
-            { label: '3D Terrain', active: terrain3DOn, onToggle: () => setTerrain3DOn(v => !v), swatch: '#60a5fa' },
-          ]).map(({ label, active, onToggle, swatch }) => (
-            <div
-              key={label}
-              onClick={onToggle}
-              style={{ display: 'flex', alignItems: 'center', height: 36, padding: '0 12px', cursor: 'pointer', gap: 8 }}
-            >
-              <span style={{ width: 14, height: 14, borderRadius: 2, flexShrink: 0, backgroundColor: swatch, border: '1px solid rgba(255,255,255,0.2)' }} />
-              <span style={{ flex: 1, color: 'rgba(255,255,255,0.8)', fontSize: 11 }}>{label}</span>
+          <div
+            onClick={() => setTerrain3DOn(v => !v)}
+            style={{ display: 'flex', alignItems: 'center', height: 36, padding: '0 12px', cursor: 'pointer', gap: 8 }}
+          >
+            <span style={{ width: 14, height: 14, borderRadius: 2, flexShrink: 0, backgroundColor: '#60a5fa', border: '1px solid rgba(255,255,255,0.2)' }} />
+            <span style={{ flex: 1, color: 'rgba(255,255,255,0.8)', fontSize: 11 }}>3D Terrain</span>
+            <span style={{
+              width: 28, height: 16, borderRadius: 8, flexShrink: 0,
+              background: terrain3DOn ? '#E91E8C' : 'rgba(255,255,255,0.2)',
+              position: 'relative', transition: 'background 0.15s',
+            }}>
               <span style={{
-                width: 28, height: 16, borderRadius: 8, flexShrink: 0,
-                background: active ? '#E91E8C' : 'rgba(255,255,255,0.2)',
-                position: 'relative', transition: 'background 0.15s',
-              }}>
-                <span style={{
-                  position: 'absolute', top: 2, left: active ? 12 : 2, width: 12, height: 12,
-                  borderRadius: '50%', background: '#fff', transition: 'left 0.15s',
-                }} />
-              </span>
+                position: 'absolute', top: 2, left: terrain3DOn ? 12 : 2, width: 12, height: 12,
+                borderRadius: '50%', background: '#fff', transition: 'left 0.15s',
+              }} />
+            </span>
+          </div>
+          {terrain3DOn && (
+            <div style={{ display: 'flex', alignItems: 'center', height: 32, padding: '0 12px', gap: 6 }}>
+              <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 9, flexShrink: 0 }}>Flat</span>
+              <input
+                type="range"
+                min={1.0}
+                max={3.0}
+                step={0.1}
+                value={terrainExaggeration}
+                onChange={e => setTerrainExaggeration(Number(e.target.value))}
+                style={{ flex: 1, accentColor: '#60a5fa', cursor: 'pointer' }}
+              />
+              <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: 9, flexShrink: 0, minWidth: 28, textAlign: 'right' }}>{terrainExaggeration.toFixed(1)}×</span>
             </div>
-          ))}
+          )}
 
           <div style={{ height: 1, background: 'rgba(255,255,255,0.08)', margin: '6px 0' }} />
 
