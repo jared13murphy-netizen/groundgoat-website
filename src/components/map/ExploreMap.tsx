@@ -3763,6 +3763,56 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const terrain3DOnRef = useRef(terrain3DOn)
   useEffect(() => { terrain3DOnRef.current = terrain3DOn }, [terrain3DOn])
 
+  // ── 3D terrain DOM-marker suppression ──────────────────────────
+  //
+  // Root cause of the terrain freeze: with 3D terrain active, MapLibre
+  // reprojects every DOM marker (new maplibregl.Marker({element: ...}))
+  // onto the terrain mesh every animation frame. When the user zooms
+  // into the tract tier (z≥9), up to ~1000 tract pin DOM markers plus
+  // the today-auction DOM markers all need per-frame reprojection —
+  // this locks the main thread and freezes the browser permanently.
+  //
+  // Fix: while 3D terrain is ON, hide all DOM tract + today-auction
+  // markers via display:none. MapLibre skips the reprojection for
+  // hidden markers. Restore them when terrain is turned OFF.
+  //
+  // The county-labels symbol layer (county names, minzoom:7) is a
+  // WebGL layer — it runs on the GPU and is NOT affected by terrain
+  // in the same catastrophic way, so it stays visible.
+  //
+  // This helper is called from the terrain toggle effect AND from the
+  // tract/today-marker creation effects (so markers created while
+  // terrain is already on are born hidden). It reads refs only and
+  // NEVER calls setState, so it cannot trigger a re-render loop.
+  const suppressDOMMarkersForTerrain = useCallback((terrainOn: boolean) => {
+    const display = terrainOn ? 'none' : ''
+    // Tract pins (regular, up to ~1000 DOM markers)
+    tractMarkersRef.current.forEach(m => {
+      const el = m.getElement()
+      if (el) el.style.display = display
+    })
+    // Today's-auction DOM markers
+    todayMarkersRef.current.forEach(m => {
+      const el = m.getElement()
+      if (el) el.style.display = display
+    })
+    // State + county badges are only present at low zoom tiers
+    // (state tier: z≤6, county tier: z≤9) where terrain is far less
+    // likely to freeze, but suppress them for consistency.
+    stateMarkersRef.current.forEach(m => {
+      const el = m.getElement()
+      if (el) el.style.display = display
+    })
+    countyMarkersRef.current.forEach(m => {
+      const el = m.getElement()
+      if (el) el.style.display = display
+    })
+    countyCountMarkersRef.current.forEach(m => {
+      const el = m.getElement()
+      if (el) el.style.display = display
+    })
+  }, [])
+
   // 3D terrain toggle effect.
   // When turning ON: apply terrain immediately at any zoom, then easeTo pitch.
   // When turning OFF: clear terrain, reset pitch + bearing.
@@ -3781,13 +3831,25 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         const z = map.getZoom()
         const targetPitch = z < 6 ? 30 : z < 9 ? 40 : 45
         map.easeTo({ pitch: targetPitch, duration: 600 })
+        // Suppress DOM markers — see suppressDOMMarkersForTerrain comment.
+        suppressDOMMarkersForTerrain(true)
       } else {
         map.setTerrain(null)
         map.easeTo({ pitch: 0, bearing: 0, duration: 600 })
+        // Restore DOM markers, but re-apply the tier visibility rule so
+        // tract pins (which are hidden at state/county tier) stay hidden
+        // if we're below TRACT_TIER_MIN.
+        suppressDOMMarkersForTerrain(false)
+        // Re-apply tier-gated tract pin visibility after restoring.
+        const tier = currentZoomTier(mapRef.current?.getZoom() ?? 0)
+        tractMarkersRef.current.forEach(m => {
+          const el = m.getElement()
+          if (el) el.style.display = tier === 'tract' ? '' : 'none'
+        })
       }
     } catch {/* map not ready */}
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [terrain3DOn, mapLoaded])
+  }, [terrain3DOn, mapLoaded, suppressDOMMarkersForTerrain])
 
   // Slider effect: re-apply terrain with new base exaggeration (no easeTo).
   useEffect(() => {
@@ -4232,6 +4294,18 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
       tractMarkersRef.current.push(marker)
     }
+
+    // If 3D terrain is currently on, immediately hide all newly-created
+    // tract DOM markers so they don't trigger per-frame terrain reprojection.
+    // The existing tier-visibility effect still handles the non-terrain
+    // hide-at-state/county-tier path; we only need to suppress when
+    // terrain is the active concern.
+    if (terrain3DOnRef.current) {
+      tractMarkersRef.current.forEach(m => {
+        const el = m.getElement()
+        if (el) el.style.display = 'none'
+      })
+    }
     // `todayTracts` is in the deps so the loop re-runs after today's
     // tracts arrive — that's when the dedup ref gets populated and we
     // need to drop today tracts from the DOM-marker render.
@@ -4426,6 +4500,16 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           .setLngLat([centerLng, centerLat])
           .addTo(map)
         todayMarkersRef.current.push(marker)
+      }
+
+      // If 3D terrain is active, hide all newly-created today markers
+      // to avoid per-frame terrain-mesh reprojection of DOM elements
+      // (the main cause of the terrain freeze when zooming in).
+      if (terrain3DOnRef.current) {
+        todayMarkersRef.current.forEach(m => {
+          const el = m.getElement()
+          if (el) el.style.display = 'none'
+        })
       }
     }
 
@@ -5227,13 +5311,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           borderRadius: 10,
           padding: '12px 0 8px',
         }}>
-          {/* ── Base Overlays (radio-exclusive) ── */}
+          {/* ── Ground Overlays (radio-exclusive) ── */}
           <div style={{ padding: '0 12px 6px', color: 'rgba(255,255,255,0.45)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8 }}>
-            Base Overlays
+            Ground Overlays
           </div>
           {([
-            { key: 'csb' as const,   label: 'Tillable CSB',   swatch: '#00e64d' },
-            { key: 'ssurgo' as const, label: 'Soil Types (SSURGO)', swatch: '#b07030', swatchGradient: 'linear-gradient(to right,#c94040,#c4b030,#29a068,#2878c8,#b03890)' },
+            { key: 'csb' as const,   label: 'Tillable Ground',   swatch: '#00e64d' },
+            { key: 'ssurgo' as const, label: 'Soil Types', swatch: '#b07030', swatchGradient: 'linear-gradient(to right,#c94040,#c4b030,#29a068,#2878c8,#b03890)' },
           ] as Array<{ key: 'csb' | 'ssurgo'; label: string; swatch: string; swatchGradient?: string }>).map(({ key, label, swatch, swatchGradient }) => {
             const active = baseOverlay === key
             return (
