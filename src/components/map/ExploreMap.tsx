@@ -971,6 +971,20 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const [elevationData, setElevationData] = useState<{ min_ft: number; max_ft: number; relief_ft: number; avg_slope_pct: number } | null>(null)
   const [soilLoading, setSoilLoading] = useState(false)
 
+  // ── Layer control panel state ──────────────────────────────────────
+  // layerPanelOpen: whether the layers panel is visible.
+  // baseOverlay: radio-exclusive base overlay ('csb' = tillable CSB,
+  //   'ssurgo' = soil types SSURGO, null = none). Toggling one off
+  //   turns the other off.
+  // soilRatingOn: independent soil-rating choropleth.
+  // hillshadeOn: independent terrain hillshade layer.
+  // terrain3DOn: independent 3D pitch toggle.
+  const [layerPanelOpen, setLayerPanelOpen] = useState(false)
+  const [baseOverlay, setBaseOverlay] = useState<'csb' | 'ssurgo' | null>(null)
+  const [soilRatingOn, setSoilRatingOn] = useState(false)
+  const [hillshadeOn, setHillshadeOn] = useState(false)
+  const [terrain3DOn, setTerrain3DOn] = useState(false)
+
   // Filter options — fetched once on mount, always shows ALL available states/counties
   const [filterOptions, setFilterOptions] = useState<{ states: string[]; counties_by_state: Record<string, string[]>; townships_by_county: Record<string, string[]> }>({ states: [], counties_by_state: {}, townships_by_county: {} })
 
@@ -1819,6 +1833,38 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     map.on('load', () => {
       mapRef.current = map
       setMapLoaded(true)
+
+      // ── Terrain DEM source (Terrarium encoding) ──────────────────
+      // Added here once so the hillshade + 3D terrain effects can
+      // reference it. Public tiles — no auth header needed.
+      map.addSource('terrarium-dem', {
+        type: 'raster-dem',
+        tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{y}/{x}.png'],
+        encoding: 'terrarium',
+        maxzoom: 14,
+        tileSize: 256,
+      })
+
+      // ── Hillshade layer ──────────────────────────────────────────
+      // Inserted ABOVE osm-tiles but BELOW city-label-tiles so the
+      // shading drapes over the base map but labels still render on
+      // top. Starts hidden; visibility toggled by hillshadeOn state.
+      map.addLayer({
+        id: 'terrain-hillshade',
+        type: 'hillshade',
+        source: 'terrarium-dem',
+        layout: { visibility: 'none' },
+        paint: {
+          'hillshade-shadow-color': '#2c1f0e',
+          'hillshade-highlight-color': '#ffffff',
+          'hillshade-exaggeration': [
+            'interpolate', ['linear'], ['zoom'],
+            7, 0,
+            9, 0.45,
+          ],
+          'hillshade-illumination-direction': 335,
+        },
+      }, 'city-label-tiles')
 
       // Add county boundaries
       map.addSource('counties', {
@@ -3207,6 +3253,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // 'ssurgo_csb' so the CSB-soils view comes up. When they click it
   // off, we just turn the overlay off (the source stays so the next
   // toggle remembers).
+  // Also syncs baseOverlay so the new layer panel stays in sync with
+  // the external Soil Maps button.
   // If the user is zoomed below the soils minzoom (11) we still
   // enable the overlay (so it appears the moment they zoom in) but
   // we show a toast telling them to zoom in.
@@ -3215,6 +3263,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     if (soilMapsOpen) {
       setEnrichmentOverlay(true)
       setTillableSource('ssurgo_csb')
+      setBaseOverlay('csb')
       const map = mapRef.current
       const SOILS_MIN_ZOOM = 11
       if (map && map.getZoom() < SOILS_MIN_ZOOM) {
@@ -3222,8 +3271,25 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       }
     } else {
       setEnrichmentOverlay(false)
+      setBaseOverlay(null)
     }
   }, [soilMapsOpen, showZoomToast])
+
+  // Sync baseOverlay (layer panel radio) → enrichmentOverlay / tillableSource.
+  // This is separate from the soilMapsOpen effect so the layer panel
+  // can drive the overlay independently of the nav-bar button.
+  useEffect(() => {
+    if (baseOverlay === 'csb') {
+      setEnrichmentOverlay(true)
+      setTillableSource('ssurgo_csb')
+    } else if (baseOverlay === 'ssurgo') {
+      setEnrichmentOverlay(true)
+      setTillableSource('ssurgo')
+    } else {
+      // null = both off
+      setEnrichmentOverlay(false)
+    }
+  }, [baseOverlay])
 
   // When the coverage list grows (e.g. the live fetch returns more
   // counties than the seed defaults), invalidate the per-variant
@@ -3486,6 +3552,41 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         minzoom: 12.5,
       })
     }
+    // ── Soil-rating choropleth layer ──────────────────────────────
+    // Independent overlay (not tied to the base overlay radio).
+    // Uses the same SRC_SOILS MVT source. Color ramp: red (low) →
+    // amber → yellow-green → deep green (high). Starts hidden;
+    // toggled by soilRatingOn state.
+    const LYR_SOIL_RATING = 'soil-rating-fill'
+    if (!map.getLayer(LYR_SOIL_RATING)) {
+      map.addLayer({
+        id: LYR_SOIL_RATING,
+        type: 'fill',
+        source: SRC_SOILS,
+        'source-layer': 'soils',
+        minzoom: 10,
+        layout: { visibility: 'none' },
+        paint: {
+          'fill-color': [
+            'interpolate', ['linear'], ['get', 'rating'],
+            0,   '#b91c1c',
+            30,  '#ef4444',
+            50,  '#fbbf24',
+            70,  '#a3e635',
+            100, '#15803d',
+          ],
+          'fill-opacity': [
+            'case',
+            ['==', ['get', 'rating'], null], 0,
+            ['interpolate', ['linear'], ['zoom'],
+              10, 0,
+              11, 0.55,
+            ],
+          ],
+        },
+      })
+    }
+
     // FSA 2008 Common Land Unit field outlines.
     // Kept as an invisible layer so the source data stays loaded for any
     // downstream consumer, but the red lines are no longer drawn on the
@@ -3568,13 +3669,48 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       })
     }
 
+    // ── Soil-rating click popup ───────────────────────────────────
+    // Clicking a soil polygon when soil-rating is on shows a dark-glass
+    // popup with musym, rating, and source type.
+    // LYR_SOIL_RATING was already declared above when addLayer was called.
+    const onSoilRatingClick = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
+      if (!e.features?.length) return
+      const props: any = e.features[0].properties || {}
+      const musym = props.musym || props.mukey || '—'
+      const rating = props.rating != null ? Number(props.rating).toFixed(1) : '—'
+      const ratingType = props.rating_type || ''
+      const popup = new maplibregl.Popup({
+        closeButton: true,
+        closeOnClick: true,
+        maxWidth: '240px',
+        className: 'regrid-parcel-popup',
+        offset: 10,
+      })
+        .setLngLat(e.lngLat)
+        .setHTML(`
+          <div style="background:rgba(14,14,14,0.95);border-radius:10px;padding:12px 16px;font-size:13px;color:#fff;min-width:160px;">
+            <div style="font-weight:700;font-size:14px;margin-bottom:8px;color:#fff;">${musym}</div>
+            <div style="display:flex;justify-content:space-between;gap:16px;">
+              <span style="color:rgba(255,255,255,0.6);">Rating</span>
+              <span style="font-weight:600;">${rating}${ratingType ? ' (' + ratingType + ')' : ''}</span>
+            </div>
+          </div>
+        `)
+        .addTo(map)
+    }
+    map.on('click', LYR_SOIL_RATING, onSoilRatingClick)
+    map.on('mouseenter', LYR_SOIL_RATING, () => { map.getCanvas().style.cursor = 'pointer' })
+    map.on('mouseleave', LYR_SOIL_RATING, () => { map.getCanvas().style.cursor = '' })
+
     return () => {
       try {
         if (!map.getStyle()) return
+        map.off('click', LYR_SOIL_RATING, onSoilRatingClick)
         for (const id of [
           LYR_LABELS, LYR_LABELS_WC, LYR_FSA_LINE,
           LYR_TILL_FILL, LYR_TILL_FILL_WC,
           LYR_SOILS_LABEL, LYR_SOILS_LINE, LYR_SOILS_FILL,
+          LYR_SOIL_RATING,
         ]) {
           if (map.getLayer(id)) map.removeLayer(id)
         }
@@ -3618,6 +3754,47 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
   }, [enrichmentOverlay, tillableSource, mapLoaded, isEnrichmentPilot])
 
+  // Toggle hillshade visibility when hillshadeOn changes.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+    if (!map.getLayer('terrain-hillshade')) return
+    try {
+      map.setLayoutProperty('terrain-hillshade', 'visibility', hillshadeOn ? 'visible' : 'none')
+    } catch {/* layer not ready */}
+  }, [hillshadeOn, mapLoaded])
+
+  // Toggle soil-rating layer visibility.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+    if (!map.getLayer('soil-rating-fill')) return
+    try {
+      map.setLayoutProperty('soil-rating-fill', 'visibility', soilRatingOn ? 'visible' : 'none')
+      if (soilRatingOn && map.getZoom() < 11) {
+        showZoomToast('Zoom in to view soil ratings')
+      }
+    } catch {/* layer not ready */}
+  }, [soilRatingOn, mapLoaded, showZoomToast])
+
+  // 3D terrain toggle.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+    try {
+      if (terrain3DOn) {
+        // Guard: source must exist before setTerrain
+        if (map.getSource('terrarium-dem')) {
+          map.setTerrain({ source: 'terrarium-dem', exaggeration: 1.2 })
+        }
+        map.easeTo({ pitch: 45, duration: 600 })
+      } else {
+        map.setTerrain(null)
+        map.easeTo({ pitch: 0, bearing: 0, duration: 600 })
+      }
+    } catch {/* map not ready */}
+  }, [terrain3DOn, mapLoaded])
+
   // ─────────────────────────────────────────────────────────────────
   // Enforce canonical map-layer stack order.
   //
@@ -3652,11 +3829,16 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // i.e. just below tracts — which is exactly Regrid Parcel
       // Labels per the spec above.
       const desiredBottomToTop = [
+        // Hillshade sits lowest so base map imagery drapes over it
+        // while labels stay on top.
+        'terrain-hillshade',
         // SSURGO soil polygons (Land ID-style) — fill + outline
         // share the same z-slot as the green tillable; only one
         // is visible at a time depending on the data-source toggle.
         'parcel-enrichment-ssurgo-soils-fill',
         'parcel-enrichment-ssurgo-soils-line',
+        // Soil-rating choropleth — above SSURGO base but below labels.
+        'soil-rating-fill',
         'parcel-enrichment-tillable-fill',
         'parcel-enrichment-tillable-worldcover-fill',
         'parcel-enrichment-fsa-clu-line',
@@ -3679,6 +3861,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   }, [
     mapLoaded, regridConfig, isEnrichmentPilot,
     enrichmentOverlay, tillableSource,
+    hillshadeOn, soilRatingOn,
     // Deliberately NOT including tracts.length — that state changes
     // every viewport tick and would cause our reorder to thrash
     // (potentially racing with the Regrid label refresh). Tracts get
@@ -4976,6 +5159,182 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           The overlay + tillableSource are now driven by the
           `soilMapsOpen` prop synced in the useEffect above. */}
 
+      {/* Layers Button */}
+      {isEnrichmentPilot && (
+        <button
+          onClick={() => setLayerPanelOpen(v => !v)}
+          title="Layers"
+          style={{
+            position: 'absolute',
+            bottom: 60,
+            left: 16,
+            zIndex: 20,
+            width: 36,
+            height: 36,
+            borderRadius: 6,
+            border: 'none',
+            backgroundColor: (baseOverlay !== null || soilRatingOn || hillshadeOn || terrain3DOn)
+              ? '#E91E8C'
+              : 'rgba(0,0,0,0.75)',
+            color: '#fff',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
+          }}
+        >
+          {/* Layers stack icon */}
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polygon points="12 2 2 7 12 12 22 7 12 2" />
+            <polyline points="2 17 12 22 22 17" />
+            <polyline points="2 12 12 17 22 12" />
+          </svg>
+        </button>
+      )}
+
+      {/* Layer Control Panel */}
+      {isEnrichmentPilot && layerPanelOpen && (
+        <div style={{
+          position: 'absolute',
+          bottom: 100,
+          left: 16,
+          width: 220,
+          zIndex: 20,
+          background: 'rgba(14,14,14,0.92)',
+          backdropFilter: 'blur(8px)',
+          WebkitBackdropFilter: 'blur(8px)',
+          border: '0.5px solid rgba(255,255,255,0.12)',
+          borderRadius: 10,
+          padding: '12px 0 8px',
+        }}>
+          {/* ── Base Overlays (radio-exclusive) ── */}
+          <div style={{ padding: '0 12px 6px', color: 'rgba(255,255,255,0.45)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8 }}>
+            Base Overlays
+          </div>
+          {([
+            { key: 'csb' as const,   label: 'Tillable CSB',   swatch: '#22a050' },
+            { key: 'ssurgo' as const, label: 'Soil Types (SSURGO)', swatch: '#b07030' },
+          ]).map(({ key, label, swatch }) => {
+            const active = baseOverlay === key
+            return (
+              <div
+                key={key}
+                onClick={() => {
+                  setBaseOverlay(active ? null : key)
+                  if (!active && mapRef.current && mapRef.current.getZoom() < 11) {
+                    showZoomToast('Zoom in to view soil maps')
+                  }
+                }}
+                style={{ display: 'flex', alignItems: 'center', height: 36, padding: '0 12px', cursor: 'pointer', gap: 8 }}
+              >
+                <span style={{ width: 14, height: 14, borderRadius: 2, backgroundColor: swatch, flexShrink: 0, border: '1px solid rgba(255,255,255,0.2)' }} />
+                <span style={{ flex: 1, color: 'rgba(255,255,255,0.8)', fontSize: 11 }}>{label}</span>
+                {/* Pill toggle */}
+                <span style={{
+                  width: 28, height: 16, borderRadius: 8, flexShrink: 0,
+                  background: active ? '#E91E8C' : 'rgba(255,255,255,0.2)',
+                  position: 'relative', transition: 'background 0.15s',
+                }}>
+                  <span style={{
+                    position: 'absolute', top: 2, left: active ? 12 : 2, width: 12, height: 12,
+                    borderRadius: '50%', background: '#fff', transition: 'left 0.15s',
+                  }} />
+                </span>
+              </div>
+            )
+          })}
+
+          <div style={{ height: 1, background: 'rgba(255,255,255,0.08)', margin: '6px 0' }} />
+
+          {/* ── Soil Rating (independent) ── */}
+          <div style={{ padding: '0 12px 6px', color: 'rgba(255,255,255,0.45)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8 }}>
+            Soil Rating
+          </div>
+          <div
+            onClick={() => setSoilRatingOn(v => !v)}
+            style={{ display: 'flex', alignItems: 'center', height: 36, padding: '0 12px', cursor: 'pointer', gap: 8 }}
+          >
+            {/* gradient swatch */}
+            <span style={{ width: 14, height: 14, borderRadius: 2, flexShrink: 0, background: 'linear-gradient(to right,#b91c1c,#fbbf24,#15803d)', border: '1px solid rgba(255,255,255,0.2)' }} />
+            <span style={{ flex: 1, color: 'rgba(255,255,255,0.8)', fontSize: 11 }}>NCCPI / CSR2 / PI</span>
+            <span style={{
+              width: 28, height: 16, borderRadius: 8, flexShrink: 0,
+              background: soilRatingOn ? '#E91E8C' : 'rgba(255,255,255,0.2)',
+              position: 'relative', transition: 'background 0.15s',
+            }}>
+              <span style={{
+                position: 'absolute', top: 2, left: soilRatingOn ? 12 : 2, width: 12, height: 12,
+                borderRadius: '50%', background: '#fff', transition: 'left 0.15s',
+              }} />
+            </span>
+          </div>
+          {/* Legend footer for soil rating */}
+          {soilRatingOn && (
+            <div style={{ padding: '0 12px 4px', display: 'flex', gap: 2 }}>
+              {[['#b91c1c','0'],['#ef4444','30'],['#fbbf24','50'],['#a3e635','70'],['#15803d','100']].map(([c, l]) => (
+                <div key={l} style={{ flex: 1, textAlign: 'center' }}>
+                  <div style={{ height: 5, background: c, borderRadius: 2 }} />
+                  <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 8 }}>{l}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{ padding: '2px 12px 4px', color: 'rgba(255,255,255,0.3)', fontSize: 9 }}>
+            9 states: IA IL IN KS KY MN MO NE WI
+          </div>
+
+          <div style={{ height: 1, background: 'rgba(255,255,255,0.08)', margin: '6px 0' }} />
+
+          {/* ── Terrain (independent) ── */}
+          <div style={{ padding: '0 12px 6px', color: 'rgba(255,255,255,0.45)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8 }}>
+            Terrain
+          </div>
+          {([
+            { label: 'Hillshade', active: hillshadeOn, onToggle: () => setHillshadeOn(v => !v), swatch: '#888' },
+            { label: '3D Terrain', active: terrain3DOn, onToggle: () => setTerrain3DOn(v => !v), swatch: '#60a5fa' },
+          ]).map(({ label, active, onToggle, swatch }) => (
+            <div
+              key={label}
+              onClick={onToggle}
+              style={{ display: 'flex', alignItems: 'center', height: 36, padding: '0 12px', cursor: 'pointer', gap: 8 }}
+            >
+              <span style={{ width: 14, height: 14, borderRadius: 2, flexShrink: 0, backgroundColor: swatch, border: '1px solid rgba(255,255,255,0.2)' }} />
+              <span style={{ flex: 1, color: 'rgba(255,255,255,0.8)', fontSize: 11 }}>{label}</span>
+              <span style={{
+                width: 28, height: 16, borderRadius: 8, flexShrink: 0,
+                background: active ? '#E91E8C' : 'rgba(255,255,255,0.2)',
+                position: 'relative', transition: 'background 0.15s',
+              }}>
+                <span style={{
+                  position: 'absolute', top: 2, left: active ? 12 : 2, width: 12, height: 12,
+                  borderRadius: '50%', background: '#fff', transition: 'left 0.15s',
+                }} />
+              </span>
+            </div>
+          ))}
+
+          <div style={{ height: 1, background: 'rgba(255,255,255,0.08)', margin: '6px 0' }} />
+
+          {/* ── Tract Status Legend (non-togglable) ── */}
+          <div style={{ padding: '0 12px 6px', color: 'rgba(255,255,255,0.45)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8 }}>
+            Tract Status
+          </div>
+          {[
+            { label: 'Sold',            color: '#f58cde' },
+            { label: 'Auction',         color: '#2563eb' },
+            { label: 'Listed',          color: '#eab308' },
+            { label: "Today's Auctions", color: '#22c55e' },
+            { label: 'No Sale',         color: '#9ca3af' },
+          ].map(({ label, color }) => (
+            <div key={label} style={{ display: 'flex', alignItems: 'center', height: 36, padding: '0 12px', gap: 8 }}>
+              <span style={{ width: 14, height: 14, borderRadius: '50%', backgroundColor: color, flexShrink: 0, border: '1.5px solid rgba(255,255,255,0.5)' }} />
+              <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: 11 }}>{label}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Filter Button */}
       <button
         onClick={() => setFilterOpen(!filterOpen)}
@@ -5472,40 +5831,42 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         </div>
       )}
 
-      {/* Legend */}
-      <div style={{
-        position: 'absolute',
-        bottom: 16,
-        left: 16,
-        zIndex: 10,
-        background: 'rgba(0,0,0,0.8)',
-        backdropFilter: 'blur(4px)',
-        borderRadius: 8,
-        padding: '8px 12px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 4,
-      }}>
-        {[
-          { label: 'Sold', color: '#f58cde' },
-          { label: 'Auction', color: '#2563eb' },
-          { label: 'Listed', color: '#eab308' },
-          { label: "Today's Auctions", color: '#22c55e' },
-          { label: 'No Sale', color: '#9ca3af' },
-        ].map(({ label, color }) => (
-          <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{
-              width: 10,
-              height: 10,
-              borderRadius: '50%',
-              backgroundColor: color,
-              border: '1.5px solid #fff',
-              display: 'inline-block',
-            }} />
-            <span style={{ color: '#fff', fontSize: 11, fontWeight: 500 }}>{label}</span>
-          </div>
-        ))}
-      </div>
+      {/* Legend — migrated into the Layer Control Panel above.
+          A compact fallback dot-legend is shown when the panel is
+          closed AND the pilot overlay is not available, so non-pilot
+          users still see the tract status key. */}
+      {!isEnrichmentPilot && (
+        <div style={{
+          position: 'absolute',
+          bottom: 16,
+          left: 16,
+          zIndex: 10,
+          background: 'rgba(0,0,0,0.8)',
+          backdropFilter: 'blur(4px)',
+          borderRadius: 8,
+          padding: '8px 12px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 4,
+        }}>
+          {[
+            { label: 'Sold',            color: '#f58cde' },
+            { label: 'Auction',         color: '#2563eb' },
+            { label: 'Listed',          color: '#eab308' },
+            { label: "Today's Auctions", color: '#22c55e' },
+            { label: 'No Sale',         color: '#9ca3af' },
+          ].map(({ label, color }) => (
+            <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{
+                width: 10, height: 10, borderRadius: '50%',
+                backgroundColor: color, border: '1.5px solid #fff',
+                display: 'inline-block',
+              }} />
+              <span style={{ color: '#fff', fontSize: 11, fontWeight: 500 }}>{label}</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Sale Detail Modal — same as ComparablesMap */}
       {selectedSale && (
