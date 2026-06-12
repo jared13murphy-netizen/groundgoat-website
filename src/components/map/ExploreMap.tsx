@@ -727,13 +727,9 @@ interface ExploreMapProps {
     zoning?: string | null
   }[] | null
   neighborsLoading?: boolean
-  /** External Soil Maps toggle, driven by the menu-bar button in
-   *  access/page.tsx. When true, the soils-CSB overlay is activated.
-   *  Replaces the floating "Soils on" + "Soils CSB" buttons. */
-  soilMapsOpen?: boolean
 }
 
-export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, chatSearchEndSignal, comparableVisibleIds, neighborParcels, neighborsLoading, soilMapsOpen }: ExploreMapProps) {
+export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, chatSearchEndSignal, comparableVisibleIds, neighborParcels, neighborsLoading }: ExploreMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const stateMarkersRef = useRef<maplibregl.Marker[]>([])
@@ -1836,11 +1832,15 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // ── Terrain DEM source (Terrarium encoding) ──────────────────
       // Added here once so the 3D terrain effect can reference it.
       // Public tiles — no auth header needed.
+      // minzoom:5 prevents MapLibre from requesting DEM tiles at continental
+      // scales where terrain is not meaningfully visible; maxzoom:13 caps the
+      // DEM resolution (higher doesn't improve visual quality but costs tiles).
       map.addSource('terrarium-dem', {
         type: 'raster-dem',
         tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{y}/{x}.png'],
         encoding: 'terrarium',
-        maxzoom: 14,
+        minzoom: 5,
+        maxzoom: 13,
         tileSize: 256,
       })
 
@@ -3225,34 +3225,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     zoomToastTimerRef.current = setTimeout(() => setZoomToast(null), 4000)
   }, [])
 
-  // Sync external Soil Maps menu-bar button → internal overlay state.
-  // When the operator clicks "Soil Maps" in the nav, soilMapsOpen flips
-  // and we flip the enrichmentOverlay + lock tillableSource to
-  // 'ssurgo_csb' so the CSB-soils view comes up. When they click it
-  // off, we just turn the overlay off (the source stays so the next
-  // toggle remembers).
-  // Also syncs baseOverlay so the new layer panel stays in sync with
-  // the external Soil Maps button.
-  // If the user is zoomed below the soils minzoom (11) we still
-  // enable the overlay (so it appears the moment they zoom in) but
-  // we show a toast telling them to zoom in.
-  useEffect(() => {
-    if (soilMapsOpen === undefined) return
-    if (soilMapsOpen) {
-      setEnrichmentOverlay(true)
-      setTillableSource('ssurgo_csb')
-      setBaseOverlay('csb')
-      const map = mapRef.current
-      const SOILS_MIN_ZOOM = 11
-      if (map && map.getZoom() < SOILS_MIN_ZOOM) {
-        showZoomToast('Zoom in to view soil maps')
-      }
-    } else {
-      setEnrichmentOverlay(false)
-      setBaseOverlay(null)
-    }
-  }, [soilMapsOpen, showZoomToast])
-
   // Sync baseOverlay (layer panel radio) → enrichmentOverlay / tillableSource.
   // This is separate from the soilMapsOpen effect so the layer panel
   // can drive the overlay independently of the nav-bar button.
@@ -3755,30 +3727,98 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     } catch {/* layer not ready */}
   }, [soilRatingOn, mapLoaded, showZoomToast])
 
-  // 3D terrain toggle.
+  // ── 3D Terrain — all-zoom implementation ────────────────────────────
+  //
+  // Design goals:
+  //   • 3D works at ANY zoom (no hard gate, no "zoom in" toast).
+  //   • Exaggeration scales by zoom so continental view is subtle and
+  //     close-up view is full-strength — prevents the visual absurdity
+  //     of mountains looking like needles at z=4.
+  //   • No feedback loop: zoom handlers call map.setTerrain() directly
+  //     and NEVER call React setState, so they cannot re-trigger effects.
+  //   • DEM source has minzoom:5/maxzoom:13 (set at addSource time) to
+  //     bound tile requests — MapLibre will up-sample/down-sample as
+  //     needed rather than fetching thousands of tiles at low zoom.
+  //   • Max pitch is clamped by zoom so the horizon doesn't pull in a
+  //     huge tile footprint at continental scale.
+  //
+  // Zoom-scale factor: ramps from 0.25 at z<=4 up to 1.0 at z>=10.
+  // The user's slider (1.0–3.0) is the base; effective = base × factor.
+
+  /** Compute the zoom-scaled terrain exaggeration (never setState). */
+  const computeEffectiveExaggeration = useCallback((baseExag: number, zoom: number): number => {
+    // Linear ramp: 0.25 at z=4 or below, 1.0 at z=10 or above.
+    const factor = Math.min(1.0, Math.max(0.25, (zoom - 4) / (10 - 4) * (1.0 - 0.25) + 0.25))
+    return baseExag * factor
+  }, [])
+
+  // Ref for current exaggeration value so the zoom handler can read it
+  // without being part of its dependency array (avoids re-registering on
+  // every slider tick).
+  const terrainExaggerationRef = useRef(terrainExaggeration)
+  useEffect(() => { terrainExaggerationRef.current = terrainExaggeration }, [terrainExaggeration])
+
+  // Ref for terrain on/off so the zoom handler can read it without
+  // closing over stale state.
+  const terrain3DOnRef = useRef(terrain3DOn)
+  useEffect(() => { terrain3DOnRef.current = terrain3DOn }, [terrain3DOn])
+
+  // 3D terrain toggle effect.
+  // When turning ON: apply terrain immediately at any zoom, then easeTo pitch.
+  // When turning OFF: clear terrain, reset pitch + bearing.
+  // terrainExaggeration intentionally NOT in dep array — slider changes are
+  // handled by the separate slider effect so easeTo doesn't re-fire.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded) return
     try {
       if (terrain3DOn) {
-        // Guard: source must exist before setTerrain
         if (map.getSource('terrarium-dem')) {
-          map.setTerrain({ source: 'terrarium-dem', exaggeration: terrainExaggeration })
+          const eff = computeEffectiveExaggeration(terrainExaggeration, map.getZoom())
+          map.setTerrain({ source: 'terrarium-dem', exaggeration: eff })
         }
-        map.easeTo({ pitch: 45, duration: 600 })
+        // Clamp pitch based on zoom: shallower at low zoom reduces horizon footprint.
+        const z = map.getZoom()
+        const targetPitch = z < 6 ? 30 : z < 9 ? 40 : 45
+        map.easeTo({ pitch: targetPitch, duration: 600 })
       } else {
         map.setTerrain(null)
         map.easeTo({ pitch: 0, bearing: 0, duration: 600 })
       }
     } catch {/* map not ready */}
-  }, [terrain3DOn, mapLoaded, terrainExaggeration])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [terrain3DOn, mapLoaded])
 
-  // Live-update terrain exaggeration when slider changes (without re-pitching).
+  // Slider effect: re-apply terrain with new base exaggeration (no easeTo).
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded || !terrain3DOn) return
-    try { map.setTerrain({ source: 'terrarium-dem', exaggeration: terrainExaggeration }) } catch {/* */}
-  }, [terrainExaggeration, terrain3DOn, mapLoaded])
+    try {
+      if (map.getSource('terrarium-dem')) {
+        const eff = computeEffectiveExaggeration(terrainExaggeration, map.getZoom())
+        map.setTerrain({ source: 'terrarium-dem', exaggeration: eff })
+      }
+    } catch {/* map not ready */}
+  }, [terrainExaggeration, terrain3DOn, mapLoaded, computeEffectiveExaggeration])
+
+  // Zoom handler: update terrain exaggeration on every zoom tick so the
+  // scale factor stays correct as the user zooms. Reads refs — NEVER calls
+  // setState — so it cannot trigger a React re-render loop.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+    const onZoom = () => {
+      if (!terrain3DOnRef.current) return
+      try {
+        if (map.getSource('terrarium-dem')) {
+          const eff = computeEffectiveExaggeration(terrainExaggerationRef.current, map.getZoom())
+          map.setTerrain({ source: 'terrarium-dem', exaggeration: eff })
+        }
+      } catch {/* map not ready */}
+    }
+    map.on('zoom', onZoom)
+    return () => { map.off('zoom', onZoom) }
+  }, [mapLoaded, computeEffectiveExaggeration])
 
   // ─────────────────────────────────────────────────────────────────
   // Enforce canonical map-layer stack order.
@@ -5136,10 +5176,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         </button>
       )}
 
-      {/* "Soils" + "Soils CSB" floating buttons were removed in favor
-          of the Soil Maps button in the nav-bar (PortalNavBar.tsx).
-          The overlay + tillableSource are now driven by the
-          `soilMapsOpen` prop synced in the useEffect above. */}
+      {/* Soil overlay toggles are in the in-map Layer Panel below. */}
 
       {/* Layers Button */}
       {isEnrichmentPilot && (
@@ -5239,7 +5276,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           >
             {/* gradient swatch */}
             <span style={{ width: 14, height: 14, borderRadius: 2, flexShrink: 0, background: 'linear-gradient(to right,#67000d,#f46d43,#fee08b,#66bd63,#1a7836)', border: '1px solid rgba(255,255,255,0.2)' }} />
-            <span style={{ flex: 1, color: 'rgba(255,255,255,0.8)', fontSize: 11 }}>NCCPI / CSR2 / PI</span>
+            <span style={{ flex: 1, color: 'rgba(255,255,255,0.8)', fontSize: 11 }}>Soil Rating (NCCPI)</span>
             <span style={{
               width: 28, height: 16, borderRadius: 8, flexShrink: 0,
               background: soilRatingOn ? '#E91E8C' : 'rgba(255,255,255,0.2)',
