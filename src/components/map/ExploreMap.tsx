@@ -21,8 +21,6 @@ import {
   LABEL_TILE_URL,
   STATUS_COLORS,
   derivePinStatus,
-  STATE_CENTERS,
-  STATE_NAMES,
 } from './mapConstants'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { toRings as toTractRings, ringsToGeometry } from '@/lib/polygonRings'
@@ -49,7 +47,6 @@ const EMPTY_FC: GeoJSON.FeatureCollection = { type: 'FeatureCollection', feature
 // elsewhere, so pins/labels/today-pulses always render ABOVE the polygon
 // fills. today-point is last → the single most-prominent thing on the map.
 const MARKER_LAYERS_BOTTOM_TO_TOP = [
-  'state-labels',
   'county-labels',
   'county-count-circles',
   'county-count-labels',
@@ -234,19 +231,22 @@ function formatCurrency(amount: number | null | undefined): string {
 }
 
 // ───────────────────────────────────────────────────────────────
-// 3-tier zoom bands (state labels / county labels / tract pins).
-// These are now applied DIRECTLY as native layer minzoom/maxzoom so
-// MapLibre hard-gates each tier on the GPU — no JS tier-switching:
-//   state-labels   maxzoom = STATE_TIER_MAX (≤6)
-//   county-labels  minzoom = COUNTY_TIER_MIN (6) .. maxzoom = TRACT_TIER_MIN (9)
-//   county-counts  maxzoom = TRACT_TIER_MIN (9)
-//   tract-pins     minzoom = TRACT_TIER_MIN (9)
+// 3-tier zoom bands. State tier uses DOM SVG silhouette badges
+// (z ≤ STATE_TIER_MAX). County tier uses native symbol layer
+// (COUNTY_TIER_MIN..TRACT_TIER_MIN). Tract tier uses native
+// circle+symbol layers (z ≥ TRACT_TIER_MIN).
 // ───────────────────────────────────────────────────────────────
 const STATE_TIER_MAX = 6
 const COUNTY_TIER_MIN = 6
-const COUNTY_TIER_MAX = 9   // retained for documentation of the band
+const COUNTY_TIER_MAX = 9
 const TRACT_TIER_MIN = 9
-void COUNTY_TIER_MAX
+
+type ZoomTier = 'state' | 'county' | 'tract'
+function currentZoomTier(z: number): ZoomTier {
+  if (z <= STATE_TIER_MAX) return 'state'
+  if (z <= COUNTY_TIER_MAX) return 'county'
+  return 'tract'
+}
 
 // Full-name → 2-letter abbr lookup for ALL US states. Used to match
 // /data/us-states.json features (keyed by `properties.NAME`) to the
@@ -309,6 +309,74 @@ function featureBbox(
   }
   if (!isFinite(minLng) || !isFinite(minLat)) return null
   return [[minLng, minLat], [maxLng, maxLat]]
+}
+
+// SVG path that STRETCHES across a 100×100 viewBox (no aspect-ratio
+// centering). Combined with preserveAspectRatio="none" + a container
+// sized to the projected bbox in pixels, the silhouette ends up
+// perfectly aligned over the actual state on the map.
+function featureToSvgPath(feature: any): string | null {
+  if (!feature?.geometry?.coordinates) return null
+  const geom = feature.geometry
+  const rings: number[][][] = []
+  if (geom.type === 'Polygon') {
+    for (const ring of geom.coordinates) rings.push(ring as number[][])
+  } else if (geom.type === 'MultiPolygon') {
+    for (const poly of geom.coordinates) {
+      for (const ring of poly as number[][][]) rings.push(ring)
+    }
+  } else {
+    return null
+  }
+  if (!rings.length) return null
+  let minLng = Infinity, minLat = Infinity
+  let maxLng = -Infinity, maxLat = -Infinity
+  for (const ring of rings) {
+    for (const [lng, lat] of ring) {
+      if (lng < minLng) minLng = lng
+      if (lng > maxLng) maxLng = lng
+      if (lat < minLat) minLat = lat
+      if (lat > maxLat) maxLat = lat
+    }
+  }
+  const w = maxLng - minLng
+  const h = maxLat - minLat
+  if (w <= 0 || h <= 0) return null
+  const sx = 100 / w
+  const sy = 100 / h
+  const parts: string[] = []
+  for (const ring of rings) {
+    if (ring.length < 3) continue
+    const cmds: string[] = []
+    for (let i = 0; i < ring.length; i++) {
+      const [lng, lat] = ring[i]
+      const x = (lng - minLng) * sx
+      const y = (maxLat - lat) * sy
+      cmds.push(`${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`)
+    }
+    cmds.push('Z')
+    parts.push(cmds.join(' '))
+  }
+  return parts.join(' ')
+}
+
+// Fade-out then remove a batch of markers. Adds the .aem-leaving
+// class to the INNER badge (not the maplibre shell, which holds the
+// translate transform that positions the marker). 380ms later we
+// call .remove().
+function fadeOutAndRemove(markers: maplibregl.Marker[]): void {
+  if (!markers.length) return
+  const snapshot = [...markers]
+  for (const m of snapshot) {
+    const shell = m.getElement()
+    const inner = shell?.firstElementChild as HTMLElement | null
+    if (inner) inner.classList.add('aem-leaving')
+  }
+  setTimeout(() => {
+    for (const m of snapshot) {
+      try { m.remove() } catch {}
+    }
+  }, 380)
 }
 
 function formatAcres(acres: number | null | undefined): string {
@@ -923,10 +991,11 @@ function OverlayButton({
 export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, chatSearchEndSignal, comparableVisibleIds, neighborParcels, neighborsLoading }: ExploreMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
-  // All markers (tract pins, today pulses, state/county labels, county
-  // counts) are now NATIVE MapLibre GeoJSON sources + symbol/circle
-  // layers — no per-marker DOM refs. They're cleared/updated via
-  // getSource().setData() in the memo-driven effects, never recreated.
+  const stateMarkersRef = useRef<maplibregl.Marker[]>([])
+  const countyMarkersRef = useRef<maplibregl.Marker[]>([])
+  // Filter-active per-county count bubbles (number + "tracts" label),
+  // shown when zoomed too low for individual tract dots.
+  const countyCountMarkersRef = useRef<maplibregl.Marker[]>([])
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Cells we've FULLY loaded (got all matching tracts back, didn't hit
   // the per-cell 1000 cap). Future moveends won't re-fetch these.
@@ -1014,6 +1083,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   //     auctions should stay visible regardless of filters
   // Rendered as separate markers in their own useEffect below.
   const [todayTracts, setTodayTracts] = useState<ApiMapTract[]>([])
+  const [currentZoom, setCurrentZoom] = useState(MAP_INITIAL_ZOOM)
   const [mapLoaded, setMapLoaded] = useState(false)
 
   // Live coverage list — counties whose soils / soils-csb / tillable
@@ -1047,7 +1117,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const [allCountyCentroids, setAllCountyCentroids] = useState<
     Array<{ state: string; county: string; lng: number; lat: number }>
   >([])
+  const [stateSilhouettes, setStateSilhouettes] = useState<Record<string, string>>({})
   const [stateCentroids, setStateCentroids] = useState<Record<string, [number, number]>>({})
+  const [stateBboxes, setStateBboxes] = useState<
+    Record<string, [[number, number], [number, number]]>
+  >({})
   const [loading, setLoading] = useState(false)
   const [selectedSale, setSelectedSale] = useState<SaleDetail | null>(null)
   // Inline popup ON THE MAP (comparables mode only). Click a tract pin
@@ -1213,29 +1287,34 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     return () => { cancelled = true }
   }, [])
 
-  // Load state CENTROIDS ONCE on mount from us-states.json. Drives the
-  // native state-labels layer placement (one Point per state at its bbox
-  // center). The old silhouette SVG paths + bboxes are gone — the
-  // native state-borders line layer carries the outline now.
+  // Load state silhouettes + bboxes ONCE on mount from us-states.json.
+  // Used to render the silhouette badges with bbox-projected sizing.
   useEffect(() => {
     let cancelled = false
     fetch('/data/us-states.json')
       .then(r => r.ok ? r.json() : null)
       .then((geo: any) => {
         if (cancelled || !geo?.features) return
+        const paths: Record<string, string> = {}
         const centroids: Record<string, [number, number]> = {}
+        const bboxes: Record<string, [[number, number], [number, number]]> = {}
         for (const feat of geo.features) {
           const abbr = ALL_STATE_NAME_TO_ABBR[feat?.properties?.NAME]
           if (!abbr) continue
+          const path = featureToSvgPath(feat)
+          if (path) paths[abbr] = path
           const bbox = featureBbox(feat)
           if (bbox) {
+            bboxes[abbr] = bbox
             centroids[abbr] = [
               (bbox[0][0] + bbox[1][0]) / 2,
               (bbox[0][1] + bbox[1][1]) / 2,
             ]
           }
         }
+        setStateSilhouettes(paths)
         setStateCentroids(centroids)
+        setStateBboxes(bboxes)
       })
       .catch(() => {})
     return () => { cancelled = true }
@@ -1360,6 +1439,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       loadedCellsRef.current = new Set()
       tractMapRef.current = new Map()
       setTracts([])
+      stateMarkersRef.current.forEach(m => m.remove())
+      stateMarkersRef.current = []
       // Refetch tracts for current viewport
       const map = mapRef.current
       if (map) {
@@ -1735,6 +1816,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     onFiltersApplied?.({ stateFilter: '', countyFilters: [] })
   }
 
+  const currentTier = currentZoomTier(currentZoom)
+
   const hasActiveFilters = filters.dateRange !== 'all' || filters.stateFilter !== '' ||
     filters.townshipFilters.length > 0 ||
     filters.soilRatingMin !== '' || filters.soilRatingMax !== '' ||
@@ -1832,30 +1915,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         })),
     }
   }, [countyCounts])
-
-  // ── State labels GeoJSON. One Point per state at its centroid (from
-  // us-states.json bboxes, falling back to STATE_CENTERS), carrying the
-  // full name + abbr so a click can open the state filter preset. Built
-  // for EVERY state with a known centroid (mirrors the old badge loop's
-  // `allStates`), not just states with tracts.
-  const stateLabelGeoJSON = useMemo((): GeoJSON.FeatureCollection => {
-    const abbrs = Array.from(new Set<string>([
-      ...Object.keys(stateCentroids),
-      ...Object.keys(STATE_CENTERS),
-      ...stateCounts.map(s => s.state),
-    ]))
-    const features: GeoJSON.Feature[] = []
-    for (const abbr of abbrs) {
-      const c = stateCentroids[abbr] || STATE_CENTERS[abbr]
-      if (!c) continue
-      features.push({
-        type: 'Feature',
-        geometry: { type: 'Point', coordinates: [c[0], c[1]] },
-        properties: { abbr, name: STATE_NAMES[abbr] || abbrToName(abbr) },
-      })
-    }
-    return { type: 'FeatureCollection', features }
-  }, [stateCentroids, stateCounts])
 
   // Load tracts for a bounding box
   const CELL_LIMIT = 1000
@@ -2110,21 +2169,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         type: 'geojson',
         data: '/data/us-states.json',
       })
-      // State silhouettes — translucent dark fill over every US state,
-      // visible only at the zoomed-out state tier (maxzoom = STATE_TIER_MAX).
-      // Faithfully restores the original DOM-marker silhouettes (rgba(10,10,12,0.62)
-      // fill) as a native GPU fill layer so there is no per-frame DOM work.
-      // Sits below state-borders (added first → rendered beneath the outline).
-      map.addLayer({
-        id: 'state-fill',
-        type: 'fill',
-        source: 'states',
-        maxzoom: STATE_TIER_MAX,
-        paint: {
-          'fill-color': 'rgba(10,10,12,0.62)',
-          'fill-outline-color': 'rgba(0,0,0,0)',
-        },
-      })
       map.addLayer({
         id: 'state-borders',
         type: 'line',
@@ -2136,17 +2180,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         },
       })
 
-      // ── Register stretchable dark-pill sprites (county + state) ─────
+      // ── Register stretchable dark-pill sprite (county labels) ──────
       // MapLibre has no native text-background, so a 9-slice pill image
       // is drawn behind the name via icon-image + icon-text-fit:'both'.
       try {
         if (!map.hasImage('aem-pill-county')) {
           const p = makePillSprite({ border: '#f58cde' })
           map.addImage('aem-pill-county', p.image as any, p.options)
-        }
-        if (!map.hasImage('aem-pill-state')) {
-          const p = makePillSprite({ border: 'rgba(245,140,222,0.55)' })
-          map.addImage('aem-pill-state', p.image as any, p.options)
         }
       } catch {/* image already added by a racing call */}
 
@@ -2160,10 +2200,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         clusterMaxZoom: 14,
       })
       map.addSource('county-counts', { type: 'geojson', data: EMPTY_FC })
-      map.addSource('state-labels', { type: 'geojson', data: EMPTY_FC })
 
-      // County NAME labels — restyled dark pill (replaces the old grey
-      // text + the manual viewport-clip DOM squares). Only between the
+      // County NAME labels — restyled dark pill. Only between the
       // county tier and the tract tier; text-allow-overlap:false declutters
       // automatically. Hidden via setLayoutProperty when a filter is active
       // (the county-COUNT bubbles show instead).
@@ -2190,31 +2228,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           'text-color': '#ffffff',
           'text-halo-color': 'rgba(0,0,0,0.4)',
           'text-halo-width': 0.6,
-        },
-      })
-
-      // State NAME labels — Open Sans Bold text only. Replaces the
-      // stretched-SVG silhouette badges (silhouettes dropped natively;
-      // the state-borders line layer carries the outline). Whole label
-      // is clickable → opens the state filter preset. NO icon: the goat
-      // logo PNG was registered without a pixelRatio and rendered at its
-      // full native size (giant white blobs over the map), so it's gone.
-      map.addLayer({
-        id: 'state-labels',
-        type: 'symbol',
-        source: 'state-labels',
-        maxzoom: STATE_TIER_MAX,
-        layout: {
-          'text-field': ['get', 'name'],
-          'text-font': ['Open Sans Bold'],
-          'text-size': 14,
-          'text-anchor': 'center',
-          'text-allow-overlap': false,
-        },
-        paint: {
-          'text-color': '#f58cde',
-          'text-halo-color': 'rgba(0,0,0,0.95)',
-          'text-halo-width': 1.6,
         },
       })
 
@@ -2346,6 +2359,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         min_lng: bounds.getWest(),
         max_lng: bounds.getEast(),
       })
+    })
+
+    map.on('zoomend', () => {
+      setCurrentZoom(map.getZoom())
     })
 
     map.on('moveend', handleMoveEnd)
@@ -4413,10 +4430,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // terrainExaggeration intentionally NOT in dep array — slider changes are
   // handled by the separate slider effect so easeTo doesn't re-fire.
   //
-  // NOTE: the old DOM-marker suppression system is GONE. All markers are
-  // now native GPU-rendered GeoJSON layers (circles/symbols) — MapLibre
-  // draws them on the 3D terrain mesh for free with zero per-frame DOM
-  // reprojection, which was the terrain-freeze cause. Nothing to suppress.
+  // NOTE: county labels, tract pins and the today-dot are native GPU GeoJSON
+  // layers — MapLibre draws them on the 3D terrain mesh for free, nothing to
+  // suppress. The ONLY remaining DOM markers are the state silhouettes (state
+  // tier, zoom <=6), restored to their original look; this effect hides them
+  // (display:none) while 3D is active so they don't reproject on the mesh.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded) return
@@ -4430,9 +4448,19 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         const z = map.getZoom()
         const targetPitch = z < 6 ? 30 : z < 9 ? 40 : 45
         map.easeTo({ pitch: targetPitch, duration: 600 })
+        // Suppress state DOM markers in 3D mode.
+        stateMarkersRef.current.forEach(m => {
+          const el = m.getElement()
+          if (el) el.style.display = 'none'
+        })
       } else {
         map.setTerrain(null)
         map.easeTo({ pitch: 0, bearing: 0, duration: 600 })
+        // Restore state DOM markers when leaving 3D mode.
+        stateMarkersRef.current.forEach(m => {
+          const el = m.getElement()
+          if (el) el.style.display = ''
+        })
       }
     } catch {/* map not ready */}
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -5068,50 +5096,152 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   }, [portalMode, subjectTractLocation])
 
   // ─────────────────────────────────────────────────────────────
-  // Tier gating is now NATIVE: every marker layer carries minzoom /
-  // maxzoom (state-labels ≤6, county-labels 6–9, county-counts ≤9,
-  // tract-pins ≥9), so MapLibre hard-gates each tier on the GPU with
-  // zero per-frame JS. The old DOM tier-switching effects are gone.
+  // 3-tier zoom system: state silhouettes → county squares → tract
+  // pins. Hard-gated so only one tier's markers are in the DOM at
+  // any zoom. Each tier's effect tears down its own markers (with
+  // fade-out) and rebuilds when its data or the active tier changes.
   // ─────────────────────────────────────────────────────────────
 
-  // ── State labels: setData only. The state-labels symbol layer (added
-  // once in map-init, maxzoom:STATE_TIER_MAX) renders the name text.
+  // STATE BADGES — silhouette + count, sized to the projected bbox
+  // of each state so the silhouette sits over its real on-map
+  // footprint. Inner sized inline; resize wired to map "move" so
+  // badges stay locked to their footprints during pan/zoom.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded) return
-    const src = map.getSource('state-labels') as maplibregl.GeoJSONSource | undefined
-    if (src) src.setData(stateLabelGeoJSON)
-  }, [mapLoaded, stateLabelGeoJSON])
 
-  // ── State-label click → open the state filter preset (the action the
-  // old "Filter" link + badge body-click did), then ease to the state.
-  useEffect(() => {
-    const map = mapRef.current
-    if (!map || !mapLoaded) return
-    const onClick = (e: maplibregl.MapLayerMouseEvent) => {
-      const f = e.features?.[0]
-      if (!f) return
-      const abbr = f.properties?.abbr as string
-      if (!abbr) return
-      setFilters(prev => ({
-        ...prev, stateFilter: abbr, countyFilters: [], townshipFilters: [],
-      }))
-      setFilterOpen(true)
-      const geom = f.geometry as GeoJSON.Point
-      map.easeTo({ center: geom.coordinates as [number, number], zoom: 7, duration: 900 })
+    fadeOutAndRemove(stateMarkersRef.current)
+    stateMarkersRef.current = []
+    if (currentTier !== 'state') return
+
+    const sized: Array<{
+      inner: HTMLElement
+      bbox: [[number, number], [number, number]]
+    }> = []
+    const MIN_BADGE_PX = 70
+    const SHRINK_FACTOR = 0.92
+
+    const sizeBadge = (
+      inner: HTMLElement,
+      bbox: [[number, number], [number, number]],
+    ) => {
+      const tl = map.project([bbox[0][0], bbox[1][1]])
+      const br = map.project([bbox[1][0], bbox[0][1]])
+      const w = Math.max(MIN_BADGE_PX, Math.abs(br.x - tl.x) * SHRINK_FACTOR)
+      const h = Math.max(MIN_BADGE_PX, Math.abs(br.y - tl.y) * SHRINK_FACTOR)
+      inner.style.width = `${w}px`
+      inner.style.height = `${h}px`
     }
-    const onEnter = () => { map.getCanvas().style.cursor = 'pointer' }
-    const onLeave = () => { map.getCanvas().style.cursor = '' }
-    map.on('click', 'state-labels', onClick)
-    map.on('mouseenter', 'state-labels', onEnter)
-    map.on('mouseleave', 'state-labels', onLeave)
+
+    // Render a badge for EVERY state with a known silhouette/centroid,
+    // not just states that have tracts in the DB. Once the Regrid API
+    // is wired up we'll have data for every state, so badges should
+    // appear nationwide regardless of current tract count.
+    const allStates = Array.from(new Set<string>([
+      ...Object.keys(stateSilhouettes),
+      ...Object.keys(stateCentroids),
+      ...stateCounts.map(s => s.state),
+    ]))
+    for (const state of allStates) {
+      let lng: number | undefined
+      let lat: number | undefined
+      const c = stateCentroids[state]
+      if (c) {
+        lng = c[0]; lat = c[1]
+      } else {
+        const bounds = STATE_BOUNDS[state]
+        if (!bounds) continue
+        lng = (bounds[0][0] + bounds[1][0]) / 2
+        lat = (bounds[0][1] + bounds[1][1]) / 2
+      }
+
+      const silhouettePath = stateSilhouettes[state]
+      const bbox = stateBboxes[state]
+      const maskId = `aem-cut-${state}`
+      const blurId = `aem-blur-${state}`
+
+      const el = document.createElement('div')
+      el.className = 'aem-marker-shell'
+      const inner = document.createElement('div')
+      inner.className = 'aem-state-badge'
+      // Hovering shadow: render the silhouette TWICE inside one SVG.
+      // First copy is a translated + blurred shadow, masked so only
+      // the part OUTSIDE the silhouette draws. Second copy is the
+      // 62%-opacity silhouette on top. Result: shadow appears only
+      // along the bottom-right edge, silhouette stays see-through,
+      // state appears to lift off the map.
+      inner.innerHTML = `
+        <svg class="aem-state-shape" viewBox="0 0 100 100"
+             preserveAspectRatio="none">
+          ${silhouettePath ? `
+            <defs>
+              <mask id="${maskId}" maskUnits="userSpaceOnUse"
+                    x="-50" y="-50" width="200" height="200">
+                <rect x="-50" y="-50" width="200" height="200" fill="white"/>
+                <path d="${silhouettePath}" fill="black"/>
+              </mask>
+              <filter id="${blurId}" x="-30%" y="-30%" width="160%" height="160%">
+                <feGaussianBlur stdDeviation="1.5"/>
+              </filter>
+            </defs>
+            <g mask="url(#${maskId})" pointer-events="none">
+              <path d="${silhouettePath}"
+                    fill="rgba(0,0,0,0.92)"
+                    transform="translate(3 4)"
+                    filter="url(#${blurId})"
+                    stroke="none"/>
+            </g>
+            <path d="${silhouettePath}"
+                  fill="rgba(10,10,12,0.62)"
+                  stroke="none" />
+          ` : '<rect x="2" y="2" width="96" height="96" rx="6" fill="rgba(10,10,12,0.62)"/>'}
+        </svg>
+        <div class="aem-state-overlay">
+          <img src="/goat-icon-white.png" alt="" class="aem-state-goat" />
+          <div class="aem-state-name">${abbrToName(state)}</div>
+          <a class="aem-state-link" data-action="filter">Filter</a>
+        </div>
+      `
+      el.appendChild(inner)
+
+      el.addEventListener('click', (ev) => {
+        const target = ev.target as HTMLElement
+        const isFilterLink = target?.closest('[data-action="filter"]')
+        ev.stopPropagation()
+        if (isFilterLink) {
+          setFilters(prev => ({
+            ...prev, stateFilter: state, countyFilters: [], townshipFilters: [],
+          }))
+          setFilterOpen(true)
+        }
+        map.easeTo({ center: [lng!, lat!], zoom: 7, duration: 900 })
+      })
+
+      const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
+        .setLngLat([lng, lat])
+        .addTo(map)
+      stateMarkersRef.current.push(marker)
+      if (bbox) {
+        sized.push({ inner, bbox })
+        sizeBadge(inner, bbox)
+      } else {
+        inner.style.width = '100px'
+        inner.style.height = '100px'
+      }
+    }
+
+    const onMove = () => {
+      for (const { inner, bbox } of sized) sizeBadge(inner, bbox)
+    }
+    map.on('move', onMove)
+
     return () => {
-      map.off('click', 'state-labels', onClick)
-      map.off('mouseenter', 'state-labels', onEnter)
-      map.off('mouseleave', 'state-labels', onLeave)
+      map.off('move', onMove)
+      fadeOutAndRemove(stateMarkersRef.current)
+      stateMarkersRef.current = []
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mapLoaded])
+  }, [stateCounts, mapLoaded, currentTier, stateSilhouettes, stateBboxes])
 
   // ── County COUNT bubbles (filter-active): setData + click. Visibility
   // is toggled by the hasActiveFilters effect below (setLayoutProperty),
