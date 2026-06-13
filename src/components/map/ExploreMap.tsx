@@ -746,6 +746,115 @@ interface ExploreMapProps {
   neighborsLoading?: boolean
 }
 
+// ── CDL_PALETTE — USDA Cropland Data Layer code → {name, color} ─────────────
+// Source: USDA NASS official CDL legend + audubon_FSA_fields.html color mapping.
+// Code 0 / null = no data → rendered transparent (handled in buildCropColorExpr).
+const CDL_PALETTE: Record<number, { name: string; color: string }> = {
+  1:   { name: 'Corn',                  color: '#FFD400' },
+  2:   { name: 'Cotton',                color: '#FF2626' },
+  3:   { name: 'Rice',                  color: '#00A8E2' },
+  4:   { name: 'Sorghum',               color: '#FF9E0C' },
+  5:   { name: 'Soybeans',              color: '#267000' },
+  6:   { name: 'Sunflower',             color: '#FFFF00' },
+  10:  { name: 'Peanuts',               color: '#267000' },
+  11:  { name: 'Tobacco',               color: '#70A800' },
+  12:  { name: 'Sweet Corn',            color: '#FFA8A8' },
+  13:  { name: 'Pop/Orn Corn',          color: '#FFD400' },
+  14:  { name: 'Mint',                  color: '#7AF5CA' },
+  21:  { name: 'Barley',                color: '#E2007C' },
+  22:  { name: 'Durum Wheat',           color: '#B56B00' },
+  23:  { name: 'Spring Wheat',          color: '#D8B56B' },
+  24:  { name: 'Winter Wheat',          color: '#A87000' },
+  25:  { name: 'Other Small Grains',    color: '#D2CCC2' },
+  26:  { name: 'Dbl Crop WinWht/Soybeans', color: '#D1FF00' },
+  27:  { name: 'Rye',                   color: '#AC007C' },
+  28:  { name: 'Oats',                  color: '#A05989' },
+  29:  { name: 'Millet',                color: '#70A800' },
+  30:  { name: 'Speltz',                color: '#D2CCC2' },
+  31:  { name: 'Canola',                color: '#D1FF00' },
+  32:  { name: 'Flaxseed',              color: '#7F7FFF' },
+  33:  { name: 'Safflower',             color: '#BFBF77' },
+  34:  { name: 'Rape Seed',             color: '#D1FF00' },
+  35:  { name: 'Mustard',               color: '#D1FF00' },
+  36:  { name: 'Alfalfa',               color: '#FFA8E3' },
+  37:  { name: 'Other Hay/Non Alfalfa', color: '#A5F28C' },
+  38:  { name: 'Camelina',              color: '#D1FF00' },
+  39:  { name: 'Buckwheat',             color: '#D2CCC2' },
+  41:  { name: 'Sugarbeets',            color: '#A800E4' },
+  42:  { name: 'Dry Beans',             color: '#A87000' },
+  43:  { name: 'Potatoes',              color: '#702600' },
+  44:  { name: 'Other Crops',           color: '#CC9999' },
+  45:  { name: 'Sugarcane',             color: '#267000' },
+  46:  { name: 'Sweet Potatoes',        color: '#702600' },
+  47:  { name: 'Misc Vegs & Fruits',    color: '#FF6666' },
+  48:  { name: 'Watermelons',           color: '#FF6666' },
+  49:  { name: 'Onions',                color: '#FFCC66' },
+  50:  { name: 'Cucumbers',             color: '#FF6666' },
+  51:  { name: 'Chick Peas',            color: '#D2CCC2' },
+  52:  { name: 'Lentils',               color: '#D2CCC2' },
+  53:  { name: 'Peas',                  color: '#267000' },
+  54:  { name: 'Tomatoes',              color: '#FF6666' },
+  55:  { name: 'Caneberries',           color: '#FF6666' },
+  56:  { name: 'Hops',                  color: '#267000' },
+  57:  { name: 'Herbs',                 color: '#267000' },
+  58:  { name: 'Clover/Wildflowers',    color: '#A5F28C' },
+  59:  { name: 'Sod/Grass Seed',        color: '#A5F28C' },
+  61:  { name: 'Fallow/Idle Cropland',  color: '#BFBF77' },
+  63:  { name: 'Forest',                color: '#93CC93' },
+  64:  { name: 'Shrubland',             color: '#C6D69C' },
+  65:  { name: 'Barren',                color: '#CCBEA3' },
+  81:  { name: 'Clouds/No Data',        color: '#999999' },
+  82:  { name: 'Developed',             color: '#D3D3D3' },
+  83:  { name: 'Water',                 color: '#4970A3' },
+  87:  { name: 'Wetlands',              color: '#7CB3D6' },
+  111: { name: 'Open Water',            color: '#4970A3' },
+  112: { name: 'Perennial Ice/Snow',    color: '#E8E8E8' },
+  121: { name: 'Developed/Open Space',  color: '#D3D3D3' },
+  122: { name: 'Developed/Low Intensity', color: '#D3D3D3' },
+  123: { name: 'Developed/Med Intensity', color: '#D3D3D3' },
+  124: { name: 'Developed/High Intensity', color: '#D3D3D3' },
+  131: { name: 'Barren',                color: '#CCBEA3' },
+  141: { name: 'Deciduous Forest',      color: '#93CC93' },
+  142: { name: 'Evergreen Forest',      color: '#93CC93' },
+  143: { name: 'Mixed Forest',          color: '#93CC93' },
+  152: { name: 'Shrubland',             color: '#C6D69C' },
+  176: { name: 'Grassland/Pasture',     color: '#E8FFBF' },
+  190: { name: 'Woody Wetlands',        color: '#7CAFAF' },
+  195: { name: 'Herbaceous Wetlands',   color: '#7CB3D6' },
+}
+
+// Legend rows shown in the CSB overlay legend (ordered for ag relevance).
+const CDL_LEGEND_ROWS: { code: number; name: string; color: string }[] = [
+  { code: 1,   name: 'Corn',                  color: '#FFD400' },
+  { code: 5,   name: 'Soybeans',              color: '#267000' },
+  { code: 24,  name: 'Winter Wheat',          color: '#A87000' },
+  { code: 23,  name: 'Spring Wheat',          color: '#D8B56B' },
+  { code: 36,  name: 'Alfalfa',               color: '#FFA8E3' },
+  { code: 37,  name: 'Other Hay',             color: '#A5F28C' },
+  { code: 176, name: 'Grassland/Pasture',     color: '#E8FFBF' },
+  { code: 61,  name: 'Fallow/Idle',           color: '#BFBF77' },
+  { code: -1,  name: 'Other Crops',           color: '#999999' },
+]
+
+/** Build a MapLibre fill-color expression for the CSB fields layer keyed on cdlYYYY. */
+function buildCropColorExpr(year: number): any {
+  const prop = `cdl${year}`
+  // Use 'case': code 0 or null → transparent; otherwise match against palette.
+  const matchExpr: any[] = ['match', ['coalesce', ['get', prop], 0]]
+  for (const [code, { color }] of Object.entries(CDL_PALETTE)) {
+    matchExpr.push(Number(code), color)
+  }
+  // match fallback: unknown codes → Other Crops color.
+  matchExpr.push('#999999')
+  // Outer case: zero/null → transparent; non-zero → matched color.
+  return [
+    'case',
+    ['<=', ['coalesce', ['get', prop], 0], 0],
+    'rgba(0,0,0,0)',
+    matchExpr,
+  ]
+}
+
 // ── OverlayButton — mutually-exclusive overlay row in the Layers panel ──────
 function OverlayButton({
   active,
@@ -1037,6 +1146,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const [layerPanelOpen, setLayerPanelOpen] = useState(false)
   const [baseOverlay, setBaseOverlay] = useState<'csb' | 'ssurgo' | 'soil_rating' | null>(null)
   const soilRatingOn = baseOverlay === 'soil_rating'
+  const [selectedCropYear, setSelectedCropYear] = useState<number>(2024)
   const [terrain3DOn, setTerrain3DOn] = useState(false)
   const [terrainExaggeration, setTerrainExaggeration] = useState(1.3)
 
@@ -1931,7 +2041,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // GPU runs out of memory and loses the WebGL context.
       maxTileCacheSize: 200,
       transformRequest: (url: string) => {
-        if (url.includes(`${API_URL}/api/tiles/soils/`) || url.includes(`${API_URL}/api/tiles/soils-full/`) || url.includes(`${API_URL}/api/regrid/tile/`)) {
+        if (url.includes(`${API_URL}/api/tiles/soils/`) || url.includes(`${API_URL}/api/tiles/soils-full/`) || url.includes(`${API_URL}/api/tiles/csb-fields/`) || url.includes(`${API_URL}/api/regrid/tile/`)) {
           const token = localStorage.getItem('auth_token')
           return { url, headers: token ? { Authorization: `Bearer ${token}` } : {} }
         }
@@ -3914,6 +4024,82 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         },
       })
     }
+    // ── CSB crop-field vector tile source + fill layer ────────────
+    // Backed by the /api/tiles/csb-fields/{z}/{x}/{y}.mvt endpoint.
+    // source-layer: 'csb_fields'. Properties: csbid, acres,
+    // cdl2017..cdl2024 (USDA CDL integer codes; 0/null = no data).
+    // Auth header is attached via transformRequest above.
+    const SRC_CSB_FIELDS = 'csb-fields'
+    const LYR_CSB_FIELDS_FILL = 'csb-fields-fill'
+    if (!map.getSource(SRC_CSB_FIELDS)) {
+      map.addSource(SRC_CSB_FIELDS, {
+        type: 'vector',
+        tiles: [`${API_URL}/api/tiles/csb-fields/{z}/{x}/{y}.mvt`],
+        minzoom: 10,
+        maxzoom: 14,
+      })
+    }
+    if (!map.getLayer(LYR_CSB_FIELDS_FILL)) {
+      map.addLayer({
+        id: LYR_CSB_FIELDS_FILL,
+        type: 'fill',
+        source: SRC_CSB_FIELDS,
+        'source-layer': 'csb_fields',
+        minzoom: 10,
+        layout: { visibility: 'none' },
+        paint: {
+          // Initial fill-color for the default year (2024).
+          // On year-selector change, setPaintProperty updates this in-place
+          // without any tile refetch. See the selectedCropYear effect below.
+          'fill-color': buildCropColorExpr(2024),
+          'fill-opacity': 0.65,
+          // Subtle hairline so field edges read cleanly over satellite.
+          'fill-outline-color': 'rgba(255,255,255,0.25)',
+        },
+      })
+    }
+
+    // ── CSB fields click popup — crop history per field ────────────
+    const onCsbFieldClick = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
+      if (!e.features?.length) return
+      const props: any = e.features[0].properties || {}
+      const acres = props.acres != null ? Number(props.acres).toFixed(1) : '—'
+      const years = [2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024]
+      const historyRows = years.map(yr => {
+        const code = props[`cdl${yr}`]
+        if (!code || code === 0) return `<div style="display:flex;justify-content:space-between;gap:12px;padding:1px 0;"><span style="color:rgba(255,255,255,0.38);">${yr}</span><span style="color:rgba(255,255,255,0.35);">—</span></div>`
+        const entry = CDL_PALETTE[code as number]
+        const name = entry ? entry.name : `Code ${code}`
+        const color = entry ? entry.color : '#999999'
+        return `<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:2px 0;">
+          <span style="color:rgba(255,255,255,0.45);">${yr}</span>
+          <span style="display:flex;align-items:center;gap:5px;">
+            <span style="width:8px;height:8px;border-radius:2px;background:${color};border:1px solid rgba(255,255,255,0.25);flex-shrink:0;display:inline-block;"></span>
+            <span style="color:rgba(255,255,255,0.80);font-size:11px;">${name}</span>
+          </span>
+        </div>`
+      }).join('')
+      new maplibregl.Popup({
+        closeButton: true,
+        closeOnClick: true,
+        maxWidth: '240px',
+        className: 'regrid-parcel-popup',
+        offset: 10,
+      })
+        .setLngLat(e.lngLat)
+        .setHTML(`
+          <div style="background:rgba(14,14,14,0.95);border-radius:10px;padding:12px 16px;font-size:12px;color:#fff;min-width:180px;">
+            <div style="font-weight:700;font-size:13px;margin-bottom:6px;color:#fff;">Crop History</div>
+            <div style="color:rgba(255,255,255,0.5);font-size:10px;margin-bottom:8px;">${acres} acres</div>
+            ${historyRows}
+          </div>
+        `)
+        .addTo(map)
+    }
+    map.on('click', LYR_CSB_FIELDS_FILL, onCsbFieldClick)
+    map.on('mouseenter', LYR_CSB_FIELDS_FILL, () => { map.getCanvas().style.cursor = 'pointer' })
+    map.on('mouseleave', LYR_CSB_FIELDS_FILL, () => { map.getCanvas().style.cursor = '' })
+
     // ── Soil-rating choropleth layer ──────────────────────────────
     // Independent overlay (not tied to the base overlay radio).
     // Uses the same SRC_SOILS MVT source. Color ramp: red (low) →
@@ -4101,11 +4287,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         if (!map.getStyle()) return
         map.off('click', LYR_SOIL_RATING, onSoilRatingClick)
         map.off('click', LYR_SOILS_FULL_FILL, onSoilsFullClick)
+        map.off('click', LYR_CSB_FIELDS_FILL, onCsbFieldClick)
         for (const id of [
           LYR_LABELS, LYR_LABELS_WC, LYR_FSA_LINE,
           LYR_TILL_FILL, LYR_TILL_FILL_WC,
           LYR_SOILS_LABEL, LYR_SOILS_LINE, LYR_SOILS_FILL,
           LYR_SOILS_FULL_FILL,
+          LYR_CSB_FIELDS_FILL,
           LYR_SOIL_RATING,
         ]) {
           if (map.getLayer(id)) map.removeLayer(id)
@@ -4113,6 +4301,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         for (const id of [
           SRC_TILLABLE, SRC_TILLABLE_WC, SRC_FSA,
           SRC_LABELS, SRC_LABELS_WC, SRC_SOILS, SRC_SOILS_FULL,
+          SRC_CSB_FIELDS,
         ]) {
           if (map.getSource(id)) map.removeSource(id)
         }
@@ -4134,11 +4323,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
     const cdlVis = (enrichmentOverlay && tillableSource === 'cdl') ? 'visible' : 'none'
     const wcVis  = (enrichmentOverlay && tillableSource === 'worldcover') ? 'visible' : 'none'
-    // Clipped SSURGO fill/line/label now drive ONLY 'csb' (Tillable
-    // Ground, tillableSource ==='ssurgo_csb'). The all-land soils-full
-    // fill drives 'ssurgo' (Soil Types).
-    const soilsVis = (enrichmentOverlay && tillableSource === 'ssurgo_csb') ? 'visible' : 'none'
+    // 'ssurgo_csb' previously showed the clipped SSURGO fill — that is now
+    // REPLACED by the CSB fields layer (csb-fields-fill). The old clipped
+    // SSURGO layers (parcel-enrichment-ssurgo-soils-*) are kept hidden.
+    const soilsVis = 'none'  // clipped SSURGO layers never shown anymore
     const soilsFullVis = (enrichmentOverlay && tillableSource === 'ssurgo') ? 'visible' : 'none'
+    // CSB crop-field fill: visible only when baseOverlay === 'csb'.
+    const csbFieldsVis = baseOverlay === 'csb' ? 'visible' : 'none'
     for (const [id, v] of [
       ['parcel-enrichment-tillable-fill', cdlVis],
       ['parcel-enrichment-labels-text', cdlVis],
@@ -4148,12 +4339,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       ['parcel-enrichment-ssurgo-soils-line', soilsVis],
       ['parcel-enrichment-ssurgo-soils-label', soilsVis],
       ['soils-full-fill', soilsFullVis],
+      ['csb-fields-fill', csbFieldsVis],
     ] as const) {
       if (map.getLayer(id)) {
         try { map.setLayoutProperty(id, 'visibility', v) } catch {/* */}
       }
     }
-  }, [enrichmentOverlay, tillableSource, mapLoaded, isEnrichmentPilot])
+  }, [enrichmentOverlay, tillableSource, baseOverlay, mapLoaded, isEnrichmentPilot])
 
   // Toggle soil-rating layer visibility.
   useEffect(() => {
@@ -4167,6 +4359,17 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       }
     } catch {/* layer not ready */}
   }, [soilRatingOn, mapLoaded, showZoomToast])
+
+  // Recolor the CSB fields layer when the selected crop year changes.
+  // setPaintProperty recolors in-place — no tile refetch.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+    if (!map.getLayer('csb-fields-fill')) return
+    try {
+      map.setPaintProperty('csb-fields-fill', 'fill-color', buildCropColorExpr(selectedCropYear))
+    } catch {/* layer not ready */}
+  }, [selectedCropYear, mapLoaded])
 
   // ── 3D Terrain — all-zoom implementation ────────────────────────────
   //
@@ -5303,7 +5506,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               {
                 key: 'csb' as const,
                 label: 'Tillable Ground',
-                swatchColor: '#00e64d',
+                swatchGradient: 'linear-gradient(to right,#FFD400,#267000,#A87000,#FFA8E3)',
               },
               {
                 key: 'soil_rating' as const,
@@ -5343,6 +5546,71 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               ))}
             </div>
           )}
+
+          {/* ── CSB year selector + crop legend — Tillable Ground only ── */}
+          <div style={{
+            maxHeight: baseOverlay === 'csb' ? 300 : 0,
+            opacity: baseOverlay === 'csb' ? 1 : 0,
+            overflow: 'hidden',
+            transition: 'max-height 0.18s ease, opacity 0.18s ease',
+          }}>
+            {/* Year chip row — subordinate to Tillable Ground button */}
+            <div style={{ padding: '4px 10px 0', display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+              {[2017,2018,2019,2020,2021,2022,2023,2024].map(yr => {
+                const sel = selectedCropYear === yr
+                return (
+                  <div
+                    key={yr}
+                    onClick={() => setSelectedCropYear(yr)}
+                    style={{
+                      height: 22,
+                      padding: '0 6px',
+                      borderRadius: 5,
+                      fontSize: 10,
+                      fontWeight: 500,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      background: sel ? 'rgba(233,30,140,0.25)' : 'rgba(255,255,255,0.05)',
+                      border: sel ? '1px solid rgba(233,30,140,0.70)' : '1px solid rgba(255,255,255,0.15)',
+                      color: sel ? '#f9a8d4' : 'rgba(255,255,255,0.50)',
+                      transition: 'background 0.12s, border-color 0.12s, color 0.12s',
+                    }}
+                    onMouseEnter={e => {
+                      if (!sel) {
+                        (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.10)'
+                        ;(e.currentTarget as HTMLElement).style.borderColor = 'rgba(255,255,255,0.22)'
+                        ;(e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,0.80)'
+                      }
+                    }}
+                    onMouseLeave={e => {
+                      if (!sel) {
+                        (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.05)'
+                        ;(e.currentTarget as HTMLElement).style.borderColor = 'rgba(255,255,255,0.15)'
+                        ;(e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,0.50)'
+                      }
+                    }}
+                  >
+                    {yr}
+                  </div>
+                )
+              })}
+            </div>
+            {/* Divider */}
+            <div style={{ height: 1, background: 'rgba(255,255,255,0.07)', margin: '6px 0' }} />
+            {/* Crop legend header */}
+            <div style={{ padding: '0 10px 6px', color: 'rgba(255,255,255,0.40)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8 }}>
+              Crop Types
+            </div>
+            {/* Crop legend rows */}
+            {CDL_LEGEND_ROWS.map(({ code, name, color }) => (
+              <div key={code} style={{ display: 'flex', alignItems: 'center', height: 22, padding: '0 10px', gap: 8 }}>
+                <span style={{ width: 12, height: 12, borderRadius: 3, flexShrink: 0, backgroundColor: color, border: '1px solid rgba(255,255,255,0.20)' }} />
+                <span style={{ color: 'rgba(255,255,255,0.72)', fontSize: 10, fontWeight: 500 }}>{name}</span>
+              </div>
+            ))}
+            <div style={{ height: 4 }} />
+          </div>
 
           <div style={{ height: 1, background: 'rgba(255,255,255,0.07)', margin: '6px 0' }} />
 
