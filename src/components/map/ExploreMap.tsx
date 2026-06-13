@@ -5106,6 +5106,16 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // of each state so the silhouette sits over its real on-map
   // footprint. Inner sized inline; resize wired to map "move" so
   // badges stay locked to their footprints during pan/zoom.
+  //
+  // FADE BAND: once the live zoom crosses FADE_START the badges
+  // fade out smoothly (opacity driven by the real-time "zoom" event,
+  // NOT by React state so there's no per-frame setState). The per-frame
+  // bbox resize is suppressed above FADE_START — that resize is the
+  // root cause of the mid-zoom glitch. Badges are fully gone at
+  // FADE_END (≤ STATE_TIER_MAX=6), so the glitch zone is never reached.
+  const FADE_START = 5.0   // fully opaque at or below this zoom
+  const FADE_END   = 5.8   // fully transparent at or above this zoom
+
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded) return
@@ -5230,13 +5240,44 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       }
     }
 
+    // Per-frame move handler: resize badges to their projected bbox
+    // ONLY when zoom is below the fade threshold. Above FADE_START the
+    // badges are fading/gone and re-stretching them every frame is what
+    // causes the mid-zoom glitch — skip it entirely.
     const onMove = () => {
-      for (const { inner, bbox } of sized) sizeBadge(inner, bbox)
+      const z = map.getZoom()
+      if (z < FADE_START) {
+        for (const { inner, bbox } of sized) sizeBadge(inner, bbox)
+      }
     }
     map.on('move', onMove)
 
+    // Live-zoom opacity: drive fade via direct DOM style manipulation
+    // on the inner badge element. No React setState — that would cause
+    // a per-frame re-render and a perf regression.
+    const allInners = stateMarkersRef.current.map(m => {
+      const shell = m.getElement()
+      return shell?.firstElementChild as HTMLElement | null
+    })
+    const onZoomLive = () => {
+      const z = map.getZoom()
+      let opacity: number
+      if (z <= FADE_START) {
+        opacity = 1
+      } else if (z >= FADE_END) {
+        opacity = 0
+      } else {
+        opacity = 1 - (z - FADE_START) / (FADE_END - FADE_START)
+      }
+      for (const inner of allInners) {
+        if (inner) inner.style.opacity = String(opacity)
+      }
+    }
+    map.on('zoom', onZoomLive)
+
     return () => {
       map.off('move', onMove)
+      map.off('zoom', onZoomLive)
       fadeOutAndRemove(stateMarkersRef.current)
       stateMarkersRef.current = []
     }
