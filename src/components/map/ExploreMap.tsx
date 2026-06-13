@@ -2000,6 +2000,21 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         type: 'geojson',
         data: '/data/us-states.json',
       })
+      // State silhouettes — translucent dark fill over every US state,
+      // visible only at the zoomed-out state tier (maxzoom = STATE_TIER_MAX).
+      // Faithfully restores the original DOM-marker silhouettes (rgba(10,10,12,0.62)
+      // fill) as a native GPU fill layer so there is no per-frame DOM work.
+      // Sits below state-borders (added first → rendered beneath the outline).
+      map.addLayer({
+        id: 'state-fill',
+        type: 'fill',
+        source: 'states',
+        maxzoom: STATE_TIER_MAX,
+        paint: {
+          'fill-color': 'rgba(10,10,12,0.62)',
+          'fill-outline-color': 'rgba(0,0,0,0)',
+        },
+      })
       map.addLayer({
         id: 'state-borders',
         type: 'line',
