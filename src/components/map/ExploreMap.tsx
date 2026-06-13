@@ -2068,10 +2068,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         },
       })
 
-      // State NAME labels — Open Sans Bold + goat icon. Replaces the
+      // State NAME labels — Open Sans Bold text only. Replaces the
       // stretched-SVG silhouette badges (silhouettes dropped natively;
       // the state-borders line layer carries the outline). Whole label
-      // is clickable → opens the state filter preset.
+      // is clickable → opens the state filter preset. NO icon: the goat
+      // logo PNG was registered without a pixelRatio and rendered at its
+      // full native size (giant white blobs over the map), so it's gone.
       map.addLayer({
         id: 'state-labels',
         type: 'symbol',
@@ -2081,14 +2083,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           'text-field': ['get', 'name'],
           'text-font': ['Open Sans Bold'],
           'text-size': 14,
-          'text-anchor': 'top',
-          'text-offset': [0, 0.8],
+          'text-anchor': 'center',
           'text-allow-overlap': false,
-          'icon-image': 'goat-icon-white',
-          'icon-size': 0.5,
-          'icon-anchor': 'bottom',
-          'icon-allow-overlap': true,
-          'icon-optional': true,
         },
         paint: {
           'text-color': '#f58cde',
@@ -2096,19 +2092,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           'text-halo-width': 1.6,
         },
       })
-
-      // Optional goat icon for the state labels. Loaded async; the label
-      // still renders (icon-optional) if it fails.
-      if (!map.hasImage('goat-icon-white')) {
-        map.loadImage('/goat-icon-white.png')
-          .then((res: any) => {
-            const img = res?.data ?? res
-            if (img && !map.hasImage('goat-icon-white')) {
-              try { map.addImage('goat-icon-white', img) } catch {/* raced */}
-            }
-          })
-          .catch(() => {/* icon-optional handles the miss */})
-      }
 
       // County COUNT bubbles (filter-active): pink circle + count/"tracts"
       // symbol. Visibility toggled by setLayoutProperty(hasActiveFilters).
@@ -4874,7 +4857,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // ─────────────────────────────────────────────────────────────
 
   // ── State labels: setData only. The state-labels symbol layer (added
-  // once in map-init, maxzoom:STATE_TIER_MAX) renders the name + goat.
+  // once in map-init, maxzoom:STATE_TIER_MAX) renders the name text.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded) return
