@@ -10,6 +10,7 @@ import type { ApiMapTract, MapTractsResponse } from './exploreMapTypes'
 import { normalizeTownship } from '../../utils/normalizeTownship'
 import {
   buildExplorePolygonGeoJSON,
+  buildExplorePointGeoJSON,
 } from './exploreMapTransform'
 import {
   MAP_CENTER,
@@ -20,6 +21,8 @@ import {
   LABEL_TILE_URL,
   STATUS_COLORS,
   derivePinStatus,
+  STATE_CENTERS,
+  STATE_NAMES,
 } from './mapConstants'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { toRings as toTractRings, ringsToGeometry } from '@/lib/polygonRings'
@@ -37,6 +40,33 @@ import {
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
+// Empty FeatureCollection used to initialize native GeoJSON sources
+// before their setData effects fire.
+const EMPTY_FC: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] }
+
+// Native marker layers, bottom-to-top. Lifted to the top of the stack
+// (in this order) whenever the tract-polygon layers are moved to the top
+// elsewhere, so pins/labels/today-pulses always render ABOVE the polygon
+// fills. today-point is last → the single most-prominent thing on the map.
+const MARKER_LAYERS_BOTTOM_TO_TOP = [
+  'state-labels',
+  'county-labels',
+  'county-count-circles',
+  'county-count-labels',
+  'tract-pin-circles',
+  'tract-pin-labels',
+  'today-cluster-circles',
+  'today-cluster-count',
+  'today-point',
+]
+function liftMarkerLayers(map: maplibregl.Map) {
+  for (const id of MARKER_LAYERS_BOTTOM_TO_TOP) {
+    if (map.getLayer(id)) {
+      try { map.moveLayer(id) } catch {/* mid-teardown */}
+    }
+  }
+}
+
 // Pin colors by sale status (matching mobile app)
 const PIN_COLORS: Record<string, string> = {
   sold: '#f58cde',
@@ -49,61 +79,118 @@ const PIN_COLORS: Record<string, string> = {
 }
 const DEFAULT_PIN_COLOR = '#eab308' // Yellow for NULL/unknown status (= listed)
 
-// Draw order on the map — higher value = drawn on top.
-// "live" here means "auctioning today" — those pins sit above EVERYTHING
-// (including the state + county badges) so the pulsing dots are always
-// the most prominent thing on the map.
-const PIN_Z_ORDER: Record<string, number> = {
-  live:    10000,
-  auction: 40,
-  sold:    30,
-  no_sale: 20,
-  listed:  10,
-  active:  10,
-  pending: 10,
-}
-const DEFAULT_PIN_Z = 10
-
-/**
- * Return true when the tract's auction is happening on the current local
- * date. Used to decide whether to render the green pulsing dot. We compare
- * by Y/M/D in the user's local timezone so a tract auctioning in any zone
- * "today" lights up while the user is browsing today.
- *
- * Plain YYYY-MM-DD strings are intentionally parsed as local dates — the
- * default `new Date('YYYY-MM-DD')` parses as UTC midnight, which silently
- * shifts to the previous day for western timezones.
- */
-function isAuctionDateToday(d: unknown): boolean {
-  if (!d) return false
-  const s = String(d).trim()
-  if (!s) return false
-  let date: Date
-  const plain = s.match(/^(\d{4})-(\d{2})-(\d{2})$/)
-  if (plain) {
-    date = new Date(Number(plain[1]), Number(plain[2]) - 1, Number(plain[3]))
-  } else {
-    date = new Date(s)
+// Data-driven `circle-color` for the native tract-pin-circles layer.
+// A MapLibre `match` over the `status` property using the EXACT same
+// PIN_COLORS the old DOM pins used. Built once from PIN_COLORS so the
+// two can never drift. Fallback = DEFAULT_PIN_COLOR (NULL/unknown).
+function buildPinColorMatchExpression(): any {
+  const expr: any[] = ['match', ['get', 'status']]
+  for (const [status, color] of Object.entries(PIN_COLORS)) {
+    expr.push(status, color)
   }
-  if (isNaN(date.getTime())) return false
-  const now = new Date()
-  return (
-    date.getFullYear() === now.getFullYear() &&
-    date.getMonth() === now.getMonth() &&
-    date.getDate() === now.getDate()
-  )
+  expr.push(DEFAULT_PIN_COLOR)
+  return expr
 }
 
-function getStatusPinColor(status: string | null): string {
-  if (!status) return DEFAULT_PIN_COLOR
-  return PIN_COLORS[status.toLowerCase()] || DEFAULT_PIN_COLOR
+// ───────────────────────────────────────────────────────────────
+// Native animated "auctioning today" pulsing dot. Implements the
+// MapLibre StyleImageInterface: render() redraws an expanding green
+// ring + solid green core each frame and calls map.triggerRepaint().
+// Registered via map.addImage('today-pulse', dot, {pixelRatio:2}) and
+// used as icon-image on the today-pins symbol layer — replaces the old
+// per-marker DOM pulse so there's zero per-frame DOM work.
+// ───────────────────────────────────────────────────────────────
+function makeTodayPulseDot(map: maplibregl.Map) {
+  const size = 48
+  return {
+    width: size,
+    height: size,
+    data: new Uint8Array(size * size * 4),
+    context: null as CanvasRenderingContext2D | null,
+    onAdd() {
+      const canvas = document.createElement('canvas')
+      canvas.width = size
+      canvas.height = size
+      this.context = canvas.getContext('2d')
+    },
+    render() {
+      const duration = 1500
+      const t = (performance.now() % duration) / duration
+      const ctx = this.context
+      if (!ctx) return false
+      const radius = (size / 2) * 0.28
+      const outerRadius = (size / 2) * 0.9 * t + radius
+      ctx.clearRect(0, 0, size, size)
+      // Expanding translucent ring (fades as it grows).
+      ctx.beginPath()
+      ctx.arc(size / 2, size / 2, outerRadius, 0, Math.PI * 2)
+      ctx.fillStyle = `rgba(34, 197, 94, ${0.45 * (1 - t)})`
+      ctx.fill()
+      // Solid green core with white stroke (matches old #22c55e dot).
+      ctx.beginPath()
+      ctx.arc(size / 2, size / 2, radius, 0, Math.PI * 2)
+      ctx.fillStyle = '#22c55e'
+      ctx.strokeStyle = '#ffffff'
+      ctx.lineWidth = 2 + radius / 6
+      ctx.fill()
+      ctx.stroke()
+      this.data = ctx.getImageData(0, 0, size, size).data as any
+      // Keep the animation running.
+      map.triggerRepaint()
+      return true
+    },
+  }
 }
 
-function getStatusPinZ(status: string | null, isLive: boolean): number {
-  if (isLive) return PIN_Z_ORDER.live
-  if (!status) return DEFAULT_PIN_Z
-  return PIN_Z_ORDER[status.toLowerCase()] ?? DEFAULT_PIN_Z
+// ───────────────────────────────────────────────────────────────
+// Dark rounded-pill sprite used behind county/state names. MapLibre
+// symbol layers have no native text-background, so we register a
+// 9-slice stretchable image and draw it with icon-image +
+// icon-text-fit:'both'. The `content` + `stretchX/Y` describe the
+// non-corner regions so corners stay crisp while the middle stretches.
+// Matches the dark .aem-county-square look (dark fill, pink border).
+// ───────────────────────────────────────────────────────────────
+function makePillSprite(opts: { border: string }): {
+  image: { width: number; height: number; data: Uint8Array }
+  options: any
+} {
+  const W = 32
+  const H = 32
+  const r = 8
+  const canvas = document.createElement('canvas')
+  canvas.width = W
+  canvas.height = H
+  const ctx = canvas.getContext('2d')!
+  const inset = 1.5
+  const x = inset
+  const y = inset
+  const w = W - inset * 2
+  const h = H - inset * 2
+  ctx.beginPath()
+  ctx.moveTo(x + r, y)
+  ctx.arcTo(x + w, y, x + w, y + h, r)
+  ctx.arcTo(x + w, y + h, x, y + h, r)
+  ctx.arcTo(x, y + h, x, y, r)
+  ctx.arcTo(x, y, x + w, y, r)
+  ctx.closePath()
+  ctx.fillStyle = 'rgba(15,15,18,0.86)'
+  ctx.fill()
+  ctx.lineWidth = 1.5
+  ctx.strokeStyle = opts.border
+  ctx.stroke()
+  const img = ctx.getImageData(0, 0, W, H)
+  return {
+    image: { width: W, height: H, data: new Uint8Array(img.data.buffer) },
+    options: {
+      pixelRatio: 2,
+      // The stretchable middle band (everything but the rounded corners).
+      content: [r + 2, r + 2, W - r - 2, H - r - 2],
+      stretchX: [[r + 2, W - r - 2]],
+      stretchY: [[r + 2, H - r - 2]],
+    },
+  }
 }
+
 
 /**
  * Decide whether a tract returned by the API should actually render on the
@@ -147,21 +234,19 @@ function formatCurrency(amount: number | null | undefined): string {
 }
 
 // ───────────────────────────────────────────────────────────────
-// 3-tier zoom system (state silhouettes / county squares / tract
-// pins). Hard-gated: only one tier's markers are visible at a time
-// so the map never gets visually crowded.
+// 3-tier zoom bands (state labels / county labels / tract pins).
+// These are now applied DIRECTLY as native layer minzoom/maxzoom so
+// MapLibre hard-gates each tier on the GPU — no JS tier-switching:
+//   state-labels   maxzoom = STATE_TIER_MAX (≤6)
+//   county-labels  minzoom = COUNTY_TIER_MIN (6) .. maxzoom = TRACT_TIER_MIN (9)
+//   county-counts  maxzoom = TRACT_TIER_MIN (9)
+//   tract-pins     minzoom = TRACT_TIER_MIN (9)
 // ───────────────────────────────────────────────────────────────
 const STATE_TIER_MAX = 6
 const COUNTY_TIER_MIN = 6
-const COUNTY_TIER_MAX = 9
+const COUNTY_TIER_MAX = 9   // retained for documentation of the band
 const TRACT_TIER_MIN = 9
-
-type ZoomTier = 'state' | 'county' | 'tract'
-function currentZoomTier(z: number): ZoomTier {
-  if (z <= STATE_TIER_MAX) return 'state'
-  if (z <= COUNTY_TIER_MAX) return 'county'
-  return 'tract'
-}
+void COUNTY_TIER_MAX
 
 // Full-name → 2-letter abbr lookup for ALL US states. Used to match
 // /data/us-states.json features (keyed by `properties.NAME`) to the
@@ -224,74 +309,6 @@ function featureBbox(
   }
   if (!isFinite(minLng) || !isFinite(minLat)) return null
   return [[minLng, minLat], [maxLng, maxLat]]
-}
-
-// SVG path that STRETCHES across a 100×100 viewBox (no aspect-ratio
-// centering). Combined with preserveAspectRatio="none" + a container
-// sized to the projected bbox in pixels, the silhouette ends up
-// perfectly aligned over the actual state on the map.
-function featureToSvgPath(feature: any): string | null {
-  if (!feature?.geometry?.coordinates) return null
-  const geom = feature.geometry
-  const rings: number[][][] = []
-  if (geom.type === 'Polygon') {
-    for (const ring of geom.coordinates) rings.push(ring as number[][])
-  } else if (geom.type === 'MultiPolygon') {
-    for (const poly of geom.coordinates) {
-      for (const ring of poly as number[][][]) rings.push(ring)
-    }
-  } else {
-    return null
-  }
-  if (!rings.length) return null
-  let minLng = Infinity, minLat = Infinity
-  let maxLng = -Infinity, maxLat = -Infinity
-  for (const ring of rings) {
-    for (const [lng, lat] of ring) {
-      if (lng < minLng) minLng = lng
-      if (lng > maxLng) maxLng = lng
-      if (lat < minLat) minLat = lat
-      if (lat > maxLat) maxLat = lat
-    }
-  }
-  const w = maxLng - minLng
-  const h = maxLat - minLat
-  if (w <= 0 || h <= 0) return null
-  const sx = 100 / w
-  const sy = 100 / h
-  const parts: string[] = []
-  for (const ring of rings) {
-    if (ring.length < 3) continue
-    const cmds: string[] = []
-    for (let i = 0; i < ring.length; i++) {
-      const [lng, lat] = ring[i]
-      const x = (lng - minLng) * sx
-      const y = (maxLat - lat) * sy
-      cmds.push(`${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`)
-    }
-    cmds.push('Z')
-    parts.push(cmds.join(' '))
-  }
-  return parts.join(' ')
-}
-
-// Fade-out then remove a batch of markers. Adds the .aem-leaving
-// class to the INNER badge (not the maplibre shell, which holds the
-// translate transform that positions the marker). 380ms later we
-// call .remove().
-function fadeOutAndRemove(markers: maplibregl.Marker[]): void {
-  if (!markers.length) return
-  const snapshot = [...markers]
-  for (const m of snapshot) {
-    const shell = m.getElement()
-    const inner = shell?.firstElementChild as HTMLElement | null
-    if (inner) inner.classList.add('aem-leaving')
-  }
-  setTimeout(() => {
-    for (const m of snapshot) {
-      try { m.remove() } catch {}
-    }
-  }, 380)
 }
 
 function formatAcres(acres: number | null | undefined): string {
@@ -797,15 +814,10 @@ function OverlayButton({
 export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, chatSearchEndSignal, comparableVisibleIds, neighborParcels, neighborsLoading }: ExploreMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
-  const stateMarkersRef = useRef<maplibregl.Marker[]>([])
-  const countyMarkersRef = useRef<maplibregl.Marker[]>([])
-  // Filter-active per-county count bubbles (number + "tracts" label),
-  // shown when zoomed too low for individual tract dots.
-  const countyCountMarkersRef = useRef<maplibregl.Marker[]>([])
-  const tractMarkersRef = useRef<maplibregl.Marker[]>([])
-  const tractMarkerElementsRef = useRef<Map<string, HTMLDivElement>>(new Map())
-  // Today's auctions are rendered as a native MapLibre GeoJSON layer
-  // (see the useEffect below) — no per-marker DOM refs needed.
+  // All markers (tract pins, today pulses, state/county labels, county
+  // counts) are now NATIVE MapLibre GeoJSON sources + symbol/circle
+  // layers — no per-marker DOM refs. They're cleared/updated via
+  // getSource().setData() in the memo-driven effects, never recreated.
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Cells we've FULLY loaded (got all matching tracts back, didn't hit
   // the per-cell 1000 cap). Future moveends won't re-fetch these.
@@ -893,7 +905,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   //     auctions should stay visible regardless of filters
   // Rendered as separate markers in their own useEffect below.
   const [todayTracts, setTodayTracts] = useState<ApiMapTract[]>([])
-  const [currentZoom, setCurrentZoom] = useState(MAP_INITIAL_ZOOM)
   const [mapLoaded, setMapLoaded] = useState(false)
 
   // Live coverage list — counties whose soils / soils-csb / tillable
@@ -927,17 +938,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const [allCountyCentroids, setAllCountyCentroids] = useState<
     Array<{ state: string; county: string; lng: number; lat: number }>
   >([])
-  const [stateSilhouettes, setStateSilhouettes] = useState<Record<string, string>>({})
   const [stateCentroids, setStateCentroids] = useState<Record<string, [number, number]>>({})
-  const [stateBboxes, setStateBboxes] = useState<
-    Record<string, [[number, number], [number, number]]>
-  >({})
   const [loading, setLoading] = useState(false)
   const [selectedSale, setSelectedSale] = useState<SaleDetail | null>(null)
-  // Inline popup ON THE MAP (comparables mode only). Click a + marker
-  // opens this; click outside (anywhere else on the map) or the X /
-  // Esc closes it. Distinct from `selectedSale` (the sidebar/modal flow
-  // used outside comp mode). See createMarkerElement asPlusButton.
+  // Inline popup ON THE MAP (comparables mode only). Click a tract pin
+  // in comp mode opens this; click outside (anywhere else on the map) or
+  // the X / Esc closes it. Distinct from `selectedSale` (the sidebar/modal
+  // flow used outside comp mode). Wired in the tract-pin click effect.
   const [compPopup, setCompPopup] = useState<{
     sale: SaleDetail
     pos: { x: number; y: number }
@@ -956,8 +963,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     loadedCellsRef.current = new Set()
     tractMapRef.current = new Map()
     setTracts([])
-    tractMarkersRef.current.forEach(m => m.remove())
-    tractMarkersRef.current = []
     // Trigger a re-fetch by simulating a moveend from current bounds.
     const map = mapRef.current
     if (map && mapLoaded) {
@@ -981,13 +986,18 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const map = mapRef.current
     if (!map || !compPopup) return
     const onMapClick = (e: maplibregl.MapMouseEvent) => {
-      // Don't close if the click landed on a Regrid sale-"+" marker — that
-      // marker's own handler is opening (or switching to) a popup. Without
-      // this guard, clicking one "+" while another popup is open would both
-      // open the new one and immediately close it.
-      if (map.getLayer('parcel-sale-pin-plus')) {
+      // Don't close if the click landed on a popup-opening layer — that
+      // layer's own handler is opening (or switching to) a popup. Without
+      // these guards, clicking a tract pin / Regrid "+" while a popup is
+      // open would both open the new one and immediately close it.
+      //   - parcel-sale-pin-plus: Regrid sale "+" markers
+      //   - tract-pin-circles: native tract pins (replaces the old DOM
+      //     marker's stopPropagation, which native layers can't do)
+      const guardLayers = ['parcel-sale-pin-plus', 'tract-pin-circles']
+        .filter(id => map.getLayer(id))
+      if (guardLayers.length) {
         try {
-          if (map.queryRenderedFeatures(e.point, { layers: ['parcel-sale-pin-plus'] }).length) return
+          if (map.queryRenderedFeatures(e.point, { layers: guardLayers }).length) return
         } catch {/* layer gone */}
       }
       setCompPopup(null)
@@ -995,30 +1005,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const onMove = () => {
       setCompPopup(prev => {
         if (!prev) return prev
-        // Regrid "+" parcels carry no tract marker — re-project straight
-        // from the stored click lng/lat so the popup tracks on pan/zoom.
+        // Every comp-popup (native tract pin click AND Regrid "+" parcel)
+        // now stashes the click lng/lat, so we re-project straight from it
+        // to keep the popup anchored on pan/zoom — no marker lookup needed.
         if (prev.lngLat) {
           const p = map.project(prev.lngLat)
           return { ...prev, pos: { x: p.x, y: p.y } }
         }
-        // Re-project from sale's lat/lng. SaleDetail's polygonCoordinates
-        // can be missing — fall back to the lng/lat we projected from
-        // originally by reading off the marker element (kept in
-        // tractMarkerElementsRef). Simpler: use the polygon centroid
-        // or the lat/lng we stored when opening.
-        const tid = prev.sale.tractId
-        if (!tid) return prev
-        // Read the marker's lng/lat by querying MapLibre's marker — we
-        // stashed elements keyed by tract id earlier. Resolve from the
-        // current tractMarkers list.
-        const marker = tractMarkersRef.current.find(m => {
-          const el = m.getElement() as HTMLDivElement
-          return el.dataset.tractId === tid
-        })
-        if (!marker) return prev
-        const ll = marker.getLngLat()
-        const p = map.project(ll)
-        return { sale: prev.sale, pos: { x: p.x, y: p.y } }
+        return prev
       })
     }
     map.on('click', onMapClick)
@@ -1095,8 +1089,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     return new URLSearchParams(buildFilterParams(filters)).toString()
   }, [filters])
 
-  const currentTier = currentZoomTier(currentZoom)
-
   // Load nationwide county centroids ONCE so the county-tier badges
   // can render for every U.S. county.
   useEffect(() => {
@@ -1111,34 +1103,29 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     return () => { cancelled = true }
   }, [])
 
-  // Load state silhouettes + bboxes ONCE on mount from us-states.json.
-  // Used to render the silhouette badges with bbox-projected sizing.
+  // Load state CENTROIDS ONCE on mount from us-states.json. Drives the
+  // native state-labels layer placement (one Point per state at its bbox
+  // center). The old silhouette SVG paths + bboxes are gone — the
+  // native state-borders line layer carries the outline now.
   useEffect(() => {
     let cancelled = false
     fetch('/data/us-states.json')
       .then(r => r.ok ? r.json() : null)
       .then((geo: any) => {
         if (cancelled || !geo?.features) return
-        const paths: Record<string, string> = {}
         const centroids: Record<string, [number, number]> = {}
-        const bboxes: Record<string, [[number, number], [number, number]]> = {}
         for (const feat of geo.features) {
           const abbr = ALL_STATE_NAME_TO_ABBR[feat?.properties?.NAME]
           if (!abbr) continue
-          const path = featureToSvgPath(feat)
-          if (path) paths[abbr] = path
           const bbox = featureBbox(feat)
           if (bbox) {
-            bboxes[abbr] = bbox
             centroids[abbr] = [
               (bbox[0][0] + bbox[1][0]) / 2,
               (bbox[0][1] + bbox[1][1]) / 2,
             ]
           }
         }
-        setStateSilhouettes(paths)
         setStateCentroids(centroids)
-        setStateBboxes(bboxes)
       })
       .catch(() => {})
     return () => { cancelled = true }
@@ -1168,9 +1155,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   }, [filterParamString, filters.stateFilter])
 
   // Admin parcel-overlay state. Lights up the map with every parcel
-  // (boundary + owner + acres). Visible only to groundgoat_admin users;
-  // the toggle button only appears when currentZoom >= ADMIN_PARCEL_MIN_ZOOM
-  // so we never paint a wall of names at low zoom.
+  // (boundary + owner + acres). Visible only to groundgoat_admin users.
+  // The legacy pmtiles toggle is hard-disabled (the JSX gate is `false`),
+  // superseded by the always-on Regrid layer.
   //
   // Architecture: pre-rendered vector tiles (.pmtiles) hosted on the
   // ground-goat-tiles Railway service, one archive per state. The
@@ -1263,10 +1250,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       loadedCellsRef.current = new Set()
       tractMapRef.current = new Map()
       setTracts([])
-      tractMarkersRef.current.forEach(m => m.remove())
-      tractMarkersRef.current = []
-      stateMarkersRef.current.forEach(m => m.remove())
-      stateMarkersRef.current = []
       // Refetch tracts for current viewport
       const map = mapRef.current
       if (map) {
@@ -1312,8 +1295,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     loadedCellsRef.current = new Set()
     tractMapRef.current = new Map()
     setTracts([])
-    tractMarkersRef.current.forEach(m => m.remove())
-    tractMarkersRef.current = []
 
     const map = mapRef.current
     if (!map) return
@@ -1561,10 +1542,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     tractMapRef.current = new Map()
     setTracts([])
     // Remove existing markers
-    tractMarkersRef.current.forEach(m => m.remove())
-    tractMarkersRef.current = []
-    stateMarkersRef.current.forEach(m => m.remove())
-    stateMarkersRef.current = []
     const map = mapRef.current
 
     // If county filter is set, animate the map to the selected
@@ -1634,10 +1611,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     loadedCellsRef.current = new Set()
     tractMapRef.current = new Map()
     setTracts([])
-    tractMarkersRef.current.forEach(m => m.remove())
-    tractMarkersRef.current = []
-    stateMarkersRef.current.forEach(m => m.remove())
-    stateMarkersRef.current = []
     const map = mapRef.current
     if (map) {
       const bounds = map.getBounds()
@@ -1700,6 +1673,79 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
     return fc
   }, [tracts, pinnedTractPolygon])
+
+  // ── Native tract-pin GeoJSON (drives the tract-pin-circles/labels
+  // layers via setData). One Point per tract with status / pre-formatted
+  // priceLabel-acres label / tractId + the co-located offset spiral.
+  // EXCLUDES today's-auction tracts (rendered by the today-pins layer)
+  // and the subject tract (its own highlight in comp mode), matching the
+  // old DOM loop's `continue` guards exactly.
+  const tractPinGeoJSON = useMemo(() => {
+    const todayIds = new Set(todayTracts.map(t => t.id))
+    const visible = tracts.filter(t => {
+      if (todayIds.has(t.id)) return false
+      if (subjectTractId && t.id === subjectTractId) return false
+      return true
+    })
+    return buildExplorePointGeoJSON(visible)
+  }, [tracts, todayTracts, subjectTractId])
+
+  // ── Today's-auction pins GeoJSON. Uses each tract's STORED lng/lat
+  // (not the polygon centroid) — matches the old today-marker rule for
+  // boundary_valid=false tracts. Carries listingId so a click can open
+  // /listings/{id}.
+  const todayPinGeoJSON = useMemo((): GeoJSON.FeatureCollection => {
+    return {
+      type: 'FeatureCollection',
+      features: todayTracts
+        .filter(t => t.longitude != null && t.latitude != null)
+        .map(t => ({
+          type: 'Feature' as const,
+          geometry: { type: 'Point' as const, coordinates: [t.longitude as number, t.latitude as number] },
+          properties: { tractId: t.id, listingId: t.listing_id ?? null },
+        })),
+    }
+  }, [todayTracts])
+
+  // ── County COUNT bubbles GeoJSON (filter-active). One Point per county
+  // with a matching tract count + averaged centroid from the
+  // /county-tract-counts endpoint.
+  const countyCountGeoJSON = useMemo((): GeoJSON.FeatureCollection => {
+    return {
+      type: 'FeatureCollection',
+      features: countyCounts
+        .filter(c => c.count && c.lat != null && c.lng != null)
+        .map(c => ({
+          type: 'Feature' as const,
+          geometry: { type: 'Point' as const, coordinates: [c.lng, c.lat] },
+          properties: { count: c.count, state: c.state, county: c.county },
+        })),
+    }
+  }, [countyCounts])
+
+  // ── State labels GeoJSON. One Point per state at its centroid (from
+  // us-states.json bboxes, falling back to STATE_CENTERS), carrying the
+  // full name + abbr so a click can open the state filter preset. Built
+  // for EVERY state with a known centroid (mirrors the old badge loop's
+  // `allStates`), not just states with tracts.
+  const stateLabelGeoJSON = useMemo((): GeoJSON.FeatureCollection => {
+    const abbrs = Array.from(new Set<string>([
+      ...Object.keys(stateCentroids),
+      ...Object.keys(STATE_CENTERS),
+      ...stateCounts.map(s => s.state),
+    ]))
+    const features: GeoJSON.Feature[] = []
+    for (const abbr of abbrs) {
+      const c = stateCentroids[abbr] || STATE_CENTERS[abbr]
+      if (!c) continue
+      features.push({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [c[0], c[1]] },
+        properties: { abbr, name: STATE_NAMES[abbr] || abbrToName(abbr) },
+      })
+    }
+    return { type: 'FeatureCollection', features }
+  }, [stateCentroids, stateCounts])
 
   // Load tracts for a bounding box
   const CELL_LIMIT = 1000
@@ -1885,7 +1931,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // GPU runs out of memory and loses the WebGL context.
       maxTileCacheSize: 200,
       transformRequest: (url: string) => {
-        if (url.includes(`${API_URL}/api/tiles/soils/`) || url.includes(`${API_URL}/api/regrid/tile/`)) {
+        if (url.includes(`${API_URL}/api/tiles/soils/`) || url.includes(`${API_URL}/api/tiles/soils-full/`) || url.includes(`${API_URL}/api/regrid/tile/`)) {
           const token = localStorage.getItem('auth_token')
           return { url, headers: token ? { Authorization: `Bearer ${token}` } : {} }
         }
@@ -1965,24 +2011,222 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         },
       })
 
-      // County name labels
+      // ── Register stretchable dark-pill sprites (county + state) ─────
+      // MapLibre has no native text-background, so a 9-slice pill image
+      // is drawn behind the name via icon-image + icon-text-fit:'both'.
+      try {
+        if (!map.hasImage('aem-pill-county')) {
+          const p = makePillSprite({ border: '#f58cde' })
+          map.addImage('aem-pill-county', p.image as any, p.options)
+        }
+        if (!map.hasImage('aem-pill-state')) {
+          const p = makePillSprite({ border: 'rgba(245,140,222,0.55)' })
+          map.addImage('aem-pill-state', p.image as any, p.options)
+        }
+      } catch {/* image already added by a racing call */}
+
+      // ── Native marker GeoJSON sources (driven by setData effects) ───
+      map.addSource('tract-pins', { type: 'geojson', data: EMPTY_FC })
+      map.addSource('today-pins', {
+        type: 'geojson',
+        data: EMPTY_FC,
+        cluster: true,
+        clusterRadius: 25,
+        clusterMaxZoom: 14,
+      })
+      map.addSource('county-counts', { type: 'geojson', data: EMPTY_FC })
+      map.addSource('state-labels', { type: 'geojson', data: EMPTY_FC })
+
+      // County NAME labels — restyled dark pill (replaces the old grey
+      // text + the manual viewport-clip DOM squares). Only between the
+      // county tier and the tract tier; text-allow-overlap:false declutters
+      // automatically. Hidden via setLayoutProperty when a filter is active
+      // (the county-COUNT bubbles show instead).
       map.addLayer({
         id: 'county-labels',
         type: 'symbol',
         source: 'counties',
-        minzoom: 7,
+        minzoom: COUNTY_TIER_MIN,
+        maxzoom: TRACT_TIER_MIN,
         layout: {
           'text-field': ['get', 'NAME'],
-          'text-font': ['Open Sans Regular'],
-          'text-size': ['interpolate', ['linear'], ['zoom'], 7, 10, 10, 14],
+          'text-font': ['Open Sans Bold'],
+          'text-size': ['interpolate', ['linear'], ['zoom'], 6, 10, 9, 13],
           'text-anchor': 'center',
           'text-max-width': 8,
+          'text-allow-overlap': false,
+          'icon-image': 'aem-pill-county',
+          'icon-text-fit': 'both',
+          'icon-text-fit-padding': [3, 7, 3, 7],
+          'icon-allow-overlap': false,
+          'icon-optional': false,
         },
         paint: {
-          'text-color': '#555555',
-          'text-halo-color': '#ffffff',
-          'text-halo-width': 1.5,
-          'text-opacity': 0.75,
+          'text-color': '#ffffff',
+          'text-halo-color': 'rgba(0,0,0,0.4)',
+          'text-halo-width': 0.6,
+        },
+      })
+
+      // State NAME labels — Open Sans Bold + goat icon. Replaces the
+      // stretched-SVG silhouette badges (silhouettes dropped natively;
+      // the state-borders line layer carries the outline). Whole label
+      // is clickable → opens the state filter preset.
+      map.addLayer({
+        id: 'state-labels',
+        type: 'symbol',
+        source: 'state-labels',
+        maxzoom: STATE_TIER_MAX,
+        layout: {
+          'text-field': ['get', 'name'],
+          'text-font': ['Open Sans Bold'],
+          'text-size': 14,
+          'text-anchor': 'top',
+          'text-offset': [0, 0.8],
+          'text-allow-overlap': false,
+          'icon-image': 'goat-icon-white',
+          'icon-size': 0.5,
+          'icon-anchor': 'bottom',
+          'icon-allow-overlap': true,
+          'icon-optional': true,
+        },
+        paint: {
+          'text-color': '#f58cde',
+          'text-halo-color': 'rgba(0,0,0,0.95)',
+          'text-halo-width': 1.6,
+        },
+      })
+
+      // Optional goat icon for the state labels. Loaded async; the label
+      // still renders (icon-optional) if it fails.
+      if (!map.hasImage('goat-icon-white')) {
+        map.loadImage('/goat-icon-white.png')
+          .then((res: any) => {
+            const img = res?.data ?? res
+            if (img && !map.hasImage('goat-icon-white')) {
+              try { map.addImage('goat-icon-white', img) } catch {/* raced */}
+            }
+          })
+          .catch(() => {/* icon-optional handles the miss */})
+      }
+
+      // County COUNT bubbles (filter-active): pink circle + count/"tracts"
+      // symbol. Visibility toggled by setLayoutProperty(hasActiveFilters).
+      map.addLayer({
+        id: 'county-count-circles',
+        type: 'circle',
+        source: 'county-counts',
+        maxzoom: TRACT_TIER_MIN,
+        layout: { visibility: 'none' },
+        paint: {
+          'circle-color': '#E91E8C',
+          'circle-radius': 16,
+          'circle-stroke-color': '#ffffff',
+          'circle-stroke-width': 2,
+        },
+      })
+      map.addLayer({
+        id: 'county-count-labels',
+        type: 'symbol',
+        source: 'county-counts',
+        maxzoom: TRACT_TIER_MIN,
+        layout: {
+          visibility: 'none',
+          'text-field': ['concat', ['to-string', ['get', 'count']], '\nTRACTS'],
+          'text-font': ['Open Sans Bold'],
+          'text-size': 11,
+          'text-anchor': 'center',
+          'text-allow-overlap': true,
+        },
+        paint: { 'text-color': '#ffffff' },
+      })
+
+      // ── Tract pins (the crux) — circles + price/acres labels. Both
+      // gated minzoom:TRACT_TIER_MIN. Driven by setData from the
+      // tractPinGeoJSON memo; layers are NEVER recreated.
+      map.addLayer({
+        id: 'tract-pin-circles',
+        type: 'circle',
+        source: 'tract-pins',
+        minzoom: TRACT_TIER_MIN,
+        paint: {
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], 9, 4, 14, 7],
+          'circle-color': buildPinColorMatchExpression(),
+          'circle-stroke-color': [
+            'case',
+            ['boolean', ['feature-state', 'highlighted'], false], '#E91E8C',
+            '#ffffff',
+          ],
+          'circle-stroke-width': [
+            'case',
+            ['boolean', ['feature-state', 'highlighted'], false], 3,
+            2,
+          ],
+        },
+      })
+      map.addLayer({
+        id: 'tract-pin-labels',
+        type: 'symbol',
+        source: 'tract-pins',
+        minzoom: TRACT_TIER_MIN,
+        layout: {
+          'text-field': ['get', 'pinLabel'],
+          'text-font': ['Open Sans Bold'],
+          'text-size': 11,
+          'text-anchor': 'bottom',
+          'text-offset': [0, -0.7],
+          'text-allow-overlap': false,
+          'text-optional': true,
+        },
+        paint: {
+          'text-color': '#ffffff',
+          'text-halo-color': 'rgba(0,0,0,0.85)',
+          'text-halo-width': 1.4,
+        },
+      })
+
+      // ── Today's-auction pins — native clustering. Cluster circle +
+      // count; single point = the animated pulsing green dot. Added
+      // LAST so it sits at the TOP of the stack (most prominent).
+      try {
+        if (!map.hasImage('today-pulse')) {
+          map.addImage('today-pulse', makeTodayPulseDot(map) as any, { pixelRatio: 2 })
+        }
+      } catch {/* raced */}
+      map.addLayer({
+        id: 'today-cluster-circles',
+        type: 'circle',
+        source: 'today-pins',
+        filter: ['has', 'point_count'],
+        paint: {
+          'circle-color': '#22c55e',
+          'circle-radius': ['step', ['get', 'point_count'], 14, 5, 18, 15, 24],
+          'circle-stroke-color': '#ffffff',
+          'circle-stroke-width': 2,
+        },
+      })
+      map.addLayer({
+        id: 'today-cluster-count',
+        type: 'symbol',
+        source: 'today-pins',
+        filter: ['has', 'point_count'],
+        layout: {
+          'text-field': ['get', 'point_count_abbreviated'],
+          'text-font': ['Open Sans Bold'],
+          'text-size': 12,
+          'text-allow-overlap': true,
+        },
+        paint: { 'text-color': '#ffffff' },
+      })
+      map.addLayer({
+        id: 'today-point',
+        type: 'symbol',
+        source: 'today-pins',
+        filter: ['!', ['has', 'point_count']],
+        layout: {
+          'icon-image': 'today-pulse',
+          'icon-allow-overlap': true,
+          'icon-ignore-placement': true,
         },
       })
 
@@ -1994,10 +2238,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         min_lng: bounds.getWest(),
         max_lng: bounds.getEast(),
       })
-    })
-
-    map.on('zoomend', () => {
-      setCurrentZoom(map.getZoom())
     })
 
     map.on('moveend', handleMoveEnd)
@@ -2058,6 +2298,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         map.moveLayer('tract-polygon-fill')
         map.moveLayer('tract-polygon-line')
       }
+      // Keep native marker layers (pins/labels/today pulse) above the
+      // polygons we just lifted.
+      liftMarkerLayers(map)
     }
   }, [mapLoaded, polygonGeoJSON])
 
@@ -2787,6 +3030,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // tract layers above everything.
     if (map.getLayer('tract-polygon-fill')) map.moveLayer('tract-polygon-fill')
     if (map.getLayer('tract-polygon-line')) map.moveLayer('tract-polygon-line')
+    // Keep native marker layers above the polygons we just lifted.
+    liftMarkerLayers(map)
 
     // Hover highlight — track which feature is under the cursor so
     // the fill brightens on hover. ll_uuid promotion above means
@@ -2825,14 +3070,18 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const onClick = async (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
       const f = e.features?.[0]
       if (!f) return
-      // If the click also landed on a sale-dot marker, that layer's own
-      // handler (onPinClick) opens the "Parcel sale" popup. Don't ALSO
-      // open the full parcel-detail popup or the user gets two stacked
-      // cards (reported bug). The dot sits on top, so its popup wins.
-      const SALE_DOT_LAYER = 'parcel-sale-pin-plus'
-      if (map.getLayer(SALE_DOT_LAYER)) {
+      // If the click also landed on a top-of-stack pin, that layer's own
+      // handler opens its popup. Don't ALSO open the full parcel-detail
+      // popup or the user gets two stacked cards (reported bug). The pins
+      // sit on top, so their popup wins.
+      //   - parcel-sale-pin-plus: Regrid sale "+" marker (onPinClick)
+      //   - tract-pin-circles: native tract pin (replaces the old DOM
+      //     marker's stopPropagation, which native layers can't do)
+      const topPinLayers = ['parcel-sale-pin-plus', 'tract-pin-circles']
+        .filter(id => map.getLayer(id))
+      if (topPinLayers.length) {
         try {
-          if (map.queryRenderedFeatures(e.point, { layers: [SALE_DOT_LAYER] }).length) return
+          if (map.queryRenderedFeatures(e.point, { layers: topPinLayers }).length) return
         } catch {/* layer torn down mid-click */}
       }
       const props: any = f.properties || {}
@@ -3377,6 +3626,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const SRC_LABELS = 'parcel-enrichment-labels'
     const SRC_LABELS_WC = 'parcel-enrichment-labels-worldcover'
     const SRC_SOILS = 'parcel-enrichment-ssurgo-soils'
+    const SRC_SOILS_FULL = 'soils-full'
     const LYR_TILL_FILL = 'parcel-enrichment-tillable-fill'
     const LYR_TILL_FILL_WC = 'parcel-enrichment-tillable-worldcover-fill'
     const LYR_FSA_LINE = 'parcel-enrichment-fsa-clu-line'
@@ -3385,6 +3635,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const LYR_SOILS_FILL = 'parcel-enrichment-ssurgo-soils-fill'
     const LYR_SOILS_LINE = 'parcel-enrichment-ssurgo-soils-line'
     const LYR_SOILS_LABEL = 'parcel-enrichment-ssurgo-soils-label'
+    const LYR_SOILS_FULL_FILL = 'soils-full-fill'
 
     if (!map.getSource(SRC_TILLABLE)) {
       map.addSource(SRC_TILLABLE, {
@@ -3437,6 +3688,19 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       map.addSource(SRC_SOILS, {
         type: 'vector',
         tiles: [`${API_URL}/api/tiles/soils/{z}/{x}/{y}.mvt`],
+        minzoom: 10,
+        maxzoom: 14,
+      })
+    }
+    // All-land SSURGO source (soil_polygons_full, 48 states, every
+    // land parcel — not clipped to FSA CLU / CDL cropland). Backs the
+    // "Soil Types" (baseOverlay==='ssurgo') overlay so there are no
+    // blank spots over covered states. Same MVT layer name ('soils')
+    // and same minzoom/maxzoom as the clipped SRC_SOILS source.
+    if (!map.getSource(SRC_SOILS_FULL)) {
+      map.addSource(SRC_SOILS_FULL, {
+        type: 'vector',
+        tiles: [`${API_URL}/api/tiles/soils-full/{z}/{x}/{y}.mvt`],
         minzoom: 10,
         maxzoom: 14,
       })
@@ -3499,7 +3763,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         'source-layer': 'soils',
         minzoom: 10,
         layout: {
-          visibility: (enrichmentOverlay && (tillableSource === 'ssurgo' || tillableSource === 'ssurgo_csb')) ? 'visible' : 'none',
+          // Clipped (FSA + ≥65% CDL) SSURGO fill now drives ONLY the
+          // 'csb' / Tillable Ground overlay (tillableSource ==='ssurgo_csb').
+          // The all-land soils-full-fill below drives Soil Types ('ssurgo').
+          visibility: (enrichmentOverlay && tillableSource === 'ssurgo_csb') ? 'visible' : 'none',
         },
         paint: {
           // Map mukey → a full-360° 16-color categorical palette so every
@@ -3549,7 +3816,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         'source-layer': 'soils',
         minzoom: 10,
         layout: {
-          visibility: (enrichmentOverlay && (tillableSource === 'ssurgo' || tillableSource === 'ssurgo_csb')) ? 'visible' : 'none',
+          visibility: (enrichmentOverlay && tillableSource === 'ssurgo_csb') ? 'visible' : 'none',
         },
         paint: {
           'line-color': 'rgba(40, 30, 10, 0.65)',
@@ -3571,7 +3838,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         source: SRC_SOILS,
         'source-layer': 'soils',
         layout: {
-          visibility: (enrichmentOverlay && (tillableSource === 'ssurgo' || tillableSource === 'ssurgo_csb')) ? 'visible' : 'none',
+          visibility: (enrichmentOverlay && tillableSource === 'ssurgo_csb') ? 'visible' : 'none',
           'text-field': ['coalesce', ['get', 'musym'], ''],
           'text-font': ['Open Sans Bold'],
           'text-size': [
@@ -3601,6 +3868,52 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         // Layer minzoom matches the fade-in floor so labels can render
         // (transparently) at z=12.5 and ramp to full by z=13.5.
         minzoom: 12.5,
+      })
+    }
+    // ── All-land SSURGO fill (Soil Types / baseOverlay==='ssurgo') ──
+    // Same categorical mukey palette + opacity ramp as the clipped
+    // LYR_SOILS_FILL above, but backed by the all-land soils-full
+    // source so there are no blank spots over covered states.
+    // Visible only when tillableSource === 'ssurgo' (Soil Types).
+    if (!map.getLayer(LYR_SOILS_FULL_FILL)) {
+      map.addLayer({
+        id: LYR_SOILS_FULL_FILL,
+        type: 'fill',
+        source: SRC_SOILS_FULL,
+        'source-layer': 'soils',
+        minzoom: 10,
+        layout: {
+          visibility: (enrichmentOverlay && tillableSource === 'ssurgo') ? 'visible' : 'none',
+        },
+        paint: {
+          // REUSE the exact categorical mukey palette from LYR_SOILS_FILL.
+          'fill-color': [
+            'step',
+            ['%', ['to-number', ['get', 'mukey']], 16],
+            '#c94040',   // 0  — red (dark)
+            1,  '#d4753a', // 1  — orange (dark)
+            2,  '#c4b030', // 2  — yellow (dark)
+            3,  '#5aaa2e', // 3  — lime (dark)
+            4,  '#29a068', // 4  — teal (dark)
+            5,  '#2878c8', // 5  — blue (dark)
+            6,  '#6050c0', // 6  — violet (dark)
+            7,  '#b03890', // 7  — magenta (dark)
+            8,  '#e06060', // 8  — red (light)
+            9,  '#e0a060', // 9  — orange (light)
+            10, '#d8d055', // 10 — yellow (light)
+            11, '#80cc55', // 11 — lime (light)
+            12, '#50c090', // 12 — teal (light)
+            13, '#5598e0', // 13 — blue (light)
+            14, '#9080d8', // 14 — violet (light)
+            15, '#d060b0', // 15 — magenta (light)
+          ],
+          'fill-opacity': [
+            'interpolate', ['linear'], ['zoom'],
+            10, 0,
+            11.5, 0.60,
+          ],
+          'fill-outline-color': 'rgba(40, 30, 10, 0.5)',
+        },
       })
     }
     // ── Soil-rating choropleth layer ──────────────────────────────
@@ -3753,21 +4066,55 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     map.on('mouseenter', LYR_SOIL_RATING, () => { map.getCanvas().style.cursor = 'pointer' })
     map.on('mouseleave', LYR_SOIL_RATING, () => { map.getCanvas().style.cursor = '' })
 
+    // ── Soil Types (all-land) click popup ─────────────────────────
+    // Clicking a soil polygon in the all-land Soil Types overlay shows
+    // a dark-glass popup with the map-unit name + symbol. Reuses the
+    // soil-rating popup style.
+    const onSoilsFullClick = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
+      if (!e.features?.length) return
+      const props: any = e.features[0].properties || {}
+      const muname = props.muname || '—'
+      const musym = props.musym || props.mukey || '—'
+      const popup = new maplibregl.Popup({
+        closeButton: true,
+        closeOnClick: true,
+        maxWidth: '240px',
+        className: 'regrid-parcel-popup',
+        offset: 10,
+      })
+        .setLngLat(e.lngLat)
+        .setHTML(`
+          <div style="background:rgba(14,14,14,0.95);border-radius:10px;padding:12px 16px;font-size:13px;color:#fff;min-width:160px;">
+            <div style="font-weight:700;font-size:14px;margin-bottom:8px;color:#fff;">${muname}</div>
+            <div style="display:flex;justify-content:space-between;gap:16px;">
+              <span style="color:rgba(255,255,255,0.6);">Symbol</span>
+              <span style="font-weight:600;">${musym}</span>
+            </div>
+          </div>
+        `)
+        .addTo(map)
+    }
+    map.on('click', LYR_SOILS_FULL_FILL, onSoilsFullClick)
+    map.on('mouseenter', LYR_SOILS_FULL_FILL, () => { map.getCanvas().style.cursor = 'pointer' })
+    map.on('mouseleave', LYR_SOILS_FULL_FILL, () => { map.getCanvas().style.cursor = '' })
+
     return () => {
       try {
         if (!map.getStyle()) return
         map.off('click', LYR_SOIL_RATING, onSoilRatingClick)
+        map.off('click', LYR_SOILS_FULL_FILL, onSoilsFullClick)
         for (const id of [
           LYR_LABELS, LYR_LABELS_WC, LYR_FSA_LINE,
           LYR_TILL_FILL, LYR_TILL_FILL_WC,
           LYR_SOILS_LABEL, LYR_SOILS_LINE, LYR_SOILS_FILL,
+          LYR_SOILS_FULL_FILL,
           LYR_SOIL_RATING,
         ]) {
           if (map.getLayer(id)) map.removeLayer(id)
         }
         for (const id of [
           SRC_TILLABLE, SRC_TILLABLE_WC, SRC_FSA,
-          SRC_LABELS, SRC_LABELS_WC, SRC_SOILS,
+          SRC_LABELS, SRC_LABELS_WC, SRC_SOILS, SRC_SOILS_FULL,
         ]) {
           if (map.getSource(id)) map.removeSource(id)
         }
@@ -3789,7 +4136,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
     const cdlVis = (enrichmentOverlay && tillableSource === 'cdl') ? 'visible' : 'none'
     const wcVis  = (enrichmentOverlay && tillableSource === 'worldcover') ? 'visible' : 'none'
-    const soilsVis = (enrichmentOverlay && (tillableSource === 'ssurgo' || tillableSource === 'ssurgo_csb')) ? 'visible' : 'none'
+    // Clipped SSURGO fill/line/label now drive ONLY 'csb' (Tillable
+    // Ground, tillableSource ==='ssurgo_csb'). The all-land soils-full
+    // fill drives 'ssurgo' (Soil Types).
+    const soilsVis = (enrichmentOverlay && tillableSource === 'ssurgo_csb') ? 'visible' : 'none'
+    const soilsFullVis = (enrichmentOverlay && tillableSource === 'ssurgo') ? 'visible' : 'none'
     for (const [id, v] of [
       ['parcel-enrichment-tillable-fill', cdlVis],
       ['parcel-enrichment-labels-text', cdlVis],
@@ -3798,6 +4149,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       ['parcel-enrichment-ssurgo-soils-fill', soilsVis],
       ['parcel-enrichment-ssurgo-soils-line', soilsVis],
       ['parcel-enrichment-ssurgo-soils-label', soilsVis],
+      ['soils-full-fill', soilsFullVis],
     ] as const) {
       if (map.getLayer(id)) {
         try { map.setLayoutProperty(id, 'visibility', v) } catch {/* */}
@@ -3854,65 +4206,16 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const terrain3DOnRef = useRef(terrain3DOn)
   useEffect(() => { terrain3DOnRef.current = terrain3DOn }, [terrain3DOn])
 
-  // ── 3D terrain DOM-marker suppression ──────────────────────────
-  //
-  // Root cause of the terrain freeze: with 3D terrain active, MapLibre
-  // reprojects every DOM marker (new maplibregl.Marker({element: ...}))
-  // onto the terrain mesh every animation frame. When the user zooms
-  // into the tract tier (z≥9), up to ~1000 tract pin DOM markers plus
-  // the today-auction DOM markers all need per-frame reprojection —
-  // this locks the main thread and freezes the browser permanently.
-  //
-  // Fix: while 3D terrain is ON, hide all DOM tract + today-auction
-  // markers via display:none. MapLibre skips the reprojection for
-  // hidden markers. Restore them when terrain is turned OFF.
-  //
-  // This helper is called from the terrain toggle effect AND from the
-  // tract/today-marker creation effects (so markers created while
-  // terrain is already on are born hidden). It reads refs only and
-  // NEVER calls setState, so it cannot trigger a re-render loop.
-  //
-  // NOTE: the native county-labels SYMBOL layer is intentionally NOT
-  // suppressed here. It is a GPU-rendered symbol layer (cheap, terrain-safe)
-  // and the real crash cause (per-frame re-render loop + per-frame setTerrain
-  // + GPU exhaustion) has been fixed. county-labels stays visible in 3D so
-  // county names render on the terrain; the layer's own minzoom:7 still
-  // governs actual visibility below zoom 7. Only expensive DOM markers below
-  // are hidden in 3D.
-  const suppressDOMMarkersForTerrain = useCallback((terrainOn: boolean) => {
-    const display = terrainOn ? 'none' : ''
-    // Tract pins (regular, up to ~1000 DOM markers)
-    tractMarkersRef.current.forEach(m => {
-      const el = m.getElement()
-      if (el) el.style.display = display
-    })
-    // Today's-auction DOM markers
-    todayMarkersRef.current.forEach(m => {
-      const el = m.getElement()
-      if (el) el.style.display = display
-    })
-    // State + county badges are only present at low zoom tiers
-    // (state tier: z≤6, county tier: z≤9) where terrain is far less
-    // likely to freeze, but suppress them for consistency.
-    stateMarkersRef.current.forEach(m => {
-      const el = m.getElement()
-      if (el) el.style.display = display
-    })
-    countyMarkersRef.current.forEach(m => {
-      const el = m.getElement()
-      if (el) el.style.display = display
-    })
-    countyCountMarkersRef.current.forEach(m => {
-      const el = m.getElement()
-      if (el) el.style.display = display
-    })
-  }, [])
-
   // 3D terrain toggle effect.
   // When turning ON: apply terrain immediately at any zoom, then easeTo pitch.
   // When turning OFF: clear terrain, reset pitch + bearing.
   // terrainExaggeration intentionally NOT in dep array — slider changes are
   // handled by the separate slider effect so easeTo doesn't re-fire.
+  //
+  // NOTE: the old DOM-marker suppression system is GONE. All markers are
+  // now native GPU-rendered GeoJSON layers (circles/symbols) — MapLibre
+  // draws them on the 3D terrain mesh for free with zero per-frame DOM
+  // reprojection, which was the terrain-freeze cause. Nothing to suppress.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded) return
@@ -3926,25 +4229,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         const z = map.getZoom()
         const targetPitch = z < 6 ? 30 : z < 9 ? 40 : 45
         map.easeTo({ pitch: targetPitch, duration: 600 })
-        // Suppress DOM markers — see suppressDOMMarkersForTerrain comment.
-        suppressDOMMarkersForTerrain(true)
       } else {
         map.setTerrain(null)
         map.easeTo({ pitch: 0, bearing: 0, duration: 600 })
-        // Restore DOM markers, but re-apply the tier visibility rule so
-        // tract pins (which are hidden at state/county tier) stay hidden
-        // if we're below TRACT_TIER_MIN.
-        suppressDOMMarkersForTerrain(false)
-        // Re-apply tier-gated tract pin visibility after restoring.
-        const tier = currentZoomTier(mapRef.current?.getZoom() ?? 0)
-        tractMarkersRef.current.forEach(m => {
-          const el = m.getElement()
-          if (el) el.style.display = tier === 'tract' ? '' : 'none'
-        })
       }
     } catch {/* map not ready */}
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [terrain3DOn, mapLoaded, suppressDOMMarkersForTerrain])
+  }, [terrain3DOn, mapLoaded])
 
   // Slider effect: re-apply terrain with new base exaggeration (no easeTo).
   useEffect(() => {
@@ -4018,6 +4309,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         // share the same z-slot as the green tillable; only one
         // is visible at a time depending on the data-source toggle.
         'parcel-enrichment-ssurgo-soils-fill',
+        // All-land SSURGO fill (Soil Types) shares the SSURGO base
+        // z-slot; only one of the soil fills is visible at a time.
+        'soils-full-fill',
         'parcel-enrichment-ssurgo-soils-line',
         // Soil-rating choropleth — above SSURGO base but below labels.
         'soil-rating-fill',
@@ -4038,6 +4332,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         if (!map.getLayer(id)) continue
         try { map.moveLayer(id, tractAnchor) } catch {/* mid-teardown */}
       }
+      // Native marker layers must sit ABOVE the tract polygons (which are
+      // themselves moved to the top elsewhere). Lift them so the pulsing
+      // today dots end up the single most-prominent thing on the map —
+      // matching the old z-order (today > tract pins > county/state).
+      liftMarkerLayers(map)
     }, 50)
     return () => window.clearTimeout(t)
   }, [
@@ -4227,120 +4526,150 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // fetch + Promise.allSettled loop was removed when the overlay
   // went MVT-only to scale past ~6 counties.
 
-  // Create/update HTML markers for tracts
+  // ── Native tract-pin source: setData only (NEVER recreate the layer).
+  // The tract-pin-circles / tract-pin-labels layers were registered once
+  // in map-init; here we just push fresh data whenever the memo changes.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+    const src = map.getSource('tract-pins') as maplibregl.GeoJSONSource | undefined
+    if (src) src.setData(tractPinGeoJSON)
+  }, [mapLoaded, tractPinGeoJSON])
+
+  // ── Tract-pin interactions (click → detail/comp popup; hover cursor).
+  // Wired ONCE per mapLoaded. Reads the full SaleDetail from
+  // tractMapRef.current (keyed by tractId) so the GeoJSON feature stays
+  // lean. Mirrors the old DOM onClick downstream logic exactly:
+  //   comp mode  → setCompPopup
+  //   portalMode → onTractSelected
+  //   otherwise  → setSelectedSale
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded) return
 
-    // Remove old tract markers
-    tractMarkersRef.current.forEach(m => m.remove())
-    tractMarkersRef.current = []
-    tractMarkerElementsRef.current.clear()
+    const onClick = (e: maplibregl.MapLayerMouseEvent) => {
+      const f = e.features?.[0]
+      if (!f) return
+      const tractId = (f.properties?.tractId as string) || ''
+      const tract = tractMapRef.current.get(tractId)
+      if (!tract) return
 
-    // Helper: polygon centroid
-    const getPolygonCentroid = (coords: [number, number][]): [number, number] | null => {
-      if (!coords || coords.length < 3) return null
-      let sumLng = 0, sumLat = 0
-      for (const [lng, lat] of coords) {
-        sumLng += lng
-        sumLat += lat
-      }
-      return [sumLng / coords.length, sumLat / coords.length]
-    }
-
-    // Track co-located tracts for offset spacing
-    const coordCounts: Record<string, number> = {}
-
-    for (const tract of tracts) {
-      // Skip tracts already rendered by the always-on today-auctions
-      // GPU layer — duplicates would just stack on top of those dots.
-      if (todayTractsByIdRef.current.has(tract.id)) continue
-
-      // In comp mode, the subject tract has its own dedicated marker
-      // (rendered separately below). Skip it here so we don't stack
-      // a "+" button on top of the subject highlight — and so the
-      // subject can't be Add-to-Report'd via this loop's click path.
-      if (subjectTractIdRef.current && tract.id === subjectTractIdRef.current) continue
-
-      // Get marker position
-      let markerLng = tract.longitude
-      let markerLat = tract.latitude
-      {
-        // Largest ring (handles multi-polygon tracts) for marker placement.
-        const _rings = toTractRings(tract.polygon_coordinates)
-        const _big = _rings.length ? _rings.reduce((a, b) => (b.length > a.length ? b : a)) : null
-        if (_big && _big.length > 2) {
-          const centroid = getPolygonCentroid(_big)
-          if (centroid) { markerLng = centroid[0]; markerLat = centroid[1] }
-        }
-      }
-      if (!markerLat || !markerLng) continue
-
-      // Offset co-located tracts so they don't stack
-      const coordKey = `${markerLat.toFixed(4)},${markerLng.toFixed(4)}`
-      const index = coordCounts[coordKey] || 0
-      coordCounts[coordKey] = index + 1
-      if (index > 0) {
-        const offset = 0.003
-        const angle = index * (2 * Math.PI / 6)
-        markerLng += offset * Math.cos(angle)
-        markerLat += offset * Math.sin(angle)
-      }
-
-      // Display price-per-acre rule: private-treaty (status='listed') and
-      // pending auctions show asking_price/total_acres. Sold tracts show
-      // their recorded price_per_acre. Falls back to whichever is set.
+      // Same display-price-per-acre + basis rule as the old DOM loop.
       const isPrivateTreaty = (tract.listing_type || '').toLowerCase() === 'private_treaty'
       const isPending = (tract.sale_status || '').toLowerCase() === 'pending'
       const markerPpa = (isPrivateTreaty || isPending) && tract.asking_price && tract.total_acres
         ? tract.asking_price / tract.total_acres
         : tract.price_per_acre
-      // Basis tag for whatever markerPpa represents (asking vs sold).
       const markerBasis: 'sold' | 'asking' | null =
         ((isPrivateTreaty || isPending) && tract.asking_price && tract.total_acres)
           ? 'asking'
           : (tract.price_per_acre ? 'sold' : null)
 
-      // "Auctioning today" — green pin + pulsing ring + top-of-stack z-order.
-      // Replaces the older listing_status === 'live' rule so the prominent
-      // visual treatment reflects WHEN the auction is, not the realtime
-      // status flag (which was noisy).
-      const isAuctionToday = isAuctionDateToday(tract.auction_date)
+      const saleData: SaleDetail = {
+        id: tract.id,
+        listingId: tract.listing_id,
+        tractId: tract.id,
+        auctionDate: tract.auction_date,
+        totalAcres: tract.total_acres,
+        tillableAcres: tract.tillable_acres,
+        companyName: tract.company_name,
+        salePrice: tract.sale_price,
+        pricePerAcre: markerPpa,
+        priceBasis: markerBasis,
+        county: tract.county,
+        state: tract.state,
+        township: tract.township,
+        soilRating: tract.soil_rating,
+        polygonCoordinates: tract.polygon_coordinates,
+        saleStatus: tract.sale_status,
+        listingType: tract.listing_type,
+        askingPrice: tract.asking_price,
+        landType: tract.land_type,
+        landTypes: tract.land_types,
+        pctTillable: tract.pct_tillable,
+        pricePerTillableAcre: tract.price_per_tillable_acre,
+        pricePerSoilRating: tract.price_per_soil_rating,
+        sourceUrl: tract.source_url,
+      }
 
-      // In comparables mode (subjectTractId set), render every comparable
-      // tract as a "+" button instead of the regular labeled pin so
-      // admin can scan the area and click in for sale details.
-      const inCompMode = !!subjectTractIdRef.current
-      // Blue 'auction' pin now derives from listing_type + an upcoming status
-      // (the 'auction' status value was retired). derivePinStatus handles data
-      // before and after the auction→listed migration.
-      const pinStatus = derivePinStatus(tract.sale_status, tract.listing_type)
-      const el = createMarkerElement(
-        markerPpa,
-        tract.total_acres,
-        pinStatus,
-        isAuctionToday,
-        inCompMode,
-      )
+      if (subjectTractIdRef.current) {
+        // Comp mode — inline popup anchored at the clicked feature's
+        // projected pixel position. e.originalEvent already prevented the
+        // map 'click' that would close the popup (layer click fires first;
+        // we stash the lngLat so onMove keeps it anchored).
+        const point = e.point
+        setCompPopup({
+          sale: saleData,
+          pos: { x: point.x, y: point.y },
+          lngLat: [e.lngLat.lng, e.lngLat.lat],
+        })
+      } else if (portalMode && onTractSelected) {
+        onTractSelected(saleData)
+      } else {
+        setSelectedSale(saleData)
+      }
+    }
 
-      // Z-order by status: live (today) > auction > sold > no_sale > listed.
-      // The live tier is set to a very high z so the pulse sits above the
-      // state + county badges and any other pin.
-      // Stashed in a dataset so the report-highlight effect can restore it.
-      const isLive = isAuctionToday
-      const statusZ = String(getStatusPinZ(pinStatus, isLive))
-      el.dataset.statusZ = statusZ
-      el.style.zIndex = statusZ
+    const onEnter = () => { map.getCanvas().style.cursor = 'pointer' }
+    const onLeave = () => { map.getCanvas().style.cursor = '' }
 
-      // Click to open modal / slide-out (regular mode) or inline
-      // popup on the map (comparables mode).
-      el.addEventListener('click', (e) => {
-        // Stop the click from bubbling to the map canvas. Without this, a
-        // tract pin sitting on top of a Regrid parcel fires BOTH the tract
-        // detail (here) AND the Regrid parcel-fill click → two popups. The
-        // tract is on top, so its detail wins; the parcel popup is suppressed.
-        e.stopPropagation()
-        const saleData: SaleDetail = {
+    map.on('click', 'tract-pin-circles', onClick)
+    map.on('mouseenter', 'tract-pin-circles', onEnter)
+    map.on('mouseleave', 'tract-pin-circles', onLeave)
+    return () => {
+      map.off('click', 'tract-pin-circles', onClick)
+      map.off('mouseenter', 'tract-pin-circles', onEnter)
+      map.off('mouseleave', 'tract-pin-circles', onLeave)
+    }
+  }, [mapLoaded, portalMode, onTractSelected])
+
+  // ── Today's-auction pins: setData only (native clustering handles the
+  // grouping the old JS proximity loop used to do).
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+    const src = map.getSource('today-pins') as maplibregl.GeoJSONSource | undefined
+    if (src) src.setData(todayPinGeoJSON)
+  }, [mapLoaded, todayPinGeoJSON])
+
+  // ── Today's-auction interactions:
+  //   cluster click → getClusterExpansionZoom + easeTo
+  //   point click   → open /listings/{listingId} (or onTractSelected in
+  //                   portal mode), matching the old green-dot behavior.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+
+    const onClusterClick = (e: maplibregl.MapLayerMouseEvent) => {
+      const f = e.features?.[0]
+      if (!f) return
+      const clusterId = f.properties?.cluster_id
+      const src = map.getSource('today-pins') as any
+      if (!src?.getClusterExpansionZoom) return
+      src.getClusterExpansionZoom(clusterId).then((zoom: number) => {
+        const geom = f.geometry as GeoJSON.Point
+        map.easeTo({ center: geom.coordinates as [number, number], zoom, duration: 600 })
+      }).catch(() => {})
+    }
+
+    const onPointClick = (e: maplibregl.MapLayerMouseEvent) => {
+      const f = e.features?.[0]
+      if (!f) return
+      const tractId = (f.properties?.tractId as string) || ''
+      const tract = todayTractsByIdRef.current.get(tractId)
+      // The green dot represents the WHOLE auction → open Listing Details.
+      // In the firm portal keep the tract-selected callback.
+      if (portalMode && onTractSelected && tract) {
+        const isPrivateTreaty = (tract.listing_type || '').toLowerCase() === 'private_treaty'
+        const isPending = (tract.sale_status || '').toLowerCase() === 'pending'
+        const ppa = (isPrivateTreaty || isPending) && tract.asking_price && tract.total_acres
+          ? tract.asking_price / tract.total_acres
+          : tract.price_per_acre ?? null
+        const ppaBasis: 'sold' | 'asking' | null =
+          ((isPrivateTreaty || isPending) && tract.asking_price && tract.total_acres)
+            ? 'asking'
+            : (tract.price_per_acre ? 'sold' : null)
+        onTractSelected({
           id: tract.id,
           listingId: tract.listing_id,
           tractId: tract.id,
@@ -4349,8 +4678,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           tillableAcres: tract.tillable_acres,
           companyName: tract.company_name,
           salePrice: tract.sale_price,
-          pricePerAcre: markerPpa,
-          priceBasis: markerBasis,
+          pricePerAcre: ppa,
+          priceBasis: ppaBasis,
           county: tract.county,
           state: tract.state,
           township: tract.township,
@@ -4365,294 +4694,74 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           pricePerTillableAcre: tract.price_per_tillable_acre,
           pricePerSoilRating: tract.price_per_soil_rating,
           sourceUrl: tract.source_url,
-        }
-        if (subjectTractIdRef.current) {
-          // Comp mode: inline popup on the map, anchored at marker
-          // pixel position. Stop propagation so the map's click
-          // doesn't immediately close the popup we just opened.
-          e.stopPropagation()
-          const map = mapRef.current
-          if (!map) return
-          const point = map.project([markerLng, markerLat])
-          setCompPopup({ sale: saleData, pos: { x: point.x, y: point.y } })
-        } else if (portalMode && onTractSelected) {
-          onTractSelected(saleData)
-        } else {
-          setSelectedSale(saleData)
-        }
-      })
-
-      // Store element ref for highlight updates
-      el.dataset.tractId = tract.id
-      tractMarkerElementsRef.current.set(tract.id, el)
-
-      // Pre-suppress: if 3D terrain is on, hide the element BEFORE
-      // addTo(map) so the marker is never momentarily visible in a
-      // state it shouldn't be. This avoids the flash that occurs when
-      // the old post-loop sweep hid markers after they were already
-      // inserted into the DOM. Labels are NOT removed — the terrain
-      // visibility effect re-shows them when terrain is toggled off.
-      if (terrain3DOnRef.current) {
-        el.style.display = 'none'
+        })
+        return
       }
-
-      const marker = new maplibregl.Marker({ element: el })
-        .setLngLat([markerLng, markerLat])
-        .addTo(map)
-
-      tractMarkersRef.current.push(marker)
+      const listingId = f.properties?.listingId as string | null
+      if (listingId) window.location.href = `/listings/${listingId}`
     }
-    // `todayTracts` is in the deps so the loop re-runs after today's
-    // tracts arrive — that's when the dedup ref gets populated and we
-    // need to drop today tracts from the DOM-marker render.
-    // `subjectTractId` in deps so the markers re-render when admin
-    // enters/exits comparables mode — without this the effect only
-    // fires when tracts/todayTracts/mapLoaded changes, and entering
-    // comp mode (a state change with no data refetch) left every
-    // marker stuck in regular pin form.
-  }, [mapLoaded, tracts, todayTracts, subjectTractId])
 
-  // Quick lookup of today's tracts by id for cluster-click handling.
+    const onEnter = () => { map.getCanvas().style.cursor = 'pointer' }
+    const onLeave = () => { map.getCanvas().style.cursor = '' }
+
+    map.on('click', 'today-cluster-circles', onClusterClick)
+    map.on('click', 'today-point', onPointClick)
+    map.on('mouseenter', 'today-cluster-circles', onEnter)
+    map.on('mouseleave', 'today-cluster-circles', onLeave)
+    map.on('mouseenter', 'today-point', onEnter)
+    map.on('mouseleave', 'today-point', onLeave)
+    return () => {
+      map.off('click', 'today-cluster-circles', onClusterClick)
+      map.off('click', 'today-point', onPointClick)
+      map.off('mouseenter', 'today-cluster-circles', onEnter)
+      map.off('mouseleave', 'today-cluster-circles', onLeave)
+      map.off('mouseenter', 'today-point', onEnter)
+      map.off('mouseleave', 'today-point', onLeave)
+    }
+  }, [mapLoaded, portalMode, onTractSelected])
+
+  // Quick lookup of today's tracts by id for the point-click handler.
   const todayTractsByIdRef = useRef<Map<string, ApiMapTract>>(new Map())
   useEffect(() => {
     todayTractsByIdRef.current = new Map(todayTracts.map(t => [t.id, t]))
   }, [todayTracts])
 
-  // DOM-marker refs so we can tear down between renders.
-  const todayMarkersRef = useRef<maplibregl.Marker[]>([])
-
-  // Always-on today's-auctions DOM markers, with JS-side proximity
-  // clustering. We use DOM markers (not a native GeoJSON layer) so the
-  // pulsing dots can sit ABOVE the state-badge DOM markers via z-index —
-  // a native canvas layer would paint UNDER the badges. Clustering is
-  // done in JS: at each map view we group tracts within a pixel radius
-  // and render one marker per group. Click a multi-tract cluster to
-  // zoom into it; click a single-tract marker to open the tract modal.
+  // ── Report-highlight (portal mode): drive the tract-pin-circles pink
+  // stroke via setFeatureState({highlighted}) instead of mutating DOM.
+  // Re-applies on every reportIds change AND after the source reloads
+  // (tractPinGeoJSON dep) since setData clears feature-state.
+  const prevHighlightedRef = useRef<Set<string>>(new Set())
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded) return
-
-    // Bounding-box center, not vertex-average. Vertex-average gets biased
-    // toward whichever side of the polygon has more vertices — for these
-    // parcels it ends up ~80 m north of the visual middle. Bbox center
-    // lands the dot squarely in the visual middle of each parcel.
-    const getPolygonCentroid = (coords: [number, number][]): [number, number] | null => {
-      if (!coords || coords.length < 3) return null
-      let minLng = Infinity, maxLng = -Infinity
-      let minLat = Infinity, maxLat = -Infinity
-      for (const [lng, lat] of coords) {
-        if (lng < minLng) minLng = lng
-        if (lng > maxLng) maxLng = lng
-        if (lat < minLat) minLat = lat
-        if (lat > maxLat) maxLat = lat
-      }
-      return [(minLng + maxLng) / 2, (minLat + maxLat) / 2]
-    }
-
-    type PreparedTract = {
-      tract: ApiMapTract
-      lng: number
-      lat: number
-      ppa: number | null
-      ppaBasis: 'sold' | 'asking' | null
-    }
-
-    // Pre-compute geographic coords + price-per-acre for every today tract.
-    const prepared: PreparedTract[] = []
-    for (const tract of todayTracts) {
-      // Use the tract's stored lat/lng for the green dot — NOT the polygon
-      // centroid. These dots now include boundary_valid=false tracts whose
-      // polygons are unreliable; their centroid lands in the wrong place,
-      // while the stored point is the tract's recorded location.
-      // (Per user 2026-06-05.)
-      const lng = tract.longitude as number | null
-      const lat = tract.latitude as number | null
-      if (lat == null || lng == null) continue
-      const isPrivateTreaty = (tract.listing_type || '').toLowerCase() === 'private_treaty'
-      const isPending = (tract.sale_status || '').toLowerCase() === 'pending'
-      const ppa = (isPrivateTreaty || isPending) && tract.asking_price && tract.total_acres
-        ? tract.asking_price / tract.total_acres
-        : tract.price_per_acre ?? null
-      const ppaBasis: 'sold' | 'asking' | null =
-        ((isPrivateTreaty || isPending) && tract.asking_price && tract.total_acres)
-          ? 'asking'
-          : (tract.price_per_acre ? 'sold' : null)
-      prepared.push({ tract, lng, lat, ppa: ppa ?? null, ppaBasis })
-    }
-
-    // Tight cluster radius — tracts that are genuinely close on screen merge,
-    // but tracts hundreds of km apart never merge into a single cluster.
-    // A 4-tract auction within ~1 km of itself stays merged at every zoom
-    // up to ~12 (where 1 km projects to ~14 px); tracts in different states
-    // never merge because their pixel distance is always > 25 at any zoom
-    // you'd actually browse.
-    const CLUSTER_RADIUS_PX = 25
-
-    const render = () => {
-      // Tear down old markers before each re-render.
-      todayMarkersRef.current.forEach(m => m.remove())
-      todayMarkersRef.current = []
-
-      // Project all tracts to screen pixels at the current view.
-      const points = prepared.map(p => ({
-        ...p,
-        screen: map.project([p.lng, p.lat]),
-      }))
-
-      // Greedy proximity grouping: walk in order, group any later point
-      // within CLUSTER_RADIUS_PX of an already-chosen seed.
-      const used = new Set<string>()
-      const groups: PreparedTract[][] = []
-      const r2 = CLUSTER_RADIUS_PX * CLUSTER_RADIUS_PX
-      for (const seed of points) {
-        if (used.has(seed.tract.id)) continue
-        const group: PreparedTract[] = [seed]
-        used.add(seed.tract.id)
-        for (const other of points) {
-          if (used.has(other.tract.id)) continue
-          const dx = other.screen.x - seed.screen.x
-          const dy = other.screen.y - seed.screen.y
-          if (dx * dx + dy * dy <= r2) {
-            group.push(other)
-            used.add(other.tract.id)
-          }
-        }
-        groups.push(group)
-      }
-
-      for (const group of groups) {
-        // Geographic center of the group — single tract uses its own coord.
-        let centerLng = 0, centerLat = 0
-        for (const g of group) { centerLng += g.lng; centerLat += g.lat }
-        centerLng /= group.length
-        centerLat /= group.length
-
-        const lead = group[0]
-        const isCluster = group.length > 1
-
-        // Today's-auction marker — pin fills the element so MapLibre's
-        // default 'center' anchor lands the green dot exactly on the
-        // lat/lng pixel at every zoom.
-        const el = createTodayMarkerElement(
-          lead.ppa,
-          lead.tract.total_acres,
-        )
-        const statusZ = String(getStatusPinZ(lead.tract.sale_status, true))
-        el.dataset.statusZ = statusZ
-        el.style.zIndex = statusZ
-        el.dataset.tractId = lead.tract.id
-
-        el.addEventListener('click', (e) => {
-          // Suppress the underlying Regrid parcel-fill click so a tract pin
-          // layered over a parcel doesn't open two popups.
-          e.stopPropagation()
-          const tract = lead.tract
-          // The green "auctioning today" dot represents the WHOLE auction (not
-          // a single tract), so a click opens the full Listing Details — unlike
-          // every other dot, which opens Tract Details. (Per user 2026-06-05;
-          // previously a single dot opened tract detail and a cluster just
-          // zoomed.) In the firm portal we keep the tract-selected callback so
-          // the portal flow isn't broken.
-          if (portalMode && onTractSelected) {
-            onTractSelected({
-              id: tract.id,
-              listingId: tract.listing_id,
-              tractId: tract.id,
-              auctionDate: tract.auction_date,
-              totalAcres: tract.total_acres,
-              tillableAcres: tract.tillable_acres,
-              companyName: tract.company_name,
-              salePrice: tract.sale_price,
-              pricePerAcre: lead.ppa,
-              priceBasis: lead.ppaBasis,
-              county: tract.county,
-              state: tract.state,
-              township: tract.township,
-              soilRating: tract.soil_rating,
-              polygonCoordinates: tract.polygon_coordinates,
-              saleStatus: tract.sale_status,
-              listingType: tract.listing_type,
-              askingPrice: tract.asking_price,
-              landType: tract.land_type,
-              landTypes: tract.land_types,
-              pctTillable: tract.pct_tillable,
-              pricePerTillableAcre: tract.price_per_tillable_acre,
-              pricePerSoilRating: tract.price_per_soil_rating,
-              sourceUrl: tract.source_url,
-            })
-            return
-          }
-          if (tract.listing_id) {
-            window.location.href = `/listings/${tract.listing_id}`
-          }
-        })
-
-        // Default 'center' anchor is now correct because createMarkerElement
-        // returns a 14×14 element with the pin centered inside it. The label
-        // floats absolutely above the pin and the pulse ring floats absolutely
-        // around it — neither pushes the element's geometric center off of
-        // the pin's center.
-        const marker = new maplibregl.Marker({ element: el })
-          .setLngLat([centerLng, centerLat])
-          .addTo(map)
-        todayMarkersRef.current.push(marker)
-      }
-
-      // If 3D terrain is active, hide all newly-created today markers
-      // to avoid per-frame terrain-mesh reprojection of DOM elements
-      // (the main cause of the terrain freeze when zooming in).
-      if (terrain3DOnRef.current) {
-        todayMarkersRef.current.forEach(m => {
-          const el = m.getElement()
-          if (el) el.style.display = 'none'
-        })
-      }
-    }
-
-    render()
-    map.on('moveend', render)
-    map.on('zoomend', render)
-    return () => {
-      map.off('moveend', render)
-      map.off('zoomend', render)
-      todayMarkersRef.current.forEach(m => m.remove())
-      todayMarkersRef.current = []
-    }
-  }, [mapLoaded, todayTracts, portalMode, onTractSelected])
-
-  // Highlight report-selected markers in portal mode
-  useEffect(() => {
-    if (!portalMode || !reportIds) return
-    tractMarkerElementsRef.current.forEach((el, tractId) => {
-      const pin = el.querySelector('.comp-marker-pin') as HTMLDivElement | null
-      if (!pin) return
-      if (reportIds.has(tractId)) {
-        // Selected markers float above everything else, including live pins.
-        el.style.zIndex = '100'
-        pin.style.boxShadow = '0 0 0 3px #E91E8C, 0 0 12px 2px rgba(233,30,140,0.6)'
-        pin.style.border = '2px solid #E91E8C'
-      } else {
-        // Restore the status-based z stashed when the marker was created.
-        el.style.zIndex = el.dataset.statusZ || ''
-        pin.style.boxShadow = ''
-        pin.style.border = ''
+    if (!map.getSource('tract-pins')) return
+    // Clear previously-highlighted features that are no longer selected.
+    const next = (portalMode && reportIds) ? reportIds : new Set<string>()
+    prevHighlightedRef.current.forEach(id => {
+      if (!next.has(id)) {
+        try { map.setFeatureState({ source: 'tract-pins', id }, { highlighted: false }) } catch {}
       }
     })
-  }, [portalMode, reportIds])
-
-  // Show/hide markers based on comparable panel's visible IDs
-  useEffect(() => {
-    if (!comparableVisibleIds) {
-      // No filtering — show all markers
-      tractMarkerElementsRef.current.forEach((el) => {
-        el.style.display = ''
-      })
-      return
-    }
-    tractMarkerElementsRef.current.forEach((el, tractId) => {
-      el.style.display = comparableVisibleIds.has(tractId) ? '' : 'none'
+    next.forEach(id => {
+      try { map.setFeatureState({ source: 'tract-pins', id }, { highlighted: true }) } catch {}
     })
-  }, [comparableVisibleIds])
+    prevHighlightedRef.current = new Set(next)
+  }, [mapLoaded, portalMode, reportIds, tractPinGeoJSON])
+
+  // ── Comparable-visibility: a layer `filter` on both tract-pin layers
+  // restricts to the comparable panel's visible IDs. null = show all.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+    if (!map.getLayer('tract-pin-circles')) return
+    const filter = comparableVisibleIds
+      ? (['in', ['get', 'tractId'], ['literal', Array.from(comparableVisibleIds)]] as any)
+      : null
+    try {
+      map.setFilter('tract-pin-circles', filter)
+      map.setFilter('tract-pin-labels', filter)
+    } catch {/* layer not ready */}
+  }, [mapLoaded, comparableVisibleIds])
 
   // Create dedicated subject tract marker in comparables mode
   const subjectMarkerRef = useRef<maplibregl.Marker | null>(null)
@@ -4758,328 +4867,102 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   }, [portalMode, subjectTractLocation])
 
   // ─────────────────────────────────────────────────────────────
-  // 3-tier zoom system: state silhouettes → county squares → tract
-  // pins. Hard-gated so only one tier's markers are in the DOM at
-  // any zoom. Each tier's effect tears down its own markers (with
-  // fade-out) and rebuilds when its data or the active tier changes.
-  // Tract pins (existing) are toggled via display: none in a
-  // separate effect so we don't pay the cost of recreating their
-  // click/report-highlight wiring on every zoom change.
+  // Tier gating is now NATIVE: every marker layer carries minzoom /
+  // maxzoom (state-labels ≤6, county-labels 6–9, county-counts ≤9,
+  // tract-pins ≥9), so MapLibre hard-gates each tier on the GPU with
+  // zero per-frame JS. The old DOM tier-switching effects are gone.
   // ─────────────────────────────────────────────────────────────
 
-  // STATE BADGES — silhouette + count, sized to the projected bbox
-  // of each state so the silhouette sits over its real on-map
-  // footprint. Inner sized inline; resize wired to map "move" so
-  // badges stay locked to their footprints during pan/zoom.
+  // ── State labels: setData only. The state-labels symbol layer (added
+  // once in map-init, maxzoom:STATE_TIER_MAX) renders the name + goat.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded) return
+    const src = map.getSource('state-labels') as maplibregl.GeoJSONSource | undefined
+    if (src) src.setData(stateLabelGeoJSON)
+  }, [mapLoaded, stateLabelGeoJSON])
 
-    fadeOutAndRemove(stateMarkersRef.current)
-    stateMarkersRef.current = []
-    if (currentTier !== 'state') return
-
-    const sized: Array<{
-      inner: HTMLElement
-      bbox: [[number, number], [number, number]]
-    }> = []
-    const MIN_BADGE_PX = 70
-    const SHRINK_FACTOR = 0.92
-
-    const sizeBadge = (
-      inner: HTMLElement,
-      bbox: [[number, number], [number, number]],
-    ) => {
-      const tl = map.project([bbox[0][0], bbox[1][1]])
-      const br = map.project([bbox[1][0], bbox[0][1]])
-      const w = Math.max(MIN_BADGE_PX, Math.abs(br.x - tl.x) * SHRINK_FACTOR)
-      const h = Math.max(MIN_BADGE_PX, Math.abs(br.y - tl.y) * SHRINK_FACTOR)
-      inner.style.width = `${w}px`
-      inner.style.height = `${h}px`
-    }
-
-    // Render a badge for EVERY state with a known silhouette/centroid,
-    // not just states that have tracts in the DB. Once the Regrid API
-    // is wired up we'll have data for every state, so badges should
-    // appear nationwide regardless of current tract count.
-    const allStates = Array.from(new Set<string>([
-      ...Object.keys(stateSilhouettes),
-      ...Object.keys(stateCentroids),
-      ...stateCounts.map(s => s.state),
-    ]))
-    for (const state of allStates) {
-      let lng: number | undefined
-      let lat: number | undefined
-      const c = stateCentroids[state]
-      if (c) {
-        lng = c[0]; lat = c[1]
-      } else {
-        const bounds = STATE_BOUNDS[state]
-        if (!bounds) continue
-        lng = (bounds[0][0] + bounds[1][0]) / 2
-        lat = (bounds[0][1] + bounds[1][1]) / 2
-      }
-
-      const silhouettePath = stateSilhouettes[state]
-      const bbox = stateBboxes[state]
-      const maskId = `aem-cut-${state}`
-      const blurId = `aem-blur-${state}`
-
-      const el = document.createElement('div')
-      el.className = 'aem-marker-shell'
-      const inner = document.createElement('div')
-      inner.className = 'aem-state-badge'
-      // Hovering shadow: render the silhouette TWICE inside one SVG.
-      // First copy is a translated + blurred shadow, masked so only
-      // the part OUTSIDE the silhouette draws. Second copy is the
-      // 62%-opacity silhouette on top. Result: shadow appears only
-      // along the bottom-right edge, silhouette stays see-through,
-      // state appears to lift off the map.
-      inner.innerHTML = `
-        <svg class="aem-state-shape" viewBox="0 0 100 100"
-             preserveAspectRatio="none">
-          ${silhouettePath ? `
-            <defs>
-              <mask id="${maskId}" maskUnits="userSpaceOnUse"
-                    x="-50" y="-50" width="200" height="200">
-                <rect x="-50" y="-50" width="200" height="200" fill="white"/>
-                <path d="${silhouettePath}" fill="black"/>
-              </mask>
-              <filter id="${blurId}" x="-30%" y="-30%" width="160%" height="160%">
-                <feGaussianBlur stdDeviation="1.5"/>
-              </filter>
-            </defs>
-            <g mask="url(#${maskId})" pointer-events="none">
-              <path d="${silhouettePath}"
-                    fill="rgba(0,0,0,0.92)"
-                    transform="translate(3 4)"
-                    filter="url(#${blurId})"
-                    stroke="none"/>
-            </g>
-            <path d="${silhouettePath}"
-                  fill="rgba(10,10,12,0.62)"
-                  stroke="none" />
-          ` : '<rect x="2" y="2" width="96" height="96" rx="6" fill="rgba(10,10,12,0.62)"/>'}
-        </svg>
-        <div class="aem-state-overlay">
-          <img src="/goat-icon-white.png" alt="" class="aem-state-goat" />
-          <div class="aem-state-name">${abbrToName(state)}</div>
-          <a class="aem-state-link" data-action="filter">Filter</a>
-        </div>
-      `
-      el.appendChild(inner)
-
-      el.addEventListener('click', (ev) => {
-        const target = ev.target as HTMLElement
-        const isFilterLink = target?.closest('[data-action="filter"]')
-        ev.stopPropagation()
-        if (isFilterLink) {
-          setFilters(prev => ({
-            ...prev, stateFilter: state, countyFilters: [], townshipFilters: [],
-          }))
-          setFilterOpen(true)
-        }
-        map.easeTo({ center: [lng!, lat!], zoom: 7, duration: 900 })
-      })
-
-      const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
-        .setLngLat([lng, lat])
-        .addTo(map)
-      stateMarkersRef.current.push(marker)
-      if (bbox) {
-        sized.push({ inner, bbox })
-        sizeBadge(inner, bbox)
-      } else {
-        inner.style.width = '100px'
-        inner.style.height = '100px'
-      }
-    }
-
-    const onMove = () => {
-      for (const { inner, bbox } of sized) sizeBadge(inner, bbox)
-    }
-    map.on('move', onMove)
-
-    return () => {
-      map.off('move', onMove)
-      fadeOutAndRemove(stateMarkersRef.current)
-      stateMarkersRef.current = []
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stateCounts, mapLoaded, currentTier, stateSilhouettes, stateBboxes])
-
-  // COUNTY SQUARES — only built when in county tier.
-  // Renders a badge for EVERY county in the visible viewport (not just
-  // counties returned by the tract-counts API). Re-clipped to viewport
-  // on every map move so we never have more than ~hundreds of DOM
-  // markers at a time even though the full dataset has ~3,221.
+  // ── State-label click → open the state filter preset (the action the
+  // old "Filter" link + badge body-click did), then ease to the state.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded) return
-    // When a filter is active we swap these plain county-NAME squares for
-    // the per-county COUNT bubbles (rendered by the effect below), so the
-    // two never stack on the same centroid.
-    if (currentTier !== 'county' || allCountyCentroids.length === 0 || hasActiveFilters) {
-      fadeOutAndRemove(countyMarkersRef.current)
-      countyMarkersRef.current = []
-      return
+    const onClick = (e: maplibregl.MapLayerMouseEvent) => {
+      const f = e.features?.[0]
+      if (!f) return
+      const abbr = f.properties?.abbr as string
+      if (!abbr) return
+      setFilters(prev => ({
+        ...prev, stateFilter: abbr, countyFilters: [], townshipFilters: [],
+      }))
+      setFilterOpen(true)
+      const geom = f.geometry as GeoJSON.Point
+      map.easeTo({ center: geom.coordinates as [number, number], zoom: 7, duration: 900 })
     }
-
-    // Track currently-rendered counties by `STATE-COUNTY` key so we
-    // can incrementally add/remove on pan instead of full rebuild.
-    const rendered = new Map<string, maplibregl.Marker>()
-
-    const renderForBounds = () => {
-      const bounds = map.getBounds()
-      const w = bounds.getWest(), e = bounds.getEast()
-      const s = bounds.getSouth(), n = bounds.getNorth()
-      // Small margin so badges that are partly off-screen still attach.
-      const mw = (e - w) * 0.05
-      const mh = (n - s) * 0.05
-      const visibleKeys = new Set<string>()
-
-      for (const c of allCountyCentroids) {
-        if (c.lng < w - mw || c.lng > e + mw) continue
-        if (c.lat < s - mh || c.lat > n + mh) continue
-        const key = `${c.state}-${c.county}`
-        visibleKeys.add(key)
-        if (rendered.has(key)) continue
-        const el = document.createElement('div')
-        el.className = 'aem-marker-shell'
-        const inner = document.createElement('div')
-        inner.className = 'aem-county-square'
-        inner.innerHTML = `<div class="aem-county-name">${c.county}</div>`
-        el.appendChild(inner)
-        el.addEventListener('click', () => {
-          map.easeTo({ center: [c.lng, c.lat], zoom: 10, duration: 800 })
-        })
-        const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
-          .setLngLat([c.lng, c.lat])
-          .addTo(map)
-        rendered.set(key, marker)
-      }
-
-      // Remove any rendered markers no longer visible.
-      const keysToRemove: string[] = []
-      rendered.forEach((marker, key) => {
-        if (!visibleKeys.has(key)) {
-          marker.remove()
-          keysToRemove.push(key)
-        }
-      })
-      keysToRemove.forEach(k => rendered.delete(k))
-      // Keep the ref in sync for cleanup + fade-out helpers.
-      const stillVisible: maplibregl.Marker[] = []
-      rendered.forEach(m => stillVisible.push(m))
-      countyMarkersRef.current = stillVisible
-    }
-
-    renderForBounds()
-    map.on('moveend', renderForBounds)
-
+    const onEnter = () => { map.getCanvas().style.cursor = 'pointer' }
+    const onLeave = () => { map.getCanvas().style.cursor = '' }
+    map.on('click', 'state-labels', onClick)
+    map.on('mouseenter', 'state-labels', onEnter)
+    map.on('mouseleave', 'state-labels', onLeave)
     return () => {
-      map.off('moveend', renderForBounds)
-      const all: maplibregl.Marker[] = []
-      rendered.forEach(m => all.push(m))
-      fadeOutAndRemove(all)
-      rendered.clear()
-      countyMarkersRef.current = []
+      map.off('click', 'state-labels', onClick)
+      map.off('mouseenter', 'state-labels', onEnter)
+      map.off('mouseleave', 'state-labels', onLeave)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allCountyCentroids, mapLoaded, currentTier, hasActiveFilters])
+  }, [mapLoaded])
 
-  // Filter-active per-county COUNT bubbles. When a filter is in use AND
-  // the zoom is too low to show individual tract dots (state or county
-  // tier), show one bubble per county that has matching tracts: the
-  // number on top with the word "tracts" beneath — labeled so the user
-  // knows we're counting tracts, not parcels, yet. Driven by the
-  // filter-aware /api/map/county-tract-counts data (already has each
-  // county's averaged centroid). Clipped to the viewport on every move
-  // like the county-name squares; clicking a bubble drills into that
-  // county.
+  // ── County COUNT bubbles (filter-active): setData + click. Visibility
+  // is toggled by the hasActiveFilters effect below (setLayoutProperty),
+  // and the county-NAME labels are hidden in the same effect so the two
+  // never stack on a centroid.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded) return
-    if (!hasActiveFilters || currentTier === 'tract' || countyCounts.length === 0) {
-      fadeOutAndRemove(countyCountMarkersRef.current)
-      countyCountMarkersRef.current = []
-      return
-    }
+    const src = map.getSource('county-counts') as maplibregl.GeoJSONSource | undefined
+    if (src) src.setData(countyCountGeoJSON)
+  }, [mapLoaded, countyCountGeoJSON])
 
-    const rendered = new Map<string, maplibregl.Marker>()
-
-    const renderForBounds = () => {
-      const bounds = map.getBounds()
-      const w = bounds.getWest(), e = bounds.getEast()
-      const s = bounds.getSouth(), n = bounds.getNorth()
-      const mw = (e - w) * 0.05
-      const mh = (n - s) * 0.05
-      const visibleKeys = new Set<string>()
-
-      for (const c of countyCounts) {
-        if (!c.count || c.lat == null || c.lng == null) continue
-        if (c.lng < w - mw || c.lng > e + mw) continue
-        if (c.lat < s - mh || c.lat > n + mh) continue
-        const key = `${c.state}-${c.county}`
-        visibleKeys.add(key)
-        if (rendered.has(key)) continue
-        const el = document.createElement('div')
-        el.style.cssText = [
-          'display:flex', 'flex-direction:column', 'align-items:center',
-          'justify-content:center', 'min-width:42px', 'height:42px',
-          'padding:3px 9px', 'border-radius:21px', 'background:#E91E8C',
-          'border:2px solid #fff', 'box-shadow:0 2px 6px rgba(0,0,0,0.45)',
-          'color:#fff', 'cursor:pointer', 'font-family:inherit',
-          'box-sizing:border-box', 'white-space:nowrap',
-        ].join(';')
-        el.innerHTML =
-          `<div style="font-size:15px;font-weight:700;line-height:1;">${c.count}</div>` +
-          `<div style="font-size:8px;font-weight:600;line-height:1.1;letter-spacing:0.5px;` +
-          `text-transform:uppercase;opacity:0.92;margin-top:1px;">tracts</div>`
-        el.addEventListener('click', () => {
-          map.easeTo({ center: [c.lng as number, c.lat as number], zoom: 10, duration: 800 })
-        })
-        const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
-          .setLngLat([c.lng, c.lat])
-          .addTo(map)
-        rendered.set(key, marker)
-      }
-
-      const keysToRemove: string[] = []
-      rendered.forEach((marker, key) => {
-        if (!visibleKeys.has(key)) { marker.remove(); keysToRemove.push(key) }
-      })
-      keysToRemove.forEach(k => rendered.delete(k))
-      const stillVisible: maplibregl.Marker[] = []
-      rendered.forEach(m => stillVisible.push(m))
-      countyCountMarkersRef.current = stillVisible
-    }
-
-    renderForBounds()
-    map.on('moveend', renderForBounds)
-
-    return () => {
-      map.off('moveend', renderForBounds)
-      const all: maplibregl.Marker[] = []
-      rendered.forEach(m => all.push(m))
-      fadeOutAndRemove(all)
-      rendered.clear()
-      countyCountMarkersRef.current = []
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [countyCounts, mapLoaded, currentTier, hasActiveFilters])
-
-  // TRACT PIN VISIBILITY — toggle existing tract pins by tier.
-  // Pins are created/maintained by their own effect (downstream);
-  // we just hide them when not in tract tier so state silhouettes
-  // and county squares aren't competing with them.
   useEffect(() => {
-    const visible = currentTier === 'tract'
-    tractMarkersRef.current.forEach(m => {
-      const el = m.getElement()
-      if (el) el.style.display = visible ? '' : 'none'
-    })
-  }, [currentTier, tracts])
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+    const onClick = (e: maplibregl.MapLayerMouseEvent) => {
+      const f = e.features?.[0]
+      if (!f) return
+      const geom = f.geometry as GeoJSON.Point
+      map.easeTo({ center: geom.coordinates as [number, number], zoom: 10, duration: 800 })
+    }
+    const onEnter = () => { map.getCanvas().style.cursor = 'pointer' }
+    const onLeave = () => { map.getCanvas().style.cursor = '' }
+    map.on('click', 'county-count-circles', onClick)
+    map.on('mouseenter', 'county-count-circles', onEnter)
+    map.on('mouseleave', 'county-count-circles', onLeave)
+    return () => {
+      map.off('click', 'county-count-circles', onClick)
+      map.off('mouseenter', 'county-count-circles', onEnter)
+      map.off('mouseleave', 'county-count-circles', onLeave)
+    }
+  }, [mapLoaded])
+
+  // ── Filter-aware visibility swap (no layer recreation): when a filter
+  // is active, show the pink county-COUNT bubbles and HIDE the plain
+  // county-NAME labels; otherwise the reverse. Native minzoom/maxzoom on
+  // each layer still governs the tier within these visibility states.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+    const countVis = hasActiveFilters ? 'visible' : 'none'
+    const nameVis = hasActiveFilters ? 'none' : 'visible'
+    for (const [id, v] of [
+      ['county-count-circles', countVis],
+      ['county-count-labels', countVis],
+      ['county-labels', nameVis],
+    ] as const) {
+      if (map.getLayer(id)) {
+        try { map.setLayoutProperty(id, 'visibility', v) } catch {/* */}
+      }
+    }
+  }, [mapLoaded, hasActiveFilters])
 
   const getStatusLabel = (status: string | null | undefined) => {
     if (!status) return 'Unknown'
@@ -5313,7 +5196,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           always-on Regrid layer. Set the JSX gate to `false` so the
           button never renders, but keep the surrounding code intact in
           case we ever need to re-enable a state_parcels fallback. */}
-      {false && isAdmin && currentZoom >= ADMIN_PARCEL_MIN_ZOOM && (
+      {false && isAdmin && (
         <button
           onClick={() => setAdminParcelOverlay(v => {
             const next = !v
@@ -5742,8 +5625,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                             loadedCellsRef.current = new Set()
                             tractMapRef.current = new Map()
                             setTracts([])
-                            tractMarkersRef.current.forEach(m => m.remove())
-                            tractMarkersRef.current = []
 
                             if (next.length > 0) {
                               // Load each selected state's bounds individually
@@ -5825,8 +5706,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                               loadedCellsRef.current = new Set()
                               tractMapRef.current = new Map()
                               setTracts([])
-                              tractMarkersRef.current.forEach(m => m.remove())
-                              tractMarkersRef.current = []
                               if (mapRef.current) {
                                 const bounds = mapRef.current.getBounds()
                                 loadTractsForBounds({ min_lat: bounds.getSouth(), max_lat: bounds.getNorth(), min_lng: bounds.getWest(), max_lng: bounds.getEast() })
@@ -5889,8 +5768,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                             loadedCellsRef.current = new Set()
                             tractMapRef.current = new Map()
                             setTracts([])
-                            tractMarkersRef.current.forEach(m => m.remove())
-                            tractMarkersRef.current = []
                             if (mapRef.current) {
                               const bounds = mapRef.current.getBounds()
                               loadTractsForBounds({ min_lat: bounds.getSouth(), max_lat: bounds.getNorth(), min_lng: bounds.getWest(), max_lng: bounds.getEast() })
@@ -6360,158 +6237,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     </div>
   )
 }
-
-function createMarkerElement(
-  pricePerAcre: number | null,
-  acres: number | null,
-  status: string | null,
-  isAuctionToday: boolean,
-  // When true, render the marker as a + button instead of a colored
-  // dot — used in comparables mode (subjectTractId set). Click opens
-  // the inline sale-info popup instead of the sidebar.
-  asPlusButton: boolean = false,
-): HTMLDivElement {
-  const container = document.createElement('div')
-  container.className = 'comp-marker'
-  const isLive = isAuctionToday
-
-  // In comp-mode + button: skip the price/acres label (popup shows it).
-  if (!asPlusButton) {
-    const label = document.createElement('div')
-    label.className = 'comp-marker-label'
-
-    if (pricePerAcre) {
-      const priceEl = document.createElement('div')
-      priceEl.className = 'comp-marker-price'
-      priceEl.textContent = `${formatCurrency(pricePerAcre)}/ac`
-      label.appendChild(priceEl)
-    }
-    if (acres) {
-      const acresEl = document.createElement('div')
-      acresEl.className = 'comp-marker-acres'
-      acresEl.textContent = `${formatAcres(acres)} ac`
-      label.appendChild(acresEl)
-    }
-    container.appendChild(label)
-  }
-
-  // Pulsing ring for live auctions
-  if (isLive) {
-    const pulseRing = document.createElement('div')
-    pulseRing.style.cssText = `
-      position: absolute;
-      bottom: -6px;
-      left: 50%;
-      transform: translateX(-50%);
-      width: 24px;
-      height: 24px;
-      border-radius: 50%;
-      border: 2px solid #22c55e;
-      animation: livePulse 1.5s ease-out infinite;
-    `
-    container.appendChild(pulseRing)
-    container.style.position = 'relative'
-
-    // Add CSS animation if not already present
-    if (!document.getElementById('live-pulse-style')) {
-      const style = document.createElement('style')
-      style.id = 'live-pulse-style'
-      style.textContent = `
-        @keyframes livePulse {
-          0% { transform: translateX(-50%) scale(1); opacity: 0.8; }
-          100% { transform: translateX(-50%) scale(2.5); opacity: 0; }
-        }
-      `
-      document.head.appendChild(style)
-    }
-  }
-
-  const pin = document.createElement('div')
-  if (asPlusButton) {
-    // Comp-mode "+" button — pseudo-element bars for pixel-perfect
-    // centering. See .comp-marker-pin.plus-btn in ComparablesMap.css.
-    pin.className = 'comp-marker-pin plus-btn'
-  } else {
-    pin.className = 'comp-marker-pin comparable'
-    pin.style.backgroundColor = isLive ? '#22c55e' : getStatusPinColor(status)
-  }
-  container.appendChild(pin)
-
-  return container
-}
-
-/**
- * Specialized marker for the always-on "today's auctions" green dots.
- * Returns a 14×14 element where the pin fills the entire box and the
- * label is absolute-positioned ABOVE it. This makes the element's
- * geometric center IDENTICAL to the pin's center, so MapLibre's default
- * 'center' anchor lands the green dot exactly at the lat/lng pixel —
- * no more constant-pixel-offset south of the real position at low zoom.
- *
- * Kept SEPARATE from createMarkerElement so the regular sales pins keep
- * their original flex-column layout untouched.
- */
-function createTodayMarkerElement(
-  pricePerAcre: number | null,
-  acres: number | null,
-): HTMLDivElement {
-  const container = document.createElement('div')
-  container.className = 'comp-marker'
-  container.style.cssText = [
-    'position: relative',
-    'width: 14px',
-    'height: 14px',
-    'cursor: pointer',
-  ].join(';')
-
-  // No price/acres label on the green "auctioning today" dot — it marks the
-  // whole auction, not a single tract's acreage. (Per user 2026-06-05.)
-
-  // Pulse ring — centered on the pin.
-  const pulseRing = document.createElement('div')
-  pulseRing.style.cssText = [
-    'position: absolute',
-    'top: 50%',
-    'left: 50%',
-    'width: 24px',
-    'height: 24px',
-    'border-radius: 50%',
-    'border: 2px solid #22c55e',
-    'animation: livePulseToday 1.5s ease-out infinite',
-    'transform: translate(-50%, -50%)',
-  ].join(';')
-  container.appendChild(pulseRing)
-
-  if (!document.getElementById('live-pulse-today-style')) {
-    const style = document.createElement('style')
-    style.id = 'live-pulse-today-style'
-    style.textContent = `
-      @keyframes livePulseToday {
-        0%   { transform: translate(-50%, -50%) scale(1);   opacity: 0.8; }
-        100% { transform: translate(-50%, -50%) scale(2.5); opacity: 0; }
-      }
-    `
-    document.head.appendChild(style)
-  }
-
-  // Pin fills the entire container so the element's center == pin's center.
-  const pin = document.createElement('div')
-  pin.className = 'comp-marker-pin comparable'
-  pin.style.cssText = [
-    'position: absolute',
-    'inset: 0',
-    'width: 14px',
-    'height: 14px',
-    'border-radius: 50%',
-    'border: 2px solid #ffffff',
-    'background-color: #22c55e',
-    'box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4)',
-  ].join(';')
-  container.appendChild(pin)
-
-  return container
-}
-
 // ── Regrid parcel popup helpers ─────────────────────────────────────
 // The popup renders inside a MapLibre Popup, so we build HTML strings
 // instead of React. Three states:

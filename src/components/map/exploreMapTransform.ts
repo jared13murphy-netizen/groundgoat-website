@@ -6,6 +6,20 @@ function getStateAbbr(state: string): string {
   return STATE_ABBR[state] || state
 }
 
+// Display formatters — kept BYTE-FOR-BYTE identical to ExploreMap's
+// formatCurrency / formatAcres so the native symbol-layer labels read
+// exactly like the old DOM-marker labels. (We pre-format here instead of
+// in a MapLibre number-format expression because maplibre's number-format
+// can't do "$1,234,567" + "/ac" / "1,234.5 ac" cleanly.)
+function fmtCurrency(amount: number | null | undefined): string {
+  if (!amount) return '—'
+  return '$' + Math.round(amount).toLocaleString('en-US')
+}
+function fmtAcres(acres: number | null | undefined): string {
+  if (!acres) return '—'
+  return acres.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
+}
+
 function getPolygonCentroid(polygon: [number, number][]): [number, number] {
   let sumLng = 0, sumLat = 0
   for (const [lng, lat] of polygon) {
@@ -76,8 +90,21 @@ export function buildExplorePointGeoJSON(tracts: ApiMapTract[]): GeoJSON.Feature
         ? t.asking_price / t.total_acres
         : t.price_per_acre
 
+      // Pre-format the label exactly as the old DOM marker did:
+      //   line 1: "$1,234/ac"  (only when pricePerAcre is truthy)
+      //   line 2: "123.4 ac"   (only when total_acres is truthy)
+      // The native tract-pin-labels symbol layer renders this string
+      // verbatim via text-field=['get','pinLabel'].
+      const labelLines: string[] = []
+      if (displayPricePerAcre) labelLines.push(`${fmtCurrency(displayPricePerAcre)}/ac`)
+      if (t.total_acres) labelLines.push(`${fmtAcres(t.total_acres)} ac`)
+      const pinLabel = labelLines.join('\n')
+
       return {
         type: 'Feature' as const,
+        // feature.id is REQUIRED for setFeatureState (report highlight /
+        // comp-visibility). MapLibre feature-state keys on the top-level id.
+        id: t.id,
         geometry: {
           type: 'Point' as const,
           coordinates: [lng, lat],
@@ -85,6 +112,7 @@ export function buildExplorePointGeoJSON(tracts: ApiMapTract[]): GeoJSON.Feature
         properties: {
           tractId: t.id,
           listingId: t.listing_id,
+          pinLabel,
           totalAcres: t.total_acres,
           tillableAcres: t.tillable_acres,
           salePrice: t.sale_price,
