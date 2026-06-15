@@ -235,11 +235,15 @@ export default function TractDataCompare({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [manual?.acres, manual?.tillable_acres, manual?.soil_rating])
   // Commit a manual draft → parse + tell the parent to save (or clear on empty).
+  // Clear the draft immediately after committing so hasManualPending goes false
+  // right away (for parents that don't pass a `manual` prop back, e.g.
+  // TractCleanupEditor, the draft would otherwise stay non-empty forever).
   const commitManual = (field: 'acres' | 'tillable_acres' | 'soil_rating') => {
     const raw = (manualDraft[field] ?? '').trim()
     if (raw === '') { onManualChange?.(field, null); return }
     const n = parseFloat(raw)
     onManualChange?.(field, isFinite(n) ? n : null)
+    setManualDraft((p) => ({ ...p, [field]: '' }))
   }
   const clearManual = (field: 'acres' | 'tillable_acres' | 'soil_rating') => {
     setManualDraft((p) => ({ ...p, [field]: '' }))
@@ -318,10 +322,26 @@ export default function TractDataCompare({
     ) : null
   )
 
-  // Dirty: any manual draft is non-empty (typed but not committed with ✓),
+  // Dirty: any manual draft is non-empty AND differs from the already-persisted
+  // `manual` prop (i.e. the user typed a NEW value that hasn't been saved yet),
   // OR local chosen differs from the saved chosen prop (radio changed, parent
   // hasn't confirmed the save yet), OR a checkbox differs from its saved prop.
-  const hasManualPending = Object.values(manualDraft).some((v) => (v ?? '').trim() !== '')
+  //
+  // NOTE: after commitManual() the draft is cleared to '' so this is false
+  // immediately. For parents that DO pass a `manual` prop back (staging screens),
+  // the useEffect re-seeds manualDraft from manual — we compare numerically so
+  // a re-seeded draft that matches the saved value is NOT treated as pending.
+  const hasManualPending = (['acres', 'tillable_acres', 'soil_rating'] as const).some((f) => {
+    const draft = (manualDraft[f] ?? '').trim()
+    if (draft === '') return false
+    const savedNum = manual?.[f] ?? null
+    const draftNum = parseFloat(draft)
+    if (!isFinite(draftNum)) return true  // unparseable input → pending
+    // If the draft parses to the same number already in the manual prop, it's
+    // already been saved — not pending. If manual is absent/null the field
+    // hasn't been persisted yet, so any non-empty draft IS pending.
+    return savedNum == null || draftNum !== savedNum
+  })
   const chosenDirty = ((['acres', 'tillable_acres', 'soil_rating'] as const) as string[]).some(
     (f) => (local as any)[f] !== ((chosen || {}) as any)[f]
   )
