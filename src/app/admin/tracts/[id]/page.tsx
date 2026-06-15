@@ -27,6 +27,7 @@ interface Tract {
   price_per_acre: number
   sale_status: string
   image_url: string
+  created_via: string | null
 }
 
 export default function EditTractPage() {
@@ -258,7 +259,8 @@ export default function EditTractPage() {
       if (response.ok && tract) {
         router.push(`/admin/listings/${tract.listing_id}`)
       } else {
-        setError('Failed to delete tract')
+        const e = await response.json().catch(() => null)
+        setError(e?.detail || 'Failed to delete tract')
       }
     } catch (err) {
       setError('Failed to delete tract')
@@ -304,13 +306,15 @@ export default function EditTractPage() {
               <p className="text-gg-gray-400">{tract.total_acres} acres</p>
             </div>
           </div>
-          <button
-            onClick={handleDelete}
-            className="flex items-center gap-2 px-4 py-2 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30"
-          >
-            <Trash2 size={16} />
-            Delete
-          </button>
+          {tract.created_via === 'manual' && (
+            <button
+              onClick={handleDelete}
+              className="flex items-center gap-2 px-4 py-2 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30"
+            >
+              <Trash2 size={16} />
+              Delete
+            </button>
+          )}
         </div>
 
         {/* Messages */}

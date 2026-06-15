@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { Pencil, Check, X, Loader2, Save, CheckCircle2 } from 'lucide-react'
+import { Pencil, Check, X, Loader2, Save, CheckCircle2, Trash2 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import TractMapEditor from '@/components/admin/TractMapEditor'
 import TillableCluWorkshop from '@/components/admin/TillableCluWorkshop'
@@ -20,6 +20,8 @@ interface Props {
   listing: any
   /** Refetch the listing after any save so derived $/x + rollups refresh. */
   onChanged: () => void | Promise<void>
+  /** Called after a manual tract is successfully deleted. */
+  onDeleted?: () => void | Promise<void>
 }
 
 const money = (v: any) =>
@@ -54,7 +56,7 @@ function SaleStatusBadge({ status }: { status: string | null | undefined }) {
   )
 }
 
-export default function ListingTractCard({ tract, listing, onChanged }: Props) {
+export default function ListingTractCard({ tract, listing, onChanged, onDeleted }: Props) {
   const ring: Pt[] | null = useMemo(() => {
     const p = tract.polygon_coordinates
     return Array.isArray(p) && p.length >= 3 ? (p as Pt[]) : null
@@ -185,6 +187,31 @@ export default function ListingTractCard({ tract, listing, onChanged }: Props) {
     } catch (e: any) {
       setLandTypes(prev)
       setErr(e.message || 'Failed to save land types')
+    }
+  }
+
+  const [deletingTract, setDeletingTract] = useState(false)
+
+  const handleDeleteTract = async () => {
+    if (!confirm('Delete this tract? This cannot be undone.')) return
+    const token = localStorage.getItem('auth_token')
+    setDeletingTract(true)
+    setErr('')
+    try {
+      const response = await fetch(`${API_URL}/api/tracts/${tract.id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` },
+      })
+      if (!response.ok) {
+        const detail = (await response.json().catch(() => ({}))).detail || `HTTP ${response.status}`
+        setErr(String(detail))
+        return
+      }
+      if (onDeleted) await onDeleted()
+    } catch (e: any) {
+      setErr(e.message || 'Failed to delete tract')
+    } finally {
+      setDeletingTract(false)
     }
   }
 
@@ -409,6 +436,16 @@ export default function ListingTractCard({ tract, listing, onChanged }: Props) {
           <span className="inline-flex items-center gap-1 text-sm text-green-400 font-medium">
             <CheckCircle2 size={16} /> Saved
           </span>
+        )}
+        {tract.created_via === 'manual' && (
+          <button
+            onClick={handleDeleteTract}
+            disabled={deletingTract || savingScalars}
+            className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white font-medium rounded-lg hover:bg-red-700 disabled:opacity-40"
+          >
+            {deletingTract ? <Loader2 className="animate-spin" size={16} /> : <Trash2 size={16} />}
+            {deletingTract ? 'Deleting…' : 'Delete tract'}
+          </button>
         )}
         <button
           onClick={saveScalars}

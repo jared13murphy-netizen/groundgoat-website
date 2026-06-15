@@ -439,6 +439,25 @@ export default function EditListingPage() {
     }
   }
 
+  const handleDeleteTract = async (tractId: string) => {
+    if (!confirm('Delete this tract? This cannot be undone.')) return
+    const token = localStorage.getItem('auth_token')
+    try {
+      const response = await fetch(`${API_URL}/api/tracts/${tractId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` },
+      })
+      if (!response.ok) {
+        const detail = (await response.json().catch(() => ({}))).detail || `HTTP ${response.status}`
+        setError(String(detail))
+        return
+      }
+      await refreshListing()
+    } catch (err) {
+      setError('Failed to delete tract')
+    }
+  }
+
   const handleVerify = async () => {
     if (!listing) return
 
@@ -1055,23 +1074,36 @@ export default function EditListingPage() {
                     return (
                       <div key={tract.id} className="border border-gg-gray-800 rounded-xl overflow-hidden bg-gg-gray-900/40">
                         {/* Collapsed summary row — click to expand the full editor */}
-                        <button
-                          type="button"
-                          onClick={() => toggleTract(tract.id)}
-                          className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gg-gray-800/40"
-                        >
-                          {isOpen ? <ChevronUp size={18} className="text-gg-gray-400 shrink-0" /> : <ChevronDown size={18} className="text-gg-gray-400 shrink-0" />}
-                          <span className="font-semibold text-white shrink-0">Tract {tract.tract_number || '—'}</span>
-                          <span className={`text-xs font-semibold px-2 py-0.5 rounded capitalize shrink-0 ${STATUS_PILL[st] || ''}`}>{st.replace('_', ' ')}</span>
-                          <span className="text-sm text-gg-gray-400 truncate">
-                            {tract.total_acres != null ? `${tract.total_acres} ac` : '— ac'}
-                            {' · '}{fmtMoney(tract.price_per_acre)}/ac
-                            {tract.sale_price != null ? ` · ${fmtMoney(tract.sale_price)} total` : ''}
-                          </span>
-                          <span className={`ml-auto text-xs px-2 py-0.5 rounded shrink-0 ${reviewed ? 'bg-green-500/20 text-green-300' : 'bg-gg-gray-800 text-gg-gray-400'}`}>
-                            {reviewed ? '✓ Reviewed' : 'Not reviewed'}
-                          </span>
-                        </button>
+                        <div className="flex items-center hover:bg-gg-gray-800/40">
+                          <button
+                            type="button"
+                            onClick={() => toggleTract(tract.id)}
+                            className="flex-1 flex items-center gap-3 px-4 py-3 text-left min-w-0"
+                          >
+                            {isOpen ? <ChevronUp size={18} className="text-gg-gray-400 shrink-0" /> : <ChevronDown size={18} className="text-gg-gray-400 shrink-0" />}
+                            <span className="font-semibold text-white shrink-0">Tract {tract.tract_number || '—'}</span>
+                            <span className={`text-xs font-semibold px-2 py-0.5 rounded capitalize shrink-0 ${STATUS_PILL[st] || ''}`}>{st.replace('_', ' ')}</span>
+                            <span className="text-sm text-gg-gray-400 truncate">
+                              {tract.total_acres != null ? `${tract.total_acres} ac` : '— ac'}
+                              {' · '}{fmtMoney(tract.price_per_acre)}/ac
+                              {tract.sale_price != null ? ` · ${fmtMoney(tract.sale_price)} total` : ''}
+                            </span>
+                            <span className={`ml-auto text-xs px-2 py-0.5 rounded shrink-0 ${reviewed ? 'bg-green-500/20 text-green-300' : 'bg-gg-gray-800 text-gg-gray-400'}`}>
+                              {reviewed ? '✓ Reviewed' : 'Not reviewed'}
+                            </span>
+                          </button>
+                          {tract.created_via === 'manual' && (
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteTract(tract.id)}
+                              title="Delete this manually-added tract"
+                              className="flex items-center gap-1.5 px-3 py-2 mr-2 text-sm font-medium text-red-400 hover:text-white hover:bg-red-600 rounded-lg transition-colors shrink-0"
+                            >
+                              <Trash2 size={14} />
+                              Delete
+                            </button>
+                          )}
+                        </div>
                         {isOpen && (
                           <div className="px-3 pb-3">
                             <TractCleanupEditor tract={tract} listing={listing} onChanged={refreshListing} onDirtyChange={(d) => setTractDirty(tract.id, d)} />

@@ -944,7 +944,7 @@ export default function AdminStagingPage() {
       const nums = updated.tracts.map((t: any) => Number(t.tract_number) || 0)
       const nextNum = (nums.length ? Math.max(...nums) : 0) + 1
       const sib = updated.tracts.find((t: any) => t.latitude != null && t.longitude != null)
-      const newTract: any = { tract_number: nextNum }
+      const newTract: any = { tract_number: nextNum, created_via: 'manual' }
       if (sib) { newTract.latitude = sib.latitude; newTract.longitude = sib.longitude }
       updated.tracts.push(newTract)
       setListings((prev) => prev.map((l) => (l.id === listing.id ? { ...l, scraped_data: updated } : l)))
@@ -958,6 +958,52 @@ export default function AdminStagingPage() {
       showToast('error', 'Network error — tract not added')
     } finally {
       setAddingTractFor(null)
+    }
+  }
+
+  // Delete a manual-only staging tract (no DB id) by removing it from the
+  // local scraped_data array and PATCHing the staging record — mirrors addStagingTract.
+  const handleDeleteStagingTract = async (tractNumber: number, listing: StagingListing) => {
+    if (!confirm('Delete this tract? This cannot be undone.')) return
+    const updated = JSON.parse(JSON.stringify(listing.scraped_data || {}))
+    if (!Array.isArray(updated.tracts)) updated.tracts = []
+    updated.tracts = updated.tracts.filter((t: any) => t.tract_number !== tractNumber)
+    setListings((prev) => prev.map((l) => (l.id === listing.id ? { ...l, scraped_data: updated } : l)))
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/admin/staging/${listing.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scraped_data: updated }),
+      })
+      if (!res.ok) showToast('error', 'Failed to delete tract')
+    } catch {
+      showToast('error', 'Network error — tract not deleted')
+    }
+  }
+
+  const handleDeleteTract = async (tractId: string, listingId: number) => {
+    if (!confirm('Delete this tract? This cannot be undone.')) return
+    const token = localStorage.getItem('auth_token')
+    try {
+      const response = await fetch(`${API_URL}/api/tracts/${tractId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` },
+      })
+      if (!response.ok) {
+        const detail = (await response.json().catch(() => ({}))).detail || `HTTP ${response.status}`
+        showToast('error', String(detail))
+        return
+      }
+      // Remove the tract from local scraped_data state
+      setListings(prev => prev.map(l => {
+        if (l.id !== listingId) return l
+        const sd = { ...(l.scraped_data || {}) }
+        const ts = ((sd.tracts as any[]) || []).filter((t: any) => t.id !== tractId)
+        sd.tracts = ts
+        return { ...l, scraped_data: sd }
+      }))
+    } catch (e: any) {
+      showToast('error', e.message || 'Failed to delete tract')
     }
   }
 
@@ -2099,26 +2145,40 @@ export default function AdminStagingPage() {
                                         <p className="text-2xl text-white font-extrabold tracking-tight">
                                           Tract {tract.tract_number ?? idx + 1}
                                         </p>
-                                        <button
-                                          type="button"
-                                          disabled={disabled}
-                                          title={disabled ? 'No location available for this tract' : 'Open this tract on the Explore map'}
-                                          onClick={() => {
-                                            const params = new URLSearchParams({
-                                              focusLat: String(fLat),
-                                              focusLng: String(fLng),
-                                              focusZoom: '15',
-                                            })
-                                            window.open(`/access?${params.toString()}`, '_blank')
-                                          }}
-                                          className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors shadow-sm ${
-                                            disabled
-                                              ? 'bg-gg-gray-800 text-gg-gray-600 cursor-not-allowed'
-                                              : 'bg-gg-pink text-white hover:bg-gg-pink-light'
-                                          }`}
-                                        >
-                                          <MapPin size={14} /> View on Map
-                                        </button>
+                                        <div className="flex items-center gap-2">
+                                          {tract.created_via === 'manual' && (
+                                            <button
+                                              type="button"
+                                              onClick={() => tract.id
+                                                ? handleDeleteTract(tract.id, listing.id)
+                                                : handleDeleteStagingTract(tract.tract_number, listing)
+                                              }
+                                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-semibold bg-red-600 text-white hover:bg-red-700 transition-colors shadow-sm"
+                                            >
+                                              <Trash2 size={14} /> Delete tract
+                                            </button>
+                                          )}
+                                          <button
+                                            type="button"
+                                            disabled={disabled}
+                                            title={disabled ? 'No location available for this tract' : 'Open this tract on the Explore map'}
+                                            onClick={() => {
+                                              const params = new URLSearchParams({
+                                                focusLat: String(fLat),
+                                                focusLng: String(fLng),
+                                                focusZoom: '15',
+                                              })
+                                              window.open(`/access?${params.toString()}`, '_blank')
+                                            }}
+                                            className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors shadow-sm ${
+                                              disabled
+                                                ? 'bg-gg-gray-800 text-gg-gray-600 cursor-not-allowed'
+                                                : 'bg-gg-pink text-white hover:bg-gg-pink-light'
+                                            }`}
+                                          >
+                                            <MapPin size={14} /> View on Map
+                                          </button>
+                                        </div>
                                       </div>
                                     )
                                   })()}

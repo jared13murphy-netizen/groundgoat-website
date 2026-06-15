@@ -1061,6 +1061,7 @@ export default function EditListingPage() {
                       tract={tract}
                       listing={listing}
                       onChanged={refreshListing}
+                      onDeleted={refreshListing}
                     />
                   ))}
               </div>
