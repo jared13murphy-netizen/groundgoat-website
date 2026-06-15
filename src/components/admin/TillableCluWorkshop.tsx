@@ -1122,6 +1122,11 @@ export default function TillableCluWorkshop({
       })
 
       // ── Edit finished polygons: drag a vertex handle to move it. ──
+      // Uses the same dynamic attach/detach pattern as TractMapEditor (known
+      // working): the mousemove + one-shot mouseup handlers are registered
+      // INSIDE the mousedown handler so they are active only during the drag,
+      // not as permanent map-level listeners. This avoids the race where a
+      // permanent mousemove fires before draggingVertexRef is set.
       map.on('mouseenter', 'edit-vertex', () => { map.getCanvas().style.cursor = 'move' })
       map.on('mouseleave', 'edit-vertex', () => {
         map.getCanvas().style.cursor = modeRef.current === 'toggle' ? '' : 'crosshair'
@@ -1130,50 +1135,58 @@ export default function TillableCluWorkshop({
         const f = ev.features?.[0]
         if (!f) return
         const props = f.properties as any
-        draggingVertexRef.current = { kind: props.kind, poly: props.poly, vert: props.vert }
+        const dragState: { kind: 'manual' | 'cutout' | 'clu'; poly: number; vert: number } = {
+          kind: props.kind,
+          poly: Number(props.poly),
+          vert: Number(props.vert),
+        }
+        draggingVertexRef.current = dragState
         didDragRef.current = false
         ev.preventDefault()        // stop the map from panning while we drag
         map.dragPan.disable()
-      })
-      map.on('mousemove', (ev) => {
-        const d = draggingVertexRef.current
-        if (!d) return
-        didDragRef.current = true
-        if (d.kind === 'clu') {
-          // d.poly = fsa_clu_id; move that vertex of the CLU's editable ring
-          // (seeded from the original FSA shape on the first drag).
-          const id = d.poly
-          const ring = (effectiveCluRingRef(id) || []).slice()
-          if (!ring.length) return
-          ring[d.vert] = [ev.lngLat.lng, ev.lngLat.lat]
-          const next = { ...cluOverridesRef.current, [id]: ring }
-          cluOverridesRef.current = next
-          pushMapSource('clu', buildCluGeo(clusRef.current, selectionRef.current, next))
+
+        const onDrag = (mev: maplibregl.MapMouseEvent) => {
+          didDragRef.current = true
+          const d = dragState
+          if (d.kind === 'clu') {
+            // d.poly = fsa_clu_id; move that vertex of the CLU's editable ring
+            // (seeded from the original FSA shape on the first drag).
+            const id = d.poly
+            const ring = (effectiveCluRingRef(id) || []).slice()
+            if (!ring.length) return
+            ring[d.vert] = [mev.lngLat.lng, mev.lngLat.lat]
+            const next = { ...cluOverridesRef.current, [id]: ring }
+            cluOverridesRef.current = next
+            pushMapSource('clu', buildCluGeo(clusRef.current, selectionRef.current, next))
+            pushMapSource('edit-vertex', buildEditVertexGeo(
+              manualPolygonsRef.current, cutoutPolygonsRef.current, cluEditFromRefs()))
+            return
+          }
+          const arrRef = d.kind === 'manual' ? manualPolygonsRef : cutoutPolygonsRef
+          if (!arrRef.current[d.poly]) return
+          const polys = arrRef.current.map((r) => r.slice())
+          polys[d.poly][d.vert] = [mev.lngLat.lng, mev.lngLat.lat]
+          arrRef.current = polys
+          // Live update the polygon outline + the handles as the vertex moves.
+          pushMapSource(d.kind === 'manual' ? 'manual' : 'cutout', buildManualGeo(polys))
           pushMapSource('edit-vertex', buildEditVertexGeo(
             manualPolygonsRef.current, cutoutPolygonsRef.current, cluEditFromRefs()))
-          return
         }
-        const arrRef = d.kind === 'manual' ? manualPolygonsRef : cutoutPolygonsRef
-        if (!arrRef.current[d.poly]) return
-        const polys = arrRef.current.map((r) => r.slice())
-        polys[d.poly][d.vert] = [ev.lngLat.lng, ev.lngLat.lat]
-        arrRef.current = polys
-        // Live update the polygon outline + the handles as the vertex moves.
-        pushMapSource(d.kind === 'manual' ? 'manual' : 'cutout', buildManualGeo(polys))
-        pushMapSource('edit-vertex', buildEditVertexGeo(
-          manualPolygonsRef.current, cutoutPolygonsRef.current, cluEditFromRefs()))
-      })
-      map.on('mouseup', () => {
-        const d = draggingVertexRef.current
-        if (!d) return
-        draggingVertexRef.current = null
-        map.dragPan.enable()
-        // Commit to state → recomputes tillable acres + dirty flag, clears the
-        // now-stale soil rating. The sync effect repaints the handles.
-        if (d.kind === 'clu') setCluOverrides({ ...cluOverridesRef.current })
-        else if (d.kind === 'manual') setManualPolygons(manualPolygonsRef.current.map((r) => r.slice()))
-        else setCutoutPolygons(cutoutPolygonsRef.current.map((r) => r.slice()))
-        setSoil(null); setStatus(null)
+
+        const onUp = () => {
+          map.off('mousemove', onDrag)
+          draggingVertexRef.current = null
+          map.dragPan.enable()
+          // Commit to state → recomputes tillable acres + dirty flag, clears the
+          // now-stale soil rating. The sync effect repaints the handles.
+          if (dragState.kind === 'clu') setCluOverrides({ ...cluOverridesRef.current })
+          else if (dragState.kind === 'manual') setManualPolygons(manualPolygonsRef.current.map((r) => r.slice()))
+          else setCutoutPolygons(cutoutPolygonsRef.current.map((r) => r.slice()))
+          setSoil(null); setStatus(null)
+        }
+
+        map.on('mousemove', onDrag)
+        map.once('mouseup', onUp)
       })
       // Double-click any handle deletes that vertex (keep ≥3) — works for an
       // edited CLU shape and for finished tillable / cutout polygons.
@@ -1183,16 +1196,16 @@ export default function TillableCluWorkshop({
         if (!props) return
         ev.preventDefault?.()
         if (props.kind === 'clu') {
-          const id = props.poly as number
+          const id = Number(props.poly)
           const ring = (effectiveCluRingRef(id) || []).slice()
           if (ring.length <= 3) return
-          ring.splice(props.vert, 1)
+          ring.splice(Number(props.vert), 1)
           const next = { ...cluOverridesRef.current, [id]: ring }
           cluOverridesRef.current = next
           setCluOverrides(next)
           setSoil(null); setStatus(null)
         } else if (props.kind === 'manual' || props.kind === 'cutout') {
-          deletePolyVertex(props.kind, props.poly as number, props.vert as number)
+          deletePolyVertex(props.kind, Number(props.poly), Number(props.vert))
         }
       })
 
