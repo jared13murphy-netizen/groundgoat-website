@@ -215,6 +215,25 @@ export default function TractDataCleanupPage() {
     })
   const listingHasUnsaved = (lid: string) =>
     Object.keys(dirtyTracts).some((k) => k.startsWith(`${lid}::`) && dirtyTracts[k])
+
+  // Completeness validation state for published listings.
+  // enforce=false → amber advisory, never blocks Verify. enforce=true → also disables Verify.
+  const [validateResults, setValidateResults] = useState<Record<string, { items: any[]; enforce: boolean; loading: boolean }>>({})
+  const fetchValidation = async (id: string) => {
+    setValidateResults(prev => ({ ...prev, [id]: { items: prev[id]?.items ?? [], enforce: prev[id]?.enforce ?? false, loading: true } }))
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/listings/${id}/validate`)
+      if (res.ok) {
+        const data = await res.json()
+        setValidateResults(prev => ({ ...prev, [id]: { items: data.items ?? [], enforce: data.enforce ?? false, loading: false } }))
+      } else {
+        setValidateResults(prev => ({ ...prev, [id]: { items: prev[id]?.items ?? [], enforce: prev[id]?.enforce ?? false, loading: false } }))
+      }
+    } catch {
+      setValidateResults(prev => ({ ...prev, [id]: { items: prev[id]?.items ?? [], enforce: prev[id]?.enforce ?? false, loading: false } }))
+    }
+  }
+
   // Per-tract expand/collapse. Key: tract.id. Default: all collapsed.
   const [openTractIds, setOpenTractIds] = useState<Set<string>>(new Set())
   const toggleTract = (id: string) =>
@@ -371,6 +390,8 @@ export default function TractDataCleanupPage() {
     }
     setExpandedId(lid)
     if (!loadedListings[lid] || loadedListings[lid].error) loadListing(lid)
+    // Fetch completeness validation for the amber advisory
+    if (!validateResults[lid]) fetchValidation(lid)
   }
 
   // Patch a single live tract in the loaded-listing cache.
@@ -1434,6 +1455,7 @@ export default function TractDataCleanupPage() {
                                           price_per_tillable_acre: 'price_per_tillable_acre' in r ? r.price_per_tillable_acre : tract.price_per_tillable_acre,
                                           price_per_soil_rating: 'price_per_soil_rating' in r ? r.price_per_soil_rating : tract.price_per_soil_rating,
                                         })
+                                        fetchValidation(it.listing_id)
                                       }}
                                       // Capture the freshly-computed tillable + soil as the "Computed"
                                       // source (fires on Compute, BEFORE the admin saves).
@@ -1578,32 +1600,54 @@ export default function TractDataCleanupPage() {
                           {(() => {
                             const allReviewed = loaded.tracts.every((t) => !!t.boundary_reviewed_by)
                             const hasUnsaved = listingHasUnsaved(it.listing_id)
+                            const vr = validateResults[it.listing_id]
+                            const hasViolations = (vr?.items?.length ?? 0) > 0
+                            // Only block Verify when the gate is actively enforced
+                            const violationsBlock = hasViolations && vr?.enforce === true
                             return (
-                              <div className="flex items-center justify-end gap-3 border-t border-gg-gray-800 pt-4">
-                                {hasUnsaved && (
-                                  <span className="text-xs text-orange-400 inline-flex items-center gap-1">
-                                    <AlertTriangle size={13} /> Save all tract edits first
-                                  </span>
+                              <>
+                                {/* Amber advisory — always amber (never red) on data-cleanup */}
+                                {hasViolations && (
+                                  <div className="mb-3 px-3 py-2.5 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+                                    <div className="flex items-center gap-1.5 mb-1.5">
+                                      <AlertTriangle size={14} className="text-amber-400 flex-shrink-0" />
+                                      <span className="text-amber-400 text-xs font-semibold uppercase tracking-wide">Incomplete fields (not yet enforced)</span>
+                                    </div>
+                                    <ul className="space-y-0.5">
+                                      {vr!.items.map((itm: any) => (
+                                        <li key={`${itm.scope}-${itm.tract_number ?? ''}-${itm.code}`} className="text-amber-300 text-xs">{itm.message}</li>
+                                      ))}
+                                    </ul>
+                                  </div>
                                 )}
-                                {!hasUnsaved && allReviewed && (
-                                  <span className="text-xs text-green-600 inline-flex items-center gap-1">
-                                    <CheckCircle2 size={13} /> All tracts reviewed
-                                  </span>
-                                )}
-                                <button
-                                  onClick={() => verifyListing(it.listing_id)}
-                                  disabled={verifyingId === it.listing_id || hasUnsaved}
-                                  title={hasUnsaved
-                                    ? 'Save all tract edits first'
-                                    : 'Mark every tract on this listing Reviewed and set the listing to Done'}
-                                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-bold bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
-                                >
-                                  {verifyingId === it.listing_id
-                                    ? <Loader2 className="animate-spin" size={16} />
-                                    : <CheckCircle2 size={16} />}
-                                  Verify Listing
-                                </button>
-                              </div>
+                                <div className="flex items-center justify-end gap-3 border-t border-gg-gray-800 pt-4">
+                                  {hasUnsaved && (
+                                    <span className="text-xs text-orange-400 inline-flex items-center gap-1">
+                                      <AlertTriangle size={13} /> Save all tract edits first
+                                    </span>
+                                  )}
+                                  {!hasUnsaved && allReviewed && !hasViolations && (
+                                    <span className="text-xs text-green-600 inline-flex items-center gap-1">
+                                      <CheckCircle2 size={13} /> All tracts reviewed
+                                    </span>
+                                  )}
+                                  <button
+                                    onClick={() => verifyListing(it.listing_id)}
+                                    disabled={verifyingId === it.listing_id || hasUnsaved || violationsBlock}
+                                    title={
+                                      hasUnsaved ? 'Save all tract edits first' :
+                                      violationsBlock ? 'Fix incomplete fields above before verifying' :
+                                      'Mark every tract on this listing Reviewed and set the listing to Done'
+                                    }
+                                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-bold bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                                  >
+                                    {verifyingId === it.listing_id
+                                      ? <Loader2 className="animate-spin" size={16} />
+                                      : <CheckCircle2 size={16} />}
+                                    Verify Listing
+                                  </button>
+                                </div>
+                              </>
                             )
                           })()}
                         </div>

@@ -230,6 +230,23 @@ export default function AdminPrivateTreatyStagingPage() {
   const listingHasUnsaved = (lid: number) =>
     Object.keys(dirtyTracts).some(k => k.startsWith(`${lid}::`) && dirtyTracts[k])
 
+  // Completeness validation state — per staging listing id.
+  const [validateResults, setValidateResults] = useState<Record<number, { items: any[]; enforce: boolean; loading: boolean }>>({})
+  const fetchValidation = async (id: number) => {
+    setValidateResults(prev => ({ ...prev, [id]: { items: prev[id]?.items ?? [], enforce: prev[id]?.enforce ?? false, loading: true } }))
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/admin/staging/${id}/validate`)
+      if (res.ok) {
+        const data = await res.json()
+        setValidateResults(prev => ({ ...prev, [id]: { items: data.items ?? [], enforce: data.enforce ?? false, loading: false } }))
+      } else {
+        setValidateResults(prev => ({ ...prev, [id]: { items: prev[id]?.items ?? [], enforce: prev[id]?.enforce ?? false, loading: false } }))
+      }
+    } catch {
+      setValidateResults(prev => ({ ...prev, [id]: { items: prev[id]?.items ?? [], enforce: prev[id]?.enforce ?? false, loading: false } }))
+    }
+  }
+
   // Tillable polygon visibility per `${listingId}-${tractIdx}`. Per user
   // 2026-05-25: show tract polygon by default, tillable only when the
   // user clicks Show Tillable on the per-tract map. Lifted to page
@@ -537,11 +554,13 @@ export default function AdminPrivateTreatyStagingPage() {
         if (data && Array.isArray(data.items)) {
           setListings(data.items)
           setTotalCount(data.total || data.items.length)
+          data.items.forEach((l: StagingListing) => fetchValidation(l.id))
         } else if (Array.isArray(data)) {
           // Legacy non-paginated response — keep it working but don't
           // try to render hundreds of rows.
           setListings(data.slice(0, PAGE_SIZE))
           setTotalCount(data.length)
+          data.forEach((l: StagingListing) => fetchValidation(l.id))
         } else {
           setListings([])
           setTotalCount(0)
@@ -1950,11 +1969,24 @@ export default function AdminPrivateTreatyStagingPage() {
                                       fLng = tract.longitude ?? listing.scraped_data?.listing?.longitude ?? null
                                     }
                                     const disabled = fLat == null || fLng == null
+                                    const tractViolations = (validateResults[listing.id]?.items ?? [])
+                                      .filter((it: any) => it.scope === 'tract' && it.tract_number === (tract.tract_number ?? idx + 1))
                                     return (
                                       <div className="flex items-center justify-between mb-2">
-                                        <p className="text-2xl text-white font-extrabold tracking-tight">
-                                          Tract {tract.tract_number ?? idx + 1}
-                                        </p>
+                                        <div className="flex items-center gap-2">
+                                          <p className="text-2xl text-white font-extrabold tracking-tight">
+                                            Tract {tract.tract_number ?? idx + 1}
+                                          </p>
+                                          {tractViolations.length > 0 && (
+                                            <span
+                                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-500/20 border border-red-500/40 text-red-300 text-xs font-medium"
+                                              title={tractViolations.map((v: any) => v.message).join('\n')}
+                                            >
+                                              <XCircle size={11} />
+                                              {tractViolations.length} missing
+                                            </span>
+                                          )}
+                                        </div>
                                         <div className="flex items-center gap-2">
                                           {tract.created_via === 'manual' && (
                                             <button
@@ -2069,6 +2101,7 @@ export default function AdminPrivateTreatyStagingPage() {
                                       }
                                       const rk = `${listing.id}-${idx}`
                                       setCluReloadKeys(prev => ({ ...prev, [rk]: (prev[rk] || 0) + 1 }))
+                                      fetchValidation(listing.id)
                                     }}
                                     onDirtyChange={(d) => setTractDirty(`${listing.id}::${idx}::map`, d)}
                                   />
@@ -2112,6 +2145,7 @@ export default function AdminPrivateTreatyStagingPage() {
                                         sd.tracts = ts
                                         return { ...l, scraped_data: sd }
                                       }))
+                                      fetchValidation(listing.id)
                                     }}
                                     onDirtyChange={(d) => setTractDirty(`${listing.id}::${idx}::till`, d)}
                                   />
@@ -2181,6 +2215,50 @@ export default function AdminPrivateTreatyStagingPage() {
                           </p>
                         )}
 
+                        {/* Required-field checklist — red + blocks Verify when enforce=true;
+                            amber advisory only when enforce=false (observe mode). */}
+                        {(() => {
+                          const vr = validateResults[listing.id]
+                          if (!vr || vr.items.length === 0) return null
+                          const listingItems = vr.items.filter((it: any) => it.scope === 'listing')
+                          const tractItems   = vr.items.filter((it: any) => it.scope === 'tract')
+                          if (vr.enforce) {
+                            return (
+                              <div className="mb-3 px-3 py-2.5 bg-red-500/10 border border-red-500/30 rounded-lg">
+                                <div className="flex items-center gap-1.5 mb-1.5">
+                                  <XCircle size={14} className="text-red-400 flex-shrink-0" />
+                                  <span className="text-red-400 text-xs font-semibold uppercase tracking-wide">Required before verifying</span>
+                                </div>
+                                <ul className="space-y-0.5">
+                                  {listingItems.map((it: any) => (
+                                    <li key={it.code} className="text-red-300 text-xs">{it.message}</li>
+                                  ))}
+                                  {tractItems.map((it: any) => (
+                                    <li key={`${it.tract_number}-${it.code}`} className="text-red-300 text-xs">{it.message}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )
+                          } else {
+                            return (
+                              <div className="mb-3 px-3 py-2.5 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+                                <div className="flex items-center gap-1.5 mb-1.5">
+                                  <AlertTriangle size={14} className="text-amber-400 flex-shrink-0" />
+                                  <span className="text-amber-400 text-xs font-semibold uppercase tracking-wide">Incomplete fields (not yet enforced)</span>
+                                </div>
+                                <ul className="space-y-0.5">
+                                  {listingItems.map((it: any) => (
+                                    <li key={it.code} className="text-amber-300 text-xs">{it.message}</li>
+                                  ))}
+                                  {tractItems.map((it: any) => (
+                                    <li key={`${it.tract_number}-${it.code}`} className="text-amber-300 text-xs">{it.message}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )
+                          }
+                        })()}
+
                         {/* Action Buttons */}
                         {listingHasUnsaved(listing.id) && (
                           <div className="flex items-center gap-2 mb-2 px-3 py-2 bg-orange-500/10 border border-orange-500/30 rounded-lg">
@@ -2191,8 +2269,21 @@ export default function AdminPrivateTreatyStagingPage() {
                         <div className="flex items-center gap-3">
                           <button
                             onClick={() => handleVerify(listing.id)}
-                            disabled={actionLoading === listing.id || listingHasUnsaved(listing.id) || priceEditId === listing.id}
-                            title={priceEditId === listing.id ? 'Save the asking price first' : listingHasUnsaved(listing.id) ? 'Save all tract edits first' : undefined}
+                            disabled={
+                              actionLoading === listing.id ||
+                              listingHasUnsaved(listing.id) ||
+                              priceEditId === listing.id ||
+                              (validateResults[listing.id]?.enforce === true &&
+                                (validateResults[listing.id]?.items?.length ?? 0) > 0)
+                            }
+                            title={
+                              priceEditId === listing.id ? 'Save the asking price first' :
+                              listingHasUnsaved(listing.id) ? 'Save all tract edits first' :
+                              (validateResults[listing.id]?.enforce === true &&
+                                (validateResults[listing.id]?.items?.length ?? 0) > 0)
+                                ? 'Fix required fields above before verifying'
+                              : undefined
+                            }
                             className="flex items-center gap-2 px-5 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-500 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             {actionLoading === listing.id ? <Loader2 className="animate-spin" size={16} /> : <CheckCircle size={16} />}
