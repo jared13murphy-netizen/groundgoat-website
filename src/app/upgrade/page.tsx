@@ -257,6 +257,20 @@ function UpgradePageContent() {
           </p>
         </div>
 
+        {/* Free-trial reassurance — so a trialing user knows changes don't end
+            their trial or trigger an immediate charge. */}
+        {activeSub?.status === 'trialing' && (activeSub as any).trial_end && (
+          <div className="mb-6 rounded-xl border-2 border-gg-pink/50 bg-gg-pink/10 p-4">
+            <p className="text-white font-semibold text-sm">You&apos;re on a free trial — this keeps it.</p>
+            <p className="text-gg-gray-300 text-sm mt-1">
+              Your free trial runs until{' '}
+              <span className="text-white font-medium">
+                {new Date((activeSub as any).trial_end).toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })}
+              </span>. You won&apos;t be charged until then.
+            </p>
+          </div>
+        )}
+
         {/* Main Card */}
         <div className="bg-gg-gray-900 border border-gg-gray-700 rounded-2xl p-6">
           {/* State Selection */}
