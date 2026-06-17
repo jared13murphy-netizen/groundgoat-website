@@ -102,8 +102,11 @@ export default function ProfilePage() {
     try {
       const response = await fetchWithAuth(`${API_URL}/api/subscriptions/areas`)
       if (response.ok) {
-        const subscriptions = await response.json()
-        const hasActive = subscriptions.some((sub: any) => sub.status === 'active' || sub.status === 'trialing')
+        // /api/subscriptions/areas returns { unlimited, areas: [...] }, not an array.
+        const data = await response.json()
+        const areas = Array.isArray(data?.areas) ? data.areas : []
+        const hasActive = data?.unlimited === true ||
+          areas.some((sub: any) => sub.status === 'active' || sub.status === 'trialing')
         setHasActiveSubscription(hasActive)
       }
     } catch (err) {
