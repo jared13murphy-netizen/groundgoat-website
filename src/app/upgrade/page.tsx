@@ -238,7 +238,7 @@ function UpgradePageContent() {
 
   // Check if user already has this area subscribed
   const isAlreadySubscribed = areasData?.areas?.some(a =>
-    a.status === 'active' && a.state === selectedState
+    (a.status === 'active' || a.status === 'trialing') && a.state === selectedState
   )
 
   return (
