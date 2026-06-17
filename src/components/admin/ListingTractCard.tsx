@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { Pencil, Check, X, Loader2, Save, CheckCircle2, Trash2, AlertTriangle } from 'lucide-react'
+import { Pencil, Check, X, Loader2, Save, CheckCircle2, Trash2 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import TractMapEditor from '@/components/admin/TractMapEditor'
 import TillableCluWorkshop from '@/components/admin/TillableCluWorkshop'
@@ -22,9 +22,6 @@ interface Props {
   onChanged: () => void | Promise<void>
   /** Called after a manual tract is successfully deleted. */
   onDeleted?: () => void | Promise<void>
-  /** Amber advisory items from validate_listing_contract for this listing.
-   *  Non-blocking: Save tract is always enabled. Pass undefined to hide. */
-  validateItems?: { scope: string; tract_number: number | null; code: string; message: string }[]
 }
 
 const money = (v: any) =>
@@ -59,7 +56,7 @@ function SaleStatusBadge({ status }: { status: string | null | undefined }) {
   )
 }
 
-export default function ListingTractCard({ tract, listing, onChanged, onDeleted, validateItems }: Props) {
+export default function ListingTractCard({ tract, listing, onChanged, onDeleted }: Props) {
   const ring: Pt[] | null = useMemo(() => {
     const p = tract.polygon_coordinates
     return Array.isArray(p) && p.length >= 3 ? (p as Pt[]) : null
@@ -324,22 +321,6 @@ export default function ListingTractCard({ tract, listing, onChanged, onDeleted,
         )}
         </div>
       </div>
-
-      {/* Amber advisory — shows unmet required fields. Non-blocking: Save is
-          always enabled so staff can fix fields incrementally. */}
-      {validateItems && validateItems.length > 0 && (
-        <div className="mb-3 px-3 py-2.5 bg-amber-500/10 border border-amber-500/30 rounded-lg">
-          <div className="flex items-center gap-1.5 mb-1.5">
-            <AlertTriangle size={14} className="text-amber-400 flex-shrink-0" />
-            <span className="text-amber-400 text-xs font-semibold uppercase tracking-wide">Incomplete fields</span>
-          </div>
-          <ul className="space-y-0.5">
-            {validateItems.map((it) => (
-              <li key={`${it.scope}-${it.tract_number ?? ''}-${it.code}`} className="text-amber-300 text-xs">{it.message}</li>
-            ))}
-          </ul>
-        </div>
-      )}
 
       {/* Derived, read-only — refreshes after any save (recomputed server-side) */}
       <div className="flex flex-wrap gap-x-5 gap-y-1 mb-4 text-xs text-gg-gray-400">
