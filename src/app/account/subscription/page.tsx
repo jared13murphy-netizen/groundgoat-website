@@ -23,6 +23,8 @@ interface Subscription {
   cancelled_at: string | null
   stripe_subscription_id: string | null
   payment_platform: string | null
+  trial_end: string | null
+  trial_days_remaining: number | null
 }
 
 interface SubscriptionData {
@@ -436,6 +438,9 @@ export default function SubscriptionPage() {
   const currentPlanType = activeSubscriptions[0]?.subscription_type || null
   const currentBillingCycle = activeSubscriptions[0]?.billing_cycle || null
   const isBasicPlan = currentPlanType === 'basic_state'
+  // The trialing sub (if any) drives the upgrade modal's "you keep your trial,
+  // $0 today" reassurance so an upgrade never reads as an immediate charge.
+  const trialingSub = activeSubscriptions.find(sub => sub.status === 'trialing' && sub.trial_end)
   // Use the user's ACTUAL per-state price from their existing subscription so
   // legacy-priced users (e.g. $19.99/mo) see the correct base in the Add State
   // modal. Fall back to the default plan price only if we somehow don't have a
@@ -1048,9 +1053,21 @@ export default function SubscriptionPage() {
               <p className="text-gg-gray-400 mb-4">
                 Your plan will switch from Basic State (${formatPrice(PRICING.basic_state.annualPerState)}/state/yr) to Premium State (${formatPrice(PRICING.premium_state.annualPerState)}/state/yr) for all {activeSubscriptions.length} {activeSubscriptions.length === 1 ? 'state' : 'states'}.
               </p>
-              <p className="text-gg-gray-500 text-sm mb-6">
-                Prorated charges will be applied to your next invoice.
-              </p>
+              {trialingSub ? (
+                <div className="mb-6 rounded-lg border-2 border-gg-pink/50 bg-gg-pink/10 p-3">
+                  <p className="text-white font-semibold text-sm">You&apos;re on a free trial — upgrading keeps it.</p>
+                  <p className="text-gg-gray-300 text-sm mt-1">
+                    <span className="text-white font-medium">$0 charged today.</span> Your free trial continues until{' '}
+                    <span className="text-white font-medium">{formatDate(trialingSub.trial_end)}</span>. Only then will you be billed for
+                    Premium — <span className="text-white font-medium">${formatPrice(PRICING.premium_state.annualPerState * activeSubscriptions.length)}/yr</span>
+                    {activeSubscriptions.length > 1 ? ` (${activeSubscriptions.length} states)` : ''}.
+                  </p>
+                </div>
+              ) : (
+                <p className="text-gg-gray-500 text-sm mb-6">
+                  Prorated charges will be applied to your next invoice.
+                </p>
+              )}
               <div className="flex gap-3">
                 <button onClick={() => setShowUpgradeConfirm(false)} className="btn-secondary flex-1" disabled={upgrading}>
                   Cancel

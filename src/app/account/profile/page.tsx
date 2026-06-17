@@ -15,7 +15,10 @@ export default function ProfilePage() {
   const [success, setSuccess] = useState(false)
   const [error, setError] = useState('')
   const [user, setUser] = useState<any>(null)
-  
+  // Free-trial banner (profile page only). Populated from the trialing
+  // subscription's trial_days_remaining / trial_end (backend single source).
+  const [trialInfo, setTrialInfo] = useState<{ daysRemaining: number; trialEnd: string } | null>(null)
+
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -37,7 +40,29 @@ export default function ProfilePage() {
       return
     }
     fetchUser(token)
+    fetchTrial(token)
   }, [router])
+
+  const fetchTrial = async (token: string) => {
+    try {
+      const res = await fetch(`${API_URL}/api/subscriptions/areas`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) return
+      const data = await res.json()
+      const areas = Array.isArray(data?.areas) ? data.areas : []
+      const trialing = areas.find((s: any) => s.status === 'trialing' && s.trial_days_remaining != null)
+      if (trialing) {
+        setTrialInfo({ daysRemaining: trialing.trial_days_remaining, trialEnd: trialing.trial_end })
+      }
+    } catch { /* non-fatal: just hides the banner */ }
+  }
+
+  const formatTrialDate = (iso: string) => {
+    try {
+      return new Date(iso).toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })
+    } catch { return iso }
+  }
 
   const fetchUser = async (token: string) => {
     try {
@@ -206,6 +231,26 @@ export default function ProfilePage() {
             </div>
           </div>
         </div>
+
+        {/* Free-trial banner — makes it obvious they're not charged yet and
+            that upgrading keeps the trial (addresses the "will I be charged?"
+            worry). Shown only while a subscription is trialing. */}
+        {trialInfo && (
+          <div className="card mb-8 border-2 border-gg-pink/50 bg-gradient-to-r from-gg-pink/10 to-purple-500/10">
+            <div className="flex items-start gap-3">
+              <Check className="text-gg-pink flex-shrink-0 mt-0.5" size={22} />
+              <div>
+                <h3 className="font-semibold text-white text-lg">
+                  Free trial — {trialInfo.daysRemaining} {trialInfo.daysRemaining === 1 ? 'day' : 'days'} left
+                </h3>
+                <p className="text-sm text-gg-gray-300 mt-1">
+                  Your free trial ends <span className="text-white font-medium">{formatTrialDate(trialInfo.trialEnd)}</span>.
+                  You won&apos;t be charged until then — and changing or upgrading your plan keeps the rest of your free trial.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Edit Form */}
         <form onSubmit={handleSubmit} className="card">
