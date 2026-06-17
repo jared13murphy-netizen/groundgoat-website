@@ -281,6 +281,24 @@ export default function AdminStagingPage() {
   const listingHasUnsaved = (lid: number) =>
     Object.keys(dirtyTracts).some(k => k.startsWith(`${lid}::`) && dirtyTracts[k])
 
+  // Completeness validation state — per staging listing id.
+  // undefined = not yet fetched; { items: [], enforce, loading } = fetched.
+  const [validateResults, setValidateResults] = useState<Record<number, { items: any[]; enforce: boolean; loading: boolean }>>({})
+  const fetchValidation = async (id: number) => {
+    setValidateResults(prev => ({ ...prev, [id]: { items: prev[id]?.items ?? [], enforce: prev[id]?.enforce ?? false, loading: true } }))
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/admin/staging/${id}/validate`)
+      if (res.ok) {
+        const data = await res.json()
+        setValidateResults(prev => ({ ...prev, [id]: { items: data.items ?? [], enforce: data.enforce ?? false, loading: false } }))
+      } else {
+        setValidateResults(prev => ({ ...prev, [id]: { items: prev[id]?.items ?? [], enforce: prev[id]?.enforce ?? false, loading: false } }))
+      }
+    } catch {
+      setValidateResults(prev => ({ ...prev, [id]: { items: prev[id]?.items ?? [], enforce: prev[id]?.enforce ?? false, loading: false } }))
+    }
+  }
+
   // Tillable polygon visibility per `${listingId}-${tractIdx}`. Mirrors
   // the PT staging page — show tract polygon by default, tillable only
   // when the user clicks Show Tillable on the per-tract map.
@@ -603,9 +621,12 @@ export default function AdminStagingPage() {
           if (data.company_counts) {
             setCompanyCounts(data.company_counts)
           }
+          // Kick off completeness validation for each loaded listing (fire-and-forget)
+          data.items.forEach((l: StagingListing) => fetchValidation(l.id))
         } else if (Array.isArray(data)) {
           setListings(data)
           setTotalCount(data.length)
+          data.forEach((l: StagingListing) => fetchValidation(l.id))
         } else {
           setListings([])
           setTotalCount(0)
@@ -895,6 +916,7 @@ export default function AdminStagingPage() {
         body: JSON.stringify({ scraped_data: updated }),
       })
       if (!res.ok) showToast('error', 'Failed to save land types')
+      else fetchValidation(listing.id)
     } catch {
       showToast('error', 'Network error — land types not saved')
     }
@@ -954,6 +976,7 @@ export default function AdminStagingPage() {
         body: JSON.stringify({ scraped_data: updated }),
       })
       if (!res.ok) showToast('error', 'Failed to add tract')
+      else fetchValidation(listing.id)
     } catch {
       showToast('error', 'Network error — tract not added')
     } finally {
@@ -2140,11 +2163,24 @@ export default function AdminStagingPage() {
                                       fLng = tract.longitude ?? listing.scraped_data?.listing?.longitude ?? null
                                     }
                                     const disabled = fLat == null || fLng == null
+                                    const tractViolations = (validateResults[listing.id]?.items ?? [])
+                                      .filter((it: any) => it.scope === 'tract' && it.tract_number === (tract.tract_number ?? idx + 1))
                                     return (
                                       <div className="flex items-center justify-between mb-2">
-                                        <p className="text-2xl text-white font-extrabold tracking-tight">
-                                          Tract {tract.tract_number ?? idx + 1}
-                                        </p>
+                                        <div className="flex items-center gap-2">
+                                          <p className="text-2xl text-white font-extrabold tracking-tight">
+                                            Tract {tract.tract_number ?? idx + 1}
+                                          </p>
+                                          {tractViolations.length > 0 && (
+                                            <span
+                                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-500/20 border border-red-500/40 text-red-300 text-xs font-medium"
+                                              title={tractViolations.map((v: any) => v.message).join('\n')}
+                                            >
+                                              <XCircle size={11} />
+                                              {tractViolations.length} missing
+                                            </span>
+                                          )}
+                                        </div>
                                         <div className="flex items-center gap-2">
                                           {tract.created_via === 'manual' && (
                                             <button
@@ -2275,6 +2311,8 @@ export default function AdminStagingPage() {
                                       // polygon existed).
                                       const rk = `${listing.id}-${idx}`
                                       setCluReloadKeys(prev => ({ ...prev, [rk]: (prev[rk] || 0) + 1 }))
+                                      // Refresh completeness after polygon save (no_polygon may now clear)
+                                      fetchValidation(listing.id)
                                     }}
                                     onDirtyChange={(d) => setTractDirty(`${listing.id}::${idx}::map`, d)}
                                   />
@@ -2323,6 +2361,8 @@ export default function AdminStagingPage() {
                                         sd.tracts = ts
                                         return { ...l, scraped_data: sd }
                                       }))
+                                      // Refresh completeness after CLU save (soil/tillable may now be set)
+                                      fetchValidation(listing.id)
                                     }}
                                     onDirtyChange={(d) => setTractDirty(`${listing.id}::${idx}::till`, d)}
                                   />
@@ -2399,6 +2439,52 @@ export default function AdminStagingPage() {
                         {/* Confidence/COMPLETE badge removed per user
                             2026-06-02 — redundant status chip on the card. */}
 
+                        {/* Required-field checklist — shown when the server says
+                            fields are missing. Red + disables Verify when enforce=true;
+                            amber advisory only when enforce=false (observe mode). */}
+                        {(() => {
+                          const vr = validateResults[listing.id]
+                          if (!vr || vr.items.length === 0) return null
+                          // Group listing-level items first, then per-tract
+                          const listingItems = vr.items.filter((it: any) => it.scope === 'listing')
+                          const tractItems   = vr.items.filter((it: any) => it.scope === 'tract')
+                          if (vr.enforce) {
+                            return (
+                              <div className="mb-3 px-3 py-2.5 bg-red-500/10 border border-red-500/30 rounded-lg">
+                                <div className="flex items-center gap-1.5 mb-1.5">
+                                  <XCircle size={14} className="text-red-400 flex-shrink-0" />
+                                  <span className="text-red-400 text-xs font-semibold uppercase tracking-wide">Required before verifying</span>
+                                </div>
+                                <ul className="space-y-0.5">
+                                  {listingItems.map((it: any) => (
+                                    <li key={it.code} className="text-red-300 text-xs">{it.message}</li>
+                                  ))}
+                                  {tractItems.map((it: any) => (
+                                    <li key={`${it.tract_number}-${it.code}`} className="text-red-300 text-xs">{it.message}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )
+                          } else {
+                            return (
+                              <div className="mb-3 px-3 py-2.5 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+                                <div className="flex items-center gap-1.5 mb-1.5">
+                                  <AlertTriangle size={14} className="text-amber-400 flex-shrink-0" />
+                                  <span className="text-amber-400 text-xs font-semibold uppercase tracking-wide">Incomplete fields (not yet enforced)</span>
+                                </div>
+                                <ul className="space-y-0.5">
+                                  {listingItems.map((it: any) => (
+                                    <li key={it.code} className="text-amber-300 text-xs">{it.message}</li>
+                                  ))}
+                                  {tractItems.map((it: any) => (
+                                    <li key={`${it.tract_number}-${it.code}`} className="text-amber-300 text-xs">{it.message}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )
+                          }
+                        })()}
+
                         {/* Action Buttons */}
                         {listingHasUnsaved(listing.id) && (
                           <div className="flex items-center gap-2 mb-2 px-3 py-2 bg-orange-500/10 border border-orange-500/30 rounded-lg">
@@ -2409,8 +2495,19 @@ export default function AdminStagingPage() {
                         <div className="flex items-center gap-3">
                           <button
                             onClick={() => handleVerify(listing.id)}
-                            disabled={actionLoading === listing.id || listingHasUnsaved(listing.id)}
-                            title={listingHasUnsaved(listing.id) ? 'Save all tract edits first' : undefined}
+                            disabled={
+                              actionLoading === listing.id ||
+                              listingHasUnsaved(listing.id) ||
+                              (validateResults[listing.id]?.enforce === true &&
+                                (validateResults[listing.id]?.items?.length ?? 0) > 0)
+                            }
+                            title={
+                              listingHasUnsaved(listing.id) ? 'Save all tract edits first' :
+                              (validateResults[listing.id]?.enforce === true &&
+                                (validateResults[listing.id]?.items?.length ?? 0) > 0)
+                                ? 'Fix required fields above before verifying'
+                              : undefined
+                            }
                             className="flex items-center gap-2 px-5 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-500 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             {actionLoading === listing.id ? <Loader2 className="animate-spin" size={16} /> : <CheckCircle size={16} />}

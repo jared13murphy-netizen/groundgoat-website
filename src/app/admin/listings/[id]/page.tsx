@@ -81,6 +81,7 @@ export default function EditListingPage() {
   const [addingTract, setAddingTract] = useState(false)
   const [verifying, setVerifying] = useState(false)
   const [detailsOpen, setDetailsOpen] = useState(false)
+  const [validateItems, setValidateItems] = useState<any[]>([])
 
   // Form state
   const [formData, setFormData] = useState({
@@ -161,7 +162,14 @@ export default function EditListingPage() {
       if (response.ok) {
         const data = await response.json()
         setListing(data)
-        
+
+        // Amber advisory — fetch completeness validation (fire-and-forget)
+        fetch(`${API_URL}/api/listings/${listingId}/validate`, {
+          headers: { 'Authorization': `Bearer ${token}` },
+        }).then((r) => r.ok ? r.json() : null).then((d) => {
+          if (d) setValidateItems(d.items ?? [])
+        }).catch(() => {})
+
         // Populate form
         setFormData({
           title: data.title || '',
@@ -222,7 +230,19 @@ export default function EditListingPage() {
   // server-recomputed $/x and listing rollups show up immediately.
   const refreshListing = async () => {
     const token = localStorage.getItem('auth_token')
-    if (token) await fetchListing(token)
+    if (token) {
+      await fetchListing(token)
+      // Refresh amber advisory after any save
+      try {
+        const res = await fetch(`${API_URL}/api/listings/${listingId}/validate`, {
+          headers: { 'Authorization': `Bearer ${token}` },
+        })
+        if (res.ok) {
+          const data = await res.json()
+          setValidateItems(data.items ?? [])
+        }
+      } catch {}
+    }
   }
 
   // Add a new (empty) tract to this listing. Seeds the new tract's location
@@ -1062,6 +1082,11 @@ export default function EditListingPage() {
                       listing={listing}
                       onChanged={refreshListing}
                       onDeleted={refreshListing}
+                      validateItems={validateItems.filter(
+                        (it: any) =>
+                          it.scope === 'tract' &&
+                          it.tract_number === tract.tract_number
+                      )}
                     />
                   ))}
               </div>
