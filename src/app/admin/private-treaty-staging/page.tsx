@@ -438,7 +438,7 @@ export default function AdminPrivateTreatyStagingPage() {
           setScrapeUrl('')
           fetchStagingListings()
         } else {
-          setScrapeUrlResult({ success: false, message: d.error || 'Scraping failed' })
+          setScrapeUrlResult({ success: false, message: d.error || 'Scraping failed — no reason was returned (check scraper logs)' })
         }
       }
 

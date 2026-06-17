@@ -521,7 +521,7 @@ export default function AdminStagingPage() {
           setPage(0)
           fetchStagingListings(0)
         } else {
-          setScrapeUrlResult({ success: false, message: d.error || 'Scraping failed' })
+          setScrapeUrlResult({ success: false, message: d.error || 'Scraping failed — no reason was returned (check scraper logs)' })
         }
       }
 
