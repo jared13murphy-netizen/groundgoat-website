@@ -5660,11 +5660,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                 label: 'Soil Types',
                 swatchGradient: 'linear-gradient(to right,#c94040,#c4b030,#29a068,#2878c8,#b03890)',
               },
-              {
-                key: 'csb' as const,
-                label: 'Tillable Ground',
-                swatchGradient: 'linear-gradient(to right,#FFD400,#267000,#A87000,#FFA8E3)',
-              },
+              // 'Tillable Ground' (csb) overlay removed per owner 2026-06-18 — will
+              // return as a proper nationwide layer. csb logic left dormant.
               {
                 key: 'soil_rating' as const,
                 label: 'Soil Rating',
