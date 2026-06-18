@@ -5,7 +5,7 @@ import fetchWithAuth from '@/lib/fetchWithAuth'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
-import { User, CreditCard, LogOut, MapPin, ChevronRight, CheckCircle, AlertCircle, Loader2, Users, Mail, Trash2 } from 'lucide-react'
+import { User, CreditCard, LogOut, MapPin, ChevronRight, CheckCircle, AlertCircle, Loader2, Users, Mail, Trash2, Bell } from 'lucide-react'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -327,12 +327,19 @@ const handleResendVerification = async () => {
               href="/account/team"
             />
           )}
+
+          <MenuItem
+            icon={<Bell size={20} />}
+            label="Notifications"
+            description="Choose which emails you receive"
+            href="/account/notifications"
+          />
         </div>
 
         {/* App Settings Note */}
         <div className="mt-6 p-4 bg-gg-gray-800/50 rounded-lg">
           <p className="text-gg-gray-400 text-sm">
-            <span className="text-gg-gray-300">Notifications & Settings</span> can be managed in the Ground Goat mobile app.
+            Additional settings, including push-notification alerts, can be managed in the Ground Goat mobile app.
           </p>
         </div>
 
