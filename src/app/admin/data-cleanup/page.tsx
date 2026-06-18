@@ -1608,14 +1608,14 @@ export default function TractDataCleanupPage() {
                               <>
                                 {/* Amber advisory — always amber (never red) on data-cleanup */}
                                 {hasViolations && (
-                                  <div className="mb-3 px-3 py-2.5 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+                                  <div className="mb-3 px-3 py-2.5 bg-amber-900/30 border border-amber-700/60 rounded-lg">
                                     <div className="flex items-center gap-1.5 mb-1.5">
-                                      <AlertTriangle size={14} className="text-amber-400 flex-shrink-0" />
-                                      <span className="text-amber-400 text-xs font-semibold uppercase tracking-wide">Incomplete fields (not yet enforced)</span>
+                                      <AlertTriangle size={14} className="text-amber-200 flex-shrink-0" />
+                                      <span className="text-amber-200 text-xs font-semibold uppercase tracking-wide">Incomplete fields (not yet enforced)</span>
                                     </div>
                                     <ul className="space-y-0.5">
                                       {vr!.items.map((itm: any) => (
-                                        <li key={`${itm.scope}-${itm.tract_number ?? ''}-${itm.code}`} className="text-amber-300 text-xs">{itm.message}</li>
+                                        <li key={`${itm.scope}-${itm.tract_number ?? ''}-${itm.code}`} className="text-amber-200 text-xs">{itm.message}</li>
                                       ))}
                                     </ul>
                                   </div>

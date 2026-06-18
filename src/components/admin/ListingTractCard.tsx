@@ -328,14 +328,14 @@ export default function ListingTractCard({ tract, listing, onChanged, onDeleted,
       {/* Amber advisory — shows unmet required fields. Non-blocking: Save is
           always enabled so staff can fix fields incrementally. */}
       {validateItems && validateItems.length > 0 && (
-        <div className="mb-3 px-3 py-2.5 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+        <div className="mb-3 px-3 py-2.5 bg-amber-900/30 border border-amber-700/60 rounded-lg">
           <div className="flex items-center gap-1.5 mb-1.5">
-            <AlertTriangle size={14} className="text-amber-400 flex-shrink-0" />
-            <span className="text-amber-400 text-xs font-semibold uppercase tracking-wide">Incomplete fields</span>
+            <AlertTriangle size={14} className="text-amber-200 flex-shrink-0" />
+            <span className="text-amber-200 text-xs font-semibold uppercase tracking-wide">Incomplete fields</span>
           </div>
           <ul className="space-y-0.5">
             {validateItems.map((it) => (
-              <li key={`${it.scope}-${it.tract_number ?? ''}-${it.code}`} className="text-amber-300 text-xs">{it.message}</li>
+              <li key={`${it.scope}-${it.tract_number ?? ''}-${it.code}`} className="text-amber-200 text-xs">{it.message}</li>
             ))}
           </ul>
         </div>
