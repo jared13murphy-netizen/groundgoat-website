@@ -2059,6 +2059,12 @@ export default function AdminPrivateTreatyStagingPage() {
                                     sourceImageKind={cachedSrc?.kind || inlineSourceKind || null}
                                     listingUrl={listing.source_url || null}
                                     listingState={listing.scraped_data?.listing?.state || null}
+                                    listingCounty={
+                                      (typeof tract.county === 'string' ? tract.county : tract.county?.county_name || null)
+                                      || tract.county_name
+                                      || info.county
+                                      || null
+                                    }
                                     // Per user 2026-05-26: Align button +
                                     // live Computed update on edit (same
                                     // wiring as auction staging).

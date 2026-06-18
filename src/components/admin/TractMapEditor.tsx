@@ -142,6 +142,10 @@ interface TractMapEditorProps {
    *  meridian (e.g. IL has both the 3rd and 4th PM). Improves accuracy for
    *  GIS-printed map images that carry a PLSS section label. */
   listingState?: string | null
+  /** County name for this tract (e.g. "Story", "Story County"). Passed to the
+   *  parcel-ID lookup so a parcel number is found only within the tract's county
+   *  — parcel IDs are NOT unique nationwide or even within a state. */
+  listingCounty?: string | null
   /** The listing's stored street address, if any. Pre-fills the optional
    *  "address" box in the Upload Image panel so the admin can geocode-anchor
    *  a plain aerial (no PLSS/DMS). Left blank when we have no address (e.g.
@@ -439,6 +443,7 @@ export default function TractMapEditor({
   onComputeTillable,
   listingUrl,
   listingState,
+  listingCounty,
   listingAddress,
   hideTillable = false,
   tractNumber,
@@ -612,7 +617,7 @@ export default function TractMapEditor({
       const looksLikeParcel = !/\s/.test(q) && /\d/.test(q)
       if (looksLikeParcel) {
         const pres = await fetchWithAuth(
-          `${API_URL}/api/admin/parcel-lookup?parcelnumb=${encodeURIComponent(q)}&state=${encodeURIComponent(listingState || '')}`
+          `${API_URL}/api/admin/parcel-lookup?parcelnumb=${encodeURIComponent(q)}&state=${encodeURIComponent(listingState || '')}&county=${encodeURIComponent(listingCounty || '')}`
         )
         if (pres.ok) {
           const pd = await pres.json().catch(() => ({}))

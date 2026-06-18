@@ -1409,6 +1409,7 @@ export default function TractDataCleanupPage() {
                                       sourceImageKind="listing_image"
                                       listingUrl={loaded.source_url || it.source_url}
                                       listingState={tract.state_abbr || it.state}
+                                      listingCounty={tract.county_name || it.county || null}
                                       listingAddress={loaded.address}
                                       scrapedAcres={tract.total_acres}
                                       latitude={tract.latitude}

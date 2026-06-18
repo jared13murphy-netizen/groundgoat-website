@@ -2257,6 +2257,7 @@ export default function AdminStagingPage() {
                                     sourceImageKind={cachedSrc?.kind || inlineSourceKind || null}
                                     listingUrl={listing.source_url || null}
                                     listingState={listing.scraped_data?.listing?.state || null}
+                                    listingCounty={(typeof tract.county === 'string' ? tract.county : tract.county?.county_name || null) || tract.county_name || null}
                                     // Per user 2026-05-26: Align button
                                     // appears when drawn polygon area
                                     // doesn't match scraped acres.

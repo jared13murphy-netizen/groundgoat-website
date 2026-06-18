@@ -306,6 +306,7 @@ export default function TractCleanupEditor({ tract, listing, onChanged, onDirtyC
             sourceImageKind="listing_image"
             listingUrl={listing.source_url}
             listingState={tract.state_abbr || listing.state}
+            listingCounty={tract.county_name || listing.county || null}
             listingAddress={listing.address}
             scrapedAcres={num(tract.total_acres)}
             latitude={num(tract.latitude)}

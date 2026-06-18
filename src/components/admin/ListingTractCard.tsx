@@ -501,6 +501,7 @@ export default function ListingTractCard({ tract, listing, onChanged, onDeleted,
         sourceImageKind="listing_image"
         listingUrl={listing.source_url}
         listingState={tract.state_abbr || listing.state}
+        listingCounty={tract.county_name || listing.county || null}
         listingAddress={listing.address}
         scrapedAcres={tract.total_acres}
         latitude={tract.latitude}
