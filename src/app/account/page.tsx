@@ -331,7 +331,7 @@ const handleResendVerification = async () => {
           <MenuItem
             icon={<Bell size={20} />}
             label="Notifications"
-            description="Choose which emails you receive"
+            description="Choose what you hear about and how"
             href="/account/notifications"
           />
         </div>
@@ -339,7 +339,7 @@ const handleResendVerification = async () => {
         {/* App Settings Note */}
         <div className="mt-6 p-4 bg-gg-gray-800/50 rounded-lg">
           <p className="text-gg-gray-400 text-sm">
-            Additional settings, including push-notification alerts, can be managed in the Ground Goat mobile app.
+            Additional settings can be managed in the Ground Goat mobile app.
           </p>
         </div>
 
