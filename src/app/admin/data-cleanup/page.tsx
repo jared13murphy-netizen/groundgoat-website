@@ -1602,8 +1602,7 @@ export default function TractDataCleanupPage() {
                             const hasUnsaved = listingHasUnsaved(it.listing_id)
                             const vr = validateResults[it.listing_id]
                             const hasViolations = (vr?.items?.length ?? 0) > 0
-                            // Only block Verify when the gate is actively enforced
-                            const violationsBlock = hasViolations && vr?.enforce === true
+                            const violationsBlock = hasViolations
                             return (
                               <>
                                 {/* Amber advisory — always amber (never red) on data-cleanup */}
@@ -1611,7 +1610,7 @@ export default function TractDataCleanupPage() {
                                   <div className="mb-3 px-3 py-2.5 bg-yellow-300 border border-yellow-500 rounded-lg">
                                     <div className="flex items-center gap-1.5 mb-1.5">
                                       <AlertTriangle size={14} className="text-black flex-shrink-0" />
-                                      <span className="text-black text-xs font-semibold uppercase tracking-wide">Incomplete fields (not yet enforced)</span>
+                                      <span className="text-black text-xs font-semibold uppercase tracking-wide">Incomplete fields</span>
                                     </div>
                                     <ul className="space-y-0.5">
                                       {vr!.items.map((itm: any) => (

@@ -2215,48 +2215,30 @@ export default function AdminPrivateTreatyStagingPage() {
                           </p>
                         )}
 
-                        {/* Required-field checklist — red + blocks Verify when enforce=true;
-                            amber advisory only when enforce=false (observe mode). */}
+                        {/* Required-field checklist — shown when the server says
+                            fields are missing. Verify button is disabled whenever
+                            items are present, regardless of the enforce flag. */}
                         {(() => {
                           const vr = validateResults[listing.id]
                           if (!vr || vr.items.length === 0) return null
                           const listingItems = vr.items.filter((it: any) => it.scope === 'listing')
                           const tractItems   = vr.items.filter((it: any) => it.scope === 'tract')
-                          if (vr.enforce) {
-                            return (
-                              <div className="mb-3 px-3 py-2.5 bg-yellow-300 border border-yellow-500 rounded-lg">
-                                <div className="flex items-center gap-1.5 mb-1.5">
-                                  <XCircle size={14} className="text-black flex-shrink-0" />
-                                  <span className="text-black text-xs font-semibold uppercase tracking-wide">Required before verifying</span>
-                                </div>
-                                <ul className="space-y-0.5">
-                                  {listingItems.map((it: any) => (
-                                    <li key={it.code} className="text-gray-900 text-xs">{it.message}</li>
-                                  ))}
-                                  {tractItems.map((it: any) => (
-                                    <li key={`${it.tract_number}-${it.code}`} className="text-gray-900 text-xs">{it.message}</li>
-                                  ))}
-                                </ul>
+                          return (
+                            <div className="mb-3 px-3 py-2.5 bg-yellow-300 border border-yellow-500 rounded-lg">
+                              <div className="flex items-center gap-1.5 mb-1.5">
+                                <AlertTriangle size={14} className="text-black flex-shrink-0" />
+                                <span className="text-black text-xs font-semibold uppercase tracking-wide">Incomplete fields</span>
                               </div>
-                            )
-                          } else {
-                            return (
-                              <div className="mb-3 px-3 py-2.5 bg-yellow-300 border border-yellow-500 rounded-lg">
-                                <div className="flex items-center gap-1.5 mb-1.5">
-                                  <AlertTriangle size={14} className="text-black flex-shrink-0" />
-                                  <span className="text-black text-xs font-semibold uppercase tracking-wide">Incomplete fields (not yet enforced)</span>
-                                </div>
-                                <ul className="space-y-0.5">
-                                  {listingItems.map((it: any) => (
-                                    <li key={it.code} className="text-gray-900 text-xs">{it.message}</li>
-                                  ))}
-                                  {tractItems.map((it: any) => (
-                                    <li key={`${it.tract_number}-${it.code}`} className="text-gray-900 text-xs">{it.message}</li>
-                                  ))}
-                                </ul>
-                              </div>
-                            )
-                          }
+                              <ul className="space-y-0.5">
+                                {listingItems.map((it: any) => (
+                                  <li key={it.code} className="text-gray-900 text-xs">{it.message}</li>
+                                ))}
+                                {tractItems.map((it: any) => (
+                                  <li key={`${it.tract_number}-${it.code}`} className="text-gray-900 text-xs">{it.message}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )
                         })()}
 
                         {/* Action Buttons */}
@@ -2273,15 +2255,13 @@ export default function AdminPrivateTreatyStagingPage() {
                               actionLoading === listing.id ||
                               listingHasUnsaved(listing.id) ||
                               priceEditId === listing.id ||
-                              (validateResults[listing.id]?.enforce === true &&
-                                (validateResults[listing.id]?.items?.length ?? 0) > 0)
+                              (validateResults[listing.id]?.items?.length ?? 0) > 0
                             }
                             title={
                               priceEditId === listing.id ? 'Save the asking price first' :
                               listingHasUnsaved(listing.id) ? 'Save all tract edits first' :
-                              (validateResults[listing.id]?.enforce === true &&
-                                (validateResults[listing.id]?.items?.length ?? 0) > 0)
-                                ? 'Fix required fields above before verifying'
+                              (validateResults[listing.id]?.items?.length ?? 0) > 0
+                                ? 'Resolve required fields before verifying'
                               : undefined
                             }
                             className="flex items-center gap-2 px-5 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-500 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
