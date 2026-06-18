@@ -1979,7 +1979,7 @@ export default function AdminPrivateTreatyStagingPage() {
                                           </p>
                                           {tractViolations.length > 0 && (
                                             <span
-                                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-500/20 border border-red-500/40 text-red-300 text-xs font-medium"
+                                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-yellow-300 border border-yellow-500 text-black text-xs font-medium"
                                               title={tractViolations.map((v: any) => v.message).join('\n')}
                                             >
                                               <XCircle size={11} />
@@ -2224,34 +2224,34 @@ export default function AdminPrivateTreatyStagingPage() {
                           const tractItems   = vr.items.filter((it: any) => it.scope === 'tract')
                           if (vr.enforce) {
                             return (
-                              <div className="mb-3 px-3 py-2.5 bg-red-500/10 border border-red-500/30 rounded-lg">
+                              <div className="mb-3 px-3 py-2.5 bg-yellow-300 border border-yellow-500 rounded-lg">
                                 <div className="flex items-center gap-1.5 mb-1.5">
-                                  <XCircle size={14} className="text-red-400 flex-shrink-0" />
-                                  <span className="text-red-400 text-xs font-semibold uppercase tracking-wide">Required before verifying</span>
+                                  <XCircle size={14} className="text-black flex-shrink-0" />
+                                  <span className="text-black text-xs font-semibold uppercase tracking-wide">Required before verifying</span>
                                 </div>
                                 <ul className="space-y-0.5">
                                   {listingItems.map((it: any) => (
-                                    <li key={it.code} className="text-red-300 text-xs">{it.message}</li>
+                                    <li key={it.code} className="text-gray-900 text-xs">{it.message}</li>
                                   ))}
                                   {tractItems.map((it: any) => (
-                                    <li key={`${it.tract_number}-${it.code}`} className="text-red-300 text-xs">{it.message}</li>
+                                    <li key={`${it.tract_number}-${it.code}`} className="text-gray-900 text-xs">{it.message}</li>
                                   ))}
                                 </ul>
                               </div>
                             )
                           } else {
                             return (
-                              <div className="mb-3 px-3 py-2.5 bg-amber-900/30 border border-amber-700/60 rounded-lg">
+                              <div className="mb-3 px-3 py-2.5 bg-yellow-300 border border-yellow-500 rounded-lg">
                                 <div className="flex items-center gap-1.5 mb-1.5">
-                                  <AlertTriangle size={14} className="text-amber-200 flex-shrink-0" />
-                                  <span className="text-amber-200 text-xs font-semibold uppercase tracking-wide">Incomplete fields (not yet enforced)</span>
+                                  <AlertTriangle size={14} className="text-black flex-shrink-0" />
+                                  <span className="text-black text-xs font-semibold uppercase tracking-wide">Incomplete fields (not yet enforced)</span>
                                 </div>
                                 <ul className="space-y-0.5">
                                   {listingItems.map((it: any) => (
-                                    <li key={it.code} className="text-amber-200 text-xs">{it.message}</li>
+                                    <li key={it.code} className="text-gray-900 text-xs">{it.message}</li>
                                   ))}
                                   {tractItems.map((it: any) => (
-                                    <li key={`${it.tract_number}-${it.code}`} className="text-amber-200 text-xs">{it.message}</li>
+                                    <li key={`${it.tract_number}-${it.code}`} className="text-gray-900 text-xs">{it.message}</li>
                                   ))}
                                 </ul>
                               </div>

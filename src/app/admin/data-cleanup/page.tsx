@@ -1285,7 +1285,7 @@ export default function TractDataCleanupPage() {
                                       </div>
                                     )}
                                     {tract.boundary_valid === false && (
-                                      <span className="text-[11px] px-2 py-0.5 rounded bg-amber-500/15 text-amber-600 border border-amber-500/40">
+                                      <span className="text-[11px] px-2 py-0.5 rounded bg-yellow-300 border border-yellow-500 text-black">
                                         Acreage check
                                       </span>
                                     )}
@@ -1608,14 +1608,14 @@ export default function TractDataCleanupPage() {
                               <>
                                 {/* Amber advisory — always amber (never red) on data-cleanup */}
                                 {hasViolations && (
-                                  <div className="mb-3 px-3 py-2.5 bg-amber-900/30 border border-amber-700/60 rounded-lg">
+                                  <div className="mb-3 px-3 py-2.5 bg-yellow-300 border border-yellow-500 rounded-lg">
                                     <div className="flex items-center gap-1.5 mb-1.5">
-                                      <AlertTriangle size={14} className="text-amber-200 flex-shrink-0" />
-                                      <span className="text-amber-200 text-xs font-semibold uppercase tracking-wide">Incomplete fields (not yet enforced)</span>
+                                      <AlertTriangle size={14} className="text-black flex-shrink-0" />
+                                      <span className="text-black text-xs font-semibold uppercase tracking-wide">Incomplete fields (not yet enforced)</span>
                                     </div>
                                     <ul className="space-y-0.5">
                                       {vr!.items.map((itm: any) => (
-                                        <li key={`${itm.scope}-${itm.tract_number ?? ''}-${itm.code}`} className="text-amber-200 text-xs">{itm.message}</li>
+                                        <li key={`${itm.scope}-${itm.tract_number ?? ''}-${itm.code}`} className="text-gray-900 text-xs">{itm.message}</li>
                                       ))}
                                     </ul>
                                   </div>
