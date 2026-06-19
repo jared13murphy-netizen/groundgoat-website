@@ -3595,11 +3595,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       return !src || map.isSourceLoaded(sid)
     })
 
-    if (allLoaded()) return  // already loaded, no spinner needed
-
-    setOverlayLoading(overlayLabel)
-    overlayLoadingRef.current = overlayLabel
-
+    // Listeners registered when tiles are actually in-flight.
+    let loadListenersActive = false
     const onData = (e: any) => {
       if (!watchSources.includes(e.sourceId)) return
       if (allLoaded()) {
@@ -3613,12 +3610,52 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         overlayLoadingRef.current = null
       }
     }
-
-    map.on('sourcedata', onData)
-    map.on('idle', onIdle)
-    return () => {
+    const attachLoadListeners = () => {
+      if (loadListenersActive) return
+      loadListenersActive = true
+      map.on('sourcedata', onData)
+      map.on('idle', onIdle)
+    }
+    const detachLoadListeners = () => {
+      if (!loadListenersActive) return
+      loadListenersActive = false
       map.off('sourcedata', onData)
       map.off('idle', onIdle)
+    }
+
+    // Re-evaluate loading state when the user zooms or pans into range.
+    // This handles the case where the overlay was enabled below its minzoom,
+    // so no tiles were loading at effect setup time — they start loading only
+    // after the user zooms in past the source minzoom.
+    const checkLoadState = () => {
+      if (allLoaded()) {
+        // Nothing in-flight: hide spinner, detach load listeners.
+        setOverlayLoading(null)
+        overlayLoadingRef.current = null
+        detachLoadListeners()
+      } else {
+        // Tiles are now loading — show spinner and wait for them to finish.
+        setOverlayLoading(overlayLabel)
+        overlayLoadingRef.current = overlayLabel
+        attachLoadListeners()
+      }
+    }
+
+    if (!allLoaded()) {
+      // Tiles already loading at setup time — start spinner immediately.
+      setOverlayLoading(overlayLabel)
+      overlayLoadingRef.current = overlayLabel
+      attachLoadListeners()
+    }
+    // Whether or not tiles are loading now, register zoom/move listeners so
+    // we catch the transition when the user zooms past the source's minzoom.
+    map.on('zoomend', checkLoadState)
+    map.on('moveend', checkLoadState)
+
+    return () => {
+      map.off('zoomend', checkLoadState)
+      map.off('moveend', checkLoadState)
+      detachLoadListeners()
       setOverlayLoading(null)
       overlayLoadingRef.current = null
     }
@@ -5980,15 +6017,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                   swatchColor={swatchColor}
                   onClick={() => {
                     setBaseOverlay(active ? null : key)
-                    if (!active && key !== 'nccpi' && key !== 'fsa' && key !== 'crops' && mapRef.current && mapRef.current.getZoom() < 6) {
-                      showZoomToast('Zoom in to view soil maps')
-                    }
-                    if (!active && key === 'nccpi' && mapRef.current && mapRef.current.getZoom() < 6) {
-                      showZoomToast('Zoom in to view NCCPI')
-                    }
-                    if (!active && key === 'crops' && mapRef.current && mapRef.current.getZoom() < 10) {
-                      showZoomToast('Zoom in to view Crops by Year')
-                    }
+                    // The persistent zoomTooFar toast handles all overlay
+                    // zoom-gate messaging — no duplicate showZoomToast here.
                   }}
                 />
               )
