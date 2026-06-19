@@ -3553,6 +3553,77 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     zoomToastTimerRef.current = setTimeout(() => setZoomToast(null), 4000)
   }, [])
 
+  // Persistent toast: shown while an overlay is active AND zoom is below its useful min.
+  const [zoomTooFar, setZoomTooFar] = useState<string | null>(null)
+  // Loading spinner: shown while overlay tiles are still fetching.
+  const [overlayLoading, setOverlayLoading] = useState<string | null>(null)
+
+  // Track overlay tile loading state.
+  const overlayLoadingRef = useRef<string | null>(null)
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded || !baseOverlay) {
+      setOverlayLoading(null)
+      overlayLoadingRef.current = null
+      return
+    }
+    // Determine which source IDs to watch for this overlay.
+    const watchSources: string[] = (() => {
+      switch (baseOverlay) {
+        case 'ssurgo': return ['parcel-enrichment-ssurgo-soils']
+        case 'crops': return ['csb-fields']
+        case 'nccpi': return SOIL_PMTILES_STATES.map(st => `explore-nccpi-${st}`)
+        case 'fsa': return ['explore-fsa-coverage', 'explore-fsa']
+        default: return []
+      }
+    })()
+    if (watchSources.length === 0) return
+
+    const overlayLabel = (() => {
+      switch (baseOverlay) {
+        case 'ssurgo': return 'Soil Types'
+        case 'nccpi': return 'NCCPI'
+        case 'fsa': return 'FSA'
+        case 'crops': return 'Crops'
+        default: return 'Overlay'
+      }
+    })()
+
+    // Check if already loaded.
+    const allLoaded = () => watchSources.every(sid => {
+      const src = map.getSource(sid) as any
+      return !src || map.isSourceLoaded(sid)
+    })
+
+    if (allLoaded()) return  // already loaded, no spinner needed
+
+    setOverlayLoading(overlayLabel)
+    overlayLoadingRef.current = overlayLabel
+
+    const onData = (e: any) => {
+      if (!watchSources.includes(e.sourceId)) return
+      if (allLoaded()) {
+        setOverlayLoading(null)
+        overlayLoadingRef.current = null
+      }
+    }
+    const onIdle = () => {
+      if (allLoaded()) {
+        setOverlayLoading(null)
+        overlayLoadingRef.current = null
+      }
+    }
+
+    map.on('sourcedata', onData)
+    map.on('idle', onIdle)
+    return () => {
+      map.off('sourcedata', onData)
+      map.off('idle', onIdle)
+      setOverlayLoading(null)
+      overlayLoadingRef.current = null
+    }
+  }, [baseOverlay, mapLoaded])
+
   // Sync baseOverlay (layer panel radio) → enrichmentOverlay / tillableSource.
   // This is separate from the soilMapsOpen effect so the layer panel
   // can drive the overlay independently of the nav-bar button.
@@ -4350,6 +4421,46 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       showZoomToast('Zoom in to view FSA coverage')
     }
   }, [baseOverlay, mapLoaded, showZoomToast])
+
+  // Persistent "zoom in" toast — shows while an overlay is active AND
+  // the current zoom is below the overlay's min useful zoom.
+  // Clears automatically when the user zooms in enough or turns off the overlay.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+
+    const checkZoom = () => {
+      if (!baseOverlay) { setZoomTooFar(null); return }
+      const zoom = map.getZoom()
+      const minZooms: Record<string, number> = {
+        ssurgo: 6,
+        nccpi: 6,
+        crops: 10,
+        csb: 10,
+        fsa: 4,
+      }
+      const minZ = minZooms[baseOverlay]
+      if (minZ !== undefined && zoom < minZ) {
+        const labels: Record<string, string> = {
+          ssurgo: 'Soil Types',
+          nccpi: 'NCCPI',
+          crops: 'Crops by Year',
+          csb: 'Crops by Year',
+          fsa: 'FSA',
+        }
+        setZoomTooFar(`Zoom in to see ${labels[baseOverlay] ?? baseOverlay}`)
+      } else {
+        setZoomTooFar(null)
+      }
+    }
+
+    checkZoom()
+    map.on('zoom', checkZoom)
+    return () => {
+      map.off('zoom', checkZoom)
+      setZoomTooFar(null)
+    }
+  }, [baseOverlay, mapLoaded])
 
   // Recolor the CSB fields layer when the selected crop year changes.
   // setPaintProperty recolors in-place — no tile refetch.
@@ -5475,6 +5586,73 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           }}
         >
           {zoomToast}
+        </div>
+      )}
+
+      {/* Persistent toast: visible while an overlay is active and the map
+          is zoomed out too far to render it. Clears automatically on zoom-in
+          or overlay toggle. White bg / black text per spec. */}
+      {zoomTooFar && (
+        <div
+          role="status"
+          aria-live="polite"
+          style={{
+            position: 'absolute',
+            top: 72,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 999,
+            background: '#ffffff',
+            color: '#111111',
+            padding: '10px 20px',
+            borderRadius: 8,
+            fontSize: 13,
+            fontWeight: 500,
+            boxShadow: '0 4px 20px rgba(0,0,0,0.18), 0 1px 4px rgba(0,0,0,0.12)',
+            pointerEvents: 'none',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {zoomTooFar}
+        </div>
+      )}
+
+      {/* Loading spinner: shown while overlay tiles are still being fetched.
+          Positioned below the zoom toast (top: 120) to avoid overlap. */}
+      {overlayLoading && (
+        <div
+          role="status"
+          aria-live="polite"
+          style={{
+            position: 'absolute',
+            top: 120,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 1001,
+            background: 'rgba(20, 25, 30, 0.92)',
+            color: 'white',
+            padding: '10px 16px',
+            borderRadius: 8,
+            fontSize: 13,
+            fontWeight: 500,
+            boxShadow: '0 4px 16px rgba(0,0,0,0.25)',
+            pointerEvents: 'none',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+          }}
+        >
+          <div style={{
+            width: 14,
+            height: 14,
+            border: '2px solid rgba(255,255,255,0.3)',
+            borderTopColor: '#fff',
+            borderRadius: '50%',
+            animation: 'spin 1s linear infinite',
+            flexShrink: 0,
+          }} />
+          {`Loading ${overlayLoading}…`}
         </div>
       )}
 
