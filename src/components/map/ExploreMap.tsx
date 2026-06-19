@@ -2816,10 +2816,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     let cancelled = false
     const fetchConfig = async () => {
       try {
-        const res = await fetchWithAuth(`${API_URL}/api/regrid/config`)
+        // header_auth=1 → backend returns a clean tile_url_template with
+        // no embedded ?t= token; auth is sent via Authorization header in
+        // transformRequest instead. Accept as long as tile_url_template is
+        // present — has_token will be false in this mode.
+        const res = await fetchWithAuth(`${API_URL}/api/regrid/config?header_auth=1`)
         if (!res.ok) return
         const data = await res.json()
-        if (!cancelled && data?.tile_url_template && data?.has_token) {
+        if (!cancelled && data?.tile_url_template) {
           setRegridConfig(data)
         }
       } catch {
