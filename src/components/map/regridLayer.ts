@@ -44,10 +44,14 @@ export function buildRegridStateFilter(config: RegridConfig | null): any | null 
 
 export async function fetchRegridConfig(): Promise<RegridConfig | null> {
   try {
-    const res = await fetchWithAuth(`${API_URL}/api/regrid/config`)
+    // header_auth=1 → backend returns a clean tile_url_template with no
+    // embedded ?t= token; auth is sent via Authorization header in
+    // transformRequest instead. Accept the config as long as
+    // tile_url_template is present — has_token will be false in this mode.
+    const res = await fetchWithAuth(`${API_URL}/api/regrid/config?header_auth=1`)
     if (!res.ok) return null
     const data: RegridConfig = await res.json()
-    if (data?.tile_url_template && data?.has_token) return data
+    if (data?.tile_url_template) return data
     return null
   } catch {
     return null
