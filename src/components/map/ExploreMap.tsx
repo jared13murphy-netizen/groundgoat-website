@@ -27,6 +27,7 @@ import { toRings as toTractRings, ringsToGeometry } from '@/lib/polygonRings'
 import Tract3DModal from '@/components/Tract3DModal'
 import GroundTruthPanel from '@/components/portal/GroundTruthPanel'
 import NdviPanel from '@/components/portal/NdviPanel'
+import LandDetailPanel, { type LandDetailClickData } from './LandDetailPanel'
 import { countyCentroids } from '@/data/countyCentroids'
 import { getCountiesForState } from '@/data/counties'
 import { STATE_ABBR, STATE_BOUNDS } from './mapConstants'
@@ -1082,6 +1083,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     lngLat?: [number, number]
   } | null>(null)
   const [show3DViewer, setShow3DViewer] = useState(false)
+  // Unified land-detail panel (replaces both the Regrid parcel popup and
+  // the soil/crop popup). A single click collects features from all visible
+  // tile layers and passes them here as bucketed props.
+  const [landDetail, setLandDetail] = useState<LandDetailClickData | null>(null)
 
   // Entering or exiting comparables mode invalidates the bbox tract
   // cache — the sold-only filter (and the eventual sale_status change)
@@ -1157,7 +1162,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
   // ── Layer control panel state ──────────────────────────────────────
   // layerPanelOpen: whether the layers panel is visible.
-  // baseOverlay: radio-exclusive base overlay ('crops' = Planted Crops CDL,
+  // baseOverlay: radio-exclusive base overlay ('crops' = Crops by Year CDL,
   //   'ssurgo' = soil types SSURGO, 'nccpi' = NCCPI productivity overlay,
   //   'fsa' = FSA coverage + CLU field lines, null = none).
   //   Toggling one off turns the others off.
@@ -1208,6 +1213,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const [filters, setFilters] = useState<FilterState>(INITIAL_FILTERS)
   const [filterOpen, setFilterOpenInternal] = useState(false)
   const filtersRef = useRef<FilterState>(INITIAL_FILTERS)
+  // Mutable ref so the unified map-click handler always reads the
+  // current overlay without being torn down/re-created on every change.
+  const baseOverlayRef = useRef<'crops' | 'csb' | 'ssurgo' | 'nccpi' | 'fsa' | null>(null)
+  // Keep baseOverlayRef in sync with baseOverlay state.
+  useEffect(() => { baseOverlayRef.current = baseOverlay }, [baseOverlay])
 
   // Serialized filter params used by the new state/county count
   // endpoints (and any future filter-aware fetcher). Re-computes
@@ -1302,6 +1312,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const TILES_BASE_URL =
     process.env.NEXT_PUBLIC_TILES_URL ||
     'https://ground-goat-tiles-production.up.railway.app'
+  // States that have a pre-built _soils.pmtiles archive on the tile server.
+  // Used for both the Soil Types (ssurgo) and NCCPI overlays.
+  const SOIL_PMTILES_STATES = [
+    'AL','AR','AZ','CA','CO','CT','DE','FL','GA','IA','ID','IL','IN','KS','KY',
+    'LA','MA','MD','ME','MI','MN','MO','MS','MT','NC','ND','NE','NH','NJ','NM',
+    'NV','NY','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VA','VT','WA',
+    'WI','WV','WY',
+  ]
   const [isAdmin, setIsAdmin] = useState(false)
   // Pilot-owner gate for the parcel-enrichment overlay (Hancock IL
   // tillable + PI). Tied to the existing groundgoat_admin role rather
@@ -3065,18 +3083,15 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       }
     }
 
-    // Click — fetch the full Premium Schema record from our backend
-    // cache (which calls Regrid only on cache miss) and open a popup.
-    const onClick = async (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
+    // Click — open the unified LandDetailPanel. Query all overlay layers
+    // at the click point so the panel can show soil + crop data alongside
+    // the parcel data without a competing anchored Popup.
+    const onClick = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
       const f = e.features?.[0]
       if (!f) return
       // If the click also landed on a top-of-stack pin, that layer's own
-      // handler opens its popup. Don't ALSO open the full parcel-detail
-      // popup or the user gets two stacked cards (reported bug). The pins
-      // sit on top, so their popup wins.
-      //   - parcel-sale-pin-plus: Regrid sale "+" marker (onPinClick)
-      //   - tract-pin-circles: native tract pin (replaces the old DOM
-      //     marker's stopPropagation, which native layers can't do)
+      // handler opens its popup. Don't ALSO open the detail panel or the
+      // user gets two stacked cards.
       const topPinLayers = ['parcel-sale-pin-plus', 'tract-pin-circles']
         .filter(id => map.getLayer(id))
       if (topPinLayers.length) {
@@ -3084,43 +3099,39 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           if (map.queryRenderedFeatures(e.point, { layers: topPinLayers }).length) return
         } catch {/* layer torn down mid-click */}
       }
-      const props: any = f.properties || {}
-      const ll_uuid = props.ll_uuid as string | undefined
-      const lng = e.lngLat.lng
-      const lat = e.lngLat.lat
+      const parcelProps: any = f.properties || {}
+      const ll_uuid = (parcelProps.ll_uuid as string | undefined) || null
 
-      // Loading popup so the user sees immediate feedback.
-      const popup = new maplibregl.Popup({
-        closeButton: true, closeOnClick: true, maxWidth: '320px',
-        className: 'regrid-parcel-popup',
-      })
-        .setLngLat(e.lngLat)
-        .setHTML(_regridLoadingHTML(props))
-        .addTo(map)
+      // Also query soil layers and CSB at the same point so the panel
+      // gets point-specific soil type and crop history.
+      // Per-state PMTiles layers: soils-full-fill-{ST} and explore-nccpi-fill-{ST}.
+      const soilLayerIds = [
+        'parcel-enrichment-ssurgo-soils-fill',
+        ...SOIL_PMTILES_STATES.map(st => `soils-full-fill-${st}`),
+        ...SOIL_PMTILES_STATES.map(st => `explore-nccpi-fill-${st}`),
+      ].filter(id => map.getLayer(id))
+      const csbLayerIds = ['csb-fields-fill'].filter(id => map.getLayer(id))
 
+      let soilProps: Record<string, any> | null = null
+      let csbProps: Record<string, any> | null = null
       try {
-        const qs = new URLSearchParams()
-        if (ll_uuid) qs.set('ll_uuid', ll_uuid)
-        else { qs.set('lat', String(lat)); qs.set('lng', String(lng)) }
-        // Fire both requests in parallel. Enrichment is best-effort —
-        // 404s for non-pilot accounts AND for parcels we haven't yet
-        // enriched (everywhere except Hancock IL today), so we don't
-        // gate the popup on it.
-        const enrichPromise: Promise<any> = (!!ll_uuid)
-          ? fetchWithAuth(`${API_URL}/api/parcel-enrichment/by-uuid?ll_uuid=${encodeURIComponent(ll_uuid)}`)
-              .then(r => r.ok ? r.json() : null).catch(() => null)
-          : Promise.resolve(null)
-        const res = await fetchWithAuth(`${API_URL}/api/regrid/parcel?${qs.toString()}`)
-        const enrich = await enrichPromise
-        if (!res.ok) {
-          popup.setHTML(_regridFallbackHTML(props) + _enrichmentPopupSection(enrich))
-          return
+        if (soilLayerIds.length) {
+          const soilFeats = map.queryRenderedFeatures(e.point, { layers: soilLayerIds })
+          if (soilFeats.length) soilProps = soilFeats[0].properties || {}
         }
-        const data = await res.json()
-        popup.setHTML(_regridPopupHTML(data?.parcel || props) + _enrichmentPopupSection(enrich))
-      } catch {
-        popup.setHTML(_regridFallbackHTML(props))
-      }
+        if (csbLayerIds.length) {
+          const csbFeats = map.queryRenderedFeatures(e.point, { layers: csbLayerIds })
+          if (csbFeats.length) csbProps = csbFeats[0].properties || {}
+        }
+      } catch {/* layers torn down mid-click */}
+
+      setLandDetail({
+        parcelProps,
+        soilProps,
+        csbProps,
+        ll_uuid,
+        activeOverlay: baseOverlayRef.current,
+      })
     }
 
     map.on('mousemove', FILL_LAYER, onMove)
@@ -3373,39 +3384,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         return
       }
 
-      if (activePopup) { try { activePopup.remove() } catch {/* gone */} activePopup = null }
-      const popup = new maplibregl.Popup({
-        closeButton: true,
-        closeOnClick: true,
-        maxWidth: '340px',
-        className: 'regrid-parcel-popup',
-        offset: 14,
+      // Explore mode: open the unified LandDetailPanel (no competing Popup).
+      setLandDetail({
+        parcelProps: props,
+        soilProps: null,
+        csbProps: null,
+        ll_uuid: ll_uuid || null,
+        activeOverlay: baseOverlayRef.current,
       })
-        .setLngLat(e.lngLat)
-        .setHTML(_regridLoadingHTML(props))
-        .addTo(map)
-      activePopup = popup
-      popup.on('close', () => { if (activePopup === popup) activePopup = null })
-
-      try {
-        const qs = new URLSearchParams()
-        if (ll_uuid) qs.set('ll_uuid', ll_uuid)
-        else { qs.set('lat', String(lat)); qs.set('lng', String(lng)) }
-        const enrichPromise: Promise<any> = (!!ll_uuid)
-          ? fetchWithAuth(`${API_URL}/api/parcel-enrichment/by-uuid?ll_uuid=${encodeURIComponent(ll_uuid)}`)
-              .then(r => r.ok ? r.json() : null).catch(() => null)
-          : Promise.resolve(null)
-        const res = await fetchWithAuth(`${API_URL}/api/regrid/parcel?${qs.toString()}`)
-        const enrich = await enrichPromise
-        if (!res.ok) {
-          popup.setHTML(_regridFallbackHTML(props) + _enrichmentPopupSection(enrich))
-          return
-        }
-        const data = await res.json()
-        popup.setHTML(_regridPopupHTML(data?.parcel || props) + _enrichmentPopupSection(enrich))
-      } catch {
-        popup.setHTML(_regridFallbackHTML(props))
-      }
     }
     const setPointer = () => { map.getCanvas().style.cursor = 'pointer' }
     const clearPointer = () => { map.getCanvas().style.cursor = '' }
@@ -3625,7 +3611,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const SRC_LABELS = 'parcel-enrichment-labels'
     const SRC_LABELS_WC = 'parcel-enrichment-labels-worldcover'
     const SRC_SOILS = 'parcel-enrichment-ssurgo-soils'
-    const SRC_SOILS_FULL = 'soils-full'
     const LYR_TILL_FILL = 'parcel-enrichment-tillable-fill'
     const LYR_TILL_FILL_WC = 'parcel-enrichment-tillable-worldcover-fill'
     const LYR_FSA_LINE = 'parcel-enrichment-fsa-clu-line'
@@ -3634,7 +3619,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const LYR_SOILS_FILL = 'parcel-enrichment-ssurgo-soils-fill'
     const LYR_SOILS_LINE = 'parcel-enrichment-ssurgo-soils-line'
     const LYR_SOILS_LABEL = 'parcel-enrichment-ssurgo-soils-label'
-    const LYR_SOILS_FULL_FILL = 'soils-full-fill'
 
     if (!map.getSource(SRC_TILLABLE)) {
       map.addSource(SRC_TILLABLE, {
@@ -3688,21 +3672,158 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         type: 'vector',
         tiles: [`${API_URL}/api/tiles/soils/{z}/{x}/{y}.mvt`],
         minzoom: 6,
-        maxzoom: 14,
+        maxzoom: 16,
       })
     }
-    // All-land SSURGO source (soil_polygons_full, 48 states, every
-    // land parcel — not clipped to FSA CLU / CDL cropland). Backs the
-    // "Soil Types" (baseOverlay==='ssurgo') overlay so there are no
-    // blank spots over covered states. Same MVT layer name ('soils')
-    // and same minzoom/maxzoom as the clipped SRC_SOILS source.
-    if (!map.getSource(SRC_SOILS_FULL)) {
-      map.addSource(SRC_SOILS_FULL, {
-        type: 'vector',
-        tiles: [`${API_URL}/api/tiles/soils-full/{z}/{x}/{y}.mvt`],
-        minzoom: 6,
-        maxzoom: 14,
-      })
+    // ── Per-state PMTiles sources for Soil Types + NCCPI overlays ───
+    // Register pmtiles protocol if not already done (the admin parcel
+    // overlay effect also registers it, but may not have run yet if
+    // the user isn't an admin or adminParcelOverlay is off).
+    const w = window as any
+    if (!w.__ggPmtilesRegistered) {
+      maplibregl.addProtocol('pmtiles', new PMTilesProtocol().tile as any)
+      w.__ggPmtilesRegistered = true
+    }
+    // Track per-state source/layer IDs so cleanup can remove them all.
+    const soilPmSourceIds: string[] = []
+    const soilPmLayerIds: string[] = []
+    const nccpiPmSourceIds: string[] = []
+    const nccpiPmLayerIds: string[] = []
+    const soilsFullFillLayerIds: string[] = []
+
+    for (const st of SOIL_PMTILES_STATES) {
+      // ── Soil Types (ssurgo / all-land) ────────────────────────────
+      // Each state gets its own pmtiles source + fill + line layers.
+      // source-layer must be 'soils' (matches the pmtiles archive).
+      const soilSrcId = `soils-full-${st}`
+      const soilFillId = `soils-full-fill-${st}`
+      const soilLineId = `soils-full-line-${st}`
+      if (!map.getSource(soilSrcId)) {
+        map.addSource(soilSrcId, {
+          type: 'vector',
+          url: `pmtiles://${TILES_BASE_URL}/tiles/${st}_soils.pmtiles`,
+        } as any)
+      }
+      soilPmSourceIds.push(soilSrcId)
+      if (!map.getLayer(soilFillId)) {
+        map.addLayer({
+          id: soilFillId,
+          type: 'fill',
+          source: soilSrcId,
+          'source-layer': 'soils',
+          minzoom: 6,
+          layout: {
+            visibility: (enrichmentOverlay && tillableSource === 'ssurgo') ? 'visible' : 'none',
+          },
+          paint: {
+            // 16-color categorical palette keyed on mukey % 16.
+            // mukey is a STRING in PMTiles-encoded vector tiles — wrap
+            // with to-number so the % operator works correctly.
+            'fill-color': [
+              'step',
+              ['%', ['to-number', ['get', 'mukey'], 0], 16],
+              '#c94040',   // 0  — red (dark)
+              1,  '#d4753a', // 1  — orange (dark)
+              2,  '#c4b030', // 2  — yellow (dark)
+              3,  '#5aaa2e', // 3  — lime (dark)
+              4,  '#29a068', // 4  — teal (dark)
+              5,  '#2878c8', // 5  — blue (dark)
+              6,  '#6050c0', // 6  — violet (dark)
+              7,  '#b03890', // 7  — magenta (dark)
+              8,  '#e06060', // 8  — red (light)
+              9,  '#e0a060', // 9  — orange (light)
+              10, '#d8d055', // 10 — yellow (light)
+              11, '#80cc55', // 11 — lime (light)
+              12, '#50c090', // 12 — teal (light)
+              13, '#5598e0', // 13 — blue (light)
+              14, '#9080d8', // 14 — violet (light)
+              15, '#d060b0', // 15 — magenta (light)
+            ],
+            'fill-opacity': [
+              'interpolate', ['linear'], ['zoom'],
+              6, 0,
+              7, 0.60,
+            ],
+          },
+        })
+      }
+      soilPmLayerIds.push(soilFillId)
+      soilsFullFillLayerIds.push(soilFillId)
+      if (!map.getLayer(soilLineId)) {
+        map.addLayer({
+          id: soilLineId,
+          type: 'line',
+          source: soilSrcId,
+          'source-layer': 'soils',
+          minzoom: 6,
+          layout: {
+            visibility: (enrichmentOverlay && tillableSource === 'ssurgo') ? 'visible' : 'none',
+            'line-join': 'round',
+            'line-cap': 'round',
+          },
+          paint: {
+            'line-color': 'rgba(0,0,0,0.12)',
+            'line-width': ['interpolate', ['linear'], ['zoom'], 11, 0.4, 16, 1.2],
+          },
+        })
+      }
+      soilPmLayerIds.push(soilLineId)
+
+      // ── NCCPI productivity choropleth ──────────────────────────────
+      // Same per-state pmtiles archive — different paint keyed on the
+      // 'nccpi' property (0..1 float). source-layer is 'soils' (same
+      // archive). nccpi is a STRING in encoded tiles — wrap with
+      // to-number to guarantee the interpolate expression works.
+      const nccpiSrcId = `explore-nccpi-${st}`
+      const nccpiFillId = `explore-nccpi-fill-${st}`
+      const nccpiLineId = `explore-nccpi-line-${st}`
+      if (!map.getSource(nccpiSrcId)) {
+        map.addSource(nccpiSrcId, {
+          type: 'vector',
+          url: `pmtiles://${TILES_BASE_URL}/tiles/${st}_soils.pmtiles`,
+        } as any)
+      }
+      nccpiPmSourceIds.push(nccpiSrcId)
+      if (!map.getLayer(nccpiFillId)) {
+        map.addLayer({
+          id: nccpiFillId,
+          type: 'fill',
+          source: nccpiSrcId,
+          'source-layer': 'soils',
+          minzoom: 6,
+          layout: { visibility: 'none' },
+          paint: {
+            'fill-color': ['interpolate', ['linear'], ['to-number', ['get', 'nccpi'], 0],
+              0,   '#d73027',
+              25,  '#fc8d59',
+              50,  '#fee08b',
+              75,  '#91cf60',
+              100, '#1a9850',
+            ],
+            'fill-opacity': ['interpolate', ['linear'], ['zoom'], 6, 0, 7, 0.65],
+          },
+        })
+      }
+      nccpiPmLayerIds.push(nccpiFillId)
+      if (!map.getLayer(nccpiLineId)) {
+        map.addLayer({
+          id: nccpiLineId,
+          type: 'line',
+          source: nccpiSrcId,
+          'source-layer': 'soils',
+          minzoom: 6,
+          layout: {
+            visibility: 'none',
+            'line-join': 'round',
+            'line-cap': 'round',
+          },
+          paint: {
+            'line-color': 'rgba(0,0,0,0.12)',
+            'line-width': ['interpolate', ['linear'], ['zoom'], 11, 0.4, 16, 1.2],
+          },
+        })
+      }
+      nccpiPmLayerIds.push(nccpiLineId)
     }
 
     // Tillable polygons — solid green so the eye reads "this portion
@@ -3803,7 +3924,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             10, 0,
             11.5, 0.60,
           ],
-          'fill-outline-color': 'rgba(40, 30, 10, 0.5)',
         },
       })
     }
@@ -3816,17 +3936,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         minzoom: 10,
         layout: {
           visibility: (enrichmentOverlay && tillableSource === 'ssurgo_csb') ? 'visible' : 'none',
+          'line-join': 'round',
+          'line-cap': 'round',
         },
         paint: {
-          'line-color': 'rgba(40, 30, 10, 0.65)',
-          'line-width': 0.8,
-          // Fade in/out together with the fill so the borders
-          // don't pop on alone.
-          'line-opacity': [
-            'interpolate', ['linear'], ['zoom'],
-            10, 0,
-            11.5, 1,
-          ],
+          'line-color': 'rgba(0,0,0,0.12)',
+          'line-width': ['interpolate', ['linear'], ['zoom'], 11, 0.4, 16, 1.2],
         },
       })
     }
@@ -3869,52 +3984,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         minzoom: 12.5,
       })
     }
-    // ── All-land SSURGO fill (Soil Types / baseOverlay==='ssurgo') ──
-    // Same categorical mukey palette + opacity ramp as the clipped
-    // LYR_SOILS_FILL above, but backed by the all-land soils-full
-    // source so there are no blank spots over covered states.
-    // Visible only when tillableSource === 'ssurgo' (Soil Types).
-    if (!map.getLayer(LYR_SOILS_FULL_FILL)) {
-      map.addLayer({
-        id: LYR_SOILS_FULL_FILL,
-        type: 'fill',
-        source: SRC_SOILS_FULL,
-        'source-layer': 'soils',
-        minzoom: 6,
-        layout: {
-          visibility: (enrichmentOverlay && tillableSource === 'ssurgo') ? 'visible' : 'none',
-        },
-        paint: {
-          // REUSE the exact categorical mukey palette from LYR_SOILS_FILL.
-          'fill-color': [
-            'step',
-            ['%', ['to-number', ['get', 'mukey']], 16],
-            '#c94040',   // 0  — red (dark)
-            1,  '#d4753a', // 1  — orange (dark)
-            2,  '#c4b030', // 2  — yellow (dark)
-            3,  '#5aaa2e', // 3  — lime (dark)
-            4,  '#29a068', // 4  — teal (dark)
-            5,  '#2878c8', // 5  — blue (dark)
-            6,  '#6050c0', // 6  — violet (dark)
-            7,  '#b03890', // 7  — magenta (dark)
-            8,  '#e06060', // 8  — red (light)
-            9,  '#e0a060', // 9  — orange (light)
-            10, '#d8d055', // 10 — yellow (light)
-            11, '#80cc55', // 11 — lime (light)
-            12, '#50c090', // 12 — teal (light)
-            13, '#5598e0', // 13 — blue (light)
-            14, '#9080d8', // 14 — violet (light)
-            15, '#d060b0', // 15 — magenta (light)
-          ],
-          'fill-opacity': [
-            'interpolate', ['linear'], ['zoom'],
-            6, 0,
-            7, 0.60,
-          ],
-          'fill-outline-color': 'rgba(40, 30, 10, 0.5)',
-        },
-      })
-    }
     // ── CSB crop-field vector tile source + fill layer ────────────
     // Backed by the /api/tiles/csb-fields/{z}/{x}/{y}.mvt endpoint.
     // source-layer: 'csb_fields'. Properties: csbid, acres,
@@ -3950,84 +4019,42 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       })
     }
 
-    // ── CSB fields click popup — crop history per field ────────────
+    // ── CSB fields click → LandDetailPanel ──────────────────────────
+    // When a CSB crop field is clicked we open the panel with the crop
+    // data pre-populated. If a Regrid parcel fill is also under the
+    // click, the parcel fill's onClick fires first (it sits on top in
+    // the layer stack) and already calls setLandDetail with the parcel
+    // props + csb data from queryRenderedFeatures. In that case the
+    // CSB field handler sees a non-empty landDetail already set and
+    // can safely skip. We use the same "query regrid to check for
+    // parcel" approach as onSoilsFullClick.
     const onCsbFieldClick = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
       if (!e.features?.length) return
-      const props: any = e.features[0].properties || {}
-      const acres = props.acres != null ? Number(props.acres).toFixed(1) : '—'
-      const years = [2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024]
-      const historyRows = years.map(yr => {
-        const code = props[`cdl${yr}`]
-        if (!code || code === 0) return `<div style="display:flex;justify-content:space-between;gap:12px;padding:1px 0;"><span style="color:rgba(255,255,255,0.38);">${yr}</span><span style="color:rgba(255,255,255,0.35);">—</span></div>`
-        const entry = CDL_PALETTE[code as number]
-        const name = entry ? entry.name : `Code ${code}`
-        const color = entry ? entry.color : '#999999'
-        return `<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:2px 0;">
-          <span style="color:rgba(255,255,255,0.45);">${yr}</span>
-          <span style="display:flex;align-items:center;gap:5px;">
-            <span style="width:8px;height:8px;border-radius:2px;background:${color};border:1px solid rgba(255,255,255,0.25);flex-shrink:0;display:inline-block;"></span>
-            <span style="color:rgba(255,255,255,0.80);font-size:11px;">${name}</span>
-          </span>
-        </div>`
-      }).join('')
-      new maplibregl.Popup({
-        closeButton: true,
-        closeOnClick: true,
-        maxWidth: '240px',
-        className: 'regrid-parcel-popup',
-        offset: 10,
+      const csbProps: any = e.features[0].properties || {}
+      // If a Regrid parcel fill underlies this point, the parcel
+      // click handler already opened the panel (with CSB context
+      // included via queryRenderedFeatures). Skip here to avoid a
+      // redundant re-open with no parcel data.
+      const regridLayer = 'regrid-parcels-fill'
+      let hasParcel = false
+      try {
+        if (map.getLayer(regridLayer)) {
+          hasParcel = map.queryRenderedFeatures(e.point, { layers: [regridLayer] }).length > 0
+        }
+      } catch {/* layer torn down */}
+      if (hasParcel) return
+
+      setLandDetail({
+        parcelProps: null,
+        soilProps: null,
+        csbProps,
+        ll_uuid: null,
+        activeOverlay: baseOverlayRef.current,
       })
-        .setLngLat(e.lngLat)
-        .setHTML(`
-          <div style="background:rgba(14,14,14,0.95);border-radius:10px;padding:12px 16px;font-size:12px;color:#fff;min-width:180px;">
-            <div style="font-weight:700;font-size:13px;margin-bottom:6px;color:#fff;">Crop History</div>
-            <div style="color:rgba(255,255,255,0.5);font-size:10px;margin-bottom:8px;">${acres} acres</div>
-            ${historyRows}
-          </div>
-        `)
-        .addTo(map)
     }
     map.on('click', LYR_CSB_FIELDS_FILL, onCsbFieldClick)
     map.on('mouseenter', LYR_CSB_FIELDS_FILL, () => { map.getCanvas().style.cursor = 'pointer' })
     map.on('mouseleave', LYR_CSB_FIELDS_FILL, () => { map.getCanvas().style.cursor = '' })
-
-    // ── NCCPI productivity choropleth ─────────────────────────────
-    // Nationwide (48 CONUS states). Backend serves a fast grid at z6-9 and
-    // real polygons at z>=10 (empty below z6), so minzoom is 6. source-layer:
-    // 'nccpi'. Property: nccpi (float 0–100). Only features with nccpi>0 emitted.
-    const SRC_NCCPI = 'explore-nccpi'
-    const LYR_NCCPI_FILL = 'explore-nccpi-fill'
-    if (!map.getSource(SRC_NCCPI)) {
-      map.addSource(SRC_NCCPI, {
-        type: 'vector',
-        tiles: [`${API_URL}/api/tiles/nccpi/{z}/{x}/{y}.mvt`],
-        minzoom: 6,
-        maxzoom: 14,
-      })
-    }
-    if (!map.getLayer(LYR_NCCPI_FILL)) {
-      map.addLayer({
-        id: LYR_NCCPI_FILL,
-        type: 'fill',
-        source: SRC_NCCPI,
-        'source-layer': 'nccpi',
-        minzoom: 6,
-        layout: { visibility: 'none' },
-        paint: {
-          'fill-color': ['interpolate', ['linear'], ['get', 'nccpi'],
-            0,   '#d73027',
-            25,  '#fc8d59',
-            50,  '#fee08b',
-            75,  '#91cf60',
-            100, '#1a9850',
-          ],
-          // Fade in from z6 like the other two public overlays so it doesn't
-          // pop on at full opacity when it first appears zoomed out.
-          'fill-opacity': ['interpolate', ['linear'], ['zoom'], 6, 0, 7, 0.65],
-          'fill-outline-color': 'rgba(0,109,44,0.25)',
-        },
-      })
-    }
 
     // ── FSA overlay: county coverage choropleth + CLU field lines ─────
     // Two sub-layers toggled together by baseOverlay === 'fsa'.
@@ -4079,9 +4106,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         minzoom: 12,
         layout: { visibility: 'none' },
         paint: {
-          'line-color': '#ff6d00',
-          'line-width': ['interpolate', ['linear'], ['zoom'], 12, 0.5, 16, 1.5],
-          'line-opacity': 0.9,
+          'line-color': '#22d3ee',
+          'line-width': ['interpolate', ['linear'], ['zoom'], 12, 0.6, 16, 2.0],
+          'line-opacity': 0.95,
         },
       })
     }
@@ -4168,61 +4195,70 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       })
     }
 
-    // ── Soil Types (all-land) click popup ─────────────────────────
-    // Clicking a soil polygon in the all-land Soil Types overlay shows
-    // a dark-glass popup with the map-unit name + symbol.
+    // ── Soil Types (all-land) click → LandDetailPanel ──────────────
+    // The Regrid parcel fill layer may or may not be under the click
+    // (Soil Types is visible over all land, not just parcels). When
+    // both are hit, the parcel fill layer's own onClick fires first
+    // and calls setLandDetail with parcel context. When ONLY the soil
+    // polygon is hit (no Regrid parcel), we open the panel with soil
+    // context only so the user still gets the muname/musym info.
     const onSoilsFullClick = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
       if (!e.features?.length) return
-      const props: any = e.features[0].properties || {}
-      const muname = props.muname || '—'
-      const musym = props.musym || props.mukey || '—'
-      const popup = new maplibregl.Popup({
-        closeButton: true,
-        closeOnClick: true,
-        maxWidth: '240px',
-        className: 'regrid-parcel-popup',
-        offset: 10,
+      const soilProps: any = e.features[0].properties || {}
+      // Query whether the Regrid fill also underlies this point. If so,
+      // the parcel fill onClick already fired (higher z-order) — don't
+      // double-open a panel.
+      const regridLayer = 'regrid-parcels-fill'
+      let hasParcel = false
+      try {
+        if (map.getLayer(regridLayer)) {
+          hasParcel = map.queryRenderedFeatures(e.point, { layers: [regridLayer] }).length > 0
+        }
+      } catch {/* layer torn down */}
+      if (hasParcel) return  // parcel click already handled it
+
+      setLandDetail({
+        parcelProps: null,
+        soilProps,
+        csbProps: null,
+        ll_uuid: null,
+        activeOverlay: baseOverlayRef.current,
       })
-        .setLngLat(e.lngLat)
-        .setHTML(`
-          <div style="background:rgba(14,14,14,0.95);border-radius:10px;padding:12px 16px;font-size:13px;color:#fff;min-width:160px;">
-            <div style="font-weight:700;font-size:14px;margin-bottom:8px;color:#fff;">${muname}</div>
-            <div style="display:flex;justify-content:space-between;gap:16px;">
-              <span style="color:rgba(255,255,255,0.6);">Symbol</span>
-              <span style="font-weight:600;">${musym}</span>
-            </div>
-          </div>
-        `)
-        .addTo(map)
     }
-    map.on('click', LYR_SOILS_FULL_FILL, onSoilsFullClick)
-    map.on('mouseenter', LYR_SOILS_FULL_FILL, () => { map.getCanvas().style.cursor = 'pointer' })
-    map.on('mouseleave', LYR_SOILS_FULL_FILL, () => { map.getCanvas().style.cursor = '' })
+    // Bind the soilsFullClick handler to every per-state fill layer.
+    for (const fillId of soilsFullFillLayerIds) {
+      map.on('click', fillId, onSoilsFullClick)
+      map.on('mouseenter', fillId, () => { map.getCanvas().style.cursor = 'pointer' })
+      map.on('mouseleave', fillId, () => { map.getCanvas().style.cursor = '' })
+    }
 
     return () => {
       try {
         if (!map.getStyle()) return
-        map.off('click', LYR_SOILS_FULL_FILL, onSoilsFullClick)
+        for (const fillId of soilsFullFillLayerIds) {
+          map.off('click', fillId, onSoilsFullClick)
+        }
         map.off('click', LYR_CSB_FIELDS_FILL, onCsbFieldClick)
         for (const id of [
           LYR_LABELS, LYR_LABELS_WC, LYR_FSA_LINE,
           LYR_TILL_FILL, LYR_TILL_FILL_WC,
           LYR_SOILS_LABEL, LYR_SOILS_LINE, LYR_SOILS_FILL,
-          LYR_SOILS_FULL_FILL,
           LYR_CSB_FIELDS_FILL,
-          LYR_NCCPI_FILL,
           LYR_FSA_COVERAGE_FILL,
           LYR_FSA_EXPLORE_LINE,
+          ...soilPmLayerIds,
+          ...nccpiPmLayerIds,
         ]) {
           if (map.getLayer(id)) map.removeLayer(id)
         }
         for (const id of [
           SRC_TILLABLE, SRC_TILLABLE_WC, SRC_FSA,
-          SRC_LABELS, SRC_LABELS_WC, SRC_SOILS, SRC_SOILS_FULL,
+          SRC_LABELS, SRC_LABELS_WC, SRC_SOILS,
           SRC_CSB_FIELDS,
-          SRC_NCCPI,
           SRC_FSA_COVERAGE,
           SRC_FSA_EXPLORE,
+          ...soilPmSourceIds,
+          ...nccpiPmSourceIds,
         ]) {
           if (map.getSource(id)) map.removeSource(id)
         }
@@ -4259,27 +4295,39 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       ['parcel-enrichment-ssurgo-soils-fill', soilsVis],
       ['parcel-enrichment-ssurgo-soils-line', soilsVis],
       ['parcel-enrichment-ssurgo-soils-label', soilsVis],
-      ['soils-full-fill', soilsFullVis],
       ['csb-fields-fill', csbFieldsVis],
     ] as const) {
       if (map.getLayer(id)) {
         try { map.setLayoutProperty(id, 'visibility', v) } catch {/* */}
       }
     }
+    // Per-state PMTiles Soil Types layers — toggle visibility as a group.
+    for (const st of SOIL_PMTILES_STATES) {
+      for (const id of [`soils-full-fill-${st}`, `soils-full-line-${st}`]) {
+        if (map.getLayer(id)) {
+          try { map.setLayoutProperty(id, 'visibility', soilsFullVis) } catch {/* */}
+        }
+      }
+    }
   }, [enrichmentOverlay, tillableSource, baseOverlay, mapLoaded, isEnrichmentPilot])
 
-  // Toggle NCCPI layer visibility.
+  // Toggle NCCPI layer visibility — iterate over per-state pmtiles layers.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded) return
-    if (!map.getLayer('explore-nccpi-fill')) return
     const nccpiOn = baseOverlay === 'nccpi'
-    try {
-      map.setLayoutProperty('explore-nccpi-fill', 'visibility', nccpiOn ? 'visible' : 'none')
-      if (nccpiOn && map.getZoom() < 6) {
-        showZoomToast('Zoom in to view NCCPI')
-      }
-    } catch {/* layer not ready */}
+    const nccpiVis = nccpiOn ? 'visible' : 'none'
+    for (const st of SOIL_PMTILES_STATES) {
+      const fillId = `explore-nccpi-fill-${st}`
+      const lineId = `explore-nccpi-line-${st}`
+      try {
+        if (map.getLayer(fillId)) map.setLayoutProperty(fillId, 'visibility', nccpiVis)
+        if (map.getLayer(lineId)) map.setLayoutProperty(lineId, 'visibility', nccpiVis)
+      } catch {/* layer not ready */}
+    }
+    if (nccpiOn && map.getZoom() < 6) {
+      showZoomToast('Zoom in to view NCCPI')
+    }
   }, [baseOverlay, mapLoaded, showZoomToast])
 
   // Toggle FSA overlay layer visibility (coverage choropleth + CLU lines).
@@ -4469,17 +4517,19 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         // share the same z-slot as the green tillable; only one
         // is visible at a time depending on the data-source toggle.
         'parcel-enrichment-ssurgo-soils-fill',
-        // All-land SSURGO fill (Soil Types) shares the SSURGO base
-        // z-slot; only one of the soil fills is visible at a time.
-        'soils-full-fill',
+        // Per-state PMTiles Soil Types (soils-full-{ST}) — same z-slot.
+        // Only one of the soil fills is visible at a time.
+        ...SOIL_PMTILES_STATES.map(st => `soils-full-fill-${st}`),
+        ...SOIL_PMTILES_STATES.map(st => `soils-full-line-${st}`),
         'parcel-enrichment-ssurgo-soils-line',
         // FSA county coverage choropleth — low/mid zoom, below field lines.
         'explore-fsa-coverage-fill',
-        // NCCPI choropleth — only one base overlay is visible at a time.
+        // Per-state PMTiles NCCPI choropleth — only one overlay visible at a time.
         // Must be reordered below tracts too, else it floats over tract
         // polygons + Regrid labels.
-        'explore-nccpi-fill',
-        // Planted Crops (CSB crop-field fill) — field-level, minzoom 10.
+        ...SOIL_PMTILES_STATES.map(st => `explore-nccpi-fill-${st}`),
+        ...SOIL_PMTILES_STATES.map(st => `explore-nccpi-line-${st}`),
+        // Crops by Year (CSB crop-field fill) — field-level, minzoom 10.
         // Only one base overlay visible at a time.
         'csb-fields-fill',
         // FSA CLU field lines — high-zoom, above coverage fill.
@@ -5457,6 +5507,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         />
       )}
 
+      {/* Unified land-detail slide-out panel. Replaces the old anchored
+          Regrid parcel popup + the soil/crop popup. Docked to the right
+          edge so it never overlaps map content. */}
+      <LandDetailPanel
+        clickData={landDetail}
+        onClose={() => setLandDetail(null)}
+      />
+
       {/* Goat Search animation overlay — renders while a chat-driven
           search is in flight. Pure visual sugar; pointer-events:none so
           the map under it stays interactive. No dimming/blur — keeps
@@ -5716,7 +5774,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               },
               {
                 key: 'crops' as const,
-                label: 'Planted Crops',
+                label: 'Crops by Year',
                 swatchGradient: 'linear-gradient(to right,#FFD400,#267000,#A87000,#FFA8E3)',
               },
               {
@@ -5747,7 +5805,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                       showZoomToast('Zoom in to view NCCPI')
                     }
                     if (!active && key === 'crops' && mapRef.current && mapRef.current.getZoom() < 10) {
-                      showZoomToast('Zoom in to view Planted Crops')
+                      showZoomToast('Zoom in to view Crops by Year')
                     }
                   }}
                 />
@@ -5781,10 +5839,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                 <div style={{ width: 12, height: 12, borderRadius: 2, background: '#9e9e9e', flexShrink: 0 }} />
                 <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 10 }}>No FSA data</span>
               </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div style={{ width: 12, height: 3, borderRadius: 1, background: '#22d3ee', flexShrink: 0, marginTop: 1 }} />
+                <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 10 }}>FSA field boundary</span>
+              </div>
             </div>
           )}
 
-          {/* ── CSB year selector + crop legend — Planted Crops only ── */}
+          {/* ── CSB year selector + crop legend — Crops by Year only ── */}
           <div style={{
             maxHeight: (baseOverlay === 'crops' || baseOverlay === 'csb') ? 300 : 0,
             opacity: (baseOverlay === 'crops' || baseOverlay === 'csb') ? 1 : 0,
