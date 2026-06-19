@@ -3,7 +3,8 @@
 import { useState, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import Image from 'next/image'
-import { X, Calendar, Building2, DollarSign, Loader2, MapPin, Bookmark } from 'lucide-react'
+import { X, Calendar, Building2, DollarSign, Loader2, MapPin, Bookmark, Pencil } from 'lucide-react'
+import Link from 'next/link'
 import PortalListingDetail from './PortalListingDetail'
 import { getStatusBadge } from '@/lib/listingStatusBadge'
 
@@ -120,7 +121,7 @@ function getListingSoilRating(listing: Listing): number | null {
   return Math.round(avg * 10) / 10
 }
 
-function ListingCard({ listing, activeTab, onClick, isWatchlisted, onToggleWatchlist }: { listing: Listing; activeTab: TabType; onClick: () => void; isWatchlisted?: boolean; onToggleWatchlist?: (id: string) => void }) {
+function ListingCard({ listing, activeTab, onClick, isWatchlisted, onToggleWatchlist, isAdmin }: { listing: Listing; activeTab: TabType; onClick: () => void; isWatchlisted?: boolean; onToggleWatchlist?: (id: string) => void; isAdmin?: boolean }) {
   const hasCompany = !!(listing.company?.name || listing.company_name)
   const [imgError, setImgError] = useState(false)
   const imgSrc = (!imgError && listing.primary_image_url) ? listing.primary_image_url : FALLBACK_IMAGE
@@ -192,6 +193,18 @@ function ListingCard({ listing, activeTab, onClick, isWatchlisted, onToggleWatch
             <Building2 size={11} />
             {listing.company?.name || listing.company_name}
           </div>
+        )}
+
+        {/* Admin: Edit Listing shortcut */}
+        {isAdmin && (
+          <Link
+            href={`/admin/listings/${listing.id}`}
+            onClick={(e) => e.stopPropagation()}
+            className="inline-flex items-center gap-1 mt-2 text-[10px] font-semibold text-gg-pink/70 hover:text-gg-pink transition"
+          >
+            <Pencil size={10} />
+            Edit Listing
+          </Link>
         )}
 
         {/* Auction date/time - prominent calendar style for auctions */}
@@ -348,6 +361,7 @@ export default function PortalListPanel({ listings, loading, activeTab, onClose,
                 onClick={() => setSelectedListingId(listing.id)}
                 isWatchlisted={watchlistIds?.has(listing.id)}
                 onToggleWatchlist={onToggleWatchlist}
+                isAdmin={userAccountType === 'groundgoat_admin'}
               />
             ))}
           </div>

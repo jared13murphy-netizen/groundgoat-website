@@ -1157,15 +1157,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
   // ── Layer control panel state ──────────────────────────────────────
   // layerPanelOpen: whether the layers panel is visible.
-  // baseOverlay: radio-exclusive base overlay ('csb' = tillable CSB,
-  //   'ssurgo' = soil types SSURGO, 'soil_rating' = soil-rating heatmap,
-  //   null = none). Toggling one off turns the others off.
-  // soilRatingOn: DERIVED from baseOverlay — true when baseOverlay === 'soil_rating'.
-  //   All useEffect/visibility code that reads soilRatingOn continues to work.
+  // baseOverlay: radio-exclusive base overlay ('crops' = Planted Crops CDL,
+  //   'ssurgo' = soil types SSURGO, 'nccpi' = NCCPI productivity overlay,
+  //   'fsa' = FSA coverage + CLU field lines, null = none).
+  //   Toggling one off turns the others off.
   // terrain3DOn: independent 3D pitch toggle.
   const [layerPanelOpen, setLayerPanelOpen] = useState(false)
-  const [baseOverlay, setBaseOverlay] = useState<'csb' | 'ssurgo' | 'soil_rating' | null>(null)
-  const soilRatingOn = baseOverlay === 'soil_rating'
+  const [baseOverlay, setBaseOverlay] = useState<'crops' | 'csb' | 'ssurgo' | 'nccpi' | 'fsa' | null>(null)
   const [selectedCropYear, setSelectedCropYear] = useState<number>(2024)
   const [terrain3DOn, setTerrain3DOn] = useState(false)
   const [terrainExaggeration, setTerrainExaggeration] = useState(1.3)
@@ -2029,7 +2027,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // GPU runs out of memory and loses the WebGL context.
       maxTileCacheSize: 200,
       transformRequest: (url: string) => {
-        if (url.includes(`${API_URL}/api/tiles/soils/`) || url.includes(`${API_URL}/api/tiles/soils-full/`) || url.includes(`${API_URL}/api/tiles/csb-fields/`) || url.includes(`${API_URL}/api/regrid/tile/`)) {
+        if (url.includes(`${API_URL}/api/tiles/soils/`) || url.includes(`${API_URL}/api/tiles/soils-full/`) || url.includes(`${API_URL}/api/tiles/csb-fields/`) || url.includes(`${API_URL}/api/tiles/nccpi/`) || url.includes(`${API_URL}/api/tiles/fsa-coverage/`) || url.includes(`${API_URL}/api/tiles/fsa/`) || url.includes(`${API_URL}/api/regrid/tile/`)) {
           const token = localStorage.getItem('auth_token')
           return { url, headers: token ? { Authorization: `Bearer ${token}` } : {} }
         }
@@ -3555,7 +3553,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const enrichmentAvailableRef = useRef<boolean>(true)
 
   // Tiny inline toast — used when user enables Soil Maps but the
-  // current zoom is below the soils-layer minzoom (11). The soils
+  // current zoom is below the soils-layer minzoom (6). The soils
   // overlay won't render until they zoom in, so we tell them.
   const [zoomToast, setZoomToast] = useState<string | null>(null)
   const zoomToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -3568,17 +3566,16 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // Sync baseOverlay (layer panel radio) → enrichmentOverlay / tillableSource.
   // This is separate from the soilMapsOpen effect so the layer panel
   // can drive the overlay independently of the nav-bar button.
-  // 'soil_rating' turns enrichmentOverlay OFF (categorical soils fill is off)
-  // while the rating heat layer visibility is driven by derived soilRatingOn.
+  // 'nccpi'/'fsa'/null = categorical soils fill off.
   useEffect(() => {
-    if (baseOverlay === 'csb') {
+    if (baseOverlay === 'crops' || baseOverlay === 'csb') {
       setEnrichmentOverlay(true)
       setTillableSource('ssurgo_csb')
     } else if (baseOverlay === 'ssurgo') {
       setEnrichmentOverlay(true)
       setTillableSource('ssurgo')
     } else {
-      // null or 'soil_rating' = categorical soils fill off
+      // null, 'nccpi', or 'fsa' = categorical soils fill off
       setEnrichmentOverlay(false)
     }
   }, [baseOverlay])
@@ -3690,7 +3687,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       map.addSource(SRC_SOILS, {
         type: 'vector',
         tiles: [`${API_URL}/api/tiles/soils/{z}/{x}/{y}.mvt`],
-        minzoom: 10,
+        minzoom: 6,
         maxzoom: 14,
       })
     }
@@ -3703,7 +3700,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       map.addSource(SRC_SOILS_FULL, {
         type: 'vector',
         tiles: [`${API_URL}/api/tiles/soils-full/{z}/{x}/{y}.mvt`],
-        minzoom: 10,
+        minzoom: 6,
         maxzoom: 14,
       })
     }
@@ -3883,7 +3880,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         type: 'fill',
         source: SRC_SOILS_FULL,
         'source-layer': 'soils',
-        minzoom: 10,
+        minzoom: 6,
         layout: {
           visibility: (enrichmentOverlay && tillableSource === 'ssurgo') ? 'visible' : 'none',
         },
@@ -3911,8 +3908,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           ],
           'fill-opacity': [
             'interpolate', ['linear'], ['zoom'],
-            10, 0,
-            11.5, 0.60,
+            6, 0,
+            7, 0.60,
           ],
           'fill-outline-color': 'rgba(40, 30, 10, 0.5)',
         },
@@ -3994,37 +3991,97 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     map.on('mouseenter', LYR_CSB_FIELDS_FILL, () => { map.getCanvas().style.cursor = 'pointer' })
     map.on('mouseleave', LYR_CSB_FIELDS_FILL, () => { map.getCanvas().style.cursor = '' })
 
-    // ── Soil-rating choropleth layer ──────────────────────────────
-    // Independent overlay (not tied to the base overlay radio).
-    // Uses the same SRC_SOILS MVT source. Color ramp: red (low) →
-    // amber → yellow-green → deep green (high). Starts hidden;
-    // toggled by soilRatingOn state.
-    const LYR_SOIL_RATING = 'soil-rating-fill'
-    if (!map.getLayer(LYR_SOIL_RATING)) {
+    // ── NCCPI productivity choropleth ─────────────────────────────
+    // Nationwide (48 CONUS states). Backend serves a fast grid at z6-9 and
+    // real polygons at z>=10 (empty below z6), so minzoom is 6. source-layer:
+    // 'nccpi'. Property: nccpi (float 0–100). Only features with nccpi>0 emitted.
+    const SRC_NCCPI = 'explore-nccpi'
+    const LYR_NCCPI_FILL = 'explore-nccpi-fill'
+    if (!map.getSource(SRC_NCCPI)) {
+      map.addSource(SRC_NCCPI, {
+        type: 'vector',
+        tiles: [`${API_URL}/api/tiles/nccpi/{z}/{x}/{y}.mvt`],
+        minzoom: 6,
+        maxzoom: 14,
+      })
+    }
+    if (!map.getLayer(LYR_NCCPI_FILL)) {
       map.addLayer({
-        id: LYR_SOIL_RATING,
+        id: LYR_NCCPI_FILL,
         type: 'fill',
-        source: SRC_SOILS,
-        'source-layer': 'soils',
-        minzoom: 10,
+        source: SRC_NCCPI,
+        'source-layer': 'nccpi',
+        minzoom: 6,
         layout: { visibility: 'none' },
         paint: {
-          'fill-color': ['interpolate', ['linear'], ['get', 'rating'],
-            0,   '#67000d',
-            20,  '#d73027',
-            40,  '#f46d43',
-            55,  '#fdae61',
-            65,  '#fee08b',
-            75,  '#d9ef8b',
-            85,  '#66bd63',
-            100, '#1a7836',
+          'fill-color': ['interpolate', ['linear'], ['get', 'nccpi'],
+            0,   '#d73027',
+            25,  '#fc8d59',
+            50,  '#fee08b',
+            75,  '#91cf60',
+            100, '#1a9850',
           ],
-          'fill-opacity': ['case', ['==', ['get', 'rating'], null], 0,
-            ['interpolate', ['linear'], ['zoom'],
-              10, 0,
-              11, 0.70,
-            ],
-          ],
+          // Fade in from z6 like the other two public overlays so it doesn't
+          // pop on at full opacity when it first appears zoomed out.
+          'fill-opacity': ['interpolate', ['linear'], ['zoom'], 6, 0, 7, 0.65],
+          'fill-outline-color': 'rgba(0,109,44,0.25)',
+        },
+      })
+    }
+
+    // ── FSA overlay: county coverage choropleth + CLU field lines ─────
+    // Two sub-layers toggled together by baseOverlay === 'fsa'.
+    // (a) Coverage: county choropleth showing where FSA data exists.
+    // (b) Boundaries: actual CLU field outlines at high zoom.
+    const SRC_FSA_COVERAGE = 'explore-fsa-coverage'
+    const LYR_FSA_COVERAGE_FILL = 'explore-fsa-coverage-fill'
+    const SRC_FSA_EXPLORE = 'explore-fsa'
+    const LYR_FSA_EXPLORE_LINE = 'explore-fsa-line'
+    if (!map.getSource(SRC_FSA_COVERAGE)) {
+      map.addSource(SRC_FSA_COVERAGE, {
+        type: 'vector',
+        tiles: [`${API_URL}/api/tiles/fsa-coverage/{z}/{x}/{y}.mvt`],
+        minzoom: 4,
+        maxzoom: 14,
+      })
+    }
+    if (!map.getLayer(LYR_FSA_COVERAGE_FILL)) {
+      map.addLayer({
+        id: LYR_FSA_COVERAGE_FILL,
+        type: 'fill',
+        source: SRC_FSA_COVERAGE,
+        'source-layer': 'fsa_coverage',
+        minzoom: 4,
+        layout: { visibility: 'none' },
+        paint: {
+          'fill-color': ['case', ['get', 'has_fsa'], '#2c7fb8', '#9e9e9e'],
+          // Covered (teal) reads as the positive signal; no-data (grey) stays
+          // muted but distinguishable by hue so the gaps are still obvious.
+          'fill-opacity': ['case', ['get', 'has_fsa'], 0.40, 0.35],
+          'fill-outline-color': 'rgba(0,0,0,0.15)',
+        },
+      })
+    }
+    if (!map.getSource(SRC_FSA_EXPLORE)) {
+      map.addSource(SRC_FSA_EXPLORE, {
+        type: 'vector',
+        tiles: [`${API_URL}/api/tiles/fsa/{z}/{x}/{y}.mvt`],
+        minzoom: 12,
+        maxzoom: 16,
+      })
+    }
+    if (!map.getLayer(LYR_FSA_EXPLORE_LINE)) {
+      map.addLayer({
+        id: LYR_FSA_EXPLORE_LINE,
+        type: 'line',
+        source: SRC_FSA_EXPLORE,
+        'source-layer': 'fsa',
+        minzoom: 12,
+        layout: { visibility: 'none' },
+        paint: {
+          'line-color': '#ff6d00',
+          'line-width': ['interpolate', ['linear'], ['zoom'], 12, 0.5, 16, 1.5],
+          'line-opacity': 0.9,
         },
       })
     }
@@ -4111,43 +4168,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       })
     }
 
-    // ── Soil-rating click popup ───────────────────────────────────
-    // Clicking a soil polygon when soil-rating is on shows a dark-glass
-    // popup with musym, rating, and source type.
-    // LYR_SOIL_RATING was already declared above when addLayer was called.
-    const onSoilRatingClick = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
-      if (!e.features?.length) return
-      const props: any = e.features[0].properties || {}
-      const musym = props.musym || props.mukey || '—'
-      const rating = props.rating != null ? Number(props.rating).toFixed(1) : '—'
-      const ratingType = props.rating_type || ''
-      const popup = new maplibregl.Popup({
-        closeButton: true,
-        closeOnClick: true,
-        maxWidth: '240px',
-        className: 'regrid-parcel-popup',
-        offset: 10,
-      })
-        .setLngLat(e.lngLat)
-        .setHTML(`
-          <div style="background:rgba(14,14,14,0.95);border-radius:10px;padding:12px 16px;font-size:13px;color:#fff;min-width:160px;">
-            <div style="font-weight:700;font-size:14px;margin-bottom:8px;color:#fff;">${musym}</div>
-            <div style="display:flex;justify-content:space-between;gap:16px;">
-              <span style="color:rgba(255,255,255,0.6);">Rating</span>
-              <span style="font-weight:600;">${rating}${ratingType ? ' (' + ratingType + ')' : ''}</span>
-            </div>
-          </div>
-        `)
-        .addTo(map)
-    }
-    map.on('click', LYR_SOIL_RATING, onSoilRatingClick)
-    map.on('mouseenter', LYR_SOIL_RATING, () => { map.getCanvas().style.cursor = 'pointer' })
-    map.on('mouseleave', LYR_SOIL_RATING, () => { map.getCanvas().style.cursor = '' })
-
     // ── Soil Types (all-land) click popup ─────────────────────────
     // Clicking a soil polygon in the all-land Soil Types overlay shows
-    // a dark-glass popup with the map-unit name + symbol. Reuses the
-    // soil-rating popup style.
+    // a dark-glass popup with the map-unit name + symbol.
     const onSoilsFullClick = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
       if (!e.features?.length) return
       const props: any = e.features[0].properties || {}
@@ -4179,7 +4202,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     return () => {
       try {
         if (!map.getStyle()) return
-        map.off('click', LYR_SOIL_RATING, onSoilRatingClick)
         map.off('click', LYR_SOILS_FULL_FILL, onSoilsFullClick)
         map.off('click', LYR_CSB_FIELDS_FILL, onCsbFieldClick)
         for (const id of [
@@ -4188,7 +4210,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           LYR_SOILS_LABEL, LYR_SOILS_LINE, LYR_SOILS_FILL,
           LYR_SOILS_FULL_FILL,
           LYR_CSB_FIELDS_FILL,
-          LYR_SOIL_RATING,
+          LYR_NCCPI_FILL,
+          LYR_FSA_COVERAGE_FILL,
+          LYR_FSA_EXPLORE_LINE,
         ]) {
           if (map.getLayer(id)) map.removeLayer(id)
         }
@@ -4196,6 +4220,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           SRC_TILLABLE, SRC_TILLABLE_WC, SRC_FSA,
           SRC_LABELS, SRC_LABELS_WC, SRC_SOILS, SRC_SOILS_FULL,
           SRC_CSB_FIELDS,
+          SRC_NCCPI,
+          SRC_FSA_COVERAGE,
+          SRC_FSA_EXPLORE,
         ]) {
           if (map.getSource(id)) map.removeSource(id)
         }
@@ -4222,8 +4249,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // SSURGO layers (parcel-enrichment-ssurgo-soils-*) are kept hidden.
     const soilsVis = 'none'  // clipped SSURGO layers never shown anymore
     const soilsFullVis = (enrichmentOverlay && tillableSource === 'ssurgo') ? 'visible' : 'none'
-    // CSB crop-field fill: visible only when baseOverlay === 'csb'.
-    const csbFieldsVis = baseOverlay === 'csb' ? 'visible' : 'none'
+    // CSB crop-field fill: visible when baseOverlay === 'crops' (or legacy 'csb').
+    const csbFieldsVis = (baseOverlay === 'crops' || baseOverlay === 'csb') ? 'visible' : 'none'
     for (const [id, v] of [
       ['parcel-enrichment-tillable-fill', cdlVis],
       ['parcel-enrichment-labels-text', cdlVis],
@@ -4241,18 +4268,36 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
   }, [enrichmentOverlay, tillableSource, baseOverlay, mapLoaded, isEnrichmentPilot])
 
-  // Toggle soil-rating layer visibility.
+  // Toggle NCCPI layer visibility.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded) return
-    if (!map.getLayer('soil-rating-fill')) return
+    if (!map.getLayer('explore-nccpi-fill')) return
+    const nccpiOn = baseOverlay === 'nccpi'
     try {
-      map.setLayoutProperty('soil-rating-fill', 'visibility', soilRatingOn ? 'visible' : 'none')
-      if (soilRatingOn && map.getZoom() < 11) {
-        showZoomToast('Zoom in to view soil ratings')
+      map.setLayoutProperty('explore-nccpi-fill', 'visibility', nccpiOn ? 'visible' : 'none')
+      if (nccpiOn && map.getZoom() < 6) {
+        showZoomToast('Zoom in to view NCCPI')
       }
     } catch {/* layer not ready */}
-  }, [soilRatingOn, mapLoaded, showZoomToast])
+  }, [baseOverlay, mapLoaded, showZoomToast])
+
+  // Toggle FSA overlay layer visibility (coverage choropleth + CLU lines).
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+    const fsaOn = baseOverlay === 'fsa'
+    const vis = fsaOn ? 'visible' : 'none'
+    if (map.getLayer('explore-fsa-coverage-fill')) {
+      try { map.setLayoutProperty('explore-fsa-coverage-fill', 'visibility', vis) } catch {/* layer not ready */}
+    }
+    if (map.getLayer('explore-fsa-line')) {
+      try { map.setLayoutProperty('explore-fsa-line', 'visibility', vis) } catch {/* layer not ready */}
+    }
+    if (fsaOn && map.getZoom() < 4) {
+      showZoomToast('Zoom in to view FSA coverage')
+    }
+  }, [baseOverlay, mapLoaded, showZoomToast])
 
   // Recolor the CSB fields layer when the selected crop year changes.
   // setPaintProperty recolors in-place — no tile refetch.
@@ -4428,13 +4473,22 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         // z-slot; only one of the soil fills is visible at a time.
         'soils-full-fill',
         'parcel-enrichment-ssurgo-soils-line',
-        // Soil-rating choropleth — above SSURGO base but below labels.
-        'soil-rating-fill',
+        // FSA county coverage choropleth — low/mid zoom, below field lines.
+        'explore-fsa-coverage-fill',
+        // NCCPI choropleth — only one base overlay is visible at a time.
+        // Must be reordered below tracts too, else it floats over tract
+        // polygons + Regrid labels.
+        'explore-nccpi-fill',
+        // Planted Crops (CSB crop-field fill) — field-level, minzoom 10.
+        // Only one base overlay visible at a time.
+        'csb-fields-fill',
+        // FSA CLU field lines — high-zoom, above coverage fill.
+        'explore-fsa-line',
         'parcel-enrichment-tillable-fill',
         'parcel-enrichment-tillable-worldcover-fill',
         'parcel-enrichment-fsa-clu-line',
         // Soil-type musym labels (SSURGO) sit above FSA but below
-        // the soil-rating + Regrid labels.
+        // Regrid labels.
         'parcel-enrichment-ssurgo-soils-label',
         'parcel-enrichment-labels-text',
         'parcel-enrichment-labels-worldcover-text',
@@ -4457,7 +4511,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   }, [
     mapLoaded, regridConfig, isEnrichmentPilot,
     enrichmentOverlay, tillableSource,
-    soilRatingOn,
+    baseOverlay,
     // Deliberately NOT including tracts.length — that state changes
     // every viewport tick and would cause our reorder to thrash
     // (potentially racing with the Regrid label refresh). Tracts get
@@ -5613,7 +5667,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             height: 36,
             borderRadius: 6,
             border: 'none',
-            backgroundColor: (baseOverlay !== null || soilRatingOn || terrain3DOn)
+            backgroundColor: (baseOverlay !== null || terrain3DOn)
               ? '#E91E8C'
               : 'rgba(0,0,0,0.75)',
             color: '#fff',
@@ -5660,14 +5714,22 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                 label: 'Soil Types',
                 swatchGradient: 'linear-gradient(to right,#c94040,#c4b030,#29a068,#2878c8,#b03890)',
               },
-              // 'Tillable Ground' (csb) overlay removed per owner 2026-06-18 — will
-              // return as a proper nationwide layer. csb logic left dormant.
               {
-                key: 'soil_rating' as const,
-                label: 'Soil Rating',
-                swatchGradient: 'linear-gradient(to right,#67000d,#fdae61,#1a7836)',
+                key: 'crops' as const,
+                label: 'Planted Crops',
+                swatchGradient: 'linear-gradient(to right,#FFD400,#267000,#A87000,#FFA8E3)',
               },
-            ] as Array<{ key: 'ssurgo' | 'csb' | 'soil_rating'; label: string; swatchGradient?: string; swatchColor?: string }>).map(({ key, label, swatchGradient, swatchColor }) => {
+              {
+                key: 'nccpi' as const,
+                label: 'NCCPI',
+                swatchGradient: 'linear-gradient(to right,#d73027,#fee08b,#1a9850)',
+              },
+              {
+                key: 'fsa' as const,
+                label: 'FSA',
+                swatchColor: '#2c7fb8',
+              },
+            ] as Array<{ key: 'crops' | 'ssurgo' | 'csb' | 'nccpi' | 'fsa'; label: string; swatchGradient?: string; swatchColor?: string }>).map(({ key, label, swatchGradient, swatchColor }) => {
               const active = baseOverlay === key
               return (
                 <OverlayButton
@@ -5678,33 +5740,54 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                   swatchColor={swatchColor}
                   onClick={() => {
                     setBaseOverlay(active ? null : key)
-                    if (!active && key !== 'soil_rating' && mapRef.current && mapRef.current.getZoom() < 11) {
+                    if (!active && key !== 'nccpi' && key !== 'fsa' && key !== 'crops' && mapRef.current && mapRef.current.getZoom() < 6) {
                       showZoomToast('Zoom in to view soil maps')
                     }
-                    if (!active && key === 'soil_rating' && mapRef.current && mapRef.current.getZoom() < 11) {
-                      showZoomToast('Zoom in to view soil ratings')
+                    if (!active && key === 'nccpi' && mapRef.current && mapRef.current.getZoom() < 6) {
+                      showZoomToast('Zoom in to view NCCPI')
+                    }
+                    if (!active && key === 'crops' && mapRef.current && mapRef.current.getZoom() < 10) {
+                      showZoomToast('Zoom in to view Planted Crops')
                     }
                   }}
                 />
               )
             })}
           </div>
-          {/* NCCPI legend — shown only when soil_rating is active */}
-          {soilRatingOn && (
-            <div style={{ padding: '2px 10px 4px', display: 'flex', gap: 2 }}>
-              {[['#67000d','0'],['#d73027','20'],['#f46d43','40'],['#fdae61','55'],['#fee08b','65'],['#d9ef8b','75'],['#66bd63','85'],['#1a7836','100']].map(([c, l]) => (
-                <div key={l} style={{ flex: 1, textAlign: 'center' }}>
-                  <div style={{ height: 5, background: c, borderRadius: 2 }} />
-                  <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 8 }}>{l}</span>
-                </div>
-              ))}
+
+          {/* NCCPI legend — shown only when nccpi overlay is active */}
+          {baseOverlay === 'nccpi' && (
+            <div style={{ padding: '2px 10px 4px' }}>
+              <div style={{ display: 'flex', gap: 2, marginBottom: 2 }}>
+                {[['#d73027','0'],['#fc8d59','25'],['#fee08b','50'],['#91cf60','75'],['#1a9850','100']].map(([c, l]) => (
+                  <div key={l} style={{ flex: 1, textAlign: 'center' }}>
+                    <div style={{ height: 5, background: c, borderRadius: 2 }} />
+                    <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 8 }}>{l}</span>
+                  </div>
+                ))}
+              </div>
+              <div style={{ color: 'rgba(255,255,255,0.35)', fontSize: 8, textAlign: 'center' }}>Low → High productivity</div>
             </div>
           )}
 
-          {/* ── CSB year selector + crop legend — Tillable Ground only ── */}
+          {/* FSA legend — shown only when fsa overlay is active */}
+          {baseOverlay === 'fsa' && (
+            <div style={{ padding: '2px 10px 6px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div style={{ width: 12, height: 12, borderRadius: 2, background: '#2c7fb8', flexShrink: 0 }} />
+                <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 10 }}>FSA coverage</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div style={{ width: 12, height: 12, borderRadius: 2, background: '#9e9e9e', flexShrink: 0 }} />
+                <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 10 }}>No FSA data</span>
+              </div>
+            </div>
+          )}
+
+          {/* ── CSB year selector + crop legend — Planted Crops only ── */}
           <div style={{
-            maxHeight: baseOverlay === 'csb' ? 300 : 0,
-            opacity: baseOverlay === 'csb' ? 1 : 0,
+            maxHeight: (baseOverlay === 'crops' || baseOverlay === 'csb') ? 300 : 0,
+            opacity: (baseOverlay === 'crops' || baseOverlay === 'csb') ? 1 : 0,
             overflow: 'hidden',
             transition: 'max-height 0.18s ease, opacity 0.18s ease',
           }}>
