@@ -2051,7 +2051,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // GPU runs out of memory and loses the WebGL context.
       maxTileCacheSize: 200,
       transformRequest: (url: string) => {
-        if (url.includes(`${API_URL}/api/tiles/soils/`) || url.includes(`${API_URL}/api/tiles/soils-full/`) || url.includes(`${API_URL}/api/tiles/csb-fields/`) || url.includes(`${API_URL}/api/tiles/nccpi/`) || url.includes(`${API_URL}/api/tiles/fsa-coverage/`) || url.includes(`${API_URL}/api/tiles/fsa/`) || url.includes(`${API_URL}/api/regrid/tile/`)) {
+        if (url.includes(`${API_URL}/api/tiles/soils/`) || url.includes(`${API_URL}/api/tiles/soils-full/`) || url.includes(`${API_URL}/api/tiles/csb-fields/`) || url.includes(`${API_URL}/api/tiles/nccpi/`) || url.includes(`${API_URL}/api/regrid/tile/`)) {
           const token = localStorage.getItem('auth_token')
           return { url, headers: token ? { Authorization: `Bearer ${token}` } : {} }
         }
@@ -5986,7 +5986,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               {
                 key: 'fsa' as const,
                 label: 'FSA',
-                swatchColor: '#2c7fb8',
+                swatchColor: '#22d3ee',
               },
             ] as Array<{ key: 'crops' | 'ssurgo' | 'csb' | 'nccpi' | 'fsa'; label: string; swatchGradient?: string; swatchColor?: string }>).map(({ key, label, swatchGradient, swatchColor }) => {
               const active = baseOverlay === key
