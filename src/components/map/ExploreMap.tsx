@@ -1320,6 +1320,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     'NV','NY','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VA','VT','WA',
     'WI','WV','WY',
   ]
+  const FSA_PMTILES_STATES = [
+    'AR','AZ','CA','CO','CT','DE','GA','HI','IA','ID','IL','IN','KS','KY',
+    'LA','MA','MD','ME','MI','MN','MO','MS','MT','NC','ND','NE','NH','NJ',
+    'NM','NV','NY','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VA',
+    'VT','WA','WI','WV','WY',
+  ]
   const [isAdmin, setIsAdmin] = useState(false)
   // Pilot-owner gate for the parcel-enrichment overlay (Hancock IL
   // tillable + PI). Tied to the existing groundgoat_admin role rather
@@ -2045,7 +2051,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // GPU runs out of memory and loses the WebGL context.
       maxTileCacheSize: 200,
       transformRequest: (url: string) => {
-        if (url.includes(`${API_URL}/api/tiles/soils/`) || url.includes(`${API_URL}/api/tiles/soils-full/`) || url.includes(`${API_URL}/api/tiles/csb-fields/`) || url.includes(`${API_URL}/api/tiles/nccpi/`) || url.includes(`${API_URL}/api/tiles/fsa-coverage/`) || url.includes(`${API_URL}/api/tiles/fsa/`) || url.includes(`${API_URL}/api/regrid/tile/`)) {
+        if (url.includes(`${API_URL}/api/tiles/soils/`) || url.includes(`${API_URL}/api/tiles/soils-full/`) || url.includes(`${API_URL}/api/tiles/csb-fields/`) || url.includes(`${API_URL}/api/tiles/nccpi/`) || url.includes(`${API_URL}/api/regrid/tile/`)) {
           const token = localStorage.getItem('auth_token')
           return { url, headers: token ? { Authorization: `Bearer ${token}` } : {} }
         }
@@ -3573,7 +3579,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         case 'ssurgo': return ['parcel-enrichment-ssurgo-soils']
         case 'crops': return ['csb-fields']
         case 'nccpi': return SOIL_PMTILES_STATES.map(st => `explore-nccpi-${st}`)
-        case 'fsa': return ['explore-fsa-coverage', 'explore-fsa']
+        case 'fsa': return FSA_PMTILES_STATES.map(st => `explore-fsa-${st}`)
         default: return []
       }
     })()
@@ -3938,6 +3944,43 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       nccpiPmLayerIds.push(nccpiLineId)
     }
 
+    // ── Per-state PMTiles sources for FSA overlay ─────────────────────
+    const fsaPmSourceIds: string[] = []
+    const fsaPmLayerIds: string[] = []
+    for (const st of FSA_PMTILES_STATES) {
+      const fsaSrcId = `explore-fsa-${st}`
+      const fsaLineId = `explore-fsa-line-${st}`
+      if (!map.getSource(fsaSrcId)) {
+        map.addSource(fsaSrcId, {
+          type: 'vector',
+          url: `pmtiles://${TILES_BASE_URL}/tiles/${st.toUpperCase()}_fsa.pmtiles`,
+        } as any)
+      }
+      fsaPmSourceIds.push(fsaSrcId)
+      if (!map.getLayer(fsaLineId)) {
+        map.addLayer({
+          id: fsaLineId,
+          type: 'line',
+          source: fsaSrcId,
+          'source-layer': 'fsa',
+          minzoom: 6,
+          maxzoom: 14,
+          layout: {
+            visibility: 'none',
+            'line-join': 'round',
+            'line-cap': 'round',
+          },
+          paint: {
+            'line-color': '#22d3ee',
+            'line-width': ['interpolate', ['linear'], ['zoom'], 6, 0.3, 10, 0.8, 14, 1.5],
+            'line-opacity': 0.9,
+          },
+        })
+      }
+      fsaPmLayerIds.push(fsaLineId)
+      // TODO: grey no-data fill for AL, FL, AK — not in the 2008 CLU release
+    }
+
     // Tillable polygons — solid green so the eye reads "this portion
     // of the parcel is farmed". Anything NOT in this source (trees,
     // water, buildings, roads) just shows the satellite imagery.
@@ -4168,63 +4211,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     map.on('mouseenter', LYR_CSB_FIELDS_FILL, () => { map.getCanvas().style.cursor = 'pointer' })
     map.on('mouseleave', LYR_CSB_FIELDS_FILL, () => { map.getCanvas().style.cursor = '' })
 
-    // ── FSA overlay: county coverage choropleth + CLU field lines ─────
-    // Two sub-layers toggled together by baseOverlay === 'fsa'.
-    // (a) Coverage: county choropleth showing where FSA data exists.
-    // (b) Boundaries: actual CLU field outlines at high zoom.
-    const SRC_FSA_COVERAGE = 'explore-fsa-coverage'
-    const LYR_FSA_COVERAGE_FILL = 'explore-fsa-coverage-fill'
-    const SRC_FSA_EXPLORE = 'explore-fsa'
-    const LYR_FSA_EXPLORE_LINE = 'explore-fsa-line'
-    if (!map.getSource(SRC_FSA_COVERAGE)) {
-      map.addSource(SRC_FSA_COVERAGE, {
-        type: 'vector',
-        tiles: [`${API_URL}/api/tiles/fsa-coverage/{z}/{x}/{y}.mvt`],
-        minzoom: 4,
-        maxzoom: 14,
-      })
-    }
-    if (!map.getLayer(LYR_FSA_COVERAGE_FILL)) {
-      map.addLayer({
-        id: LYR_FSA_COVERAGE_FILL,
-        type: 'fill',
-        source: SRC_FSA_COVERAGE,
-        'source-layer': 'fsa_coverage',
-        minzoom: 4,
-        layout: { visibility: 'none' },
-        paint: {
-          'fill-color': ['case', ['get', 'has_fsa'], '#2c7fb8', '#9e9e9e'],
-          // Covered (teal) reads as the positive signal; no-data (grey) stays
-          // muted but distinguishable by hue so the gaps are still obvious.
-          'fill-opacity': ['case', ['get', 'has_fsa'], 0.40, 0.35],
-          'fill-outline-color': 'rgba(0,0,0,0.15)',
-        },
-      })
-    }
-    if (!map.getSource(SRC_FSA_EXPLORE)) {
-      map.addSource(SRC_FSA_EXPLORE, {
-        type: 'vector',
-        tiles: [`${API_URL}/api/tiles/fsa/{z}/{x}/{y}.mvt`],
-        minzoom: 12,
-        maxzoom: 16,
-      })
-    }
-    if (!map.getLayer(LYR_FSA_EXPLORE_LINE)) {
-      map.addLayer({
-        id: LYR_FSA_EXPLORE_LINE,
-        type: 'line',
-        source: SRC_FSA_EXPLORE,
-        'source-layer': 'fsa',
-        minzoom: 12,
-        layout: { visibility: 'none' },
-        paint: {
-          'line-color': '#22d3ee',
-          'line-width': ['interpolate', ['linear'], ['zoom'], 12, 0.6, 16, 2.0],
-          'line-opacity': 0.95,
-        },
-      })
-    }
-
     // FSA 2008 Common Land Unit field outlines.
     // Kept as an invisible layer so the source data stays loaded for any
     // downstream consumer, but the red lines are no longer drawn on the
@@ -4356,10 +4342,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           LYR_TILL_FILL, LYR_TILL_FILL_WC,
           LYR_SOILS_LABEL, LYR_SOILS_LINE, LYR_SOILS_FILL,
           LYR_CSB_FIELDS_FILL,
-          LYR_FSA_COVERAGE_FILL,
-          LYR_FSA_EXPLORE_LINE,
           ...soilPmLayerIds,
           ...nccpiPmLayerIds,
+          ...fsaPmLayerIds,
         ]) {
           if (map.getLayer(id)) map.removeLayer(id)
         }
@@ -4367,10 +4352,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           SRC_TILLABLE, SRC_TILLABLE_WC, SRC_FSA,
           SRC_LABELS, SRC_LABELS_WC, SRC_SOILS,
           SRC_CSB_FIELDS,
-          SRC_FSA_COVERAGE,
-          SRC_FSA_EXPLORE,
           ...soilPmSourceIds,
           ...nccpiPmSourceIds,
+          ...fsaPmSourceIds,
         ]) {
           if (map.getSource(id)) map.removeSource(id)
         }
@@ -4442,20 +4426,20 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
   }, [baseOverlay, mapLoaded, showZoomToast])
 
-  // Toggle FSA overlay layer visibility (coverage choropleth + CLU lines).
+  // Toggle FSA overlay layer visibility — iterate over per-state pmtiles layers.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded) return
     const fsaOn = baseOverlay === 'fsa'
-    const vis = fsaOn ? 'visible' : 'none'
-    if (map.getLayer('explore-fsa-coverage-fill')) {
-      try { map.setLayoutProperty('explore-fsa-coverage-fill', 'visibility', vis) } catch {/* layer not ready */}
+    const fsaVis = fsaOn ? 'visible' : 'none'
+    for (const st of FSA_PMTILES_STATES) {
+      const lineId = `explore-fsa-line-${st}`
+      try {
+        if (map.getLayer(lineId)) map.setLayoutProperty(lineId, 'visibility', fsaVis)
+      } catch {/* layer not ready */}
     }
-    if (map.getLayer('explore-fsa-line')) {
-      try { map.setLayoutProperty('explore-fsa-line', 'visibility', vis) } catch {/* layer not ready */}
-    }
-    if (fsaOn && map.getZoom() < 4) {
-      showZoomToast('Zoom in to view FSA coverage')
+    if (fsaOn && map.getZoom() < 6) {
+      showZoomToast('Zoom in to view FSA field boundaries')
     }
   }, [baseOverlay, mapLoaded, showZoomToast])
 
@@ -4474,7 +4458,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         nccpi: 6,
         crops: 10,
         csb: 10,
-        fsa: 4,
+        fsa: 6,
       }
       const minZ = minZooms[baseOverlay]
       if (minZ !== undefined && zoom < minZ) {
@@ -4674,8 +4658,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         ...SOIL_PMTILES_STATES.map(st => `soils-full-fill-${st}`),
         ...SOIL_PMTILES_STATES.map(st => `soils-full-line-${st}`),
         'parcel-enrichment-ssurgo-soils-line',
-        // FSA county coverage choropleth — low/mid zoom, below field lines.
-        'explore-fsa-coverage-fill',
         // Per-state PMTiles NCCPI choropleth — only one overlay visible at a time.
         // Must be reordered below tracts too, else it floats over tract
         // polygons + Regrid labels.
@@ -4684,8 +4666,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         // Crops by Year (CSB crop-field fill) — field-level, minzoom 10.
         // Only one base overlay visible at a time.
         'csb-fields-fill',
-        // FSA CLU field lines — high-zoom, above coverage fill.
-        'explore-fsa-line',
+        // FSA CLU field lines — per-state PMTiles, above NCCPI and CSB.
+        ...FSA_PMTILES_STATES.map(st => `explore-fsa-line-${st}`),
         'parcel-enrichment-tillable-fill',
         'parcel-enrichment-tillable-worldcover-fill',
         'parcel-enrichment-fsa-clu-line',
@@ -6004,7 +5986,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               {
                 key: 'fsa' as const,
                 label: 'FSA',
-                swatchColor: '#2c7fb8',
+                swatchColor: '#22d3ee',
               },
             ] as Array<{ key: 'crops' | 'ssurgo' | 'csb' | 'nccpi' | 'fsa'; label: string; swatchGradient?: string; swatchColor?: string }>).map(({ key, label, swatchGradient, swatchColor }) => {
               const active = baseOverlay === key
@@ -6044,17 +6026,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           {baseOverlay === 'fsa' && (
             <div style={{ padding: '2px 10px 6px', display: 'flex', flexDirection: 'column', gap: 4 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <div style={{ width: 12, height: 12, borderRadius: 2, background: '#2c7fb8', flexShrink: 0 }} />
-                <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 10 }}>FSA coverage</span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <div style={{ width: 12, height: 12, borderRadius: 2, background: '#9e9e9e', flexShrink: 0 }} />
-                <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 10 }}>No FSA data</span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <div style={{ width: 12, height: 3, borderRadius: 1, background: '#22d3ee', flexShrink: 0, marginTop: 1 }} />
                 <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 10 }}>FSA field boundary</span>
               </div>
+              <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 9, marginTop: 2 }}>2008 snapshot · Not available in AL, FL, AK</span>
             </div>
           )}
 
