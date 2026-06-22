@@ -89,14 +89,14 @@ const STATE_SOIL_LABELS: Record<string, string> = {
   MI: 'NCCPI', WI: 'PI', KY: 'NCCPI', TN: 'NCCPI', WV: 'NCCPI', VA: 'NCCPI',
 }
 
-function getSoilLabel(state?: string): string {
+export function getSoilLabel(state?: string): string {
   if (state) return STATE_SOIL_LABELS[state.toUpperCase()] || 'Soil'
   return 'Soil'
 }
 
-function getListingTillableAcres(listing: Listing): number | null {
-  if (!listing.tracts?.length) return null
-  const total = listing.tracts.reduce((sum, t) => sum + (t.tillable_acres || 0), 0)
+export function getListingTillableAcres(tracts?: { tillable_acres?: number; total_acres?: number }[]): number | null {
+  if (!tracts?.length) return null
+  const total = tracts.reduce((sum, t) => sum + (t.tillable_acres || 0), 0)
   return total > 0 ? total : null
 }
 
@@ -113,12 +113,20 @@ function getListingAvgPricePerAcre(listing: Listing): { avg: number | null; isAv
   return { avg: Math.round(avg), isAverage: withPrice.length > 1 }
 }
 
-function getListingSoilRating(listing: Listing): number | null {
-  if (!listing.tracts?.length) return null
-  const withRating = listing.tracts.filter(t => t.soil_rating || t.csr2)
-  if (withRating.length === 0) return null
-  const avg = withRating.reduce((sum, t) => sum + (Number(t.soil_rating) || Number(t.csr2) || 0), 0) / withRating.length
-  return Math.round(avg * 10) / 10
+export function getListingSoilRating(tracts?: { tillable_acres?: number; total_acres?: number; soil_rating?: number; csr2?: number }[]): number | null {
+  if (!tracts?.length) return null
+  let weightedSum = 0
+  let totalWeight = 0
+  for (const t of tracts) {
+    const r = Number(t.soil_rating) > 0 ? Number(t.soil_rating) : (Number(t.csr2) > 0 ? Number(t.csr2) : null)
+    if (r === null) continue
+    const w = Number(t.tillable_acres) > 0 ? Number(t.tillable_acres) : Number(t.total_acres)
+    if (!(w > 0)) continue
+    weightedSum += r * w
+    totalWeight += w
+  }
+  if (totalWeight === 0) return null
+  return Math.round((weightedSum / totalWeight) * 10) / 10
 }
 
 function ListingCard({ listing, activeTab, onClick, isWatchlisted, onToggleWatchlist, isAdmin }: { listing: Listing; activeTab: TabType; onClick: () => void; isWatchlisted?: boolean; onToggleWatchlist?: (id: string) => void; isAdmin?: boolean }) {
@@ -237,11 +245,11 @@ function ListingCard({ listing, activeTab, onClick, isWatchlisted, onToggleWatch
             <>
               <div>
                 <div className="text-[10px] text-gg-gray-300">Tillable</div>
-                <div className="text-sm font-semibold text-white">{listing.is_incomplete ? '—' : (getListingTillableAcres(listing) ? Math.round(getListingTillableAcres(listing)!) + ' ac' : '—')}</div>
+                <div className="text-sm font-semibold text-white">{listing.is_incomplete ? '—' : (getListingTillableAcres(listing.tracts) ? Math.round(getListingTillableAcres(listing.tracts)!) + ' ac' : '—')}</div>
               </div>
               <div>
                 <div className="text-[10px] text-gg-gray-300">{getSoilLabel(listing.state)}</div>
-                <div className="text-sm font-semibold text-white">{listing.is_incomplete ? '—' : (getListingSoilRating(listing) ?? '—')}</div>
+                <div className="text-sm font-semibold text-white">{listing.is_incomplete ? '—' : (getListingSoilRating(listing.tracts) ?? '—')}</div>
               </div>
             </>
           ) : (
@@ -295,7 +303,11 @@ export default function PortalListPanel({ listings, loading, activeTab, onClose,
       <div className="pt-8 px-5 pb-4 border-b border-white/5 shrink-0">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">
-            {selectedListingId ? 'Listing Detail' : TAB_TITLES[activeTab]}
+            {selectedListingId ? (() => {
+              const selectedListing = listings.find(l => l.id === selectedListingId)
+              const detailTitle = selectedListing?.listing_type === 'auction' ? 'Auction Detail' : 'Listing Detail'
+              return detailTitle
+            })() : TAB_TITLES[activeTab]}
           </h2>
           <button
             onClick={() => {

@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { getStatusBadge } from '@/lib/listingStatusBadge'
+import { getListingTillableAcres, getListingSoilRating, getSoilLabel } from './PortalListPanel'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=600'
@@ -26,6 +27,7 @@ interface Tract {
   tillable_acres?: number
   pct_tillable?: number
   soil_rating?: number
+  csr2?: number
   land_type?: string
   land_types?: string[]
   sale_status?: string
@@ -209,6 +211,8 @@ export default function PortalListingDetail({ listingId, onBack, onTractSelected
 
   const isAuction = listing.listing_type === 'auction'
   const { acres: displayAcres, label: acresLabel } = getDisplayAcres()
+  const tillableAcres = getListingTillableAcres(listing.tracts)
+  const soilRating = getListingSoilRating(listing.tracts)
 
   return (
     <motion.div
@@ -273,7 +277,7 @@ export default function PortalListingDetail({ listingId, onBack, onTractSelected
       )}
 
       {/* Stats Row */}
-      <div className="grid grid-cols-3 gap-3 bg-white/[0.03] rounded-xl p-4 border border-white/5 mb-4">
+      <div className="flex flex-wrap gap-x-6 gap-y-3 bg-white/[0.03] rounded-xl p-4 border border-white/5 mb-4">
         <div className="text-center">
           <div className="text-lg font-bold">{formatAcres(displayAcres ?? undefined)}</div>
           <div className="text-[10px] text-gg-gray-500 uppercase">{acresLabel}</div>
@@ -288,6 +292,18 @@ export default function PortalListingDetail({ listingId, onBack, onTractSelected
           <div className="text-center">
             <div className="text-lg font-bold text-gg-pink">{formatCurrency(getPricePerAcre()!)}</div>
             <div className="text-[10px] text-gg-gray-500 uppercase">$/Acre</div>
+          </div>
+        )}
+        {!listing.is_incomplete && tillableAcres != null && (
+          <div className="text-center">
+            <div className="text-lg font-bold">{Math.round(tillableAcres).toLocaleString()} ac</div>
+            <div className="text-[10px] text-gg-gray-500 uppercase">Tillable</div>
+          </div>
+        )}
+        {!listing.is_incomplete && soilRating != null && (
+          <div className="text-center">
+            <div className="text-lg font-bold">{soilRating}</div>
+            <div className="text-[10px] text-gg-gray-500 uppercase">{getSoilLabel(listing.state)}</div>
           </div>
         )}
       </div>
