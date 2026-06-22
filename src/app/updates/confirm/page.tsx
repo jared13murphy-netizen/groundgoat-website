@@ -58,7 +58,7 @@ function ConfirmInner() {
       const res = await fetch(`${API_URL}/api/updates/subscribe`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: reEmail.trim() }),
+        body: JSON.stringify({ email: reEmail.trim(), website: '' }),
       })
       if (!res.ok) {
         setReError('Something went wrong. Please try again in a moment.')
@@ -111,7 +111,7 @@ function ConfirmInner() {
           <>
             <XCircle className="mx-auto mb-4 text-orange-500" size={40} />
             <h1 className="text-xl font-bold mb-2 text-gray-900">
-              {status === 'invalid' ? 'Invalid link' : 'This link has expired'}
+              {status === 'invalid' ? 'Invalid link' : 'This link is invalid or has expired'}
             </h1>
             <p className="text-gray-600 mb-6">
               {status === 'invalid'
