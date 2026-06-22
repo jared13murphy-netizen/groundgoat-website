@@ -118,12 +118,12 @@ export function getListingSoilRating(tracts?: { tillable_acres?: number; total_a
   let weightedSum = 0
   let totalWeight = 0
   for (const t of tracts) {
-    const rating = t.soil_rating ?? t.csr2
-    if (rating == null) continue
-    const weight = (t.tillable_acres && t.tillable_acres > 0) ? t.tillable_acres : (t.total_acres || 0)
-    if (weight <= 0) continue
-    weightedSum += rating * weight
-    totalWeight += weight
+    const r = Number(t.soil_rating) > 0 ? Number(t.soil_rating) : (Number(t.csr2) > 0 ? Number(t.csr2) : null)
+    if (r === null) continue
+    const w = Number(t.tillable_acres) > 0 ? Number(t.tillable_acres) : Number(t.total_acres)
+    if (w <= 0) continue
+    weightedSum += r * w
+    totalWeight += w
   }
   if (totalWeight === 0) return null
   return Math.round((weightedSum / totalWeight) * 10) / 10
