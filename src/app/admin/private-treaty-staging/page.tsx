@@ -793,8 +793,8 @@ export default function AdminPrivateTreatyStagingPage() {
   const handleClearAll = async () => {
     const hasDirty = Object.keys(dirtyTracts).some(k => dirtyTracts[k])
     const msg = hasDirty
-      ? `You have unsaved tract edits that will be discarded. Are you sure you want to clear all ${filteredListings.length} staging listings? This will NOT add them to rejected URLs.`
-      : `Are you sure you want to clear all ${filteredListings.length} staging listings? This will NOT add them to rejected URLs.`
+      ? `You have unsaved tract edits that will be discarded. Are you sure you want to clear all ${filteredListings.length} staging listings? Cleared URLs will be added to the rejected URLs list and will not re-import.`
+      : `Are you sure you want to clear all ${filteredListings.length} staging listings? Cleared URLs will be added to the rejected URLs list and will not re-import.`
     if (!confirm(msg)) {
       return
     }
