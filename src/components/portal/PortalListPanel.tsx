@@ -121,7 +121,7 @@ export function getListingSoilRating(tracts?: { tillable_acres?: number; total_a
     const r = Number(t.soil_rating) > 0 ? Number(t.soil_rating) : (Number(t.csr2) > 0 ? Number(t.csr2) : null)
     if (r === null) continue
     const w = Number(t.tillable_acres) > 0 ? Number(t.tillable_acres) : Number(t.total_acres)
-    if (w <= 0) continue
+    if (!(w > 0)) continue
     weightedSum += r * w
     totalWeight += w
   }
