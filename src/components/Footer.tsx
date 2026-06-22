@@ -1,4 +1,109 @@
+'use client'
+
+import { useState } from 'react'
 import Link from 'next/link'
+import { CheckCircle } from 'lucide-react'
+
+const API_URL = 'https://practical-serenity-production.up.railway.app'
+
+function isValidEmail(email: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
+}
+
+function FooterSubscribeRow() {
+  const [email, setEmail] = useState('')
+  const [website, setWebsite] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [success, setSuccess] = useState(false)
+  const [validationError, setValidationError] = useState('')
+  const [serverError, setServerError] = useState('')
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setValidationError('')
+    setServerError('')
+
+    if (!isValidEmail(email)) {
+      setValidationError('Please enter a valid email address.')
+      return
+    }
+
+    setSubmitting(true)
+    try {
+      const res = await fetch(`${API_URL}/api/updates/subscribe`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim(), website }),
+      })
+      if (!res.ok) {
+        setServerError('Something went wrong. Please try again in a moment.')
+        return
+      }
+      setSuccess(true)
+    } catch {
+      setServerError('Something went wrong. Please try again in a moment.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="border-t border-gg-gray-800 mt-12 pt-12">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-8">
+        <div className="md:w-1/2">
+          <h4 className="text-white font-semibold text-base">Get Ground Goat Updates</h4>
+          <p className="text-gg-gray-400 text-sm mt-1">New land listings, auction results, and market news — straight to your inbox.</p>
+        </div>
+        <div className="md:w-1/2">
+          {success ? (
+            <div className="flex items-center gap-2">
+              <CheckCircle size={16} className="text-gg-pink flex-shrink-0" />
+              <span className="text-gg-gray-300 text-sm">Check your email to confirm your subscription.</span>
+            </div>
+          ) : (
+            <form onSubmit={handleSubmit} noValidate>
+              <input
+                type="text"
+                name="website"
+                tabIndex={-1}
+                autoComplete="off"
+                style={{ display: 'none' }}
+                value={website}
+                onChange={e => setWebsite(e.target.value)}
+              />
+              <div className="flex flex-col md:flex-row gap-2">
+                <input
+                  type="email"
+                  value={email}
+                  onChange={e => { setEmail(e.target.value); setValidationError(''); setServerError('') }}
+                  placeholder="your@email.com"
+                  className="flex-1 w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 text-sm"
+                />
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="btn-primary w-full md:w-auto justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {submitting ? 'Subscribing...' : 'Subscribe'}
+                </button>
+              </div>
+              {validationError && (
+                <p className="text-red-400 text-sm mt-2">{validationError}</p>
+              )}
+              {serverError && (
+                <p className="text-red-400 text-sm mt-2">{serverError}</p>
+              )}
+              <p className="text-gg-gray-500 text-xs mt-2">
+                By subscribing you agree to receive Ground Goat update emails.{' '}
+                <Link href="/privacy" className="underline hover:text-gg-pink">Unsubscribe anytime.</Link>
+              </p>
+            </form>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
 
 export default function Footer() {
   return (
@@ -89,6 +194,8 @@ export default function Footer() {
             </div>
           </div>
         </div>
+
+        <FooterSubscribeRow />
 
         {/* Bottom Bar */}
         <div className="mt-12 pt-8 border-t border-gg-gray-800 flex flex-col md:flex-row justify-between items-center gap-4">
