@@ -3954,6 +3954,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         map.addSource(fsaSrcId, {
           type: 'vector',
           url: `pmtiles://${TILES_BASE_URL}/tiles/${st.toUpperCase()}_fsa.pmtiles`,
+          maxzoom: 14,
         } as any)
       }
       fsaPmSourceIds.push(fsaSrcId)
@@ -3964,7 +3965,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           source: fsaSrcId,
           'source-layer': 'fsa',
           minzoom: 6,
-          maxzoom: 14,
           layout: {
             visibility: 'none',
             'line-join': 'round',
