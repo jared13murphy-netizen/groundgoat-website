@@ -94,7 +94,8 @@ function ConfirmInner() {
         {status === 'confirmed' && (
           <>
             <CheckCircle2 className="mx-auto mb-4 text-green-500" size={40} />
-            <h1 className="text-xl font-bold mb-2 text-gray-900">You're subscribed to Ground Goat Updates</h1>
+            <h1 className="text-xl font-bold mb-2 text-gray-900">Thanks for subscribing!</h1>
+            <p className="text-gray-500 text-sm mb-1">You're subscribed to Ground Goat Updates</p>
             <p className="text-gray-600 mb-6">
               You'll hear from us when new listings, auction results, and market news are worth knowing.
             </p>
