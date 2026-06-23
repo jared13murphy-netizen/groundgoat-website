@@ -1,0 +1,76 @@
+.county-map-container {
+  width: 100%;
+  border-radius: 0.75rem;
+  overflow: hidden;
+}
+
+.county-popup .maplibregl-popup-content {
+  background: #1a1a1a;
+  border: 1px solid #3a3a3a;
+  border-radius: 12px;
+  padding: 16px;
+  color: #ffffff;
+  min-width: 200px;
+  max-width: 280px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.county-popup .maplibregl-popup-close-button {
+  color: #9ca3af;
+  font-size: 18px;
+  padding: 4px 8px;
+}
+
+.county-popup .maplibregl-popup-close-button:hover {
+  color: #f58cde;
+  background: transparent;
+}
+
+.county-popup .maplibregl-popup-tip {
+  border-top-color: #1a1a1a;
+}
+
+.county-popup-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #ffffff;
+  margin-bottom: 8px;
+}
+
+.county-popup-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  padding: 3px 0;
+}
+
+.county-popup-label {
+  color: #9ca3af;
+}
+
+.county-popup-value {
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.county-popup-company {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #3a3a3a;
+}
+
+.county-popup-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.county-popup-company-name {
+  font-size: 12px;
+  color: #d1d5db;
+}

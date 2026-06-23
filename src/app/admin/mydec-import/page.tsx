@@ -1,0 +1,1445 @@
+'use client'
+
+import { useState, useEffect, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
+import Link from 'next/link'
+import {
+  ArrowLeft,
+  Loader2,
+  CheckCircle,
+  XCircle,
+  AlertTriangle,
+  MapPin,
+  Calendar,
+  Layers,
+  Trash2,
+  Play,
+  ChevronLeft,
+  ChevronRight,
+  ChevronDown,
+  ChevronUp,
+  Wheat,
+  DollarSign,
+  TreePine,
+  Eye,
+} from 'lucide-react'
+import fetchWithAuth, { fetchScraperProxy } from '@/lib/fetchWithAuth'
+import NassStagingPreview from '@/components/admin/NassStagingPreview'
+
+const API_URL = 'https://practical-serenity-production.up.railway.app'
+const SCRAPER_PROXY = '/api/scraper-proxy'
+
+// Must match ALLOWED_LAND_TYPES in main.py:11654
+const LAND_TYPE_OPTIONS = [
+  'Farm',
+  'Recreational',
+  'Pasture',
+  'Timber',
+  'Hunting',
+  'Vacant Land',
+  'CRP',
+  'Commercial',
+  'Residential',
+  'Development',
+  'Other',
+] as const
+
+interface StagingItem {
+  id: number
+  source_url: string
+  scraped_data: any
+  auction_date: string | null
+  status: string
+  created_at: string
+  listing_type: string
+  source_type: string
+}
+
+// Expandable detail panel showing every field with its data source.
+// `onLandTypeChange` is called when the operator picks a different tract type
+// from the dropdown — the parent updates local state and PATCHes the backend.
+function TractDetail({
+  item,
+  onLandTypeChange,
+}: {
+  item: StagingItem
+  onLandTypeChange?: (newLandType: string) => void
+}) {
+  const sd = item.scraped_data || {}
+  const tract = sd.tracts?.[0] || {}
+  const listing = sd.listing || {}
+  const sources = sd.enrichment_sources || {}
+  const cropBreakdown = sd.crop_breakdown || {}
+
+  const sourceLabel = (src: string | null) => {
+    if (!src) return <span className="text-red-400 font-medium">NOT AVAILABLE</span>
+    const labels: Record<string, { text: string; color: string }> = {
+      county_arcgis: { text: 'County ArcGIS (free)', color: 'text-green-400' },
+      regrid: { text: 'Regrid API', color: 'text-blue-400' },
+      county_centroid: { text: 'County centroid (inaccurate)', color: 'text-red-400' },
+      usda_sda: { text: 'USDA Soil Data Access', color: 'text-green-400' },
+      cropscape: { text: 'USDA CropScape CDL', color: 'text-green-400' },
+      census_geocoder: { text: 'US Census Geocoder', color: 'text-green-400' },
+      mydec: { text: 'IL MyDec PTAX-203', color: 'text-purple-400' },
+      indiana_sdf: { text: 'IN Sales Disclosure Form', color: 'text-yellow-400' },
+      iowaassessors: { text: 'Iowa Assessors (Vanguard)', color: 'text-purple-400' },
+      iowa_beacon: { text: 'Iowa Beacon (Schneider)', color: 'text-purple-400' },
+      iowaassessors_csr: { text: 'Iowa Assessors CSR2', color: 'text-green-400' },
+    }
+    const l = labels[src] || { text: src, color: 'text-gg-gray-300' }
+    return <span className={l.color}>{l.text}</span>
+  }
+
+  type FieldRow = { label: string; value: string | number | null | undefined; source: string | null; warn?: boolean }
+
+  const isIowa = item.source_type === 'iowa' || !!sd.iowa_parcel_number
+  const isIndiana = item.source_type === 'indiana_sdf' || !!sd.indiana_sdf_id
+  // For Iowa rows, pick the correct sub-source label: Beacon vs Vanguard.
+  const iowaSubSource = (sd.enrichment_sources?.sale_data === 'beacon' || sd.beacon_sale_qual !== undefined || sd.beacon_owner_name !== undefined)
+    ? 'iowa_beacon' : 'iowaassessors'
+  const dataSource = isIowa ? iowaSubSource : isIndiana ? 'indiana_sdf' : 'mydec'
+
+  const fields: FieldRow[] = [
+    // Source-specific ID fields
+    ...(isIndiana ? [
+      { label: 'Parcel Number', value: sd.indiana_parcel_number || tract.parcel_number, source: dataSource },
+      { label: 'SDF ID', value: sd.indiana_sdf_id, source: dataSource },
+      { label: 'Conveyance Date', value: sd.indiana_conveyance_date || listing.auction_date, source: dataSource },
+      { label: 'Buyer', value: tract.buyer, source: dataSource },
+      { label: 'Seller', value: tract.seller, source: dataSource },
+    ] : isIowa ? [
+      { label: 'Parcel Number', value: sd.iowa_parcel_number, source: dataSource },
+      { label: 'Recording', value: sd.iowa_recording || 'N/A', source: dataSource },
+      { label: 'Sale Date', value: sd.iowa_sale_date, source: dataSource },
+      ...(dataSource === 'iowa_beacon' ? [
+        { label: 'Sales Qual', value: sd.beacon_sale_qual || 'N/A', source: 'iowa_beacon', warn: !!(sd.beacon_sale_qual && /unqualified|not qualified|family|quit|trust|estate|gift|correct|related/i.test(sd.beacon_sale_qual)) },
+        { label: 'Reason', value: sd.beacon_reason || 'N/A', source: 'iowa_beacon' },
+        { label: 'Beacon Owner', value: sd.beacon_owner_name || 'N/A', source: 'iowa_beacon' },
+        { label: 'Assessed Value', value: sd.iowa_appraised_value ? `$${Number(String(sd.iowa_appraised_value).replace(/[^\d.]/g,'')).toLocaleString()}` : 'N/A', source: 'iowa_beacon' },
+      ] : []),
+    ] : [
+      { label: 'PIN', value: sd.mydec_pin, source: dataSource },
+      { label: 'Declaration ID', value: sd.mydec_declaration_id, source: dataSource },
+      { label: 'Date Recorded', value: sd.mydec_date_recorded, source: dataSource },
+      { label: 'Auction Sale', value: sd.mydec_auction_sale ? 'Yes' : 'No', source: dataSource },
+    ]) as FieldRow[],
+    { label: 'Acres', value: tract.acres, source: dataSource },
+    { label: 'Sale Price', value: tract.sale_price ? `$${Number(tract.sale_price).toLocaleString()}` : null, source: dataSource },
+    { label: 'Price/Acre', value: tract.price_per_acre ? `$${Math.round(tract.price_per_acre).toLocaleString()}/ac` : null, source: dataSource },
+    { label: '---', value: '', source: null },
+    { label: 'Latitude', value: tract.latitude, source: sources.boundary },
+    { label: 'Longitude', value: tract.longitude, source: sources.boundary },
+    { label: 'Boundary Points', value: tract.polygon_coordinates?.length || 0, source: sources.boundary, warn: !tract.polygon_coordinates },
+    { label: '---', value: '', source: null },
+    { label: 'State', value: `${tract.state_full} (${tract.state_abbr})`, source: 'census_geocoder' },
+    { label: 'County', value: tract.county_name, source: 'census_geocoder' },
+    { label: 'Township', value: tract.township, source: 'census_geocoder' },
+    { label: '---', value: '', source: null },
+    { label: 'NCCPI', value: tract.nccpi, source: sources.soil, warn: !tract.nccpi },
+    { label: '$/NCCPI', value: tract.price_per_nccpi ? `$${Math.round(tract.price_per_nccpi).toLocaleString()}` : null, source: sources.soil },
+    ...(isIowa ? [
+      { label: 'Soil Rating (CSR2)', value: tract.soil_rating ? `${tract.soil_rating}` : 'N/A', source: sources.soil_rating || null },
+      { label: '$/CSR', value: tract.price_per_soil_rating ? `$${Math.round(tract.price_per_soil_rating).toLocaleString()}` : null, source: sources.soil_rating || null },
+      { label: 'Total CSR', value: sd.iowa_total_csr, source: dataSource },
+    ] : [
+      { label: `Soil Rating (${tract.soil_rating_type || 'PI'})`, value: tract.soil_rating || 'N/A', source: null },
+    ]) as FieldRow[],
+    { label: '---', value: '', source: null },
+    { label: 'Tillable Acres', value: tract.tillable_acres, source: sources.tillable, warn: !tract.tillable_acres },
+    { label: 'Price/Tillable Acre', value: tract.price_per_tillable_acre ? `$${Math.round(tract.price_per_tillable_acre).toLocaleString()}/ac` : null, source: sources.tillable },
+    { label: '---', value: '', source: null },
+    { label: 'Land Type', value: tract.land_type, source: dataSource },
+    ...(isIowa ? [
+      { label: 'Buyer', value: tract.buyer || 'N/A', source: 'iowaassessors' },
+      { label: 'Seller', value: tract.seller || 'N/A', source: 'iowaassessors' },
+    ] : [
+      { label: 'Seller', value: sd.mydec_seller || 'N/A', source: 'mydec' },
+      { label: 'Buyer', value: sd.mydec_buyer || 'N/A', source: 'mydec' },
+      { label: 'Legal Description', value: sd.mydec_legal_description || 'N/A', source: 'mydec' },
+    ]) as FieldRow[],
+  ]
+
+  // Add crop breakdown rows
+  if (Object.keys(cropBreakdown).length > 0) {
+    fields.push({ label: '---', value: '', source: null })
+    for (const [crop, pct] of Object.entries(cropBreakdown)) {
+      fields.push({ label: `Crop: ${crop}`, value: `${pct}%`, source: sources.tillable })
+    }
+  }
+
+  return (
+    <div className="mt-3 bg-gg-gray-800/60 rounded-lg p-4 border border-gg-gray-700">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8">
+        {/* Left: Data fields */}
+        <div>
+          <h3 className="text-sm font-semibold text-gg-pink mb-3">Field Verification</h3>
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-gg-gray-500">
+                <th className="text-left pb-2 w-[35%]">Field</th>
+                <th className="text-left pb-2 w-[30%]">Value</th>
+                <th className="text-left pb-2 w-[35%]">Source</th>
+              </tr>
+            </thead>
+            <tbody>
+              {fields.map((f, i) => {
+                if (f.label === '---') {
+                  return <tr key={i}><td colSpan={3} className="py-1"><hr className="border-gg-gray-700" /></td></tr>
+                }
+
+                // Land Type row: render an editable dropdown when the parent
+                // provides an onLandTypeChange callback. Override scraper guess.
+                const isLandType = f.label === 'Land Type'
+                if (isLandType && onLandTypeChange) {
+                  const current = String(f.value || 'Farm')
+                  return (
+                    <tr key={i}>
+                      <td className="py-0.5 text-gg-gray-400">{f.label}</td>
+                      <td className="py-0.5">
+                        <select
+                          value={LAND_TYPE_OPTIONS.includes(current as any) ? current : 'Farm'}
+                          onChange={(e) => onLandTypeChange(e.target.value)}
+                          className="bg-gg-gray-700 border border-gg-gray-600 text-white text-xs rounded px-2 py-0.5 font-mono focus:outline-none focus:ring-1 focus:ring-gg-pink"
+                        >
+                          {LAND_TYPE_OPTIONS.map((opt) => (
+                            <option key={opt} value={opt}>{opt}</option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="py-0.5">{sourceLabel(f.source)}</td>
+                    </tr>
+                  )
+                }
+
+                return (
+                  <tr key={i} className={f.warn ? 'text-red-400' : ''}>
+                    <td className="py-0.5 text-gg-gray-400">{f.label}</td>
+                    <td className="py-0.5 font-mono text-white">
+                      {f.value !== null && f.value !== undefined ? String(f.value) : <span className="text-red-400">MISSING</span>}
+                    </td>
+                    <td className="py-0.5">{sourceLabel(f.source)}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Right: Map preview + tract image */}
+        <div className="mt-4 md:mt-0">
+          <h3 className="text-sm font-semibold text-gg-pink mb-3">Visual Verification</h3>
+          {tract.has_tract_image && (
+            <div className="mb-3">
+              <p className="text-xs text-gg-gray-500 mb-1">Satellite + Boundary Overlay</p>
+              <TractThumbnailLarge stagingId={item.id} tractIndex={0} />
+            </div>
+          )}
+          {tract.latitude && tract.longitude && (
+            <div className="space-y-2">
+              <p className="text-xs text-gg-gray-500">Verify location on Google Maps:</p>
+              <a
+                href={`https://www.google.com/maps/@${tract.latitude},${tract.longitude},16z/data=!3m1!1e1`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-blue-400 hover:text-blue-300 underline"
+              >
+                Open in Google Maps (satellite) →
+              </a>
+              {isIowa && sd.iowa_parcel_number && (
+                <>
+                  <p className="text-xs text-gg-gray-500 mt-2">Verify on Iowa Assessor:</p>
+                  <a
+                    href={`https://${(sd as any).iowa_parcel_number ? (item.source_url?.split('.iowaassessors')[0]?.split('//')[1] || tract.county_name?.toLowerCase().replace(/ /g, '')) : ''}.iowaassessors.com/parcel.php?parcel=${sd.iowa_parcel_number.replace(/-/g, '')}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-blue-400 hover:text-blue-300 underline"
+                  >
+                    Open Iowa Assessor parcel page →
+                  </a>
+                </>
+              )}
+              <p className="text-xs text-gg-gray-500 mt-2">Verify soil data:</p>
+              <a
+                href={`https://websoilsurvey.nrcs.usda.gov/app/WebSoilSurvey.aspx`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-blue-400 hover:text-blue-300 underline"
+              >
+                Open USDA Web Soil Survey →
+              </a>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Larger tract image for detail view
+function TractThumbnailLarge({ stagingId, tractIndex }: { stagingId: number, tractIndex: number }) {
+  const [src, setSrc] = useState<string | null>(null)
+  const [loaded, setLoaded] = useState(false)
+
+  useEffect(() => {
+    fetchWithAuth(`${API_URL}/api/admin/staging/${stagingId}/tract-image/${tractIndex}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.tract_image_base64) {
+          setSrc(`data:image/png;base64,${data.tract_image_base64}`)
+        }
+        setLoaded(true)
+      })
+      .catch(() => setLoaded(true))
+  }, [stagingId, tractIndex])
+
+  if (!loaded) return <div className="w-72 h-72 rounded bg-gg-gray-800 animate-pulse" />
+  if (!src) return <div className="w-72 h-72 rounded bg-gg-gray-800 flex items-center justify-center text-gg-gray-600"><MapPin size={24} /></div>
+  return <img src={src} alt="Tract satellite" className="w-72 h-72 rounded object-cover border border-gg-gray-700" />
+}
+
+function TractThumbnail({ stagingId, tractIndex }: { stagingId: number, tractIndex: number }) {
+  const [src, setSrc] = useState<string | null>(null)
+  const [loaded, setLoaded] = useState(false)
+
+  useEffect(() => {
+    fetchWithAuth(`${API_URL}/api/admin/staging/${stagingId}/tract-image/${tractIndex}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.tract_image_base64) {
+          setSrc(`data:image/png;base64,${data.tract_image_base64}`)
+        }
+        setLoaded(true)
+      })
+      .catch(() => setLoaded(true))
+  }, [stagingId, tractIndex])
+
+  if (!loaded) {
+    return <div className="w-16 h-16 rounded bg-gg-gray-800 animate-pulse shrink-0" />
+  }
+  if (!src) {
+    return <div className="w-16 h-16 rounded bg-gg-gray-800 shrink-0 flex items-center justify-center text-gg-gray-600"><MapPin size={16} /></div>
+  }
+  return <img src={src} alt="Tract" className="w-16 h-16 rounded object-cover shrink-0" />
+}
+
+export default function MyDecImportPage() {
+  const router = useRouter()
+
+  // Auth
+  const [isAdmin, setIsAdmin] = useState(false)
+  const [authChecked, setAuthChecked] = useState(false)
+
+  // State selector
+  const [activeState, setActiveState] = useState<'IL' | 'IA' | 'IN' | 'NE'>('IL')
+
+  // Import controls
+  const [county, setCounty] = useState('LaSalle')
+  const [monthsBack, setMonthsBack] = useState(12)
+  const [importLimit, setImportLimit] = useState(50)
+  const [importing, setImporting] = useState(false)
+  const [importStats, setImportStats] = useState<any>(null)
+  const [activeJobs, setActiveJobs] = useState<Record<string, any>>({})
+  const [showIaCounties, setShowIaCounties] = useState(false)
+
+  // List of Iowa counties supported by Beacon (Run Locally)
+  const IOWA_BEACON_COUNTIES = [
+    'Adair', 'Audubon', 'Benton', 'Boone', 'Bremer', 'Buchanan', 'Buena Vista',
+    'Butler', 'Cass', 'Cedar', 'Cerro Gordo', 'Cherokee', 'Clay', 'Clayton',
+    'Davis', 'Delaware', 'Dickinson', 'Emmet', 'Fayette', 'Franklin', 'Fremont',
+    'Grundy', 'Guthrie', 'Hardin', 'Harrison', 'Henry', 'Humboldt', 'Ida',
+    'Jackson', 'Jasper', 'Jefferson', 'Johnson', 'Keokuk', 'Lee', 'Louisa',
+    'Lyon', 'Madison', 'Mahaska', 'Marion', 'Marshall', 'Mills', 'Mitchell',
+    'Montgomery', 'Muscatine', 'Osceola', 'Page', 'Palo Alto', 'Plymouth',
+    'Pocahontas', 'Ringgold', 'Sac', 'Scott', 'Shelby', 'Sioux', 'Union',
+    'Wapello', 'Warren', 'Washington', 'Webster', 'Winnebago', 'Winneshiek',
+    'Woodbury', 'Worth', 'Wright',
+  ]
+
+  // Review list
+  const [items, setItems] = useState<StagingItem[]>([])
+  const [total, setTotal] = useState(0)
+  const [page, setPage] = useState(0)
+  const [loading, setLoading] = useState(false)
+  const [processingIds, setProcessingIds] = useState<Set<number>>(new Set())
+  const itemsPerPage = 20
+
+  // Expanded detail view
+  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set())
+  const toggleExpanded = (id: number) => {
+    setExpandedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  // County tracker
+  const [countyTracker, setCountyTracker] = useState<any[]>([])
+  const [trackerLoading, setTrackerLoading] = useState(false)
+  const [trackerExpanded, setTrackerExpanded] = useState(false)
+
+  const fetchCountyTracker = useCallback(async () => {
+    setTrackerLoading(true)
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/admin/mydec/county-tracker`)
+      const data = await res.json()
+      setCountyTracker(data.counties || [])
+    } catch (e) {
+      console.error('Failed to fetch county tracker:', e)
+    }
+    setTrackerLoading(false)
+  }, [])
+
+  // Rollback
+  const [mydecCount, setMydecCount] = useState(0)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+
+  // Auth check
+  useEffect(() => {
+    const token = localStorage.getItem('auth_token')
+    if (!token) {
+      router.push('/signin')
+      return
+    }
+    fetchWithAuth(`${API_URL}/api/auth/me`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.account_type !== 'groundgoat_admin' && data.account_type !== 'groundgoat_sales') {
+          router.push('/account')
+        } else {
+          setIsAdmin(true)
+        }
+        setAuthChecked(true)
+      })
+      .catch(() => router.push('/signin'))
+  }, [router])
+
+  // Fetch staging items
+  const sourceType =
+    activeState === 'IA' ? 'iowa' :
+    activeState === 'IN' ? 'indiana_sdf' :
+    activeState === 'NE' ? 'nebraska_gworks' :
+    'mydec'
+  const fetchItems = useCallback(async () => {
+    setLoading(true)
+    try {
+      const res = await fetchWithAuth(
+        `${API_URL}/api/admin/staging?source_type=${sourceType}&status=pending&limit=${itemsPerPage}&offset=${page * itemsPerPage}`
+      )
+      const data = await res.json()
+      setItems(data.items || [])
+      setTotal(data.total || 0)
+    } catch (e) {
+      console.error('Failed to fetch staging items:', e)
+    }
+    setLoading(false)
+  }, [page, sourceType])
+
+  // Fetch MyDec production count for rollback
+  const fetchMydecCount = useCallback(async () => {
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/admin/listings/by-external-id/count?prefix=mydec:`)
+      const data = await res.json()
+      setMydecCount(data.count || 0)
+    } catch (e) {
+      console.error('Failed to fetch mydec count:', e)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (isAdmin) {
+      fetchItems()
+      fetchMydecCount()
+      fetchCountyTracker()
+    }
+  }, [isAdmin, fetchItems, fetchMydecCount, fetchCountyTracker])
+
+  // Poll a background import job until it completes
+  const pollJob = useCallback(async (jobId: string, jobCounty: string, statePrefix: 'IL' | 'IA' | 'IN' | 'NE' = 'IL') => {
+    const statusPath =
+      statePrefix === 'NE' ? `/api/nebraska/import/status/${jobId}` :
+      `/api/mydec/import/status/${jobId}`
+    const poll = async () => {
+      try {
+        const res = await fetchScraperProxy(statusPath)
+        const data = await res.json()
+        setActiveJobs(prev => ({ ...prev, [jobId]: { ...data, county: jobCounty } }))
+        if (data.status === 'running') {
+          setTimeout(poll, 3000)
+        } else {
+          // Job finished — refresh the review list
+          setPage(0)
+          fetchItems()
+          fetchCountyTracker()
+          // Show final stats
+          if (data.stats) {
+            setImportStats({ success: true, ...data.stats, _county: jobCounty })
+          }
+        }
+      } catch {
+        setTimeout(poll, 5000) // Retry on network error
+      }
+    }
+    poll()
+  }, [fetchItems, fetchCountyTracker])
+
+  // Run import (Railway server) — background mode with polling
+  const runImport = async () => {
+    setImportStats(null)
+    const endpoint =
+      activeState === 'IA' ? '/api/iowa/import' :
+      activeState === 'IN' ? '/api/indiana/import' :
+      activeState === 'NE' ? '/api/nebraska/import' :
+      '/api/mydec/import'
+    // Nebraska uses county_slug; others use county (display name)
+    const body: any = {
+      months_back: monthsBack,
+      limit: importLimit,
+      background: true,
+    }
+    if (activeState === 'NE') body.county_slug = (county || '').toLowerCase().trim()
+    else body.county = county || null
+    try {
+      const res = await fetchScraperProxy(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const data = await res.json()
+      if (data.job_id) {
+        // Background mode — start polling
+        const jobCounty = county || 'All Counties'
+        setActiveJobs(prev => ({
+          ...prev,
+          [data.job_id]: { status: 'running', county: jobCounty, state: activeState, progress: { processed: 0, total: 0 } }
+        }))
+        pollJob(data.job_id, jobCounty, activeState)
+      } else {
+        // Synchronous fallback (Iowa/Indiana)
+        setImportStats(data)
+        setPage(0)
+        fetchItems()
+        fetchCountyTracker()
+      }
+    } catch (e: any) {
+      setImportStats({ success: false, error: e.message })
+    }
+  }
+
+  // Run import locally (for Iowa — Beacon requires residential IP)
+  const runLocalImport = async () => {
+    setImporting(true)
+    setImportStats(null)
+    try {
+      const res = await fetch('http://localhost:5050/api/iowa/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          county: county || null,
+          months_back: monthsBack,
+          limit: importLimit,
+        }),
+      })
+      const data = await res.json()
+      setImportStats(data)
+      setPage(0)
+      fetchItems()
+      fetchCountyTracker()
+    } catch (e: any) {
+      setImportStats({ success: false, error: 'Local scraper not running. Start it with: python3 run_iowa_local.py --serve' })
+    }
+    setImporting(false)
+  }
+
+  // Update the land_type on a staged tract — both locally (instant UI feedback)
+  // and on the backend (PATCH staging.scraped_data.tracts[0].land_type).
+  const updateTractLandType = async (item: StagingItem, newLandType: string) => {
+    const sd = item.scraped_data || {}
+    const tracts = Array.isArray(sd.tracts) ? [...sd.tracts] : []
+    if (tracts.length === 0) return  // nothing to update
+    tracts[0] = { ...tracts[0], land_type: newLandType }
+    const updated = { ...sd, tracts }
+
+    // Optimistic local update
+    setItems((prev) => prev.map((it) => (it.id === item.id ? { ...it, scraped_data: updated } : it)))
+
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/admin/staging/${item.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scraped_data: updated }),
+      })
+      if (!res.ok) {
+        const body = await res.text().catch(() => '')
+        // Roll back on failure so UI doesn't lie
+        setItems((prev) => prev.map((it) => (it.id === item.id ? { ...it, scraped_data: sd } : it)))
+        alert(`Failed to update land type (HTTP ${res.status}): ${body || ''}`)
+      }
+    } catch (e: any) {
+      setItems((prev) => prev.map((it) => (it.id === item.id ? { ...it, scraped_data: sd } : it)))
+      alert(`Failed to update land type: ${e?.message || e}`)
+    }
+  }
+
+  // Approve (verify) a staging item
+  const approveItem = async (id: number) => {
+    setProcessingIds(prev => new Set(prev).add(id))
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/admin/staging/${id}/verify`, { method: 'POST' })
+      if (res.ok) {
+        setItems(prev => prev.filter(item => item.id !== id))
+        setTotal(prev => prev - 1)
+        fetchMydecCount()
+      } else {
+        // FastAPI returns `detail` as a string for plain errors and as an
+        // object/array for validation errors. Stringify object/array values
+        // so the user sees the real message instead of "[object Object]".
+        const formatErr = (d: unknown): string => {
+          if (d == null) return `HTTP ${res.status}`
+          if (typeof d === 'string') return d
+          try { return JSON.stringify(d) } catch { return String(d) }
+        }
+        let detail: unknown = null
+        let raw = ''
+        try {
+          const body = await res.clone().json()
+          detail = body?.detail ?? body
+        } catch {
+          try { raw = await res.text() } catch { /* ignore */ }
+        }
+        const msg = detail !== null ? formatErr(detail) : (raw || `HTTP ${res.status}`)
+        console.error('[verify failed]', { status: res.status, detail, raw })
+        alert(`Verify failed (HTTP ${res.status}): ${msg}`)
+      }
+    } catch (e: any) {
+      alert(`Error: ${e.message}`)
+    }
+    setProcessingIds(prev => {
+      const next = new Set(prev)
+      next.delete(id)
+      return next
+    })
+  }
+
+  // Merge MyDec data into existing auction listing
+  const mergeItem = async (stagingId: number, listingId: string) => {
+    setProcessingIds(prev => new Set(prev).add(stagingId))
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/admin/staging/${stagingId}/merge/${listingId}`, { method: 'POST' })
+      if (res.ok) {
+        const data = await res.json()
+        setItems(prev => prev.filter(item => item.id !== stagingId))
+        setTotal(prev => prev - 1)
+        fetchMydecCount()
+        fetchCountyTracker()
+        alert(`Merged! ${data.matched_tracts} tract(s) updated.`)
+      } else {
+        const err = await res.json()
+        alert(`Merge failed: ${err.detail || 'Unknown error'}`)
+      }
+    } catch (e: any) {
+      alert(`Error: ${e.message}`)
+    }
+    setProcessingIds(prev => {
+      const next = new Set(prev)
+      next.delete(stagingId)
+      return next
+    })
+  }
+
+  // Keep this item and skip all siblings in the duplicate cluster
+  const keepSkipSiblings = async (stagingId: number) => {
+    setProcessingIds(prev => new Set(prev).add(stagingId))
+    try {
+      const res = await fetchScraperProxy(`/api/mydec/staging/${stagingId}/keep-skip-siblings`, { method: 'POST' })
+      const data = await res.json()
+      if (res.ok && data.success) {
+        // Remove siblings from the visible list
+        const siblingSet = new Set<number>(data.skipped_ids || [])
+        setItems(prev => prev.filter(item => !siblingSet.has(item.id)))
+        setTotal(prev => prev - (data.skipped_count || 0))
+        fetchMydecCount()
+        alert(`Kept this item. Skipped ${data.skipped_count || 0} sibling(s).`)
+      } else {
+        alert(`Failed: ${data.error || 'Unknown error'}`)
+      }
+    } catch (e: any) {
+      alert(`Error: ${e.message}`)
+    }
+    setProcessingIds(prev => {
+      const next = new Set(prev)
+      next.delete(stagingId)
+      return next
+    })
+  }
+
+  // Skip a staging item — uses DELETE /api/admin/staging/{id} which the
+  // backend implements as "reject + add to rejected_urls + delete from
+  // staging". This replaces the broken /ignore call (which silently
+  // deleted with no rejection trail and caused the dupes problem).
+  const skipItem = async (id: number) => {
+    setProcessingIds(prev => new Set(prev).add(id))
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/admin/staging/${id}`, { method: 'DELETE' })
+      if (res.ok) {
+        setItems(prev => prev.filter(item => item.id !== id))
+        setTotal(prev => prev - 1)
+      } else {
+        const body = await res.text().catch(() => '')
+        alert(`Skip failed: HTTP ${res.status} ${body.slice(0, 200)}`)
+      }
+    } catch (e: any) {
+      alert(`Error: ${e.message}`)
+    }
+    setProcessingIds(prev => {
+      const next = new Set(prev)
+      next.delete(id)
+      return next
+    })
+  }
+
+  // Batch approve all non-duplicate, no-warning items on current page
+  const batchApprove = async () => {
+    const clean = items.filter(item => {
+      const sd = item.scraped_data || {}
+      const warnings = sd.validation_warnings || []
+      const isDup = !!sd.potential_duplicate
+      return !isDup && warnings.length === 0
+    })
+    if (clean.length === 0) {
+      alert('No clean items to approve on this page.')
+      return
+    }
+    if (!confirm(`Approve ${clean.length} clean items?`)) return
+
+    for (const item of clean) {
+      await approveItem(item.id)
+    }
+  }
+
+  // Mass delete rollback
+  const massDelete = async () => {
+    setDeleting(true)
+    try {
+      const res = await fetchWithAuth(
+        `${API_URL}/api/admin/listings/by-external-id?prefix=mydec:`,
+        { method: 'DELETE' }
+      )
+      const data = await res.json()
+      alert(`Deleted ${data.deleted} MyDec listings`)
+      setShowDeleteConfirm(false)
+      fetchMydecCount()
+    } catch (e: any) {
+      alert(`Error: ${e.message}`)
+    }
+    setDeleting(false)
+  }
+
+  if (!authChecked) {
+    return (
+      <div className="min-h-screen bg-gg-black flex items-center justify-center">
+        <Loader2 className="animate-spin text-gg-pink" size={32} />
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-h-screen bg-gg-black text-white">
+      {/* Header */}
+      <div className="border-b border-gg-gray-800 px-6 py-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <Link href="/admin/dashboard" className="text-gg-gray-400 hover:text-white">
+              <ArrowLeft size={20} />
+            </Link>
+            <div>
+              <h1 className="text-xl font-bold">State Farm Sale Import</h1>
+              <p className="text-sm text-gg-gray-400">
+                {activeState === 'IL' ? 'Illinois PTAX-203 transfer records' :
+                 activeState === 'IN' ? 'Indiana Sales Disclosure Forms' :
+                 activeState === 'NE' ? 'Nebraska gWorks qualified farm sales' :
+                 'Iowa Assessor ag sales'} &middot; {total} pending review
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            {mydecCount > 0 && (
+              <span className="text-sm text-gg-gray-400">
+                {mydecCount} MyDec listings in production
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="max-w-7xl mx-auto px-6 py-6 space-y-6">
+        {/* State Tabs */}
+        <div className="flex gap-2">
+          <button
+            onClick={() => { setActiveState('IL'); setCounty('LaSalle'); setImportStats(null); setPage(0) }}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              activeState === 'IL'
+                ? 'bg-gg-pink text-white'
+                : 'bg-gg-gray-800 text-gg-gray-400 hover:text-white hover:bg-gg-gray-700'
+            }`}
+          >
+            🌽 Illinois (MyDec)
+          </button>
+          <button
+            onClick={() => { setActiveState('IA'); setCounty('Washington'); setImportStats(null); setPage(0) }}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              activeState === 'IA'
+                ? 'bg-gg-pink text-white'
+                : 'bg-gg-gray-800 text-gg-gray-400 hover:text-white hover:bg-gg-gray-700'
+            }`}
+          >
+            🌾 Iowa (Assessors)
+          </button>
+          <button
+            onClick={() => { setActiveState('IN'); setCounty('Huntington'); setImportStats(null); setPage(0) }}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              activeState === 'IN'
+                ? 'bg-gg-pink text-white'
+                : 'bg-gg-gray-800 text-gg-gray-400 hover:text-white hover:bg-gg-gray-700'
+            }`}
+          >
+            🏁 Indiana (SDF)
+          </button>
+          <button
+            onClick={() => { setActiveState('NE'); setCounty('saunders'); setImportStats(null); setPage(0) }}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              activeState === 'NE'
+                ? 'bg-gg-pink text-white'
+                : 'bg-gg-gray-800 text-gg-gray-400 hover:text-white hover:bg-gg-gray-700'
+            }`}
+          >
+            🌽 Nebraska (gWorks)
+          </button>
+        </div>
+
+        {/* Import Controls */}
+        <div className="bg-gg-gray-900 rounded-lg border border-gg-gray-800 p-5">
+          <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+            <Play size={18} className="text-gg-pink" />
+            Import Controls
+          </h2>
+          <div className="flex flex-wrap items-end gap-4">
+            <div>
+              <label className="block text-xs text-gg-gray-400 mb-1">
+                {activeState === 'NE' ? 'County slug (required)' : 'County (blank = all)'}
+              </label>
+              <input
+                type="text"
+                value={county}
+                onChange={e => setCounty(e.target.value)}
+                placeholder={
+                  activeState === 'IL' ? 'e.g., LaSalle' :
+                  activeState === 'IN' ? 'e.g., Huntington' :
+                  activeState === 'NE' ? 'e.g., saunders' :
+                  'e.g., Washington'
+                }
+                className="bg-gg-gray-800 border border-gg-gray-700 rounded px-3 py-2 text-sm w-40"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gg-gray-400 mb-1">Months Back</label>
+              <input
+                type="number"
+                value={monthsBack}
+                onChange={e => setMonthsBack(Number(e.target.value))}
+                className="bg-gg-gray-800 border border-gg-gray-700 rounded px-3 py-2 text-sm w-20"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gg-gray-400 mb-1">Limit</label>
+              <input
+                type="number"
+                value={importLimit}
+                onChange={e => setImportLimit(Number(e.target.value))}
+                className="bg-gg-gray-800 border border-gg-gray-700 rounded px-3 py-2 text-sm w-20"
+              />
+            </div>
+            <button
+              onClick={runImport}
+              className="bg-gg-pink hover:bg-gg-pink/80 text-white px-5 py-2 rounded text-sm font-medium flex items-center gap-2"
+            >
+              <Play size={16} />
+              Run Import
+            </button>
+            {activeState === 'IA' && (
+              <button
+                onClick={runLocalImport}
+                disabled={importing}
+                className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white px-5 py-2 rounded text-sm font-medium flex items-center gap-2"
+                title="Run from your local machine (required for Iowa — Beacon blocks datacenter IPs)"
+              >
+                {importing ? <Loader2 size={16} className="animate-spin" /> : <Play size={16} />}
+                {importing ? 'Importing...' : 'Run Locally'}
+              </button>
+            )}
+          </div>
+
+          {/* Nebraska supported counties picker */}
+          {activeState === 'NE' && (
+            <div className="mt-4">
+              <div className="bg-amber-900/20 border border-amber-800/50 rounded p-3 text-xs text-gg-gray-300">
+                Nebraska imports target a single gWorks county at a time. Click a slug
+                below to select it. Douglas (Omaha), Lancaster (Lincoln), and Sarpy are
+                not on gWorks and are not supported here yet.
+              </div>
+              <div className="mt-2 p-3 bg-gg-gray-800/50 border border-gg-gray-700 rounded text-xs">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-1">
+                  {[
+                    'arthur','banner','blaine','boone','boxbutte','boyd','brown','burt',
+                    'butler','cedar','chase','cheyenne','clay','cuming','custer','dakota',
+                    'dawes','dawson','deuel','dodge','dundy','franklin','furnas','gage',
+                    'garden','garfield','grant','greeley','hamilton','harlan','hayes',
+                    'hitchcock','hooker','howard','jefferson','johnson','kearney','keith',
+                    'keyapaha','kimball','knox','lincoln','logan','loup','madison',
+                    'mcpherson','merrick','morrill','nuckolls','otoe','pawnee','perkins',
+                    'phelps','pierce','platte','polk','rock','saline','saunders','sheridan',
+                    'sherman','sioux','thomas','thurston','valley','washington','wayne',
+                    'webster','wheeler',
+                  ].map(s => (
+                    <button
+                      key={s}
+                      onClick={() => setCounty(s)}
+                      className={`text-left px-2 py-1 rounded hover:bg-gg-gray-700 transition-colors ${
+                        county === s ? 'bg-amber-700 text-white' : 'text-gg-gray-300'
+                      }`}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Iowa supported counties list */}
+          {activeState === 'IA' && (
+            <div className="mt-4">
+              <div className="bg-blue-900/20 border border-blue-800/50 rounded p-3 text-xs space-y-2">
+                <div className="flex items-start gap-2 text-blue-300">
+                  <AlertTriangle size={14} className="shrink-0 mt-0.5" />
+                  <div>
+                    <div className="font-medium">Before clicking Run Locally:</div>
+                    <div className="text-gg-gray-300 mt-1">
+                      Start the local server on your Mac:{' '}
+                      <code className="bg-gg-gray-800 px-1.5 py-0.5 rounded">python3 run_iowa_local.py --serve</code>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowIaCounties(!showIaCounties)}
+                className="mt-2 text-xs text-gg-gray-400 hover:text-white flex items-center gap-1"
+              >
+                {showIaCounties ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                {showIaCounties ? 'Hide supported counties' : `Show supported counties (${IOWA_BEACON_COUNTIES.length} of 99 Iowa counties)`}
+              </button>
+              {showIaCounties && (
+                <div className="mt-2 p-3 bg-gg-gray-800/50 border border-gg-gray-700 rounded text-xs">
+                  <div className="text-gg-gray-400 mb-2">
+                    Counties available on Beacon. Other Iowa counties are not yet supported — 0 results ≠ broken; may just mean no sales in window.
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-1">
+                    {IOWA_BEACON_COUNTIES.map(c => (
+                      <button
+                        key={c}
+                        onClick={() => setCounty(c)}
+                        className={`text-left px-2 py-1 rounded hover:bg-gg-gray-700 transition-colors ${
+                          county === c ? 'bg-emerald-700 text-white' : 'text-gg-gray-300'
+                        }`}
+                      >
+                        {c}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Active background jobs */}
+          {Object.keys(activeJobs).length > 0 && (
+            <div className="mt-4 space-y-2">
+              {Object.entries(activeJobs).map(([jobId, job]) => (
+                <div key={jobId} className={`p-3 rounded text-sm ${
+                  job.status === 'running' ? 'bg-blue-900/30 border border-blue-800' :
+                  job.status === 'completed' ? 'bg-green-900/30 border border-green-800' :
+                  'bg-red-900/30 border border-red-800'
+                }`}>
+                  <div className="flex items-center gap-2">
+                    {job.status === 'running' && <Loader2 size={14} className="animate-spin text-blue-400" />}
+                    {job.status === 'completed' && <CheckCircle size={14} className="text-green-400" />}
+                    {job.status === 'failed' && <XCircle size={14} className="text-red-400" />}
+                    {job.status === 'cancelled' && <XCircle size={14} className="text-gg-gray-400" />}
+                    <span className="font-medium flex-1">
+                      {job.county || 'Import'}
+                      {job.status === 'running' && job.progress?.total > 0 &&
+                        ` — ${job.progress.processed}/${job.progress.total} sales`}
+                      {job.status === 'running' && job.progress?.total === 0 && ' — starting...'}
+                      {job.status === 'cancelled' && ' — cancelled'}
+                    </span>
+                    {job.status === 'running' && (
+                      <button
+                        onClick={async () => {
+                          const cancelPath = job.state === 'NE'
+                            ? `/api/nebraska/import/cancel/${jobId}`
+                            : `/api/mydec/import/cancel/${jobId}`
+                          await fetchScraperProxy(cancelPath, { method: 'POST' })
+                        }}
+                        className="text-xs text-red-400 hover:text-red-300 px-2 py-0.5 rounded bg-red-900/30 hover:bg-red-900/50"
+                      >
+                        Cancel
+                      </button>
+                    )}
+                  </div>
+                  {job.status === 'running' && job.progress?.total > 0 && (
+                    <div className="mt-2 bg-gg-gray-800 rounded-full h-2 overflow-hidden">
+                      <div
+                        className="bg-blue-500 h-full transition-all duration-500"
+                        style={{ width: `${Math.round((job.progress.processed / job.progress.total) * 100)}%` }}
+                      />
+                    </div>
+                  )}
+                  {job.stats && (
+                    <div className="text-gg-gray-300 mt-1">
+                      Fetched: {job.stats.total_fetched} &middot;
+                      Enriched: {job.stats.enriched} &middot;
+                      Staged: {job.stats.staged} &middot;
+                      Duplicates: {job.stats.duplicates_flagged} &middot;
+                      Regrid calls: {job.stats.regrid_calls}
+                      {job.stats.errors?.length > 0 && (
+                        <span className="text-red-400"> &middot; Errors: {job.stats.errors.length}</span>
+                      )}
+                    </div>
+                  )}
+                  {job.error && <div className="text-red-400 mt-1">{job.error}</div>}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Import stats (legacy sync mode) */}
+          {importStats && !importStats.job_id && (
+            <div className={`mt-4 p-3 rounded text-sm ${importStats.success ? 'bg-green-900/30 border border-green-800' : 'bg-red-900/30 border border-red-800'}`}>
+              {importStats.success ? (
+                <div className="space-y-1">
+                  <div className="font-medium text-green-400">Import Complete</div>
+                  <div className="text-gg-gray-300">
+                    Fetched: {importStats.total_fetched} &middot;
+                    Enriched: {importStats.enriched} &middot;
+                    Staged: {importStats.staged} &middot;
+                    Duplicates: {importStats.duplicates_flagged} &middot;
+                    Regrid calls: {importStats.regrid_calls}
+                    {importStats.skipped_existing > 0 && ` · Already staged: ${importStats.skipped_existing}`}
+                  </div>
+                  {importStats.errors?.length > 0 && (
+                    <div className="text-red-400">Errors: {importStats.errors.length}</div>
+                  )}
+                </div>
+              ) : (
+                <div className="text-red-400">Error: {importStats.error}</div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* County Tracker */}
+        {countyTracker.length > 0 && (
+          <div className="bg-gg-gray-900 rounded-lg border border-gg-gray-800 p-5">
+            <button
+              onClick={() => setTrackerExpanded(!trackerExpanded)}
+              className="w-full flex items-center justify-between"
+            >
+              <h2 className="text-lg font-semibold flex items-center gap-2">
+                <MapPin size={18} className="text-gg-pink" />
+                County Import Tracker
+                <span className="text-sm font-normal text-gg-gray-400">({countyTracker.length} counties)</span>
+              </h2>
+              {trackerExpanded ? <ChevronUp size={18} className="text-gg-gray-400" /> : <ChevronDown size={18} className="text-gg-gray-400" />}
+            </button>
+            {trackerExpanded && <div className="overflow-x-auto mt-3">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-gg-gray-400 border-b border-gg-gray-800">
+                    <th className="text-left py-2 pr-4">State</th>
+                    <th className="text-left py-2 pr-4">County</th>
+                    <th className="text-right py-2 px-3">In Production</th>
+                    <th className="text-right py-2 px-3">Pending</th>
+                    <th className="text-right py-2 px-3">Skipped</th>
+                    <th className="text-right py-2 px-3">Total Imported</th>
+                    <th className="text-right py-2 pl-3">Last Import</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {countyTracker.map((c: any) => (
+                    <tr key={`${c.state}-${c.county}`} className="border-b border-gg-gray-800/50 hover:bg-gg-gray-800/30">
+                      <td className="py-1.5 pr-4 text-gg-gray-400">{c.state === 'Illinois' ? 'IL' : c.state === 'Iowa' ? 'IA' : c.state === 'Indiana' ? 'IN' : c.state || '—'}</td>
+                      <td className="py-1.5 pr-4 font-medium">{c.county}</td>
+                      <td className="py-1.5 px-3 text-right text-green-400">{c.in_production || 0}</td>
+                      <td className="py-1.5 px-3 text-right text-yellow-400">{c.pending || 0}</td>
+                      <td className="py-1.5 px-3 text-right text-gg-gray-500">{c.ignored || 0}</td>
+                      <td className="py-1.5 px-3 text-right">{(c.verified || 0) + (c.pending || 0) + (c.ignored || 0)}</td>
+                      <td className="py-1.5 pl-3 text-right text-gg-gray-400">
+                        {c.last_import ? new Date(c.last_import).toLocaleDateString() : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>}
+          </div>
+        )}
+
+        {/* Review List */}
+        <div className="bg-gg-gray-900 rounded-lg border border-gg-gray-800">
+          <div className="flex items-center justify-between p-4 border-b border-gg-gray-800">
+            <h2 className="text-lg font-semibold flex items-center gap-2">
+              <Layers size={18} className="text-gg-pink" />
+              Pending Review ({total})
+            </h2>
+            <button
+              onClick={batchApprove}
+              disabled={items.length === 0}
+              className="bg-green-700 hover:bg-green-600 disabled:opacity-50 text-white px-4 py-1.5 rounded text-sm font-medium"
+            >
+              Batch Approve Clean
+            </button>
+          </div>
+
+          {loading ? (
+            <div className="p-8 text-center">
+              <Loader2 className="animate-spin text-gg-pink mx-auto" size={24} />
+            </div>
+          ) : items.length === 0 ? (
+            <div className="p-8 text-center text-gg-gray-500">
+              No {activeState === 'IA' ? 'Iowa' : 'MyDec'} items pending review. Run an import to get started.
+            </div>
+          ) : (
+            <div className="divide-y divide-gg-gray-800">
+              {items.map(item => {
+                const sd = item.scraped_data || {}
+                const tract = sd.tracts?.[0] || {}
+                const listing = sd.listing || {}
+                const warnings = sd.validation_warnings || []
+                const isDup = !!sd.potential_duplicate
+                const dup = sd.potential_duplicate || {}
+                const isPartialSale = !!sd.is_partial_sale
+                const sources = sd.enrichment_sources || {}
+                const cropBreakdown = sd.crop_breakdown || {}
+                const isProcessing = processingIds.has(item.id)
+                const stagingDup = sd.staging_duplicate
+                const hasStagingDup = !!stagingDup
+                const stagingDupLabel: Record<string, string> = {
+                  exact: 'Exact Duplicate',
+                  same_transaction: 'Same Transaction',
+                  pass_through: 'Pass-Through Chain',
+                  joint_ownership: 'Joint Ownership',
+                }
+
+                return (
+                  <div key={item.id} className="p-4 hover:bg-gg-gray-800/50 transition-colors">
+                    <div className="flex items-start justify-between gap-4">
+                      {/* Tract image thumbnail */}
+                      {tract.has_tract_image && (
+                        <TractThumbnail stagingId={item.id} tractIndex={0} />
+                      )}
+                      {/* Main info */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-semibold">
+                            {tract.acres || '?'} Acres &mdash; {tract.county_name || listing.county || '?'} County
+                          </span>
+                          {isPartialSale && (
+                            <span className="bg-red-600/30 text-red-400 text-xs px-2 py-0.5 rounded font-medium">
+                              Partial Sale
+                            </span>
+                          )}
+                          {isDup && (
+                            <span className="bg-yellow-600/30 text-yellow-400 text-xs px-2 py-0.5 rounded">
+                              Potential Duplicate
+                            </span>
+                          )}
+                          {hasStagingDup && (
+                            <span className={`text-xs px-2 py-0.5 rounded font-medium ${
+                              stagingDup.suggested_keep
+                                ? 'bg-indigo-600/40 text-indigo-200'
+                                : 'bg-indigo-900/40 text-indigo-400'
+                            }`}>
+                              {stagingDupLabel[stagingDup.reason] || 'Staging Duplicate'}
+                              {stagingDup.suggested_keep && ' · Suggested Keep'}
+                            </span>
+                          )}
+                          {warnings.length > 0 && (
+                            <span className="bg-orange-600/30 text-orange-400 text-xs px-2 py-0.5 rounded">
+                              {warnings.length} Warning{warnings.length > 1 ? 's' : ''}
+                            </span>
+                          )}
+                          {/* Iowa Beacon: unqualified-sale flag */}
+                          {(() => {
+                            const q = (sd.beacon_sale_qual || sd.beacon_reason || '').toLowerCase()
+                            if (q && /unqualified|not qualified|family|quit|trust|estate|gift|correct|related|foreclos|sheriff|partition|divorce|life estate|partial interest/.test(q)) {
+                              return (
+                                <span className="bg-rose-700/40 text-rose-200 text-xs px-2 py-0.5 rounded font-medium" title={sd.beacon_sale_qual || sd.beacon_reason}>
+                                  Unqualified Sale
+                                </span>
+                              )
+                            }
+                            return null
+                          })()}
+                          {/* Iowa Beacon: sale price far below assessed value */}
+                          {(() => {
+                            if (!tract.sale_price || !sd.iowa_appraised_value) return null
+                            const assessed = Number(String(sd.iowa_appraised_value).replace(/[^\d.]/g, ''))
+                            if (!assessed) return null
+                            const ratio = Number(tract.sale_price) / assessed
+                            if (ratio < 0.40) {
+                              return (
+                                <span className="bg-rose-700/40 text-rose-200 text-xs px-2 py-0.5 rounded font-medium" title={`Sale $${Number(tract.sale_price).toLocaleString()} vs assessed $${assessed.toLocaleString()}`}>
+                                  {Math.round(ratio * 100)}% of Assessed
+                                </span>
+                              )
+                            }
+                            return null
+                          })()}
+                          {sources.boundary === 'county_arcgis' && (
+                            <span className="bg-green-800/40 text-green-400 text-xs px-2 py-0.5 rounded">ArcGIS</span>
+                          )}
+                          {sources.boundary === 'regrid' && (
+                            <span className="bg-blue-800/40 text-blue-400 text-xs px-2 py-0.5 rounded">Regrid</span>
+                          )}
+                          {sources.boundary === 'county_centroid' && (
+                            <span className="bg-red-800/40 text-red-400 text-xs px-2 py-0.5 rounded">Centroid Only</span>
+                          )}
+                        </div>
+
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-1 text-sm text-gg-gray-300">
+                          <div className="flex items-center gap-1">
+                            <DollarSign size={14} className="text-gg-gray-500" />
+                            <span>${(tract.sale_price || 0).toLocaleString()}</span>
+                            {tract.price_per_acre && (
+                              <span className="text-gg-gray-500">(${Math.round(tract.price_per_acre).toLocaleString()}/ac)</span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <MapPin size={14} className="text-gg-gray-500" />
+                            <span>{tract.township || '?'} Twp</span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <Wheat size={14} className="text-gg-gray-500" />
+                            <span>
+                              {tract.soil_rating ? `${tract.soil_rating_type || (item.source_type === 'iowa' ? 'CSR2' : 'PI')}: ${tract.soil_rating} · ` : ''}
+                              NCCPI: {tract.nccpi || '?'}
+                              {tract.tillable_acres ? ` · ${tract.tillable_acres} tillable` : ''}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <Calendar size={14} className="text-gg-gray-500" />
+                            <span>{sd.mydec_date_recorded || sd.iowa_sale_date || sd.indiana_conveyance_date || sd.indiana_sale_date || '?'}</span>
+                            {sd.mydec_auction_sale && (
+                              <span className="text-gg-pink text-xs">(auction)</span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="text-xs text-gg-gray-500 mt-1">
+                          {sd.iowa_parcel_number ? `Parcel: ${sd.iowa_parcel_number}` : `PIN: ${sd.mydec_pin || '?'}`}
+                          {tract.soil_rating && tract.soil_rating_type === 'CSR2' && ` · CSR2: ${tract.soil_rating}`}
+                          {Object.entries(cropBreakdown).map(([crop, acres]) => ` · ${crop}: ${acres}ac`).join('')}
+                          {tract.polygon_coordinates && ` · ${tract.polygon_coordinates.length} boundary pts`}
+                        </div>
+
+                        {/* NASS Ground Truth preview — confirms the tract's
+                            county will resolve to USDA data once promoted. */}
+                        <div className="mt-1.5">
+                          <NassStagingPreview
+                            state={tract.state_abbr || tract.state_full || listing.state}
+                            county={tract.county_name || listing.county}
+                          />
+                        </div>
+
+                        {/* Duplicate comparison */}
+                        {isDup && (
+                          <div className="mt-2 p-2 bg-yellow-900/20 rounded text-xs border border-yellow-800/50">
+                            <div className="font-medium text-yellow-400 mb-1">Existing match:</div>
+                            <div className="text-gg-gray-300">
+                              {dup.title} &middot; {dup.total_acres}ac &middot; ${Number(dup.sale_price || 0).toLocaleString()}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Staging duplicate cluster info */}
+                        {hasStagingDup && (
+                          <div className="mt-2 p-2 bg-indigo-900/20 rounded text-xs border border-indigo-800/50">
+                            <div className="font-medium text-indigo-300 mb-1">
+                              {stagingDupLabel[stagingDup.reason] || 'Duplicate cluster'} — {stagingDup.sibling_staging_ids?.length || 0} sibling{(stagingDup.sibling_staging_ids?.length || 0) === 1 ? '' : 's'}
+                            </div>
+                            {stagingDup.chain_description && (
+                              <div className="text-gg-gray-300 mb-1">
+                                Chain: {stagingDup.chain_description}
+                              </div>
+                            )}
+                            <div className="text-gg-gray-400">
+                              {stagingDup.reason === 'exact' && 'Same PIN, acres, price, date, buyer, and seller — these are filed twice in MyDec (correction filing).'}
+                              {stagingDup.reason === 'same_transaction' && 'Same PIN + price + date but different reported acres. Usually primary-PIN acres vs total-portfolio acres.'}
+                              {stagingDup.reason === 'pass_through' && 'Parcel sold through an intermediary on the same day (1031 exchange or similar tax-motivated routing).'}
+                              {stagingDup.reason === 'joint_ownership' && (
+                                <>
+                                  Same buyer bought the parcel from <strong>multiple sellers</strong> (usually heirs of an estate). Each declaration reports one seller&apos;s share of the price. The <strong>suggested keep</strong> item has been updated to show the <strong>true combined total: ${Number(stagingDup.combined_total_price || 0).toLocaleString()}</strong> ({stagingDup.combined_price_per_acre ? `$${Math.round(stagingDup.combined_price_per_acre).toLocaleString()}/ac` : ''}).
+                                </>
+                              )}
+                            </div>
+                            <div className="text-gg-gray-500 mt-1">
+                              Sibling IDs: {(stagingDup.sibling_staging_ids || []).join(', ')}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Warnings */}
+                        {warnings.length > 0 && (
+                          <div className="mt-2 space-y-0.5">
+                            {warnings.map((w: string, i: number) => (
+                              <div key={i} className="flex items-center gap-1 text-xs text-orange-400">
+                                <AlertTriangle size={12} />
+                                <span>{w}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Expand/Collapse details */}
+                        <button
+                          onClick={() => toggleExpanded(item.id)}
+                          className="mt-2 text-xs text-gg-gray-400 hover:text-white flex items-center gap-1"
+                        >
+                          {expandedIds.has(item.id) ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                          {expandedIds.has(item.id) ? 'Hide Details' : 'Show Details — Verify All Fields'}
+                        </button>
+
+                        {/* Expanded detail panel */}
+                        {expandedIds.has(item.id) && (
+                          <TractDetail
+                            item={item}
+                            onLandTypeChange={(newType) => updateTractLandType(item, newType)}
+                          />
+                        )}
+                      </div>
+
+                      {/* Actions */}
+                      <div className="flex flex-col gap-2 shrink-0">
+                        <button
+                          onClick={() => approveItem(item.id)}
+                          disabled={isProcessing}
+                          className="bg-green-700 hover:bg-green-600 disabled:opacity-50 text-white px-3 py-1.5 rounded text-sm font-medium flex items-center gap-1"
+                        >
+                          {isProcessing ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
+                          Add
+                        </button>
+                        {isDup && dup.listing_id && (
+                          <button
+                            onClick={() => mergeItem(item.id, dup.listing_id)}
+                            disabled={isProcessing}
+                            className="bg-yellow-700 hover:bg-yellow-600 disabled:opacity-50 text-white px-3 py-1.5 rounded text-sm font-medium flex items-center gap-1"
+                          >
+                            {isProcessing ? <Loader2 size={14} className="animate-spin" /> : <Layers size={14} />}
+                            Merge
+                          </button>
+                        )}
+                        {hasStagingDup && stagingDup.sibling_staging_ids?.length > 0 && (
+                          <button
+                            onClick={() => keepSkipSiblings(item.id)}
+                            disabled={isProcessing}
+                            className="bg-indigo-700 hover:bg-indigo-600 disabled:opacity-50 text-white px-3 py-1.5 rounded text-sm font-medium flex items-center gap-1"
+                            title={`Keep this item and skip ${stagingDup.sibling_staging_ids.length} sibling(s)`}
+                          >
+                            {isProcessing ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
+                            Keep, Skip {stagingDup.sibling_staging_ids.length}
+                          </button>
+                        )}
+                        <button
+                          onClick={() => skipItem(item.id)}
+                          disabled={isProcessing}
+                          className="bg-gg-gray-700 hover:bg-gg-gray-600 disabled:opacity-50 text-white px-3 py-1.5 rounded text-sm font-medium flex items-center gap-1"
+                        >
+                          <XCircle size={14} />
+                          Skip
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {/* Pagination */}
+          {total > itemsPerPage && (
+            <div className="flex items-center justify-between p-4 border-t border-gg-gray-800">
+              <button
+                onClick={() => setPage(p => Math.max(0, p - 1))}
+                disabled={page === 0}
+                className="text-sm text-gg-gray-400 hover:text-white disabled:opacity-30 flex items-center gap-1"
+              >
+                <ChevronLeft size={16} /> Previous
+              </button>
+              <span className="text-sm text-gg-gray-500">
+                Page {page + 1} of {Math.ceil(total / itemsPerPage)}
+              </span>
+              <button
+                onClick={() => setPage(p => p + 1)}
+                disabled={(page + 1) * itemsPerPage >= total}
+                className="text-sm text-gg-gray-400 hover:text-white disabled:opacity-30 flex items-center gap-1"
+              >
+                Next <ChevronRight size={16} />
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Rollback Section */}
+        <div className="bg-gg-gray-900 rounded-lg border border-red-900/50 p-5">
+          <h2 className="text-lg font-semibold mb-2 flex items-center gap-2 text-red-400">
+            <Trash2 size={18} />
+            Rollback
+          </h2>
+          <p className="text-sm text-gg-gray-400 mb-3">
+            {mydecCount} MyDec-imported listings currently in production.
+            Deleting will remove all listings and their tracts that were imported from MyDec.
+          </p>
+          {!showDeleteConfirm ? (
+            <button
+              onClick={() => setShowDeleteConfirm(true)}
+              disabled={mydecCount === 0}
+              className="bg-red-800 hover:bg-red-700 disabled:opacity-30 text-white px-4 py-2 rounded text-sm font-medium"
+            >
+              Delete All MyDec Imports ({mydecCount})
+            </button>
+          ) : (
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-red-400">Are you sure? This cannot be undone.</span>
+              <button
+                onClick={massDelete}
+                disabled={deleting}
+                className="bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded text-sm font-medium flex items-center gap-2"
+              >
+                {deleting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                Yes, Delete All
+              </button>
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                className="bg-gg-gray-700 hover:bg-gg-gray-600 text-white px-4 py-2 rounded text-sm"
+              >
+                Cancel
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}

@@ -1,0 +1,328 @@
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700&family=DM+Sans:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-display: 'Playfair Display', serif;
+  --font-body: 'DM Sans', sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: var(--font-body);
+  background-color: #0a0a0a;
+  color: #ffffff;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #111111;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #3a3a3a;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #555555;
+}
+
+/* Selection color */
+::selection {
+  background: rgba(245, 140, 222, 0.3);
+  color: #ffffff;
+}
+
+/* Custom utilities */
+@layer utilities {
+  .text-gradient {
+    background: linear-gradient(135deg, #f58cde 0%, #f8daf1 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  
+  .bg-gradient-pink {
+    background: linear-gradient(135deg, #f58cde 0%, #c563ad 100%);
+  }
+  
+  .bg-gradient-dark {
+    background: linear-gradient(180deg, #0a0a0a 0%, #1a1a1a 100%);
+  }
+  
+  .border-gradient {
+    border: 1px solid transparent;
+    background: linear-gradient(#1a1a1a, #1a1a1a) padding-box,
+                linear-gradient(135deg, #f58cde 0%, #3a3a3a 100%) border-box;
+  }
+  
+  .glow-pink {
+    box-shadow: 0 0 30px rgba(245, 140, 222, 0.3);
+  }
+  
+  .glow-pink-sm {
+    box-shadow: 0 0 15px rgba(245, 140, 222, 0.2);
+  }
+}
+
+/* Animation delays for staggered effects */
+.delay-100 { animation-delay: 100ms; }
+.delay-200 { animation-delay: 200ms; }
+.delay-300 { animation-delay: 300ms; }
+.delay-400 { animation-delay: 400ms; }
+.delay-500 { animation-delay: 500ms; }
+
+/* Form inputs */
+input, textarea, select {
+  font-family: var(--font-body);
+}
+
+input:focus, textarea:focus, select:focus {
+  outline: none;
+  border-color: #f58cde;
+  box-shadow: 0 0 0 3px rgba(245, 140, 222, 0.1);
+}
+
+/* Button hover effects */
+.btn-primary {
+  @apply bg-gradient-pink text-white font-semibold py-3 px-8 rounded-full transition-all duration-300;
+}
+
+.btn-primary:hover {
+  @apply transform -translate-y-0.5 glow-pink;
+}
+
+.btn-secondary {
+  @apply border border-gg-gray-600 text-white font-semibold py-3 px-8 rounded-full transition-all duration-300;
+}
+
+.btn-secondary:hover {
+  @apply border-gg-pink text-gg-pink;
+}
+
+/* Card styles */
+.card {
+  @apply bg-gg-gray-800 rounded-2xl p-6 border border-gg-gray-700 transition-all duration-300;
+}
+
+.card:hover {
+  @apply border-gg-gray-600 transform -translate-y-1;
+}
+
+/* Noise texture overlay */
+.noise-overlay::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.05'/%3E%3C/svg%3E");
+  pointer-events: none;
+  opacity: 0.4;
+}
+
+/* Admin form inputs - white background with dark text */
+.admin-input,
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="number"],
+input[type="url"],
+input[type="date"],
+input[type="time"],
+input[type="datetime-local"],
+textarea,
+select {
+  background-color: #ffffff;
+  color: #1a1a1a;
+  border: 1px solid #d1d5db;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #9ca3af;
+}
+
+/* Keep buttons styled correctly */
+input[type="submit"],
+input[type="button"],
+button {
+  background-color: inherit;
+  color: inherit;
+}
+
+/* ---------------------------------------------------------------------------
+   STAGING LIGHT THEME
+   ---------------------------------------------------------------------------
+   Per user 2026-05-23: the Auction Staging and PT Staging screens should
+   be light (easier to read during data review). Apply by wrapping the
+   page root in <div className="staging-light"> — all the dark gg-* tokens
+   below get overridden inside the wrapper, while the rest of the site
+   keeps its existing dark theme.
+
+   Why a CSS scope instead of token-by-token JSX swaps: the two staging
+   files are ~3900 LOC combined with ~1000 class-string occurrences,
+   many of which need to stay dark when paired with a colored bg
+   (e.g. `text-white` on a `bg-gg-pink` button MUST stay white). Doing
+   it in CSS lets us express those "keep white on pink" rules
+   declaratively and apply them everywhere consistently.
+
+   Brand colors (pink, gold) stay the same — only the grayscale +
+   text/background tokens flip.
+*/
+
+.staging-light {
+  background-color: #ffffff;
+  color: #111111;
+  min-height: 100vh;
+}
+
+/* === Backgrounds: dark → white/very-light === */
+.staging-light .bg-gg-black,
+.staging-light .bg-black {
+  background-color: #ffffff !important;
+}
+/* Outer auction + PT cards. Per user 2026-05-24 "a little darker
+   (just barely)" — switch from pure white to a hair off-white so
+   the cards have more visual weight against the page bg. */
+.staging-light .bg-gg-gray-900 {
+  background-color: #f4f4f5 !important; /* tailwind zinc-100 */
+}
+.staging-light .bg-gg-gray-800 {
+  background-color: #f9fafb !important; /* tailwind gray-50 — card surface */
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05), 0 1px 3px 0 rgba(0, 0, 0, 0.06) !important;
+}
+/* Form fields + buttons that use bg-gg-gray-800 shouldn't get the
+   stat-card shadow — they have their own focus/hover treatment.
+   `input`/`textarea`/`select`/`button` carve themselves out below. */
+.staging-light input.bg-gg-gray-800,
+.staging-light textarea.bg-gg-gray-800,
+.staging-light select.bg-gg-gray-800,
+.staging-light button.bg-gg-gray-800 {
+  box-shadow: none !important;
+}
+.staging-light .bg-gg-gray-700 {
+  background-color: #f3f4f6 !important; /* tailwind gray-100 — form fields */
+}
+
+/* === Inner Tract Details box — INVERTED to charcoal ===
+   The bg-gg-gray-800/60 class (opacity modifier) wasn't caught by
+   the base override, so it always rendered darker than the light
+   surrounding cards. Per user 2026-05-24: instead of trying to
+   light-mode it, lean in — make it intentionally charcoal with
+   really light text so it visually pops as the "tract data" section.
+
+   More specific selectors override the .text-white → #111 rule above
+   so labels inside this box stay light against the dark surface. */
+.staging-light .bg-gg-gray-800\/60 {
+  background-color: #2a2a2a !important; /* charcoal */
+}
+.staging-light .bg-gg-gray-800\/60 .text-white {
+  color: #f3f4f6 !important;            /* near-white headings */
+}
+.staging-light .bg-gg-gray-800\/60 .text-gg-gray-300,
+.staging-light .bg-gg-gray-800\/60 .text-gg-gray-400 {
+  color: #d1d5db !important;            /* light gray body */
+}
+.staging-light .bg-gg-gray-800\/60 .text-gg-gray-500 {
+  color: #9ca3af !important;            /* dim secondary text */
+}
+.staging-light .bg-gg-gray-800\/60 .border-gg-gray-700,
+.staging-light .bg-gg-gray-800\/60 .border-gg-gray-800 {
+  border-color: #3a3a3a !important;     /* dark border on dark bg */
+}
+.staging-light .hover\:bg-gg-gray-700:hover,
+.staging-light .hover\:bg-gg-gray-600:hover {
+  background-color: #e5e7eb !important; /* tailwind gray-200 */
+}
+
+/* === Borders: dark → light gray === */
+.staging-light .border-gg-gray-700,
+.staging-light .border-gg-gray-800,
+.staging-light .border-gg-gray-600 {
+  border-color: #e5e7eb !important; /* tailwind gray-200 */
+}
+.staging-light .hover\:border-gg-gray-600:hover {
+  border-color: #d1d5db !important; /* tailwind gray-300 */
+}
+
+/* === Text: white → dark; muted-grays → dark muted === */
+.staging-light .text-white {
+  color: #111111 !important;
+}
+.staging-light .text-gg-gray-400,
+.staging-light .text-gg-gray-300 {
+  color: #4b5563 !important; /* tailwind gray-600 — readable muted */
+}
+.staging-light .text-gg-gray-500 {
+  color: #6b7280 !important; /* tailwind gray-500 */
+}
+.staging-light .text-gg-gray-600 {
+  color: #6b7280 !important;
+}
+.staging-light .hover\:text-gg-gray-400:hover {
+  color: #1f2937 !important; /* tailwind gray-800 — darkens on hover */
+}
+
+/* === Exceptions: button text on colored backgrounds MUST stay white ===
+   When `text-white` is paired with a colored accent bg, override our own
+   override above so the button label stays readable on the colored fill.
+   Add accent bgs here as the pages introduce them. */
+.staging-light .bg-gg-pink.text-white,
+.staging-light .bg-gg-gold.text-white,
+.staging-light .bg-red-600.text-white,
+.staging-light .bg-red-700.text-white,
+.staging-light .bg-green-600.text-white,
+.staging-light .bg-green-700.text-white,
+.staging-light .bg-blue-600.text-white,
+.staging-light .bg-blue-700.text-white,
+.staging-light .bg-amber-600.text-white,
+.staging-light .bg-amber-700.text-white,
+.staging-light .bg-yellow-600.text-white,
+.staging-light .bg-yellow-700.text-white,
+/* gg-gray-600 stays a dark pill in light mode (no bg override), so its
+   white label must stay white — e.g. the Tillable Workshop Expand button. */
+.staging-light .bg-gg-gray-600.text-white,
+/* Map overlay controls (full-screen tract editor) — dark/colored pills over
+   the satellite map; their white labels must stay white. */
+.staging-light .bg-black\/70.text-white,
+.staging-light .bg-emerald-600.text-white,
+.staging-light .bg-cyan-600.text-white,
+.staging-light .bg-cyan-700.text-white {
+  color: #ffffff !important;
+}
+
+/* === Form inputs: white surface needs darker text + visible borders === */
+.staging-light input,
+.staging-light textarea,
+.staging-light select {
+  background-color: #ffffff !important;
+  color: #111111 !important;
+  border-color: #d1d5db !important;
+}
+.staging-light input::placeholder,
+.staging-light textarea::placeholder {
+  color: #9ca3af !important; /* tailwind gray-400 */
+}
+
+/* === Tables: alternating-row tint reads differently on light === */
+.staging-light tr:hover {
+  background-color: #f9fafb;
+}

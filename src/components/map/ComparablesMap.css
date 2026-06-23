@@ -1,0 +1,300 @@
+.comparables-map-container {
+  position: relative;
+  width: 100%;
+  border-radius: 0.75rem;
+  overflow: hidden;
+}
+
+.comparables-map-container .maplibregl-map {
+  border-radius: 0.75rem;
+}
+
+.comp-marker {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: pointer;
+}
+
+.comp-marker-label {
+  background: rgba(0, 0, 0, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  padding: 3px 8px;
+  margin-bottom: 4px;
+  white-space: nowrap;
+  text-align: center;
+  pointer-events: none;
+}
+
+.comp-marker-label.subject {
+  border-color: #F58CDE;
+  background: rgba(245, 140, 222, 0.15);
+}
+
+.comp-marker-price {
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.comp-marker-acres {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+.comp-marker-pin {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+.comp-marker-pin.subject {
+  background: #F58CDE;
+  width: 18px;
+  height: 18px;
+}
+
+.comp-marker-pin.comparable {
+  background: #22c55e;
+}
+
+.comp-marker-label.selected {
+  border-color: #E91E8C;
+  background: rgba(233, 30, 140, 0.2);
+}
+
+.comp-marker-pin.selected {
+  background: #E91E8C;
+}
+
+/* Comparables-mode "+" button — replaces the labeled tract pin when
+   admin is in comp mode (subjectTractId set). The "+" is drawn with
+   two centered pseudo-element bars so it's pixel-perfectly centered
+   in the circle (text-based "+" sat too low against the baseline). */
+.comp-marker-pin.plus-btn {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #E91E8C;
+  border: 1px solid #fff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+  position: relative;
+  cursor: pointer;
+}
+.comp-marker-pin.plus-btn::before,
+.comp-marker-pin.plus-btn::after {
+  content: '';
+  position: absolute;
+  background: #fff;
+  top: 50%;
+  left: 50%;
+}
+.comp-marker-pin.plus-btn::before {
+  /* horizontal bar */
+  width: 10px;
+  height: 2px;
+  transform: translate(-50%, -50%);
+}
+.comp-marker-pin.plus-btn::after {
+  /* vertical bar */
+  width: 2px;
+  height: 10px;
+  transform: translate(-50%, -50%);
+}
+
+.comp-popup .maplibregl-popup-content {
+  background: #1a1a1a;
+  color: #fff;
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-size: 13px;
+  max-width: 280px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.comp-popup .maplibregl-popup-tip {
+  border-top-color: #1a1a1a;
+}
+
+.comp-popup-title {
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 6px;
+}
+
+.comp-popup-stat {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 2px;
+}
+
+.comp-popup-stat-label {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.comp-popup-stat-value {
+  font-weight: 600;
+}
+
+/* Sale Detail Modal */
+.sale-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn 0.15s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.sale-modal-content {
+  background: #ffffff;
+  border-radius: 16px;
+  width: 380px;
+  max-width: 90vw;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.3);
+  border: 1px solid #e0e0e0;
+}
+
+.sale-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.sale-modal-title {
+  color: #1a1a1a;
+  font-size: 18px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.sale-modal-close {
+  background: none;
+  border: none;
+  color: #999;
+  font-size: 20px;
+  cursor: pointer;
+  padding: 0 0 0 16px;
+  line-height: 1;
+}
+
+.sale-modal-close:hover {
+  color: #333;
+}
+
+.sale-modal-body {
+  padding: 8px 20px;
+}
+
+.sale-modal-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 0;
+  border-bottom: 1px solid #eee;
+}
+
+.sale-modal-label {
+  color: #666;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.sale-modal-value {
+  color: #1a1a1a;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: right;
+}
+
+.sale-modal-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: calc(100% - 40px);
+  margin: 8px 20px 16px;
+  padding: 14px;
+  border: none;
+  border-radius: 10px;
+  background: #F58CDE;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.sale-modal-action-btn:hover {
+  opacity: 0.85;
+}
+
+.sale-modal-action-btn.remove {
+  background: rgba(220, 38, 38, 0.15);
+  border: 1px solid rgba(220, 38, 38, 0.3);
+  color: #DC2626;
+}
+
+/* ── Regrid parcel popup ──────────────────────────────────────────
+   Click a Regrid vector-tile parcel → popup. Visual styling now lives
+   on inline styles inside the HTML builder (see regridLayer.ts) so
+   the popup matches the comp-report "+" popup. CSS here just teaches
+   maplibre's outer wrapper to get out of the way: no padding, no bg,
+   our inner container provides its own card surface. */
+/* Lift the popup above DOM-based maplibregl-marker pins. We use !important
+   because maplibregl sets inline styles on its popup wrapper, and the
+   marker container in some layouts ends up at a higher z-index by
+   default. 10000 is well above anything else we touch. */
+.regrid-parcel-popup {
+  z-index: 10000 !important;
+}
+.regrid-parcel-popup .maplibregl-popup-tip {
+  z-index: 10000;
+}
+.regrid-parcel-popup .maplibregl-popup-content {
+  background: transparent;
+  color: inherit;
+  border-radius: 14px;
+  padding: 0;
+  font-size: 13px;
+  max-width: 340px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.32), 0 2px 6px rgba(0, 0, 0, 0.08);
+  border: none;
+  overflow: hidden;
+}
+.regrid-parcel-popup .maplibregl-popup-tip { border-top-color: #ffffff; }
+.regrid-parcel-popup .maplibregl-popup-close-button {
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 20px;
+  padding: 6px 12px;
+  z-index: 10;
+}
+.regrid-parcel-popup .maplibregl-popup-close-button:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+

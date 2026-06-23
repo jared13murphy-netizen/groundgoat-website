@@ -1,0 +1,743 @@
+'use client'
+
+import { useState, useEffect, useMemo } from 'react'
+import dynamic from 'next/dynamic'
+import { useRouter, useSearchParams } from 'next/navigation'
+import Link from 'next/link'
+import fetchWithAuth from '@/lib/fetchWithAuth'
+import { Loader2, ArrowLeft, MapPin, Mail, Check, BarChart3, Filter, CheckCircle, List, Map, SlidersHorizontal } from 'lucide-react'
+import ComparablesFilterPanel, { FilterState, DEFAULT_FILTERS, applyFilters, countActiveFilters } from '@/components/ComparablesFilterPanel'
+
+const ComparablesMap = dynamic(() => import('@/components/map/ComparablesMap'), { ssr: false })
+
+const API_URL = 'https://practical-serenity-production.up.railway.app'
+const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=600'
+
+interface Company {
+  id: string
+  name: string
+}
+
+interface Tract {
+  id: string
+  tract_number?: number
+  total_acres?: number
+  tillable_acres?: number
+  soil_rating?: number
+  land_type?: string
+  latitude?: number | null
+  longitude?: number | null
+  polygon_coordinates?: number[][] | null
+}
+
+interface Listing {
+  id: string
+  county: string
+  state: string
+  tracts?: Tract[]
+}
+
+interface Comparable {
+  id: string
+  tract_id?: string
+  county: string
+  state: string
+  tract_number?: number
+  total_acres?: number
+  tillable_acres?: number
+  pct_tillable?: number
+  soil_rating?: number
+  price_per_acre?: number
+  auction_datetime?: string
+  auction_date?: string
+  primary_image_url?: string
+  is_same_county?: boolean
+  latitude?: number | null
+  longitude?: number | null
+  company?: Company
+  company_name?: string
+  listing_company?: Company
+}
+
+interface SearchCriteria {
+  county?: string
+  state?: string
+  subject_latitude?: number | null
+  subject_longitude?: number | null
+}
+
+interface User {
+  email: string
+  account_type: string
+}
+
+const ALLOWED_ROLES = ['groundgoat_admin', 'groundgoat_sales', 'firm_admin', 'firm_user']
+
+export default function ComparablesPage({ params }: { params: { id: string } }) {
+  const { id } = params
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const tractId = searchParams.get('tractId')
+
+  const [user, setUser] = useState<User | null>(null)
+  const [listing, setListing] = useState<Listing | null>(null)
+  const [tract, setTract] = useState<Tract | null>(null)
+  const [comparables, setComparables] = useState<Comparable[]>([])
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [loading, setLoading] = useState(true)
+  const [loadingComparables, setLoadingComparables] = useState(true)
+  const [sendingEmail, setSendingEmail] = useState(false)
+  const [emailSent, setEmailSent] = useState(false)
+  const [viewMode, setViewMode] = useState<'list' | 'map'>('map')
+  const [searchCriteria, setSearchCriteria] = useState<SearchCriteria | null>(null)
+  const [stateSales, setStateSales] = useState<any[]>([])
+  const [filters, setFilters] = useState<FilterState>({ ...DEFAULT_FILTERS })
+  const [filterVisible, setFilterVisible] = useState(false)
+  const [loadedFullState, setLoadedFullState] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [sortBy, setSortBy] = useState<'similarity' | 'distance' | 'price_asc' | 'price_desc' | 'soil_rating' | 'acres' | 'date'>('similarity')
+
+  useEffect(() => {
+    checkAuth()
+  }, [])
+
+  useEffect(() => {
+    if (user) {
+      fetchListing()
+    }
+  }, [user, id])
+
+  useEffect(() => {
+    if (listing && tractId) {
+      const foundTract = listing.tracts?.find(t => t.id === tractId)
+      setTract(foundTract || null)
+      if (foundTract) {
+        fetchComparables(foundTract.id)
+      }
+    }
+  }, [listing, tractId])
+
+  const checkAuth = async () => {
+    try {
+      const token = localStorage.getItem('auth_token')
+      if (!token) {
+        router.push('/signin')
+        return
+      }
+
+      const response = await fetchWithAuth(`${API_URL}/api/auth/me`)
+      if (!response.ok) throw new Error('Not authenticated')
+
+      const userData = await response.json()
+
+      if (!ALLOWED_ROLES.includes(userData.account_type)) {
+        router.push('/account')
+        return
+      }
+
+      setUser(userData)
+    } catch (err) {
+      router.push('/signin')
+    }
+  }
+
+  const fetchListing = async () => {
+    try {
+      const response = await fetchWithAuth(`${API_URL}/api/listings/${id}`)
+      if (response.ok) {
+        const data = await response.json()
+        setListing(data)
+      } else {
+        router.push('/listings')
+      }
+    } catch (err) {
+      console.error('Failed to fetch listing:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const fetchComparables = async (tractIdToFetch: string) => {
+    setLoadingComparables(true)
+
+    // Set search criteria from tract coords immediately (don't wait for API)
+    const foundTract = listing?.tracts?.find(t => t.id === tractIdToFetch)
+    if (foundTract) {
+      setSearchCriteria({
+        county: listing?.county,
+        state: listing?.state,
+        subject_latitude: (foundTract as any).latitude,
+        subject_longitude: (foundTract as any).longitude,
+      })
+    }
+
+    // Fetch map sales IMMEDIATELY — no limit, progressive rendering
+    if (listing?.state && listing?.county) {
+      fetchWithAuth(
+        `${API_URL}/api/comparables/state-sales/${encodeURIComponent(listing.state)}?county=${encodeURIComponent(listing.county)}`
+      ).then(res => res.ok ? res.json() : null).then(data => {
+        if (data?.tracts) {
+          // Load all tracts at once — MapLibre handles rendering efficiently
+          setStateSales(data.tracts)
+        }
+      }).catch(e => console.log('Error fetching state sales:', e))
+    }
+
+    // Fetch scored comparables in background (slower — runs scoring algorithm)
+    fetchWithAuth(`${API_URL}/api/comparables/tract/${tractIdToFetch}`)
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data) {
+          setComparables(data.comparables || [])
+          if (data.search_criteria) setSearchCriteria(data.search_criteria)
+        }
+      })
+      .catch(err => {
+        console.error('Failed to fetch comparables:', err)
+        setComparables([])
+      })
+      .finally(() => setLoadingComparables(false))
+  }
+
+  const toggleSelection = (comp: Comparable) => {
+    const itemId = comp.tract_id || comp.id
+    setSelectedIds(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(itemId)) {
+        newSet.delete(itemId)
+      } else {
+        newSet.add(itemId)
+      }
+      return newSet
+    })
+  }
+
+  const handleEmailComparables = async () => {
+    const selectedComps = comparables.filter(c => selectedIds.has(c.tract_id || c.id))
+
+    if (selectedComps.length === 0) {
+      alert('Please select comparables to include in the email.')
+      return
+    }
+
+    setSendingEmail(true)
+    setEmailSent(false)
+
+    try {
+      const subjectPct = tract?.tillable_acres && tract?.total_acres
+        ? `${Math.round((tract.tillable_acres / tract.total_acres) * 100)}%`
+        : undefined
+
+      const response = await fetchWithAuth(`${API_URL}/api/comparables/email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          listing_id: id,
+          tract_id: tractId,
+          subject_county: listing?.county,
+          subject_state: listing?.state,
+          subject_tract_number: tract?.tract_number?.toString() || '—',
+          subject_acres: formatAcres(tract?.total_acres),
+          subject_tillable_pct: subjectPct || null,
+          subject_soil_rating: tract?.soil_rating?.toString() || null,
+          comparables: selectedComps.map(comp => ({
+            county: comp.county,
+            state: comp.state,
+            tract_number: comp.tract_number?.toString() || null,
+            total_acres: comp.total_acres || null,
+            tillable_acres: comp.tillable_acres || null,
+            pct_tillable: comp.pct_tillable || null,
+            soil_rating: comp.soil_rating || null,
+            price_per_acre: comp.price_per_acre || null,
+            auction_datetime: comp.auction_datetime || null,
+            auction_date: comp.auction_date || null,
+            company_name: comp.company?.name || comp.company_name || comp.listing_company?.name || null,
+          })),
+        }),
+      })
+
+      if (response.ok) {
+        setEmailSent(true)
+        setTimeout(() => setEmailSent(false), 4000)
+      } else {
+        const data = await response.json().catch(() => ({}))
+        alert(data.detail || 'Failed to send email. Please try again.')
+      }
+    } catch (err) {
+      console.error('Failed to send comparables email:', err)
+      alert('Failed to send email. Please try again.')
+    } finally {
+      setSendingEmail(false)
+    }
+  }
+
+  const formatCurrency = (value: number | undefined) => {
+    if (!value) return '—'
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(value)
+  }
+
+  const formatAcres = (acres: number | undefined) => {
+    if (!acres && acres !== 0) return '—'
+    return acres.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  }
+
+  const formatDate = (dateString: string | undefined) => {
+    if (!dateString) return '—'
+    const date = new Date(dateString)
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  }
+
+  const formatPctTillable = (pct: number | undefined) => {
+    if (pct === null || pct === undefined) return '—'
+    return `${Math.round(pct)}%`
+  }
+
+  const getCompanyName = (comp: Comparable) => {
+    if (comp.company?.name) return comp.company.name
+    if (comp.company_name) return comp.company_name
+    if (comp.listing_company?.name) return comp.listing_company.name
+    return null
+  }
+
+  const handleLoadMore = async () => {
+    if (!listing?.state || !listing?.county || loadedFullState) return
+    setLoadingMore(true)
+    try {
+      const salesResponse = await fetchWithAuth(
+        `${API_URL}/api/comparables/state-sales/${encodeURIComponent(listing.state)}?county=${encodeURIComponent(listing.county)}&neighbor_depth=2`
+      )
+      if (salesResponse.ok) {
+        const salesData = await salesResponse.json()
+        setStateSales(salesData?.tracts || [])
+        setLoadedFullState(true)
+      }
+    } catch (e) {
+      console.log('Error loading more sales:', e)
+    }
+    setLoadingMore(false)
+  }
+
+  const getSubjectPctTillable = () => {
+    if (!tract?.total_acres || !tract?.tillable_acres) return null
+    const total = tract.total_acres
+    const tillable = tract.tillable_acres
+    if (total <= 0) return null
+    return (tillable / total) * 100
+  }
+
+  const subjectPctTillable = getSubjectPctTillable()
+  const canEmail = selectedIds.size > 0
+  // Use polygon centroid for subject tract if available (more accurate than stored lat/lng)
+  let subjectLat = tract?.latitude || searchCriteria?.subject_latitude
+  let subjectLng = tract?.longitude || searchCriteria?.subject_longitude
+  if (tract?.polygon_coordinates && tract.polygon_coordinates.length > 2) {
+    let sumLng = 0, sumLat = 0
+    for (const [lng, lat] of tract.polygon_coordinates) {
+      sumLng += lng
+      sumLat += lat
+    }
+    subjectLng = sumLng / tract.polygon_coordinates.length
+    subjectLat = sumLat / tract.polygon_coordinates.length
+  }
+  const hasSubjectCoords = !!(subjectLat && subjectLng)
+  const activeFilterCount = countActiveFilters(filters)
+
+  // Apply filters to comparables and state sales
+  const filteredComparables = applyFilters(
+    comparables, filters,
+    searchCriteria?.subject_latitude, searchCriteria?.subject_longitude,
+    listing?.county, listing?.state
+  )
+  const filteredStateSales = applyFilters(
+    stateSales, filters,
+    searchCriteria?.subject_latitude, searchCriteria?.subject_longitude,
+    listing?.county, listing?.state
+  )
+
+  // Sort comparables based on selected sort mode
+  const haversine = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+    const R = 3959
+    const dLat = (lat2 - lat1) * Math.PI / 180
+    const dLon = (lon2 - lon1) * Math.PI / 180
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+  }
+
+  const subjectLat2 = searchCriteria?.subject_latitude
+  const subjectLng2 = searchCriteria?.subject_longitude
+
+  // For non-similarity sorts, use all state sales if available (larger dataset)
+  const sortSource = sortBy === 'similarity' ? filteredComparables : (filteredStateSales.length > 0 ? filteredStateSales : filteredComparables)
+
+  const sortedComparables = useMemo(() => {
+    const arr = [...sortSource].map(c => ({
+      ...c,
+      _distance: (subjectLat2 && subjectLng2 && c.latitude && c.longitude)
+        ? haversine(subjectLat2, subjectLng2, c.latitude, c.longitude) : null,
+    }))
+    switch (sortBy) {
+      case 'similarity': arr.sort((a: any, b: any) => (b.similarity_score ?? 0) - (a.similarity_score ?? 0)); break
+      case 'distance': arr.sort((a: any, b: any) => (a._distance ?? 999) - (b._distance ?? 999)); break
+      case 'price_asc': arr.sort((a: any, b: any) => (a.price_per_acre ?? 0) - (b.price_per_acre ?? 0)); break
+      case 'price_desc': arr.sort((a: any, b: any) => (b.price_per_acre ?? 0) - (a.price_per_acre ?? 0)); break
+      case 'soil_rating': arr.sort((a: any, b: any) => (b.soil_rating ?? b.csr2 ?? 0) - (a.soil_rating ?? a.csr2 ?? 0)); break
+      case 'acres': arr.sort((a: any, b: any) => (b.total_acres ?? 0) - (a.total_acres ?? 0)); break
+      case 'date': arr.sort((a: any, b: any) => (a.days_ago ?? 999) - (b.days_ago ?? 999)); break
+    }
+    return arr.slice(0, 50)
+  }, [sortSource, sortBy, subjectLat2, subjectLng2])
+
+  // Build visible IDs set from sorted comparables for map sync
+  const visibleIds = useMemo(() => {
+    return new Set(sortedComparables.map((c: any) => String(c.tract_id || c.id)))
+  }, [sortedComparables])
+
+  // Conditional early-returns MUST come after every hook above, or the
+  // hook count changes between the loading render and the loaded render
+  // (React error #310). All computations above are null-safe.
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gg-black flex items-center justify-center">
+        <Loader2 className="animate-spin text-gg-pink" size={32} />
+      </div>
+    )
+  }
+
+  if (!listing || !tract) {
+    return (
+      <div className="min-h-screen bg-gg-black pt-24 flex items-center justify-center">
+        <div className="text-center">
+          <BarChart3 className="mx-auto text-gg-gray-600 mb-4" size={48} />
+          <p className="text-gg-gray-400 mb-4">Tract not found</p>
+          <Link href={`/listings/${id}`} className="text-gg-pink hover:underline">
+            Back to Listing
+          </Link>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-h-screen bg-gg-black pt-24 pb-12">
+      <div className="max-w-5xl mx-auto px-6">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-4">
+            <Link
+              href={`/listings/${id}`}
+              className="text-gg-gray-400 hover:text-white"
+            >
+              <ArrowLeft size={24} />
+            </Link>
+            <h1 className="font-display text-2xl font-bold text-white">Comparables</h1>
+          </div>
+          <button
+            onClick={() => {
+              if (selectedIds.size === 0) return
+              const selectedComps = filteredStateSales.filter((s: any) => selectedIds.has(s.id))
+              const reportData = {
+                subject: { listing, tract, searchCriteria },
+                comparables: selectedComps,
+              }
+              sessionStorage.setItem('comparablesReport', JSON.stringify(reportData))
+              router.push(`/listings/${listing.id}/comparables/report?tractId=${tract.id}`)
+            }}
+            disabled={selectedIds.size === 0}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+              selectedIds.size > 0
+                ? 'bg-gg-pink text-white hover:bg-gg-pink/80'
+                : 'bg-gg-gray-800 text-gg-gray-500 cursor-not-allowed'
+            }`}
+          >
+            <BarChart3 size={18} />
+            Create Report ({selectedIds.size})
+          </button>
+        </div>
+
+        {/* Subject Tract Info */}
+        <div className="bg-gg-gray-900 border-l-4 border-gg-pink rounded-lg p-4 mb-6">
+          <div className="text-gg-gray-400 text-sm mb-1">Finding comparables for:</div>
+          <div className="text-white text-xl font-semibold mb-2">
+            {listing.county} County, {listing.state}
+          </div>
+          <div className="text-gg-gray-300">
+            Tract {tract.tract_number || '—'} • {formatAcres(tract.total_acres)} acres
+            {subjectPctTillable !== null && ` • ${Math.round(subjectPctTillable)}% tillable`}
+            {tract.soil_rating && ` • ${tract.soil_rating} Soil Rating`}
+          </div>
+          {tract.land_type && (
+            <span className="inline-block mt-2 px-2 py-1 bg-gg-pink text-white text-xs font-semibold rounded-full">
+              {tract.land_type}
+            </span>
+          )}
+        </div>
+
+        {/* Map / List Toggle + Filter button */}
+        <div className="flex items-center gap-2 mb-4">
+          {hasSubjectCoords && (
+            <>
+              <button
+                onClick={() => setViewMode('list')}
+                className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  viewMode === 'list'
+                    ? 'bg-gg-pink text-white'
+                    : 'bg-gg-gray-800 text-gg-gray-400 hover:text-white'
+                }`}
+              >
+                <List size={16} />
+                List
+              </button>
+              <button
+                onClick={() => setViewMode('map')}
+                className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  viewMode === 'map'
+                    ? 'bg-gg-pink text-white'
+                    : 'bg-gg-gray-800 text-gg-gray-400 hover:text-white'
+                }`}
+              >
+                <Map size={16} />
+                Map
+              </button>
+            </>
+          )}
+          {/* Sort dropdown */}
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+            className="px-3 py-2 rounded-lg text-sm font-medium bg-gg-gray-800 text-gg-gray-300 border border-gg-gray-700 hover:text-white cursor-pointer"
+          >
+            <option value="similarity">Similarity</option>
+            <option value="distance">Distance</option>
+            <option value="price_desc">$/Acre (High)</option>
+            <option value="price_asc">$/Acre (Low)</option>
+            <option value="soil_rating">Soil Rating</option>
+            <option value="acres">Acreage</option>
+            <option value="date">Most Recent</option>
+          </select>
+
+          <button
+            onClick={() => setFilterVisible(true)}
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors ml-auto relative ${
+              activeFilterCount > 0
+                ? 'bg-gg-pink/20 text-gg-pink border border-gg-pink'
+                : 'bg-gg-gray-800 text-gg-gray-400 hover:text-white'
+            }`}
+          >
+            <SlidersHorizontal size={16} />
+            Filters
+            {activeFilterCount > 0 && (
+              <span className="absolute -top-2 -right-2 bg-gg-pink text-white text-xs w-5 h-5 rounded-full flex items-center justify-center">
+                {activeFilterCount}
+              </span>
+            )}
+          </button>
+        </div>
+
+        {/* Active filter count */}
+        {activeFilterCount > 0 && (
+          <p className="text-sm text-gg-gray-400 mb-4">
+            Showing {sortedComparables.length} of {comparables.length} comparables
+          </p>
+        )}
+
+        {(viewMode === 'map' && hasSubjectCoords) ? (
+          /* Map View — show immediately, tracts appear as they load */
+          (filteredStateSales.length === 0 && loadingComparables) ? (
+            <div className="flex flex-col items-center justify-center py-12">
+              <Loader2 className="animate-spin text-gg-pink mb-4" size={32} />
+              <span className="text-gg-gray-400">Loading map data...</span>
+            </div>
+          ) : filteredStateSales.length === 0 && !loadingComparables ? (
+            <div className="text-center py-12">
+              <BarChart3 className="mx-auto text-gg-gray-600 mb-4" size={48} />
+              <h3 className="text-white text-lg font-semibold mb-2">No Comparables Found</h3>
+              <p className="text-gg-gray-400 max-w-md mx-auto">
+                We couldn't find any comparable sales matching your criteria in {listing.state}.
+              </p>
+            </div>
+          ) : (
+            <>
+              <ComparablesMap
+                comparables={filteredComparables.map(c => ({
+                  id: c.tract_id || c.id,
+                  county: c.county,
+                  state: c.state,
+                  latitude: c.latitude,
+                  longitude: c.longitude,
+                  price_per_acre: c.price_per_acre,
+                  total_acres: c.total_acres,
+                  tract_number: c.tract_number,
+                  company_name: c.company?.name || c.company_name || c.listing_company?.name,
+                  auction_date: c.auction_datetime || c.auction_date,
+                  is_same_county: c.is_same_county,
+                }))}
+                stateSales={filteredStateSales}
+                subjectCounty={listing.county}
+                subjectState={listing.state}
+                subjectLatitude={subjectLat}
+                subjectLongitude={subjectLng}
+                subjectPolygon={tract.polygon_coordinates}
+                subjectAcres={tract.total_acres}
+                height="550px"
+                selectedIds={selectedIds}
+                toggleSelection={toggleSelection}
+                visibleIds={visibleIds}
+                filters={filters}
+              />
+              {!loadedFullState && (
+                <div className="flex justify-center mt-4">
+                  <button
+                    onClick={handleLoadMore}
+                    disabled={loadingMore}
+                    className="px-6 py-2 rounded-lg bg-gg-pink/20 text-gg-pink border border-gg-pink hover:bg-gg-pink/30 text-sm font-medium disabled:opacity-50"
+                  >
+                    {loadingMore ? 'Loading...' : 'Load More'}
+                  </button>
+                </div>
+              )}
+            </>
+          )
+        ) : (
+          /* List View */
+          <>
+            {/* Selection Hint */}
+            <div className="bg-gg-pink/10 border border-gg-pink/20 rounded-lg px-4 py-3 mb-4 flex items-center gap-2">
+              <span className="text-gg-pink">👆</span>
+              <span className="text-gg-pink text-sm font-medium">
+                Click comparables to select them for email
+              </span>
+            </div>
+
+            {/* Filter Info */}
+            <div className="flex items-center gap-2 text-gg-gray-500 text-sm mb-4">
+              <Filter size={14} />
+              <span>Showing sold tracts in {listing.state}, ranked by similarity</span>
+            </div>
+
+            {/* Results Count */}
+            {!loadingComparables && comparables.length > 0 && (
+              <div className="text-gg-gray-400 text-sm mb-4 font-medium">
+                {comparables.length} comparable{comparables.length !== 1 ? 's' : ''} found
+                {selectedIds.size > 0 && ` • ${selectedIds.size} selected`}
+                {comparables.filter(c => c.is_same_county).length > 0 && (
+                  <span> ({comparables.filter(c => c.is_same_county).length} in same county)</span>
+                )}
+              </div>
+            )}
+
+            {/* Comparables List */}
+            {loadingComparables ? (
+              <div className="flex flex-col items-center justify-center py-12">
+                <Loader2 className="animate-spin text-gg-pink mb-4" size={32} />
+                <span className="text-gg-gray-400">Finding comparable sales...</span>
+              </div>
+            ) : comparables.length === 0 ? (
+              <div className="text-center py-12">
+                <BarChart3 className="mx-auto text-gg-gray-600 mb-4" size={48} />
+                <h3 className="text-white text-lg font-semibold mb-2">No Comparables Found</h3>
+                <p className="text-gg-gray-400 max-w-md mx-auto">
+                  We couldn't find any comparable sales matching your criteria in {listing.state}.
+                  Try checking back later as more sales are added.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {sortedComparables.map((comp: any) => {
+                  const itemId = comp.tract_id || comp.id
+                  const isSelected = selectedIds.has(itemId)
+
+                  return (
+                    <button
+                      key={itemId}
+                      onClick={() => toggleSelection(comp)}
+                      className={`w-full flex items-stretch bg-gg-gray-900 rounded-lg overflow-hidden border-2 transition-all text-left ${
+                        isSelected
+                          ? 'border-gg-pink shadow-lg shadow-gg-pink/20'
+                          : comp.is_same_county
+                            ? 'border-gg-pink/30 hover:border-gg-pink/50'
+                            : 'border-transparent hover:border-gg-gray-700'
+                      }`}
+                    >
+                      {/* Image — prefer tract image, fall back to listing image */}
+                      <div className="w-28 h-28 flex-shrink-0 bg-gg-gray-800">
+                        <img
+                          src={`${API_URL}/api/tracts/${comp.tract_id || comp.id}/image`}
+                          alt=""
+                          className="w-full h-full object-cover"
+                          onError={(e) => { (e.target as HTMLImageElement).src = comp.primary_image_url || FALLBACK_IMAGE }}
+                        />
+                      </div>
+
+                      {/* Content */}
+                      <div className="flex-1 p-3 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-white font-semibold truncate">
+                            {comp.county} County, {comp.state}
+                          </span>
+                          {comp.is_same_county && (
+                            <span className="px-2 py-0.5 bg-gg-pink/20 text-gg-pink text-xs font-semibold rounded">
+                              Same County
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-gg-pink text-sm mb-1">
+                          {comp.tract_number ? `Tract ${comp.tract_number} • ` : ''}
+                          Sold {formatDate(comp.auction_datetime || comp.auction_date)}
+                        </div>
+                        {getCompanyName(comp) && (
+                          <div className="text-gg-gray-400 text-sm mb-2 truncate">
+                            {getCompanyName(comp)}
+                          </div>
+                        )}
+
+                        {/* Stats */}
+                        <div className="grid grid-cols-4 gap-2 text-center">
+                          <div>
+                            <div className="text-white font-medium text-sm">{formatAcres(comp.total_acres)}</div>
+                            <div className="text-gg-gray-500 text-xs">Acres</div>
+                          </div>
+                          <div>
+                            <div className="text-white font-medium text-sm">
+                              {comp.price_per_acre ? formatCurrency(comp.price_per_acre) : '—'}
+                            </div>
+                            <div className="text-gg-gray-500 text-xs">$/Acre</div>
+                          </div>
+                          <div>
+                            <div className="text-white font-medium text-sm">{formatPctTillable(comp.pct_tillable)}</div>
+                            <div className="text-gg-gray-500 text-xs">Tillable</div>
+                          </div>
+                          <div>
+                            <div className="text-white font-medium text-sm">{comp.soil_rating || '—'}</div>
+                            <div className="text-gg-gray-500 text-xs">Soil Rating</div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Selection Indicator */}
+                      {isSelected && (
+                        <div className="flex items-center justify-center px-3 bg-gg-pink/10">
+                          <div className="w-6 h-6 bg-gg-pink rounded-full flex items-center justify-center">
+                            <Check size={14} className="text-white" />
+                          </div>
+                        </div>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* Filter Panel */}
+      {filterVisible && (
+        <ComparablesFilterPanel
+          filters={filters}
+          onApply={(newFilters) => setFilters(newFilters)}
+          onClose={() => setFilterVisible(false)}
+        />
+      )}
+    </div>
+  )
+}
