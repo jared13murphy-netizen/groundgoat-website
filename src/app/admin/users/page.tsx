@@ -400,6 +400,7 @@ export default function AdminUsersPage() {
                           <div>
                             <p className="text-white font-medium text-xs">{user.first_name} {user.last_name}</p>
                             <p className="text-gg-gray-500 text-[10px]">{user.email}</p>
+                            <Link href={`/admin/users/${user.id}`} className="text-gg-pink text-[10px] hover:underline">View</Link>
                           </div>
                         </td>
                         <td className="py-2 px-2">
