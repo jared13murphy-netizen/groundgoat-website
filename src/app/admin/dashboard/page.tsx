@@ -20,6 +20,7 @@ import {
   MapPin,
   Activity,
   ShieldCheck,
+  BarChart2,
 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import type { ApiListing } from '@/components/map/mapTypes'
@@ -347,6 +348,12 @@ export default function AdminDashboard() {
                 description="Every database change — who, when, what changed"
                 href="/admin/activity"
                 icon={<Activity />}
+              />
+              <QuickActionCard
+                title="Usage Dashboard"
+                description="DAU/WAU/MAU stats and top active users"
+                href="/admin/usage"
+                icon={<BarChart2 />}
               />
               <QuickActionCard
                 title="Manage Users"
