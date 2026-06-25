@@ -507,11 +507,32 @@ export default function AdminStagingPage() {
       // thread and returns a job_id immediately. We poll for completion so
       // the long request never trips the browser/edge timeout ("Failed to
       // fetch"). The server still finishes even if this tab closes.
-      const res = await fetchScraperProxy(`/api/scraper/scrape-single-url`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: scrapeUrl.trim(), force: true, async: true }),
-      })
+      // Resilient start: Railway can drop the FIRST socket during a cold start
+      // or deploy cutover, which surfaces as a bare "Failed to fetch" even
+      // though nothing is wrong. Every other call (fetchWithAuth) already rides
+      // these out; this one didn't. Retry the start up to 3x with backoff — the
+      // async scrape returns a job_id in ~1s and is dedup-safe (re-staging the
+      // same URL is caught as a duplicate), so a retry can't double-create work.
+      let res: Response | null = null
+      let startErr: unknown = null
+      for (let attempt = 0; attempt < 4; attempt++) {
+        try {
+          res = await fetchScraperProxy(`/api/scraper/scrape-single-url`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: scrapeUrl.trim(), force: true, async: true }),
+          })
+          startErr = null
+          break
+        } catch (e) {
+          startErr = e
+          if (attempt < 3) {
+            setScrapeUrlResult({ success: true, message: `Connecting to scraper… (retry ${attempt + 1}/3)` })
+            await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)))
+          }
+        }
+      }
+      if (!res) throw startErr ?? new Error('Could not start the scrape.')
       const data = await res.json()
 
       const applyResult = (d: any) => {
