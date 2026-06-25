@@ -166,12 +166,28 @@ async function fetchWithTransientRetry(
   throw lastError ?? new Error('fetchWithTransientRetry: exhausted retries')
 }
 
+// Hard ceiling on any scraper-proxy call so a wedged upstream can never hang
+// the browser forever. 120s sits just past the proxy's own 90s upstream
+// timeout, so the proxy's structured error (504/502 JSON) wins in the normal
+// slow-scraper case; this only fires if the proxy itself stops responding.
+const SCRAPER_PROXY_TIMEOUT_MS = 120_000
+
 export async function fetchScraperProxy(path: string, init: RequestInit = {}): Promise<Response> {
   const SCRAPER_PROXY_BASE = '/api/scraper-proxy'
   const token = (typeof localStorage !== 'undefined' ? localStorage.getItem('auth_token') : null) || ''
   const headers = new Headers(init.headers || {})
   headers.set('Authorization', `Bearer ${token}`)
-  return fetch(`${SCRAPER_PROXY_BASE}${path}`, { ...init, headers })
+  const url = `${SCRAPER_PROXY_BASE}${path}`
+  // Respect a caller-supplied signal; otherwise cap with our own timeout so a
+  // bare native fetch can't wait on a dropped socket indefinitely.
+  if (init.signal) return fetch(url, { ...init, headers })
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), SCRAPER_PROXY_TIMEOUT_MS)
+  try {
+    return await fetch(url, { ...init, headers, signal: controller.signal })
+  } finally {
+    clearTimeout(timeoutId)
+  }
 }
 
 export async function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Response> {
