@@ -558,7 +558,14 @@ export default function AdminStagingPage() {
       }
       setScrapeUrlResult({ success: false, message: 'Still running after 12 min — hit Refresh; it may have finished.' })
     } catch (err: any) {
-      setScrapeUrlResult({ success: false, message: err.message || 'Network error' })
+      // A bare "Failed to fetch" is a browser network error (server unreachable
+      // or request never completed) — translate it into something actionable
+      // instead of the useless raw message.
+      const raw = String(err?.message || '')
+      const msg = /failed to fetch|networkerror|load failed/i.test(raw)
+        ? 'Could not reach the server (network error or it never responded). Check your connection and try again — the scrape may still be running; hit Refresh.'
+        : raw || 'Unexpected error while scraping.'
+      setScrapeUrlResult({ success: false, message: msg })
     } finally {
       setScrapingUrl(false)
     }
