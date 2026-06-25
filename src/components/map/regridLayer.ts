@@ -544,6 +544,15 @@ export function addRegridLayer(
   const onClick = async (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
     const f = e.features?.[0]
     if (!f) return
+    // A tract ALWAYS wins over the parcel underneath it. If a tract polygon or
+    // pin sits under this click, its own handler opens the tract details — do
+    // NOT also open the Regrid parcel popup for land that has a tract on top.
+    const tractLayers = ['tract-polygon-fill', 'tract-pin-circles'].filter(id => map.getLayer(id))
+    if (tractLayers.length) {
+      try {
+        if (map.queryRenderedFeatures(e.point, { layers: tractLayers }).length) return
+      } catch {/* layer torn down mid-click */}
+    }
     const props: any = f.properties || {}
     const ll_uuid = props.ll_uuid as string | undefined
     const lng = e.lngLat.lng
