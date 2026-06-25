@@ -478,6 +478,37 @@ export default function ComparablesMap({
           map.moveLayer('tract-polygon-fill')
           map.moveLayer('tract-polygon-line')
         }
+
+        // Click anywhere on a tract polygon (not just the pin) opens the tract
+        // modal — never the Regrid parcel popup underneath. The map is fully
+        // rebuilt (map.remove()) whenever data changes, so this handler is torn
+        // down with it; no separate off() needed.
+        map.on('click', 'tract-polygon-fill', (e: maplibregl.MapLayerMouseEvent) => {
+          const id = e.features?.[0]?.properties?.id
+          if (id == null || id === 'subject') return
+          const sale = stateSales.find(
+            s => String(s.id) === String(id) || String(s.tract_id) === String(id),
+          )
+          if (!sale) return
+          setSelectedSale({
+            id: sale.id,
+            tractId: sale.tract_id || sale.id,
+            auctionDate: sale.auction_date,
+            totalAcres: sale.total_acres,
+            companyName: sale.company_name,
+            salePrice: sale.sale_price,
+            pricePerAcre: sale.price_per_acre,
+            county: sale.county,
+            state: sale.state,
+            township: sale.township,
+            tillableAcres: sale.tillable_acres,
+            soilRating: sale.soil_rating,
+            polygonCoordinates: sale.polygon_coordinates,
+            sourceUrl: sale.source_url,
+          })
+        })
+        map.on('mouseenter', 'tract-polygon-fill', () => { map.getCanvas().style.cursor = 'pointer' })
+        map.on('mouseleave', 'tract-polygon-fill', () => { map.getCanvas().style.cursor = '' })
       }
 
       // Bounds: fit to comparable pins + subject (not all state sales)

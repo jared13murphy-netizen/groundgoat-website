@@ -3102,7 +3102,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // If the click also landed on a top-of-stack pin, that layer's own
       // handler opens its popup. Don't ALSO open the detail panel or the
       // user gets two stacked cards.
-      const topPinLayers = ['parcel-sale-pin-plus', 'tract-pin-circles']
+      // A tract ALWAYS wins over the parcel underneath it: if the click also
+      // landed on a tract pin OR a tract polygon, that layer's own handler opens
+      // the tract details. Never open the parcel/land panel for land that has a
+      // tract on top of it.
+      const topPinLayers = ['parcel-sale-pin-plus', 'tract-pin-circles', 'tract-polygon-fill']
         .filter(id => map.getLayer(id))
       if (topPinLayers.length) {
         try {
@@ -4969,10 +4973,20 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     map.on('click', 'tract-pin-circles', onClick)
     map.on('mouseenter', 'tract-pin-circles', onEnter)
     map.on('mouseleave', 'tract-pin-circles', onLeave)
+    // Same handler on the tract POLYGON fill — clicking anywhere on a tract
+    // boundary (not just the pin) opens the tract details. Polygon features
+    // carry properties.tractId (buildExplorePolygonGeoJSON), so onClick resolves
+    // the tract identically.
+    map.on('click', 'tract-polygon-fill', onClick)
+    map.on('mouseenter', 'tract-polygon-fill', onEnter)
+    map.on('mouseleave', 'tract-polygon-fill', onLeave)
     return () => {
       map.off('click', 'tract-pin-circles', onClick)
       map.off('mouseenter', 'tract-pin-circles', onEnter)
       map.off('mouseleave', 'tract-pin-circles', onLeave)
+      map.off('click', 'tract-polygon-fill', onClick)
+      map.off('mouseenter', 'tract-polygon-fill', onEnter)
+      map.off('mouseleave', 'tract-polygon-fill', onLeave)
     }
   }, [mapLoaded, portalMode, onTractSelected])
 
