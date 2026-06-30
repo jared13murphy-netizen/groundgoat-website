@@ -4553,26 +4553,19 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         const z = map.getZoom()
         const targetPitch = z < 6 ? 30 : z < 9 ? 40 : 45
         map.easeTo({ pitch: targetPitch, duration: 600 })
-        // Suppress state DOM markers in 3D mode.
+        // Suppress state silhouette DOM markers in 3D mode (big shapes that
+        // distort on the terrain mesh). The today's-auction dots are small
+        // points that MapLibre reprojects correctly onto the terrain, so they
+        // stay visible — toggling 3D must not hide them.
         stateMarkersRef.current.forEach(m => {
-          const el = m.getElement()
-          if (el) el.style.display = 'none'
-        })
-        // Suppress today-auction DOM markers in 3D mode.
-        todayMarkersRef.current.forEach(m => {
           const el = m.getElement()
           if (el) el.style.display = 'none'
         })
       } else {
         map.setTerrain(null)
         map.easeTo({ pitch: 0, bearing: 0, duration: 600 })
-        // Restore state DOM markers when leaving 3D mode.
+        // Restore state silhouette DOM markers when leaving 3D mode.
         stateMarkersRef.current.forEach(m => {
-          const el = m.getElement()
-          if (el) el.style.display = ''
-        })
-        // Restore today-auction DOM markers when leaving 3D mode.
-        todayMarkersRef.current.forEach(m => {
           const el = m.getElement()
           if (el) el.style.display = ''
         })
@@ -5172,15 +5165,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         todayMarkersRef.current.push(marker)
       }
 
-      // If 3D terrain is active, hide all newly-created today markers
-      // to avoid per-frame terrain-mesh reprojection of DOM elements
-      // (the main cause of the terrain freeze when zooming in).
-      if (terrain3DOnRef.current) {
-        todayMarkersRef.current.forEach(m => {
-          const el = m.getElement()
-          if (el) el.style.display = 'none'
-        })
-      }
+      // Today's-auction dots stay visible in 3D — toggling terrain must not hide
+      // them. (They're a small, clustered set, so per-frame DOM reprojection on
+      // the terrain mesh is negligible.)
     }
 
     render()
