@@ -134,43 +134,6 @@ export function buildExplorePointGeoJSON(tracts: ApiMapTract[]): GeoJSON.Feature
   }
 }
 
-// Today's-auction green dots. Unlike buildExplorePointGeoJSON, this uses the
-// tract's STORED lat/lng — NOT the polygon centroid — because today's set
-// includes boundary_valid=false tracts whose polygons are unreliable and would
-// land the dot in the wrong place (per user 2026-06-05). Every today tract gets
-// its own point at its true location (NO clustering), so each green dot stays
-// fixed at its real lat/lng at every zoom — exactly like the native pink pins.
-export function buildTodayPointGeoJSON(tracts: ApiMapTract[]): GeoJSON.FeatureCollection {
-  const features: GeoJSON.Feature[] = []
-  for (const t of tracts) {
-    const lng = t.longitude
-    const lat = t.latitude
-    if (lng == null || lat == null) continue
-
-    const isPrivateTreaty = (t.listing_type || '').toLowerCase() === 'private_treaty'
-    const isPending = (t.sale_status || '').toLowerCase() === 'pending'
-    const ppa = (isPrivateTreaty || isPending) && t.asking_price && t.total_acres
-      ? t.asking_price / t.total_acres
-      : t.price_per_acre ?? null
-
-    const labelLines: string[] = []
-    if (ppa) labelLines.push(`${fmtCurrency(ppa)}/ac`)
-    if (t.total_acres) labelLines.push(`${fmtAcres(t.total_acres)} ac`)
-
-    features.push({
-      type: 'Feature',
-      id: t.id,
-      geometry: { type: 'Point', coordinates: [lng, lat] },
-      properties: {
-        tractId: t.id,
-        listingId: t.listing_id,
-        pinLabel: labelLines.join('\n'),
-      },
-    })
-  }
-  return { type: 'FeatureCollection', features }
-}
-
 export function buildExplorePolygonGeoJSON(tracts: ApiMapTract[]): GeoJSON.FeatureCollection {
   const polygonTracts = tracts.filter(
     t => toRings(t.polygon_coordinates).some(r => r.length >= 3)
