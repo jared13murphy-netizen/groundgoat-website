@@ -11,6 +11,7 @@ import { normalizeTownship } from '../../utils/normalizeTownship'
 import {
   buildExplorePolygonGeoJSON,
   buildExplorePointGeoJSON,
+  buildTodayPointGeoJSON,
 } from './exploreMapTransform'
 import {
   MAP_CENTER,
@@ -53,6 +54,9 @@ const MARKER_LAYERS_BOTTOM_TO_TOP = [
   'county-count-labels',
   'tract-pin-circles',
   'tract-pin-labels',
+  // Today's-auction green dots (county/tract tiers) sit ABOVE the regular pins.
+  'today-pin-pulse',
+  'today-pin-core',
 ]
 function liftMarkerLayers(map: maplibregl.Map) {
   for (const id of MARKER_LAYERS_BOTTOM_TO_TOP) {
@@ -1847,6 +1851,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     return buildExplorePointGeoJSON(visible)
   }, [tracts, todayTracts, subjectTractId])
 
+  // Today's-auction green dots as a native GL FC (true lat/lng, no clustering)
+  // — feeds the today-pin-core / today-pin-pulse circle layers used at the
+  // county/tract tiers. The DOM markers (state tier) read todayTracts directly.
+  const todayPinGeoJSON = useMemo(
+    () => buildTodayPointGeoJSON(todayTracts),
+    [todayTracts],
+  )
+
   // ── County COUNT bubbles GeoJSON (filter-active). One Point per county
   // with a matching tract count + averaged centroid from the
   // /county-tract-counts endpoint.
@@ -2243,6 +2255,41 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           'text-color': '#ffffff',
           'text-halo-color': 'rgba(0,0,0,0.85)',
           'text-halo-width': 1.4,
+        },
+      })
+
+      // ── Today's-auction green dots — NATIVE GL circle layer for the county +
+      // tract tiers. A GL circle drapes on the terrain mesh, so it stays on its
+      // true location in BOTH 2D and 3D (a DOM marker is flat-projected and
+      // floats off the terrain when pitched). At the STATE tier the dots are
+      // rendered as DOM markers instead (so they sit above the DOM silhouette
+      // badges); these GL layers start hidden and are toggled by tier below.
+      map.addSource('today-pins', { type: 'geojson', data: EMPTY_FC })
+      // Initial visibility from the current zoom's tier so a basemap re-add
+      // restores the right state without waiting for a tier change.
+      const todayGlVis = currentZoomTier(map.getZoom()) === 'state' ? 'none' : 'visible'
+      map.addLayer({
+        id: 'today-pin-pulse',
+        type: 'circle',
+        source: 'today-pins',
+        layout: { visibility: todayGlVis },
+        paint: {
+          'circle-color': '#22C55E',
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, 11, 9, 13, 14, 16],
+          'circle-opacity': 0.28,
+          'circle-stroke-width': 0,
+        },
+      })
+      map.addLayer({
+        id: 'today-pin-core',
+        type: 'circle',
+        source: 'today-pins',
+        layout: { visibility: todayGlVis },
+        paint: {
+          'circle-color': '#16A34A',
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, 5, 9, 6, 14, 8],
+          'circle-stroke-color': '#ffffff',
+          'circle-stroke-width': 2,
         },
       })
 
@@ -4988,22 +5035,23 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     todayTractsByIdRef.current = new Map(todayTracts.map(t => [t.id, t]))
   }, [todayTracts])
 
-  // Always-on today's-auction green dots — ONE DOM marker per tract at its
-  // true stored lat/lng (NO clustering). MapLibre reprojects each DOM marker to
-  // its exact lng/lat every frame, so a per-tract marker never drifts at any
-  // zoom — unlike the old cluster-centroid placement, which dragged a dot to
-  // the average of its group (a Kansas tract sat in Texas when zoomed out).
-  //
-  // DOM (not a GL layer) so the dots sit ABOVE the state-silhouette DOM markers
-  // via z-index — a GL canvas layer always paints UNDER DOM markers. To keep
-  // them solid in 3D we set opacityWhenCovered:'1' (MapLibre otherwise fades
-  // terrain-occluded markers to 20%, which made them near-transparent in 3D).
+  // Today's-auction green dots at the STATE TIER ONLY — ONE DOM marker per
+  // tract at its true stored lat/lng (NO clustering). DOM (not GL) here so the
+  // dots sit ABOVE the state-silhouette DOM badges via z-index (a GL layer
+  // always paints UNDER DOM markers). At the state tier the camera is a flat
+  // country view (pitch ≤30°, low terrain exaggeration), so the DOM marker's
+  // flat projection matches the ground — the flat-vs-terrain divergence that
+  // makes DOM markers float in 3D only matters when zoomed in, where the
+  // silhouettes are gone and the GL circle layer takes over (see below).
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded) return
 
     todayMarkersRef.current.forEach(m => m.remove())
     todayMarkersRef.current = []
+
+    // Only the state tier uses DOM markers; county/tract tiers use the GL layer.
+    if (currentTier !== 'state') return
 
     for (const tract of todayTracts) {
       // Stored lat/lng — NOT the polygon centroid. Today's set includes
@@ -5084,7 +5132,97 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       todayMarkersRef.current.forEach(m => m.remove())
       todayMarkersRef.current = []
     }
-  }, [mapLoaded, todayTracts, portalMode, onTractSelected])
+  }, [mapLoaded, todayTracts, portalMode, onTractSelected, currentTier])
+
+  // Feed the native today-pin GL source (county/tract tiers) and toggle its
+  // visibility by tier: GL circles at county/tract (draped on terrain → correct
+  // in 2D AND 3D), DOM markers at the state tier (handled above). Driven by
+  // currentTier so exactly one representation is visible at a time.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+    const src = map.getSource('today-pins') as maplibregl.GeoJSONSource | undefined
+    if (src) src.setData(todayPinGeoJSON)
+  }, [mapLoaded, todayPinGeoJSON])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+    const vis = currentTier === 'state' ? 'none' : 'visible'
+    for (const id of ['today-pin-pulse', 'today-pin-core']) {
+      if (map.getLayer(id)) {
+        try { map.setLayoutProperty(id, 'visibility', vis) } catch {/* mid-teardown */}
+      }
+    }
+  }, [mapLoaded, currentTier])
+
+  // today-pin-core (GL) interactions — mirror the DOM dots: a green dot is the
+  // WHOLE auction, so a click opens the full Listing Details (or onTractSelected
+  // in firm portalMode). Today's tracts aren't in tractMapRef, so resolve from
+  // todayTractsByIdRef.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+
+    const onClick = (e: maplibregl.MapLayerMouseEvent) => {
+      const f = e.features?.[0]
+      if (!f) return
+      const tract = todayTractsByIdRef.current.get((f.properties?.tractId as string) || '')
+      if (!tract) return
+      if (portalMode && onTractSelected) {
+        const isPrivateTreaty = (tract.listing_type || '').toLowerCase() === 'private_treaty'
+        const isPending = (tract.sale_status || '').toLowerCase() === 'pending'
+        const ppa = (isPrivateTreaty || isPending) && tract.asking_price && tract.total_acres
+          ? tract.asking_price / tract.total_acres
+          : tract.price_per_acre ?? null
+        const ppaBasis: 'sold' | 'asking' | null =
+          ((isPrivateTreaty || isPending) && tract.asking_price && tract.total_acres)
+            ? 'asking'
+            : (tract.price_per_acre ? 'sold' : null)
+        onTractSelected({
+          id: tract.id,
+          listingId: tract.listing_id,
+          tractId: tract.id,
+          auctionDate: tract.auction_date,
+          totalAcres: tract.total_acres,
+          tillableAcres: tract.tillable_acres,
+          companyName: tract.company_name,
+          salePrice: tract.sale_price,
+          pricePerAcre: ppa,
+          priceBasis: ppaBasis,
+          county: tract.county,
+          state: tract.state,
+          township: tract.township,
+          soilRating: tract.soil_rating,
+          polygonCoordinates: tract.polygon_coordinates,
+          saleStatus: tract.sale_status,
+          listingType: tract.listing_type,
+          askingPrice: tract.asking_price,
+          landType: tract.land_type,
+          landTypes: tract.land_types,
+          pctTillable: tract.pct_tillable,
+          pricePerTillableAcre: tract.price_per_tillable_acre,
+          pricePerSoilRating: tract.price_per_soil_rating,
+          sourceUrl: tract.source_url,
+        })
+        return
+      }
+      if (tract.listing_id) {
+        window.location.href = `/listings/${tract.listing_id}`
+      }
+    }
+    const onEnter = () => { map.getCanvas().style.cursor = 'pointer' }
+    const onLeave = () => { map.getCanvas().style.cursor = '' }
+
+    map.on('click', 'today-pin-core', onClick)
+    map.on('mouseenter', 'today-pin-core', onEnter)
+    map.on('mouseleave', 'today-pin-core', onLeave)
+    return () => {
+      map.off('click', 'today-pin-core', onClick)
+      map.off('mouseenter', 'today-pin-core', onEnter)
+      map.off('mouseleave', 'today-pin-core', onLeave)
+    }
+  }, [mapLoaded, portalMode, onTractSelected])
 
   // ── Report-highlight (portal mode): drive the tract-pin-circles pink
   // stroke via setFeatureState({highlighted}) instead of mutating DOM.

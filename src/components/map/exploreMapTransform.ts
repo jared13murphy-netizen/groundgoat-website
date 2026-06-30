@@ -134,6 +134,27 @@ export function buildExplorePointGeoJSON(tracts: ApiMapTract[]): GeoJSON.Feature
   }
 }
 
+// Today's-auction green dots for the NATIVE GL circle layer (county/tract
+// tiers). Uses each tract's STORED lat/lng (NOT the polygon centroid) — today's
+// set includes boundary_valid=false tracts whose polygons are unreliable. A GL
+// circle drapes on the terrain mesh, so it sits at the correct location in BOTH
+// 2D and 3D (a DOM marker would be flat-projected and float off the terrain).
+export function buildTodayPointGeoJSON(tracts: ApiMapTract[]): GeoJSON.FeatureCollection {
+  const features: GeoJSON.Feature[] = []
+  for (const t of tracts) {
+    const lng = t.longitude
+    const lat = t.latitude
+    if (lng == null || lat == null) continue
+    features.push({
+      type: 'Feature',
+      id: t.id,
+      geometry: { type: 'Point', coordinates: [lng, lat] },
+      properties: { tractId: t.id, listingId: t.listing_id },
+    })
+  }
+  return { type: 'FeatureCollection', features }
+}
+
 export function buildExplorePolygonGeoJSON(tracts: ApiMapTract[]): GeoJSON.FeatureCollection {
   const polygonTracts = tracts.filter(
     t => toRings(t.polygon_coordinates).some(r => r.length >= 3)
