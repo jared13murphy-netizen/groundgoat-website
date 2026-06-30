@@ -5082,11 +5082,16 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       }
 
       for (const group of groups) {
-        // Geographic center of the group — single tract uses its own coord.
-        let centerLng = 0, centerLat = 0
-        for (const g of group) { centerLng += g.lng; centerLat += g.lat }
-        centerLng /= group.length
-        centerLat /= group.length
+        // Visual center of the group, computed in PIXEL space then unprojected.
+        // Averaging lng/lat LINEARLY biased the marker SOUTH in Web Mercator
+        // (latitude is non-linear), and the error grew with the cluster's
+        // latitude spread — so dots sat far south when zoomed out (big clusters)
+        // and snapped back as you zoomed in (singletons). A pixel-space centroid
+        // has no projection bias, so the dot lands correctly at every zoom.
+        let _sx = 0, _sy = 0
+        for (const g of group) { const _p = map.project([g.lng, g.lat]); _sx += _p.x; _sy += _p.y }
+        const _c = map.unproject([_sx / group.length, _sy / group.length])
+        const centerLng = _c.lng, centerLat = _c.lat
 
         const lead = group[0]
 
