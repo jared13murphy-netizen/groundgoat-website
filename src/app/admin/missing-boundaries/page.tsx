@@ -12,6 +12,7 @@ import { Loader2, ExternalLink, MapPin, Trash2 } from 'lucide-react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import fetchWithAuth, { fetchScraperProxy } from '@/lib/fetchWithAuth'
+import { formatAcres } from '@/lib/format'
 import TillableCluWorkshop from '@/components/admin/TillableCluWorkshop'
 
 const SCRAPER_PROXY = '/api/scraper-proxy'
@@ -2530,7 +2531,7 @@ export default function MissingBoundariesPage() {
                                       <span className="text-emerald-400 font-bold text-[12px]" title="Drawn polygon matches the target acreage">✓</span>
                                     )}
                                     <span className="text-gg-gray-500 text-[10px]">
-                                      (drawn: {computedTotal != null ? Number(computedTotal).toFixed(2) : '—'})
+                                      (drawn: {computedTotal != null ? formatAcres(Number(computedTotal)) : '—'})
                                     </span>
                                     <button
                                       onClick={() => alignTractAcres(t.tract_id)}

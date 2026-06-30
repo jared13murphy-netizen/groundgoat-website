@@ -6,6 +6,7 @@ import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { ArrowLeft, Save, RotateCcw, Trash2, Loader2, ExternalLink, X } from 'lucide-react'
 import fetchWithAuth, { fetchScraperProxy } from '@/lib/fetchWithAuth'
+import { formatAcres } from '@/lib/format'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 const SCRAPER_PROXY = '/api/scraper-proxy'
@@ -316,7 +317,7 @@ export default function BoundaryDrawPage() {
       const s = data.stats || {}
       const tilParts: string[] = []
       if (s.tillable_acres != null) {
-        tilParts.push(`tillable=${Number(s.tillable_acres).toFixed(1)}ac`)
+        tilParts.push(`tillable=${formatAcres(Number(s.tillable_acres))}ac`)
       }
       if (s.tillable_error) {
         tilParts.push(`tillable rebuild error: ${s.tillable_error}`)
@@ -404,7 +405,7 @@ export default function BoundaryDrawPage() {
               {' · '}
               Claimed acres: {tract.acres ?? '?'}
               {' · '}
-              Drawn acres: {points.length >= 3 ? computedAcres.toFixed(2) : '—'}
+              Drawn acres: {points.length >= 3 ? formatAcres(computedAcres) : '—'}
               {' · '}
               {points.length} points
             </p>
@@ -633,18 +634,18 @@ export default function BoundaryDrawPage() {
                   Drawn polygon
                 </div>
                 <div className="text-2xl font-semibold text-white leading-tight">
-                  {computedAcres.toFixed(2)}
+                  {formatAcres(computedAcres)}
                   <span className="text-sm font-normal text-gg-gray-300 ml-1">ac</span>
                 </div>
                 {claimed != null && (
                   <div className="text-[11px] mt-1 leading-tight">
                     <div className="text-gg-gray-400">
-                      Claimed: <span className="text-white">{claimed} ac</span>
+                      Claimed: <span className="text-white">{formatAcres(claimed)} ac</span>
                     </div>
                     <div className={off ? 'text-amber-300 font-medium' : 'text-gg-gray-400'}>
                       Δ {delta != null && delta >= 0 ? '+' : ''}{delta != null ? (delta * 100).toFixed(1) : '—'}%
                       {' '}
-                      ({delta != null && delta >= 0 ? '+' : ''}{(computedAcres - claimed).toFixed(2)} ac)
+                      ({delta != null && delta >= 0 ? '+' : '-'}{formatAcres(Math.abs(computedAcres - claimed))} ac)
                     </div>
                   </div>
                 )}

@@ -20,6 +20,7 @@ import {
   Maximize
 } from 'lucide-react'
 import dynamic from 'next/dynamic'
+import { formatAcres } from '@/lib/format'
 
 const HomeTerrain3D = dynamic(() => import('@/components/HomeTerrain3D'), { ssr: false })
 
@@ -265,7 +266,7 @@ export default function Home() {
                 <div className="flex flex-wrap items-center gap-4 text-gray-300">
                   <div className="flex items-center gap-1">
                     <Maximize size={16} />
-                    <span>{currentListing.total_acres?.toLocaleString()} acres</span>
+                    <span>{formatAcres(currentListing.total_acres)} acres</span>
                   </div>
                   {currentListing.company_name && (
                     <>

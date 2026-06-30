@@ -24,6 +24,7 @@ import { Loader2, Play, FileJson, CheckCircle2, XCircle, MapIcon, ImageIcon } fr
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import fetchWithAuth, { fetchScraperProxy } from '@/lib/fetchWithAuth'
+import { formatAcres } from '@/lib/format'
 
 const SCRAPER_PROXY = '/api/scraper-proxy'
 const API_URL = 'https://practical-serenity-production.up.railway.app'
@@ -680,8 +681,8 @@ export default function MagicLabPage() {
                         <span className="text-[11px] text-gg-gray-400">
                           {p.won_path || 'unresolved'}
                           {p.won_via ? ` · ${p.won_via}` : ''}
-                          {p.acres != null ? ` · ${(+p.acres).toFixed(1)}ac` : ''}
-                          {p.expected_acres != null ? ` (listing ${(+p.expected_acres).toFixed(1)}ac)` : ''}
+                          {p.acres != null ? ` · ${formatAcres(+p.acres)}ac` : ''}
+                          {p.expected_acres != null ? ` (listing ${formatAcres(+p.expected_acres)}ac)` : ''}
                           {expectedTracts > 1 ? (
                             <span className={tractCountMismatch ? 'text-red-400 font-bold' : ''}>
                               {' · '}{npResolved} / {expectedTracts} tracts
@@ -970,7 +971,7 @@ function TractComparisonPanel({ stage5, merged }: {
                     <td className="text-gg-gray-200 pr-2 whitespace-nowrap">· listing <span className="text-gg-pink">{fmt(listingAcres)}</span></td>
                     <td className={`${acresClass} whitespace-nowrap`}>
                       {acresDiff != null
-                        ? `Δ ${acresDiff > 0 ? '+' : ''}${acresDiff.toFixed(2)}ac`
+                        ? `Δ ${acresDiff >= 0 ? '+' : '-'}${formatAcres(Math.abs(acresDiff))}ac`
                         : ''}
                     </td>
                   </tr>
@@ -1464,7 +1465,7 @@ function ResultVisuals({ result }: { result: any }) {
                 <span key={i} className="text-[10px] px-1.5 py-0.5 rounded"
                   style={{ backgroundColor: p.color + '33', color: p.color,
                            border: `1px solid ${p.color}88` }}>
-                  {p.label}{p.acres != null && ` · ${(+p.acres).toFixed(1)}ac`}
+                  {p.label}{p.acres != null && ` · ${formatAcres(+p.acres)}ac`}
                 </span>
               ))}
             </div>
@@ -1499,7 +1500,7 @@ function ResultVisuals({ result }: { result: any }) {
                     {opt.label}
                     {opt.acres > 0 && (
                       <span className="ml-1 text-gg-gray-500">
-                        {opt.acres.toFixed(1)}ac
+                        {formatAcres(opt.acres)}ac
                       </span>
                     )}
                   </button>
@@ -1580,7 +1581,7 @@ function ResultVisuals({ result }: { result: any }) {
                       <span className={info.tillable ? 'text-cyan-400' : 'text-red-400'}>
                         {info.tillable ? '✓' : '✗'}
                       </span>
-                      {' '}{info.name} ({code}): {info.acres.toFixed(2)}ac
+                      {' '}{info.name} ({code}): {formatAcres(info.acres)}ac
                     </div>
                   ))}
                 </div>

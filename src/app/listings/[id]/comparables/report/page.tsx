@@ -4,6 +4,7 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { ArrowLeft, Mail, Download, Loader2 } from 'lucide-react'
 import { fetchWithAuth } from '@/lib/fetchWithAuth'
+import { formatAcres } from '@/lib/format'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -205,7 +206,7 @@ export default function ComparablesReportPage({ params }: { params: { id: string
             <p className="text-sm text-gray-400 mb-1">Subject Tract</p>
             <h2 className="text-xl font-bold">{subject.county}, {subject.state}</h2>
             <div className="flex gap-6 mt-2 text-sm">
-              <div><span className="text-lg font-bold">{fmtNum(subject.total_acres)}</span><br /><span className="text-gray-400">Acres</span></div>
+              <div><span className="text-lg font-bold">{formatAcres(subject.total_acres)}</span><br /><span className="text-gray-400">Acres</span></div>
               <div><span className="text-lg font-bold">{subject.tillable_acres && subject.total_acres ? Math.round((subject.tillable_acres / subject.total_acres) * 100) + '%' : '—'}</span><br /><span className="text-gray-400">Tillable</span></div>
               <div><span className="text-lg font-bold">{fmtNum(subject.soil_rating)}</span><br /><span className="text-gray-400">Soil Rating</span></div>
             </div>
@@ -235,11 +236,11 @@ export default function ComparablesReportPage({ params }: { params: { id: string
             </div>
             <div className="bg-gg-gray-900 rounded-lg p-3">
               <p className="text-xs text-gray-400 uppercase">Avg Acres</p>
-              <p className="text-xl font-bold">{fmtNum(avgAcres)}</p>
+              <p className="text-xl font-bold">{formatAcres(avgAcres)}</p>
             </div>
             <div className="bg-gg-gray-900 rounded-lg p-3">
               <p className="text-xs text-gray-400 uppercase">Avg Tillable Acres</p>
-              <p className="text-xl font-bold">{fmtNum(avgTillable)}</p>
+              <p className="text-xl font-bold">{formatAcres(avgTillable)}</p>
             </div>
             <div className="bg-gg-gray-900 rounded-lg p-3">
               <p className="text-xs text-gray-400 uppercase">Avg Soil Rating</p>
@@ -274,7 +275,7 @@ export default function ComparablesReportPage({ params }: { params: { id: string
                   </div>
                 </div>
                 <div className="grid grid-cols-4 gap-2 mt-3 text-center text-sm">
-                  <div><span className="font-bold">{fmtNum(c.total_acres)}</span><br /><span className="text-xs text-gray-400">Acres</span></div>
+                  <div><span className="font-bold">{formatAcres(c.total_acres)}</span><br /><span className="text-xs text-gray-400">Acres</span></div>
                   <div><span className="font-bold">{fmt(c.price_per_acre)}</span><br /><span className="text-xs text-gray-400">$/Acre</span></div>
                   <div><span className="font-bold">{pctTillable ? pctTillable + '%' : '—'}</span><br /><span className="text-xs text-gray-400">% Tillable</span></div>
                   <div><span className="font-bold">{fmtNum(c.soil_rating)}</span><br /><span className="text-xs text-gray-400">Soil Rating</span></div>

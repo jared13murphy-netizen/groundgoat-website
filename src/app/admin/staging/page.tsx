@@ -33,6 +33,7 @@ import {
   Search
 } from 'lucide-react'
 import fetchWithAuth, { fetchScraperProxy } from '@/lib/fetchWithAuth'
+import { formatAcres } from '@/lib/format'
 import CompanyLinkEditor, { type CompanyOption } from '@/components/admin/CompanyLinkEditor'
 import openListingReport from '@/lib/openListingReport'
 import NassStagingPreview from '@/components/admin/NassStagingPreview'
@@ -1940,7 +1941,7 @@ export default function AdminStagingPage() {
                             </p>
                             {(info as any).__polySumAc > 0 && (info as any).__acresDelta != null && (
                               <p className="text-[11px] mt-0.5 text-gray-700">
-                                Drawn: {(info as any).__polySumAc.toFixed(2)} ac
+                                Drawn: {formatAcres((info as any).__polySumAc)} ac
                                 {' · '}
                                 {/* deltaPct is null whenever scrapedAc isn't a
                                     positive number; .toFixed on the null
@@ -1949,7 +1950,7 @@ export default function AdminStagingPage() {
                                     accessor independently so the absolute
                                     delta still renders without a percent. */}
                                 <span className={(info as any).__acresDeltaPct != null && Math.abs((info as any).__acresDeltaPct) > 5 ? 'font-semibold' : ''}>
-                                  {(info as any).__acresDelta >= 0 ? '+' : ''}{(info as any).__acresDelta.toFixed(2)}
+                                  {(info as any).__acresDelta >= 0 ? '+' : '-'}{formatAcres(Math.abs((info as any).__acresDelta))}
                                   {(info as any).__acresDeltaPct != null && (
                                     <>
                                       {' ('}{(info as any).__acresDeltaPct >= 0 ? '+' : ''}{(info as any).__acresDeltaPct.toFixed(1)}%)
@@ -2085,7 +2086,7 @@ export default function AdminStagingPage() {
                                 const stStatus = tract.sale_status ?? tract.scraped?.sale_status ?? null
                                 const stReviewed = tract.boundary_reviewed_at ?? null
                                 const stSummaryParts = [
-                                  stAcres != null ? `${Number(stAcres).toFixed(2)} ac` : null,
+                                  stAcres != null ? `${formatAcres(Number(stAcres))} ac` : null,
                                   stPpa != null ? `$${Number(stPpa).toLocaleString(undefined, { maximumFractionDigits: 0 })}/ac` : null,
                                   stTotal != null ? `$${Number(stTotal).toLocaleString(undefined, { maximumFractionDigits: 0 })} total` : null,
                                 ].filter(Boolean).join(' · ')
@@ -2117,7 +2118,7 @@ export default function AdminStagingPage() {
                                     )}
                                     <div className="ml-auto flex items-center gap-3 shrink-0">
                                       {stAcres != null && (
-                                        <span className="text-xs text-gg-gray-300">{Number(stAcres).toFixed(2)} ac</span>
+                                        <span className="text-xs text-gg-gray-300">{formatAcres(Number(stAcres))} ac</span>
                                       )}
                                       <span className={`text-xs ${tract.polygon_coordinates ? 'text-green-400' : 'text-yellow-400'}`}>
                                         {tract.polygon_coordinates ? '◼ Polygon' : '○ No polygon'}

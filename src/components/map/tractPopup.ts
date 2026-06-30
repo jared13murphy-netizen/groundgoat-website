@@ -1,4 +1,5 @@
 import { STATUS_COLORS } from './mapConstants'
+import { formatAcres } from '@/lib/format'
 
 function formatDate(dateStr: string): string {
   if (!dateStr) return 'TBD'
@@ -40,7 +41,7 @@ export function buildTractPopupHTML(props: Record<string, unknown>): string {
 
   return `
     <div class="tract-popup-title">
-      ${tractNumber > 0 ? 'Tract ' + tractNumber + ' — ' : ''}${totalAcres > 0 ? totalAcres.toFixed(1) + ' acres' : county + ' County, ' + state}
+      ${tractNumber > 0 ? 'Tract ' + tractNumber + ' — ' : ''}${totalAcres > 0 ? formatAcres(totalAcres) + ' acres' : county + ' County, ' + state}
     </div>
     <div class="tract-popup-subtitle">${listingTitle}</div>
     <div class="tract-popup-divider"></div>
@@ -51,7 +52,7 @@ export function buildTractPopupHTML(props: Record<string, unknown>): string {
     ${totalAcres > 0 ? `
     <div class="tract-popup-row">
       <span class="tract-popup-label">Acres</span>
-      <span class="tract-popup-value">${totalAcres.toFixed(1)}</span>
+      <span class="tract-popup-value">${formatAcres(totalAcres)}</span>
     </div>` : ''}
     ${pricePerAcre > 0 ? `
     <div class="tract-popup-row">
@@ -95,7 +96,7 @@ export function buildExplorePopupHTML(props: Record<string, unknown>): string {
 
   return `
     <div class="tract-popup-title">
-      ${totalAcres > 0 ? totalAcres.toFixed(1) + ' acres' : county + ' County, ' + state}
+      ${totalAcres > 0 ? formatAcres(totalAcres) + ' acres' : county + ' County, ' + state}
     </div>
     <div class="tract-popup-subtitle">${county} County, ${state}</div>
     <div class="tract-popup-divider"></div>
@@ -106,7 +107,7 @@ export function buildExplorePopupHTML(props: Record<string, unknown>): string {
     ${totalAcres > 0 ? `
     <div class="tract-popup-row">
       <span class="tract-popup-label">Acres</span>
-      <span class="tract-popup-value">${totalAcres.toFixed(1)}</span>
+      <span class="tract-popup-value">${formatAcres(totalAcres)}</span>
     </div>` : ''}
     ${pctTillable ? `
     <div class="tract-popup-row">

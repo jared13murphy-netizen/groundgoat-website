@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { Loader2, Mountain, BarChart3 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
+import { formatAcres } from '@/lib/format'
 import { formatAuctionDate } from '@/lib/auctionTime'
 import GroundTruthPanel from './GroundTruthPanel'
 import NdviPanel from './NdviPanel'
@@ -87,11 +88,6 @@ interface PortalTractDetailProps {
 function formatCurrency(value?: number | null): string {
   if (!value) return '—'
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(value)
-}
-
-function formatAcres(acres?: number | null): string {
-  if (!acres) return '—'
-  return acres.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' ac'
 }
 
 // Date/time rendering now delegates to lib/auctionTime which converts from
@@ -257,7 +253,7 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
       <div className="grid grid-cols-2 gap-3">
         <div className="bg-white/[0.03] rounded-xl p-4 border border-white/5">
           <div className="text-[10px] text-gg-gray-300 uppercase tracking-wider">Acres</div>
-          <div className="text-lg font-bold mt-1">{formatAcres(tract.totalAcres)}</div>
+          <div className="text-lg font-bold mt-1">{tract.totalAcres != null ? `${formatAcres(tract.totalAcres)} ac` : '—'}</div>
         </div>
         {(() => {
           const isPT = (tract.listingType || '').toLowerCase() === 'private_treaty'
@@ -282,7 +278,7 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
         {tract.tillableAcres ? (
           <div className="bg-white/[0.03] rounded-xl p-4 border border-white/5">
             <div className="text-[10px] text-gg-gray-300 uppercase tracking-wider">Tillable</div>
-            <div className="text-lg font-bold mt-1">{formatAcres(tract.tillableAcres)}</div>
+            <div className="text-lg font-bold mt-1">{formatAcres(tract.tillableAcres)} ac</div>
           </div>
         ) : null}
         {tract.soilRating ? (

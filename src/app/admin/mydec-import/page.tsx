@@ -24,6 +24,7 @@ import {
   Eye,
 } from 'lucide-react'
 import fetchWithAuth, { fetchScraperProxy } from '@/lib/fetchWithAuth'
+import { formatAcres } from '@/lib/format'
 import NassStagingPreview from '@/components/admin/NassStagingPreview'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
@@ -1268,7 +1269,7 @@ export default function MyDecImportPage() {
                           <div className="mt-2 p-2 bg-yellow-900/20 rounded text-xs border border-yellow-800/50">
                             <div className="font-medium text-yellow-400 mb-1">Existing match:</div>
                             <div className="text-gg-gray-300">
-                              {dup.title} &middot; {dup.total_acres}ac &middot; ${Number(dup.sale_price || 0).toLocaleString()}
+                              {dup.title} &middot; {formatAcres(dup.total_acres)}ac &middot; ${Number(dup.sale_price || 0).toLocaleString()}
                             </div>
                           </div>
                         )}

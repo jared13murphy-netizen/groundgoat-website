@@ -29,6 +29,7 @@ import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { ArrowLeft, Sparkles, Save, Loader2, RotateCcw, ImageIcon } from 'lucide-react'
 import { fetchScraperProxy } from '@/lib/fetchWithAuth'
+import { formatAcres } from '@/lib/format'
 
 const SCRAPER_PROXY = '/api/scraper-proxy'
 const TILE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
@@ -829,7 +830,7 @@ export default function UploadBoundaryTractPage() {
       if (listingId) qs.set('listing_id', String(listingId))
       qs.set('focus_tract', String(tractId))
 
-      setStatusMsg(`✓ Draft saved (${gisAcres(polygon).toFixed(1)}ac). Returning to missing-boundaries to finish…`)
+      setStatusMsg(`✓ Draft saved (${formatAcres(gisAcres(polygon))}ac). Returning to missing-boundaries to finish…`)
       setTimeout(() => {
         router.push(`/admin/missing-boundaries?${qs.toString()}`)
       }, 900)
@@ -1097,12 +1098,12 @@ export default function UploadBoundaryTractPage() {
               <div className="flex items-center justify-between">
                 <span className="text-gg-gray-400">Extracted acres</span>
                 <span className={`font-semibold ${matchColor}`}>
-                  {extractMeta.extracted_acres?.toFixed(1) || '—'} ac
+                  {extractMeta.extracted_acres != null ? formatAcres(extractMeta.extracted_acres) : '—'} ac
                 </span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-gg-gray-400">Expected acres</span>
-                <span>{extractMeta.expected_acres?.toFixed(1) || '—'} ac</span>
+                <span>{extractMeta.expected_acres != null ? formatAcres(extractMeta.expected_acres) : '—'} ac</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-gg-gray-400">Acreage match</span>
@@ -1167,7 +1168,7 @@ export default function UploadBoundaryTractPage() {
               className="flex items-center justify-center gap-2 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-semibold rounded-lg transition"
             >
               {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
-              {saving ? 'Saving…' : `Save boundary (${computedAcres.toFixed(1)} ac)`}
+              {saving ? 'Saving…' : `Save boundary (${formatAcres(computedAcres)} ac)`}
             </button>
           )}
 
@@ -1193,7 +1194,7 @@ export default function UploadBoundaryTractPage() {
             <div className="text-xs text-gg-gray-300 mt-0.5">
               {polygon.length === 0
                 ? 'Boundary will appear here after extraction'
-                : `${polygon.length} vertices · ${computedAcres.toFixed(1)} ac`}
+                : `${polygon.length} vertices · ${formatAcres(computedAcres)} ac`}
             </div>
           </div>
           {polygon.length > 0 && (

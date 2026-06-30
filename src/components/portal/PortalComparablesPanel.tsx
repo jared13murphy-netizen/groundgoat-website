@@ -3,6 +3,7 @@
 import { useState, useMemo, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { X, Loader2, MapPin, Calendar, Building2, ArrowUpDown, SlidersHorizontal } from 'lucide-react'
+import { formatAcres } from '@/lib/format'
 
 interface Comparable {
   id: string
@@ -246,7 +247,7 @@ export default function PortalComparablesPanel({ data, loading, onClose, onSelec
                 <div className="grid grid-cols-4 gap-3 mt-3">
                   <div>
                     <div className="text-[10px] text-gg-gray-400 uppercase">Acres</div>
-                    <div className="text-sm font-bold">{sc.subject_acres ? Math.round(sc.subject_acres) : '—'}</div>
+                    <div className="text-sm font-bold">{sc.subject_acres ? formatAcres(sc.subject_acres) : '—'}</div>
                   </div>
                   <div>
                     <div className="text-[10px] text-gg-gray-400 uppercase">Tillable</div>
@@ -377,7 +378,7 @@ export default function PortalComparablesPanel({ data, loading, onClose, onSelec
                       <div className="flex items-start justify-between">
                         <div>
                           <div className="text-sm font-semibold hover:text-gg-pink transition">
-                            {Math.round(comp.total_acres)} ac — {comp.county}
+                            {formatAcres(comp.total_acres)} ac — {comp.county}
                           </div>
                           <div className="text-xs text-gg-gray-400 mt-0.5 flex items-center gap-1">
                             <MapPin size={10} />
@@ -403,7 +404,7 @@ export default function PortalComparablesPanel({ data, loading, onClose, onSelec
                       <div className="grid grid-cols-4 gap-2 mt-3 pt-3 border-t border-white/5">
                         <div>
                           <div className="text-[10px] text-gg-gray-500">Acres</div>
-                          <div className="text-sm font-medium">{Math.round(comp.total_acres)}</div>
+                          <div className="text-sm font-medium">{formatAcres(comp.total_acres)}</div>
                         </div>
                         <div>
                           <div className="text-[10px] text-gg-gray-500">Tillable</div>

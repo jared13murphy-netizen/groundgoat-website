@@ -14,6 +14,7 @@ import {
   CheckCircle,
 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
+import { formatAcres } from '@/lib/format'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -185,7 +186,7 @@ export default function IncompletePage() {
                         <td className="px-4 py-3">{item.county || '—'}</td>
                         <td className="px-4 py-3">{item.state || '—'}</td>
                         <td className="px-4 py-3 text-right">
-                          {item.total_acres ? `${Math.round(item.total_acres).toLocaleString()} ac` : '—'}
+                          {item.total_acres ? `${formatAcres(item.total_acres)} ac` : '—'}
                         </td>
                         <td className="px-4 py-3">
                           {formatDate(item.auction_datetime)}

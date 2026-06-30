@@ -17,6 +17,7 @@
 
 import { useState } from 'react'
 import { Loader2, ChevronsUpDown, Check } from 'lucide-react'
+import { formatAcres } from '@/lib/format'
 
 type SwapMode = 'polygons' | 'data' | 'everything'
 
@@ -100,7 +101,7 @@ export default function SwapStagingTractsPanel({
   }
 
   const tractLabel = (t: any, i: number) =>
-    `T${t.tract_number ?? i + 1}${t.acres != null ? ` (${Number(t.acres).toFixed(1)} ac)` : ''}`
+    `T${t.tract_number ?? i + 1}${t.acres != null ? ` (${formatAcres(Number(t.acres))} ac)` : ''}`
 
   const handleSwap = async () => {
     const ia = parseInt(idxA)
