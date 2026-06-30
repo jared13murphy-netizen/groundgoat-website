@@ -7,6 +7,7 @@ import { X, Calendar, Building2, DollarSign, Loader2, MapPin, Bookmark, Pencil }
 import Link from 'next/link'
 import PortalListingDetail from './PortalListingDetail'
 import { getStatusBadge } from '@/lib/listingStatusBadge'
+import { formatAcres } from '@/lib/format'
 
 type TabType = 'auctions' | 'private_treaty' | 'results'
 
@@ -188,7 +189,7 @@ function ListingCard({ listing, activeTab, onClick, isWatchlisted, onToggleWatch
       <div className="p-4 bg-gradient-to-b from-gg-gray-800 to-[#222222] text-white">
         {/* Title */}
         <div className={`text-sm font-semibold ${hasCompany ? 'group-hover:text-gg-pink' : ''} transition`}>
-          {listing.total_acres ? Math.round(listing.total_acres) : '—'} ac — {listing.county}
+          {listing.total_acres ? formatAcres(listing.total_acres) : '—'} ac — {listing.county}
         </div>
         <div className="text-xs text-gg-gray-300 mt-0.5 flex items-center gap-1">
           <MapPin size={11} />
@@ -233,7 +234,7 @@ function ListingCard({ listing, activeTab, onClick, isWatchlisted, onToggleWatch
         <div className={`grid ${activeTab === 'auctions' ? 'grid-cols-4' : 'grid-cols-3'} gap-2 pt-3 mt-3 border-t border-white/15`}>
           <div>
             <div className="text-[10px] text-gg-gray-300">Acres</div>
-            <div className="text-sm font-semibold text-white">{listing.total_acres ? Math.round(listing.total_acres).toLocaleString() : '—'}</div>
+            <div className="text-sm font-semibold text-white">{listing.total_acres ? formatAcres(listing.total_acres) : '—'}</div>
           </div>
           {!listing.is_incomplete && (
             <div>
@@ -245,7 +246,7 @@ function ListingCard({ listing, activeTab, onClick, isWatchlisted, onToggleWatch
             <>
               <div>
                 <div className="text-[10px] text-gg-gray-300">Tillable</div>
-                <div className="text-sm font-semibold text-white">{listing.is_incomplete ? '—' : (getListingTillableAcres(listing.tracts) ? Math.round(getListingTillableAcres(listing.tracts)!) + ' ac' : '—')}</div>
+                <div className="text-sm font-semibold text-white">{listing.is_incomplete ? '—' : (getListingTillableAcres(listing.tracts) ? formatAcres(getListingTillableAcres(listing.tracts)!) + ' ac' : '—')}</div>
               </div>
               <div>
                 <div className="text-[10px] text-gg-gray-300">{getSoilLabel(listing.state)}</div>

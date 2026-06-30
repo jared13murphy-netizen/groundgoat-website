@@ -49,6 +49,7 @@ import {
   ExternalLink, LandPlot, Search,
 } from 'lucide-react'
 import { polygonAcres, polygonPerimeterFeet, formatPerimeter } from '@/lib/polygonGeometry'
+import { formatAcres } from '@/lib/format'
 import { fetchWithAuth, fetchScraperProxy } from '@/lib/fetchWithAuth'
 
 const SCRAPER_PROXY = '/api/scraper-proxy'
@@ -1719,7 +1720,7 @@ export default function TractMapEditor({
             // Confirm whether existing tracts were cut out (helps catch a case
             // where no neighbor polygon reached the request).
             const sc = d.subtract_count || 0
-            const ac = typeof d.acres === 'number' ? `${d.acres.toFixed(0)} ac` : ''
+            const ac = typeof d.acres === 'number' ? `${formatAcres(d.acres)} ac` : ''
             setSnapStatus(sc > 0
               ? `Snapped to remainder · ${ac} (−${sc} existing tract${sc > 1 ? 's' : ''})`
               : `Snapped to full parcel · ${ac} (no other tracts to subtract)`)
@@ -2114,7 +2115,7 @@ export default function TractMapEditor({
         throw new Error(data.error || `HTTP ${res.status}`)
       }
       setStatus(
-        `✓ Tillable saved (${data.acres?.toFixed(2) ?? '—'} ac` +
+        `✓ Tillable saved (${data.acres != null ? formatAcres(data.acres) : '—'} ac` +
         (data.soil_rating != null
           ? `, ${data.soil_rating.toFixed(1)} ${data.soil_rating_type})`
           : ')')
@@ -2155,7 +2156,7 @@ export default function TractMapEditor({
         throw new Error(data.error || `HTTP ${res.status}`)
       }
       setStatus(
-        `✓ Tillable saved (${data.acres?.toFixed(2) ?? '—'} ac` +
+        `✓ Tillable saved (${data.acres != null ? formatAcres(data.acres) : '—'} ac` +
         (data.soil_rating != null
           ? `, ${data.soil_rating.toFixed(1)} ${data.soil_rating_type})`
           : ')')
@@ -2409,7 +2410,7 @@ export default function TractMapEditor({
         const matchLabel = data.acreage_match ?? 'unknown'
         const confLabel = data.vision_confidence ?? '?'
         const acLabel = data.extracted_acres
-          ? `${Number(data.extracted_acres).toFixed(1)} ac`
+          ? `${formatAcres(Number(data.extracted_acres))} ac`
           : '?'
         setStatus(
           `✓ Extracted ${acLabel} (${matchLabel} match, ${confLabel} confidence) — ` +
@@ -2453,7 +2454,7 @@ export default function TractMapEditor({
       setDirty(true)
       const matchLabel = data.acreage_match ?? 'unknown'
       const acLabel = data.extracted_acres
-        ? `${Number(data.extracted_acres).toFixed(1)} ac`
+        ? `${formatAcres(Number(data.extracted_acres))} ac`
         : '?'
       setStatus(
         `✓ Extracted from URL — ${acLabel} (${matchLabel} match). ` +
@@ -2949,15 +2950,15 @@ export default function TractMapEditor({
             const rCur = Math.round(cur * 100) / 100
             if (rTarget === rCur) return null
             const dir = cur > target ? 'shrink' : 'expand'
-            const diffAc = Math.abs(rCur - rTarget).toFixed(2)
+            const diffAc = formatAcres(Math.abs(rCur - rTarget))
             return (
               <button
                 onClick={handleAlign}
-                title={`${dir === 'shrink' ? 'Shrink' : 'Expand'} polygon to match scraped acres exactly (${target.toFixed(2)} ac). Currently drawn: ${cur.toFixed(2)} ac (${diffAc} ac ${dir === 'shrink' ? 'too big' : 'too small'}).`}
+                title={`${dir === 'shrink' ? 'Shrink' : 'Expand'} polygon to match scraped acres exactly (${formatAcres(target)} ac). Currently drawn: ${formatAcres(cur)} ac (${diffAc} ac ${dir === 'shrink' ? 'too big' : 'too small'}).`}
                 className="absolute top-12 left-2 z-10 px-2.5 py-1.5 text-xs font-semibold bg-gg-pink hover:bg-gg-pink-light text-white rounded shadow-lg flex items-center gap-1.5 backdrop-blur-sm"
               >
                 <Crosshair size={14} />
-                Align to {target.toFixed(2)} ac
+                Align to {formatAcres(target)} ac
                 <span className="opacity-70 text-[10px]">
                   ({dir === 'shrink' ? '−' : '+'}{diffAc} ac)
                 </span>
@@ -3266,7 +3267,7 @@ export default function TractMapEditor({
                 </span>
                 {tillablePreview?.acres != null && tillablePreview.acres > 0 && (
                   <span className="text-green-700 font-bold">
-                    Tillable: {tillablePreview.acres.toFixed(2)} ac
+                    Tillable: {formatAcres(tillablePreview.acres)} ac
                   </span>
                 )}
               </div>
@@ -3300,7 +3301,7 @@ export default function TractMapEditor({
                     : `Click to add · drag a dot to move · double-click a dot to delete (${points.length} vertices)`}
                 </span>
                 {points.length >= 3 && (
-                  <span className="text-gg-pink font-semibold">Drawn: {drawnAcres.toFixed(2)} ac</span>
+                  <span className="text-gg-pink font-semibold">Drawn: {formatAcres(drawnAcres)} ac</span>
                 )}
               </div>
               {/* Perimeter — recalculated live from current polygon

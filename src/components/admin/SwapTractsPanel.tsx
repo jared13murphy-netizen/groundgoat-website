@@ -17,6 +17,7 @@
 import { useState } from 'react'
 import { Loader2, ChevronsUpDown, Check } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
+import { formatAcres } from '@/lib/format'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -75,7 +76,7 @@ export default function SwapTractsPanel({
   }
 
   const tractLabel = (t: SwapTract) =>
-    `T${t.tract_number}${t.total_acres != null ? ` (${Number(t.total_acres).toFixed(1)} ac)` : ''}`
+    `T${t.tract_number}${t.total_acres != null ? ` (${formatAcres(Number(t.total_acres))} ac)` : ''}`
 
   const handleSwap = async () => {
     if (!tractIdA || !tractIdB || tractIdA === tractIdB) {

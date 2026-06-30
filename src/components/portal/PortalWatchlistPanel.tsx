@@ -4,6 +4,7 @@ import { useState, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import Image from 'next/image'
 import { X, Bookmark, Loader2, Calendar, Building2, MapPin } from 'lucide-react'
+import { formatAcres } from '@/lib/format'
 
 const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=600'
 
@@ -82,7 +83,7 @@ function WatchlistCard({ listing, onRemove, onSelect }: {
           the upcoming-auctions / private-treaty / results cards. */}
       <div className="p-3.5 bg-gradient-to-b from-gg-gray-800 to-[#222222] text-white">
         <div className="text-sm font-semibold group-hover:text-gg-pink transition">
-          {listing.total_acres ? Math.round(listing.total_acres) : '—'} ac — {listing.county}
+          {listing.total_acres ? formatAcres(listing.total_acres) : '—'} ac — {listing.county}
         </div>
         <div className="text-xs text-gg-gray-300 mt-0.5 flex items-center gap-1">
           <MapPin size={11} />

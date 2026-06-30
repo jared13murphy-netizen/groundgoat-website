@@ -33,6 +33,7 @@ import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { Loader2, Save, Calculator, Sprout, Pencil, Check, Undo2, Trash2, Maximize2, Minimize2, Scissors, Spline } from 'lucide-react'
 import { fetchWithAuth } from '@/lib/fetchWithAuth'
+import { formatAcres } from '@/lib/format'
 import { polygonAcres, toRings, multiPolygonAcres } from '@/lib/polygonGeometry'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
@@ -1585,13 +1586,13 @@ export default function TillableCluWorkshop({
         <div className="flex flex-col gap-0.5 text-xs">
           <div className="flex items-center gap-3">
             <span className="px-2 py-0.5 rounded bg-green-700 text-white font-bold">
-              Tillable: {tillableAcres.toFixed(2)} ac
+              Tillable: {formatAcres(tillableAcres)} ac
             </span>
             <span className="text-gg-gray-400">
               of {multiPolygonAcres(tractPolygon) > 0
-                    ? multiPolygonAcres(tractPolygon).toFixed(2)
-                    : tractAcres != null ? tractAcres.toFixed(2) : '?'} tract ac
-              {reportedAcres != null && ` · reported ${Number(reportedAcres).toFixed(2)}`}
+                    ? formatAcres(multiPolygonAcres(tractPolygon))
+                    : tractAcres != null ? formatAcres(tractAcres) : '?'} tract ac
+              {reportedAcres != null && ` · reported ${formatAcres(Number(reportedAcres))}`}
             </span>
             <span className="text-gg-gray-500">
               {manualActive

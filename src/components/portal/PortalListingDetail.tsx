@@ -9,6 +9,7 @@ import {
   DollarSign, ExternalLink, Share2, BarChart3, Loader2, RefreshCw, Bookmark
 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
+import { formatAcres } from '@/lib/format'
 import { getStatusBadge } from '@/lib/listingStatusBadge'
 import { getListingTillableAcres, getListingSoilRating, getSoilLabel } from './PortalListPanel'
 
@@ -100,11 +101,6 @@ const LAND_TYPE_COLORS: Record<string, string> = {
 function formatCurrency(value?: number): string {
   if (!value) return '—'
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(value)
-}
-
-function formatAcres(acres?: number): string {
-  if (!acres && acres !== 0) return '—'
-  return acres.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
 }
 
 function formatDate(dateString?: string): string {
@@ -296,7 +292,7 @@ export default function PortalListingDetail({ listingId, onBack, onTractSelected
         )}
         {!listing.is_incomplete && tillableAcres != null && (
           <div className="text-center">
-            <div className="text-lg font-bold">{Math.round(tillableAcres).toLocaleString()} ac</div>
+            <div className="text-lg font-bold">{formatAcres(tillableAcres)} ac</div>
             <div className="text-[10px] text-gg-gray-500 uppercase">Tillable</div>
           </div>
         )}

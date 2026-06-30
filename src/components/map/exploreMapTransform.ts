@@ -1,23 +1,22 @@
 import type { ApiMapTract } from './exploreMapTypes'
 import type { StateAggregate } from './mapTypes'
 import { STATE_ABBR, STATE_BOUNDS, STATE_CENTERS, STATE_NAMES, derivePinStatus } from './mapConstants'
+import { formatAcres } from '@/lib/format'
 
 function getStateAbbr(state: string): string {
   return STATE_ABBR[state] || state
 }
 
-// Display formatters — kept BYTE-FOR-BYTE identical to ExploreMap's
-// formatCurrency / formatAcres so the native symbol-layer labels read
-// exactly like the old DOM-marker labels. (We pre-format here instead of
-// in a MapLibre number-format expression because maplibre's number-format
-// can't do "$1,234,567" + "/ac" / "1,234.5 ac" cleanly.)
+// Display formatters — kept consistent with the shared formatAcres/formatCurrency
+// so the native symbol-layer labels read exactly like the sidebar labels.
+// (We pre-format here instead of in a MapLibre number-format expression because
+// maplibre's number-format can't do "$1,234,567" + "/ac" / "1,234.567 ac" cleanly.)
 function fmtCurrency(amount: number | null | undefined): string {
   if (!amount) return '—'
   return '$' + Math.round(amount).toLocaleString('en-US')
 }
 function fmtAcres(acres: number | null | undefined): string {
-  if (!acres) return '—'
-  return acres.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
+  return formatAcres(acres)
 }
 
 function getPolygonCentroid(polygon: [number, number][]): [number, number] {

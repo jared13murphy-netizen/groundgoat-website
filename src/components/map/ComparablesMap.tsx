@@ -16,6 +16,7 @@ import {
   type RegridFilterInput,
 } from '@/lib/regridParcelFilter'
 import type { FilterState as CompFilterState } from '@/components/ComparablesFilterPanel'
+import { formatAcres } from '@/lib/format'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -139,11 +140,6 @@ function getCountyCentroid(county: string, state: string): [number, number] | nu
 function formatCurrency(amount: number | null | undefined): string {
   if (!amount) return '—'
   return '$' + Math.round(amount).toLocaleString('en-US')
-}
-
-function formatAcres(acres: number | null | undefined): string {
-  if (!acres) return '—'
-  return acres.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
 }
 
 function formatDate(dateStr: string | null | undefined): string {

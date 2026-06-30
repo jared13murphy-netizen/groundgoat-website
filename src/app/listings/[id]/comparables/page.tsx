@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import fetchWithAuth from '@/lib/fetchWithAuth'
+import { formatAcres } from '@/lib/format'
 import { Loader2, ArrowLeft, MapPin, Mail, Check, BarChart3, Filter, CheckCircle, List, Map, SlidersHorizontal } from 'lucide-react'
 import ComparablesFilterPanel, { FilterState, DEFAULT_FILTERS, applyFilters, countActiveFilters } from '@/components/ComparablesFilterPanel'
 
@@ -237,7 +238,7 @@ export default function ComparablesPage({ params }: { params: { id: string } }) 
           subject_county: listing?.county,
           subject_state: listing?.state,
           subject_tract_number: tract?.tract_number?.toString() || '—',
-          subject_acres: formatAcres(tract?.total_acres),
+          subject_acres: String(tract?.total_acres),
           subject_tillable_pct: subjectPct || null,
           subject_soil_rating: tract?.soil_rating?.toString() || null,
           comparables: selectedComps.map(comp => ({
@@ -274,11 +275,6 @@ export default function ComparablesPage({ params }: { params: { id: string } }) 
   const formatCurrency = (value: number | undefined) => {
     if (!value) return '—'
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(value)
-  }
-
-  const formatAcres = (acres: number | undefined) => {
-    if (!acres && acres !== 0) return '—'
-    return acres.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   }
 
   const formatDate = (dateString: string | undefined) => {

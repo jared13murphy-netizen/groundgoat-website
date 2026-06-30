@@ -23,6 +23,7 @@ import {
   derivePinStatus,
 } from './mapConstants'
 import fetchWithAuth from '@/lib/fetchWithAuth'
+import { formatAcres } from '@/lib/format'
 import { toRings as toTractRings, ringsToGeometry } from '@/lib/polygonRings'
 import Tract3DModal from '@/components/Tract3DModal'
 import GroundTruthPanel from '@/components/portal/GroundTruthPanel'
@@ -324,11 +325,6 @@ function fadeOutAndRemove(markers: maplibregl.Marker[]): void {
       try { m.remove() } catch {}
     }
   }, 380)
-}
-
-function formatAcres(acres: number | null | undefined): string {
-  if (!acres) return '—'
-  return acres.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
 }
 
 function formatDate(dateStr: string | null | undefined): string {
@@ -2356,7 +2352,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         ? p.acres
         : (p.acres != null ? Number(p.acres) : NaN)
       const acresStr = !isNaN(acresNum) && acresNum > 0
-        ? `${acresNum.toFixed(1)} ac`
+        ? `${formatAcres(acresNum)} ac`
         : ''
       const ownerStr = (p.owner || 'Coming Soon').trim()
       return {
@@ -2703,7 +2699,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // nice-to-haves: render only if the tile actually carries them.
       const owner = props.owner || 'Coming Soon'
       const rows: string[] = []
-      if (props.acres != null) rows.push(`<div style="color:#6b7280;">${Number(props.acres).toFixed(2)} ac</div>`)
+      if (props.acres != null) rows.push(`<div style="color:#6b7280;">${formatAcres(Number(props.acres))} ac</div>`)
       if (props.county) {
         const cs = `${props.county} County${props.state ? `, ${props.state}` : ''}`
         rows.push(`<div style="color:#6b7280;">${cs}</div>`)
@@ -7275,7 +7271,7 @@ function _enrichmentPopupSection(enrich: any): string {
   // Already pre-sorted server-side; cap here defensively.
   const soilRows = soils.slice(0, 5).map(s => {
     const name = s.soil ? String(s.soil) : (s.mukey ? `Mukey ${s.mukey}` : 'Soil')
-    const ac = (typeof s.acres === 'number') ? `${s.acres.toFixed(1)} ac` : ''
+    const ac = (typeof s.acres === 'number') ? `${formatAcres(s.acres)} ac` : ''
     const pi = (typeof s.pi === 'number') ? `${ratingType} ${s.pi}` : ''
     const suffix = [ac, pi].filter(Boolean).join(' · ')
     return _detailRow(name, suffix)

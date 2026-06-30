@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import fetchWithAuth from '@/lib/fetchWithAuth'
+import { formatAcres } from '@/lib/format'
 import {
   Loader2, ArrowLeft, MapPin, Calendar, Clock, Building2,
   DollarSign, ExternalLink, Share2, BarChart3
@@ -173,11 +174,6 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
   const formatCurrency = (value: number | undefined) => {
     if (!value) return '—'
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(value)
-  }
-
-  const formatAcres = (acres: number | undefined) => {
-    if (!acres && acres !== 0) return '—'
-    return acres.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   }
 
   const formatDate = (dateString: string | undefined) => {

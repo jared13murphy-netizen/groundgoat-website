@@ -18,6 +18,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
+import { formatAcres } from '@/lib/format'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -557,7 +558,7 @@ export default function LandDetailPanel({ clickData, onClose }: LandDetailPanelP
                 <Section title="Soils — by acreage">
                   {soilBreakdown.slice(0, 5).map((s, i) => {
                     const name = s.soil ? String(s.soil) : (s.mukey ? `Mukey ${s.mukey}` : 'Soil')
-                    const ac = typeof s.acres === 'number' ? `${s.acres.toFixed(1)} ac` : ''
+                    const ac = typeof s.acres === 'number' ? `${formatAcres(s.acres)} ac` : ''
                     const pi = typeof s.pi === 'number' ? `${ratingLabel} ${s.pi}` : ''
                     const suffix = [ac, pi].filter(Boolean).join(' · ') || '—'
                     return <DetailRow key={i} label={name} value={suffix} />
@@ -573,7 +574,7 @@ export default function LandDetailPanel({ clickData, onClose }: LandDetailPanelP
               <Section title="Crop History">
                 {csbProps?.acres != null && (
                   <div style={{ fontSize: 11, color: 'rgba(0,0,0,0.45)', marginBottom: 6 }}>
-                    {Number(csbProps.acres).toFixed(1)} acres
+                    {formatAcres(Number(csbProps.acres))} acres
                   </div>
                 )}
                 {CDL_YEARS.map(yr => {
@@ -615,7 +616,7 @@ export default function LandDetailPanel({ clickData, onClose }: LandDetailPanelP
               {tillableAcres != null && (
                 <DetailRow
                   label="Tillable Acres"
-                  value={`${Number(tillableAcres).toFixed(1)} ac${pctTillable != null ? ` (${Number(pctTillable).toFixed(0)}%)` : ''}`}
+                  value={`${formatAcres(Number(tillableAcres))} ac${pctTillable != null ? ` (${Number(pctTillable).toFixed(0)}%)` : ''}`}
                 />
               )}
               {dominantLandcover && (

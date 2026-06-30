@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react'
 import { motion } from 'framer-motion'
 import { X, Mail, Loader2, Trash2, Check, Download } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
+import { formatAcres } from '@/lib/format'
 import type { TractSaleData } from './PortalTractDetail'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
@@ -232,7 +233,7 @@ export default function PortalReportPanel({ tracts, onClose, onRemoveTract, subj
                   {subjectInfo.subject_acres ? (
                     <div>
                       <div className="text-[10px] text-gg-gray-400">Acres</div>
-                      <div className="text-sm font-semibold">{Math.round(subjectInfo.subject_acres)}</div>
+                      <div className="text-sm font-semibold">{formatAcres(subjectInfo.subject_acres)}</div>
                     </div>
                   ) : null}
                   {subjectInfo.subject_pct_tillable ? (
@@ -274,11 +275,11 @@ export default function PortalReportPanel({ tracts, onClose, onRemoveTract, subj
                   <div className="text-[10px] text-gg-gray-400 mt-0.5">Avg $/Soil</div>
                 </div>
                 <div className="bg-white/[0.03] rounded-xl p-3 border border-white/5">
-                  <div className="text-lg font-bold">{stats.avgAcres ? fmtNum(stats.avgAcres) : '—'}</div>
+                  <div className="text-lg font-bold">{stats.avgAcres ? formatAcres(stats.avgAcres) : '—'}</div>
                   <div className="text-[10px] text-gg-gray-400 mt-0.5">Avg Acres</div>
                 </div>
                 <div className="bg-white/[0.03] rounded-xl p-3 border border-white/5">
-                  <div className="text-lg font-bold">{stats.avgTillable ? fmtNum(stats.avgTillable) : '—'}</div>
+                  <div className="text-lg font-bold">{stats.avgTillable ? formatAcres(stats.avgTillable) : '—'}</div>
                   <div className="text-[10px] text-gg-gray-400 mt-0.5">Avg Tillable</div>
                 </div>
                 <div className="bg-white/[0.03] rounded-xl p-3 border border-white/5">
@@ -315,7 +316,7 @@ export default function PortalReportPanel({ tracts, onClose, onRemoveTract, subj
                     <div className="grid grid-cols-4 gap-2 px-4 pb-2">
                       <div>
                         <div className="text-[10px] text-gg-gray-500">Acres</div>
-                        <div className="text-sm font-medium">{t.totalAcres ? Math.round(t.totalAcres) : '—'}</div>
+                        <div className="text-sm font-medium">{t.totalAcres ? formatAcres(t.totalAcres) : '—'}</div>
                       </div>
                       <div>
                         <div className="text-[10px] text-gg-gray-500">$/Acre</div>

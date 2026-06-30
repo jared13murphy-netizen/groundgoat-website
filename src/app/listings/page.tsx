@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
 import fetchWithAuth from '@/lib/fetchWithAuth'
+import { formatAcres } from '@/lib/format'
 import { Loader2, MapPin, Calendar, DollarSign, Building2, Filter, X, ChevronLeft, ChevronRight, Map } from 'lucide-react'
 import { getCountiesForState, getStateAbbreviation, US_STATES } from '@/data/counties'
 import { getDistanceToCounty } from '@/data/countyCoordinates'
@@ -317,11 +318,6 @@ function ListingsPageContent() {
   const formatCurrency = (value: number | undefined) => {
     if (!value) return '\u2014'
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(value)
-  }
-
-  const formatAcres = (acres: number | undefined) => {
-    if (!acres) return '\u2014'
-    return acres.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   }
 
   const formatDate = (dateString: string | undefined) => {

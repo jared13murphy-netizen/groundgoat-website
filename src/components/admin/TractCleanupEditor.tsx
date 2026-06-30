@@ -15,6 +15,7 @@
 import { useState } from 'react'
 import { Loader2, CheckCircle2 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
+import { formatAcres } from '@/lib/format'
 import TractMapEditor from '@/components/admin/TractMapEditor'
 import TillableCluWorkshop from '@/components/admin/TillableCluWorkshop'
 import TractDataCompare from '@/components/admin/TractDataCompare'
@@ -231,7 +232,7 @@ export default function TractCleanupEditor({ tract, listing, onChanged, onDirtyC
       <div className="mt-2 flex flex-wrap justify-center gap-x-5 gap-y-1 text-xs text-gg-gray-400">
         <span>Total price: <span className="text-white font-semibold">{fmtMoney(tract.sale_price)}</span></span>
         <span>$/acre: <span className="text-white font-semibold">{fmtMoney(tract.price_per_acre)}</span></span>
-        <span>Saved acres: <span className="text-white font-semibold">{num(tract.total_acres) != null ? `${num(tract.total_acres)!.toFixed(2)} ac` : '—'}</span></span>
+        <span>Saved acres: <span className="text-white font-semibold">{num(tract.total_acres) != null ? `${formatAcres(num(tract.total_acres))} ac` : '—'}</span></span>
       </div>
       <p className="text-[11px] text-gg-gray-400 mt-1.5">
         {tract.edit_price_basis === 'per_acre'
@@ -246,8 +247,8 @@ export default function TractCleanupEditor({ tract, listing, onChanged, onDirtyC
   // Read-only stat box — dark, centered, shown down by the action button.
   const statsBox = (
     <div className="flex-1 flex flex-wrap items-center justify-center gap-x-5 gap-y-1 rounded-lg bg-gg-gray-900 border border-gg-gray-800 px-4 py-3 text-xs text-gg-gray-300 text-center">
-      <span>Total: <span className="text-white font-medium">{num(tract.total_acres) != null ? `${num(tract.total_acres)!.toFixed(1)} ac` : '—'}</span></span>
-      <span>Tillable: <span className="text-white font-medium">{num(tract.tillable_acres) != null ? `${num(tract.tillable_acres)!.toFixed(1)} ac` : '—'}</span></span>
+      <span>Total: <span className="text-white font-medium">{num(tract.total_acres) != null ? `${formatAcres(num(tract.total_acres))} ac` : '—'}</span></span>
+      <span>Tillable: <span className="text-white font-medium">{num(tract.tillable_acres) != null ? `${formatAcres(num(tract.tillable_acres))} ac` : '—'}</span></span>
       <span>Soil: <span className="text-white font-medium">{num(tract.soil_rating) != null ? `${num(tract.soil_rating)!.toFixed(1)} ${tract.soil_rating_type || ''}` : '—'}</span></span>
       <span>Sale: <span className="text-white font-medium">{tract.sale_status ? tract.sale_status.replace('_', ' ') : '—'}</span></span>
       <span>Sold price: <span className="text-white font-medium">{fmtMoney(tract.sale_price)}</span></span>

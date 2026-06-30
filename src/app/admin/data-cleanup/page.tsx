@@ -12,6 +12,7 @@ import {
   Pencil, Check, X, Plus, Trash2,
 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
+import { formatAcres } from '@/lib/format'
 import CompanyLinkEditor, { type CompanyOption } from '@/components/admin/CompanyLinkEditor'
 import openListingReport from '@/lib/openListingReport'
 import TractMapEditor from '@/components/admin/TractMapEditor'
@@ -1136,7 +1137,7 @@ export default function TractDataCleanupPage() {
                                 <div className="mt-2 flex flex-wrap justify-center gap-x-5 gap-y-1 text-xs text-gg-gray-400">
                                   <span>Total price: <span className="text-white font-semibold">{fmtMoney(tract.sale_price)}</span></span>
                                   <span>$/acre: <span className="text-white font-semibold">{fmtMoney(tract.price_per_acre)}</span></span>
-                                  <span>Saved acres: <span className="text-white font-semibold">{tract.total_acres != null ? `${tract.total_acres.toFixed(2)} ac` : '—'}</span></span>
+                                  <span>Saved acres: <span className="text-white font-semibold">{tract.total_acres != null ? `${formatAcres(tract.total_acres)} ac` : '—'}</span></span>
                                 </div>
                                 <p className="text-[11px] text-gg-gray-400 mt-1.5">
                                   {tract.price_basis === 'per_acre'
@@ -1150,8 +1151,8 @@ export default function TractDataCleanupPage() {
                             // Read-only stat box — dark, centered, shown down by the action button.
                             const statsBox = (
                               <div className="flex-1 flex flex-wrap items-center justify-center gap-x-5 gap-y-1 rounded-lg bg-gg-gray-900 border border-gg-gray-800 px-4 py-3 text-xs text-gg-gray-300 text-center">
-                                <span>Total: <span className="text-white font-medium">{tract.total_acres != null ? `${tract.total_acres.toFixed(1)} ac` : '—'}</span></span>
-                                <span>Tillable: <span className="text-white font-medium">{tract.tillable_acres != null ? `${tract.tillable_acres.toFixed(1)} ac` : '—'}</span></span>
+                                <span>Total: <span className="text-white font-medium">{tract.total_acres != null ? `${formatAcres(tract.total_acres)} ac` : '—'}</span></span>
+                                <span>Tillable: <span className="text-white font-medium">{tract.tillable_acres != null ? `${formatAcres(tract.tillable_acres)} ac` : '—'}</span></span>
                                 <span>Soil: <span className="text-white font-medium">{tract.soil_rating != null ? `${tract.soil_rating.toFixed(1)} ${tract.soil_rating_type || ''}` : '—'}</span></span>
                                 <span>Sale: <span className="text-white font-medium">{tract.sale_status ? tract.sale_status.replace('_', ' ') : '—'}</span></span>
                                 <span>Sold price: <span className="text-white font-medium">{fmtMoney(tract.sale_price)}</span></span>
@@ -1170,7 +1171,7 @@ export default function TractDataCleanupPage() {
                               dcStatus === 'no_sale' ? 'bg-red-500/15 text-red-400 border border-red-500/40' :
                               dcStatus              ? 'bg-gg-gray-700 text-gg-gray-300 border border-gg-gray-600' : ''
                             const dcSummaryParts = [
-                              tract.total_acres != null ? `${Number(tract.total_acres).toFixed(2)} ac` : null,
+                              tract.total_acres != null ? `${formatAcres(tract.total_acres)} ac` : null,
                               tract.price_per_acre != null ? `$${Number(tract.price_per_acre).toLocaleString(undefined, { maximumFractionDigits: 0 })}/ac` : null,
                               tract.sale_price != null ? `$${Number(tract.sale_price).toLocaleString(undefined, { maximumFractionDigits: 0 })} total` : null,
                             ].filter(Boolean).join(' · ')
@@ -1196,7 +1197,7 @@ export default function TractDataCleanupPage() {
                                   )}
                                   <div className="ml-auto flex items-center gap-3 shrink-0">
                                     {tract.total_acres != null && (
-                                      <span className="text-xs text-gg-gray-300">{Number(tract.total_acres).toFixed(2)} ac</span>
+                                      <span className="text-xs text-gg-gray-300">{formatAcres(tract.total_acres)} ac</span>
                                     )}
                                     <span className={`text-xs ${tract.polygon_coordinates ? 'text-green-400' : 'text-yellow-400'}`}>
                                       {tract.polygon_coordinates ? '◼ Polygon' : '○ No polygon'}
@@ -1370,7 +1371,7 @@ export default function TractDataCleanupPage() {
                                         <RefreshCw size={13} className="flex-shrink-0 mt-0.5" />
                                         <span>
                                           Rescrape proposed a boundary: {proposals[tract.id].coords.length} pts
-                                          {proposals[tract.id].proposed_acres != null && ` · ${proposals[tract.id].proposed_acres!.toFixed(1)} ac`}
+                                          {proposals[tract.id].proposed_acres != null && ` · ${formatAcres(proposals[tract.id].proposed_acres)} ac`}
                                           {proposals[tract.id].pct_difference != null && ` (${proposals[tract.id].pct_difference}% vs listed ${proposals[tract.id].reported_acres ?? '—'} ac)`}
                                           {proposals[tract.id].source && ` · ${proposals[tract.id].source}`}.
                                           {' '}It&apos;s loaded on the map as an unsaved edit — eyeball it against the source, then <b>Save</b> to apply, or <b>Cancel</b> to discard.

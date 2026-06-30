@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Pencil, Check, X, Loader2, Save, CheckCircle2, Trash2, AlertTriangle } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
+import { formatAcres } from '@/lib/format'
 import TractMapEditor from '@/components/admin/TractMapEditor'
 import TillableCluWorkshop from '@/components/admin/TillableCluWorkshop'
 import LandTypeButtons from '@/components/admin/LandTypeButtons'
@@ -223,7 +224,7 @@ export default function ListingTractCard({ tract, listing, onChanged, onDeleted,
   const selectCls = 'w-full bg-white text-gray-900 border border-gg-gray-300 rounded-lg px-3 py-2 text-sm'
 
   // Summary stats for the collapsed row.
-  const summaryAcres = tract.total_acres != null ? `${Number(tract.total_acres).toFixed(2)} ac` : null
+  const summaryAcres = tract.total_acres != null ? `${formatAcres(tract.total_acres)} ac` : null
   const summaryPpa = tract.display_price_per_acre ?? tract.price_per_acre
   const summaryPpaFmt = summaryPpa != null ? `$${Number(summaryPpa).toLocaleString(undefined, { maximumFractionDigits: 0 })}/ac` : null
   const summaryTotal = tract.sale_price != null ? `$${Number(tract.sale_price).toLocaleString(undefined, { maximumFractionDigits: 0 })} total` : null
@@ -247,7 +248,7 @@ export default function ListingTractCard({ tract, listing, onChanged, onDeleted,
         )}
         <div className="ml-auto flex items-center gap-3 shrink-0">
           {tract.total_acres != null && (
-            <span className="text-xs text-gg-gray-300">{Number(tract.total_acres).toFixed(2)} ac</span>
+            <span className="text-xs text-gg-gray-300">{formatAcres(tract.total_acres)} ac</span>
           )}
           <span className={`text-xs ${hasPolygon ? 'text-green-400' : 'text-yellow-400'}`}>
             {hasPolygon ? '◼ Polygon' : '○ No polygon'}
