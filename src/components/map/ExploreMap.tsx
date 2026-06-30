@@ -11,6 +11,7 @@ import { normalizeTownship } from '../../utils/normalizeTownship'
 import {
   buildExplorePolygonGeoJSON,
   buildExplorePointGeoJSON,
+  buildTodayPointGeoJSON,
 } from './exploreMapTransform'
 import {
   MAP_CENTER,
@@ -53,6 +54,10 @@ const MARKER_LAYERS_BOTTOM_TO_TOP = [
   'county-count-labels',
   'tract-pin-circles',
   'tract-pin-labels',
+  // Today's-auction green dots sit ABOVE the regular pins (pulse halo first,
+  // then the solid core on top of its own halo).
+  'today-pin-pulse',
+  'today-pin-core',
 ]
 function liftMarkerLayers(map: maplibregl.Map) {
   for (const id of MARKER_LAYERS_BOTTOM_TO_TOP) {
@@ -1834,7 +1839,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // ── Native tract-pin GeoJSON (drives the tract-pin-circles/labels
   // layers via setData). One Point per tract with status / pre-formatted
   // priceLabel-acres label / tractId + the co-located offset spiral.
-  // EXCLUDES today's-auction tracts (rendered by the today DOM markers)
+  // EXCLUDES today's-auction tracts (rendered by the native today-pin layer)
   // and the subject tract (its own highlight in comp mode), matching the
   // old DOM loop's `continue` guards exactly.
   const tractPinGeoJSON = useMemo(() => {
@@ -1846,6 +1851,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     })
     return buildExplorePointGeoJSON(visible)
   }, [tracts, todayTracts, subjectTractId])
+
+  // Today's-auction green dots as a native GL GeoJSON FC (true lat/lng, no
+  // clustering) — drives the today-pin-core / today-pin-pulse circle layers.
+  const todayPinGeoJSON = useMemo(
+    () => buildTodayPointGeoJSON(todayTracts),
+    [todayTracts],
+  )
 
   // ── County COUNT bubbles GeoJSON (filter-active). One Point per county
   // with a matching tract count + averaged centroid from the
@@ -2243,6 +2255,39 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           'text-color': '#ffffff',
           'text-halo-color': 'rgba(0,0,0,0.85)',
           'text-halo-width': 1.4,
+        },
+      })
+
+      // ── Today's-auction green dots — NATIVE GL layer (replaces the old DOM
+      // markers + JS clustering). Rendered as circle layers so every dot sits
+      // EXACTLY on its stored lat/lng at every zoom (no cluster-centroid drift)
+      // and stays fully opaque in 3D (DOM markers faded behind the terrain mesh).
+      // Visible at ALL zooms (no minzoom) so today's auctions are always shown.
+      map.addSource('today-pins', { type: 'geojson', data: EMPTY_FC })
+      // Soft static halo behind the core — the "live / auctioning now"
+      // affordance. Static (not animated) so the GL map never enters a
+      // perpetual per-frame repaint, which would tax the 3D terrain mesh.
+      map.addLayer({
+        id: 'today-pin-pulse',
+        type: 'circle',
+        source: 'today-pins',
+        paint: {
+          'circle-color': '#22C55E',
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], 4, 11, 9, 13, 14, 16],
+          'circle-opacity': 0.28,
+          'circle-stroke-width': 0,
+        },
+      })
+      // Solid green core dot.
+      map.addLayer({
+        id: 'today-pin-core',
+        type: 'circle',
+        source: 'today-pins',
+        paint: {
+          'circle-color': '#16A34A',
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], 4, 5, 9, 6, 14, 8],
+          'circle-stroke-color': '#ffffff',
+          'circle-stroke-width': 2,
         },
       })
 
@@ -4536,10 +4581,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // terrainExaggeration intentionally NOT in dep array — slider changes are
   // handled by the separate slider effect so easeTo doesn't re-fire.
   //
-  // NOTE: county labels and tract pins are native GPU GeoJSON layers —
-  // MapLibre draws them on the 3D terrain mesh for free, nothing to suppress.
-  // State silhouettes and today-auction dots are DOM markers; hide them while
-  // 3D is active so they don't reproject incorrectly on the terrain mesh.
+  // NOTE: county labels, tract pins, and today's green dots are all native GPU
+  // GeoJSON layers — MapLibre draws them on the 3D terrain mesh for free,
+  // nothing to suppress. Only the State silhouettes are DOM markers; hide those
+  // while 3D is active so they don't reproject incorrectly on the terrain mesh.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded) return
@@ -4979,207 +5024,96 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
   }, [mapLoaded, portalMode, onTractSelected])
 
-  // DOM-marker refs so we can tear down between renders.
-  const todayMarkersRef = useRef<maplibregl.Marker[]>([])
-
-  // Quick lookup of today's tracts by id.
+  // Quick lookup of today's tracts by id. Today's tracts are fetched
+  // separately (/api/map/tracts/today) and are NOT in tractMapRef, so the
+  // today-pin click handler resolves the full tract from here.
   const todayTractsByIdRef = useRef<Map<string, ApiMapTract>>(new Map())
   useEffect(() => {
     todayTractsByIdRef.current = new Map(todayTracts.map(t => [t.id, t]))
   }, [todayTracts])
 
-  // Always-on today's-auctions DOM markers, with JS-side proximity
-  // clustering. We use DOM markers (not a native GeoJSON layer) so the
-  // pulsing dots can sit ABOVE the state-badge DOM markers via z-index —
-  // a native canvas layer would paint UNDER the badges. Clustering is
-  // done in JS: at each map view we group tracts within a pixel radius
-  // and render one marker per group. Click a multi-tract cluster to
-  // zoom into it; click a single-tract marker to open the tract modal.
+  // Push today's-auction points into the native today-pins source. Each dot
+  // sits on its true stored lat/lng at every zoom (no cluster-centroid drift,
+  // the bug that dragged a Kansas dot to Texas when zoomed out), and being a
+  // GL circle layer it stays fully opaque in 3D (DOM markers faded behind the
+  // terrain mesh).
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+    const src = map.getSource('today-pins') as maplibregl.GeoJSONSource | undefined
+    if (src) src.setData(todayPinGeoJSON)
+  }, [mapLoaded, todayPinGeoJSON])
+
+  // today-pin-core interactions. A green dot represents the WHOLE auction (not
+  // a single tract), so a click opens the full Listing Details — except in the
+  // firm portal, where onTractSelected keeps the portal flow intact. (Per user
+  // 2026-06-05.)
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded) return
 
-    // Bounding-box center, not vertex-average. Vertex-average gets biased
-    // toward whichever side of the polygon has more vertices — for these
-    // parcels it ends up ~80 m north of the visual middle. Bbox center
-    // lands the dot squarely in the visual middle of each parcel.
-    type PreparedTract = {
-      tract: ApiMapTract
-      lng: number
-      lat: number
-      ppa: number | null
-      ppaBasis: 'sold' | 'asking' | null
-    }
+    const onClick = (e: maplibregl.MapLayerMouseEvent) => {
+      const f = e.features?.[0]
+      if (!f) return
+      const tractId = (f.properties?.tractId as string) || ''
+      const tract = todayTractsByIdRef.current.get(tractId)
+      if (!tract) return
 
-    // Pre-compute geographic coords + price-per-acre for every today tract.
-    const prepared: PreparedTract[] = []
-    for (const tract of todayTracts) {
-      // Use the tract's stored lat/lng for the green dot — NOT the polygon
-      // centroid. These dots now include boundary_valid=false tracts whose
-      // polygons are unreliable; their centroid lands in the wrong place,
-      // while the stored point is the tract's recorded location.
-      // (Per user 2026-06-05.)
-      const lng = tract.longitude as number | null
-      const lat = tract.latitude as number | null
-      if (lat == null || lng == null) continue
-      const isPrivateTreaty = (tract.listing_type || '').toLowerCase() === 'private_treaty'
-      const isPending = (tract.sale_status || '').toLowerCase() === 'pending'
-      const ppa = (isPrivateTreaty || isPending) && tract.asking_price && tract.total_acres
-        ? tract.asking_price / tract.total_acres
-        : tract.price_per_acre ?? null
-      const ppaBasis: 'sold' | 'asking' | null =
-        ((isPrivateTreaty || isPending) && tract.asking_price && tract.total_acres)
-          ? 'asking'
-          : (tract.price_per_acre ? 'sold' : null)
-      prepared.push({ tract, lng, lat, ppa: ppa ?? null, ppaBasis })
-    }
-
-    // Tight cluster radius — tracts that are genuinely close on screen merge,
-    // but tracts hundreds of km apart never merge into a single cluster.
-    // A 4-tract auction within ~1 km of itself stays merged at every zoom
-    // up to ~12 (where 1 km projects to ~14 px); tracts in different states
-    // never merge because their pixel distance is always > 25 at any zoom
-    // you'd actually browse.
-    const CLUSTER_RADIUS_PX = 25
-
-    const render = () => {
-      // Tear down old markers before each re-render.
-      todayMarkersRef.current.forEach(m => m.remove())
-      todayMarkersRef.current = []
-
-      // Project all tracts to screen pixels at the current view.
-      const points = prepared.map(p => ({
-        ...p,
-        screen: map.project([p.lng, p.lat]),
-      }))
-
-      // Greedy proximity grouping: walk in order, group any later point
-      // within CLUSTER_RADIUS_PX of an already-chosen seed.
-      const used = new Set<string>()
-      const groups: PreparedTract[][] = []
-      const r2 = CLUSTER_RADIUS_PX * CLUSTER_RADIUS_PX
-      for (const seed of points) {
-        if (used.has(seed.tract.id)) continue
-        const group: PreparedTract[] = [seed]
-        used.add(seed.tract.id)
-        for (const other of points) {
-          if (used.has(other.tract.id)) continue
-          const dx = other.screen.x - seed.screen.x
-          const dy = other.screen.y - seed.screen.y
-          if (dx * dx + dy * dy <= r2) {
-            group.push(other)
-            used.add(other.tract.id)
-          }
-        }
-        groups.push(group)
-      }
-
-      for (const group of groups) {
-        // Visual center of the group, computed in PIXEL space then unprojected.
-        // Averaging lng/lat LINEARLY biased the marker SOUTH in Web Mercator
-        // (latitude is non-linear), and the error grew with the cluster's
-        // latitude spread — so dots sat far south when zoomed out (big clusters)
-        // and snapped back as you zoomed in (singletons). A pixel-space centroid
-        // has no projection bias, so the dot lands correctly at every zoom.
-        let _sx = 0, _sy = 0
-        for (const g of group) { const _p = map.project([g.lng, g.lat]); _sx += _p.x; _sy += _p.y }
-        const _c = map.unproject([_sx / group.length, _sy / group.length])
-        const centerLng = _c.lng, centerLat = _c.lat
-
-        const lead = group[0]
-
-        // Today's-auction marker — pin fills the element so MapLibre's
-        // default 'center' anchor lands the green dot exactly on the
-        // lat/lng pixel at every zoom.
-        const el = createTodayMarkerElement(
-          lead.ppa,
-          lead.tract.total_acres,
-        )
-        // Live (today) z = 10000, above silhouettes (which use default ~0).
-        const statusZ = '10000'
-        el.dataset.statusZ = statusZ
-        el.style.zIndex = statusZ
-        el.dataset.tractId = lead.tract.id
-
-        el.addEventListener('click', (e) => {
-          // Suppress the underlying Regrid parcel-fill click so a tract pin
-          // layered over a parcel doesn't open two popups.
-          e.stopPropagation()
-          const tract = lead.tract
-          // The green "auctioning today" dot represents the WHOLE auction (not
-          // a single tract), so a click opens the full Listing Details — unlike
-          // every other dot, which opens Tract Details. (Per user 2026-06-05;
-          // previously a single dot opened tract detail and a cluster just
-          // zoomed.) In the firm portal we keep the tract-selected callback so
-          // the portal flow isn't broken.
-          if (portalMode && onTractSelected) {
-            const isPrivateTreaty2 = (tract.listing_type || '').toLowerCase() === 'private_treaty'
-            const isPending2 = (tract.sale_status || '').toLowerCase() === 'pending'
-            const ppa2 = (isPrivateTreaty2 || isPending2) && tract.asking_price && tract.total_acres
-              ? tract.asking_price / tract.total_acres
-              : tract.price_per_acre ?? null
-            const ppaBasis2: 'sold' | 'asking' | null =
-              ((isPrivateTreaty2 || isPending2) && tract.asking_price && tract.total_acres)
-                ? 'asking'
-                : (tract.price_per_acre ? 'sold' : null)
-            onTractSelected({
-              id: tract.id,
-              listingId: tract.listing_id,
-              tractId: tract.id,
-              auctionDate: tract.auction_date,
-              totalAcres: tract.total_acres,
-              tillableAcres: tract.tillable_acres,
-              companyName: tract.company_name,
-              salePrice: tract.sale_price,
-              pricePerAcre: ppa2,
-              priceBasis: ppaBasis2,
-              county: tract.county,
-              state: tract.state,
-              township: tract.township,
-              soilRating: tract.soil_rating,
-              polygonCoordinates: tract.polygon_coordinates,
-              saleStatus: tract.sale_status,
-              listingType: tract.listing_type,
-              askingPrice: tract.asking_price,
-              landType: tract.land_type,
-              landTypes: tract.land_types,
-              pctTillable: tract.pct_tillable,
-              pricePerTillableAcre: tract.price_per_tillable_acre,
-              pricePerSoilRating: tract.price_per_soil_rating,
-              sourceUrl: tract.source_url,
-            })
-            return
-          }
-          if (tract.listing_id) {
-            window.location.href = `/listings/${tract.listing_id}`
-          }
+      if (portalMode && onTractSelected) {
+        const isPrivateTreaty = (tract.listing_type || '').toLowerCase() === 'private_treaty'
+        const isPending = (tract.sale_status || '').toLowerCase() === 'pending'
+        const ppa = (isPrivateTreaty || isPending) && tract.asking_price && tract.total_acres
+          ? tract.asking_price / tract.total_acres
+          : tract.price_per_acre ?? null
+        const ppaBasis: 'sold' | 'asking' | null =
+          ((isPrivateTreaty || isPending) && tract.asking_price && tract.total_acres)
+            ? 'asking'
+            : (tract.price_per_acre ? 'sold' : null)
+        onTractSelected({
+          id: tract.id,
+          listingId: tract.listing_id,
+          tractId: tract.id,
+          auctionDate: tract.auction_date,
+          totalAcres: tract.total_acres,
+          tillableAcres: tract.tillable_acres,
+          companyName: tract.company_name,
+          salePrice: tract.sale_price,
+          pricePerAcre: ppa,
+          priceBasis: ppaBasis,
+          county: tract.county,
+          state: tract.state,
+          township: tract.township,
+          soilRating: tract.soil_rating,
+          polygonCoordinates: tract.polygon_coordinates,
+          saleStatus: tract.sale_status,
+          listingType: tract.listing_type,
+          askingPrice: tract.asking_price,
+          landType: tract.land_type,
+          landTypes: tract.land_types,
+          pctTillable: tract.pct_tillable,
+          pricePerTillableAcre: tract.price_per_tillable_acre,
+          pricePerSoilRating: tract.price_per_soil_rating,
+          sourceUrl: tract.source_url,
         })
-
-        // Default 'center' anchor is correct because createTodayMarkerElement
-        // returns a 14×14 element with the pin centered inside it. The pulse
-        // ring floats absolutely around it — neither pushes the element's
-        // geometric center off of the pin's center.
-        const marker = new maplibregl.Marker({ element: el })
-          .setLngLat([centerLng, centerLat])
-          .addTo(map)
-        todayMarkersRef.current.push(marker)
+        return
       }
-
-      // Today's-auction dots stay visible in 3D — toggling terrain must not hide
-      // them. (They're a small, clustered set, so per-frame DOM reprojection on
-      // the terrain mesh is negligible.)
+      if (tract.listing_id) {
+        window.location.href = `/listings/${tract.listing_id}`
+      }
     }
 
-    render()
-    map.on('moveend', render)
-    map.on('zoomend', render)
+    const onEnter = () => { map.getCanvas().style.cursor = 'pointer' }
+    const onLeave = () => { map.getCanvas().style.cursor = '' }
+
+    map.on('click', 'today-pin-core', onClick)
+    map.on('mouseenter', 'today-pin-core', onEnter)
+    map.on('mouseleave', 'today-pin-core', onLeave)
     return () => {
-      map.off('moveend', render)
-      map.off('zoomend', render)
-      todayMarkersRef.current.forEach(m => m.remove())
-      todayMarkersRef.current = []
+      map.off('click', 'today-pin-core', onClick)
+      map.off('mouseenter', 'today-pin-core', onEnter)
+      map.off('mouseleave', 'today-pin-core', onLeave)
     }
-  }, [mapLoaded, todayTracts, portalMode, onTractSelected])
+  }, [mapLoaded, portalMode, onTractSelected])
 
   // ── Report-highlight (portal mode): drive the tract-pin-circles pink
   // stroke via setFeatureState({highlighted}) instead of mutating DOM.
@@ -6999,70 +6933,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 //    streams in.
 //  - SUCCESS: the rich Premium Schema record.
 //  - FALLBACK: tile-only data when the API call fails.
-
-function createTodayMarkerElement(
-  pricePerAcre: number | null,
-  acres: number | null,
-): HTMLDivElement {
-  const container = document.createElement('div')
-  container.className = 'comp-marker'
-  container.style.cssText = [
-    'position: relative',
-    'width: 14px',
-    'height: 14px',
-    'cursor: pointer',
-  ].join(';')
-
-  // No price/acres label on the green "auctioning today" dot — it marks the
-  // whole auction, not a single tract's acreage. (Per user 2026-06-05.)
-
-  // Pulse ring — centered on the pin.
-  const pulseRing = document.createElement('div')
-  pulseRing.style.cssText = [
-    'position: absolute',
-    'top: 50%',
-    'left: 50%',
-    'width: 24px',
-    'height: 24px',
-    'border-radius: 50%',
-    'border: 2px solid #22c55e',
-    'animation: livePulseToday 1.5s ease-out infinite',
-    'transform: translate(-50%, -50%)',
-  ].join(';')
-  container.appendChild(pulseRing)
-
-  if (!document.getElementById('live-pulse-today-style')) {
-    const style = document.createElement('style')
-    style.id = 'live-pulse-today-style'
-    style.textContent = `
-      @keyframes livePulseToday {
-        0%   { transform: translate(-50%, -50%) scale(1);   opacity: 0.8; }
-        100% { transform: translate(-50%, -50%) scale(2.5); opacity: 0; }
-      }
-    `
-    document.head.appendChild(style)
-  }
-
-  // Pin fills the entire container so the element's center == pin's center.
-  const pin = document.createElement('div')
-  pin.className = 'comp-marker-pin comparable'
-  pin.style.cssText = [
-    'position: absolute',
-    'inset: 0',
-    'width: 14px',
-    'height: 14px',
-    'border-radius: 50%',
-    'border: 2px solid #ffffff',
-    'background-color: #22c55e',
-    'box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4)',
-  ].join(';')
-  container.appendChild(pin)
-
-  // Suppress unused-parameter lint (kept for API compatibility with callers).
-  void pricePerAcre; void acres
-
-  return container
-}
 
 function _fmtMoney(n: any): string | null {
   const v = typeof n === 'number' ? n : (n ? Number(n) : NaN)
