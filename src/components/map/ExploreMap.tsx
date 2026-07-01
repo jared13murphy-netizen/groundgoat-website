@@ -2128,6 +2128,24 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         type: 'geojson',
         data: '/data/us-states.json',
       })
+      // State silhouette dark fill (GL) — the "silhouette images". Rendered
+      // down here so the green today-dots (which are lifted to the TOP of the
+      // stack by liftMarkerLayers) sit ON TOP of the silhouettes — a GL fill
+      // can be ordered under the GL dots, unlike the old DOM badge shape which
+      // always painted above the GL canvas. Fades out across the state→county
+      // tier exactly like the DOM badges (FADE_START 5.0 → FADE_END 5.8), and
+      // maxzoom:6 hard-stops it at the county tier. The DOM badge keeps only its
+      // ram/name/Filter overlay now; the dark shape moved here.
+      map.addLayer({
+        id: 'state-silhouette-fill',
+        type: 'fill',
+        source: 'states',
+        maxzoom: 6,
+        paint: {
+          'fill-color': '#0a0a0c',
+          'fill-opacity': ['interpolate', ['linear'], ['zoom'], 5.0, 0.62, 5.8, 0],
+        },
+      })
       map.addLayer({
         id: 'state-borders',
         type: 'line',
@@ -5352,47 +5370,16 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         lat = (bounds[0][1] + bounds[1][1]) / 2
       }
 
-      const silhouettePath = stateSilhouettes[state]
       const bbox = stateBboxes[state]
-      const maskId = `aem-cut-${state}`
-      const blurId = `aem-blur-${state}`
 
       const el = document.createElement('div')
       el.className = 'aem-marker-shell'
       const inner = document.createElement('div')
       inner.className = 'aem-state-badge'
-      // Hovering shadow: render the silhouette TWICE inside one SVG.
-      // First copy is a translated + blurred shadow, masked so only
-      // the part OUTSIDE the silhouette draws. Second copy is the
-      // 62%-opacity silhouette on top. Result: shadow appears only
-      // along the bottom-right edge, silhouette stays see-through,
-      // state appears to lift off the map.
+      // The dark state SHAPE now renders as the GL 'state-silhouette-fill'
+      // layer (below the green dots). The DOM badge keeps ONLY the ram/name/
+      // Filter overlay, which floats centered over the GL fill.
       inner.innerHTML = `
-        <svg class="aem-state-shape" viewBox="0 0 100 100"
-             preserveAspectRatio="none">
-          ${silhouettePath ? `
-            <defs>
-              <mask id="${maskId}" maskUnits="userSpaceOnUse"
-                    x="-50" y="-50" width="200" height="200">
-                <rect x="-50" y="-50" width="200" height="200" fill="white"/>
-                <path d="${silhouettePath}" fill="black"/>
-              </mask>
-              <filter id="${blurId}" x="-30%" y="-30%" width="160%" height="160%">
-                <feGaussianBlur stdDeviation="1.5"/>
-              </filter>
-            </defs>
-            <g mask="url(#${maskId})" pointer-events="none">
-              <path d="${silhouettePath}"
-                    fill="rgba(0,0,0,0.92)"
-                    transform="translate(3 4)"
-                    filter="url(#${blurId})"
-                    stroke="none"/>
-            </g>
-            <path d="${silhouettePath}"
-                  fill="rgba(10,10,12,0.62)"
-                  stroke="none" />
-          ` : '<rect x="2" y="2" width="96" height="96" rx="6" fill="rgba(10,10,12,0.62)"/>'}
-        </svg>
         <div class="aem-state-overlay">
           <img src="/goat-icon-white.png" alt="" class="aem-state-goat" />
           <div class="aem-state-name">${abbrToName(state)}</div>
