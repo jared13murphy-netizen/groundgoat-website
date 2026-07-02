@@ -945,6 +945,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // shown when zoomed too low for individual tract dots.
   const countyCountMarkersRef = useRef<maplibregl.Marker[]>([])
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Debounce timer + request-generation counter for the durable-dots
+  // fetch (z9-10 gap), mirroring debounceTimerRef's pattern above so a
+  // stale in-flight response can never overwrite a newer one.
+  const durableDotsDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const durableDotsGenRef = useRef(0)
   // Cells we've FULLY loaded (got all matching tracts back, didn't hit
   // the per-cell 1000 cap). Future moveends won't re-fetch these.
   const loadedCellsRef = useRef<Set<string>>(new Set())
@@ -2811,9 +2816,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // Regrid nationwide parcels — vector tiles from tiles.regrid.com.
   //
   // Replaces the per-state pmtiles overlay for all logged-in users:
-  // boundaries, owner name, and acreage labels render at zoom ≥ 14
-  // (REGRID_MIN_ZOOM) for every parcel in the country. Clicking a
-  // parcel pops a panel with the full Premium Schema record from our
+  // boundaries render at zoom >= REGRID_MIN_ZOOM; owner/acres/$/date
+  // text labels stay gated higher at REGRID_LABEL_MIN_ZOOM so dense
+  // text doesn't clutter the map at browse zoom. Clicking a parcel
+  // pops a panel with the full Premium Schema record from our
   // /api/regrid/parcel cache.
   //
   // Cost-shape:
@@ -2827,12 +2833,18 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // /api/regrid/config endpoint; we fetch it on map mount so the
   // token never appears in the frontend bundle.
   // ─────────────────────────────────────────────────────────────────
-  // Bumped down 14 → 12 per user 2026-05-18 — previously parcels
-  // didn't appear until the user was nearly fully zoomed in. Regrid's
-  // CDN serves real data at z=11+ (z=12 tiles are ~130KB vs ~8KB at
-  // z=14, so heavier but still well within budget for a single view).
-  // If this becomes too slow at scale, raise back to 13.
-  const REGRID_MIN_ZOOM = 12
+  // Map Phase 3 (2026-07-02): lowered 12 → 11 for parity with mobile —
+  // Regrid serves NO tiles below z11 (verified against their CDN), so
+  // 12 was one zoom level of pure dead air where the source was
+  // "active" but every tile request came back empty. z9-10 (below
+  // Regrid's real floor) is now covered by a SEPARATE durable-table
+  // dot layer (see PARCEL_SALE_DOT_DURABLE_LAYER below) instead of
+  // trying to push the Regrid source itself down to z9.
+  const REGRID_MIN_ZOOM = 11
+  // Label sub-layer only — owner/acres/$/sale-date text is dense and
+  // stays gated at 14 even though boundaries/fill render starting at
+  // REGRID_MIN_ZOOM (11).
+  const REGRID_LABEL_MIN_ZOOM = 14
   const [regridConfig, setRegridConfig] = useState<{
     tile_url_template: string
     // Custom-source tiles name their MVT layer with the source UUID;
@@ -2972,7 +2984,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       type: 'symbol',
       source: SOURCE_ID,
       'source-layer': sourceLayer,
-      minzoom: REGRID_MIN_ZOOM,
+      minzoom: REGRID_LABEL_MIN_ZOOM,
       ...(regridStateFilter ? { filter: regridStateFilter } : {}),
       layout: {
         // Four segments: owner (bold) → acres → $/acre → sale date.
@@ -3503,6 +3515,155 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     } catch {/* layer torn down */}
   }, [mapLoaded, subjectTractId])
 
+  // ─────────────────────────────────────────────────────────────────
+  // Durable-table parcel-sale dots — z9-10 ONLY (Map Phase 3, 2026-07-02).
+  //
+  // Regrid serves no vector tiles below z11 (verified against their
+  // CDN), so REGRID_MIN_ZOOM=11 leaves z9-10 with nothing. This layer
+  // fills that gap by reading OUR OWN durable copy of the same parcel
+  // data (backend /api/map/parcel-sale-dots → regrid_parcels on the
+  // Soils DB, kept fresh by a write-through sync on every Regrid tile
+  // fetch) instead of Regrid tiles directly. At z>=11 this layer hides
+  // and the live PARCEL_SALE_PLUS_LAYER (Regrid-tile-driven) takes
+  // over — no double-rendering, no gap.
+  //
+  // Styled identical to the live sale-dot pin (#f58cde pink, white
+  // ring) so there's no visual seam when the user crosses z11 while
+  // panning.
+  //
+  // Click behavior: zoom-in-on-tap to z11.5 centered on the dot. The
+  // durable payload is lightweight (id/lat/lng/saleprice/saledate/
+  // acres only — no polygon, no owner, no ll_gisacre) so it can't
+  // drive the same rich parcel-detail popup the live Regrid layer
+  // opens; zooming in hands off to the live layer, which the user can
+  // then click for the full popup. Simpler than trying to fetch full
+  // Premium Schema detail for a z9 dot the user hasn't zoomed to yet.
+  // ─────────────────────────────────────────────────────────────────
+  const DURABLE_DOT_SOURCE = 'parcel-sale-dots-durable'
+  const DURABLE_DOT_LAYER = 'parcel-sale-dots-durable-circle'
+  const DURABLE_DOT_MIN_ZOOM = 9
+  const DURABLE_DOT_MAX_ZOOM = 11 // hides at/after REGRID_MIN_ZOOM (11) — live layer takes over
+  const DURABLE_DOT_MIN_ACRES = 10 // owner rule: never show parcel dots under 10 acres
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+
+    if (!map.getSource(DURABLE_DOT_SOURCE)) {
+      map.addSource(DURABLE_DOT_SOURCE, { type: 'geojson', data: EMPTY_FC })
+    }
+    if (!map.getLayer(DURABLE_DOT_LAYER)) {
+      map.addLayer({
+        id: DURABLE_DOT_LAYER,
+        type: 'circle',
+        source: DURABLE_DOT_SOURCE,
+        minzoom: DURABLE_DOT_MIN_ZOOM,
+        maxzoom: DURABLE_DOT_MAX_ZOOM,
+        paint: {
+          // Matches ensureParcelSaleDotImage: #f58cde fill, white ring.
+          'circle-color': '#f58cde',
+          'circle-radius': 6,
+          'circle-stroke-color': '#ffffff',
+          'circle-stroke-width': 2,
+        },
+      })
+      const onClick = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
+        const f = e.features?.[0]
+        if (!f || f.geometry.type !== 'Point') return
+        const [lng, lat] = f.geometry.coordinates as [number, number]
+        map.easeTo({ center: [lng, lat], zoom: 11.5 })
+      }
+      const setPointer = () => { map.getCanvas().style.cursor = 'pointer' }
+      const clearPointer = () => { map.getCanvas().style.cursor = '' }
+      map.on('click', DURABLE_DOT_LAYER, onClick)
+      map.on('mouseenter', DURABLE_DOT_LAYER, setPointer)
+      map.on('mouseleave', DURABLE_DOT_LAYER, clearPointer)
+    }
+
+    return () => {
+      try {
+        if (!map.getStyle()) return
+        if (map.getLayer(DURABLE_DOT_LAYER)) map.removeLayer(DURABLE_DOT_LAYER)
+        if (map.getSource(DURABLE_DOT_SOURCE)) map.removeSource(DURABLE_DOT_SOURCE)
+      } catch {/* map already torn down */}
+    }
+  }, [mapLoaded])
+
+  // Fetch durable dots on moveend while zoom is in the [9, 11) gap.
+  // No cache cells (unlike tract loading) — the payload is tiny points,
+  // so one bbox request per settle is cheap. Applies the SAME saledate
+  // windowing the live Regrid sale-dot filter uses (resolveDateWindow)
+  // so the two layers never disagree about which sales are "in range"
+  // as the user crosses the z11 handoff.
+  //
+  // Debounced + generation-guarded the same way handleMoveEnd debounces
+  // loadTractsForBounds above: rapid pan/zoom fires many moveends, and
+  // without a debounce + staleness guard a slow early response could
+  // land AFTER a fresher one and overwrite the dot layer with outdated
+  // bounds' data. durableDotsGenRef increments on every actual fetch
+  // kickoff; a response only applies if it's still the latest generation.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+
+    const runFetchDurableDots = async () => {
+      const z = map.getZoom()
+      if (z < DURABLE_DOT_MIN_ZOOM || z >= DURABLE_DOT_MAX_ZOOM) return
+      if (!map.getSource(DURABLE_DOT_SOURCE)) return
+      const bounds = map.getBounds()
+      const { from, to, upcomingOnly } = resolveDateWindow(filtersRef.current)
+      if (upcomingOnly) {
+        // Same rule as buildRegridSaleDotFilter: "upcoming" can't match
+        // recorded past sales — clear the layer instead of querying.
+        (map.getSource(DURABLE_DOT_SOURCE) as maplibregl.GeoJSONSource).setData(EMPTY_FC)
+        return
+      }
+      const gen = ++durableDotsGenRef.current
+      try {
+        const qs = new URLSearchParams({
+          min_lat: String(bounds.getSouth()),
+          max_lat: String(bounds.getNorth()),
+          min_lng: String(bounds.getWest()),
+          max_lng: String(bounds.getEast()),
+        })
+        const res = await fetchWithAuth(`${API_URL}/api/map/parcel-sale-dots?${qs.toString()}`)
+        if (!res.ok) return
+        const data = await res.json()
+        if (gen !== durableDotsGenRef.current) return // stale — a newer fetch superseded this one
+        const dots: any[] = data?.dots || []
+        const filtered = dots.filter(d => {
+          if (d.lat == null || d.lng == null) return false
+          if (d.acres == null || d.acres < DURABLE_DOT_MIN_ACRES) return false
+          if (from && (!d.saledate || d.saledate < from)) return false
+          if (to && (!d.saledate || d.saledate > to)) return false
+          return true
+        })
+        const fc: GeoJSON.FeatureCollection = {
+          type: 'FeatureCollection',
+          features: filtered.map(d => ({
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [d.lng, d.lat] },
+            properties: { id: d.id, saleprice: d.saleprice, saledate: d.saledate, acres: d.acres },
+          })),
+        }
+        const src = map.getSource(DURABLE_DOT_SOURCE) as maplibregl.GeoJSONSource | undefined
+        if (src) src.setData(fc)
+      } catch {/* transient fetch failure — next moveend retries */}
+    }
+
+    const fetchDurableDots = () => {
+      if (durableDotsDebounceRef.current) clearTimeout(durableDotsDebounceRef.current)
+      durableDotsDebounceRef.current = setTimeout(runFetchDurableDots, 500)
+    }
+
+    fetchDurableDots()
+    map.on('moveend', fetchDurableDots)
+    return () => {
+      map.off('moveend', fetchDurableDots)
+      if (durableDotsDebounceRef.current) clearTimeout(durableDotsDebounceRef.current)
+    }
+  }, [mapLoaded, filters.dateRange, filters.dateFrom, filters.dateTo])
+
   // Keep the Regrid fill / line / label layers' filter in sync with the
   // tile-native filter inputs (acreage, state, county, sale date,
   // sale price, status=sold). When any of these change, non-matching
@@ -3821,7 +3982,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // Replaces the old fetch-every-county GeoJSON merge that crashed
       // browsers past ~6 counties.
       // Source minzoom 10 sits between the tract-pin tier
-      // (TRACT_TIER_MIN=9) and the Regrid tier (REGRID_MIN_ZOOM=12).
+      // (TRACT_TIER_MIN=9) and the Regrid tier (REGRID_MIN_ZOOM=11).
       // Layers fade their opacity from 0 → full across z=10 → z=11.5,
       // so the overlay smoothly materializes as the user zooms in
       // rather than popping on. Source minzoom matches the fade

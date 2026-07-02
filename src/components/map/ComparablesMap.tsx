@@ -197,6 +197,10 @@ export default function ComparablesMap({
       // 11 matches the mobile comp map (REGRID_MIN_ZOOM) so parcels +
       // the "+" appear at the same zoom users see them on mobile.
       minZoom: 11,
+      // Label text (owner/acres/$/date) stays gated at 14 — same as
+      // ExploreMap's REGRID_LABEL_MIN_ZOOM split. Boundaries/fill/"+"
+      // appear at 11; dense text only once zoomed in further.
+      labelMinZoom: 14,
     })
 
     // --- Parcel "+" button -------------------------------------------

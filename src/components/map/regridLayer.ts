@@ -336,8 +336,13 @@ function regridPopupHTML(record: any): string {
 export interface AddRegridLayerOptions {
   /** Layer-id beforeId so tract polygons paint on top. Optional. */
   beforeId?: string
-  /** Minimum zoom at which the Regrid layer is visible. Default 14. */
+  /** Minimum zoom at which boundaries/fill are visible. Default 14. */
   minZoom?: number
+  /** Minimum zoom at which the owner/acres/$/date text label renders.
+   *  Kept separate from minZoom (and higher) so boundaries can appear
+   *  at browse zoom without the dense text cluttering the map.
+   *  Default 14. */
+  labelMinZoom?: number
   /** When false, skip the built-in fill hover-highlight + click→popup
    *  wiring so the caller owns all interaction. The Comparables map sets
    *  this false and drives its own "+" button click instead. Default true. */
@@ -356,9 +361,12 @@ export function addRegridLayer(
   const FILL_LAYER = 'regrid-parcels-fill'
   const LINE_LAYER = 'regrid-parcels-line'
   const LABEL_LAYER = 'regrid-parcels-label'
-  // Default lowered 14 → 12 per user 2026-05-18 (see ExploreMap.tsx
-  // REGRID_MIN_ZOOM comment for context).
-  const minzoom = options.minZoom ?? 12
+  // Default 14 — callers that want the lower Regrid tile floor (z=11,
+  // see ExploreMap.tsx REGRID_MIN_ZOOM comment) pass minZoom explicitly.
+  const minzoom = options.minZoom ?? 14
+  // Label sub-layer stays gated higher — dense owner/acres/$/date text
+  // only once the user is meaningfully zoomed in.
+  const labelMinzoom = options.labelMinZoom ?? 14
   // Custom Regrid sources use the source-UUID as their internal MVT
   // layer name; the default /api/v1/parcels endpoint uses 'parcels'.
   // The backend tells us which one applies via config.source_layer.
@@ -414,7 +422,7 @@ export function addRegridLayer(
     type: 'symbol',
     source: SOURCE_ID,
     'source-layer': sourceLayer,
-    minzoom,
+    minzoom: labelMinzoom,
     ...(stateFilter ? { filter: stateFilter } : {}),
     layout: {
       // Four segments: owner (bold) → acres → sale price → sale date.
