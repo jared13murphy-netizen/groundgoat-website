@@ -3531,13 +3531,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // ring) so there's no visual seam when the user crosses z11 while
   // panning.
   //
-  // Click behavior: zoom-in-on-tap to z11.5 centered on the dot. The
-  // durable payload is lightweight (id/lat/lng/saleprice/saledate/
-  // acres only — no polygon, no owner, no ll_gisacre) so it can't
-  // drive the same rich parcel-detail popup the live Regrid layer
-  // opens; zooming in hands off to the live layer, which the user can
-  // then click for the full popup. Simpler than trying to fetch full
-  // Premium Schema detail for a z9 dot the user hasn't zoomed to yet.
+  // Click behavior: opens the same unified LandDetailPanel the z11+
+  // parcel layer opens (parity with the live Regrid layer). The
+  // durable payload's `id` IS the ll_uuid, so we pass it straight
+  // through to setLandDetail/`/api/regrid/parcel` — LandDetailPanel
+  // fetches the full Premium Schema record itself; we don't need the
+  // lightweight dot payload (saleprice/saledate/acres) to drive it.
   // ─────────────────────────────────────────────────────────────────
   const DURABLE_DOT_SOURCE = 'parcel-sale-dots-durable'
   const DURABLE_DOT_LAYER = 'parcel-sale-dots-durable-circle'
@@ -3571,7 +3570,21 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         const f = e.features?.[0]
         if (!f || f.geometry.type !== 'Point') return
         const [lng, lat] = f.geometry.coordinates as [number, number]
-        map.easeTo({ center: [lng, lat], zoom: 11.5 })
+        const props: any = f.properties || {}
+        // Open the same unified LandDetailPanel the z11+ parcel layer opens
+        // (PARCEL_SALE_PLUS_LAYER onPinClick above). The durable payload's
+        // `id` IS the ll_uuid — /api/regrid/parcel accepts it directly, so
+        // LandDetailPanel's own fetchData resolves the full record itself.
+        setLandDetail({
+          parcelProps: { ll_uuid: props.id, centroid_lat: lat, centroid_lng: lng },
+          soilProps: null,
+          csbProps: null,
+          ll_uuid: props.id || null,
+          activeOverlay: baseOverlayRef.current,
+        })
+        // Owner spec 2026-07-02: strong zoom-in ALONGSIDE the details panel
+        // (not either/or) — z14.5 puts the parcel + its labels on screen.
+        map.easeTo({ center: [lng, lat], zoom: 14.5, duration: 900 })
       }
       const setPointer = () => { map.getCanvas().style.cursor = 'pointer' }
       const clearPointer = () => { map.getCanvas().style.cursor = '' }
