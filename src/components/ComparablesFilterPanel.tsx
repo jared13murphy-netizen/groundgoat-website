@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { X, SlidersHorizontal } from 'lucide-react'
+import { SOIL_FILTER_ENABLED } from '@/lib/featureFlags'
 
 export interface FilterState {
   dateRange: 'all' | 'upcoming' | '1month' | '6months' | '1year' | '18months' | '2years'
@@ -43,7 +44,7 @@ export function countActiveFilters(filters: FilterState): number {
   if (filters.statuses?.length > 0) count++
   if (filters.countyScope !== 'neighbors') count++
   if (filters.distance !== 'any') count++
-  if (filters.soilRatingMin || filters.soilRatingMax) count++
+  if (SOIL_FILTER_ENABLED && (filters.soilRatingMin || filters.soilRatingMax)) count++
   if (filters.acreageMin || filters.acreageMax) count++
   if (filters.tillableMin || filters.tillableMax) count++
   return count
@@ -111,8 +112,8 @@ export function applyFilters(
 
     // Soil rating range
     const sr = parseFloat(item.soil_rating || 0)
-    if (filters.soilRatingMin && sr && sr < parseFloat(filters.soilRatingMin)) return false
-    if (filters.soilRatingMax && sr && sr > parseFloat(filters.soilRatingMax)) return false
+    if (SOIL_FILTER_ENABLED && filters.soilRatingMin && sr && sr < parseFloat(filters.soilRatingMin)) return false
+    if (SOIL_FILTER_ENABLED && filters.soilRatingMax && sr && sr > parseFloat(filters.soilRatingMax)) return false
 
     // Acreage range
     const acres = parseFloat(item.total_acres || item.acres || 0)
@@ -283,13 +284,15 @@ export default function ComparablesFilterPanel({ filters, onApply, onClose }: Fi
             onChange={v => setLocal({ ...local, distance: v as FilterState['distance'] })}
           />
 
-          <RangeInput
-            label="Soil Rating"
-            minValue={local.soilRatingMin}
-            maxValue={local.soilRatingMax}
-            onMinChange={v => setLocal({ ...local, soilRatingMin: v })}
-            onMaxChange={v => setLocal({ ...local, soilRatingMax: v })}
-          />
+          {SOIL_FILTER_ENABLED && (
+            <RangeInput
+              label="Soil Rating"
+              minValue={local.soilRatingMin}
+              maxValue={local.soilRatingMax}
+              onMinChange={v => setLocal({ ...local, soilRatingMin: v })}
+              onMaxChange={v => setLocal({ ...local, soilRatingMax: v })}
+            />
+          )}
 
           <RangeInput
             label="Acreage"

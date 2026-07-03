@@ -25,6 +25,7 @@ import {
 } from './mapConstants'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { formatAcres } from '@/lib/format'
+import { SOIL_FILTER_ENABLED } from '@/lib/featureFlags'
 import { toRings as toTractRings, ringsToGeometry } from '@/lib/polygonRings'
 import Tract3DModal from '@/components/Tract3DModal'
 import GroundTruthPanel from '@/components/portal/GroundTruthPanel'
@@ -480,8 +481,8 @@ function buildFilterParams(filters: FilterState) {
   if (filters.stateFilter) params.state_abbr = filters.stateFilter
   if (filters.countyFilters?.length > 0) params.county_name = filters.countyFilters.join(',')
   if (filters.townshipFilters?.length > 0) params.township = filters.townshipFilters.join(',')
-  if (filters.soilRatingMin) params.soil_rating_min = filters.soilRatingMin
-  if (filters.soilRatingMax) params.soil_rating_max = filters.soilRatingMax
+  if (SOIL_FILTER_ENABLED && filters.soilRatingMin) params.soil_rating_min = filters.soilRatingMin
+  if (SOIL_FILTER_ENABLED && filters.soilRatingMax) params.soil_rating_max = filters.soilRatingMax
   if (filters.acreageMin) params.acreage_min = filters.acreageMin
   if (filters.acreageMax) params.acreage_max = filters.acreageMax
   if (filters.pctTillableMin) params.pct_tillable_min = filters.pctTillableMin
@@ -495,8 +496,8 @@ function buildFilterParams(filters: FilterState) {
   if (filters.salePriceMax) params.sale_price_max = filters.salePriceMax
   if (filters.askingPriceMin) params.asking_price_min = filters.askingPriceMin
   if (filters.askingPriceMax) params.asking_price_max = filters.askingPriceMax
-  if (filters.pricePerSoilRatingMin) params.price_per_soil_rating_min = filters.pricePerSoilRatingMin
-  if (filters.pricePerSoilRatingMax) params.price_per_soil_rating_max = filters.pricePerSoilRatingMax
+  if (SOIL_FILTER_ENABLED && filters.pricePerSoilRatingMin) params.price_per_soil_rating_min = filters.pricePerSoilRatingMin
+  if (SOIL_FILTER_ENABLED && filters.pricePerSoilRatingMax) params.price_per_soil_rating_max = filters.pricePerSoilRatingMax
   // Radius search: only forward when all three are present
   if (filters.nearLat && filters.nearLng && filters.radiusMiles) {
     params.near_lat = filters.nearLat
@@ -1794,7 +1795,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
   const hasActiveFilters = filters.dateRange !== 'all' || filters.stateFilter !== '' ||
     filters.townshipFilters.length > 0 ||
-    filters.soilRatingMin !== '' || filters.soilRatingMax !== '' ||
+    (SOIL_FILTER_ENABLED && (filters.soilRatingMin !== '' || filters.soilRatingMax !== '')) ||
     filters.acreageMin !== '' || filters.acreageMax !== '' ||
     filters.pctTillableMin !== '' || filters.pctTillableMax !== '' ||
     filters.statuses.length > 0 ||
@@ -6684,7 +6685,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
             {/* Range filters */}
             {[
-              ...(filters.stateFilter ? [{
+              // Soil/PI rating filter intentionally hidden until soil data
+              // is cleaned up nationwide (many states have unreliable
+              // ratings). SOIL_FILTER_ENABLED = false hides the control;
+              // the filter state + buildFilterParams plumbing is left
+              // intact so re-enabling is a one-line flag flip.
+              ...(SOIL_FILTER_ENABLED && filters.stateFilter ? [{
                 label: filters.stateFilter === 'IL' ? 'PI Rating' :
                        filters.stateFilter === 'IN' ? 'WAPI' :
                        filters.stateFilter === 'IA' ? 'CSR2' : 'Soil Rating',
@@ -7312,6 +7318,7 @@ function _section(title: string, rows: string[]): string {
 // information without rewriting the main popup body. Returns '' when
 // no enrichment is available — safe to concat unconditionally.
 function _enrichmentPopupSection(enrich: any): string {
+  if (!SOIL_FILTER_ENABLED) return ''
   if (!enrich || typeof enrich !== 'object') return ''
   const ratingType = (enrich.soil_rating_type || 'PI').toUpperCase()
   const rating = enrich.soil_rating

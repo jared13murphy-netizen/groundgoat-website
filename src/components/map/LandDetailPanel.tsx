@@ -19,6 +19,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { formatAcres } from '@/lib/format'
+import { SOIL_FILTER_ENABLED } from '@/lib/featureFlags'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -538,8 +539,12 @@ export default function LandDetailPanel({ clickData, onClose }: LandDetailPanelP
             </div>
           )}
 
-          {/* ── A: Soil at this point (leads when soil overlay active) ── */}
-          {hasSoilData && (
+          {/* ── A: Soil at this point (leads when soil overlay active) ──
+              Hidden until soil data is cleaned up nationwide
+              (SOIL_FILTER_ENABLED = false). Derived booleans above
+              (hasSoilData, soilLeads) are left as-is; flip the flag to
+              restore this section. */}
+          {SOIL_FILTER_ENABLED && hasSoilData && (
             <div style={{ order: soilLeads ? -1 : 0 }}>
               <Section title={`Soil (${ratingLabel})`}>
                 {/* Point-specific soil from tile */}
