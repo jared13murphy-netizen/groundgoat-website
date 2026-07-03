@@ -17,6 +17,7 @@ import {
 } from '@/lib/regridParcelFilter'
 import type { FilterState as CompFilterState } from '@/components/ComparablesFilterPanel'
 import { formatAcres } from '@/lib/format'
+import fetchWithAuth from '@/lib/fetchWithAuth'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -299,6 +300,157 @@ export default function ComparablesMap({
     filters?.dateRange,
     filters?.statuses,
   ])
+
+  // ── Durable-table parcel-sale dots — z9-10 gap fill (4-map parity) ──
+  // Regrid serves no vector tiles below z11 (REGRID_MIN_ZOOM used above),
+  // so this reads our own durable copy of the same parcel data (backend
+  // /api/map/parcel-sale-dots) instead. On this comp map the dots render
+  // with the SAME pink "+" plus-icon affordance as the live PLUS layer
+  // above (not a plain dot) so the sale iconography stays consistent
+  // across the z11 handoff. Clicking one follows this map's existing
+  // add-to-report flow (setSelectedSale), same as clicking a live "+".
+  const DURABLE_DOT_SOURCE = 'parcel-sale-dots-durable'
+  const DURABLE_DOT_LAYER = 'parcel-sale-dots-durable-plus'
+  const DURABLE_DOT_MIN_ZOOM = 9
+  const DURABLE_DOT_MAX_ZOOM = 11 // hides at/after minZoom(11) used by the PLUS/fill layers above
+  const DURABLE_DOT_MIN_ACRES = 10 // owner rule: never show parcel dots under 10 acres
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapReady) return
+
+    if (!map.getSource(DURABLE_DOT_SOURCE)) {
+      map.addSource(DURABLE_DOT_SOURCE, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+    }
+    if (!map.getLayer(DURABLE_DOT_LAYER)) {
+      map.addLayer({
+        id: DURABLE_DOT_LAYER,
+        type: 'symbol',
+        source: DURABLE_DOT_SOURCE,
+        minzoom: DURABLE_DOT_MIN_ZOOM,
+        maxzoom: DURABLE_DOT_MAX_ZOOM,
+        layout: {
+          'text-field': '+',
+          'text-font': ['Open Sans Bold'],
+          'text-size': ['interpolate', ['linear'], ['zoom'], 8, 18, 14, 28],
+          'text-allow-overlap': true,
+          'text-ignore-placement': true,
+        },
+        paint: {
+          'text-color': '#ffffff',
+          'text-halo-color': '#E91E8C',
+          'text-halo-width': 3.2,
+          'text-halo-blur': 0.4,
+        },
+      })
+    }
+
+    const onClick = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
+      const f = e.features?.[0]
+      if (!f || f.geometry.type !== 'Point') return
+      const [lng, lat] = f.geometry.coordinates as [number, number]
+      const p: any = f.properties || {}
+      const acres = p.acres != null ? Number(p.acres) : null
+      const salePrice = p.saleprice != null ? Number(p.saleprice) : null
+      const ppa = salePrice != null && acres != null && acres > 0 ? salePrice / acres : null
+      // Same add-to-report shape the PLUS layer's onPlusClick builds —
+      // id is the durable dot's ll_uuid.
+      setSelectedSale({
+        id: String(p.id ?? `${lng},${lat}`),
+        auctionDate: typeof p.saledate === 'string' ? p.saledate.slice(0, 10) : null,
+        totalAcres: acres,
+        salePrice,
+        pricePerAcre: ppa,
+        county: subjectCounty,
+        state: subjectState,
+        companyName: null,
+      })
+      // Owner spec 2026-07-02: strong zoom-in ALONGSIDE the modal on every map.
+      map.easeTo({ center: [lng, lat], zoom: 14.5, duration: 900 })
+    }
+    const setPointer = () => { map.getCanvas().style.cursor = 'pointer' }
+    const clearPointer = () => { map.getCanvas().style.cursor = '' }
+    map.on('click', DURABLE_DOT_LAYER, onClick)
+    map.on('mouseenter', DURABLE_DOT_LAYER, setPointer)
+    map.on('mouseleave', DURABLE_DOT_LAYER, clearPointer)
+
+    return () => {
+      try {
+        if (!map.getStyle()) return
+        map.off('click', DURABLE_DOT_LAYER, onClick)
+        map.off('mouseenter', DURABLE_DOT_LAYER, setPointer)
+        map.off('mouseleave', DURABLE_DOT_LAYER, clearPointer)
+        if (map.getLayer(DURABLE_DOT_LAYER)) map.removeLayer(DURABLE_DOT_LAYER)
+        if (map.getSource(DURABLE_DOT_SOURCE)) map.removeSource(DURABLE_DOT_SOURCE)
+      } catch {/* map already torn down */}
+    }
+  }, [mapReady, subjectCounty, subjectState])
+
+  // Fetch durable dots on moveend while zoom is in the [9, 11) gap.
+  // Mirrors the Web Explore map's durable-dot fetch (ExploreMap.tsx).
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapReady) return
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null
+    let gen = 0
+
+    const runFetch = async () => {
+      const z = map.getZoom()
+      if (z < DURABLE_DOT_MIN_ZOOM || z >= DURABLE_DOT_MAX_ZOOM) return
+      if (!map.getSource(DURABLE_DOT_SOURCE)) return
+      const regridInput = compFiltersToRegrid(filters, subjectState)
+      if (regridInput.upcomingOnly) {
+        // "Upcoming" can't match recorded past sales — same rule the
+        // live Regrid sale-dot filter uses.
+        (map.getSource(DURABLE_DOT_SOURCE) as maplibregl.GeoJSONSource)
+          .setData({ type: 'FeatureCollection', features: [] })
+        return
+      }
+      const myGen = ++gen
+      try {
+        const bounds = map.getBounds()
+        const qs = new URLSearchParams({
+          min_lat: String(bounds.getSouth()),
+          max_lat: String(bounds.getNorth()),
+          min_lng: String(bounds.getWest()),
+          max_lng: String(bounds.getEast()),
+        })
+        const res = await fetchWithAuth(`${API_URL}/api/map/parcel-sale-dots?${qs.toString()}`)
+        if (!res.ok) return
+        const data = await res.json()
+        if (myGen !== gen) return // stale — a newer fetch superseded this one
+        const dots: any[] = data?.dots || []
+        const filtered = dots.filter(d => {
+          if (d.lat == null || d.lng == null) return false
+          if (d.acres == null || d.acres < DURABLE_DOT_MIN_ACRES) return false
+          if (regridInput.saleDateFrom && (!d.saledate || d.saledate < regridInput.saleDateFrom)) return false
+          return true
+        })
+        const fc: GeoJSON.FeatureCollection = {
+          type: 'FeatureCollection',
+          features: filtered.map(d => ({
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [d.lng, d.lat] },
+            properties: { id: d.id, saleprice: d.saleprice, saledate: d.saledate, acres: d.acres },
+          })),
+        }
+        const src = map.getSource(DURABLE_DOT_SOURCE) as maplibregl.GeoJSONSource | undefined
+        if (src) src.setData(fc)
+      } catch {/* transient fetch failure — next moveend retries */}
+    }
+
+    const onMoveEnd = () => {
+      if (debounceTimer) clearTimeout(debounceTimer)
+      debounceTimer = setTimeout(runFetch, 500)
+    }
+
+    onMoveEnd()
+    map.on('moveend', onMoveEnd)
+    return () => {
+      map.off('moveend', onMoveEnd)
+      if (debounceTimer) clearTimeout(debounceTimer)
+    }
+  }, [mapReady, subjectState, filters?.dateRange, filters?.acreageMin, filters?.acreageMax, filters?.statuses])
 
   useEffect(() => {
     if (!mapContainerRef.current) return
