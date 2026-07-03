@@ -147,6 +147,23 @@ function firstNonEmpty(...vals: any[]): any {
   return null
 }
 
+// Task #26 defect-2 parity (round-2 audit WARN): mirrors LandDetailPanel.tsx's
+// hasMeaningfulRecord test. A parcel-fill click whose lookup resolves to no
+// real owner/address/acres/sale figure must not show the "Unknown" fallback
+// shell — same empty-panel-is-worse-than-no-panel rule as ExploreMap.
+function hasMeaningfulRecord(record: any): boolean {
+  const owner = record?.owner
+  const address = record?.address
+  const gisacre = record?.ll_gisacre ?? record?.gisacre ?? null
+  const saleprice = record?.saleprice
+  return !!(
+    (typeof owner === 'string' && owner.trim()) ||
+    (typeof address === 'string' && address.trim()) ||
+    (typeof gisacre === 'number' && gisacre > 0) ||
+    (typeof saleprice === 'number' && saleprice > 0)
+  )
+}
+
 // ── New popup design — mirrors the comp-report popup ────────────────
 // Dark gradient header (charcoal w/ pink accent label), light hero
 // stat strip (Acres / $-per-Acre / Sale Price), then white detail
@@ -578,6 +595,14 @@ export function addRegridLayer(
     if (ll_uuid) qs.set('ll_uuid', ll_uuid)
     else { qs.set('lat', String(lat)); qs.set('lng', String(lng)) }
     const record = await fetchRegridParcel(qs)
+    // Task #26 defect-2 parity: a lookup that resolves to nothing meaningful
+    // (no owner/address/acres/sale figure on the record OR the tile props)
+    // must not show the "Unknown" fallback shell — close the popup instead,
+    // same rule LandDetailPanel.tsx applies on the Explore map.
+    if (!hasMeaningfulRecord(record) && !hasMeaningfulRecord(props)) {
+      popup.remove()
+      return
+    }
     popup.setHTML(record ? regridPopupHTML(record) : regridFallbackHTML(props))
   }
 

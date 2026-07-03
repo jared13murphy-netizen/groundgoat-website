@@ -16,7 +16,7 @@
  * can render a useful skeleton before the API calls resolve.
  */
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { formatAcres } from '@/lib/format'
 import { SOIL_FILTER_ENABLED } from '@/lib/featureFlags'
@@ -254,6 +254,17 @@ export default function LandDetailPanel({ clickData, onClose }: LandDetailPanelP
   const [regridData, setRegridData] = useState<any>(null)
   const [enrichData, setEnrichData] = useState<any>(null)
   const [loading, setLoading] = useState(false)
+  // Race guard for the auto-close effect below (task #26 defect 2 round-2
+  // fix). `clickData` is a fresh object literal at every setLandDetail(...)
+  // call site (never reused/mutated), so each click's object is referentially
+  // unique. This ref is written ONLY at the end of fetchData's `finally`,
+  // to the exact `data` object that fetch was called with — i.e. only once
+  // that specific click's fetch has fully settled (success or failure).
+  // Comparing it by === against the current render's clickData means
+  // "settled" can never read true for a click whose own fetch hasn't
+  // actually finished, regardless of what `loading` (which can lag a
+  // render behind setLoading(true)) looks like on an intermediate render.
+  const settledForRef = useRef<LandDetailClickData | null>(null)
 
   const isOpen = clickData !== null
 
@@ -298,6 +309,12 @@ export default function LandDetailPanel({ clickData, onClose }: LandDetailPanelP
       // keep nulls — panel renders skeleton from tile props
     } finally {
       setLoading(false)
+      // Mark THIS click's fetch as settled — see settledForRef's declaration
+      // comment for the race-freedom argument. Written last, after the
+      // records this fetch resolved are already in state, so a render
+      // triggered by this write always sees the up-to-date regridData/
+      // enrichData alongside settledForRef.current === data.
+      settledForRef.current = data
     }
   }, [])
 
@@ -306,6 +323,7 @@ export default function LandDetailPanel({ clickData, onClose }: LandDetailPanelP
       setRegridData(null)
       setEnrichData(null)
       setLoading(false)
+      settledForRef.current = null
       return
     }
     fetchData(clickData)
@@ -413,11 +431,22 @@ export default function LandDetailPanel({ clickData, onClose }: LandDetailPanelP
   const hasAnyDataSection =
     visibleHasSoilData || hasCropData || hasTillable || hasLastSale || hasProperty || hasAssessed || hasBuildings
   const isEmptyResult = !hasMeaningfulRecord && !hasAnyDataSection
+  // ROUND-2 AUDITOR BLOCKER FIX: gating on `!loading` alone raced the fetch.
+  // On the render right after a NEW click, `loading` can still hold its
+  // stale (false) value from the previous click for one commit, while
+  // `record` is only the sparse tile props (durable-dot sets just
+  // {ll_uuid, centroid_lat, centroid_lng}) — so isEmptyResult reads true
+  // and the panel closed itself before fetchData's setLoading(true) had
+  // even committed, let alone the fetch resolving. `settledForRef.current
+  // === clickData` (see its declaration comment) can only be true once
+  // THIS click's own fetch has fully finished, so gating on it instead of
+  // `!loading` removes the race entirely.
   // 'parcel' (dot/fill click) auto-dismisses on an empty result; 'overlay'
   // (soil/CSB informational click) keeps showing the "No additional parcel
   // data available" empty state below. Undefined source (shouldn't happen —
   // every open site sets it) defaults to the safer 'parcel' behavior.
-  const shouldAutoClose = !loading && isOpen && isEmptyResult && clickData?.source !== 'overlay'
+  const fetchSettledForThisClick = settledForRef.current === clickData
+  const shouldAutoClose = isOpen && fetchSettledForThisClick && isEmptyResult && clickData?.source !== 'overlay'
 
   // Task #26 defect 2: once the fetch settles, if this was a dot/parcel
   // click and it resolved to nothing meaningful, close the panel instead of
@@ -720,8 +749,11 @@ export default function LandDetailPanel({ clickData, onClose }: LandDetailPanelP
               informational by design). A dot/parcel-originated empty result
               auto-closes via shouldAutoClose above instead of rendering this
               — this condition just prevents a one-frame flash of the empty
-              shell before that effect fires. */}
-          {!loading && isEmptyResult && clickData?.source === 'overlay' && (
+              shell before that effect fires. Gated on fetchSettledForThisClick
+              (not `!loading`) for the same reason shouldAutoClose is — avoids
+              a stale-render flash of "no data" on the render right after a
+              new click, before this click's own fetch has actually settled. */}
+          {fetchSettledForThisClick && isEmptyResult && clickData?.source === 'overlay' && (
             <div style={{ padding: '24px 16px', color: 'rgba(0,0,0,0.4)', fontSize: 12, textAlign: 'center', fontStyle: 'italic' }}>
               No additional parcel data available.
             </div>
