@@ -730,6 +730,12 @@ interface ExploreMapProps {
   onFilterOpenChange?: (open: boolean) => void
   onViewListing?: (listingId: string) => void
   onTractSelected?: (tract: SaleDetail) => void
+  /** Task #26 (one click, one panel): fires whenever this map opens its
+      own parcel/land detail panel (setLandDetail non-null). In portalMode
+      the Tract Detail slide-out lives in the PARENT page's own state
+      (selectedTract, driven by onTractSelected) — this map has no way to
+      close that panel itself, so the parent must be told to close it. */
+  onLandDetailOpen?: () => void
   onToggleReport?: (tract: SaleDetail) => void
   onView3DTerrain?: (tractId: string, tractName: string) => void
   isInReport?: (tractId: string) => boolean
@@ -963,7 +969,7 @@ function OverlayButton({
   )
 }
 
-export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, chatSearchEndSignal, comparableVisibleIds, neighborParcels, neighborsLoading }: ExploreMapProps) {
+export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onLandDetailOpen, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, chatSearchEndSignal, comparableVisibleIds, neighborParcels, neighborsLoading }: ExploreMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const stateMarkersRef = useRef<maplibregl.Marker[]>([])
@@ -3216,15 +3222,18 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       } catch {/* layers torn down mid-click */}
 
       // One click, one panel (task #26): opening the parcel/land panel
-      // must close any tract or comp popup left open from a previous click.
+      // must close any tract or comp popup left open from a previous click,
+      // AND (portalMode) tell the parent to close its Tract Detail slide-out.
       setSelectedSale(null)
       setCompPopup(null)
+      onLandDetailOpen?.()
       setLandDetail({
         parcelProps,
         soilProps,
         csbProps,
         ll_uuid,
         activeOverlay: baseOverlayRef.current,
+        source: 'parcel',
       })
     }
 
@@ -3490,15 +3499,18 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
       // Explore mode: open the unified LandDetailPanel (no competing Popup).
       // One click, one panel (task #26): clear any open tract modal / comp
-      // popup left over from a previous click.
+      // popup left over from a previous click, AND (portalMode) tell the
+      // parent to close its Tract Detail slide-out.
       setSelectedSale(null)
       setCompPopup(null)
+      onLandDetailOpen?.()
       setLandDetail({
         parcelProps: props,
         soilProps: null,
         csbProps: null,
         ll_uuid: ll_uuid || null,
         activeOverlay: baseOverlayRef.current,
+        source: 'parcel',
       })
     }
     const setPointer = () => { map.getCanvas().style.cursor = 'pointer' }
@@ -3620,15 +3632,18 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         // (PARCEL_SALE_PLUS_LAYER onPinClick above). The durable payload's
         // `id` IS the ll_uuid — /api/regrid/parcel accepts it directly, so
         // LandDetailPanel's own fetchData resolves the full record itself.
-        // One click, one panel: clear any open tract modal / comp popup.
+        // One click, one panel: clear any open tract modal / comp popup,
+        // AND (portalMode) tell the parent to close its Tract Detail slide-out.
         setSelectedSale(null)
         setCompPopup(null)
+        onLandDetailOpen?.()
         setLandDetail({
           parcelProps: { ll_uuid: props.id, centroid_lat: lat, centroid_lng: lng },
           soilProps: null,
           csbProps: null,
           ll_uuid: props.id || null,
           activeOverlay: baseOverlayRef.current,
+          source: 'parcel',
         })
         // Owner spec 2026-07-02: strong zoom-in ALONGSIDE the details panel
         // (not either/or) — z14.5 puts the parcel + its labels on screen.
@@ -4472,15 +4487,18 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         'parcel-sale-pin-plus', DURABLE_DOT_LAYER,
       ])) return
 
-      // One click, one panel: clear any open tract modal / comp popup.
+      // One click, one panel: clear any open tract modal / comp popup,
+      // AND (portalMode) tell the parent to close its Tract Detail slide-out.
       setSelectedSale(null)
       setCompPopup(null)
+      onLandDetailOpen?.()
       setLandDetail({
         parcelProps: null,
         soilProps: null,
         csbProps,
         ll_uuid: null,
         activeOverlay: baseOverlayRef.current,
+        source: 'overlay',
       })
     }
     map.on('click', LYR_CSB_FIELDS_FILL, onCsbFieldClick)
@@ -4597,15 +4615,18 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         'parcel-sale-pin-plus', DURABLE_DOT_LAYER,
       ])) return
 
-      // One click, one panel: clear any open tract modal / comp popup.
+      // One click, one panel: clear any open tract modal / comp popup,
+      // AND (portalMode) tell the parent to close its Tract Detail slide-out.
       setSelectedSale(null)
       setCompPopup(null)
+      onLandDetailOpen?.()
       setLandDetail({
         parcelProps: null,
         soilProps,
         csbProps: null,
         ll_uuid: null,
         activeOverlay: baseOverlayRef.current,
+        source: 'overlay',
       })
     }
     // Bind the soilsFullClick handler to every per-state fill layer.
@@ -5340,6 +5361,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           ((isPrivateTreaty || isPending) && tract.asking_price && tract.total_acres)
             ? 'asking'
             : (tract.price_per_acre ? 'sold' : null)
+        // Task #26 (one click, one panel): tract is top priority — opening
+        // the portal Tract Detail panel must close the parcel/land panel
+        // and any comp popup left over from a previous click.
+        setLandDetail(null)
+        setCompPopup(null)
+        setSelectedSale(null)
         onTractSelected({
           id: tract.id,
           listingId: tract.listing_id,

@@ -191,6 +191,12 @@ export interface LandDetailClickData {
   ll_uuid: string | null
   /** Which overlay was active when the user clicked (drives which section leads) */
   activeOverlay: 'ssurgo' | 'nccpi' | 'crops' | 'csb' | 'fsa' | null
+  /** Task #26: distinguishes a direct parcel/dot click (auto-dismiss if the
+      fetch resolves nothing — an empty shell is worse than no panel) from an
+      informational overlay click (soil/CSB — the "no additional data"
+      empty state is a legitimate, expected result there, not a failure).
+      Defaults to 'parcel' for any call site that doesn't set it. */
+  source?: 'parcel' | 'overlay'
 }
 
 interface LandDetailPanelProps {
@@ -389,6 +395,37 @@ export default function LandDetailPanel({ clickData, onClose }: LandDetailPanelP
   // doesn't stay blank when the only available data is soil data.
   const visibleHasSoilData = SOIL_FILTER_ENABLED && hasSoilData
   const cropLeads = hasCropData && (activeOverlay === 'crops' || activeOverlay === 'csb')
+
+  // Task #26 defect 2: a dot/parcel click that resolves to nothing (e.g. a
+  // durable-dot lookup with no matching Regrid record) must never present
+  // the empty "Parcel Unknown" shell — an empty panel reads as a broken
+  // click, worse than no panel at all. "Meaningful record" mirrors the
+  // hero-strip + header gating: a real owner name, address, or acreage/sale
+  // figure. Overlay clicks (soil/CSB) are informational by design — their
+  // "No additional parcel data available" state is an expected, legitimate
+  // result, not a failure, so they're exempt via clickData.source.
+  const hasMeaningfulRecord = !!(
+    (typeof record?.owner === 'string' && record.owner.trim()) ||
+    street ||
+    (typeof gisacre === 'number' && gisacre > 0) ||
+    validSalePrice
+  )
+  const hasAnyDataSection =
+    visibleHasSoilData || hasCropData || hasTillable || hasLastSale || hasProperty || hasAssessed || hasBuildings
+  const isEmptyResult = !hasMeaningfulRecord && !hasAnyDataSection
+  // 'parcel' (dot/fill click) auto-dismisses on an empty result; 'overlay'
+  // (soil/CSB informational click) keeps showing the "No additional parcel
+  // data available" empty state below. Undefined source (shouldn't happen —
+  // every open site sets it) defaults to the safer 'parcel' behavior.
+  const shouldAutoClose = !loading && isOpen && isEmptyResult && clickData?.source !== 'overlay'
+
+  // Task #26 defect 2: once the fetch settles, if this was a dot/parcel
+  // click and it resolved to nothing meaningful, close the panel instead of
+  // rendering the empty "Parcel Unknown" shell.
+  useEffect(() => {
+    if (shouldAutoClose) onClose()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shouldAutoClose])
 
   return (
     <>
@@ -678,8 +715,13 @@ export default function LandDetailPanel({ clickData, onClose }: LandDetailPanelP
             </Section>
           )}
 
-          {/* No-data state — shown only when skeleton props are also empty */}
-          {!loading && !visibleHasSoilData && !hasCropData && !hasTillable && !hasLastSale && !hasProperty && !hasAssessed && !hasBuildings && (
+          {/* No-data state — shown only when skeleton props are also empty.
+              Task #26 defect 2: only for overlay-originated clicks (soil/CSB,
+              informational by design). A dot/parcel-originated empty result
+              auto-closes via shouldAutoClose above instead of rendering this
+              — this condition just prevents a one-frame flash of the empty
+              shell before that effect fires. */}
+          {!loading && isEmptyResult && clickData?.source === 'overlay' && (
             <div style={{ padding: '24px 16px', color: 'rgba(0,0,0,0.4)', fontSize: 12, textAlign: 'center', fontStyle: 'italic' }}>
               No additional parcel data available.
             </div>
