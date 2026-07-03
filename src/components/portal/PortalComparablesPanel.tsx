@@ -4,6 +4,7 @@ import { useState, useMemo, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { X, Loader2, MapPin, Calendar, Building2, ArrowUpDown, SlidersHorizontal } from 'lucide-react'
 import { formatAcres } from '@/lib/format'
+import { SOIL_FILTER_ENABLED } from '@/lib/featureFlags'
 
 interface Comparable {
   id: string
@@ -167,8 +168,8 @@ export default function PortalComparablesPanel({ data, loading, onClose, onSelec
     if (filterCounty) result = result.filter(c => c.county === filterCounty)
     if (filterMinTillable) result = result.filter(c => (c.pct_tillable ?? 0) >= Number(filterMinTillable))
     if (filterMaxTillable) result = result.filter(c => (c.pct_tillable ?? 100) <= Number(filterMaxTillable))
-    if (filterMinSoil) result = result.filter(c => (c.soil_rating ?? c.csr2 ?? 0) >= Number(filterMinSoil))
-    if (filterMaxSoil) result = result.filter(c => (c.soil_rating ?? c.csr2 ?? 999) <= Number(filterMaxSoil))
+    if (SOIL_FILTER_ENABLED && filterMinSoil) result = result.filter(c => (c.soil_rating ?? c.csr2 ?? 0) >= Number(filterMinSoil))
+    if (SOIL_FILTER_ENABLED && filterMaxSoil) result = result.filter(c => (c.soil_rating ?? c.csr2 ?? 999) <= Number(filterMaxSoil))
     if (filterMaxDistance) result = result.filter(c => (c._distance ?? 999) <= Number(filterMaxDistance))
     return result
   }, [comparablesWithDistance, filterCounty, filterMinTillable, filterMaxTillable, filterMinSoil, filterMaxSoil, filterMaxDistance])
@@ -307,7 +308,7 @@ export default function PortalComparablesPanel({ data, loading, onClose, onSelec
                     {counties.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+                <div className={SOIL_FILTER_ENABLED ? "grid grid-cols-2 gap-3" : ""}>
                   <div>
                     <label className="text-[10px] text-gg-gray-400 uppercase tracking-wider">Max Distance (mi)</label>
                     <input
@@ -318,13 +319,15 @@ export default function PortalComparablesPanel({ data, loading, onClose, onSelec
                       className="w-full mt-1 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-gg-gray-300 outline-none"
                     />
                   </div>
-                  <div>
-                    <label className="text-[10px] text-gg-gray-400 uppercase tracking-wider">Soil Rating</label>
-                    <div className="flex gap-1 mt-1">
-                      <input type="number" value={filterMinSoil} onChange={e => setFilterMinSoil(e.target.value)} placeholder="Min" className="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-gg-gray-300 outline-none" />
-                      <input type="number" value={filterMaxSoil} onChange={e => setFilterMaxSoil(e.target.value)} placeholder="Max" className="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-gg-gray-300 outline-none" />
+                  {SOIL_FILTER_ENABLED && (
+                    <div>
+                      <label className="text-[10px] text-gg-gray-400 uppercase tracking-wider">Soil Rating</label>
+                      <div className="flex gap-1 mt-1">
+                        <input type="number" value={filterMinSoil} onChange={e => setFilterMinSoil(e.target.value)} placeholder="Min" className="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-gg-gray-300 outline-none" />
+                        <input type="number" value={filterMaxSoil} onChange={e => setFilterMaxSoil(e.target.value)} placeholder="Max" className="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-gg-gray-300 outline-none" />
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
                 <div>
                   <label className="text-[10px] text-gg-gray-400 uppercase tracking-wider">% Tillable Range</label>
