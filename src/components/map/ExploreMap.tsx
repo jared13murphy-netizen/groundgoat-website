@@ -53,6 +53,9 @@ const MARKER_LAYERS_BOTTOM_TO_TOP = [
   'county-labels',
   'county-count-circles',
   'county-count-labels',
+  // Regrid sale "+"/dot markers sit BELOW the tract pins (task #26 z-order
+  // invariant: tract always wins the click when both are under the point).
+  'parcel-sale-pin-plus',
   'tract-pin-circles',
   'tract-pin-labels',
   // Today's-auction green dots sit ABOVE the regular pins (pulse halo first,
@@ -65,6 +68,29 @@ function liftMarkerLayers(map: maplibregl.Map) {
     if (map.getLayer(id)) {
       try { map.moveLayer(id) } catch {/* mid-teardown */}
     }
+  }
+}
+
+// Shared click-arbitration guard (task #26 — one click, one panel). Every
+// map layer whose onClick can open a detail panel MUST check whether a
+// HIGHER-priority layer also sits under the click point before opening its
+// own panel; if so it defers to that layer's own handler. Priority order
+// (highest first): tract (pin or polygon) > sale dot > parcel fill >
+// overlays. Existence-filters layerIds first (queryRenderedFeatures throws
+// on a layer id that isn't currently registered), then does one
+// queryRenderedFeatures call. Used by BOTH the Regrid parcel-fill onClick
+// and the parcel-sale-pin-plus onClick so the two guards can't drift.
+function clickClaimedByLayers(
+  map: maplibregl.Map,
+  point: maplibregl.PointLike,
+  layerIds: string[],
+): boolean {
+  const existing = layerIds.filter(id => map.getLayer(id))
+  if (!existing.length) return false
+  try {
+    return map.queryRenderedFeatures(point, { layers: existing }).length > 0
+  } catch {
+    return false // layer torn down mid-click
   }
 }
 
@@ -3162,12 +3188,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // the tract details. Never open the parcel/land panel for land that has a
       // tract on top of it.
       const topPinLayers = ['parcel-sale-pin-plus', 'tract-pin-circles', 'tract-polygon-fill']
-        .filter(id => map.getLayer(id))
-      if (topPinLayers.length) {
-        try {
-          if (map.queryRenderedFeatures(e.point, { layers: topPinLayers }).length) return
-        } catch {/* layer torn down mid-click */}
-      }
+      if (clickClaimedByLayers(map, e.point, topPinLayers)) return
       const parcelProps: any = f.properties || {}
       const ll_uuid = (parcelProps.ll_uuid as string | undefined) || null
 
@@ -3194,6 +3215,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         }
       } catch {/* layers torn down mid-click */}
 
+      // One click, one panel (task #26): opening the parcel/land panel
+      // must close any tract or comp popup left open from a previous click.
+      setSelectedSale(null)
+      setCompPopup(null)
       setLandDetail({
         parcelProps,
         soilProps,
@@ -3370,6 +3395,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const onPinClick = async (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
       const f = e.features?.[0]
       if (!f) return
+      // A tract ALWAYS wins over the sale-dot underneath it (task #26
+      // priority: tract pin/polygon > sale dot > parcel fill > overlays).
+      // If the click also landed on a tract pin or tract polygon, that
+      // layer's own onClick (below) opens the tract details — don't ALSO
+      // open the parcel/comp popup here.
+      if (clickClaimedByLayers(map, e.point, ['tract-pin-circles', 'tract-polygon-fill'])) return
       const props: any = f.properties || {}
       const ll_uuid = props.ll_uuid as string | undefined
       const lng = e.lngLat.lng
@@ -3432,6 +3463,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         // Show the popup immediately with pin-derived values (responsive),
         // then upgrade it once the authoritative record resolves.
         const point = map.project(e.lngLat)
+        // One click, one panel (task #26): comp popup replaces any open
+        // tract modal / land-detail panel from a previous click.
+        setSelectedSale(null)
+        setLandDetail(null)
         setCompPopup({ sale: buildParcelSale(null), pos: { x: point.x, y: point.y }, lngLat: [lng, lat] })
 
         ;(async () => {
@@ -3454,6 +3489,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       }
 
       // Explore mode: open the unified LandDetailPanel (no competing Popup).
+      // One click, one panel (task #26): clear any open tract modal / comp
+      // popup left over from a previous click.
+      setSelectedSale(null)
+      setCompPopup(null)
       setLandDetail({
         parcelProps: props,
         soilProps: null,
@@ -3570,12 +3609,20 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       const onClick = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
         const f = e.features?.[0]
         if (!f || f.geometry.type !== 'Point') return
+        // Task #26: this layer's z9-11 range overlaps tract-pin-circles'
+        // (minzoom TRACT_TIER_MIN=9) — a tract pin can sit directly over a
+        // durable dot at those zooms. Tract always wins; defer to its own
+        // onClick (tract-pin-circles / tract-polygon-fill handler).
+        if (clickClaimedByLayers(map, e.point, ['tract-pin-circles', 'tract-polygon-fill'])) return
         const [lng, lat] = f.geometry.coordinates as [number, number]
         const props: any = f.properties || {}
         // Open the same unified LandDetailPanel the z11+ parcel layer opens
         // (PARCEL_SALE_PLUS_LAYER onPinClick above). The durable payload's
         // `id` IS the ll_uuid — /api/regrid/parcel accepts it directly, so
         // LandDetailPanel's own fetchData resolves the full record itself.
+        // One click, one panel: clear any open tract modal / comp popup.
+        setSelectedSale(null)
+        setCompPopup(null)
         setLandDetail({
           parcelProps: { ll_uuid: props.id, centroid_lat: lat, centroid_lng: lng },
           soilProps: null,
@@ -4407,10 +4454,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const onCsbFieldClick = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
       if (!e.features?.length) return
       const csbProps: any = e.features[0].properties || {}
-      // If a Regrid parcel fill underlies this point, the parcel
-      // click handler already opened the panel (with CSB context
-      // included via queryRenderedFeatures). Skip here to avoid a
-      // redundant re-open with no parcel data.
+      // Task #26: CSB (minzoom 10, uncapped) overlaps tract layers
+      // (minzoom 9) and the sale-dot layers (z9-11 durable, z11+ live) at
+      // the same click point. All of those outrank CSB in the priority
+      // chain (tract > sale dot > parcel fill > overlays) — if any is
+      // under the click, its own handler owns the panel.
       const regridLayer = 'regrid-parcels-fill'
       let hasParcel = false
       try {
@@ -4419,7 +4467,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         }
       } catch {/* layer torn down */}
       if (hasParcel) return
+      if (clickClaimedByLayers(map, e.point, [
+        'tract-pin-circles', 'tract-polygon-fill',
+        'parcel-sale-pin-plus', DURABLE_DOT_LAYER,
+      ])) return
 
+      // One click, one panel: clear any open tract modal / comp popup.
+      setSelectedSale(null)
+      setCompPopup(null)
       setLandDetail({
         parcelProps: null,
         soilProps: null,
@@ -4535,7 +4590,16 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         }
       } catch {/* layer torn down */}
       if (hasParcel) return  // parcel click already handled it
+      // Task #26: soils fill spans all zooms — also defer to tract layers
+      // and the sale-dot layers (both outrank overlays in priority).
+      if (clickClaimedByLayers(map, e.point, [
+        'tract-pin-circles', 'tract-polygon-fill',
+        'parcel-sale-pin-plus', DURABLE_DOT_LAYER,
+      ])) return
 
+      // One click, one panel: clear any open tract modal / comp popup.
+      setSelectedSale(null)
+      setCompPopup(null)
       setLandDetail({
         parcelProps: null,
         soilProps,
@@ -5159,6 +5223,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         sourceUrl: tract.source_url,
       }
 
+      // Task #26 (one click, one panel): tract is top priority — it wins
+      // over any sale-dot or parcel/overlay panel already open from a
+      // previous click.
+      setLandDetail(null)
       if (subjectTractIdRef.current) {
         // Comp mode — inline popup anchored at the clicked feature's
         // projected pixel position. e.originalEvent already prevented the
@@ -5173,6 +5241,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       } else if (portalMode && onTractSelected) {
         onTractSelected(saleData)
       } else {
+        setCompPopup(null)
         setSelectedSale(saleData)
       }
     }

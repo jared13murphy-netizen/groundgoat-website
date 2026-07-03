@@ -138,6 +138,23 @@ function getCountyCentroid(county: string, state: string): [number, number] | nu
   return countyCentroids[key] || null
 }
 
+// Shared click-arbitration guard (task #26 — one click, one panel). Mirrors
+// the same idiom used in ExploreMap.tsx's clickClaimedByLayers: filter to
+// layers that currently exist, then check queryRenderedFeatures once.
+function clickClaimedByLayers(
+  map: maplibregl.Map,
+  point: maplibregl.PointLike,
+  layerIds: string[],
+): boolean {
+  const existing = layerIds.filter(id => map.getLayer(id))
+  if (!existing.length) return false
+  try {
+    return map.queryRenderedFeatures(point, { layers: existing }).length > 0
+  } catch {
+    return false // layer torn down mid-click
+  }
+}
+
 function formatCurrency(amount: number | null | undefined): string {
   if (!amount) return '—'
   return '$' + Math.round(amount).toLocaleString('en-US')
@@ -245,6 +262,10 @@ export default function ComparablesMap({
     ) => {
       const f = e.features?.[0]
       if (!f) return
+      // Task #26 (one click, one panel): the subject tract polygon always
+      // wins over a sale "+" underneath it — its own onClick (below) opens
+      // the tract detail modal.
+      if (clickClaimedByLayers(map, e.point, ['tract-polygon-fill'])) return
       const p: any = f.properties || {}
       const toNum = (v: any): number | null => {
         if (v == null) return null
@@ -348,6 +369,9 @@ export default function ComparablesMap({
     const onClick = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
       const f = e.features?.[0]
       if (!f || f.geometry.type !== 'Point') return
+      // Task #26: this layer's z9-11 range overlaps the (uncapped)
+      // tract-polygon-fill layer — the subject tract always wins.
+      if (clickClaimedByLayers(map, e.point, ['tract-polygon-fill'])) return
       const [lng, lat] = f.geometry.coordinates as [number, number]
       const p: any = f.properties || {}
       const acres = p.acres != null ? Number(p.acres) : null
