@@ -384,6 +384,10 @@ export default function LandDetailPanel({ clickData, onClose }: LandDetailPanelP
 
   // Whether a section should auto-expand (the active overlay's section leads)
   const soilLeads = hasSoilData && (activeOverlay === 'ssurgo' || activeOverlay === 'nccpi')
+  // Whether the Soil Section actually renders (gated by the feature flag on
+  // top of hasSoilData) — used by the no-data empty state below so it
+  // doesn't stay blank when the only available data is soil data.
+  const visibleHasSoilData = SOIL_FILTER_ENABLED && hasSoilData
   const cropLeads = hasCropData && (activeOverlay === 'crops' || activeOverlay === 'csb')
 
   return (
@@ -544,7 +548,7 @@ export default function LandDetailPanel({ clickData, onClose }: LandDetailPanelP
               (SOIL_FILTER_ENABLED = false). Derived booleans above
               (hasSoilData, soilLeads) are left as-is; flip the flag to
               restore this section. */}
-          {SOIL_FILTER_ENABLED && hasSoilData && (
+          {visibleHasSoilData && (
             <div style={{ order: soilLeads ? -1 : 0 }}>
               <Section title={`Soil (${ratingLabel})`}>
                 {/* Point-specific soil from tile */}
@@ -675,7 +679,7 @@ export default function LandDetailPanel({ clickData, onClose }: LandDetailPanelP
           )}
 
           {/* No-data state — shown only when skeleton props are also empty */}
-          {!loading && !hasSoilData && !hasCropData && !hasTillable && !hasLastSale && !hasProperty && !hasAssessed && !hasBuildings && (
+          {!loading && !visibleHasSoilData && !hasCropData && !hasTillable && !hasLastSale && !hasProperty && !hasAssessed && !hasBuildings && (
             <div style={{ padding: '24px 16px', color: 'rgba(0,0,0,0.4)', fontSize: 12, textAlign: 'center', fontStyle: 'italic' }}>
               No additional parcel data available.
             </div>
