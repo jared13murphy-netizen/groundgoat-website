@@ -185,6 +185,23 @@ export default function ComparablesMap({
   const mapRef = useRef<maplibregl.Map | null>(null)
   const markersRef = useRef<maplibregl.Marker[]>([])
   const markerElementsRef = useRef<Map<string, HTMLDivElement>>(new Map())
+  // Accumulator keyed by dot id (ll_uuid): dots must never reload once
+  // loaded (owner rule). Each viewport fetch MERGES into this map instead
+  // of replacing the layer, so panning off-screen and back shows the same
+  // dots instantly instead of blinking/refetching. Cleared only when the
+  // filter changes (see the durable-dots fetch effect's dependency array).
+  const durableDotsByIdRef = useRef<Map<string, GeoJSON.Feature>>(new Map())
+  // CODE AUDITOR FIX (round 2): gen used to be a closure-local `let gen = 0`
+  // re-initialized to 0 on EVERY effect re-run, so cross-effect (i.e.
+  // filter-change) staleness was undetectable — a fetch in flight from
+  // the previous filter would capture some myGen, the new effect would
+  // reset its own local `gen` back to 0, and the old response's
+  // `myGen !== gen` check (0 !== 0 the first time) would wrongly pass.
+  // Hoisting to a ref that survives across re-runs (mirrors
+  // ExploreMap.tsx's durableDotsGenRef) makes every filter change bump a
+  // single shared counter, so any older in-flight fetch is immediately
+  // recognizable as stale.
+  const durableDotsGenRef = useRef(0)
   const [selectedSale, setSelectedSale] = useState<SaleDetail | null>(null)
   const [show3DViewer, setShow3DViewer] = useState(false)
   const [regridConfig, setRegridConfig] = useState<RegridConfig | null>(null)
@@ -369,7 +386,28 @@ export default function ComparablesMap({
     const map = mapRef.current
     if (!map || !mapReady) return
     let debounceTimer: ReturnType<typeof setTimeout> | null = null
-    let gen = 0
+
+    // Accumulate across pans; reset on filter change (owner: dots must
+    // never reload once loaded). This effect's own re-run (its deps are
+    // the filter fields below) IS the filter-change signal, so clearing
+    // the accumulator here — once per effect run, before the first fetch
+    // — drops the old union exactly when the qualifying set can differ.
+    durableDotsByIdRef.current.clear()
+    // CODE AUDITOR FIX (round 2): bumping durableDotsGenRef here, on every
+    // effect re-run (= every filter change), invalidates any fetch still
+    // in flight from the PREVIOUS filter before it can reach the merge
+    // step below — gen used to be closure-local (reset to 0 every re-run),
+    // which made cross-effect staleness undetectable.
+    durableDotsGenRef.current++
+
+    const renderDurableDotsUnion = () => {
+      const src = map.getSource(DURABLE_DOT_SOURCE) as maplibregl.GeoJSONSource | undefined
+      if (!src) return
+      src.setData({
+        type: 'FeatureCollection',
+        features: Array.from(durableDotsByIdRef.current.values()),
+      })
+    }
 
     const runFetch = async () => {
       const z = map.getZoom()
@@ -378,8 +416,10 @@ export default function ComparablesMap({
       const regridInput = compFiltersToRegrid(filters, subjectState)
       if (regridInput.upcomingOnly) {
         // "Upcoming" can't match recorded past sales — same rule the
-        // live Regrid sale-dot filter uses.
-        (map.getSource(DURABLE_DOT_SOURCE) as maplibregl.GeoJSONSource)
+        // live Regrid sale-dot filter uses. Nothing can qualify, so clear
+        // BOTH the layer and the accumulator (unlike a plain pan/zoom).
+        durableDotsByIdRef.current.clear()
+        ;(map.getSource(DURABLE_DOT_SOURCE) as maplibregl.GeoJSONSource)
           .setData({ type: 'FeatureCollection', features: [] })
         return
       }
@@ -388,11 +428,12 @@ export default function ComparablesMap({
       // upcomingOnly branch above enforces for dates. Clear instead of
       // querying, mirroring the backend's own short-circuit.
       if (filters?.statuses?.length && !filters.statuses.includes('sold')) {
-        (map.getSource(DURABLE_DOT_SOURCE) as maplibregl.GeoJSONSource)
+        durableDotsByIdRef.current.clear()
+        ;(map.getSource(DURABLE_DOT_SOURCE) as maplibregl.GeoJSONSource)
           .setData({ type: 'FeatureCollection', features: [] })
         return
       }
-      const myGen = ++gen
+      const myGen = ++durableDotsGenRef.current
       try {
         const bounds = map.getBounds()
         // Task #30: scope dots the same way this map scopes comparables —
@@ -414,7 +455,7 @@ export default function ComparablesMap({
         const res = await fetchWithAuth(`${API_URL}/api/map/parcel-sale-dots?${qs.toString()}`)
         if (!res.ok) return
         const data = await res.json()
-        if (myGen !== gen) return // stale — a newer fetch superseded this one
+        if (myGen !== durableDotsGenRef.current) return // stale — a newer fetch OR filter change superseded this one
         const dots: any[] = data?.dots || []
         const filtered = dots.filter(d => {
           if (d.lat == null || d.lng == null) return false
@@ -422,16 +463,24 @@ export default function ComparablesMap({
           if (regridInput.saleDateFrom && (!d.saledate || d.saledate < regridInput.saleDateFrom)) return false
           return true
         })
-        const fc: GeoJSON.FeatureCollection = {
-          type: 'FeatureCollection',
-          features: filtered.map(d => ({
+        // Accumulate across pans; reset on filter change (owner: dots must
+        // never reload once loaded). Merge this viewport's dots into the
+        // id-keyed accumulator, then render the ENTIRE union — not just
+        // what this fetch returned — so dots already loaded off-screen
+        // never disappear/re-fetch when panned back into view.
+        // CODE AUDITOR FIX (round 2): re-check immediately before the
+        // merge too, not only right after the response — catches a stale
+        // PRE-filter-change fetch that would otherwise pollute the
+        // just-cleared accumulator with dots that no longer qualify.
+        if (myGen !== durableDotsGenRef.current) return
+        for (const d of filtered) {
+          durableDotsByIdRef.current.set(d.id, {
             type: 'Feature',
             geometry: { type: 'Point', coordinates: [d.lng, d.lat] },
             properties: { id: d.id, saleprice: d.saleprice, saledate: d.saledate, acres: d.acres },
-          })),
+          })
         }
-        const src = map.getSource(DURABLE_DOT_SOURCE) as maplibregl.GeoJSONSource | undefined
-        if (src) src.setData(fc)
+        renderDurableDotsUnion()
       } catch {/* transient fetch failure — next moveend retries */}
     }
 

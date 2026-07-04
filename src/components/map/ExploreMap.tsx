@@ -990,6 +990,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // stale in-flight response can never overwrite a newer one.
   const durableDotsDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const durableDotsGenRef = useRef(0)
+  // Accumulator keyed by dot id (ll_uuid): dots must never reload once
+  // loaded (owner rule). Each viewport fetch MERGES into this map instead
+  // of replacing the layer, so panning off-screen and back shows the same
+  // dots instantly instead of blinking/refetching. Cleared only when the
+  // filter changes (see the fetch effect's dependency array below) — a
+  // changed filter changes which parcels qualify, so the old union is stale.
+  const durableDotsByIdRef = useRef<Map<string, GeoJSON.Feature>>(new Map())
   // Cells we've FULLY loaded (got all matching tracts back, didn't hit
   // the per-cell 1000 cap). Future moveends won't re-fetch these.
   const loadedCellsRef = useRef<Set<string>>(new Set())
@@ -3815,6 +3822,32 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const map = mapRef.current
     if (!map || !mapLoaded) return
 
+    // Accumulate across pans; reset on filter change (owner: dots must
+    // never reload once loaded). This effect's own re-run (its deps are
+    // the filter fields below) IS the filter-change signal, so clearing
+    // the accumulator here — once per effect run, before the first fetch
+    // — drops the old union exactly when the qualifying set can differ.
+    durableDotsByIdRef.current.clear()
+    // CODE AUDITOR FIX (round 2): bumping the gen ONLY at fetch kickoff
+    // (below) doesn't protect against a fetch that was in flight from the
+    // PREVIOUS filter — that response's gen was already "latest" the
+    // instant it fired, so the staleness check at response-time passed
+    // and it merged filter-violating dots into the just-cleared
+    // accumulator. Bumping here too, on every effect re-run (= every
+    // filter change), immediately invalidates any older in-flight fetch's
+    // captured gen before it ever gets to the merge step.
+    durableDotsGenRef.current++
+
+    const renderDurableDotsUnion = () => {
+      const src = map.getSource(DURABLE_DOT_SOURCE) as maplibregl.GeoJSONSource | undefined
+      if (!src) return
+      const fc: GeoJSON.FeatureCollection = {
+        type: 'FeatureCollection',
+        features: Array.from(durableDotsByIdRef.current.values()),
+      }
+      src.setData(fc)
+    }
+
     const runFetchDurableDots = async () => {
       const z = map.getZoom()
       if (z < DURABLE_DOT_MIN_ZOOM) return
@@ -3823,8 +3856,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       const { from, to, upcomingOnly } = resolveDateWindow(filtersRef.current)
       if (upcomingOnly) {
         // Same rule as buildRegridSaleDotFilter: "upcoming" can't match
-        // recorded past sales — clear the layer instead of querying.
-        (map.getSource(DURABLE_DOT_SOURCE) as maplibregl.GeoJSONSource).setData(EMPTY_FC)
+        // recorded past sales — nothing can qualify, so clear BOTH the
+        // layer and the accumulator (unlike a plain zoom-out/pan, this is
+        // a real "no dots qualify" state, not a viewport gap).
+        durableDotsByIdRef.current.clear()
+        ;(map.getSource(DURABLE_DOT_SOURCE) as maplibregl.GeoJSONSource).setData(EMPTY_FC)
         return
       }
       const gen = ++durableDotsGenRef.current
@@ -3849,7 +3885,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         const res = await fetchWithAuth(`${API_URL}/api/map/parcel-sale-dots?${qs.toString()}`)
         if (!res.ok) return
         const data = await res.json()
-        if (gen !== durableDotsGenRef.current) return // stale — a newer fetch superseded this one
+        if (gen !== durableDotsGenRef.current) return // stale — a newer fetch OR filter change superseded this one
         const dots: any[] = data?.dots || []
         const filtered = dots.filter(d => {
           if (d.lat == null || d.lng == null) return false
@@ -3858,16 +3894,26 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           if (to && (!d.saledate || d.saledate > to)) return false
           return true
         })
-        const fc: GeoJSON.FeatureCollection = {
-          type: 'FeatureCollection',
-          features: filtered.map(d => ({
+        // Accumulate across pans; reset on filter change (owner: dots must
+        // never reload once loaded). Merge this viewport's dots into the
+        // id-keyed accumulator, then render the ENTIRE union — not just
+        // what this fetch returned — so dots already loaded off-screen
+        // never disappear/re-fetch when panned back into view.
+        // CODE AUDITOR FIX (round 2): re-check gen immediately before the
+        // merge, not only right after the response arrives — the effect's
+        // own re-run now bumps durableDotsGenRef on every filter change
+        // (see the top of this effect), so this guard also catches a
+        // stale PRE-filter-change fetch that would otherwise pollute the
+        // just-cleared accumulator with dots that no longer qualify.
+        if (gen !== durableDotsGenRef.current) return
+        for (const d of filtered) {
+          durableDotsByIdRef.current.set(d.id, {
             type: 'Feature',
             geometry: { type: 'Point', coordinates: [d.lng, d.lat] },
             properties: { id: d.id, saleprice: d.saleprice, saledate: d.saledate, acres: d.acres },
-          })),
+          })
         }
-        const src = map.getSource(DURABLE_DOT_SOURCE) as maplibregl.GeoJSONSource | undefined
-        if (src) src.setData(fc)
+        renderDurableDotsUnion()
       } catch {/* transient fetch failure — next moveend retries */}
     }
 
