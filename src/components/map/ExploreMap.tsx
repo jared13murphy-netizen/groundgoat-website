@@ -55,6 +55,13 @@ const MARKER_LAYERS_BOTTOM_TO_TOP = [
   'county-count-labels',
   // Regrid sale "+"/dot markers sit BELOW the tract pins (task #26 z-order
   // invariant: tract always wins the click when both are under the point).
+  // parcel-sale-dots-durable-circle (the continuous durable dot layer,
+  // owner directive 2026-07-04) is listed first so it ends up just below
+  // parcel-sale-pin-plus — same relative order the two had before, now
+  // both guaranteed to stay above tract-polygon-fill/-line whenever those
+  // get lifted (previously this list didn't include the durable layer at
+  // all, so it could drift below a freshly-lifted tract polygon).
+  'parcel-sale-dots-durable-circle',
   'parcel-sale-pin-plus',
   'tract-pin-circles',
   'tract-pin-labels',
@@ -3384,6 +3391,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             'text-size': ['interpolate', ['linear'], ['zoom'], 12, 13, 16, 17],
             'text-allow-overlap': true,
             'text-ignore-placement': true,
+            // Hidden in explore mode — DURABLE_DOT_LAYER (uncapped there)
+            // is the sole dot display. Visible only in comp mode, where
+            // this layer keeps its z>=REGRID_MIN_ZOOM "+"-pin role. The
+            // mode-sync effect below re-applies this on every subjectTractId
+            // change; this initial value covers the gap before that effect
+            // first runs (mount always happens in explore mode first).
+            'visibility': inCompModeNow ? 'visible' : 'none',
           },
           paint: {
             'text-color': '#ffffff',
@@ -3555,11 +3569,31 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
   }, [mapLoaded, regridStateFilter, filters.dateRange, filters.dateFrom, filters.dateTo, filters.salePriceMin, filters.salePriceMax, filters.acreageMin, filters.acreageMax])
 
-  // Flip the Regrid parcel markers between explore form (pink dot only)
-  // and comparables form (pink dot + white "+", bigger) when the user
-  // enters/exits comp mode. Same subjectTractId trigger the HTML tract
-  // markers use. Only the glyph + icon-size change; the filter (which
-  // parcels show) is untouched here.
+  // Flip the Regrid parcel markers between explore form (hidden — the
+  // continuous DURABLE_DOT_LAYER below is the sole dot display in explore
+  // mode, owner directive 2026-07-04) and comparables form (pink dot +
+  // white "+", bigger, visible) when the user enters/exits comp mode. Same
+  // subjectTractId trigger the HTML tract markers use.
+  //
+  // EXPLORE MODE (2026-07-04 one-dot-layer task): this layer used to show
+  // a plain pink dot at z>=REGRID_MIN_ZOOM(11), handing off from
+  // DURABLE_DOT_LAYER at that exact zoom — a visible pop (different
+  // rendering pipeline, tile-load latency) right at the seam, and the
+  // reason the owner's dots "changed" on zoom. DURABLE_DOT_LAYER is now
+  // uncapped in explore mode (see below) and is the ONLY dot display at
+  // every zoom >= 9, so this layer is hidden entirely in explore mode
+  // instead of double-rendering a second dot on top of it.
+  //
+  // COMP MODE: unchanged. This layer keeps its existing z>=11 "+"-pin
+  // role — DURABLE_DOT_LAYER stays capped at z11 in comp mode (see below)
+  // and hands off to this layer exactly as before. Comp mode's "+"
+  // affordance (add-to-report semantics via onPinClick's subjectTractIdRef
+  // branch) lives ONLY on this layer — DURABLE_DOT_LAYER's onClick opens
+  // the explore-only LandDetailPanel, not the comp popup, so extending it
+  // into comp mode would open the wrong panel. Leaving comp mode's z9-11/
+  // z11+ split as-is is the minimal-risk choice; full comp-mode continuity
+  // would require teaching DURABLE_DOT_LAYER's click handler to branch on
+  // subjectTractId, which is out of scope here (flagged in the task report).
   useEffect(() => {
     if (!REGRID_SALE_PINS_ENABLED) return
     const map = mapRef.current
@@ -3569,24 +3603,40 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     try {
       map.setLayoutProperty(PARCEL_SALE_PLUS_LAYER, 'text-field', inComp ? '+' : '')
       map.setLayoutProperty(PARCEL_SALE_PLUS_LAYER, 'icon-size', inComp ? PARCEL_COMP_ICON_SIZE : PARCEL_DOT_ICON_SIZE)
+      map.setLayoutProperty(PARCEL_SALE_PLUS_LAYER, 'visibility', inComp ? 'visible' : 'none')
     } catch {/* layer torn down */}
   }, [mapLoaded, subjectTractId])
 
   // ─────────────────────────────────────────────────────────────────
-  // Durable-table parcel-sale dots — z9-10 ONLY (Map Phase 3, 2026-07-02).
+  // Durable-table parcel-sale dots — THE ONLY sale-dot layer in EXPLORE
+  // mode (owner directive 2026-07-04: "the dots should never change... as
+  // soon as I'm zoomed in enough to see dots, they should never go away no
+  // matter how much I zoom in"). Reads OUR OWN durable copy of parcel-sale
+  // data (backend /api/map/parcel-sale-dots → regrid_parcels on the Soils
+  // DB, kept fresh by a write-through sync on every Regrid tile fetch)
+  // instead of Regrid tiles directly, at every zoom >= DURABLE_DOT_MIN_ZOOM
+  // in explore mode — no upper bound. Replaces the two-layer design
+  // shipped 2026-07-02 (this layer capped at z11 handing off to the live
+  // PARCEL_SALE_PLUS_LAYER Regrid-tile layer) — that handoff produced a
+  // visible pop (different rendering pipeline, tile-load latency) exactly
+  // at the boundary. At high zoom the viewport is tiny so the row count
+  // fetched stays small on its own; no row cap is ever applied (owner
+  // standing rule).
   //
-  // Regrid serves no vector tiles below z11 (verified against their
-  // CDN), so REGRID_MIN_ZOOM=11 leaves z9-10 with nothing. This layer
-  // fills that gap by reading OUR OWN durable copy of the same parcel
-  // data (backend /api/map/parcel-sale-dots → regrid_parcels on the
-  // Soils DB, kept fresh by a write-through sync on every Regrid tile
-  // fetch) instead of Regrid tiles directly. At z>=11 this layer hides
-  // and the live PARCEL_SALE_PLUS_LAYER (Regrid-tile-driven) takes
-  // over — no double-rendering, no gap.
+  // COMP MODE: kept at the ORIGINAL z9-11 gap-fill range (see the mode-sync
+  // effect right below this one, which calls setLayerZoomRange). Comp
+  // mode's "+"-pin continuity above z11 is unchanged — PARCEL_SALE_PLUS_LAYER
+  // keeps that role, since this layer's onClick opens the explore-only
+  // LandDetailPanel, not the comp add-to-report popup (see that effect's
+  // comment for the full rationale).
+  //
+  // Fade only on the way OUT (zooming below DURABLE_DOT_MIN_ZOOM):
+  // circle-opacity/circle-stroke-opacity interpolate 0 at z8.8 to fully
+  // opaque at z9.3. Above z9.3 the style is 100% constant — same radius/
+  // color/stroke at every zoom.
   //
   // Styled identical to the live sale-dot pin (#f58cde pink, white
-  // ring) so there's no visual seam when the user crosses z11 while
-  // panning.
+  // ring) so there's no visual seam between explore and comp mode.
   //
   // Click behavior: opens the same unified LandDetailPanel the z11+
   // parcel layer opens (parity with the live Regrid layer). The
@@ -3598,7 +3648,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const DURABLE_DOT_SOURCE = 'parcel-sale-dots-durable'
   const DURABLE_DOT_LAYER = 'parcel-sale-dots-durable-circle'
   const DURABLE_DOT_MIN_ZOOM = 9
-  const DURABLE_DOT_MAX_ZOOM = 11 // hides at/after REGRID_MIN_ZOOM (11) — live layer takes over
+  const DURABLE_DOT_COMP_MAX_ZOOM = 11 // comp-mode-only cap — hands off to PARCEL_SALE_PLUS_LAYER there, unchanged
   const DURABLE_DOT_MIN_ACRES = 10 // owner rule: never show parcel dots under 10 acres
 
   useEffect(() => {
@@ -3613,16 +3663,24 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         id: DURABLE_DOT_LAYER,
         type: 'circle',
         source: DURABLE_DOT_SOURCE,
+        // No maxzoom here — explore mode is uncapped. Comp mode's cap is
+        // applied right after mount (and on every subjectTractId change)
+        // by the mode-sync effect below via setLayerZoomRange, since the
+        // initial mount always happens in explore mode first.
         minzoom: DURABLE_DOT_MIN_ZOOM,
-        maxzoom: DURABLE_DOT_MAX_ZOOM,
         paint: {
           // Matches ensureParcelSaleDotImage: #f58cde fill, white ring.
           'circle-color': '#f58cde',
           'circle-radius': 6,
           'circle-stroke-color': '#ffffff',
           'circle-stroke-width': 2,
+          'circle-opacity': ['interpolate', ['linear'], ['zoom'], 8.8, 0, 9.3, 1],
+          'circle-stroke-opacity': ['interpolate', ['linear'], ['zoom'], 8.8, 0, 9.3, 1],
         },
       })
+      if (subjectTractIdRef.current) {
+        try { map.setLayerZoomRange(DURABLE_DOT_LAYER, DURABLE_DOT_MIN_ZOOM, DURABLE_DOT_COMP_MAX_ZOOM) } catch {/* layer torn down */}
+      }
       const onClick = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
         const f = e.features?.[0]
         if (!f || f.geometry.type !== 'Point') return
@@ -3670,12 +3728,36 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
   }, [mapLoaded])
 
-  // Fetch durable dots on moveend while zoom is in the [9, 11) gap.
+  // Keep DURABLE_DOT_LAYER's zoom range in sync with comp mode: uncapped
+  // (explore) vs capped at z11 (comp, where PARCEL_SALE_PLUS_LAYER takes
+  // over above that — unchanged behavior). Mirrors the PARCEL_SALE_PLUS_LAYER
+  // mode-sync effect above; runs whenever subjectTractId flips.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+    if (!map.getLayer(DURABLE_DOT_LAYER)) return
+    const inComp = !!subjectTractId
+    try {
+      map.setLayerZoomRange(
+        DURABLE_DOT_LAYER,
+        DURABLE_DOT_MIN_ZOOM,
+        inComp ? DURABLE_DOT_COMP_MAX_ZOOM : 24,
+      )
+    } catch {/* layer torn down */}
+  }, [mapLoaded, subjectTractId])
+
+  // Fetch durable dots on moveend. In EXPLORE mode this runs at every zoom
+  // >= DURABLE_DOT_MIN_ZOOM (no upper bound — the layer is uncapped there
+  // too); at high zoom the viewport is tiny so the row count stays small on
+  // its own, and no row cap is ever applied (owner standing rule). In COMP
+  // mode this still stops at z11 (DURABLE_DOT_COMP_MAX_ZOOM), matching the
+  // layer's comp-mode zoom cap set by the mode-sync effect above — no point
+  // fetching data for a hidden-by-zoom layer.
   // No cache cells (unlike tract loading) — the payload is tiny points,
   // so one bbox request per settle is cheap. Applies the SAME saledate
-  // windowing the live Regrid sale-dot filter uses (resolveDateWindow)
-  // so the two layers never disagree about which sales are "in range"
-  // as the user crosses the z11 handoff.
+  // windowing the live Regrid sale-dot filter uses (resolveDateWindow) so
+  // the two layers never disagree about which sales are "in range" at the
+  // comp-mode z11 handoff.
   //
   // Debounced + generation-guarded the same way handleMoveEnd debounces
   // loadTractsForBounds above: rapid pan/zoom fires many moveends, and
@@ -3689,7 +3771,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
     const runFetchDurableDots = async () => {
       const z = map.getZoom()
-      if (z < DURABLE_DOT_MIN_ZOOM || z >= DURABLE_DOT_MAX_ZOOM) return
+      const inComp = !!subjectTractIdRef.current
+      if (z < DURABLE_DOT_MIN_ZOOM) return
+      if (inComp && z >= DURABLE_DOT_COMP_MAX_ZOOM) return
       if (!map.getSource(DURABLE_DOT_SOURCE)) return
       const bounds = map.getBounds()
       const { from, to, upcomingOnly } = resolveDateWindow(filtersRef.current)
@@ -4475,10 +4559,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       if (!e.features?.length) return
       const csbProps: any = e.features[0].properties || {}
       // Task #26: CSB (minzoom 10, uncapped) overlaps tract layers
-      // (minzoom 9) and the sale-dot layers (z9-11 durable, z11+ live) at
-      // the same click point. All of those outrank CSB in the priority
-      // chain (tract > sale dot > parcel fill > overlays) — if any is
-      // under the click, its own handler owns the panel.
+      // (minzoom 9) and the sale-dot layers (durable, uncapped in explore
+      // mode; parcel-sale-pin-plus, comp-mode-only "+" pin) at the same
+      // click point. All of those outrank CSB in the priority chain (tract
+      // > sale dot > parcel fill > overlays) — if any is under the click,
+      // its own handler owns the panel.
       const regridLayer = 'regrid-parcels-fill'
       let hasParcel = false
       try {
