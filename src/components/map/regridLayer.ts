@@ -402,7 +402,13 @@ export function addRegridLayer(
     // for higher zooms. Vector parcel boundaries scale without
     // quality loss — saves ~75% of Regrid tile fetches at z=15+.
     maxzoom: 14,
-    promoteId: { [sourceLayer]: 'll_uuid' },
+    // `path` is the feature identity used for hover (see task #24):
+    // custom Regrid tile layers never carry ll_uuid on the tile
+    // features themselves (only on the click-fetch record), so
+    // promoting ll_uuid left setFeatureState permanently unmatched.
+    // `path` is present on every feature in both tile sources and
+    // is stable per-parcel, so hover highlight now keys off it.
+    promoteId: { [sourceLayer]: 'path' },
     attribution: 'Parcel data &copy; <a href="https://regrid.com" target="_blank" rel="noopener">Regrid</a>',
   } as any)
 
@@ -544,24 +550,26 @@ export function addRegridLayer(
   if (map.getLayer('tract-polygon-fill')) map.moveLayer('tract-polygon-fill')
   if (map.getLayer('tract-polygon-line')) map.moveLayer('tract-polygon-line')
 
-  // Hover highlight (toggles fill-opacity via feature-state).
-  let hoveredUuid: string | null = null
+  // Hover highlight (toggles fill-opacity via feature-state). Keyed on
+  // `path` (promoted above) — NOT ll_uuid, which custom Regrid tiles
+  // never populate on the tile feature itself.
+  let hoveredPath: string | null = null
   const onMove = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
     if (!e.features?.length) return
     map.getCanvas().style.cursor = 'pointer'
-    const newUuid = (e.features[0].properties as any)?.ll_uuid as string | undefined
-    if (!newUuid || newUuid === hoveredUuid) return
-    if (hoveredUuid) {
-      map.setFeatureState({ source: SOURCE_ID, sourceLayer: sourceLayer, id: hoveredUuid }, { hover: false })
+    const newPath = (e.features[0].properties as any)?.path as string | undefined
+    if (!newPath || newPath === hoveredPath) return
+    if (hoveredPath) {
+      map.setFeatureState({ source: SOURCE_ID, sourceLayer: sourceLayer, id: hoveredPath }, { hover: false })
     }
-    hoveredUuid = newUuid
-    map.setFeatureState({ source: SOURCE_ID, sourceLayer: sourceLayer, id: hoveredUuid }, { hover: true })
+    hoveredPath = newPath
+    map.setFeatureState({ source: SOURCE_ID, sourceLayer: sourceLayer, id: hoveredPath }, { hover: true })
   }
   const onLeave = () => {
     map.getCanvas().style.cursor = ''
-    if (hoveredUuid) {
-      map.setFeatureState({ source: SOURCE_ID, sourceLayer: sourceLayer, id: hoveredUuid }, { hover: false })
-      hoveredUuid = null
+    if (hoveredPath) {
+      map.setFeatureState({ source: SOURCE_ID, sourceLayer: sourceLayer, id: hoveredPath }, { hover: false })
+      hoveredPath = null
     }
   }
 
