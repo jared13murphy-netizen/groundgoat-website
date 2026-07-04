@@ -383,15 +383,34 @@ export default function ComparablesMap({
           .setData({ type: 'FeatureCollection', features: [] })
         return
       }
+      // A statuses selection that excludes "sold" can never match a dot
+      // (every dot IS a historical sold comparable) — same rule the
+      // upcomingOnly branch above enforces for dates. Clear instead of
+      // querying, mirroring the backend's own short-circuit.
+      if (filters?.statuses?.length && !filters.statuses.includes('sold')) {
+        (map.getSource(DURABLE_DOT_SOURCE) as maplibregl.GeoJSONSource)
+          .setData({ type: 'FeatureCollection', features: [] })
+        return
+      }
       const myGen = ++gen
       try {
         const bounds = map.getBounds()
+        // Task #30: scope dots the same way this map scopes comparables —
+        // always to the subject's state, and to the subject's own county
+        // only when countyScope is 'same' (compFiltersToRegrid already
+        // resolves acreage/date; state/county/status aren't part of its
+        // RegridFilterInput shape so they're added directly here).
         const qs = new URLSearchParams({
           min_lat: String(bounds.getSouth()),
           max_lat: String(bounds.getNorth()),
           min_lng: String(bounds.getWest()),
           max_lng: String(bounds.getEast()),
         })
+        if (subjectState) qs.set('state_abbr', subjectState)
+        if (filters?.countyScope === 'same' && subjectCounty) qs.set('county_name', subjectCounty)
+        if (filters?.statuses?.length) qs.set('sale_status', filters.statuses.flatMap(s => s.split(',')).join(','))
+        if (filters?.acreageMin) qs.set('acreage_min', filters.acreageMin)
+        if (filters?.acreageMax) qs.set('acreage_max', filters.acreageMax)
         const res = await fetchWithAuth(`${API_URL}/api/map/parcel-sale-dots?${qs.toString()}`)
         if (!res.ok) return
         const data = await res.json()
@@ -427,7 +446,7 @@ export default function ComparablesMap({
       map.off('moveend', onMoveEnd)
       if (debounceTimer) clearTimeout(debounceTimer)
     }
-  }, [mapReady, subjectState, filters?.dateRange, filters?.acreageMin, filters?.acreageMax, filters?.statuses])
+  }, [mapReady, subjectState, subjectCounty, filters?.dateRange, filters?.acreageMin, filters?.acreageMax, filters?.statuses, filters?.countyScope])
 
   useEffect(() => {
     if (!mapContainerRef.current) return

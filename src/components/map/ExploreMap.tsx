@@ -3829,12 +3829,23 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       }
       const gen = ++durableDotsGenRef.current
       try {
+        // Task #30: dots used to ignore the filter panel entirely (bbox
+        // only) — filtering to a county/township or a non-Sold status
+        // still showed dots everywhere. buildFilterParams already
+        // produces the same location/status/acreage/price/date params
+        // the tract fetch sends; the backend now understands them for
+        // this endpoint too (see get_map_parcel_sale_dots in main.py).
+        const filterParams = buildFilterParams(filtersRef.current)
         const qs = new URLSearchParams({
           min_lat: String(bounds.getSouth()),
           max_lat: String(bounds.getNorth()),
           min_lng: String(bounds.getWest()),
           max_lng: String(bounds.getEast()),
+          ...filterParams,
         })
+        // has_polygon is a tract-only concept (dots have no polygon) —
+        // strip it so it doesn't silently no-op server-side.
+        qs.delete('has_polygon')
         const res = await fetchWithAuth(`${API_URL}/api/map/parcel-sale-dots?${qs.toString()}`)
         if (!res.ok) return
         const data = await res.json()
@@ -3871,7 +3882,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       map.off('moveend', fetchDurableDots)
       if (durableDotsDebounceRef.current) clearTimeout(durableDotsDebounceRef.current)
     }
-  }, [mapLoaded, filters.dateRange, filters.dateFrom, filters.dateTo])
+  }, [
+    mapLoaded,
+    filters.dateRange, filters.dateFrom, filters.dateTo,
+    filters.stateFilter, filters.countyFilters, filters.townshipFilters,
+    filters.statuses,
+    filters.acreageMin, filters.acreageMax,
+    filters.salePriceMin, filters.salePriceMax,
+  ])
 
   // Keep the Regrid fill / line / label layers' filter in sync with the
   // tile-native filter inputs (acreage, state, county, sale date,
