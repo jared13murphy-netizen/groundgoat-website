@@ -221,83 +221,21 @@ export default function ComparablesMap({
       labelMinZoom: 14,
     })
 
-    // --- Parcel "+" button -------------------------------------------
-    // Every Regrid parcel whose tile carries saleprice > 0 gets a pink
-    // "+" drawn per-feature by the GPU — a TEXT symbol with a thick pink
-    // halo, rendered the exact same reliable way the tile LABEL renders
-    // (glyph text + halo). No icon-image (a missing/late icon with the
-    // default icon-optional:false drops the whole symbol), no JS
-    // detection, no timing. addRegridLayer adds the 'regrid-parcels'
-    // source synchronously above, so it's guaranteed present here.
-    const PLUS = 'parcel-plus'
-    const plusSourceLayer = regridConfig.source_layer || 'parcels'
-    if (map.getSource('regrid-parcels') && !map.getLayer(PLUS)) {
-      map.addLayer({
-        id: PLUS,
-        type: 'symbol',
-        source: 'regrid-parcels',
-        'source-layer': plusSourceLayer,
-        minzoom: 11,
-        filter: ['>', ['to-number', ['coalesce', ['get', 'saleprice'], 0]], 0] as any,
-        layout: {
-          'text-field': '+',
-          'text-font': ['Open Sans Bold'],
-          'text-size': ['interpolate', ['linear'], ['zoom'], 8, 18, 14, 28],
-          'text-allow-overlap': true,
-          'text-ignore-placement': true,
-        },
-        paint: {
-          'text-color': '#ffffff',
-          'text-halo-color': '#E91E8C',
-          'text-halo-width': 3.2,
-          'text-halo-blur': 0.4,
-        },
-      })
-    }
-
-    const setPointer = () => { map.getCanvas().style.cursor = 'pointer' }
-    const clearPointer = () => { map.getCanvas().style.cursor = '' }
-    const onPlusClick = (
-      e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] },
-    ) => {
-      const f = e.features?.[0]
-      if (!f) return
-      // Task #26 (one click, one panel): the subject tract polygon always
-      // wins over a sale "+" underneath it — its own onClick (below) opens
-      // the tract detail modal.
-      if (clickClaimedByLayers(map, e.point, ['tract-polygon-fill'])) return
-      const p: any = f.properties || {}
-      const toNum = (v: any): number | null => {
-        if (v == null) return null
-        const n = parseFloat(String(v).replace(/[^0-9.]/g, ''))
-        return Number.isFinite(n) ? n : null
-      }
-      const acres = toNum(p.ll_gisacre) ?? toNum(p.gisacre)
-      const salePrice = toNum(p.saleprice)
-      const ppa = salePrice != null && acres != null && acres > 0 ? salePrice / acres : null
-      setSelectedSale({
-        id: String(p.path ?? p.ogc_fid ?? p.parcelnumb ?? `${e.lngLat.lng},${e.lngLat.lat}`),
-        auctionDate: typeof p.saledate === 'string' ? p.saledate.slice(0, 10) : null,
-        totalAcres: acres,
-        salePrice,
-        pricePerAcre: ppa,
-        county: subjectCounty,
-        state: subjectState,
-        companyName: p.owner ?? null,
-      })
-    }
-    map.on('mouseenter', PLUS, setPointer)
-    map.on('mouseleave', PLUS, clearPointer)
-    map.on('click', PLUS, onPlusClick)
-
+    // Parcel "+" button: REMOVED 2026-07-04 (one-dot-layer task). This used
+    // to be a live Regrid-tile SymbolLayer ('parcel-plus', minzoom 11)
+    // drawing a pink "+" for every priced parcel, handing off from the
+    // durable-dot layer below at z11 — the durable layer is a
+    // write-through-synced COPY of the exact same Regrid parcel-sale data
+    // (see the durable-dot section below), so the live layer was fully
+    // redundant once the durable layer's zoom cap is lifted. Removing it
+    // outright (rather than gating by mode, as ExploreMap.tsx's shared
+    // explore/comp component does) matches this file's mobile counterpart
+    // (ComparablesMapView.js), which had the same dedicated always-comp
+    // live "+" layer and removed it the same way.
     return () => {
-      map.off('mouseenter', PLUS, setPointer)
-      map.off('mouseleave', PLUS, clearPointer)
-      map.off('click', PLUS, onPlusClick)
-      if (map.getLayer(PLUS)) map.removeLayer(PLUS)
       cleanup()
     }
-  }, [mapReady, regridConfig, subjectCounty, subjectState])
+  }, [mapReady, regridConfig])
 
   // Keep the Regrid fill/line/label filter in sync with the comparables
   // filter panel. Tile-native filters only (acreage, sale date, sold);
@@ -322,18 +260,30 @@ export default function ComparablesMap({
     filters?.statuses,
   ])
 
-  // ── Durable-table parcel-sale dots — z9-10 gap fill (4-map parity) ──
-  // Regrid serves no vector tiles below z11 (REGRID_MIN_ZOOM used above),
-  // so this reads our own durable copy of the same parcel data (backend
-  // /api/map/parcel-sale-dots) instead. On this comp map the dots render
-  // with the SAME pink "+" plus-icon affordance as the live PLUS layer
-  // above (not a plain dot) so the sale iconography stays consistent
-  // across the z11 handoff. Clicking one follows this map's existing
-  // add-to-report flow (setSelectedSale), same as clicking a live "+".
+  // ── Durable-table parcel-sale dots — THE ONLY sale "+" layer on this map
+  // (owner directive 2026-07-04: "the dots should never change... as soon
+  // as I'm zoomed in enough to see dots, they should never go away no
+  // matter how much I zoom in"). Reads our own durable copy of the same
+  // parcel data (backend /api/map/parcel-sale-dots — a write-through-synced
+  // copy of the exact same Regrid parcel-sale data the removed live
+  // 'parcel-plus' layer used to read from tiles) at every zoom >=
+  // DURABLE_DOT_MIN_ZOOM, no upper bound. Replaces the two-layer design
+  // (this layer capped at z11 handing off to the live 'parcel-plus'
+  // Regrid-tile layer, now removed above) — that handoff produced a
+  // visible pop (different rendering pipeline, tile-load latency) exactly
+  // at the boundary. At high zoom the viewport is tiny so the row count
+  // fetched stays small on its own; no row cap is ever applied (owner
+  // standing rule). Renders with the SAME pink "+" plus-icon affordance the
+  // live layer used, so there's no visual change from the user's
+  // perspective — only the seam is gone. Clicking one follows this map's
+  // existing add-to-report flow (setSelectedSale), same as the removed
+  // live "+" did.
+  // Fade only on the way OUT (zooming below DURABLE_DOT_MIN_ZOOM): opacity
+  // interpolates 0 at z8.8 to fully opaque at z9.3. Above z9.3 the style is
+  // 100% constant at every zoom.
   const DURABLE_DOT_SOURCE = 'parcel-sale-dots-durable'
   const DURABLE_DOT_LAYER = 'parcel-sale-dots-durable-plus'
   const DURABLE_DOT_MIN_ZOOM = 9
-  const DURABLE_DOT_MAX_ZOOM = 11 // hides at/after minZoom(11) used by the PLUS/fill layers above
   const DURABLE_DOT_MIN_ACRES = 10 // owner rule: never show parcel dots under 10 acres
 
   useEffect(() => {
@@ -348,8 +298,8 @@ export default function ComparablesMap({
         id: DURABLE_DOT_LAYER,
         type: 'symbol',
         source: DURABLE_DOT_SOURCE,
+        // No maxzoom — this is now the only sale-"+" layer at every zoom.
         minzoom: DURABLE_DOT_MIN_ZOOM,
-        maxzoom: DURABLE_DOT_MAX_ZOOM,
         layout: {
           'text-field': '+',
           'text-font': ['Open Sans Bold'],
@@ -362,6 +312,7 @@ export default function ComparablesMap({
           'text-halo-color': '#E91E8C',
           'text-halo-width': 3.2,
           'text-halo-blur': 0.4,
+          'text-opacity': ['interpolate', ['linear'], ['zoom'], 8.8, 0, 9.3, 1],
         },
       })
     }
@@ -410,8 +361,10 @@ export default function ComparablesMap({
     }
   }, [mapReady, subjectCounty, subjectState])
 
-  // Fetch durable dots on moveend while zoom is in the [9, 11) gap.
-  // Mirrors the Web Explore map's durable-dot fetch (ExploreMap.tsx).
+  // Fetch durable dots on moveend at every zoom >= DURABLE_DOT_MIN_ZOOM, no
+  // upper bound (mirrors the Web Explore map's durable-dot fetch in
+  // ExploreMap.tsx). Viewport-bounded at every zoom, same debounce; at deep
+  // zoom the viewport is tiny so the row count stays small on its own.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapReady) return
@@ -420,7 +373,7 @@ export default function ComparablesMap({
 
     const runFetch = async () => {
       const z = map.getZoom()
-      if (z < DURABLE_DOT_MIN_ZOOM || z >= DURABLE_DOT_MAX_ZOOM) return
+      if (z < DURABLE_DOT_MIN_ZOOM) return
       if (!map.getSource(DURABLE_DOT_SOURCE)) return
       const regridInput = compFiltersToRegrid(filters, subjectState)
       if (regridInput.upcomingOnly) {
