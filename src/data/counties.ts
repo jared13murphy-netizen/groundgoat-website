@@ -89,3 +89,9 @@ export function getCountiesForState(state: string): string[] {
 export function getStateAbbreviation(stateName: string): string {
   return STATE_ABBREVIATIONS[stateName] || stateName
 }
+
+// Helper function to get the full state name from a 2-letter abbreviation
+// (passes through unchanged if it's already a full name or unrecognized).
+export function getStateFullName(state: string): string {
+  return ABBR_TO_FULL[state.toUpperCase()] || state
+}

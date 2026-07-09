@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { MapPin, ArrowLeft, Loader2, ChevronDown, Lock } from 'lucide-react'
 import { parseApiError } from '@/lib/parseApiError'
 import { PRICING, formatPrice } from '@/config/pricing'
+import { STATE_ABBREVIATIONS, getStateAbbreviation, getStateFullName } from '@/data/counties'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -46,17 +47,14 @@ function UpgradePageContent() {
   const prefilledState = searchParams.get('state') || ''
   const prefilledCounty = searchParams.get('county') || ''
 
-  // Valid US states to filter against
-  const VALID_STATES = [
-    'Alabama', 'Alaska', 'Arizona', 'Arkansas', 'California', 'Colorado', 'Connecticut',
-    'Delaware', 'Florida', 'Georgia', 'Hawaii', 'Idaho', 'Illinois', 'Indiana', 'Iowa',
-    'Kansas', 'Kentucky', 'Louisiana', 'Maine', 'Maryland', 'Massachusetts', 'Michigan',
-    'Minnesota', 'Mississippi', 'Missouri', 'Montana', 'Nebraska', 'Nevada', 'New Hampshire',
-    'New Jersey', 'New Mexico', 'New York', 'North Carolina', 'North Dakota', 'Ohio',
-    'Oklahoma', 'Oregon', 'Pennsylvania', 'Rhode Island', 'South Carolina', 'South Dakota',
-    'Tennessee', 'Texas', 'Utah', 'Vermont', 'Virginia', 'Washington', 'West Virginia',
-    'Wisconsin', 'Wyoming'
-  ]
+  // Valid 2-letter state abbreviations to sanity-filter against. Listing.state
+  // (and UserSubscription.state) are stored abbreviated on the backend, so
+  // availableStates/selectedState must carry abbreviations end-to-end —
+  // otherwise the isAlreadySubscribed/isPastDueForState checks below and the
+  // backend "already subscribed" guards never string-match (double-charge
+  // gap: a picked full name like "Illinois" would sail past every guard).
+  const VALID_STATE_ABBRS = new Set(Object.values(STATE_ABBREVIATIONS))
+  const FALLBACK_STATE_CODES = ['IL', 'IA', 'MO', 'IN', 'WI']
 
   useEffect(() => {
     const token = localStorage.getItem('auth_token')
@@ -70,12 +68,15 @@ function UpgradePageContent() {
     fetchAvailableStates()
   }, [])
 
-  // Pre-fill state and county from URL params once states are loaded
+  // Pre-fill state and county from URL params once states are loaded.
+  // The URL param may arrive as a full name (older links) or an abbreviation
+  // (mobile TerritoryModal) — normalize to the abbreviation availableStates
+  // now carries before matching.
   useEffect(() => {
     if (prefilledState && availableStates.length > 0) {
-      // Find matching state (case insensitive)
+      const prefilledAbbr = getStateAbbreviation(prefilledState)
       const matchedState = availableStates.find(
-        s => s.toLowerCase() === prefilledState.toLowerCase()
+        s => s.toLowerCase() === prefilledAbbr.toLowerCase()
       )
       if (matchedState && !selectedState) {
         setSelectedState(matchedState)
@@ -124,17 +125,22 @@ function UpgradePageContent() {
       const response = await fetch(`${API_URL}/api/subscriptions/available-states`)
       if (response.ok) {
         const data = await response.json()
-        let states: string[] = []
+        let codes: string[] = []
         if (Array.isArray(data)) {
-          states = data
+          codes = data
             .map((item: any) => typeof item === 'string' ? item : item.state)
-            .filter((s: string) => VALID_STATES.includes(s))
-            .sort()
+            .filter((s: string) => !!s)
+            // Normalize defensively (the API returns abbreviations already,
+            // but this passes through unchanged if it ever doesn't).
+            .map((s: string) => getStateAbbreviation(s))
+            .filter((s: string) => VALID_STATE_ABBRS.has(s))
         }
-        setAvailableStates(states.length > 0 ? states : VALID_STATES.slice(0, 10))
+        // Show every state the API returns — no slicing/capping.
+        const uniqueSorted = Array.from(new Set(codes)).sort()
+        setAvailableStates(uniqueSorted.length > 0 ? uniqueSorted : FALLBACK_STATE_CODES)
       }
     } catch (err) {
-      setAvailableStates(['Illinois', 'Iowa', 'Missouri', 'Indiana', 'Wisconsin'])
+      setAvailableStates(FALLBACK_STATE_CODES)
     } finally {
       setLoadingStates(false)
     }
@@ -190,7 +196,12 @@ function UpgradePageContent() {
         },
         body: JSON.stringify({
           subscription_type: subscriptionType,
-          state: selectedState,
+          // selectedState is already an abbreviation (availableStates carries
+          // codes end-to-end), but normalize here too — same belt-and-
+          // suspenders as signup/page.tsx's getStateAbbreviation() calls —
+          // so this never regresses to sending a full name the backend
+          // guards can't string-match against UserSubscription.state.
+          state: getStateAbbreviation(selectedState),
           county: null,
           billing_cycle: 'annual', // all plans bill annually
         })
@@ -241,6 +252,15 @@ function UpgradePageContent() {
     (a.status === 'active' || a.status === 'trialing') && a.state === selectedState
   )
 
+  // A past_due subscription for this state is still owned — its payment is
+  // just lapsed. It must NOT be treated as "available to buy": starting a
+  // brand-new checkout here would double-charge the user once their
+  // original subscription's payment retries succeed. Route them to renew
+  // instead of purchasing again.
+  const isPastDueForState = areasData?.areas?.some(a =>
+    a.status === 'past_due' && a.state === selectedState
+  )
+
   return (
     <div className="min-h-screen bg-gg-black pt-24 pb-12">
       <div className="max-w-lg mx-auto px-6">
@@ -282,7 +302,7 @@ function UpgradePageContent() {
                 className="w-full bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-4 py-3 text-left text-white flex items-center justify-between"
               >
                 <span className={selectedState ? 'text-white' : 'text-gg-gray-500'}>
-                  {selectedState || 'Select a state...'}
+                  {selectedState ? getStateFullName(selectedState) : 'Select a state...'}
                 </span>
                 <ChevronDown size={20} className="text-gg-gray-500" />
               </button>
@@ -304,7 +324,7 @@ function UpgradePageContent() {
                       }}
                       className="w-full px-4 py-3 text-left text-gg-gray-300 hover:bg-gg-gray-700 hover:text-white"
                     >
-                      {state}
+                      {getStateFullName(state)}
                     </button>
                   ))}
                 </div>
@@ -318,7 +338,7 @@ function UpgradePageContent() {
               <div className="w-full bg-gg-gray-800 border border-gg-pink rounded-lg px-4 py-3">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-white font-medium">Entire {selectedState} state</p>
+                    <p className="text-white font-medium">Entire {getStateFullName(selectedState)} state</p>
                     <p className="text-gg-pink text-sm">${formatPrice(perStateAnnual)}/year (all counties included)</p>
                   </div>
                   <div className="w-5 h-5 bg-gg-pink rounded-full flex items-center justify-center">
@@ -346,11 +366,22 @@ function UpgradePageContent() {
             </div>
           )}
 
+          {!isAlreadySubscribed && isPastDueForState && (
+            <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4 mb-4">
+              <p className="text-yellow-400 text-sm">
+                Your subscription for this area needs renewing — your last payment didn&apos;t go through.
+              </p>
+              <Link href="/account/subscription" className="text-yellow-400 underline text-sm mt-1 inline-block">
+                Update payment
+              </Link>
+            </div>
+          )}
+
           {/* Action Buttons */}
           {isLoggedIn ? (
             <button
               onClick={handleAddArea}
-              disabled={!selectedState || addingArea || isAlreadySubscribed}
+              disabled={!selectedState || addingArea || isAlreadySubscribed || isPastDueForState}
               className="w-full bg-gg-pink text-black font-semibold py-3 px-4 rounded-lg hover:bg-gg-pink-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               {addingArea ? (
