@@ -1033,6 +1033,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // Chat-search: when true, the cell-loader pauses (we run a single
   // wide query instead) and the chat-search animation overlays the map.
   const [chatSearching, setChatSearching] = useState(false)
+  // Owner addition (2026-07-09): warn the user the search may take a few
+  // extra seconds when it's NOT county-scoped (state-wide or nationwide
+  // bbox) — reuses the same hasCountyFilter check the dots-bbox-scoping
+  // fix above already computes. Defaults false so the very first frame
+  // of the overlay (fired by chatSearchStartSignal, before we even know
+  // the parsed filters yet) doesn't flash the warning; the
+  // applyExternalFilters effect below sets the real value once it knows.
+  const [chatSearchLargeArea, setChatSearchLargeArea] = useState(false)
   // Mirror state in a ref so handleMoveEnd (which is created via useCallback
   // before the state's first render) can read it without re-creating.
   const chatSearchingRef = useRef(false)
@@ -1058,6 +1066,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     if (chatSearchStartSignal && chatSearchStartSignal > 0) {
       chatSearchStartedAtRef.current = Date.now()
       setChatSearching(true)
+      // Clear any "large search" copy left over from a previous search
+      // until the applyExternalFilters effect knows this one's actual
+      // county scope — avoids a stale flash of the warning.
+      setChatSearchLargeArea(false)
     }
   }, [chatSearchStartSignal])
   // Stop the animation when the chat panel signals the response
@@ -1608,11 +1620,49 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // discarding this response as "stale" and falling back to the old
     // slow moveend-driven path. See that effect for the matching half of
     // this fix.
+    //
+    // REGRESSION FIX (owner 2026-07-09, "sold farmland in Hancock County
+    // Illinois" hung the overlay 45s): a county-filtered search still
+    // queried the FULL STATE bbox here (qbbox = STATE_BOUNDS, since bbox
+    // picking predates county awareness) — for Hancock County, IL that's
+    // ~198K parcel-sale dots. The overlay used to only wait on the tract
+    // fetch (below); a later commit made it also await this dots fetch,
+    // so the whole-state dots payload blocked the "no loading state over
+    // 5s" rule. Two changes: (1) the overlay no longer waits on dots at
+    // all, see the .finally() below — dots always stream in the
+    // background, whatever bbox they're scoped to; (2) when the search
+    // includes countyFilters, don't fire the upfront whole-state fetch
+    // here — there's no county-boundary/bbox dataset client-side to
+    // scope it tightly (countyCentroids, used for the camera pan above,
+    // only has point centroids, not extents). Instead the county-scoped
+    // fetch is fired from inside the tract-fetch .then() below, using the
+    // ACCEPTED tracts' bbox padded ~20% — that's already computed there
+    // for fitBounds, guaranteed small (just the results about to be on
+    // screen), and needs no new lookup table. Non-county searches
+    // (state-only / nationwide) keep the original upfront parallel fetch
+    // since a state bbox (or smaller) was never the slow case.
+    const hasCountyFilter = (nextFilters.countyFilters?.length ?? 0) > 0
+    // Same signal drives the "large searches take longer" overlay copy —
+    // county-scoped searches are small/fast and never show it.
+    setChatSearchLargeArea(!hasCountyFilter)
     durableDotsByIdRef.current.clear()
-    const dotsPromise = fetchDurableDotsForBounds(
-      { south: qSouth, north: qNorth, west: qWest, east: qEast },
-      { bypassZoomGate: true },
-    )
+    // CODE AUDITOR FIX (2026-07-09): clearing the JS accumulator above
+    // isn't enough on its own — the rendered GeoJSONSource still holds
+    // the PREVIOUS search's dots until something calls setData again.
+    // For a county-filtered search that ends with zero accepted tracts,
+    // neither dots-fetch path below ever fires (the upfront fetch is
+    // skipped for county searches, and the accepted-bbox fetch only
+    // fires inside the `accepted.length > 0` branch), so the old dots
+    // stayed on screen next to a "No tracts matched" toast. Clear the
+    // source atomically right alongside the accumulator so there's never
+    // a stale-dots gap, regardless of which path (or neither) re-fills it.
+    ;(map.getSource(DURABLE_DOT_SOURCE) as maplibregl.GeoJSONSource)?.setData(EMPTY_FC)
+    if (!hasCountyFilter) {
+      fetchDurableDotsForBounds(
+        { south: qSouth, north: qNorth, west: qWest, east: qEast },
+        { bypassZoomGate: true },
+      )
+    }
 
     // Single wide-bbox query with the new filter set. The backend always
     // returns every matching tract in the bbox (no limit/cap applies).
@@ -1695,6 +1745,24 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             map.fitBounds([[minLng, minLat], [maxLng, maxLat]], {
               padding: 100, duration: 900, maxZoom: 12,
             })
+
+            // County-scoped dots (see the hasCountyFilter branch above):
+            // fire it now that we have a tight bbox, padded 20% per side
+            // so it comfortably covers the fitBounds view (which itself
+            // adds screen-space padding) without ever ballooning back up
+            // to state size. Background fetch — NOT awaited, doesn't
+            // block or extend the chatSearching overlay.
+            if (hasCountyFilter) {
+              const latPad = (maxLat - minLat) * 0.2 || 0.05
+              const lngPad = (maxLng - minLng) * 0.2 || 0.05
+              fetchDurableDotsForBounds(
+                {
+                  south: minLat - latPad, north: maxLat + latPad,
+                  west: minLng - lngPad, east: maxLng + lngPad,
+                },
+                { bypassZoomGate: true },
+              )
+            }
           }
         } else {
           // Zero-result honesty (owner rule: wrong/misleading data is
@@ -1730,13 +1798,21 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         // happened. Only the generation that currently owns the map is
         // allowed to turn the overlay off.
         //
-        // Owner rule (2026-07-09): tracts and parcel-sale dots must
-        // appear together — wait on the dots fetch too (it never throws;
-        // fetchDurableDotsForBounds swallows its own errors) so the
-        // chatSearching overlay doesn't drop before both have landed.
-        dotsPromise.finally(() => {
-          if (myGen === tractsGenRef.current) stopChatSearchingSoon()
-        })
+        // REGRESSION FIX (owner 2026-07-09, HARD RULE: no user-facing
+        // loading state may ever exceed 5s): a prior commit made this
+        // ALSO wait on the dots fetch ("tracts and parcel-sale dots must
+        // appear together") so the overlay wouldn't drop before both
+        // landed. For a state-wide dots query (~198K rows, county-filter
+        // case above didn't exist yet) that fetch alone took ~45s,
+        // hanging the overlay for that whole time. Dots are visually
+        // secondary (small background points vs. the tract polygons/list
+        // the user is waiting on) and fetchDurableDotsForBounds already
+        // streams them in and paints the source directly — nothing here
+        // needs to await it. Overlay now stops purely on the tract
+        // fetch's own settle, same as before that commit; dots still
+        // fetch in parallel/background (see above) and simply appear
+        // whenever they land.
+        if (myGen === tractsGenRef.current) stopChatSearchingSoon()
       })
 
     return () => ac.abort()
@@ -6466,9 +6542,21 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               backdropFilter: 'blur(8px)',
               filter: 'drop-shadow(0 3px 10px rgba(0,0,0,0.5))',
               animation: 'goatPillShine 2s ease-in-out infinite',
+              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
             }}
           >
-            ✨ Searching the map…
+            <span>✨ Searching the map…</span>
+            {/* Owner addition (2026-07-09): only for state-wide/nationwide
+                searches (hasCountyFilter false, see the dots-bbox-scoping
+                fix above) — county-scoped searches are already fast and
+                never show this. Secondary line, same font family, smaller
+                and lighter than the pill's primary text — no new visual
+                language. */}
+            {chatSearchLargeArea && (
+              <span style={{ fontSize: 11, fontWeight: 400, opacity: 0.75 }}>
+                Large searches cover a lot of ground — this can take a few extra seconds.
+              </span>
+            )}
           </div>
           <style>{`
             @keyframes goatPulse {
