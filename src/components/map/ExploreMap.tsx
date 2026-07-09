@@ -1351,23 +1351,40 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // Filter-aware state-tier counts. Auto-refetches when filters
   // change, so silhouette badges stay accurate to the user's filter
   // set across the entire DB (not just the cell-loader's loaded set).
+  //
+  // Clear-then-fetch (2026-07-09 incident): previously this effect left
+  // whatever counts were already in state untouched until the new fetch
+  // resolved, and a thrown fetch error (network blip, CORS, timeout) was
+  // silently swallowed with no fallback — so a filtered chat search that
+  // hit either case left the PREVIOUS (often unfiltered/nationwide) pink
+  // count bubbles on screen indefinitely, contradicting the toast that
+  // honestly reported zero matches. The tract-pin path already avoids
+  // this by calling setTracts([]) the instant a filter changes (see
+  // tractsGenRef); mirror that here so the count bubbles obey the same
+  // "always reflect the active search" rule at every zoom level — they
+  // now go blank the moment the filter changes and land on blank (never
+  // stale) if the refetch fails outright.
   useEffect(() => {
     let cancel = false
+    setStateCounts([])
     fetchWithAuth(`${API_URL}/api/map/state-tract-counts?${filterParamString}`)
       .then(r => r.ok ? r.json() : { states: [] })
       .then(d => { if (!cancel) setStateCounts(d.states || []) })
-      .catch(() => {})
+      .catch(() => { if (!cancel) setStateCounts([]) })
     return () => { cancel = true }
   }, [filterParamString])
 
   // Filter-aware county-tier counts (scoped to selected state(s) when set).
+  // Same clear-then-fetch / never-stale-on-error rule as the state-tier
+  // effect above.
   useEffect(() => {
     let cancel = false
+    setCountyCounts([])
     const stateScope = filters.stateFilter ? `state=${filters.stateFilter}&` : ''
     fetchWithAuth(`${API_URL}/api/map/county-tract-counts?${stateScope}${filterParamString}`)
       .then(r => r.ok ? r.json() : { counties: [] })
       .then(d => { if (!cancel) setCountyCounts(d.counties || []) })
-      .catch(() => {})
+      .catch(() => { if (!cancel) setCountyCounts([]) })
     return () => { cancel = true }
   }, [filterParamString, filters.stateFilter])
 
@@ -1904,9 +1921,18 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
   const currentTier = currentZoomTier(currentZoom)
 
+  // Drives both the "Clear search" affordance and the county-tier
+  // pink-count-bubble/plain-name-label swap below — a filter this list
+  // misses means the bubble layer silently stays on plain county names
+  // (or "Clear search" stays hidden) even though a search narrowed the
+  // results. Must cover every field buildFilterParams sends, chat-only
+  // fields included (2026-07-09 audit: countyFilters, near*/radiusMiles,
+  // corners*, and pricePerSoilRating* were missing).
   const hasActiveFilters = filters.dateRange !== 'all' || filters.stateFilter !== '' ||
+    filters.countyFilters.length > 0 ||
     filters.townshipFilters.length > 0 ||
-    (SOIL_FILTER_ENABLED && (filters.soilRatingMin !== '' || filters.soilRatingMax !== '')) ||
+    (SOIL_FILTER_ENABLED && (filters.soilRatingMin !== '' || filters.soilRatingMax !== '' ||
+      filters.pricePerSoilRatingMin !== '' || filters.pricePerSoilRatingMax !== '')) ||
     filters.acreageMin !== '' || filters.acreageMax !== '' ||
     filters.pctTillableMin !== '' || filters.pctTillableMax !== '' ||
     filters.statuses.length > 0 ||
@@ -1915,6 +1941,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     filters.pricePerAcreMin !== '' || filters.pricePerAcreMax !== '' ||
     filters.salePriceMin !== '' || filters.salePriceMax !== '' ||
     filters.askingPriceMin !== '' || filters.askingPriceMax !== '' ||
+    (filters.nearLat !== '' && filters.nearLng !== '' && filters.radiusMiles !== '') ||
+    filters.cornersMin !== '' || filters.cornersMax !== '' ||
     filters.companyName !== '' || filters.buyer !== '' || filters.seller !== '' ||
     filters.hasHouse !== null || filters.hasBuildings !== null ||
     filters.hasPolygon !== null || filters.keyword !== ''
