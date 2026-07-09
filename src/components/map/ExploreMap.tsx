@@ -1132,7 +1132,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     Array<{ state: string; count: number }>
   >([])
   const [countyCounts, setCountyCounts] = useState<
-    Array<{ state: string; county: string; count: number; lat: number; lng: number }>
+    Array<{ state: string; county: string; count: number; lat: number; lng: number; dot_count?: number }>
   >([])
   // Full nationwide county centroid list (3,221 entries). Loaded once
   // from /data/county-centroids.json so we can render a badge for every
@@ -1583,6 +1583,37 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
     const [[qWest, qSouth], [qEast, qNorth]] = qbbox
 
+    // TIMING FIX (owner complaint 2026-07-09): parcel-sale dots used to
+    // load ~10s after tracts because the dots fetch only ever fired off
+    // the map's 'moveend' event, and chat search's fitBounds only fires
+    // 'moveend' AFTER this tract fetch resolves + a 900ms camera
+    // animation — dots were serialized behind tracts, not parallel with
+    // them. Fire the SAME qbbox at fetchDurableDotsForBounds right here,
+    // alongside the tract fetch kickoff below, so both requests start
+    // together. bypassZoomGate: true because we already know the
+    // search's target area regardless of the camera's CURRENT zoom (the
+    // camera hasn't moved yet — fitBounds happens once tracts resolve).
+    //
+    // CODE AUDITOR FIX (gen race, 2026-07-09): this effect owns the dots
+    // lifecycle for the whole duration of a chat search — clear the
+    // accumulator HERE (so stale dots from the previous filter set don't
+    // linger) before calling fetchDurableDotsForBounds, which captures
+    // the gen this fetch's response will be checked against. The moveend
+    // effect below (which also re-runs on this same setFilters-triggered
+    // render, since its deps include filters.*) is guarded to skip BOTH
+    // its own clear/gen-bump AND its fetch kickoff while chatSearching is
+    // true — it used to only guard the kickoff, which still let it bump
+    // durableDotsGenRef out from under this fetch's already-captured gen
+    // a beat later (same commit, before either fetch resolves), silently
+    // discarding this response as "stale" and falling back to the old
+    // slow moveend-driven path. See that effect for the matching half of
+    // this fix.
+    durableDotsByIdRef.current.clear()
+    const dotsPromise = fetchDurableDotsForBounds(
+      { south: qSouth, north: qNorth, west: qWest, east: qEast },
+      { bypassZoomGate: true },
+    )
+
     // Single wide-bbox query with the new filter set. The backend always
     // returns every matching tract in the bbox (no limit/cap applies).
     // include_polygons=true is required: isAcceptableMapTract rejects
@@ -1698,7 +1729,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         // moveend cell-loader mid-search-B, before B's own camera-fit has
         // happened. Only the generation that currently owns the map is
         // allowed to turn the overlay off.
-        if (myGen === tractsGenRef.current) stopChatSearchingSoon()
+        //
+        // Owner rule (2026-07-09): tracts and parcel-sale dots must
+        // appear together — wait on the dots fetch too (it never throws;
+        // fetchDurableDotsForBounds swallows its own errors) so the
+        // chatSearching overlay doesn't drop before both have landed.
+        dotsPromise.finally(() => {
+          if (myGen === tractsGenRef.current) stopChatSearchingSoon()
+        })
       })
 
     return () => ac.abort()
@@ -2009,8 +2047,24 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   )
 
   // ── County COUNT bubbles GeoJSON (filter-active). One Point per county
-  // with a matching tract count + averaged centroid from the
+  // with a matching count + real polygon centroid from the
   // /county-tract-counts endpoint.
+  //
+  // Position (owner complaint 2026-07-09): the backend used to anchor this
+  // at avg(matched-tract lat/lng), which skews toward wherever the search
+  // results happen to cluster inside the county (reported: bottom-right
+  // corner of Hancock County, IL for a "sold" search). The backend now
+  // returns the real county-polygon centroid (ST_Centroid over Soils DB
+  // county_boundaries) instead — see get_county_tract_counts /
+  // _get_county_dot_counts_and_centroids in ground-goat-backend main.py.
+  // Nothing to change here beyond consuming c.lat/c.lng as before.
+  //
+  // Count (owner complaint 2026-07-09): must be tracts + sold PARCELS
+  // combined, not tracts alone. dot_count is additive on the backend
+  // response (count itself stays tract-only for the mobile app, which
+  // reads the same endpoint and still labels it "tracts" — see backend
+  // comment) so this combines them client-side for the website's own
+  // (word-free) bubble label.
   const countyCountGeoJSON = useMemo((): GeoJSON.FeatureCollection => {
     return {
       type: 'FeatureCollection',
@@ -2019,7 +2073,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         .map(c => ({
           type: 'Feature' as const,
           geometry: { type: 'Point' as const, coordinates: [c.lng, c.lat] },
-          properties: { count: c.count, state: c.state, county: c.county },
+          properties: {
+            count: c.count + (c.dot_count || 0),
+            state: c.state,
+            county: c.county,
+          },
         })),
     }
   }, [countyCounts])
@@ -2346,8 +2404,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         },
       })
 
-      // County COUNT bubbles (filter-active): pink circle + count/"tracts"
-      // symbol. Visibility toggled by setLayoutProperty(hasActiveFilters).
+      // County COUNT bubbles (filter-active): pink circle + number.
+      // Visibility toggled by setLayoutProperty(hasActiveFilters).
       map.addLayer({
         id: 'county-count-circles',
         type: 'circle',
@@ -2368,7 +2426,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         maxzoom: TRACT_TIER_MIN,
         layout: {
           visibility: 'none',
-          'text-field': ['concat', ['to-string', ['get', 'count']], '\nTRACTS'],
+          // Owner rule (2026-07-09): number only, no "TRACTS" word — the
+          // count is now tracts + sold parcel-sale dots combined (see
+          // countyCountGeoJSON above), so labeling it "tracts" would be
+          // wrong as well as unwanted.
+          'text-field': ['to-string', ['get', 'count']],
           'text-font': ['Open Sans Bold'],
           'text-size': 11,
           'text-anchor': 'center',
@@ -3912,6 +3974,104 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // removed entirely. See the PARCEL_SALE_PLUS_LAYER mode-sync effect below
   // for why that layer is now hidden in COMP mode too, not just explore.
 
+  // Shared durable-dots fetch, parameterized by explicit bounds so it can
+  // be called two ways:
+  //   1. Viewport pans (moveend effect below) — debounced, zoom-gated,
+  //      uses the current camera bounds.
+  //   2. A chat search's OWN target bbox (chat-search-apply effect,
+  //      "AI chat applied filters" above) — immediate, no debounce, no
+  //      zoom-gate — fired in PARALLEL with the tract fetch instead of
+  //      waiting for fitBounds' 'moveend' to settle.
+  //
+  // TIMING FIX (owner complaint 2026-07-09): tracts loaded instantly but
+  // parcel-sale dots appeared ~10s later. Root cause: the dots fetch only
+  // ever fired off 'moveend', and chat search's fitBounds only fires
+  // 'moveend' AFTER the tract fetch resolves + a 900ms camera animation —
+  // so dots were serialized behind tracts (tract-fetch latency + 900ms
+  // animation + this effect's own 500ms debounce), not fetched in
+  // parallel with them. Extracting this as a bounds-parameterized
+  // function lets the chat-search effect call it directly, using the
+  // SAME qbbox the tract fetch uses, at the same moment — see that
+  // effect for the call site.
+  const fetchDurableDotsForBounds = useCallback(async (
+    bounds: { south: number; north: number; west: number; east: number },
+    opts?: { bypassZoomGate?: boolean },
+  ) => {
+    const map = mapRef.current
+    if (!map) return
+    if (!opts?.bypassZoomGate && map.getZoom() < DURABLE_DOT_MIN_ZOOM) return
+    if (!map.getSource(DURABLE_DOT_SOURCE)) return
+    const { from, to, upcomingOnly } = resolveDateWindow(filtersRef.current)
+    if (upcomingOnly) {
+      // Same rule as buildRegridSaleDotFilter: "upcoming" can't match
+      // recorded past sales — nothing can qualify, so clear BOTH the
+      // layer and the accumulator (unlike a plain zoom-out/pan, this is
+      // a real "no dots qualify" state, not a viewport gap).
+      durableDotsByIdRef.current.clear()
+      ;(map.getSource(DURABLE_DOT_SOURCE) as maplibregl.GeoJSONSource)?.setData(EMPTY_FC)
+      return
+    }
+    const gen = ++durableDotsGenRef.current
+    try {
+      // Task #30: dots used to ignore the filter panel entirely (bbox
+      // only) — filtering to a county/township or a non-Sold status
+      // still showed dots everywhere. buildFilterParams already
+      // produces the same location/status/acreage/price/date params
+      // the tract fetch sends; the backend now understands them for
+      // this endpoint too (see get_map_parcel_sale_dots in main.py).
+      const filterParams = buildFilterParams(filtersRef.current)
+      const qs = new URLSearchParams({
+        min_lat: String(bounds.south),
+        max_lat: String(bounds.north),
+        min_lng: String(bounds.west),
+        max_lng: String(bounds.east),
+        ...filterParams,
+      })
+      // has_polygon is a tract-only concept (dots have no polygon) —
+      // strip it so it doesn't silently no-op server-side.
+      qs.delete('has_polygon')
+      const res = await fetchWithAuth(`${API_URL}/api/map/parcel-sale-dots?${qs.toString()}`)
+      if (!res.ok) return
+      const data = await res.json()
+      if (gen !== durableDotsGenRef.current) return // stale — a newer fetch OR filter change superseded this one
+      const dots: any[] = data?.dots || []
+      const filtered = dots.filter(d => {
+        if (d.lat == null || d.lng == null) return false
+        if (d.acres == null || d.acres < DURABLE_DOT_MIN_ACRES) return false
+        if (from && (!d.saledate || d.saledate < from)) return false
+        if (to && (!d.saledate || d.saledate > to)) return false
+        return true
+      })
+      // Accumulate across pans; reset on filter change (owner: dots must
+      // never reload once loaded). Merge this viewport's dots into the
+      // id-keyed accumulator, then render the ENTIRE union — not just
+      // what this fetch returned — so dots already loaded off-screen
+      // never disappear/re-fetch when panned back into view.
+      // CODE AUDITOR FIX (round 2): re-check gen immediately before the
+      // merge, not only right after the response arrives — a filter
+      // change bumps durableDotsGenRef too (see the moveend effect and
+      // the chat-search effect below), so this guard also catches a
+      // stale PRE-filter-change fetch that would otherwise pollute the
+      // just-cleared accumulator with dots that no longer qualify.
+      if (gen !== durableDotsGenRef.current) return
+      for (const d of filtered) {
+        durableDotsByIdRef.current.set(d.id, {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [d.lng, d.lat] },
+          properties: { id: d.id, saleprice: d.saleprice, saledate: d.saledate, acres: d.acres },
+        })
+      }
+      const src = map.getSource(DURABLE_DOT_SOURCE) as maplibregl.GeoJSONSource | undefined
+      if (src) {
+        src.setData({
+          type: 'FeatureCollection',
+          features: Array.from(durableDotsByIdRef.current.values()),
+        })
+      }
+    } catch {/* transient fetch failure — next moveend (or the caller) retries */}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // Fetch durable dots on moveend at every zoom >= DURABLE_DOT_MIN_ZOOM, no
   // upper bound, in BOTH explore and comp mode (AUDIT FIX 2026-07-04 round
   // 2 — the owner directive has no comp-mode exception). At high zoom the
@@ -3933,107 +4093,72 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const map = mapRef.current
     if (!map || !mapLoaded) return
 
-    // Accumulate across pans; reset on filter change (owner: dots must
-    // never reload once loaded). This effect's own re-run (its deps are
-    // the filter fields below) IS the filter-change signal, so clearing
-    // the accumulator here — once per effect run, before the first fetch
-    // — drops the old union exactly when the qualifying set can differ.
-    durableDotsByIdRef.current.clear()
-    // CODE AUDITOR FIX (round 2): bumping the gen ONLY at fetch kickoff
-    // (below) doesn't protect against a fetch that was in flight from the
-    // PREVIOUS filter — that response's gen was already "latest" the
-    // instant it fired, so the staleness check at response-time passed
-    // and it merged filter-violating dots into the just-cleared
-    // accumulator. Bumping here too, on every effect re-run (= every
-    // filter change), immediately invalidates any older in-flight fetch's
-    // captured gen before it ever gets to the merge step.
-    durableDotsGenRef.current++
-
-    const renderDurableDotsUnion = () => {
-      const src = map.getSource(DURABLE_DOT_SOURCE) as maplibregl.GeoJSONSource | undefined
-      if (!src) return
-      const fc: GeoJSON.FeatureCollection = {
-        type: 'FeatureCollection',
-        features: Array.from(durableDotsByIdRef.current.values()),
-      }
-      src.setData(fc)
-    }
-
-    const runFetchDurableDots = async () => {
-      const z = map.getZoom()
-      if (z < DURABLE_DOT_MIN_ZOOM) return
-      if (!map.getSource(DURABLE_DOT_SOURCE)) return
-      const bounds = map.getBounds()
-      const { from, to, upcomingOnly } = resolveDateWindow(filtersRef.current)
-      if (upcomingOnly) {
-        // Same rule as buildRegridSaleDotFilter: "upcoming" can't match
-        // recorded past sales — nothing can qualify, so clear BOTH the
-        // layer and the accumulator (unlike a plain zoom-out/pan, this is
-        // a real "no dots qualify" state, not a viewport gap).
-        durableDotsByIdRef.current.clear()
-        ;(map.getSource(DURABLE_DOT_SOURCE) as maplibregl.GeoJSONSource).setData(EMPTY_FC)
-        return
-      }
-      const gen = ++durableDotsGenRef.current
-      try {
-        // Task #30: dots used to ignore the filter panel entirely (bbox
-        // only) — filtering to a county/township or a non-Sold status
-        // still showed dots everywhere. buildFilterParams already
-        // produces the same location/status/acreage/price/date params
-        // the tract fetch sends; the backend now understands them for
-        // this endpoint too (see get_map_parcel_sale_dots in main.py).
-        const filterParams = buildFilterParams(filtersRef.current)
-        const qs = new URLSearchParams({
-          min_lat: String(bounds.getSouth()),
-          max_lat: String(bounds.getNorth()),
-          min_lng: String(bounds.getWest()),
-          max_lng: String(bounds.getEast()),
-          ...filterParams,
-        })
-        // has_polygon is a tract-only concept (dots have no polygon) —
-        // strip it so it doesn't silently no-op server-side.
-        qs.delete('has_polygon')
-        const res = await fetchWithAuth(`${API_URL}/api/map/parcel-sale-dots?${qs.toString()}`)
-        if (!res.ok) return
-        const data = await res.json()
-        if (gen !== durableDotsGenRef.current) return // stale — a newer fetch OR filter change superseded this one
-        const dots: any[] = data?.dots || []
-        const filtered = dots.filter(d => {
-          if (d.lat == null || d.lng == null) return false
-          if (d.acres == null || d.acres < DURABLE_DOT_MIN_ACRES) return false
-          if (from && (!d.saledate || d.saledate < from)) return false
-          if (to && (!d.saledate || d.saledate > to)) return false
-          return true
-        })
-        // Accumulate across pans; reset on filter change (owner: dots must
-        // never reload once loaded). Merge this viewport's dots into the
-        // id-keyed accumulator, then render the ENTIRE union — not just
-        // what this fetch returned — so dots already loaded off-screen
-        // never disappear/re-fetch when panned back into view.
-        // CODE AUDITOR FIX (round 2): re-check gen immediately before the
-        // merge, not only right after the response arrives — the effect's
-        // own re-run now bumps durableDotsGenRef on every filter change
-        // (see the top of this effect), so this guard also catches a
-        // stale PRE-filter-change fetch that would otherwise pollute the
-        // just-cleared accumulator with dots that no longer qualify.
-        if (gen !== durableDotsGenRef.current) return
-        for (const d of filtered) {
-          durableDotsByIdRef.current.set(d.id, {
-            type: 'Feature',
-            geometry: { type: 'Point', coordinates: [d.lng, d.lat] },
-            properties: { id: d.id, saleprice: d.saleprice, saledate: d.saledate, acres: d.acres },
-          })
-        }
-        renderDurableDotsUnion()
-      } catch {/* transient fetch failure — next moveend retries */}
+    // CODE AUDITOR FIX (gen race, 2026-07-09): while a chat search is in
+    // flight, the chat-search-apply effect already cleared the
+    // accumulator and captured its OWN gen inside fetchDurableDotsForBounds
+    // (see that effect — it fires FIRST, since it's declared earlier and
+    // its setFilters call is what triggers THIS effect's re-run in the
+    // same commit). If this effect unconditionally cleared + bumped the
+    // gen again here, it would invalidate that already-in-flight,
+    // correctly-scoped fetch: React flushes this effect's body
+    // synchronously, well before either fetch's network response
+    // arrives, so durableDotsGenRef would already have moved past the
+    // chat fetch's captured gen by the time that response lands — its
+    // staleness check (`gen !== durableDotsGenRef.current`) would then
+    // discard a perfectly good result as "stale," dots would never
+    // populate from the parallel fetch, and the only thing left to
+    // populate them would be the OLD moveend-after-fitBounds path —
+    // exactly the ~10s-lag behavior this was supposed to fix. (The
+    // previous version of this guard only skipped the fetch KICKOFF
+    // below, not this clear/bump — that was the bug: the bump still ran.)
+    //
+    // So: skip the clear + gen-bump entirely while chatSearchingRef is
+    // true — the chat effect already did its own clear before calling
+    // fetchDurableDotsForBounds, so no stale dots survive. Off a normal
+    // (non-chat) filter-panel change, chatSearchingRef is false and this
+    // runs exactly as before: clear, bump, debounced viewport fetch.
+    if (!chatSearchingRef.current) {
+      // Accumulate across pans; reset on filter change (owner: dots must
+      // never reload once loaded). This effect's own re-run (its deps are
+      // the filter fields below) IS the filter-change signal, so clearing
+      // the accumulator here — once per effect run, before the first fetch
+      // — drops the old union exactly when the qualifying set can differ.
+      durableDotsByIdRef.current.clear()
+      // CODE AUDITOR FIX (round 2): bumping the gen ONLY at fetch kickoff
+      // (below) doesn't protect against a fetch that was in flight from the
+      // PREVIOUS filter — that response's gen was already "latest" the
+      // instant it fired, so the staleness check at response-time passed
+      // and it merged filter-violating dots into the just-cleared
+      // accumulator. Bumping here too, on every effect re-run (= every
+      // filter change), immediately invalidates any older in-flight fetch's
+      // captured gen before it ever gets to the merge step.
+      durableDotsGenRef.current++
     }
 
     const fetchDurableDots = () => {
       if (durableDotsDebounceRef.current) clearTimeout(durableDotsDebounceRef.current)
-      durableDotsDebounceRef.current = setTimeout(runFetchDurableDots, 500)
+      durableDotsDebounceRef.current = setTimeout(() => {
+        const b = map.getBounds()
+        fetchDurableDotsForBounds({ south: b.getSouth(), north: b.getNorth(), west: b.getWest(), east: b.getEast() })
+      }, 500)
     }
 
-    fetchDurableDots()
+    // TIMING FIX (owner complaint 2026-07-09): a chat search already owns
+    // the dots fetch for this filter change (see the chat-search-apply
+    // effect, which fires fetchDurableDotsForBounds immediately with its
+    // own qbbox, in parallel with the tract fetch). Firing the debounced
+    // viewport-based fetch here TOO would race it — the map's camera is
+    // still at its PRE-search position/zoom when this effect runs (the
+    // fitBounds animation hasn't started yet), so this fetch would either
+    // no-op (zoom < DURABLE_DOT_MIN_ZOOM) or fetch the wrong region. Skip
+    // the initial kickoff during an active chat search; 'moveend' stays
+    // registered so once fitBounds' animation completes AND the search
+    // has settled, a normal pan resumes the usual debounced-refresh
+    // behavior with no missed refresh (this is a harmless top-up fetch
+    // against the already-populated set, not a second source of truth).
+    if (!chatSearchingRef.current) {
+      fetchDurableDots()
+    }
     map.on('moveend', fetchDurableDots)
     return () => {
       map.off('moveend', fetchDurableDots)
@@ -4067,6 +4192,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     filters.cornersMin, filters.cornersMax,
     filters.companyName, filters.buyer, filters.seller,
     filters.hasHouse, filters.hasBuildings, filters.keyword,
+    fetchDurableDotsForBounds,
   ])
 
   // Keep the Regrid fill / line / label layers' filter in sync with the
