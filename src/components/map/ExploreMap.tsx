@@ -772,12 +772,15 @@ interface ExploreMapProps {
       so analytics responses (which never apply filters and never run
       the wide-bbox query) can still stop the loading animation. */
   chatSearchEndSignal?: number
-  /** Fires when the post-chat-search wide-bbox tract fetch fails (after
-      the chat-filter call itself already succeeded and the user saw a
-      "Filters applied" toast). Without this the map silently never
-      updates and the user has no idea the search didn't actually load
-      results. Not called for AbortError (a superseded query). */
-  onChatSearchError?: (message: string) => void
+  /** Fires when the post-chat-search wide-bbox tract fetch settles with
+      no usable result — either zero matches (kind 'info') or the fetch
+      itself failing (kind 'err') — after the chat-filter call itself
+      already succeeded and the user saw a "Filters applied" toast.
+      Without this the map silently never updates and the user has no
+      idea the search didn't actually load results. Not called for
+      AbortError (a superseded query). kind defaults to 'err' when
+      omitted by an older caller. */
+  onChatSearchError?: (message: string, kind?: 'info' | 'err') => void
   comparableVisibleIds?: Set<string> | null
   neighborParcels?: {
     geometry: [number, number][]
@@ -1673,7 +1676,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           onChatSearchError?.(
             askedSellerOrBuyer
               ? 'No tracts matched that search. Note: seller/buyer names are only on file for a portion of our auction results so far — full coverage is coming.'
-              : 'No tracts matched that search.'
+              : 'No tracts matched that search.',
+            'info'
           )
         }
       })
@@ -1684,7 +1688,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         // even looking at anymore.
         if (e.name !== 'AbortError' && myGen === tractsGenRef.current) {
           console.error('chat search load:', e)
-          onChatSearchError?.('Search worked but the map couldn\'t load results — try again.')
+          onChatSearchError?.('Search worked but the map couldn\'t load results — try again.', 'err')
         }
       })
       .finally(() => {

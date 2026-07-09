@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Send, Loader2, Sparkles, X } from 'lucide-react'
+import { Send, Loader2, Sparkles, X, Check, Info, AlertTriangle } from 'lucide-react'
 import {
   ResponsiveContainer,
   LineChart, Line,
@@ -13,6 +13,17 @@ import {
 import fetchWithAuth from '@/lib/fetchWithAuth'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
+
+type ToastKind = 'ok' | 'info' | 'err'
+
+// Per-kind accent color — used for the 3px left border and the leading
+// icon. Everything else about the toast shell (bg, text color, blur) is
+// identical across kinds; only these two things carry meaning.
+const TOAST_ACCENT: Record<ToastKind, string> = {
+  ok: '#f58cde',
+  info: '#f5b800',
+  err: '#f87171',
+}
 
 interface MapChatPanelProps {
   /** Called when the model returns filter args. Frontend should merge
@@ -38,7 +49,7 @@ interface MapChatPanelProps {
       the map's post-chat-search wide-bbox tract fetch fails. By this
       point the user already saw the "Filters applied" success toast,
       so this replaces it with the real outcome. */
-  mapSearchError?: { message: string; nonce: number } | null
+  mapSearchError?: { message: string; nonce: number; kind: 'info' | 'err' } | null
 }
 
 interface AnalyticsResponse {
@@ -88,8 +99,11 @@ export default function MapChatPanel({ onApplyFilters, currentFilters, hasActive
   const [open, setOpen] = useState(false)
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
-  /** Most recent confirmation/error to show inline. Auto-clears after 4s. */
-  const [toast, setToast] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
+  /** Most recent confirmation/caveat/error to show inline. 'ok' toasts
+      auto-clear on a short, message-length-scaled timer; 'info'/'err'
+      toasts are sticky (dismissed via the X, a new search, or Clear
+      search) with a 30s defensive fallback — see scheduleToastDismiss. */
+  const [toast, setToast] = useState<{ kind: ToastKind; text: string } | null>(null)
   /** Analytics modal state — populated when the LLM picks the analytics
       tool instead of apply_map_filters. Modal renders the answer as
       ChatGPT-style typed text on a full pink-gradient background. */
@@ -114,15 +128,38 @@ export default function MapChatPanel({ onApplyFilters, currentFilters, hasActive
   const formRef = useRef<HTMLFormElement>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // The map's wide-bbox fetch failed AFTER we already showed a "Filters
-  // applied" success toast for this same search — replace it with the
-  // real outcome. The toast renders regardless of whether the pill is
-  // open/collapsed, so this reaches the user even after auto-collapse.
+  const clearToastTimer = () => {
+    if (toastTimer.current) {
+      clearTimeout(toastTimer.current)
+      toastTimer.current = null
+    }
+  }
+
+  // Schedules the auto-dismiss for a toast. 'ok' toasts scale their
+  // duration with message length so longer confirmations get more
+  // reading time; 'info'/'err' toasts are sticky — the user dismisses
+  // them via the X, a new search, or Clear search — but still get a
+  // 30s defensive fallback so nothing can get stuck on screen forever.
+  const scheduleToastDismiss = (kind: ToastKind, text: string) => {
+    clearToastTimer()
+    if (kind === 'ok') {
+      const wordCount = text.trim().split(/\s+/).filter(Boolean).length
+      const duration = Math.min(4200, Math.max(2200, 2200 + wordCount * 140))
+      toastTimer.current = setTimeout(() => setToast(null), duration)
+    } else {
+      toastTimer.current = setTimeout(() => setToast(null), 30000)
+    }
+  }
+
+  // The map's wide-bbox fetch settled (zero results or a load failure)
+  // AFTER we already showed a "Filters applied" success toast for this
+  // same search — replace it with the real outcome. The toast renders
+  // regardless of whether the pill is open/collapsed, so this reaches
+  // the user even after auto-collapse.
   useEffect(() => {
     if (!mapSearchError) return
-    if (toastTimer.current) clearTimeout(toastTimer.current)
-    setToast({ kind: 'err', text: mapSearchError.message })
-    toastTimer.current = setTimeout(() => setToast(null), 4000)
+    setToast({ kind: mapSearchError.kind, text: mapSearchError.message })
+    scheduleToastDismiss(mapSearchError.kind, mapSearchError.message)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapSearchError?.nonce])
 
@@ -167,6 +204,7 @@ export default function MapChatPanel({ onApplyFilters, currentFilters, hasActive
     const text = raw.trim()
     if (!text || loading) return
     setLoading(true)
+    clearToastTimer()
     setToast(null)
     // Tell the map to start its loading animation NOW — covers the
     // chat-filter call AND the subsequent /api/map/tracts call.
@@ -208,6 +246,7 @@ export default function MapChatPanel({ onApplyFilters, currentFilters, hasActive
         // in the console so backend 4xx/5xx stay debuggable.
         console.error('chat-filter non-OK response:', res.status, body)
         setToast({ kind: 'err', text: 'Goat Search hit a snag — try again in a moment.' })
+        scheduleToastDismiss('err', 'Goat Search hit a snag — try again in a moment.')
         return
       }
       // Two response shapes: filter (existing) or analytics (new).
@@ -224,7 +263,9 @@ export default function MapChatPanel({ onApplyFilters, currentFilters, hasActive
           handedOffToMapFetch = true
         }
         setInput('')
-        setToast({ kind: 'ok', text: body.reply || 'Filters applied.' })
+        const okText = body.reply || 'Filters applied.'
+        setToast({ kind: 'ok', text: okText })
+        scheduleToastDismiss('ok', okText)
         // Auto-collapse after a successful filter so the pill gets out of the way
         setTimeout(() => setOpen(false), 600)
       }
@@ -237,6 +278,7 @@ export default function MapChatPanel({ onApplyFilters, currentFilters, hasActive
       // non-OK path.
       console.error('chat-filter request failed:', e)
       setToast({ kind: 'err', text: 'Goat Search hit a snag — try again in a moment.' })
+      scheduleToastDismiss('err', 'Goat Search hit a snag — try again in a moment.')
     } finally {
       setLoading(false)
       // Tell the map the search is done — UNLESS we just handed off to
@@ -246,8 +288,6 @@ export default function MapChatPanel({ onApplyFilters, currentFilters, hasActive
       // and re-arm the normal cell-loader mid-search (see the note on
       // `handedOffToMapFetch` above).
       if (!handedOffToMapFetch) onSearchEnd?.()
-      if (toastTimer.current) clearTimeout(toastTimer.current)
-      toastTimer.current = setTimeout(() => setToast(null), 4000)
     }
   }
 
@@ -262,19 +302,34 @@ export default function MapChatPanel({ onApplyFilters, currentFilters, hasActive
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 6 }}
             transition={{ duration: 0.15 }}
-            className={`px-4 py-2 rounded-full text-xs backdrop-blur-md border shadow-lg flex items-center gap-2 max-w-[min(620px,calc(100vw-32px))] ${
-              toast.kind === 'ok'
-                ? 'bg-gg-pink/15 border-gg-pink/40 text-gg-pink'
-                : 'bg-red-900/40 border-red-600/50 text-red-200'
-            }`}
+            className="relative overflow-hidden rounded-full backdrop-blur-lg border border-white/15 flex items-center gap-2 px-5 py-3 max-w-[calc(100vw-32px)] sm:max-w-[440px] text-[13px] leading-[1.5]"
+            style={{
+              backgroundColor: 'rgba(10,10,10,0.92)',
+              color: '#f5f5f5',
+              filter: 'drop-shadow(0 3px 12px rgba(0,0,0,0.7))',
+            }}
           >
-            <span className="truncate">{toast.text}</span>
+            {/* Kind accent — 3px left bar, same color as the leading icon */}
+            <span
+              className="absolute left-0 top-0 bottom-0 w-[3px]"
+              style={{ backgroundColor: TOAST_ACCENT[toast.kind] }}
+            />
+            {toast.kind === 'ok' && (
+              <Check size={16} className="flex-shrink-0" style={{ color: TOAST_ACCENT.ok }} />
+            )}
+            {toast.kind === 'info' && (
+              <Info size={16} className="flex-shrink-0" style={{ color: TOAST_ACCENT.info }} />
+            )}
+            {toast.kind === 'err' && (
+              <AlertTriangle size={16} className="flex-shrink-0" style={{ color: TOAST_ACCENT.err }} />
+            )}
+            <span>{toast.text}</span>
             <button
-              onClick={() => setToast(null)}
-              className="opacity-60 hover:opacity-100 flex-shrink-0"
+              onClick={() => { clearToastTimer(); setToast(null) }}
+              className="p-4 -m-4 opacity-60 hover:opacity-100 flex-shrink-0"
               aria-label="Dismiss"
             >
-              <X size={12} />
+              <X size={14} />
             </button>
           </motion.div>
         )}
@@ -292,6 +347,7 @@ export default function MapChatPanel({ onApplyFilters, currentFilters, hasActive
             onClick={() => {
               onApplyFilters({}, true)
               setToast({ kind: 'ok', text: 'Filters cleared.' })
+              scheduleToastDismiss('ok', 'Filters cleared.')
             }}
             className="px-3 py-1 rounded-full text-[11px] bg-black/70 hover:bg-black/85 text-white border border-white/15 hover:border-gg-pink/50 backdrop-blur-md flex items-center gap-1 transition-colors"
             style={{ filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.5))' }}

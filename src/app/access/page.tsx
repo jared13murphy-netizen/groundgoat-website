@@ -174,12 +174,15 @@ function AccessPortalPageInner() {
   // so the map's own wide-bbox completion path never fires.
   const [chatSearchEndSignal, setChatSearchEndSignal] = useState(0)
   const handleChatSearchEnd = () => setChatSearchEndSignal(Date.now())
-  // Surfaces a failure in the post-chat-search wide-bbox tract fetch —
-  // by this point the user already saw a "Filters applied" toast from
-  // the chat-filter call succeeding, so without this the map silently
-  // never updates and looks broken with no explanation.
-  const [chatMapError, setChatMapError] = useState<{ message: string; nonce: number } | null>(null)
-  const handleChatSearchError = (message: string) => setChatMapError({ message, nonce: Date.now() })
+  // Surfaces a settled-but-unhelpful outcome from the post-chat-search
+  // wide-bbox tract fetch — either zero matches ('info') or the fetch
+  // itself failing ('err') — by this point the user already saw a
+  // "Filters applied" toast from the chat-filter call succeeding, so
+  // without this the map silently never updates and looks broken with
+  // no explanation.
+  const [chatMapError, setChatMapError] = useState<{ message: string; nonce: number; kind: 'info' | 'err' } | null>(null)
+  const handleChatSearchError = (message: string, kind: 'info' | 'err' = 'err') =>
+    setChatMapError({ message, nonce: Date.now(), kind })
   // Comparables mode
   const [resetFiltersSignal, setResetFiltersSignal] = useState(0)
   const [subjectTractId, setSubjectTractId] = useState<string | null>(null)
