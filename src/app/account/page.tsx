@@ -216,22 +216,45 @@ const handleResendVerification = async () => {
           </div>
         )}
         
-        {/* No Subscription Warning */}
-        {hasSubscription === false && (
-          <div className="mb-6 bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
-            <div className="flex items-start gap-3">
-              <AlertCircle className="text-yellow-500 flex-shrink-0 mt-0.5" size={24} />
-              <div className="flex-1">
-                <p className="text-yellow-400 font-medium">No active subscription</p>
-                <p className="text-yellow-400/70 text-sm mb-3">Subscribe to access auction alerts, sale results, and more.</p>
-                <Link href="/signup?step=2" className="btn-primary inline-flex items-center gap-2 text-sm py-2">
-                  Choose a Plan
-                  <ChevronRight size={16} />
-                </Link>
+        {/* No Subscription / Past Due Warning */}
+        {hasSubscription === false && (() => {
+          const pastDueArea = !subscriptionData?.unlimited &&
+            subscriptionData?.areas?.find((a: any) => a.status === 'past_due')
+
+          if (pastDueArea) {
+            return (
+              <div className="mb-6 bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="text-yellow-500 flex-shrink-0 mt-0.5" size={24} />
+                  <div className="flex-1">
+                    <p className="text-yellow-400 font-medium">Your subscription needs renewing</p>
+                    <p className="text-yellow-400/70 text-sm mb-3">Your last payment didn&apos;t go through, so your account is paused. Update your payment method to pick up right where you left off.</p>
+                    <Link href="/account/subscription" className="btn-primary inline-flex items-center gap-2 text-sm py-2">
+                      Update payment
+                      <ChevronRight size={16} />
+                    </Link>
+                  </div>
+                </div>
+              </div>
+            )
+          }
+
+          return (
+            <div className="mb-6 bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
+              <div className="flex items-start gap-3">
+                <AlertCircle className="text-yellow-500 flex-shrink-0 mt-0.5" size={24} />
+                <div className="flex-1">
+                  <p className="text-yellow-400 font-medium">No active subscription</p>
+                  <p className="text-yellow-400/70 text-sm mb-3">Subscribe to access auction alerts, sale results, and more.</p>
+                  <Link href="/signup?step=2" className="btn-primary inline-flex items-center gap-2 text-sm py-2">
+                    Choose a Plan
+                    <ChevronRight size={16} />
+                  </Link>
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          )
+        })()}
 
         {/* Download App CTA */}
         <div className="mb-6 bg-gradient-to-r from-gg-pink/10 to-gg-pink-dark/10 border-2 border-gg-pink/40 rounded-xl p-6">

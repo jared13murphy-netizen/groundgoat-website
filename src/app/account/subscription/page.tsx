@@ -411,7 +411,7 @@ export default function SubscriptionPage() {
   const calculateTotalMonthly = () => {
     if (!subscriptionData?.areas) return 0
     return subscriptionData.areas
-      .filter(sub => sub.status === 'active' || sub.status === 'trialing')
+      .filter(sub => sub.status === 'active' || sub.status === 'trialing' || sub.status === 'past_due')
       .reduce((total, sub) => total + (sub.monthly_price || 0), 0)
   }
 
@@ -423,13 +423,18 @@ export default function SubscriptionPage() {
     )
   }
 
-  const activeSubscriptions = subscriptionData?.areas?.filter(sub => sub.status === 'active' || sub.status === 'trialing') || []
+  // past_due is included here (not just active/trialing) so a failed-payment
+  // subscriber still sees their plan, the "Past Due" badge, and a way to fix
+  // billing instead of falling into the "No Active Subscription" -> signup
+  // path (which would risk a brand-new, double-charging checkout).
+  const activeSubscriptions = subscriptionData?.areas?.filter(sub => sub.status === 'active' || sub.status === 'trialing' || sub.status === 'past_due') || []
   const cancelledSubscriptions = subscriptionData?.areas?.filter(sub => sub.status === 'cancelled') || []
   // Apple IAP subscriptions cannot be cancelled, repriced, or have their card
   // updated from the web. When any active sub is Apple-billed we hide the
   // Stripe-only controls (Manage Billing, Add State, Upgrade, Remove) and
   // surface App Store guidance instead.
   const isAppleManaged = activeSubscriptions.some(sub => sub.payment_platform === 'apple')
+  const applePastDue = activeSubscriptions.some(sub => sub.payment_platform === 'apple' && sub.status === 'past_due')
   // A Stripe sub that's been cancelled stays "active" (with cancelled_at set)
   // until the paid period ends. Offer a one-click resume to undo the pending
   // cancellation. Apple subs can't be resumed from the web.
@@ -514,6 +519,11 @@ export default function SubscriptionPage() {
                   <span className="text-white"> Settings &gt; [your name] &gt; Subscriptions</span> on
                   your iPhone, or manage it in the Ground Goat app.
                 </p>
+                {applePastDue && (
+                  <p className="text-gg-gray-400 text-sm mt-2">
+                    Apple will retry automatically once your payment method is updated.
+                  </p>
+                )}
                 <a
                   href="https://apps.apple.com/account/subscriptions"
                   target="_blank"
