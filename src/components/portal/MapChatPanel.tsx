@@ -171,6 +171,21 @@ export default function MapChatPanel({ onApplyFilters, currentFilters, hasActive
     // Tell the map to start its loading animation NOW — covers the
     // chat-filter call AND the subsequent /api/map/tracts call.
     onSearchStart?.()
+    // Set true only when we hand off to ExploreMap's own wide-bbox fetch
+    // (a non-empty applied_filters response) — that fetch reliably calls
+    // stopChatSearchingSoon() itself on completion (success OR failure).
+    // Every OTHER outcome (analytics, empty filters, non-OK response,
+    // thrown exception) never reaches that fetch, so onSearchEnd must
+    // fire from here instead or the loading animation runs forever.
+    // BUG (2026-07-09 incident contributor): this used to be called
+    // unconditionally in `finally` below, which fired the instant this
+    // chat-filter POST resolved — well before ExploreMap's own wide-bbox
+    // /api/map/tracts fetch (kicked off in a separate effect after
+    // onApplyFilters) had even started, let alone finished. That flipped
+    // `chatSearching` off early, re-arming the normal moveend cell-loader
+    // while the filtered search was still in flight and the camera
+    // hadn't snapped to the new results yet.
+    let handedOffToMapFetch = false
     try {
       const res = await fetchWithAuth(`${API_URL}/api/map/chat-filter`, {
         method: 'POST',
@@ -206,6 +221,7 @@ export default function MapChatPanel({ onApplyFilters, currentFilters, hasActive
         const af = body.applied_filters || {}
         if (af && Object.keys(af).length > 0) {
           onApplyFilters(af, !!body.clear_unspecified)
+          handedOffToMapFetch = true
         }
         setInput('')
         setToast({ kind: 'ok', text: body.reply || 'Filters applied.' })
@@ -223,12 +239,13 @@ export default function MapChatPanel({ onApplyFilters, currentFilters, hasActive
       setToast({ kind: 'err', text: 'Goat Search hit a snag — try again in a moment.' })
     } finally {
       setLoading(false)
-      // Tell the map the search is done. The map otherwise relies on
-      // the wide-bbox /api/map/tracts query (run after applied_filters)
-      // to stop its loading animation — for analytics responses that
-      // never runs, so without this signal the pulse + rising-stars
-      // animation runs forever.
-      onSearchEnd?.()
+      // Tell the map the search is done — UNLESS we just handed off to
+      // ExploreMap's own wide-bbox fetch, which owns stopping the
+      // animation itself once THAT request actually completes (success
+      // or failure). Firing it here too would race ahead of that fetch
+      // and re-arm the normal cell-loader mid-search (see the note on
+      // `handedOffToMapFetch` above).
+      if (!handedOffToMapFetch) onSearchEnd?.()
       if (toastTimer.current) clearTimeout(toastTimer.current)
       toastTimer.current = setTimeout(() => setToast(null), 4000)
     }

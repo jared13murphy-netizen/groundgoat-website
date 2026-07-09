@@ -1013,6 +1013,20 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // being added to `loadedCellsRef`, so a future moveend can retry.
   const loadingCellsRef = useRef<Set<string>>(new Set())
   const tractMapRef = useRef<Map<string, ApiMapTract>>(new Map())
+  // Generation counter for the shared tract result set (tractMapRef /
+  // `tracts`). Bumped every time tractMapRef is reset — chat search,
+  // filter-panel apply/reset, comp-mode toggle, state/county/township
+  // quick-filter clicks. Every async tract fetch (loadTractsForBounds
+  // AND the chat-search wide-bbox fetch) captures the generation it
+  // started under and discards its response if a NEWER reset has since
+  // superseded it. Without this, a slow/stale fetch kicked off BEFORE a
+  // filter change (the initial page-load fetch, or a moveend fetch
+  // queued right before the user submits a Goat Search) can resolve
+  // AFTER the newer search has narrowed the map and silently re-merge
+  // unfiltered tracts back into the results — root cause of the
+  // 2026-07-09 incident where an Illinois/seller/status-filtered chat
+  // search briefly showed tracts scattered across a much wider area.
+  const tractsGenRef = useRef(0)
   // Chat-search: when true, the cell-loader pauses (we run a single
   // wide query instead) and the chat-search animation overlays the map.
   const [chatSearching, setChatSearching] = useState(false)
@@ -1155,6 +1169,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   useEffect(() => {
     loadedCellsRef.current = new Set()
     tractMapRef.current = new Map()
+    tractsGenRef.current++
     setTracts([])
     // Trigger a re-fetch by simulating a moveend from current bounds.
     const map = mapRef.current
@@ -1465,6 +1480,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       filtersRef.current = INITIAL_FILTERS
       loadedCellsRef.current = new Set()
       tractMapRef.current = new Map()
+      tractsGenRef.current++
       setTracts([])
       stateMarkersRef.current.forEach(m => m.remove())
       stateMarkersRef.current = []
@@ -1512,6 +1528,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // Clear current tract markers / cache so the new results render fresh
     loadedCellsRef.current = new Set()
     tractMapRef.current = new Map()
+    tractsGenRef.current++
+    // Capture the generation THIS search owns. Any tract fetch that was
+    // already in flight when the reset above ran (the mount-time initial
+    // load, a moveend cell fetch queued right before the user hit Send,
+    // or a manual filter-panel action) is now stale — it will see
+    // tractsGenRef.current has moved on and will discard its response
+    // instead of merging unfiltered rows back into the just-cleared set.
+    const myGen = tractsGenRef.current
     setTracts([])
 
     const map = mapRef.current
@@ -1557,6 +1581,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     fetchWithAuth(url, { signal: ac.signal })
       .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
       .then((data: MapTractsResponse) => {
+        // A newer reset (another chat search, a manual filter-panel
+        // action, comp-mode toggle, etc.) superseded this fetch while it
+        // was in flight — tractMapRef / loadedCellsRef now belong to that
+        // newer generation. Discard silently instead of merging this
+        // response's rows into it; the fresher generation's own fetch
+        // owns the map now.
+        if (myGen !== tractsGenRef.current) return
+
         const result = data.tracts || []
         // Apply the same accept-rules as the cell-loader so the chat path
         // doesn't accidentally render stale auctions, polygon-less tracts,
@@ -1613,15 +1645,40 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               padding: 100, duration: 900, maxZoom: 12,
             })
           }
+        } else {
+          // Zero-result honesty (owner rule: wrong/misleading data is
+          // never acceptable — a silently empty map after a search reads
+          // as "still loading" or "broken", not "no matches"). Surface
+          // an honest toast. Seller/buyer are called out specifically
+          // because coverage is partial today, not because the search
+          // itself did anything wrong.
+          const askedSellerOrBuyer = !!(nextFilters.seller || nextFilters.buyer)
+          onChatSearchError?.(
+            askedSellerOrBuyer
+              ? 'No tracts matched that search. Note: seller/buyer names are only on file for a portion of our auction results so far — full coverage is coming.'
+              : 'No tracts matched that search.'
+          )
         }
       })
       .catch(e => {
-        if (e.name !== 'AbortError') {
+        // Same staleness guard as the success path — a newer reset already
+        // owns the map, so a failure here belongs to a superseded search
+        // and shouldn't surface an error toast for what the user isn't
+        // even looking at anymore.
+        if (e.name !== 'AbortError' && myGen === tractsGenRef.current) {
           console.error('chat search load:', e)
           onChatSearchError?.('Search worked but the map couldn\'t load results — try again.')
         }
       })
-      .finally(() => { stopChatSearchingSoon() })
+      .finally(() => {
+        // Same staleness guard again: search A's fetch settling (success,
+        // failure, or abort) must not stop the searching-overlay for a
+        // newer search B that's still in flight — that would re-arm the
+        // moveend cell-loader mid-search-B, before B's own camera-fit has
+        // happened. Only the generation that currently owns the map is
+        // allowed to turn the overlay off.
+        if (myGen === tractsGenRef.current) stopChatSearchingSoon()
+      })
 
     return () => ac.abort()
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1758,6 +1815,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // Clear cached data so it refetches with new filters
     loadedCellsRef.current = new Set()
     tractMapRef.current = new Map()
+    tractsGenRef.current++
     setTracts([])
     // Remove existing markers
     const map = mapRef.current
@@ -1828,6 +1886,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // Clear cached data so it refetches without filters
     loadedCellsRef.current = new Set()
     tractMapRef.current = new Map()
+    tractsGenRef.current++
     setTracts([])
     const map = mapRef.current
     if (map) {
@@ -1958,6 +2017,15 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     if (loadingCellsRef.current.has(gridKey)) return
     loadingCellsRef.current.add(gridKey)
 
+    // Capture the generation this fetch started under. If a filter
+    // reset / chat search / comp-mode toggle bumps tractsGenRef while
+    // this request is in flight, the response below is stale — it was
+    // built from a filter set that's no longer current — and must be
+    // discarded rather than merged into (or cached against) the newer
+    // generation's result set. See tractsGenRef's declaration for the
+    // 2026-07-09 incident this guards against.
+    const myGen = tractsGenRef.current
+
     // Did this fetch return a complete result? Only then do we mark the
     // cell as fully loaded. Failed fetches and capped results stay
     // un-cached so future moveends can retry. Without this, a transient
@@ -1982,7 +2050,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       const response = await fetchWithAuth(url)
       if (response.ok) {
         const data: MapTractsResponse = await response.json()
-        if (data.tracts) {
+        // A newer reset superseded this fetch while it was in flight —
+        // its filters (and tractMapRef itself) are no longer current.
+        // Discard the response instead of merging stale rows into the
+        // newer generation's result set or marking this cell "loaded"
+        // under filters it was never actually fetched with.
+        if (data.tracts && myGen === tractsGenRef.current) {
           // Cap detection: if we got exactly CELL_LIMIT rows, the bbox
           // probably has more matches we didn't see. Keep the cell
           // un-cached so a deeper zoom can re-query and pick them up.
@@ -2002,7 +2075,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // cellComplete stays false → cell will retry on next moveend.
     } finally {
       loadingCellsRef.current.delete(gridKey)
-      if (cellComplete) loadedCellsRef.current.add(gridKey)
+      if (cellComplete && myGen === tractsGenRef.current) loadedCellsRef.current.add(gridKey)
       setLoading(false)
     }
   }, [])
@@ -3941,6 +4014,27 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     filters.statuses,
     filters.acreageMin, filters.acreageMax,
     filters.salePriceMin, filters.salePriceMax,
+    // The rest of buildFilterParams' surface (2026-07-09 audit): without
+    // these, a chat search that changes ONLY e.g. seller/listingType (no
+    // state/status/date/county/acreage/price change) never clears the
+    // accumulator — stale dots from the PREVIOUS filter set keep
+    // rendering, unfiltered, until some other dimension happens to
+    // change too. The backend endpoint itself doesn't understand
+    // seller/buyer/companyName/listingType yet (parcel_sale_dots has no
+    // such columns — see get_map_parcel_sale_dots in ground-goat-backend
+    // main.py), so those specific fields can't actually narrow this
+    // layer server-side, but re-running on every filter change at least
+    // stops old, no-longer-matching dots from lingering on screen.
+    filters.landTypes, filters.listingType,
+    filters.pctTillableMin, filters.pctTillableMax,
+    filters.soilRatingMin, filters.soilRatingMax,
+    filters.pricePerAcreMin, filters.pricePerAcreMax,
+    filters.askingPriceMin, filters.askingPriceMax,
+    filters.pricePerSoilRatingMin, filters.pricePerSoilRatingMax,
+    filters.nearLat, filters.nearLng, filters.radiusMiles,
+    filters.cornersMin, filters.cornersMax,
+    filters.companyName, filters.buyer, filters.seller,
+    filters.hasHouse, filters.hasBuildings, filters.keyword,
   ])
 
   // Keep the Regrid fill / line / label layers' filter in sync with the
@@ -6814,6 +6908,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                             // Always clear everything and reload with the new filter
                             loadedCellsRef.current = new Set()
                             tractMapRef.current = new Map()
+                            tractsGenRef.current++
                             setTracts([])
 
                             if (next.length > 0) {
@@ -6895,6 +6990,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                               filtersRef.current = newFilters
                               loadedCellsRef.current = new Set()
                               tractMapRef.current = new Map()
+                              tractsGenRef.current++
                               setTracts([])
                               if (mapRef.current) {
                                 const bounds = mapRef.current.getBounds()
@@ -6957,6 +7053,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                             filtersRef.current = newFilters
                             loadedCellsRef.current = new Set()
                             tractMapRef.current = new Map()
+                            tractsGenRef.current++
                             setTracts([])
                             if (mapRef.current) {
                               const bounds = mapRef.current.getBounds()
