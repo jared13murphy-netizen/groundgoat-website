@@ -170,7 +170,12 @@ export default function MapChatPanel({ onApplyFilters, currentFilters, hasActive
       })
       const body = await res.json().catch(() => ({} as any))
       if (!res.ok) {
-        setToast({ kind: 'err', text: body.detail || `HTTP ${res.status}` })
+        // Never surface raw `detail` here — historically that's a Python
+        // exception string, not something a farmer should see. Show a
+        // friendly generic message instead, but keep the real status/body
+        // in the console so backend 4xx/5xx stay debuggable.
+        console.error('chat-filter non-OK response:', res.status, body)
+        setToast({ kind: 'err', text: 'Goat Search hit a snag — try again in a moment.' })
         return
       }
       // Two response shapes: filter (existing) or analytics (new).
@@ -191,7 +196,14 @@ export default function MapChatPanel({ onApplyFilters, currentFilters, hasActive
         setTimeout(() => setOpen(false), 600)
       }
     } catch (e: any) {
-      setToast({ kind: 'err', text: e.message || String(e) })
+      // fetchWithAuth doesn't receive a caller-owned AbortSignal here, so
+      // any AbortError is its own internal 20s timeout — not an unmount/
+      // cancellation we can silently ignore. Never surface e.message
+      // (e.g. "Failed to fetch", "The user aborted a request") — log the
+      // real error for debugging and show the same friendly toast as the
+      // non-OK path.
+      console.error('chat-filter request failed:', e)
+      setToast({ kind: 'err', text: 'Goat Search hit a snag — try again in a moment.' })
     } finally {
       setLoading(false)
       // Tell the map the search is done. The map otherwise relies on

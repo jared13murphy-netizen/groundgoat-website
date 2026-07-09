@@ -1533,8 +1533,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
     const [[qWest, qSouth], [qEast, qNorth]] = qbbox
 
-    // Single wide-bbox query with the new filter set. limit=2000 caps
-    // any single query — enough for almost any natural-language search.
+    // Single wide-bbox query with the new filter set. The backend always
+    // returns every matching tract in the bbox (no limit/cap applies).
     // include_polygons=true is required: isAcceptableMapTract rejects
     // any tract whose polygon_coordinates is null, and chat-search
     // pre-marks every cell in the queried bbox as "loaded" so the
@@ -1545,7 +1545,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const filterParams = buildFilterParams(nextFilters)
     const extra = Object.entries(filterParams)
       .map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&')
-    const url = `${API_URL}/api/map/tracts?min_lat=${qSouth}&max_lat=${qNorth}&min_lng=${qWest}&max_lng=${qEast}&limit=2000&include_polygons=true${extra ? '&' + extra : ''}`
+    const url = `${API_URL}/api/map/tracts?min_lat=${qSouth}&max_lat=${qNorth}&min_lng=${qWest}&max_lng=${qEast}&include_polygons=true${extra ? '&' + extra : ''}`
 
     const ac = new AbortController()
     fetchWithAuth(url, { signal: ac.signal })
@@ -1568,27 +1568,22 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         }
         setTracts(Array.from(tractMapRef.current.values()))
 
-        // If the wide query wasn't capped, we have ALL matches — pre-mark
-        // every 0.5° cell inside the queried bbox as loaded so the post-
-        // fitBounds moveend doesn't waste round-trips re-fetching ground
-        // we've already covered. If the query WAS capped (2000 rows),
-        // there could be more matches we didn't see — leave cells
-        // un-cached so the cell-loader can fill them in on demand.
-        const CHAT_LIMIT = 2000
-        if (result.length < CHAT_LIMIT) {
-          const r = (v: number) => Math.round(v * 2) / 2
-          const cellSize = 0.5
-          const startLat = Math.floor(qSouth * 2) / 2
-          const startLng = Math.floor(qWest * 2) / 2
-          for (let lat = startLat; lat < qNorth; lat += cellSize) {
-            for (let lng = startLng; lng < qEast; lng += cellSize) {
-              const minLat = Math.max(lat, qSouth)
-              const maxLat = Math.min(lat + cellSize, qNorth)
-              const minLng = Math.max(lng, qWest)
-              const maxLng = Math.min(lng + cellSize, qEast)
-              const gridKey = `${r(minLat)},${r(minLng)},${r(maxLat)},${r(maxLng)}`
-              loadedCellsRef.current.add(gridKey)
-            }
+        // The fetch succeeded, so we have ALL matches in the queried bbox
+        // (the backend never caps results) — pre-mark every 0.5° cell
+        // inside the queried bbox as loaded so the post-fitBounds moveend
+        // doesn't waste round-trips re-fetching ground we've already covered.
+        const r = (v: number) => Math.round(v * 2) / 2
+        const cellSize = 0.5
+        const startLat = Math.floor(qSouth * 2) / 2
+        const startLng = Math.floor(qWest * 2) / 2
+        for (let lat = startLat; lat < qNorth; lat += cellSize) {
+          for (let lng = startLng; lng < qEast; lng += cellSize) {
+            const minLat = Math.max(lat, qSouth)
+            const maxLat = Math.min(lat + cellSize, qNorth)
+            const minLng = Math.max(lng, qWest)
+            const maxLng = Math.min(lng + cellSize, qEast)
+            const gridKey = `${r(minLat)},${r(minLng)},${r(maxLat)},${r(maxLng)}`
+            loadedCellsRef.current.add(gridKey)
           }
         }
 
