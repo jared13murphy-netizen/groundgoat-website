@@ -34,6 +34,11 @@ interface MapChatPanelProps {
       never gets applied_filters and would otherwise leave the loading
       animation running forever). */
   onSearchEnd?: () => void
+  /** Set by the parent (a fresh object each time, per the nonce) when
+      the map's post-chat-search wide-bbox tract fetch fails. By this
+      point the user already saw the "Filters applied" success toast,
+      so this replaces it with the real outcome. */
+  mapSearchError?: { message: string; nonce: number } | null
 }
 
 interface AnalyticsResponse {
@@ -79,7 +84,7 @@ function buildAnalyticsAnswer(a: AnalyticsResponse | null): string {
   return lines.join('\n')
 }
 
-export default function MapChatPanel({ onApplyFilters, currentFilters, hasActiveFilters, onSearchStart, onSearchEnd }: MapChatPanelProps) {
+export default function MapChatPanel({ onApplyFilters, currentFilters, hasActiveFilters, onSearchStart, onSearchEnd, mapSearchError }: MapChatPanelProps) {
   const [open, setOpen] = useState(false)
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -108,6 +113,18 @@ export default function MapChatPanel({ onApplyFilters, currentFilters, hasActive
   const inputRef = useRef<HTMLInputElement>(null)
   const formRef = useRef<HTMLFormElement>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // The map's wide-bbox fetch failed AFTER we already showed a "Filters
+  // applied" success toast for this same search — replace it with the
+  // real outcome. The toast renders regardless of whether the pill is
+  // open/collapsed, so this reaches the user even after auto-collapse.
+  useEffect(() => {
+    if (!mapSearchError) return
+    if (toastTimer.current) clearTimeout(toastTimer.current)
+    setToast({ kind: 'err', text: mapSearchError.message })
+    toastTimer.current = setTimeout(() => setToast(null), 4000)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapSearchError?.nonce])
 
   // Focus input when the pill opens; close on Esc
   useEffect(() => {

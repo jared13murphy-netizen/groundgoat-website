@@ -772,6 +772,12 @@ interface ExploreMapProps {
       so analytics responses (which never apply filters and never run
       the wide-bbox query) can still stop the loading animation. */
   chatSearchEndSignal?: number
+  /** Fires when the post-chat-search wide-bbox tract fetch fails (after
+      the chat-filter call itself already succeeded and the user saw a
+      "Filters applied" toast). Without this the map silently never
+      updates and the user has no idea the search didn't actually load
+      results. Not called for AbortError (a superseded query). */
+  onChatSearchError?: (message: string) => void
   comparableVisibleIds?: Set<string> | null
   neighborParcels?: {
     geometry: [number, number][]
@@ -976,7 +982,7 @@ function OverlayButton({
   )
 }
 
-export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onLandDetailOpen, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, chatSearchEndSignal, comparableVisibleIds, neighborParcels, neighborsLoading }: ExploreMapProps) {
+export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onLandDetailOpen, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, chatSearchEndSignal, onChatSearchError, comparableVisibleIds, neighborParcels, neighborsLoading }: ExploreMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const stateMarkersRef = useRef<maplibregl.Marker[]>([])
@@ -1609,7 +1615,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           }
         }
       })
-      .catch(e => { if (e.name !== 'AbortError') console.error('chat search load:', e) })
+      .catch(e => {
+        if (e.name !== 'AbortError') {
+          console.error('chat search load:', e)
+          onChatSearchError?.('Search worked but the map couldn\'t load results — try again.')
+        }
+      })
       .finally(() => { stopChatSearchingSoon() })
 
     return () => ac.abort()
