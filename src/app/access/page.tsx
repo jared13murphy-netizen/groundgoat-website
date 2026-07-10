@@ -160,8 +160,47 @@ function AccessPortalPageInner() {
   }
   // AI chat → map filter pipeline (admin only, see render below)
   const [chatAppliedFilters, setChatAppliedFilters] = useState<{ filters: any; clearUnspecified?: boolean; nonce: number } | null>(null)
+  // AUDIT FIX (2026-07-10): tracks whether the map's CURRENTLY active
+  // filters came from a chat map-filter search and haven't since been
+  // overridden by a manual Filter Panel apply. Lives here (not inside
+  // MapChatPanel) because this is the one place that sees BOTH apply
+  // paths — chat via handleChatApplyFilters below, manual via
+  // handleFiltersApplied (ExploreMap's onFiltersApplied callback,
+  // fired by both its applyFilters() and resetFilters()). A ref inside
+  // MapChatPanel can't see the manual path at all, which was the root
+  // cause of a ship-blocker: an analytics/out-of-scope chat answer was
+  // silently wiping filters the user had just set by hand in the panel.
+  const chatFiltersActiveRef = useRef(false)
   const handleChatApplyFilters = (filters: Record<string, any>, clearUnspecified: boolean) => {
     setChatAppliedFilters({ filters, clearUnspecified, nonce: Date.now() })
+    // Empty filters here means a chat-side "Clear search" — nothing
+    // chat-sourced is left active. Non-empty means a real map-filter
+    // search just took ownership of the map's filter state.
+    chatFiltersActiveRef.current = Object.keys(filters).length > 0
+  }
+  // Called when a Goat Search response is an ANALYTICS or OUT-OF-SCOPE
+  // answer (a report panel, not a map-filter result). That panel must
+  // never sit on top of a PREVIOUS chat search's stale bubbles/pins —
+  // but if the user has manually applied filters since (or the active
+  // filters were never chat-sourced to begin with), those are the
+  // user's own and must be left alone. Only reset when this search's
+  // own chat filters are still the thing driving the map.
+  //
+  // LIGHTWEIGHT RESET (audit fix 2026-07-10): do NOT reuse the chat
+  // wide-bbox pipeline (onApplyFilters({}, true) → applyExternalFilters)
+  // here — that fires a continental-US /api/map/tracts fetch + a
+  // nationwide durable-dots refetch + a camera fitBounds SNAP, all
+  // behind the report panel, so the map visibly jumps to a different
+  // pan/zoom the instant an analytics answer opens. Bumping
+  // resetFiltersSignal instead reuses ExploreMap's existing
+  // current-viewport-only reset (used today when leaving Comparables
+  // mode): filters go back to INITIAL_FILTERS and the normal
+  // viewport cell-loader repaints — no wide fetch, no camera move.
+  const handleChatReportResult = () => {
+    if (chatFiltersActiveRef.current) {
+      setResetFiltersSignal(prev => prev + 1)
+      chatFiltersActiveRef.current = false
+    }
   }
   // Bumped on every Goat Search submit — kicks off the map's loading
   // animation BEFORE the chat-filter response comes back, so the user
@@ -552,6 +591,13 @@ function AccessPortalPageInner() {
 
   const handleFiltersApplied = (filters: { stateFilter: string; countyFilters: string[] }) => {
     setActiveFilters(filters)
+    // AUDIT FIX (2026-07-10): ExploreMap fires onFiltersApplied from
+    // BOTH its manual applyFilters() and its own resetFilters() — either
+    // way, the user just took an explicit action in the Filter Panel,
+    // so whatever was chat-sourced before no longer reflects the map's
+    // active filters. Prevents a later analytics/out-of-scope chat
+    // answer from wiping filters the user just set by hand.
+    chatFiltersActiveRef.current = false
     // Re-fetch listings with new filters if list panel is open
     if (showListPanel && activeTab !== 'map') {
       fetchListings(activeTab, filters)
@@ -893,6 +939,7 @@ function AccessPortalPageInner() {
       {user?.account_type === 'groundgoat_admin' && (
         <MapChatPanel
           onApplyFilters={handleChatApplyFilters}
+          onChatReportResult={handleChatReportResult}
           onSearchStart={handleChatSearchStart}
           onSearchEnd={handleChatSearchEnd}
           mapSearchError={chatMapError}

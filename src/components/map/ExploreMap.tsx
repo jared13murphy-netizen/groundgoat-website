@@ -6112,7 +6112,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
     fadeOutAndRemove(stateMarkersRef.current)
     stateMarkersRef.current = []
-    if (currentTier !== 'state') return
+    // Owner screenshot (2026-07-10): a filter or Goat Search result
+    // overlaps the state silhouettes/labels/Filter-badges/goat icons at
+    // low zoom, cluttering the map on top of the actual result bubbles.
+    // Reuse the SAME hasActiveFilters signal the county count-bubble
+    // layer gates on (line ~6317) so the two stay consistent — hide the
+    // whole silhouette overlay whenever a filter/search is active, show
+    // it again once cleared. Doesn't touch the result bubbles/pins.
+    if (currentTier !== 'state' || hasActiveFilters) return
 
     const sized: Array<{
       inner: HTMLElement
@@ -6272,7 +6279,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       stateMarkersRef.current = []
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stateCounts, mapLoaded, currentTier, stateSilhouettes, stateBboxes])
+  }, [stateCounts, mapLoaded, currentTier, stateSilhouettes, stateBboxes, hasActiveFilters])
 
   // ── County COUNT bubbles (filter-active): setData + click. Visibility
   // is toggled by the hasActiveFilters effect below (setLayoutProperty),

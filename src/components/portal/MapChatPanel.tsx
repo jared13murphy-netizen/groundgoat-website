@@ -30,6 +30,16 @@ interface MapChatPanelProps {
       them into the map's FilterState (using clearUnspecified to decide
       whether unrelated filters get reset). */
   onApplyFilters: (filters: Record<string, any>, clearUnspecified: boolean) => void
+  /** Fired when this search's response is an ANALYTICS or OUT-OF-SCOPE
+      answer (a report panel, not a map-filter result) — never fired for
+      a filter response. The parent (access/page.tsx) decides whether an
+      actual map reset is warranted: it's the one place that sees BOTH
+      this chat-apply path AND the manual Filter Panel's apply path, so
+      it alone knows whether the map's current filters are still
+      chat-sourced or were since overridden manually. This panel must
+      NOT make that call itself (previously did, via a local ref — that
+      couldn't see manual applies and would silently wipe them). */
+  onChatReportResult?: () => void
   /** Frontend's current FilterState — sent to the model so it can do
       partial updates ("CSR2 80+" without losing the existing state filter). */
   currentFilters?: Record<string, any>
@@ -111,7 +121,7 @@ function buildAnalyticsAnswer(a: AnalyticsResponse | null): string {
   return lines.join('\n')
 }
 
-export default function MapChatPanel({ onApplyFilters, currentFilters, hasActiveFilters, onSearchStart, onSearchEnd, mapSearchError }: MapChatPanelProps) {
+export default function MapChatPanel({ onApplyFilters, onChatReportResult, currentFilters, hasActiveFilters, onSearchStart, onSearchEnd, mapSearchError }: MapChatPanelProps) {
   const [open, setOpen] = useState(false)
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -230,6 +240,14 @@ export default function MapChatPanel({ onApplyFilters, currentFilters, hasActive
     setLoading(true)
     clearToastTimer()
     setToast(null)
+    // Every new Goat Search is fresh — close any open analytics/
+    // out-of-scope panel from a PRIOR search right away, before this
+    // one's response decides whether to show a new one. Owner
+    // screenshot (2026-07-10): a stale analytics/out-of-scope panel
+    // from the last search must never still be up once a new search is
+    // in flight.
+    setAnalytics(null)
+    setOutOfScope(null)
     // Tell the map to start its loading animation NOW — covers the
     // chat-filter call AND the subsequent /api/map/tracts call.
     onSearchStart?.()
@@ -278,19 +296,25 @@ export default function MapChatPanel({ onApplyFilters, currentFilters, hasActive
       // Ground Goat genuinely can't answer takes priority over any other
       // shape the backend might also send.
       if (body.out_of_scope_response) {
-        setAnalytics(null)
         setOutOfScope(body.out_of_scope_response as OutOfScopeResponse)
         setInput('')
         setToast(null)
         setOpen(false)
+        // This is a report panel, not a map-filter search — it must
+        // never sit on top of a PREVIOUS search's stale bubbles/pins.
+        // The parent decides whether an actual reset is warranted (only
+        // if the map's active filters are still chat-sourced) — this
+        // panel has no visibility into manual Filter Panel applies and
+        // must never make that call itself.
+        onChatReportResult?.()
       } else if (body.analytics_response) {
-        setOutOfScope(null)
         setAnalytics(body.analytics_response as AnalyticsResponse)
         setInput('')
         setToast(null)
         setOpen(false)
+        // Same stale-bubbles fix as out-of-scope above.
+        onChatReportResult?.()
       } else {
-        setOutOfScope(null)
         const af = body.applied_filters || {}
         if (af && Object.keys(af).length > 0) {
           onApplyFilters(af, !!body.clear_unspecified)
