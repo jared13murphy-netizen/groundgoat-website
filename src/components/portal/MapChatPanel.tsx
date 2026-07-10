@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Send, Loader2, Sparkles, X, Check, Info, AlertTriangle } from 'lucide-react'
+import { Send, Loader2, Sparkles, X, Check, Info, AlertTriangle, Compass } from 'lucide-react'
 import {
   ResponsiveContainer,
   LineChart, Line,
@@ -51,6 +51,22 @@ interface MapChatPanelProps {
       so this replaces it with the real outcome. */
   mapSearchError?: { message: string; nonce: number; kind: 'info' | 'err' } | null
 }
+
+interface OutOfScopeResponse {
+  topic: string | null
+}
+
+// The 5 example phrases shown in the out-of-scope panel. Each is a
+// verified-working query shape (owner lookup / recreational map filter /
+// soil map filter / analytics / radius map filter) — tapping one fills
+// the Goat Search input with this exact text and submits it immediately.
+const OUT_OF_SCOPE_EXAMPLES = [
+  'How many acres does John Smith own in Illinois?',
+  'Show me hunting land for sale in Missouri',
+  'Iowa cropland with CSR2 80 or higher',
+  "What's the average sale price per acre in Illinois this year?",
+  'Farms for sale within 20 miles of Springfield, IL',
+]
 
 interface AnalyticsResponse {
   title: string
@@ -108,6 +124,14 @@ export default function MapChatPanel({ onApplyFilters, currentFilters, hasActive
       tool instead of apply_map_filters. Modal renders the answer as
       ChatGPT-style typed text on a full pink-gradient background. */
   const [analytics, setAnalytics] = useState<AnalyticsResponse | null>(null)
+  /** Out-of-scope redirect state — populated when the LLM picks
+      answer_out_of_scope (the question is genuinely outside what Ground
+      Goat can answer: weather, commodity/livestock prices, zoning,
+      taxes, etc). Renders the same slide-out shell as analytics but with
+      a neutral tone and 5 tappable example queries instead of an
+      answer. No auto-dismiss — stays until the user taps a chip or
+      closes it. */
+  const [outOfScope, setOutOfScope] = useState<OutOfScopeResponse | null>(null)
   /** Typewriter — incrementally reveals the analytics answer text */
   const [typedChars, setTypedChars] = useState(0)
   const fullAnswer = buildAnalyticsAnswer(analytics)
@@ -249,14 +273,24 @@ export default function MapChatPanel({ onApplyFilters, currentFilters, hasActive
         scheduleToastDismiss('err', 'Goat Search hit a snag — try again in a moment.')
         return
       }
-      // Two response shapes: filter (existing) or analytics (new).
-      // Analytics opens a modal; filter applies to the map as before.
-      if (body.analytics_response) {
+      // Three response shapes: out-of-scope (new) / analytics / filter
+      // (existing). out_of_scope_response is checked first — a question
+      // Ground Goat genuinely can't answer takes priority over any other
+      // shape the backend might also send.
+      if (body.out_of_scope_response) {
+        setAnalytics(null)
+        setOutOfScope(body.out_of_scope_response as OutOfScopeResponse)
+        setInput('')
+        setToast(null)
+        setOpen(false)
+      } else if (body.analytics_response) {
+        setOutOfScope(null)
         setAnalytics(body.analytics_response as AnalyticsResponse)
         setInput('')
         setToast(null)
         setOpen(false)
       } else {
+        setOutOfScope(null)
         const af = body.applied_filters || {}
         if (af && Object.keys(af).length > 0) {
           onApplyFilters(af, !!body.clear_unspecified)
@@ -621,6 +655,110 @@ export default function MapChatPanel({ onApplyFilters, currentFilters, hasActive
                   </motion.div>
                 )}
               </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>,
+      document.body
+      )}
+
+      {/* Out-of-scope RIGHT-SIDE slide-out — same portaled shell/mechanics
+          as the analytics pane above (right slide-out, max-w-md,
+          rounded-l-3xl, drag/backdrop dismiss, drag handle) but with a
+          neutral dark shell instead of the pink success gradient, no
+          rising-sparkle animation, and no typewriter — the copy renders
+          instantly with a quick fade. No auto-dismiss timer; stays open
+          until a chip is tapped or the user closes it. */}
+      {typeof document !== 'undefined' && createPortal(
+      <AnimatePresence>
+        {outOfScope && (
+          <>
+            {/* Backdrop — click anywhere outside to close */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.18 }}
+              onClick={() => setOutOfScope(null)}
+              className="fixed inset-0 z-[680] bg-black/55 backdrop-blur-[2px]"
+            />
+            {/* Right-side pane */}
+            <motion.div
+              initial={{ x: '100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '100%' }}
+              transition={{ type: 'spring', damping: 30, stiffness: 240 }}
+              drag="x"
+              dragConstraints={{ left: 0, right: 0 }}
+              dragElastic={{ left: 0, right: 0.6 }}
+              onDragEnd={(_, info) => {
+                if (info.offset.x > 100 || info.velocity.x > 600) setOutOfScope(null)
+              }}
+              className="fixed top-0 right-0 bottom-0 z-[690] w-full max-w-md rounded-l-3xl shadow-[-14px_0_50px_rgba(0,0,0,0.6)] flex flex-col overflow-hidden bg-[#0a0a0a]"
+            >
+              <div className="absolute left-2 top-1/2 -translate-y-1/2 cursor-grab active:cursor-grabbing z-10">
+                <div className="w-1.5 h-12 rounded-full bg-white/25" />
+              </div>
+
+              <div className="relative flex items-start justify-between gap-3 px-7 pt-7 pb-4">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="w-6 h-6 rounded-full bg-gg-pink/20 border border-gg-pink/40 flex items-center justify-center flex-shrink-0">
+                      <Compass size={13} className="text-gg-pink" />
+                    </span>
+                    <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-white/60">
+                      Goat Search
+                    </p>
+                  </div>
+                  <h3 className="text-2xl font-extrabold text-white tracking-[0.01em] leading-tight">
+                    I can&apos;t show that here
+                  </h3>
+                </div>
+                <button
+                  onClick={() => setOutOfScope(null)}
+                  className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/15 text-white flex items-center justify-center transition-colors flex-shrink-0"
+                  aria-label="Close"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              {/* No typewriter for this state — render instantly with a
+                  quick 200ms fade instead of the analytics char-by-char
+                  reveal. */}
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 0.2 }}
+                className="relative px-7 pb-8 overflow-y-auto flex-1"
+              >
+                <p className="text-white/85 text-base leading-relaxed font-medium">
+                  {outOfScope.topic
+                    ? `I can't help with ${outOfScope.topic} — but I can dig into farmland and hunting land: ownership, past sales and auctions, listings, soil ratings, tillable acres, and buildings. Try one of these:`
+                    : "That's outside what I can look up here. I can dig into farmland and hunting land: ownership, past sales and auctions, listings, soil ratings, tillable acres, and buildings. Try one of these:"}
+                </p>
+
+                <p className="text-[11px] uppercase tracking-[0.18em] font-bold text-white/40 mt-6 mb-3">
+                  Try asking
+                </p>
+
+                <div className="flex flex-col gap-2">
+                  {OUT_OF_SCOPE_EXAMPLES.map((phrase) => (
+                    <button
+                      key={phrase}
+                      type="button"
+                      onClick={() => {
+                        setOutOfScope(null)
+                        setInput(phrase)
+                        submit(phrase)
+                      }}
+                      className="text-left px-4 py-3 rounded-xl bg-white/[0.07] hover:bg-white/[0.12] border border-white/10 text-white text-sm transition-colors"
+                    >
+                      {phrase}
+                    </button>
+                  ))}
+                </div>
+              </motion.div>
             </motion.div>
           </>
         )}
