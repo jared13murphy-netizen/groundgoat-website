@@ -48,6 +48,7 @@ interface Comparable {
   tillable_acres?: number
   pct_tillable?: number
   soil_rating?: number
+  sale_price?: number
   price_per_acre?: number
   auction_datetime?: string
   auction_date?: string
@@ -242,6 +243,7 @@ export default function ComparablesPage({ params }: { params: { id: string } }) 
           subject_tillable_pct: subjectPct || null,
           subject_soil_rating: tract?.soil_rating?.toString() || null,
           comparables: selectedComps.map(comp => ({
+            tract_id: comp.tract_id || comp.id || null,
             county: comp.county,
             state: comp.state,
             tract_number: comp.tract_number?.toString() || null,
@@ -249,6 +251,7 @@ export default function ComparablesPage({ params }: { params: { id: string } }) 
             tillable_acres: comp.tillable_acres || null,
             pct_tillable: comp.pct_tillable || null,
             soil_rating: comp.soil_rating || null,
+            sale_price: comp.sale_price || null,
             price_per_acre: comp.price_per_acre || null,
             auction_datetime: comp.auction_datetime || null,
             auction_date: comp.auction_date || null,
