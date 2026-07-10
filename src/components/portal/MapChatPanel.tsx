@@ -109,14 +109,14 @@ function buildAnalyticsAnswer(a: AnalyticsResponse | null): string {
   if (a.table?.rows?.length) {
     lines.push('')
     const cols = a.table.columns
-    const rowsToShow = a.table.rows.slice(0, 10)
-    rowsToShow.forEach((r, i) => {
+    // Never cap result counts (product rule) — the panel scrolls via
+    // overflow-y-auto, so list every row. This is also the full-name
+    // recovery path for chart bars 11+, whose axis labels are
+    // truncated with no reliable hover on touch devices.
+    a.table.rows.forEach((r, i) => {
       const parts = cols.map((c, j) => `${c}: ${r[j]}`)
       lines.push(`${i + 1}. ${parts.join(' · ')}`)
     })
-    if (a.table.rows.length > rowsToShow.length) {
-      lines.push(`…and ${a.table.rows.length - rowsToShow.length} more.`)
-    }
   }
   return lines.join('\n')
 }
@@ -142,7 +142,14 @@ export default function MapChatPanel({ onApplyFilters, onChatReportResult, curre
       answer. No auto-dismiss — stays until the user taps a chip or
       closes it. */
   const [outOfScope, setOutOfScope] = useState<OutOfScopeResponse | null>(null)
-  /** Typewriter — incrementally reveals the analytics answer text */
+  /** Typewriter — incrementally reveals the analytics answer text.
+      Step size is dynamic (not a fixed +2/tick) so the worst case is
+      bounded: a large uncapped comparison (n up to 50, several
+      thousand chars) still finishes in ~2s instead of the ~20s a fixed
+      rate would take — HARD RULE, no user-facing loading state may
+      exceed 5s. Short answers still get the original slow, readable
+      reveal since the floor of 2 chars/tick only kicks in below ~320
+      chars. */
   const [typedChars, setTypedChars] = useState(0)
   const fullAnswer = buildAnalyticsAnswer(analytics)
   useEffect(() => {
@@ -150,10 +157,11 @@ export default function MapChatPanel({ onApplyFilters, onChatReportResult, curre
     if (!analytics) return
     const total = fullAnswer.length
     if (total === 0) return
+    const step = Math.max(2, Math.ceil(total / 160))
     const id = window.setInterval(() => {
       setTypedChars((prev) => {
         if (prev >= total) { window.clearInterval(id); return prev }
-        return Math.min(total, prev + 2)
+        return Math.min(total, prev + step)
       })
     }, 12)
     return () => window.clearInterval(id)
@@ -592,17 +600,31 @@ export default function MapChatPanel({ onApplyFilters, onChatReportResult, curre
                 {/* Optional chart — backend includes one for by_month
                     (line) and group_by n>1 (bar). Skipped for
                     summary_stats and top_n where the table/stats are
-                    already the best representation. Only render once
-                    the typed answer is complete so it doesn't visually
-                    fight the typewriter effect. */}
-                {analytics?.chart && typedChars >= fullAnswer.length && (
+                    already the best representation. Mounts as soon as
+                    analytics.chart exists — NOT gated on the typewriter
+                    finishing. A large uncapped comparison (n up to 50)
+                    types for ~2s; gating the chart on that would delay
+                    the user's first paint of the exact thing they
+                    asked for, breaking the no-loading-state-over-5s
+                    rule. It fights the typewriter a little less than
+                    it looks — the text above is still mid-reveal while
+                    this fades in, but that's a better trade than a
+                    blank panel. */}
+                {analytics?.chart && (
                   <motion.div
                     initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.35 }}
                     className="mt-6 bg-black/25 border border-white/10 rounded-xl p-3"
                   >
-                    <ResponsiveContainer width="100%" height={200}>
+                    <ResponsiveContainer
+                      width="100%"
+                      height={
+                        analytics.chart.type === 'line'
+                          ? 200
+                          : Math.max(180, analytics.chart.data.length * 34)
+                      }
+                    >
                       {analytics.chart.type === 'line' ? (
                         <LineChart data={analytics.chart.data}>
                           <CartesianGrid stroke="rgba(255,255,255,0.08)" />
@@ -639,24 +661,25 @@ export default function MapChatPanel({ onApplyFilters, onChatReportResult, curre
                           />
                         </LineChart>
                       ) : (
-                        <BarChart data={analytics.chart.data}>
-                          <CartesianGrid stroke="rgba(255,255,255,0.08)" />
+                        <BarChart layout="vertical" data={analytics.chart.data}>
+                          <CartesianGrid stroke="rgba(255,255,255,0.08)" horizontal={false} />
                           <XAxis
-                            dataKey="label"
+                            type="number"
                             stroke="rgba(255,255,255,0.7)"
                             tick={{ fill: 'rgba(255,255,255,0.85)', fontSize: 10 }}
                             axisLine={{ stroke: 'rgba(255,255,255,0.2)' }}
                             tickLine={false}
-                            interval={0}
-                            angle={-25}
-                            textAnchor="end"
-                            height={50}
                           />
                           <YAxis
-                            stroke="rgba(255,255,255,0.7)"
-                            tick={{ fill: 'rgba(255,255,255,0.85)', fontSize: 10 }}
-                            axisLine={{ stroke: 'rgba(255,255,255,0.2)' }}
+                            type="category"
+                            dataKey="label"
+                            width={130}
+                            axisLine={false}
                             tickLine={false}
+                            tick={{ fill: 'rgba(255,255,255,0.85)', fontSize: 11 }}
+                            tickFormatter={(v) =>
+                              typeof v === 'string' && v.length > 18 ? v.slice(0, 17) + '…' : v
+                            }
                           />
                           <Tooltip
                             contentStyle={{
@@ -666,12 +689,15 @@ export default function MapChatPanel({ onApplyFilters, onChatReportResult, curre
                               color: '#fff',
                               fontSize: 12,
                             }}
+                            labelFormatter={(_label, payload) =>
+                              payload?.[0]?.payload?.label ?? _label
+                            }
                             cursor={{ fill: 'rgba(255,255,255,0.06)' }}
                           />
                           <Bar
                             dataKey="value"
                             fill="rgba(255,255,255,0.85)"
-                            radius={[4, 4, 0, 0]}
+                            radius={[0, 4, 4, 0]}
                           />
                         </BarChart>
                       )}
