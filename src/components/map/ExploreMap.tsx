@@ -2558,6 +2558,36 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           'text-halo-width': 1.4,
         },
       })
+      // Comp-mode-only "+" glyph on the SAME source/points as
+      // tract-pin-circles — companion symbol layer, exactly the
+      // DURABLE_DOT_PLUS_LAYER pattern (see that layer's comment), so
+      // tract comps match parcel comps and mobile's comp map (both show
+      // "+"). Explore mode never shows this — tract-pin-labels' own
+      // price/acre text is untouched in both modes; this just adds the
+      // "+" on top of the pin in comp mode. No separate click handler —
+      // it sits on tract-pin-circles' existing point, whose onClick
+      // (below) already opens the Add-to-Report popup in comp mode.
+      // No zoom-gating change: TRACT_TIER_MIN is fine here (tract pins
+      // use GG's own polygon data, not Regrid tiles, so they don't have
+      // the "+" -without-an-outline problem the parcel dots had).
+      map.addLayer({
+        id: 'tract-pin-plus',
+        type: 'symbol',
+        source: 'tract-pins',
+        minzoom: TRACT_TIER_MIN,
+        layout: {
+          'text-field': '+',
+          'text-font': ['Open Sans Bold'],
+          'text-size': 10, // matches DURABLE_DOT_PLUS_LAYER's sizing
+          'text-anchor': 'center',
+          'text-allow-overlap': true,
+          'text-ignore-placement': true,
+          'visibility': subjectTractIdRef.current ? 'visible' : 'none',
+        },
+        paint: {
+          'text-color': '#ffffff',
+        },
+      })
 
       // ── Today's-auction green dots — NATIVE GL layer (replaces the old DOM
       // markers + JS clustering). Rendered as circle layers so every dot sits
@@ -3873,15 +3903,25 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // fetched stays small on its own; no row cap is ever applied (owner
   // standing rule).
   //
-  // COMP MODE (AUDIT FIX 2026-07-04 round 2): also uncapped now — the
-  // owner directive has no comp-mode exception. This layer's onClick
+  // COMP MODE (AUDIT FIX 2026-07-04 round 2): this layer's onClick
   // branches on subjectTractIdRef.current to open the same comp
   // add-to-report popup PARCEL_SALE_PLUS_LAYER's onPinClick used to open,
   // so PARCEL_SALE_PLUS_LAYER is now hidden unconditionally (both modes —
   // see its mode-sync effect above) to avoid double-rendering the same
   // parcels at z>=REGRID_MIN_ZOOM.
   //
-  // Fade only on the way OUT (zooming below DURABLE_DOT_MIN_ZOOM):
+  // COMP MODE MINZOOM (bug fix — subject-dot/comp-dot parity sweep):
+  // unlike explore, comp mode's floor is REGRID_MIN_ZOOM (11), not
+  // DURABLE_DOT_MIN_ZOOM (9) — set via setLayerZoomRange in the mode-sync
+  // effect right below the mount effect. Below z11 the Regrid
+  // parcel-boundary layer renders nothing (empirically 204 at z10), so a
+  // dot there would float with no outline under it. This layer also now
+  // carries a companion symbol layer, DURABLE_DOT_PLUS_LAYER, with a
+  // white "+" text-field visible ONLY in comp mode — plain pink circles
+  // read as "no dots" per the bug report.
+  //
+  // Fade only on the way OUT (zooming below DURABLE_DOT_MIN_ZOOM), which
+  // only applies in explore mode since comp mode's floor is above it:
   // circle-opacity/circle-stroke-opacity interpolate 0 at z8.8 to fully
   // opaque at z9.3. Above z9.3 the style is 100% constant — same radius/
   // color/stroke at every zoom.
@@ -3901,6 +3941,16 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // ─────────────────────────────────────────────────────────────────
   const DURABLE_DOT_SOURCE = 'parcel-sale-dots-durable'
   const DURABLE_DOT_LAYER = 'parcel-sale-dots-durable-circle'
+  // Comp-mode-only "+" glyph, symbol layer on the SAME source/points as
+  // DURABLE_DOT_LAYER — mirrors mobile's ComparablesMapView.js durable-dot
+  // pattern (parcel-sale-dots-durable-symbol). Explore mode never shows
+  // this (visibility toggled by the mode-sync effect below); comp mode
+  // needs it so a comp dot reads as "tap to add" instead of a plain pink
+  // circle (bug report: "reads as no dots"). No separate click handler —
+  // it sits exactly on top of DURABLE_DOT_LAYER's circle at the same
+  // point, so that layer's existing onClick (below) already fires for
+  // clicks on the glyph.
+  const DURABLE_DOT_PLUS_LAYER = 'parcel-sale-dots-durable-symbol'
   const DURABLE_DOT_MIN_ZOOM = 9
   const DURABLE_DOT_MIN_ACRES = 10 // owner rule: never show parcel dots under 10 acres
 
@@ -3911,15 +3961,31 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     if (!map.getSource(DURABLE_DOT_SOURCE)) {
       map.addSource(DURABLE_DOT_SOURCE, { type: 'geojson', data: EMPTY_FC })
     }
-    if (!map.getLayer(DURABLE_DOT_LAYER)) {
+    // Comp mode gates the dot (and its "+") to REGRID_MIN_ZOOM (11), not
+    // DURABLE_DOT_MIN_ZOOM (9): below z11 the Regrid parcel-boundary
+    // layer renders nothing (empirically 204 at z10), so a comp dot at
+    // z9-10 would float with no parcel outline under it and no way to
+    // open it at the zoom it appears. Explore mode keeps the original z9
+    // floor (owner directive: dots never go away once zoomed in) — this
+    // gate only applies while a subject tract is set.
+    const inCompModeAtMount = !!subjectTractIdRef.current
+    // Captured BEFORE addLayer() below — the click-handler registration
+    // further down must run exactly once (on first mount), but it used
+    // to share this same `!map.getLayer(DURABLE_DOT_LAYER)` check, which
+    // would now always read false there since the layer was just added
+    // a few lines above it.
+    const isFirstMount = !map.getLayer(DURABLE_DOT_LAYER)
+    if (isFirstMount) {
       map.addLayer({
         id: DURABLE_DOT_LAYER,
         type: 'circle',
         source: DURABLE_DOT_SOURCE,
         // No maxzoom — uncapped in BOTH explore and comp mode. The owner
         // directive ("dots should never change... never go away no matter
-        // how much I zoom in") has no comp-mode exception.
-        minzoom: DURABLE_DOT_MIN_ZOOM,
+        // how much I zoom in") has no comp-mode exception. minzoom is
+        // comp-mode-gated (see comment above); kept in sync on
+        // subjectTractId change by the mode-sync effect below.
+        minzoom: inCompModeAtMount ? REGRID_MIN_ZOOM : DURABLE_DOT_MIN_ZOOM,
         paint: {
           // Matches ensureParcelSaleDotImage: #f58cde fill, white ring.
           'circle-color': '#f58cde',
@@ -3930,6 +3996,30 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           'circle-stroke-opacity': ['interpolate', ['linear'], ['zoom'], 8.8, 0, 9.3, 1],
         },
       })
+    }
+    if (!map.getLayer(DURABLE_DOT_PLUS_LAYER)) {
+      map.addLayer({
+        id: DURABLE_DOT_PLUS_LAYER,
+        type: 'symbol',
+        source: DURABLE_DOT_SOURCE,
+        // Fixed at REGRID_MIN_ZOOM — this layer is ONLY ever visible in
+        // comp mode (layout.visibility gated below), so it never needs
+        // the explore-mode z9 floor DURABLE_DOT_LAYER carries.
+        minzoom: REGRID_MIN_ZOOM,
+        layout: {
+          'text-field': '+',
+          'text-font': ['Open Sans Bold'],
+          'text-size': 10, // sized to sit inside the 6px-radius / 12px dot
+          'text-allow-overlap': true,
+          'text-ignore-placement': true,
+          'visibility': inCompModeAtMount ? 'visible' : 'none',
+        },
+        paint: {
+          'text-color': '#ffffff',
+        },
+      })
+    }
+    if (isFirstMount) {
       let activePopup: maplibregl.Popup | null = null
       const onClick = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
         const f = e.features?.[0]
@@ -4036,19 +4126,36 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     return () => {
       try {
         if (!map.getStyle()) return
+        if (map.getLayer(DURABLE_DOT_PLUS_LAYER)) map.removeLayer(DURABLE_DOT_PLUS_LAYER)
         if (map.getLayer(DURABLE_DOT_LAYER)) map.removeLayer(DURABLE_DOT_LAYER)
         if (map.getSource(DURABLE_DOT_SOURCE)) map.removeSource(DURABLE_DOT_SOURCE)
       } catch {/* map already torn down */}
     }
   }, [mapLoaded])
 
-  // AUDIT FIX 2026-07-04 round 2: this effect used to cap DURABLE_DOT_LAYER's
-  // zoom range at 11 in comp mode via setLayerZoomRange (keeping
-  // PARCEL_SALE_PLUS_LAYER as the z>=11 comp display). The owner directive
-  // has no comp-mode exception, so the layer is now uncapped in BOTH modes
-  // (set once at addLayer time above, never re-capped) — this effect is
-  // removed entirely. See the PARCEL_SALE_PLUS_LAYER mode-sync effect below
-  // for why that layer is now hidden in COMP mode too, not just explore.
+  // Keep the durable-dot "+" glyph and the dot's own zoom floor in sync
+  // with comp mode, on every subjectTractId change (mount always happens
+  // in whatever mode is active at the time, captured above as
+  // inCompModeAtMount — this effect covers a mode flip on an
+  // already-mounted map). DURABLE_DOT_PLUS_LAYER stays hidden and
+  // DURABLE_DOT_LAYER stays at the DURABLE_DOT_MIN_ZOOM=9 floor in
+  // explore mode (owner directive: dots never go away); comp mode raises
+  // the floor to REGRID_MIN_ZOOM=11 and reveals the "+" — see the mount
+  // effect above for why (no Regrid parcel outline below z11, so a dot
+  // there has no boundary to sit on and nothing to open at that zoom).
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+    const inComp = !!subjectTractId
+    try {
+      if (map.getLayer(DURABLE_DOT_LAYER)) {
+        map.setLayerZoomRange(DURABLE_DOT_LAYER, inComp ? REGRID_MIN_ZOOM : DURABLE_DOT_MIN_ZOOM, 24)
+      }
+      if (map.getLayer(DURABLE_DOT_PLUS_LAYER)) {
+        map.setLayoutProperty(DURABLE_DOT_PLUS_LAYER, 'visibility', inComp ? 'visible' : 'none')
+      }
+    } catch {/* layer torn down */}
+  }, [mapLoaded, subjectTractId])
 
   // Shared durable-dots fetch, parameterized by explicit bounds so it can
   // be called two ways:
@@ -4075,7 +4182,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   ) => {
     const map = mapRef.current
     if (!map) return
-    if (!opts?.bypassZoomGate && map.getZoom() < DURABLE_DOT_MIN_ZOOM) return
+    // Comp mode's effective floor is REGRID_MIN_ZOOM (11), not
+    // DURABLE_DOT_MIN_ZOOM (9) — see the mount effect above. Gating the
+    // fetch itself (not just the layer's minzoom) avoids firing bbox
+    // requests for a zoom range comp mode will never render.
+    const zoomFloor = subjectTractIdRef.current ? REGRID_MIN_ZOOM : DURABLE_DOT_MIN_ZOOM
+    if (!opts?.bypassZoomGate && map.getZoom() < zoomFloor) return
     if (!map.getSource(DURABLE_DOT_SOURCE)) return
     const { from, to, upcomingOnly } = resolveDateWindow(filtersRef.current)
     if (upcomingOnly) {
@@ -5016,7 +5128,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       if (hasParcel) return
       if (clickClaimedByLayers(map, e.point, [
         'tract-pin-circles', 'tract-polygon-fill',
-        'parcel-sale-pin-plus', DURABLE_DOT_LAYER,
+        'parcel-sale-pin-plus', DURABLE_DOT_LAYER, DURABLE_DOT_PLUS_LAYER,
       ])) return
 
       // One click, one panel: clear any open tract modal / comp popup,
@@ -5144,7 +5256,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // and the sale-dot layers (both outrank overlays in priority).
       if (clickClaimedByLayers(map, e.point, [
         'tract-pin-circles', 'tract-polygon-fill',
-        'parcel-sale-pin-plus', DURABLE_DOT_LAYER,
+        'parcel-sale-pin-plus', DURABLE_DOT_LAYER, DURABLE_DOT_PLUS_LAYER,
       ])) return
 
       // One click, one panel: clear any open tract modal / comp popup,
@@ -5720,6 +5832,21 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     if (src) src.setData(tractPinGeoJSON)
   }, [mapLoaded, tractPinGeoJSON])
 
+  // Keep tract-pin-plus's "+" visibility in sync with comp mode, on every
+  // subjectTractId change (map-init only sets the INITIAL visibility from
+  // subjectTractIdRef.current — this covers a mode flip on an
+  // already-mounted map, same as the DURABLE_DOT_PLUS_LAYER mode-sync
+  // effect above). tract-pin-labels' price/acre text is never touched —
+  // explore mode's label is unchanged, comp mode just adds the "+" on top.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+    if (!map.getLayer('tract-pin-plus')) return
+    try {
+      map.setLayoutProperty('tract-pin-plus', 'visibility', subjectTractId ? 'visible' : 'none')
+    } catch {/* layer torn down */}
+  }, [mapLoaded, subjectTractId])
+
   // ── Tract-pin interactions (click → detail/comp popup; hover cursor).
   // Wired ONCE per mapLoaded. Reads the full SaleDetail from
   // tractMapRef.current (keyed by tractId) so the GeoJSON feature stays
@@ -6004,9 +6131,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const label = document.createElement('div')
     label.textContent = 'SUBJECT TRACT'
     label.style.cssText = `
-      background: rgba(245,140,222,0.2);
-      border: 2px solid #F58CDE;
-      color: #F58CDE;
+      background: rgba(14,165,233,0.2);
+      border: 2px solid #0EA5E9;
+      color: #0EA5E9;
       font-size: 11px;
       font-weight: 800;
       padding: 3px 10px;
@@ -6029,7 +6156,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       position: absolute;
       inset: -8px;
       border-radius: 50%;
-      border: 2px solid #F58CDE;
+      border: 2px solid #0EA5E9;
       animation: subjectPulse 2s ease-out infinite;
     `
     pinContainer.appendChild(ring)
@@ -6040,7 +6167,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       position: absolute;
       inset: -8px;
       border-radius: 50%;
-      border: 2px solid #F58CDE;
+      border: 2px solid #0EA5E9;
       animation: subjectPulse 2s ease-out 1s infinite;
     `
     pinContainer.appendChild(ring2)
@@ -6051,9 +6178,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       width: 24px;
       height: 24px;
       border-radius: 50%;
-      background: #F58CDE;
+      background: #0EA5E9;
       border: 3px solid #fff;
-      box-shadow: 0 0 0 4px rgba(245,140,222,0.4), 0 0 20px 6px rgba(245,140,222,0.5);
+      box-shadow: 0 0 0 4px rgba(14,165,233,0.4), 0 0 20px 6px rgba(14,165,233,0.5);
       position: relative;
       z-index: 1;
     `
