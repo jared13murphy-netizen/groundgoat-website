@@ -473,6 +473,7 @@ export default function TractDataCleanupPage() {
           price_basis: u.price_basis ?? null,
         })
       }
+      fetchValidation(lid)
     } catch (e: any) {
       alert(`Could not save tract value: ${e.message || e}`)
       loadListing(lid) // reload to revert the optimistic patch
@@ -559,6 +560,7 @@ export default function TractDataCleanupPage() {
         return { ...prev, [lid]: { ...cur, tracts } }
       })
       setEditingTractNumId(null)
+      fetchValidation(lid)
     } catch (e: any) {
       alert(`Could not update tract number: ${e.message || e}`)
     } finally { setSavingTractNumId(null) }
@@ -640,6 +642,7 @@ export default function TractDataCleanupPage() {
         body: JSON.stringify({ land_types: next }),
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      fetchValidation(lid)
     } catch (e: any) {
       setLoadedListings((prev) => {
         const cur = prev[lid]
@@ -676,6 +679,7 @@ export default function TractDataCleanupPage() {
         })
       }
       await loadListing(lid)
+      fetchValidation(lid)
       showToast(`Tract ${nextNum} added — draw its boundary to compute acres/soil.`, 'success')
     } catch (e: any) {
       showToast(`Could not add tract: ${e.message || e}`, 'error')
@@ -905,6 +909,7 @@ export default function TractDataCleanupPage() {
                               if (!res.ok || !d.success) throw new Error(d.detail || `HTTP ${res.status}`)
                               patchRow(it.listing_id, { company_name: d.company_name || c.name })
                               setEditingCompanyId(null)
+                              fetchValidation(it.listing_id)
                             }}
                             onClose={() => setEditingCompanyId(null)}
                           />
@@ -1072,7 +1077,7 @@ export default function TractDataCleanupPage() {
                               tract_number: t.tract_number,
                               total_acres: t.total_acres,
                             }))}
-                            onSwapped={() => loadListing(it.listing_id)}
+                            onSwapped={() => { loadListing(it.listing_id); fetchValidation(it.listing_id) }}
                           />
                         </div>
                       )}
@@ -1428,6 +1433,7 @@ export default function TractDataCleanupPage() {
                                           const next = { ...prev }; delete next[tract.id]; return next
                                         })
                                         setCluReloadKeys((prev) => ({ ...prev, [tractKey]: (prev[tractKey] || 0) + 1 }))
+                                        fetchValidation(it.listing_id)
                                       }}
                                       onDirtyChange={(d) => setTractDirty(`${it.listing_id}::${tract.id}::map`, d)}
                                       // Capture the live polygon's GIS acreage as the "Computed"
