@@ -5,6 +5,7 @@ import fetchWithAuth from '@/lib/fetchWithAuth'
 import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Save, Loader2, Trash2, ExternalLink, Plus, X } from 'lucide-react'
+import DeleteCompanyModal, { DeleteCompanyOption } from '@/components/admin/DeleteCompanyModal'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -62,6 +63,15 @@ export default function EditCompanyPage() {
   const [newPtUrl, setNewPtUrl] = useState('')
   const [newPtLabel, setNewPtLabel] = useState('')
   const [addingPtUrl, setAddingPtUrl] = useState(false)
+
+  // Delete / reassign — this screen doesn't pre-fetch listing counts like
+  // the companies list does, so it discovers "has referencing listings"
+  // from the backend's 409 on plain delete, then lazily fetches the other
+  // companies to populate the shared reassign-picker modal.
+  const [companies, setCompanies] = useState<DeleteCompanyOption[]>([])
+  const [companyToDelete, setCompanyToDelete] = useState<DeleteCompanyOption | null>(null)
+  const [reassignTo, setReassignTo] = useState('')
+  const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
     const token = localStorage.getItem('auth_token')
@@ -239,25 +249,61 @@ export default function EditCompanyPage() {
     }
   }
 
-  const handleDelete = async () => {
-    if (!confirm('Are you sure you want to delete this company? This will affect all associated listings.')) return
+  const handleDeleteClick = () => {
+    if (!company) return
+    if (!confirm(`Delete ${company.name}? If it has listings you'll be asked to reassign them first.`)) return
+    performDelete()
+  }
 
+  // Companies with referencing listings can't just be deleted — the backend
+  // 409s (DELETE /api/companies/{id} requires reassign_to). Zero-listing
+  // companies delete on the first try; a 409 means we lazily fetch the
+  // other companies and open the shared reassign-picker modal instead of
+  // dead-ending on a generic error (same flow as /admin/companies).
+  const performDelete = async (reassignToId?: string) => {
+    if (!company) return
+    setDeleting(true)
+    setError('')
     const token = localStorage.getItem('auth_token')
 
     try {
-      const response = await fetch(`${API_URL}/api/companies/${companyId}`, {
+      const url = reassignToId
+        ? `${API_URL}/api/companies/${companyId}?reassign_to=${reassignToId}`
+        : `${API_URL}/api/companies/${companyId}`
+      const response = await fetch(url, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` },
       })
 
       if (response.ok) {
         router.push('/admin/companies')
+        return
+      }
+
+      if (response.status === 409) {
+        if (companies.length === 0) {
+          const listResponse = await fetch(`${API_URL}/api/companies`, {
+            headers: { 'Authorization': `Bearer ${token}` },
+          })
+          if (listResponse.ok) {
+            setCompanies(await listResponse.json())
+          }
+        }
+        setReassignTo('')
+        setCompanyToDelete({ id: company.id, name: company.name })
       } else {
         setError('Failed to delete company')
       }
     } catch (err) {
       setError('Failed to delete company')
+    } finally {
+      setDeleting(false)
     }
+  }
+
+  const confirmReassignAndDelete = () => {
+    if (!companyToDelete || !reassignTo) return
+    performDelete(reassignTo)
   }
 
   if (loading) {
@@ -308,14 +354,29 @@ export default function EditCompanyPage() {
               </a>
             )}
             <button
-              onClick={handleDelete}
-              className="flex items-center gap-2 px-4 py-2 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30"
+              onClick={handleDeleteClick}
+              disabled={deleting}
+              className="flex items-center gap-2 px-4 py-2 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30 disabled:opacity-50"
             >
-              <Trash2 size={16} />
+              {deleting ? <Loader2 className="animate-spin" size={16} /> : <Trash2 size={16} />}
               Delete
             </button>
           </div>
         </div>
+
+        {/* Delete Company Modal — shared with /admin/companies (list) so
+            the two delete/reassign flows can't drift out of sync. */}
+        {companyToDelete && (
+          <DeleteCompanyModal
+            companyToDelete={companyToDelete}
+            companies={companies}
+            reassignTo={reassignTo}
+            onReassignToChange={setReassignTo}
+            onCancel={() => setCompanyToDelete(null)}
+            onConfirm={confirmReassignAndDelete}
+            deleting={deleting}
+          />
+        )}
 
         {/* Messages */}
         {error && (

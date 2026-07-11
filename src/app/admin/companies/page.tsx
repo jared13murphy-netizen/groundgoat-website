@@ -5,6 +5,7 @@ import fetchWithAuth from '@/lib/fetchWithAuth'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Loader2, Pencil, Trash2, Building2, ArrowLeft, ExternalLink, Plus, X, Search } from 'lucide-react'
+import DeleteCompanyModal from '@/components/admin/DeleteCompanyModal'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -48,6 +49,9 @@ export default function AdminCompaniesPage() {
   const [loading, setLoading] = useState(true)
   const [showAddModal, setShowAddModal] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [companyToDelete, setCompanyToDelete] = useState<Company | null>(null)
+  const [reassignTo, setReassignTo] = useState('')
+  const [deleting, setDeleting] = useState(false)
   const [newCompany, setNewCompany] = useState({
     name: '',
     website: '',
@@ -167,25 +171,61 @@ export default function AdminCompaniesPage() {
     }
   }
 
-  const handleDelete = async (id: string, e: React.MouseEvent) => {
+  // Companies with listings can't just be deleted — every listing must keep
+  // a company (backend now enforces this with a 409). Plain-delete only
+  // when the company has zero referencing listings; otherwise open the
+  // reassign picker so the admin names a replacement company first.
+  const handleDeleteClick = (company: Company, e: React.MouseEvent) => {
     e.stopPropagation()
     e.preventDefault()
-    
-    if (!confirm('Are you sure you want to delete this company? This may affect associated listings.')) return
 
+    if ((company.listing_count || 0) > 0) {
+      setReassignTo('')
+      setCompanyToDelete(company)
+      return
+    }
+
+    if (!confirm(`Delete ${company.name}? It has no listings.`)) return
+    performDelete(company)
+  }
+
+  const performDelete = async (company: Company, reassignToId?: string) => {
+    setDeleting(true)
     try {
-      const response = await fetchWithAuth(`${API_URL}/api/companies/${id}`, {
-        method: 'DELETE',
-      })
+      const url = reassignToId
+        ? `${API_URL}/api/companies/${company.id}?reassign_to=${reassignToId}`
+        : `${API_URL}/api/companies/${company.id}`
+      const response = await fetchWithAuth(url, { method: 'DELETE' })
 
       if (response.ok) {
-        setCompanies(prev => prev.filter(c => c.id !== id))
+        setCompanies(prev => prev.filter(c => c.id !== company.id))
+        setCompanyToDelete(null)
+        setReassignTo('')
+      } else if (response.status === 409) {
+        // Server found referencing listings even though our cached count
+        // didn't (stale count, or another admin just linked one) — fall
+        // back to the reassign picker instead of a dead-end alert.
+        setReassignTo('')
+        setCompanyToDelete(company)
       } else {
-        alert('Failed to delete company. It may have associated listings.')
+        const error = await response.json().catch(() => null)
+        alert(error?.detail || 'Failed to delete company.')
       }
     } catch (err) {
       console.error('Failed to delete company:', err)
+      alert('Failed to delete company')
+    } finally {
+      setDeleting(false)
     }
+  }
+
+  const confirmReassignAndDelete = () => {
+    if (!companyToDelete) return
+    if (!reassignTo) {
+      alert('Choose a company to reassign the listings to')
+      return
+    }
+    performDelete(companyToDelete, reassignTo)
   }
 
   if (loading) {
@@ -387,6 +427,23 @@ export default function AdminCompaniesPage() {
           </div>
         )}
 
+        {/* Delete Company Modal — a company with listings can't be deleted
+            outright; the admin must pick a replacement company so every
+            listing keeps a company (backend enforces this with a 409).
+            Shared with /admin/companies/[id] so the two flows can't drift. */}
+        {companyToDelete && (
+          <DeleteCompanyModal
+            companyToDelete={companyToDelete}
+            listingCount={companyToDelete.listing_count || 0}
+            companies={companies}
+            reassignTo={reassignTo}
+            onReassignToChange={setReassignTo}
+            onCancel={() => setCompanyToDelete(null)}
+            onConfirm={confirmReassignAndDelete}
+            deleting={deleting}
+          />
+        )}
+
         {/* Companies List */}
         <div className="space-y-2">
           {paginatedCompanies.map((company) => (
@@ -478,7 +535,7 @@ export default function AdminCompaniesPage() {
                   <Pencil size={16} />
                 </Link>
                 <button
-                  onClick={(e) => handleDelete(company.id, e)}
+                  onClick={(e) => handleDeleteClick(company, e)}
                   className="p-2 text-red-400 hover:text-red-300 hover:bg-red-500/20 rounded-lg transition-colors"
                 >
                   <Trash2 size={16} />
