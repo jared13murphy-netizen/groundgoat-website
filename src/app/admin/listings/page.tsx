@@ -364,7 +364,7 @@ function AdminListingsPageContent() {
           </div>
         </div>
 
-        {/* Search — title, description, company, state, county, or acres.
+        {/* Search — title, description, company name/website, state, county, or acres.
             Searches ALL listings (server-side), not just this page. */}
         <div className="relative mb-6">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gg-gray-500" size={18} />
@@ -372,7 +372,7 @@ function AdminListingsPageContent() {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search title, description, company, state, county, or acres…"
+            placeholder="Search title, description, company, website, state, county, or acres…"
             className="w-full bg-gg-gray-900 border border-gg-gray-800 rounded-lg pl-10 pr-10 py-2.5 text-white placeholder-gg-gray-500 focus:outline-none focus:border-gg-pink"
           />
           {search && (
