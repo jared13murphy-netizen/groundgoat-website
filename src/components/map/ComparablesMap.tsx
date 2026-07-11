@@ -21,6 +21,15 @@ import fetchWithAuth from '@/lib/fetchWithAuth'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
+// Regrid parcel-OUTLINE layer's own min zoom (matches mobile's
+// REGRID_MIN_ZOOM). Owner rule (2026-07-11, subscriber-loss incident):
+// a "+" sale dot must never render without its parcel outline visible
+// underneath it. The durable-dot layer below and the map's initial
+// camera zoom on open are both gated to this SAME value so dots and
+// outlines always appear together — see the durable-dot layer and the
+// map-build effect further down.
+const REGRID_MIN_ZOOM = 11
+
 interface ComparablePin {
   id: string
   county: string
@@ -229,9 +238,11 @@ export default function ComparablesMap({
     // outlines remain visible.
     const cleanup = addRegridLayer(map, regridConfig, {
       beforeId: 'tract-polygon-fill',
-      // 11 matches the mobile comp map (REGRID_MIN_ZOOM) so parcels +
-      // the "+" appear at the same zoom users see them on mobile.
-      minZoom: 11,
+      // Matches the mobile comp map's REGRID_MIN_ZOOM so parcel outlines
+      // appear at the same zoom users see them on mobile. The durable-dot
+      // "+" layer below shares this exact constant so a dot never renders
+      // without its outline.
+      minZoom: REGRID_MIN_ZOOM,
       // Label text (owner/acres/$/date) stays gated at 14 — same as
       // ExploreMap's REGRID_LABEL_MIN_ZOOM split. Boundaries/fill/"+"
       // appear at 11; dense text only once zoomed in further.
@@ -300,7 +311,15 @@ export default function ComparablesMap({
   // 100% constant at every zoom.
   const DURABLE_DOT_SOURCE = 'parcel-sale-dots-durable'
   const DURABLE_DOT_LAYER = 'parcel-sale-dots-durable-plus'
-  const DURABLE_DOT_MIN_ZOOM = 9
+  // GATING FIX (2026-07-11, subscriber-loss incident — owner hard rule:
+  // website and mobile comp maps must be identical): this used to be a
+  // standalone 9, independent of the Regrid outline layer's own z11
+  // floor, which meant a "+" could render at z9-10 with no parcel
+  // outline underneath it — a dot with nothing to anchor it. Reusing
+  // REGRID_MIN_ZOOM here guarantees a "+" never appears without its
+  // outline. The moveend fetch below shares this same floor so we never
+  // fetch data for a zoom range where the layer can't render it anyway.
+  const DURABLE_DOT_MIN_ZOOM = REGRID_MIN_ZOOM
   const DURABLE_DOT_MIN_ACRES = 10 // owner rule: never show parcel dots under 10 acres
 
   useEffect(() => {
@@ -315,7 +334,8 @@ export default function ComparablesMap({
         id: DURABLE_DOT_LAYER,
         type: 'symbol',
         source: DURABLE_DOT_SOURCE,
-        // No maxzoom — this is now the only sale-"+" layer at every zoom.
+        // No maxzoom — this is now the only sale-"+" layer at every zoom
+        // at/above DURABLE_DOT_MIN_ZOOM (= REGRID_MIN_ZOOM).
         minzoom: DURABLE_DOT_MIN_ZOOM,
         layout: {
           'text-field': '+',
@@ -329,7 +349,12 @@ export default function ComparablesMap({
           'text-halo-color': '#E91E8C',
           'text-halo-width': 3.2,
           'text-halo-blur': 0.4,
-          'text-opacity': ['interpolate', ['linear'], ['zoom'], 8.8, 0, 9.3, 1],
+          // Fade-in window shifted to bracket the new DURABLE_DOT_MIN_ZOOM
+          // floor (was 8.8→9.3 when the floor was 9). Below `minzoom` the
+          // layer isn't in the render pipeline at all regardless of this
+          // expression, so this only affects the brief zoom-in transition
+          // right at the new floor.
+          'text-opacity': ['interpolate', ['linear'], ['zoom'], DURABLE_DOT_MIN_ZOOM - 0.2, 0, DURABLE_DOT_MIN_ZOOM + 0.3, 1],
         },
       })
     }
@@ -553,7 +578,13 @@ export default function ComparablesMap({
         glyphs: GLYPH_URL,
       },
       center: [subjectLng, subjectLat],
-      zoom: 9,
+      // Opens centered on the subject at the Regrid outline's own min
+      // zoom, FIXED — not a fit-to-comps zoom (see the unconditional
+      // map.jumpTo in the 'load' handler below, which restates this
+      // explicitly) — so the subject's parcel outline + durable "+" dots
+      // are visible together on first paint, matching the mobile comp
+      // map exactly (mobile has no fit-to-comps concept at all).
+      zoom: REGRID_MIN_ZOOM,
       maxZoom: 16,
       transformRequest: (url: string) => {
         if (url.includes(`${API_URL}/api/regrid/tile/`)) {
@@ -708,10 +739,6 @@ export default function ComparablesMap({
         map.on('mouseleave', 'tract-polygon-fill', () => { map.getCanvas().style.cursor = '' })
       }
 
-      // Bounds: fit to comparable pins + subject (not all state sales)
-      const comparableIds = new Set(comparables.map(c => String(c.id)))
-      const allCoords: [number, number][] = [[subjectLng, subjectLat]]
-
       // Helper: calculate polygon centroid
       const getPolygonCentroid = (coords: number[][]): [number, number] | null => {
         if (!coords || coords.length < 3) return null
@@ -767,11 +794,6 @@ export default function ComparablesMap({
           .setLngLat([markerLng, markerLat])
           .addTo(map)
 
-        // Track comparable coords for bounds fitting
-        if (comparableIds.has(String(sale.id))) {
-          allCoords.push([markerLng, markerLat])
-        }
-
         // Click to open modal
         el.addEventListener('click', () => {
           setSelectedSale({
@@ -802,24 +824,37 @@ export default function ComparablesMap({
         .addTo(map)
       markersRef.current.push(subjectMarker)
 
-      // Fit to bounds if we have multiple points
-      if (allCoords.length > 1) {
-        const bounds = new maplibregl.LngLatBounds()
-        for (const coord of allCoords) {
-          bounds.extend(coord as [number, number])
-        }
-        map.fitBounds(bounds, { padding: 60, maxZoom: 12 })
-      }
+      // Camera opens centered on the SUBJECT at a FIXED zoom
+      // (REGRID_MIN_ZOOM) — never a variable fit-to-comps zoom. Owner hard
+      // rule (2026-07-11): website and mobile comp maps must be
+      // behaviorally IDENTICAL, and mobile has no fit-to-comps concept at
+      // all — it always opens on the subject at a fixed zoom. The
+      // previous fit-to-every-comp behavior could compute a zoom below
+      // REGRID_MIN_ZOOM when comps spread across a whole county, opening
+      // the map with no parcel outline and no durable dots visible under
+      // the subject (the exact bug behind the lost-subscriber report).
+      // Replacing it outright — instead of conditionally falling back,
+      // the previous fix — removes that failure mode entirely instead of
+      // just bounding it, and makes the two platforms' open behavior
+      // literally identical. The map constructor already sets this same
+      // center/zoom, so this call is belt-and-suspenders explicitness,
+      // not strictly required to reach this state.
+      map.jumpTo({ center: [subjectLng, subjectLat], zoom: REGRID_MIN_ZOOM })
 
       // COUNTY COUNT BUBBLES — when the user zooms out past the point
-      // where individual comp dots are legible (z9, matching the explore
-      // map's tract tier), replace the dots with one bubble per county:
-      // the number on top, "tracts" beneath (labeled so the user knows
-      // we're counting tracts, not parcels, yet). Bubbles are derived
-      // from the comps actually on the map, so the number always matches
-      // the dots they stand in for. Clicking a bubble drills into that
-      // county.
-      const COMP_TRACT_MIN_ZOOM = 9
+      // where individual comps are legible, replace them with one bubble
+      // per county: the number on top, "tracts" beneath (labeled so the
+      // user knows we're counting tracts, not parcels). Bubbles are
+      // derived from the comps actually on the map, so the number always
+      // matches the pins they stand in for. Clicking a bubble drills into
+      // that county.
+      // Cutoff raised 9 → REGRID_MIN_ZOOM (2026-07-11 parity fix): mirrors
+      // mobile's comp-county-count-text handoff to its durable-dot layer
+      // — both now floor/ceiling at the SAME zoom the "+" dots and Regrid
+      // outlines start rendering, so there's no z9–11 dead band where a
+      // county has comps but neither the aggregate bubble nor an
+      // individual pin/dot is on screen for it.
+      const COMP_TRACT_MIN_ZOOM = REGRID_MIN_ZOOM
       const bubbleMarkers: maplibregl.Marker[] = []
       const buildBubbles = () => {
         countyAgg.forEach(v => {
@@ -840,7 +875,7 @@ export default function ComparablesMap({
             `<div style="font-size:8px;font-weight:600;line-height:1.1;letter-spacing:0.5px;` +
             `text-transform:uppercase;opacity:0.92;margin-top:1px;">tracts</div>`
           el.addEventListener('click', () => {
-            map.easeTo({ center: [lng, lat], zoom: 10, duration: 700 })
+            map.easeTo({ center: [lng, lat], zoom: REGRID_MIN_ZOOM, duration: 700 })
           })
           bubbleMarkers.push(
             new maplibregl.Marker({ element: el, anchor: 'center' })
