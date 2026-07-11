@@ -56,10 +56,9 @@ const SCRAPER_PROXY = '/api/scraper-proxy'
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 // Multi-polygon CREATION gate. ON now that every display surface (website
 // maps, mobile, PDF report) + enrichment + validation render/handle all rings.
-// Multi creation is additionally limited to LIVE-tract (data-cleanup) mode via
-// liveTractId (see usages) — the staging save path (scraper) is still
-// single-ring, so the "Add polygon"/multi-snap controls only appear when
-// editing a published tract.
+// Available in BOTH live-tract (data-cleanup / edit listing) mode via
+// liveTractId AND staging (Auction/PT) mode — the staging save-boundary
+// scraper endpoint now accepts multi-ring bodies too (see handleSave below).
 const MULTI_POLY_ENABLED = true
 const TILE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
 const TILE_ATTRIBUTION = '&copy; Esri, Maxar, Earthstar Geographics'
@@ -2552,8 +2551,16 @@ export default function TractMapEditor({
       return
     }
 
-    // Saving a cleared polygon: route to the appropriate delete/clear endpoint
-    if (points.length === 0) {
+    // Saving a cleared polygon: route to the appropriate delete/clear
+    // endpoint — but ONLY when there are no rings at all. Checking
+    // points.length alone was a data-loss bug: handleAddPolygon finalizes
+    // the active ring into extraPolygons and resets points to [], so
+    // clicking "+ Add polygon" then Save (before drawing a second piece)
+    // used to fall into this branch and DELETE the boundary instead of
+    // saving the finished ring. `rings` (= allRings(), computed above)
+    // reflects points AND extraPolygons together, so this only fires when
+    // the user has truly cleared everything.
+    if (rings.length === 0) {
       setSaving(true)
       setStatus(null)
       try {
@@ -2633,7 +2640,7 @@ export default function TractMapEditor({
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ polygon: points }),
+          body: JSON.stringify({ polygon: boundaryPayload }),
         }
       )
       const data = await res.json()
@@ -3535,8 +3542,12 @@ export default function TractMapEditor({
             <>
           {/* Multi-polygon: finalize the current piece and start another.
               Gated by MULTI_POLY_ENABLED until the renderers can draw all
-              rings. Only meaningful once the active ring is a closed polygon. */}
-          {MULTI_POLY_ENABLED && liveTractId && (
+              rings. Only meaningful once the active ring is a closed polygon.
+              Shown in BOTH live-tract mode (liveTractId) and staging mode
+              (stagingId always set by every caller — see handleSave, which
+              sends the multi-ring payload to the staging save-boundary
+              endpoint when extraPolygons is non-empty). */}
+          {MULTI_POLY_ENABLED && (liveTractId || stagingId != null) && (
             <button
               onClick={handleAddPolygon}
               disabled={points.length < 3 || saving || deleting}
