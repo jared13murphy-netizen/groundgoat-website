@@ -849,6 +849,7 @@ export default function AdminPrivateTreatyStagingPage() {
         setListings((prev) =>
           prev.map((l) => (l.id === listing.id ? { ...l, scraped_data: updated } : l))
         )
+        fetchValidation(listing.id)
         setPriceEditId(null)
         setPriceEditValue('')
         showToast('success', 'Price updated')
@@ -881,6 +882,7 @@ export default function AdminPrivateTreatyStagingPage() {
         body: JSON.stringify({ scraped_data: updated }),
       })
       if (!res.ok) showToast('error', 'Failed to save buildings flag')
+      else fetchValidation(listing.id)
     } catch {
       showToast('error', 'Network error — failed to save buildings flag')
     }
@@ -902,6 +904,7 @@ export default function AdminPrivateTreatyStagingPage() {
         body: JSON.stringify({ scraped_data: updated }),
       })
       if (!res.ok) showToast('error', 'Failed to save house flag')
+      else fetchValidation(listing.id)
     } catch {
       showToast('error', 'Network error — failed to save house flag')
     }
@@ -924,6 +927,7 @@ export default function AdminPrivateTreatyStagingPage() {
         body: JSON.stringify({ scraped_data: updated }),
       })
       if (!res.ok) showToast('error', 'Failed to save sale status')
+      else fetchValidation(listing.id)
     } catch {
       showToast('error', 'Network error — failed to save sale status')
     }
@@ -952,6 +956,7 @@ export default function AdminPrivateTreatyStagingPage() {
         body: JSON.stringify({ scraped_data: updated }),
       })
       if (!res.ok) showToast('error', 'Failed to save Scraped/Computed selection')
+      else fetchValidation(listing.id)
     } catch {
       showToast('error', 'Network error — selection not saved')
     }
@@ -974,6 +979,7 @@ export default function AdminPrivateTreatyStagingPage() {
         body: JSON.stringify({ scraped_data: updated }),
       })
       if (!res.ok) showToast('error', 'Failed to save land types')
+      else fetchValidation(listing.id)
     } catch {
       showToast('error', 'Network error — land types not saved')
     }
@@ -1003,6 +1009,7 @@ export default function AdminPrivateTreatyStagingPage() {
         body: JSON.stringify({ scraped_data: updated }),
       })
       if (!res.ok) showToast('error', 'Failed to save value')
+      else fetchValidation(listing.id)
     } catch {
       showToast('error', 'Network error — value not saved')
     }
@@ -1029,6 +1036,7 @@ export default function AdminPrivateTreatyStagingPage() {
         body: JSON.stringify({ scraped_data: updated }),
       })
       if (!res.ok) showToast('error', 'Failed to add tract')
+      else fetchValidation(listing.id)
     } catch {
       showToast('error', 'Network error — tract not added')
     } finally {
@@ -1051,6 +1059,7 @@ export default function AdminPrivateTreatyStagingPage() {
         body: JSON.stringify({ scraped_data: updated }),
       })
       if (!res.ok) showToast('error', 'Failed to delete tract')
+      else fetchValidation(listing.id)
     } catch {
       showToast('error', 'Network error — tract not deleted')
     }
@@ -1077,6 +1086,7 @@ export default function AdminPrivateTreatyStagingPage() {
         sd.tracts = ts
         return { ...l, scraped_data: sd }
       }))
+      fetchValidation(listingId)
     } catch (e: any) {
       showToast('error', e.message || 'Failed to delete tract')
     }
@@ -1116,6 +1126,7 @@ export default function AdminPrivateTreatyStagingPage() {
               : l
           )
         )
+        fetchValidation(editingListing.id)
         closeEditModal()
       } else {
         const err = await response.json()
@@ -1824,6 +1835,7 @@ export default function AdminPrivateTreatyStagingPage() {
                                     body: JSON.stringify({ scraped_data: updated }),
                                   })
                                   if (!res.ok) throw new Error('Failed to save swap')
+                                  fetchValidation(listing.id)
                                 } catch (e) {
                                   setListings(original)
                                   throw e
