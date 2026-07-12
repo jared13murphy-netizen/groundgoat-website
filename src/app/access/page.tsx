@@ -546,7 +546,7 @@ function AccessPortalPageInner() {
         // the parcel outlines + "+" comp markers render immediately.
         // Centered on the subject tract.
         const zoomTarget = subLat && subLng
-          ? { lat: subLat, lng: subLng, zoom: 11 }
+          ? { lat: subLat, lng: subLng, zoom: 13 }
           : (() => {
               const coords = getCountyCoordinates(state, county)
               return coords ? { lat: coords.latitude, lng: coords.longitude, zoom: 12 } : null
