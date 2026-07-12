@@ -61,10 +61,16 @@ const MARKER_LAYERS_BOTTOM_TO_TOP = [
   // both guaranteed to stay above tract-polygon-fill/-line whenever those
   // get lifted (previously this list didn't include the durable layer at
   // all, so it could drift below a freshly-lifted tract polygon).
+  // Each dot's companion "+" SYMBOL layer is listed immediately above its
+  // own circle so the glyph paints on top of the (opaque) circle instead of
+  // being covered by it — parcel-sale-dots-durable-symbol here, and
+  // tract-pin-plus at the top of the tract-pin group below.
   'parcel-sale-dots-durable-circle',
+  'parcel-sale-dots-durable-symbol',
   'parcel-sale-pin-plus',
   'tract-pin-circles',
   'tract-pin-labels',
+  'tract-pin-plus',
   // Today's-auction green dots sit ABOVE the regular pins (pulse halo first,
   // then the solid core on top of its own halo).
   'today-pin-pulse',
