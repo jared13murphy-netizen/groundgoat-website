@@ -491,9 +491,10 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
                     )}
                   </div>
 
-                  {/* Find Comparables Button */}
+                  {/* Find Comparables Button — opens the real comp map on
+                      /access (comp mode), not the orphaned /comparables page */}
                   <Link
-                    href={`/listings/${listing.id}/comparables?tractId=${tract.id}`}
+                    href={`/access?comparablesTractId=${tract.id}&county=${encodeURIComponent(listing.county)}&state=${encodeURIComponent(listing.state)}`}
                     className="mt-3 flex items-center justify-center gap-2 w-full py-2 bg-gg-pink/10 text-gg-pink border border-gg-pink/30 rounded-lg hover:bg-gg-pink/20 transition-colors text-sm font-medium"
                   >
                     <BarChart3 size={16} />

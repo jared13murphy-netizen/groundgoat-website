@@ -574,6 +574,24 @@ function AccessPortalPageInner() {
     setComparablesLoading(false)
   }
 
+  // Deep-link into comp mode: ?comparablesTractId=&county=&state= (e.g. the
+  // "Find Comparables" link on a listing, or the retired
+  // /listings/[id]/comparables route redirecting here) opens the REAL comp
+  // map — mirrors the focusLat/focusLng pattern above. Fires a single time
+  // so it doesn't re-trigger if the user closes comp mode and the params
+  // are still in the URL.
+  const comparablesParamHandledRef = useRef(false)
+  useEffect(() => {
+    if (comparablesParamHandledRef.current || !user) return
+    const tractId = searchParams.get('comparablesTractId')
+    if (!tractId) return
+    const county = searchParams.get('county') || ''
+    const state = searchParams.get('state') || ''
+    comparablesParamHandledRef.current = true
+    handleFindComparables(tractId, county, state)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, searchParams])
+
   const handleCloseComparables = () => {
     setSubjectTractId(null)
     setSubjectTractLocation(null)
