@@ -20,7 +20,7 @@ import TractMapEditor from '@/components/admin/TractMapEditor'
 import TillableCluWorkshop from '@/components/admin/TillableCluWorkshop'
 import TractDataCompare from '@/components/admin/TractDataCompare'
 import SaleStatusChips from '@/components/admin/SaleStatusChips'
-import { toRings } from '@/lib/polygonGeometry'
+import { toRings } from '@/lib/polygonRings'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -72,8 +72,11 @@ export default function TractCleanupEditor({ tract, listing, onChanged, onDirtyC
   const [mapDirty, setMapDirty] = useState(false)
   const [tillDirty, setTillDirty] = useState(false)
 
-  // First ring of the saved polygon (data-cleanup uses tract.polygon_coordinates
-  // directly; here we normalize through toRings so multi-polygon tracts work).
+  // First ring of the saved polygon, used only for the point-count display
+  // below. NOTE: initialPolygon passes the raw tract.polygon_coordinates
+  // (see below) — this truncated `ring` must never be used for that, or a
+  // multi-ring tract loaded here and saved would overwrite the boundary
+  // with just its first piece.
   const ring = toRings(tract.polygon_coordinates)[0] ?? null
 
   // ---- Savers (copied verbatim from data-cleanup, page-state → onChanged) ----
@@ -291,12 +294,23 @@ export default function TractCleanupEditor({ tract, listing, onChanged, onDirtyC
               total_acres: t.total_acres ?? null,
               tillable_acres: t.tillable_acres ?? null,
             }))}
-            // OTHER live tracts' polygons → shared-boundary reference + snap targets.
+            // OTHER live tracts' polygons → shared-boundary reference + snap
+            // targets. flatMap through toRings so a multi-ring neighbor
+            // contributes ALL of its pieces as separate snap targets instead
+            // of being dropped or pushed as one corrupted "ring". Single-ring
+            // neighbors are unaffected.
             neighborPolygons={(listing.tracts || [])
               .filter((t: any) => t.id !== tract.id)
-              .map((t: any) => t.polygon_coordinates as any)
-              .filter((p: any) => Array.isArray(p) && p.length >= 3)}
-            initialPolygon={ring}
+              .flatMap((t: any) => toRings(t.polygon_coordinates as any))
+              .filter((r: any) => Array.isArray(r) && r.length >= 3)}
+            // Pass the FULL tract.polygon_coordinates (not the truncated
+            // first-ring `ring` above) so a multi-ring tract loads and
+            // round-trips every piece — matching data-cleanup's page-level
+            // editor, which passes the raw value straight through.
+            // initialPolygon accepts either shape (single ring or list of
+            // rings) directly. Single-ring tracts are unaffected: the raw
+            // value IS the single ring, same as `ring` would have been.
+            initialPolygon={tract.polygon_coordinates ?? null}
             // No rescrape proposals in Edit Listing.
             proposedPolygon={null}
             proposedNonce={0}

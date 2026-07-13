@@ -21,6 +21,7 @@ import LandTypeButtons from '@/components/admin/LandTypeButtons'
 import TractDataCompare from '@/components/admin/TractDataCompare'
 import SwapTractsPanel from '@/components/admin/SwapTractsPanel'
 import SaleStatusChips from '@/components/admin/SaleStatusChips'
+import { toRings } from '@/lib/polygonRings'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -1151,12 +1152,21 @@ export default function TractDataCleanupPage() {
                             const tractKey = `${it.listing_id}-${tract.id}`
                             const reviewed = !!tract.boundary_reviewed_by
                             // View on Map target: polygon centroid → tract coord → null.
+                            // flatMap through toRings so a multi-ring tract averages
+                            // points across ALL its pieces instead of iterating the
+                            // outer ring-list as if it were one flat ring (every
+                            // point would then fail Number.isFinite and silently
+                            // fall back to tract lat/lng).
                             let fLat: number | null = tract.latitude
                             let fLng: number | null = tract.longitude
+                            // Raw polygon_coordinates (single ring OR multi-ring list)
+                            // — kept as-is for the point-count badge below and for
+                            // initialPolygon, which accepts either shape directly.
                             const ring = tract.polygon_coordinates
-                            if (ring && ring.length) {
+                            const allPts = toRings(ring).flat()
+                            if (allPts.length) {
                               let sx = 0, sy = 0, n = 0
-                              for (const p of ring) {
+                              for (const p of allPts) {
                                 if (Array.isArray(p) && p.length >= 2 && Number.isFinite(p[0]) && Number.isFinite(p[1])) {
                                   sx += p[0]; sy += p[1]; n++
                                 }
@@ -1463,11 +1473,16 @@ export default function TractDataCleanupPage() {
                                         tillable_acres: t.tillable_acres ?? null,
                                       }))}
                                       // OTHER live tracts' polygons → shared-boundary
-                                      // reference + snap / copy-edge targets.
+                                      // reference + snap / copy-edge targets. flatMap
+                                      // through toRings so a multi-ring neighbor
+                                      // contributes ALL of its pieces as separate snap
+                                      // targets instead of being dropped or pushed as
+                                      // one corrupted "ring". Single-ring neighbors
+                                      // are unaffected.
                                       neighborPolygons={loaded.tracts
                                         .filter((t) => t.id !== tract.id)
-                                        .map((t) => t.polygon_coordinates as any)
-                                        .filter((p) => Array.isArray(p) && p.length >= 3)}
+                                        .flatMap((t) => toRings(t.polygon_coordinates as any))
+                                        .filter((r) => Array.isArray(r) && r.length >= 3)}
                                       initialPolygon={ring}
                                       proposedPolygon={proposals[tract.id]?.coords ?? null}
                                       proposedNonce={proposals[tract.id]?.nonce ?? 0}

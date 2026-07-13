@@ -7,6 +7,7 @@ import { formatAcres } from '@/lib/format'
 import TractMapEditor from '@/components/admin/TractMapEditor'
 import TillableCluWorkshop from '@/components/admin/TillableCluWorkshop'
 import LandTypeButtons from '@/components/admin/LandTypeButtons'
+import { toRings } from '@/lib/polygonRings'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -61,13 +62,34 @@ function SaleStatusBadge({ status }: { status: string | null | undefined }) {
 }
 
 export default function ListingTractCard({ tract, listing, onChanged, onDeleted, validateItems }: Props) {
-  const ring: Pt[] | null = useMemo(() => {
-    const p = tract.polygon_coordinates
-    return Array.isArray(p) && p.length >= 3 ? (p as Pt[]) : null
-  }, [tract.polygon_coordinates])
+  // Ring-shape-agnostic: a tract HAS a boundary if polygon_coordinates
+  // normalizes (single ring OR multi-ring list — see toRings) to >=1 ring
+  // with >=3 points. The previous `Array.isArray(p) && p.length >= 3` read
+  // RING COUNT for a multi-piece tract, not point count, so a 2-ring tract
+  // showed "no polygon" here and TractMapEditor got null instead of the
+  // real boundary — a real data-loss risk, since a user could then redraw
+  // from scratch and overwrite the existing (multi-ring) boundary.
+  const polygonRings = useMemo(
+    () => toRings(tract.polygon_coordinates).filter((r) => r.length >= 3),
+    [tract.polygon_coordinates],
+  )
+  const hasPolygon = polygonRings.length > 0
+  // TractMapEditor's initialPolygon accepts either shape (single ring OR
+  // list of rings) directly — pass the raw value through so multi-ring
+  // tracts keep every piece, rather than force-casting to a flat ring.
+  const initialPolygon: Pt[] | Pt[][] | null = hasPolygon
+    ? (tract.polygon_coordinates as Pt[] | Pt[][])
+    : null
+  // Total boundary points across all rings — for a single-ring tract this
+  // is identical to the old `ring.length`, so single-ring display is
+  // unchanged; a multi-ring tract now sums all its pieces instead of
+  // showing "none".
+  const polygonPointCount = useMemo(
+    () => polygonRings.reduce((sum, r) => sum + r.length, 0),
+    [polygonRings],
+  )
 
   // Collapsed by default; auto-expand tracts with no polygon (they need attention).
-  const hasPolygon = ring !== null
   const [isOpen, setIsOpen] = useState(!hasPolygon)
 
   // ----- scalar form state (initialized from the tract) -----
@@ -347,7 +369,7 @@ export default function ListingTractCard({ tract, listing, onChanged, onDeleted,
         <span>$/acre: <span className="text-white font-medium">{money(tract.price_per_acre)}</span></span>
         <span>$/tillable: <span className="text-white font-medium">{money(tract.price_per_tillable_acre)}</span></span>
         <span>$/soil pt: <span className="text-white font-medium">{money(tract.price_per_soil_rating)}</span></span>
-        <span>Polygon: <span className="text-white font-medium">{ring ? `${ring.length} pts` : 'none'}</span></span>
+        <span>Polygon: <span className="text-white font-medium">{hasPolygon ? `${polygonPointCount} pts` : 'none'}</span></span>
       </div>
 
       {/* Scalar fields */}
@@ -490,11 +512,17 @@ export default function ListingTractCard({ tract, listing, onChanged, onDeleted,
           tillable_acres: t.tillable_acres ?? null,
         }))}
         // OTHER tracts' polygons → shared-boundary reference + snap targets.
+        // neighborPolygons is a FLAT list of individual rings (one entry per
+        // ring, not per tract) — flatMap through toRings so a multi-ring
+        // neighbor contributes ALL of its pieces as separate snap targets
+        // instead of being dropped by a ring-count check. Single-ring
+        // neighbors are unaffected: toRings(singleRing) => [singleRing],
+        // same one-entry-per-tract result as before.
         neighborPolygons={(listing.tracts || [])
           .filter((t: any) => t.id !== tract.id)
-          .map((t: any) => t.polygon_coordinates)
-          .filter((p: any) => Array.isArray(p) && p.length >= 3)}
-        initialPolygon={ring}
+          .flatMap((t: any) => toRings(t.polygon_coordinates))
+          .filter((r: any) => Array.isArray(r) && r.length >= 3)}
+        initialPolygon={initialPolygon}
         hideTillable
         tillablePolygon={null}
         showTillable={false}

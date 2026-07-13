@@ -55,7 +55,13 @@ import { fetchWithAuth, fetchScraperProxy } from '@/lib/fetchWithAuth'
 const SCRAPER_PROXY = '/api/scraper-proxy'
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 // Multi-polygon CREATION gate. ON now that every display surface (website
-// maps, mobile, PDF report) + enrichment + validation render/handle all rings.
+// ExploreMap + access-page zoom/pin, ComparablesMap, mobile ExploreMapView,
+// PDF report) + enrichment + validation render/handle all rings. Fixed
+// 2026-07-13: several of those renderers had a raw `.length >= 3` check on
+// the OUTER array (ring count, not point count) that silently dropped
+// multi-ring tracts or, worse, treated each ring as a single flat point and
+// corrupted the geometry — see polygonRings.ts toRings/ringsToGeometry,
+// which every fixed renderer now goes through.
 // Available in BOTH live-tract (data-cleanup / edit listing) mode via
 // liveTractId AND staging (Auction/PT) mode — the staging save-boundary
 // scraper endpoint now accepts multi-ring bodies too (see handleSave below).
@@ -1707,7 +1713,10 @@ export default function TractMapEditor({
         // multiple disjoint pieces, keep ALL of them (largest active, rest as
         // extras) instead of collapsing to the largest. Gated so single-poly
         // behavior (the else branch) is unchanged until the renderers are ready.
-        const pieces = (MULTI_POLY_ENABLED && liveTractId) ? geojsonToRings(d.pieces_geojson) : []
+        // Applies in BOTH live-tract mode (liveTractId) and staging mode
+        // (stagingId always set by every caller — same gate used for the
+        // "Add polygon" button below).
+        const pieces = (MULTI_POLY_ENABLED && (liveTractId || stagingId != null)) ? geojsonToRings(d.pieces_geojson) : []
         if (pieces.length > 1) {
           pieces.sort((a, b) => polygonAcres(b) - polygonAcres(a))
           pointsHistory.current.push(points.map(p => [...p] as Pt))

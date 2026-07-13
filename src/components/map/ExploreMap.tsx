@@ -201,7 +201,12 @@ function makePillSprite(opts: { border: string }): {
  *      OR a future auction date.
  */
 function isAcceptableMapTract(t: ApiMapTract, isUpcomingFilter: boolean, now: Date): boolean {
-  if (!t.polygon_coordinates || !Array.isArray(t.polygon_coordinates) || t.polygon_coordinates.length < 3) {
+  // Ring-shape-agnostic: a tract has a boundary if polygon_coordinates
+  // normalizes to at least one ring with >=3 points, whether it's a
+  // single flat ring or a multi-piece list of rings. A raw
+  // `.length < 3` check on the outer array wrongly rejected multi-ring
+  // tracts (2 rings < 3 → dropped from the map entirely).
+  if (!toTractRings(t.polygon_coordinates).some(r => r.length >= 3)) {
     return false
   }
   const isAuctionListing = t.listing_type === 'auction'
@@ -820,12 +825,15 @@ interface ExploreMapProps {
   onFiltersApplied?: (filters: { stateFilter: string; countyFilters: string[] }) => void
   zoomToLocation?: { lat: number; lng: number; zoom: number } | null
   /** Fit the map to a polygon's bounds. Bumped via `nonce` so the same
-      coords retrigger if the user clicks the same listing/tract twice. */
-  zoomToBoundsSignal?: { coords: [number, number][]; nonce: number } | null
+      coords retrigger if the user clicks the same listing/tract twice.
+      `coords` is a single ring OR a list of rings (multi-piece tract) —
+      see toRings in @/lib/polygonRings. */
+  zoomToBoundsSignal?: { coords: [number, number][] | [number, number][][]; nonce: number } | null
   /** Polygon to overlay even if the tract isn't in the map's filter
       set — set when the user picks a tract from a slide-out so its
-      boundary always shows up after a zoom-to-tract action. */
-  pinnedTractPolygon?: { id: string; coords: [number, number][] } | null
+      boundary always shows up after a zoom-to-tract action. Same
+      single-ring-or-list-of-rings shape as zoomToBoundsSignal.coords. */
+  pinnedTractPolygon?: { id: string; coords: [number, number][] | [number, number][][] } | null
   subjectTractId?: string | null
   subjectTractLocation?: { lat: number; lng: number } | null
   resetFiltersSignal?: number
@@ -2019,12 +2027,20 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const map = mapRef.current
     if (!map) return
     let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity
-    for (const [lng, lat] of zoomToBoundsSignal.coords) {
-      if (typeof lng !== 'number' || typeof lat !== 'number') continue
-      if (lng < minLng) minLng = lng
-      if (lng > maxLng) maxLng = lng
-      if (lat < minLat) minLat = lat
-      if (lat > maxLat) maxLat = lat
+    // Ring-aware: coords may be a single flat ring or a multi-piece list of
+    // rings. toTractRings normalizes either shape to a list of rings so the
+    // bbox spans ALL pieces of a multi-ring tract (previously this
+    // destructured each top-level element as [lng, lat] directly, so for a
+    // multi-ring tract every "point" was actually a whole ring/array, the
+    // typeof guard skipped all of them, and fitBounds silently never fired).
+    for (const ring of toTractRings(zoomToBoundsSignal.coords)) {
+      for (const [lng, lat] of ring) {
+        if (typeof lng !== 'number' || typeof lat !== 'number') continue
+        if (lng < minLng) minLng = lng
+        if (lng > maxLng) maxLng = lng
+        if (lat < minLat) minLat = lat
+        if (lat > maxLat) maxLat = lat
+      }
     }
     if (!Number.isFinite(minLng)) return
     map.fitBounds(
@@ -2250,21 +2266,22 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // when the user explicitly clicks that tract, they expect to see the
     // boundary draw. We dedupe by id so we don't render twice if it's
     // already in the filtered set.
-    if (pinnedTractPolygon?.coords && pinnedTractPolygon.coords.length >= 3) {
+    // Ring-aware: pinnedTractPolygon.coords may be a single flat ring or a
+    // multi-piece list of rings. ringsToGeometry normalizes+closes every
+    // ring and returns a Polygon (1 ring) or MultiPolygon (>1 ring) — the
+    // previous code always wrapped the raw coords as a single ring, which
+    // silently dropped multi-ring tracts (outer array length < 3 rings) and
+    // would have corrupted 3+ ring tracts (each ring treated as one point).
+    const pinnedGeometry = pinnedTractPolygon?.coords ? ringsToGeometry(pinnedTractPolygon.coords) : null
+    if (pinnedGeometry && pinnedTractPolygon) {
       const existingIds = new Set(
         fc.features.map((f: any) => f.properties?.tractId ?? f.id),
       )
       if (!existingIds.has(pinnedTractPolygon.id)) {
-        const coords = [...pinnedTractPolygon.coords]
-        const first = coords[0]
-        const last = coords[coords.length - 1]
-        if (first[0] !== last[0] || first[1] !== last[1]) {
-          coords.push([first[0], first[1]])
-        }
-        ;(fc.features as any[]).push({
+        (fc.features as any[]).push({
           type: 'Feature',
           id: pinnedTractPolygon.id,
-          geometry: { type: 'Polygon', coordinates: [coords] },
+          geometry: pinnedGeometry,
           properties: {
             tractId: pinnedTractPolygon.id,
             status: 'pinned',

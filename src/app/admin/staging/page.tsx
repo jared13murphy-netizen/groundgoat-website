@@ -43,6 +43,7 @@ import TractDataCompare from '@/components/admin/TractDataCompare'
 import SwapStagingTractsPanel from '@/components/admin/SwapStagingTractsPanel'
 import SaleStatusChips from '@/components/admin/SaleStatusChips'
 import { polygonAcres, polygonPerimeterFeet, formatPerimeter } from '@/lib/polygonGeometry'
+import { toRings } from '@/lib/polygonRings'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 const SCRAPER_PROXY = '/api/scraper-proxy'
@@ -2202,9 +2203,18 @@ export default function AdminStagingPage() {
                                       {stAcres != null && (
                                         <span className="text-xs text-gg-gray-300">{formatAcres(Number(stAcres))} ac</span>
                                       )}
-                                      <span className={`text-xs ${tract.polygon_coordinates ? 'text-green-400' : 'text-yellow-400'}`}>
-                                        {tract.polygon_coordinates ? '◼ Polygon' : '○ No polygon'}
-                                      </span>
+                                      {(() => {
+                                        // Ring-aware: a multi-ring tract with
+                                        // truthy polygon_coordinates but no ring
+                                        // that actually has >=3 points should
+                                        // still read as "no polygon".
+                                        const hasBoundary = toRings(tract.polygon_coordinates).some((r) => r.length >= 3)
+                                        return (
+                                          <span className={`text-xs ${hasBoundary ? 'text-green-400' : 'text-yellow-400'}`}>
+                                            {hasBoundary ? '◼ Polygon' : '○ No polygon'}
+                                          </span>
+                                        )
+                                      })()}
                                       {stReviewed && (
                                         <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded bg-green-500/15 text-green-400 border border-green-500/40 shrink-0">
                                           ✓ Reviewed
@@ -2257,12 +2267,18 @@ export default function AdminStagingPage() {
                                       the tract polygon centroid (most accurate),
                                       then tract lat/lng, then listing lat/lng. */}
                                   {(() => {
-                                    const ring = Array.isArray(tract.polygon_coordinates) ? tract.polygon_coordinates : null
+                                    // flatMap through toRings so a multi-ring tract
+                                    // averages points across ALL its pieces instead
+                                    // of iterating the outer ring-list as if it were
+                                    // one flat ring (every point would then fail the
+                                    // Number.isFinite check and silently fall back
+                                    // to tract/listing lat/lng).
+                                    const allPts = toRings(tract.polygon_coordinates).flat()
                                     let fLat: number | null = null
                                     let fLng: number | null = null
-                                    if (ring && ring.length) {
+                                    if (allPts.length) {
                                       let sx = 0, sy = 0, n = 0
-                                      for (const p of ring) {
+                                      for (const p of allPts) {
                                         if (Array.isArray(p) && p.length >= 2 && Number.isFinite(p[0]) && Number.isFinite(p[1])) {
                                           sx += p[0]; sy += p[1]; n++
                                         }
@@ -2349,11 +2365,16 @@ export default function AdminStagingPage() {
                                     }))}
                                     // OTHER tracts' saved polygons → dashed reference
                                     // overlay + snap / copy-edge targets so adjacent
-                                    // tracts share an exact boundary.
+                                    // tracts share an exact boundary. flatMap through
+                                    // toRings so a multi-ring neighbor contributes
+                                    // ALL of its pieces as separate snap targets
+                                    // instead of being dropped (ring count < 3) or
+                                    // pushed as one corrupted "ring". Single-ring
+                                    // neighbors are unaffected.
                                     neighborPolygons={((listing.scraped_data?.tracts as any[]) || [])
                                       .filter((_t: any, i: number) => i !== idx)
-                                      .map((t: any) => t.polygon_coordinates)
-                                      .filter((p: any) => Array.isArray(p) && p.length >= 3)}
+                                      .flatMap((t: any) => toRings(t.polygon_coordinates))
+                                      .filter((r: any) => Array.isArray(r) && r.length >= 3)}
                                     initialPolygon={Array.isArray(tract.polygon_coordinates) ? tract.polygon_coordinates : null}
                                     // FSA-CLU rescope: tillable is owned by the
                                     // TillableCluWorkshop below. The map editor is

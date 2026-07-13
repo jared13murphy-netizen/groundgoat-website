@@ -8,6 +8,7 @@ import Link from 'next/link'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Loader2, BarChart3, ArrowLeft } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
+import { toRings as toTractRings } from '@/lib/polygonRings'
 import { getDistanceToCounty, getCountyCoordinates } from '@/data/countyCoordinates'
 import PortalNavBar from '@/components/portal/PortalNavBar'
 import PortalKPICards from '@/components/portal/PortalKPICards'
@@ -100,11 +101,14 @@ function AccessPortalPageInner() {
   // specific tract from the slide-out pane. ExploreMap fits the map
   // to these coords. `nonce` lets the same polygon retrigger if the
   // user clicks it again.
-  const [zoomToBoundsSignal, setZoomToBoundsSignal] = useState<{ coords: [number, number][]; nonce: number } | null>(null)
+  // `coords` is a single flat ring OR a list of rings (multi-piece tract) —
+  // see toRings in @/lib/polygonRings. ExploreMap normalizes either shape.
+  const [zoomToBoundsSignal, setZoomToBoundsSignal] = useState<{ coords: [number, number][] | [number, number][][]; nonce: number } | null>(null)
   // Most-recently-clicked tract polygon. Force-rendered on the map even
   // if the tract's status would otherwise be filtered out by the
   // current view (e.g. a sold tract inside an upcoming-auction listing).
-  const [pinnedTractPolygon, setPinnedTractPolygon] = useState<{ id: string; coords: [number, number][] } | null>(null)
+  // Same single-ring-or-list-of-rings shape as zoomToBoundsSignal.coords.
+  const [pinnedTractPolygon, setPinnedTractPolygon] = useState<{ id: string; coords: [number, number][] | [number, number][][] } | null>(null)
   // Listing meta (county + state) captured when PortalListingDetail
   // finishes its async fetch — used to render the "<County> County,
   // <ST>" subtitle in the slide-out pane header. Cleared whenever
@@ -139,8 +143,12 @@ function AccessPortalPageInner() {
     if (listing?.county || listing?.state) {
       setMapListingMeta({ county: listing.county || '', state: listing.state || '' })
     }
+    // Ring-shape-agnostic: a tract has a boundary if polygon_coordinates
+    // normalizes (single ring OR multi-ring list) to >=1 ring with >=3
+    // points. A raw `.length >= 3` on the outer array wrongly rejected
+    // multi-ring tracts (2 rings < 3 → skipped, map never zooms there).
     const tract = (listing?.tracts || []).find((t: any) =>
-      Array.isArray(t?.polygon_coordinates) && t.polygon_coordinates.length >= 3
+      toTractRings(t?.polygon_coordinates).some((r) => r.length >= 3)
     )
     if (tract) {
       setZoomToBoundsSignal({ coords: tract.polygon_coordinates, nonce: Date.now() })
@@ -150,7 +158,8 @@ function AccessPortalPageInner() {
   const zoomToTractBoundary = (tract: any) => {
     const coords =
       tract?.polygonCoordinates ?? tract?.polygon_coordinates
-    if (Array.isArray(coords) && coords.length >= 3) {
+    // Same ring-shape-agnostic check as zoomToFirstTractWithBoundary above.
+    if (toTractRings(coords).some((r) => r.length >= 3)) {
       setZoomToBoundsSignal({ coords, nonce: Date.now() })
       const tractId = tract?.tractId ?? tract?.id
       if (tractId) {
