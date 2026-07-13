@@ -44,6 +44,32 @@ function closeRing(ring: Ring): Ring {
   return (f[0] !== l[0] || f[1] !== l[1]) ? [...ring, [f[0], f[1]]] : ring
 }
 
+// Multi-tract listings often share ONE geocoded lat/lng across all their tract
+// rows. Left un-offset, co-located tracts stack pixel-perfectly and a click
+// resolves to whichever feature draws topmost — a different tract than the
+// user aimed at. applyColocationOffset fans out the 2nd+ tract at a coordinate
+// into a spiral: ring = floor(index/6), slot = index % 6, so ring 0 holds up to
+// 6 tracts (angle = slot * 2π/6) and the 7th+ moves out to ring 1 at 2x the
+// radius instead of colliding with index 0-5 again. Index 0 (the first tract
+// seen at a coordinate) always stays at the true point, so single-tract
+// listings render exactly where they always have.
+const COLOCATION_OFFSET = 0.003
+function applyColocationOffset(
+  lat: number,
+  lng: number,
+  coordCounts: Record<string, number>
+): [number, number] {
+  const key = `${lat.toFixed(4)},${lng.toFixed(4)}`
+  const index = coordCounts[key] || 0
+  coordCounts[key] = index + 1
+  if (index === 0) return [lng, lat]
+  const ring = Math.floor(index / 6)
+  const slot = index % 6
+  const angle = slot * (2 * Math.PI / 6)
+  const radius = COLOCATION_OFFSET * (ring + 1)
+  return [lng + radius * Math.cos(angle), lat + radius * Math.sin(angle)]
+}
+
 export function buildExplorePointGeoJSON(tracts: ApiMapTract[]): GeoJSON.FeatureCollection {
   const filtered = tracts.filter(t => t.latitude != null && t.longitude != null)
 
@@ -67,15 +93,7 @@ export function buildExplorePointGeoJSON(tracts: ApiMapTract[]): GeoJSON.Feature
       }
 
       // Offset co-located points
-      const key = `${lat.toFixed(4)},${lng.toFixed(4)}`
-      const index = coordCounts[key] || 0
-      coordCounts[key] = index + 1
-      if (index > 0) {
-        const offset = 0.003
-        const angle = index * (2 * Math.PI / 6)
-        lng += offset * Math.cos(angle)
-        lat += offset * Math.sin(angle)
-      }
+      ;[lng, lat] = applyColocationOffset(lat, lng, coordCounts)
 
       const hasPolygon = rings.length > 0
       const dataResolution = hasPolygon ? 'polygon' : 'point'
@@ -140,12 +158,17 @@ export function buildExplorePointGeoJSON(tracts: ApiMapTract[]): GeoJSON.Feature
 // land the dot in the wrong place (per user 2026-06-05). Every today tract gets
 // its own point at its true location (NO clustering), so each green dot stays
 // fixed at its real lat/lng at every zoom — exactly like the native pink pins.
+// Same co-location fan-out as buildExplorePointGeoJSON applies here: without it,
+// today's-auction tracts sharing a geocoded lat/lng render pixel-perfectly on
+// top of each other and a click resolves to the wrong tract.
 export function buildTodayPointGeoJSON(tracts: ApiMapTract[]): GeoJSON.FeatureCollection {
   const features: GeoJSON.Feature[] = []
+  const coordCounts: Record<string, number> = {}
   for (const t of tracts) {
-    const lng = t.longitude
-    const lat = t.latitude
+    let lng = t.longitude
+    let lat = t.latitude
     if (lng == null || lat == null) continue
+    ;[lng, lat] = applyColocationOffset(lat, lng, coordCounts)
 
     const isPrivateTreaty = (t.listing_type || '').toLowerCase() === 'private_treaty'
     const isPending = (t.sale_status || '').toLowerCase() === 'pending'
