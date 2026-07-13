@@ -188,6 +188,15 @@ interface TractMapEditorProps {
    *  these, so its behavior is unchanged. */
   proposedPolygon?: Pt[] | null
   proposedNonce?: number
+  /** Discard signal (staging "Collapse anyway" flow). The tract body stays
+   *  mounted-but-hidden when collapsed (924d7f2 — fixes a MapLibre
+   *  zero-height race; do not revert), so a dirty editor keeps reporting
+   *  unsaved edits forever unless something actually reverts its state. When
+   *  the parent bumps this nonce (after the admin confirms discarding a
+   *  collapsed tract's edits), the editor reverts points/dirty back to
+   *  initialPolygon — same effect as clicking Cancel. Nonce 0 is ignored so
+   *  it never fires on mount. */
+  discardNonce?: number
 }
 
 // ---------------------------------------------------------------------------
@@ -452,6 +461,7 @@ export default function TractMapEditor({
   liveTractId,
   proposedPolygon,
   proposedNonce = 0,
+  discardNonce = 0,
 }: TractMapEditorProps) {
   // Working polygon state — what's being edited on the map. `points` is the
   // ACTIVE ring; `extraPolygons` holds the OTHER finished pieces of a
@@ -1985,6 +1995,16 @@ export default function TractMapEditor({
     setDirty(false)
     setStatus(null)
   }
+  // Discard signal (staging "Collapse anyway" flow) — see discardNonce doc
+  // on the prop. Runs the same revert as handleCancel. Guard nonce 0 so it
+  // never fires on mount; intentionally keyed on the nonce only (handleCancel
+  // is stable enough for this purpose — it only reads initialPolygon, which
+  // the effect above already re-syncs to on its own change).
+  useEffect(() => {
+    if (!discardNonce) return
+    handleCancel()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [discardNonce])
   // ── Draw-tillable handlers (per user 2026-05-26) ──
   // Start a fresh tillable polygon. Seeds the drawing points with the
   // tract polygon's vertices when one exists so the user can start by

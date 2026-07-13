@@ -603,12 +603,31 @@ export default function TillableCluWorkshop({
         if (data.error) setError(data.error)
         setLoaded(true)
       } catch (e: any) {
-        if (!cancelled) setError(e.message || String(e))
+        if (!cancelled) {
+          setError(e.message || String(e))
+          // reloadKey > 0 means this run is a RE-fetch (boundary save, or the
+          // staging "Collapse anyway" discard flow bumping reloadKey to force
+          // a revert) rather than the initial mount load. A parent doing the
+          // discard flow optimistically clears its dirty flag for this tract
+          // BEFORE this fetch resolves; if the re-fetch fails, none of this
+          // component's edited state actually got reverted, so isDirty (below)
+          // is unchanged from before the reload — its own effect won't re-fire
+          // on an unchanged value, and the parent's optimistic clear would be
+          // left standing incorrectly. Force the dirty signal back on so
+          // Verify/Done re-blocks instead of falsely staying unblocked.
+          if (reloadKey > 0) onDirtyChangeRef.current?.(true)
+        }
       } finally {
         if (!cancelled) setLoading(false)
       }
     })()
     return () => { cancelled = true }
+    // onDirtyChange is intentionally NOT in the dep array — the parent passes
+    // a fresh inline callback on every render (e.g. `(d) => setTractDirty(...)`),
+    // so depending on it directly would re-run this fetch on every parent
+    // re-render. onDirtyChangeRef (declared below, but already assigned by the
+    // time any effect callback runs) gives the latest callback without that.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasBeenVisible, baseUrl, reloadKey])
 
   // After a re-fetch (reloadKey bump) the map already exists — it was

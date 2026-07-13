@@ -106,6 +106,14 @@ interface TractDataCompareProps {
    *  but not committed, or a radio/checkbox changed but the parent hasn't
    *  updated the corresponding prop yet). Fires false once clean. */
   onDirtyChange?: (dirty: boolean) => void
+  /** Discard signal (staging "Collapse anyway" flow). The tract body stays
+   *  mounted-but-hidden when collapsed, so this component's local edited
+   *  state (radios / manual drafts / checkboxes) would otherwise keep
+   *  reporting dirty forever. When the parent bumps this nonce (after the
+   *  admin confirms discarding a collapsed tract's edits), local state
+   *  reverts to the last-saved props. Nonce 0 is ignored so it never fires
+   *  on mount. */
+  discardNonce?: number
 }
 
 function fmtAcres(v?: number | null): string {
@@ -146,6 +154,7 @@ export default function TractDataCompare({
   landTypes,
   onLandTypesChange,
   onDirtyChange,
+  discardNonce = 0,
 }: TractDataCompareProps) {
   // Editable tract number — per user 2026-05-26: when the scraper paired
   // the wrong polygon with the wrong tract number (Steffes-class bug),
@@ -311,6 +320,25 @@ export default function TractDataCompare({
       <span className="text-[10px] text-gg-gray-500">(auto-detected by scraper — edit if wrong)</span>
     </label>
   )
+
+  // Discard signal (staging "Collapse anyway" flow) — see discardNonce doc
+  // on the prop. Reverts every piece of local edited state back to the
+  // last-saved props, same values used to seed each on mount. Guard nonce 0
+  // so it never fires on mount.
+  useEffect(() => {
+    if (!discardNonce) return
+    setLocal(chosen || {})
+    setManualDraft(seedManual())
+    setBldg(!!hasBuilding)
+    setHouse(!!hasHouse)
+    // Also revert the editable-tract-number draft — isDirty (above) compares
+    // numDraft against initialNumStr, and a typed-but-unsaved tract number is
+    // part of dataCompareDirty, so a discard that skipped this would leave
+    // the tract re-marked dirty next render even after confirming discard.
+    setNumDraft(initialNumStr)
+    setNumStatus(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [discardNonce])
 
   // Land Types add/remove buttons — auto-save into scraped_data on each click.
   const LandTypeRow = () => (

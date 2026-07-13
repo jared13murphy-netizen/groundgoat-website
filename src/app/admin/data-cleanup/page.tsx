@@ -202,6 +202,15 @@ export default function TractDataCleanupPage() {
   // Bumped per-tract whenever a boundary is saved so the CLU workshop re-fetches
   // its field polygons against the new tract polygon.
   const [cluReloadKeys, setCluReloadKeys] = useState<Record<string, number>>({})
+  // Per-tract discard signal ("Collapse anyway" confirms below), same shape
+  // as cluReloadKeys ("${listingId}-${tractId}" -> nonce). Bumped when the
+  // admin confirms discarding a dirty tract's edits so TractMapEditor and
+  // TractDataCompare revert their local edited state back to server truth —
+  // a tract's body stays mounted-but-hidden when just that tract is
+  // collapsed (CSS `hidden`, not unmounted — same MapLibre zero-height-race
+  // reason as the staging screens), so without this the editors would keep
+  // reporting dirty forever.
+  const [discardNonces, setDiscardNonces] = useState<Record<string, number>>({})
   // Tracks unsaved edits per tract editor so the listing's Verify button stays
   // disabled until every tract is saved. Keys: `${listingId}::${tractId}::map`
   // for the boundary editor and `::till` for the tillable workshop.
@@ -237,12 +246,40 @@ export default function TractDataCleanupPage() {
 
   // Per-tract expand/collapse. Key: tract.id. Default: all collapsed.
   const [openTractIds, setOpenTractIds] = useState<Set<string>>(new Set())
-  const toggleTract = (id: string) =>
+  const toggleTract = (lid: string, id: string) => {
+    const isOpen = openTractIds.has(id)
+    if (isOpen) {
+      // Collapsing — the tract body stays mounted-but-hidden (CSS `hidden`),
+      // so check for unsaved edits and offer to discard, same as the
+      // staging screens.
+      const dirtyPrefix = `${lid}::${id}::`
+      const hasDirty = Object.keys(dirtyTracts).some(k => k.startsWith(dirtyPrefix) && dirtyTracts[k])
+      if (hasDirty) {
+        if (!window.confirm('Unsaved changes on this tract will be discarded. Collapse anyway?')) {
+          return
+        }
+        // Confirmed discard: tell the tract editors to revert their local
+        // edited state to server truth (TractMapEditor + TractDataCompare via
+        // discardNonce, TillableCluWorkshop via its existing reloadKey — a
+        // re-fetch resets its own dirty flag), then clear the dirty keys
+        // immediately so Verify/Done unblocks right away instead of waiting
+        // for the editors' effects to report back.
+        const key = `${lid}-${id}`
+        setDiscardNonces(prev => ({ ...prev, [key]: (prev[key] || 0) + 1 }))
+        setCluReloadKeys(prev => ({ ...prev, [key]: (prev[key] || 0) + 1 }))
+        setDirtyTracts(prev => {
+          const next = { ...prev }
+          Object.keys(next).forEach(k => { if (k.startsWith(dirtyPrefix)) delete next[k] })
+          return next
+        })
+      }
+    }
     setOpenTractIds(prev => {
       const s = new Set(prev)
       if (s.has(id)) s.delete(id); else s.add(id)
       return s
     })
+  }
 
   // Per-tract in-flight marker for the Mark Reviewed button.
   const [reviewingTractId, setReviewingTractId] = useState<string | null>(null)
@@ -382,9 +419,35 @@ export default function TractDataCleanupPage() {
   function toggleExpand(lid: string) {
     if (expandedId === lid) {
       // Collapsing — check if any tract under this listing has unsaved edits.
-      const hasDirty = Object.keys(dirtyTracts).some(k => k.startsWith(`${lid}::`) && dirtyTracts[k])
-      if (hasDirty && !window.confirm('Unsaved changes on one or more tracts will be discarded. Collapse anyway?')) {
+      const dirtyPrefix = `${lid}::`
+      const dirtyKeysHere = Object.keys(dirtyTracts).filter(k => k.startsWith(dirtyPrefix) && dirtyTracts[k])
+      if (dirtyKeysHere.length > 0 && !window.confirm('Unsaved changes on one or more tracts will be discarded. Collapse anyway?')) {
         return
+      }
+      if (dirtyKeysHere.length > 0) {
+        // Confirmed discard: bump discard/reload nonces for every dirty
+        // tract under this listing (the whole editor block unmounts right
+        // after, which also clears dirty via each editor's own unmount
+        // cleanup — this just makes the clear immediate/explicit rather
+        // than depending on unmount-effect ordering) and clear dirtyTracts
+        // right away so Verify Listing / each tract's Done button unblock
+        // without waiting a render cycle.
+        const tractIds = new Set(dirtyKeysHere.map(k => k.slice(dirtyPrefix.length).split('::')[0]))
+        setDiscardNonces(prev => {
+          const next = { ...prev }
+          tractIds.forEach(tid => { const key = `${lid}-${tid}`; next[key] = (next[key] || 0) + 1 })
+          return next
+        })
+        setCluReloadKeys(prev => {
+          const next = { ...prev }
+          tractIds.forEach(tid => { const key = `${lid}-${tid}`; next[key] = (next[key] || 0) + 1 })
+          return next
+        })
+        setDirtyTracts(prev => {
+          const next = { ...prev }
+          Object.keys(next).forEach(k => { if (k.startsWith(dirtyPrefix)) delete next[k] })
+          return next
+        })
       }
       setExpandedId(null)
       return
@@ -1185,7 +1248,7 @@ export default function TractDataCleanupPage() {
                                 {/* Collapsed summary row */}
                                 <button
                                   type="button"
-                                  onClick={() => toggleTract(tract.id)}
+                                  onClick={() => toggleTract(it.listing_id, tract.id)}
                                   className="group w-full flex items-center gap-2 py-2 text-left hover:bg-gg-pink hover:text-white rounded-lg px-2 -mx-2 transition-colors"
                                 >
                                   <span className="text-gg-gray-400 text-xs w-3 shrink-0">{tractIsOpen ? '▼' : '▶'}</span>
@@ -1436,6 +1499,7 @@ export default function TractDataCleanupPage() {
                                         fetchValidation(it.listing_id)
                                       }}
                                       onDirtyChange={(d) => setTractDirty(`${it.listing_id}::${tract.id}::map`, d)}
+                                      discardNonce={discardNonces[tractKey] || 0}
                                       // Capture the live polygon's GIS acreage as the "Computed"
                                       // total-acres source for the comparison box below.
                                       onPolygonChange={(_pts, ac) => setComputedField(tract.id, { acres: ac })}
@@ -1547,6 +1611,7 @@ export default function TractDataCleanupPage() {
                                           saveTractFields(it.listing_id, tract, fields)
                                         }}
                                         onDirtyChange={(d) => setTractDirty(`${it.listing_id}::${tract.id}::data`, d)}
+                                        discardNonce={discardNonces[tractKey] || 0}
                                       />
                                     </div>
                                     {/* Done = human confirmed polygon + tillable + soil. */}

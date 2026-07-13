@@ -267,6 +267,13 @@ export default function AdminStagingPage() {
   // Bumped whenever a tract boundary is saved in TractMapEditor so the
   // TillableCluWorkshop below re-fetches CLUs against the new polygon.
   const [cluReloadKeys, setCluReloadKeys] = useState<Record<string, number>>({})
+  // Per-tract discard signal ("Collapse anyway" confirm below), same shape
+  // as cluReloadKeys ("${listingId}-${tractIndex}" -> nonce). Bumped when the
+  // admin confirms discarding a dirty tract's edits so TractMapEditor and
+  // TractDataCompare revert their local edited state back to server truth —
+  // the tract body stays mounted-but-hidden on collapse (924d7f2), so without
+  // this the editors would keep reporting dirty forever.
+  const [discardNonces, setDiscardNonces] = useState<Record<string, number>>({})
   // Tracks unsaved edits per tract editor so the listing's commit buttons stay
   // disabled until every tract is saved. Keys: `${listingId}::${idx}::map` for
   // the boundary editor and `::till` for the tillable workshop.
@@ -314,8 +321,23 @@ export default function AdminStagingPage() {
       const [listingIdStr, tractIdxStr] = key.split('-')
       const dirtyPrefix = `${listingIdStr}::${tractIdxStr}::`
       const hasDirty = Object.keys(dirtyTracts).some(k => k.startsWith(dirtyPrefix) && dirtyTracts[k])
-      if (hasDirty && !window.confirm('Unsaved changes on this tract will be discarded. Collapse anyway?')) {
-        return
+      if (hasDirty) {
+        if (!window.confirm('Unsaved changes on this tract will be discarded. Collapse anyway?')) {
+          return
+        }
+        // Confirmed discard: tell the tract editors to revert their local
+        // edited state to server truth (TractMapEditor + TractDataCompare via
+        // discardNonce, TillableCluWorkshop via its existing reloadKey — a
+        // re-fetch resets its own dirty flag), then clear the dirty keys
+        // immediately so Verify unblocks right away instead of waiting for
+        // the editors' effects to report back.
+        setDiscardNonces(prev => ({ ...prev, [key]: (prev[key] || 0) + 1 }))
+        setCluReloadKeys(prev => ({ ...prev, [key]: (prev[key] || 0) + 1 }))
+        setDirtyTracts(prev => {
+          const next = { ...prev }
+          Object.keys(next).forEach(k => { if (k.startsWith(dirtyPrefix)) delete next[k] })
+          return next
+        })
       }
     }
     setOpenTractIds(prev => {
@@ -1026,6 +1048,28 @@ export default function AdminStagingPage() {
     if (!Array.isArray(updated.tracts)) updated.tracts = []
     updated.tracts = updated.tracts.filter((t: any) => t.tract_number !== tractNumber)
     setListings((prev) => prev.map((l) => (l.id === listing.id ? { ...l, scraped_data: updated } : l)))
+    // D16-style cleanup: removing a tract shifts every later tract's index
+    // down by one, so index-keyed state (dirtyTracts/cluReloadKeys/
+    // discardNonces) would otherwise attach to the wrong tract post-delete
+    // (or strand a phantom dirty key that permanently blocks Verify). Same
+    // fix as handleDeleteTract above — clear this listing's per-tract state
+    // wholesale rather than trying to shift keys.
+    const listingId = listing.id
+    setCluReloadKeys((prev) => {
+      const next = { ...prev }
+      Object.keys(next).forEach((k) => { if (k.startsWith(`${listingId}-`)) delete next[k] })
+      return next
+    })
+    setDiscardNonces((prev) => {
+      const next = { ...prev }
+      Object.keys(next).forEach((k) => { if (k.startsWith(`${listingId}-`)) delete next[k] })
+      return next
+    })
+    setDirtyTracts((prev) => {
+      const next = { ...prev }
+      Object.keys(next).forEach((k) => { if (k.startsWith(`${listingId}::`)) delete next[k] })
+      return next
+    })
     try {
       const res = await fetchWithAuth(`${API_URL}/api/admin/staging/${listing.id}`, {
         method: 'PATCH',
@@ -1060,6 +1104,27 @@ export default function AdminStagingPage() {
         sd.tracts = ts
         return { ...l, scraped_data: sd }
       }))
+      // D16-style cleanup: deleting a tract shifts every later tract's index
+      // down by one, so index-keyed state (dirtyTracts/cluReloadKeys/
+      // discardNonces) would otherwise attach to the wrong tract post-delete
+      // (or strand a phantom dirty key that permanently blocks Verify).
+      // Mirrors SwapStagingTractsPanel.onSwap above — clear this listing's
+      // per-tract state wholesale rather than trying to shift keys.
+      setCluReloadKeys(prev => {
+        const next = { ...prev }
+        Object.keys(next).forEach(k => { if (k.startsWith(`${listingId}-`)) delete next[k] })
+        return next
+      })
+      setDiscardNonces(prev => {
+        const next = { ...prev }
+        Object.keys(next).forEach(k => { if (k.startsWith(`${listingId}-`)) delete next[k] })
+        return next
+      })
+      setDirtyTracts(prev => {
+        const next = { ...prev }
+        Object.keys(next).forEach(k => { if (k.startsWith(`${listingId}::`)) delete next[k] })
+        return next
+      })
       fetchValidation(listingId)
     } catch (e: any) {
       showToast('error', e.message || 'Failed to delete tract')
@@ -2023,9 +2088,17 @@ export default function AdminStagingPage() {
                                   prev.map((l) => (l.id === listing.id ? { ...l, scraped_data: updated } : l))
                                 )
                                 // D16: reset per-tract React state keyed by index so stale
-                                // cluReloadKeys and dirtyTracts don't attach to the wrong tract.
+                                // cluReloadKeys, discardNonces, and dirtyTracts don't attach
+                                // to the wrong tract.
                                 const lid = listing.id
                                 setCluReloadKeys((prev) => {
+                                  const next = { ...prev }
+                                  updatedTracts.forEach((_: any, idx: number) => {
+                                    delete next[`${lid}-${idx}`]
+                                  })
+                                  return next
+                                })
+                                setDiscardNonces((prev) => {
                                   const next = { ...prev }
                                   updatedTracts.forEach((_: any, idx: number) => {
                                     delete next[`${lid}-${idx}`]
@@ -2354,6 +2427,7 @@ export default function AdminStagingPage() {
                                       fetchValidation(listing.id)
                                     }}
                                     onDirtyChange={(d) => setTractDirty(`${listing.id}::${idx}::map`, d)}
+                                    discardNonce={discardNonces[`${listing.id}-${idx}`] || 0}
                                   />
                                   {/* FSA-CLU tillable workshop — admin clicks
                                       the field polygons that count as tillable.
@@ -2444,6 +2518,7 @@ export default function AdminStagingPage() {
                                     landTypes={(tract.land_types && tract.land_types.length) ? tract.land_types : (tract.land_type ? [tract.land_type] : [])}
                                     onLandTypesChange={(next) => saveTractLandTypes(listing, idx, next)}
                                     onDirtyChange={(d) => setTractDirty(`${listing.id}::${idx}::data`, d)}
+                                    discardNonce={discardNonces[`${listing.id}-${idx}`] || 0}
                                   />
                                   {/* Second per-tract details box removed
                                       per user 2026-05-25 — redundant with
