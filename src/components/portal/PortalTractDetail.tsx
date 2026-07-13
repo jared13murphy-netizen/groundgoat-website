@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Loader2, Mountain, BarChart3 } from 'lucide-react'
+import { Loader2, Mountain, BarChart3, FileText } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { formatAcres } from '@/lib/format'
 import { formatAuctionDate } from '@/lib/auctionTime'
@@ -34,6 +34,21 @@ export interface TractSaleData {
   pricePerSoilRating?: number | null
   landType?: string | null
   landTypes?: string[] | null
+  // Recorded county-recorder deed(s) folded into this tract on the comp
+  // map because a Regrid parcel-sale-dot's centroid sits inside the
+  // tract's own polygon — see ExploreMap.tsx's recomputeCoincidentDeeds /
+  // RecordedDeed (same shape, kept as a separate type here to match this
+  // file's existing pattern of a standalone TractSaleData vs SaleDetail).
+  deeds?: RecordedDeed[]
+}
+
+export interface RecordedDeed {
+  ll_uuid: string
+  saleprice: number | null
+  saledate: string | null
+  acres: number | null
+  owner: string | null
+  ownerLoading: boolean
 }
 
 interface SoilData {
@@ -93,6 +108,17 @@ function formatCurrency(value?: number | null): string {
 // Date/time rendering now delegates to lib/auctionTime which converts from
 // UTC to the auction's LOCAL timezone (based on the tract's state) and adds
 // a tz label like "CDT" so viewers in any timezone see the right clock time.
+
+// Recorded-deed sale dates are plain YYYY-MM-DD county-recorder dates (no
+// timezone attached, unlike an auction datetime) — format as MM/DD/YYYY
+// directly instead of going through formatAuctionDate's tz conversion.
+function formatDeedDate(iso: string | null | undefined): string | null {
+  if (!iso) return null
+  const m = iso.slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (!m) return null
+  const [, y, mo, d] = m
+  return `${mo}/${d}/${y}`
+}
 
 function getStatusLabel(status?: string | null): string {
   switch (status?.toLowerCase()) {
@@ -374,6 +400,56 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
           </div>
         )
       })()}
+
+      {/* Recorded Deeds — comp-map coincident-dot collapse (see
+          ExploreMap.tsx recomputeCoincidentDeeds). A Regrid parcel
+          sale-dot that sits inside THIS tract's polygon gets folded here
+          instead of showing as its own dot on the map. Deliberately
+          styled amber/"County Record", never pink/gg-pink, so this
+          county-recorder $/acre can never be mistaken for the tract's
+          own auction sold price/acre above. Omitted entirely when the
+          tract has no coincident deed. */}
+      {tract.deeds && tract.deeds.length > 0 && (
+        <div className="space-y-2">
+          <h3 className="text-sm font-semibold text-gg-gray-300 uppercase tracking-wider flex items-center gap-1.5">
+            <FileText size={14} className="text-amber-400" />
+            Recorded Deed{tract.deeds.length > 1 ? 's' : ''} on This Parcel
+          </h3>
+          <div className="bg-amber-500/[0.06] rounded-xl border border-amber-500/20 divide-y divide-amber-500/10">
+            {tract.deeds.map((deed) => {
+              const pricePerAcre = deed.saleprice && deed.acres
+                ? Math.round(deed.saleprice / deed.acres)
+                : null
+              const dateStr = formatDeedDate(deed.saledate)
+              return (
+                <div key={deed.ll_uuid} className="px-4 py-3 space-y-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    {deed.owner ? (
+                      <span className="text-sm font-bold text-white truncate">{deed.owner}</span>
+                    ) : deed.ownerLoading ? (
+                      <span className="inline-block h-3.5 w-28 rounded bg-white/10 animate-pulse" />
+                    ) : (
+                      <span className="text-sm font-bold text-gg-gray-400">Owner unknown</span>
+                    )}
+                    <span className="shrink-0 text-[9px] font-bold uppercase tracking-wider text-amber-400 border border-amber-500/30 rounded-full px-2 py-0.5">
+                      County Record
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-gg-gray-300">
+                    {deed.acres != null && <span>{formatAcres(deed.acres)} ac</span>}
+                    {pricePerAcre != null && (
+                      <span className="text-amber-400 font-medium">
+                        {formatCurrency(pricePerAcre)}/ac <span className="text-gg-gray-400 font-normal">(recorded)</span>
+                      </span>
+                    )}
+                    {dateStr && <span>{dateStr}</span>}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Soil & Elevation Data (only if tract has boundaries) */}
       {hasBoundaries && soilLoading && (

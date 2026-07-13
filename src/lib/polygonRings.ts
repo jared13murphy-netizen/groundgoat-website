@@ -46,3 +46,32 @@ export function largestRing(coords: any): Ring | null {
   if (rings.length === 0) return null
   return rings.reduce((a, b) => (b.length > a.length ? b : a))
 }
+
+/** Standard even-odd ray-cast point-in-polygon test. `point` is [lng, lat].
+ *  No external dep (turf isn't in package.json) — this is the same
+ *  algorithm turf.booleanPointInPolygon uses under the hood, just inlined.
+ *  Ring need not be pre-closed (first === last is harmless either way). */
+export function pointInRing(point: [number, number], ring: Ring): boolean {
+  const [x, y] = point
+  let inside = false
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i]
+    const [xj, yj] = ring[j]
+    const intersects = ((yi > y) !== (yj > y)) &&
+      (x < ((xj - xi) * (y - yi)) / (yj - yi) + xi)
+    if (intersects) inside = !inside
+  }
+  return inside
+}
+
+/** True if `point` falls inside ANY ring of a tract boundary. Each ring in a
+ *  multi-piece tract is a disjoint piece of land (not a hole — see toRings),
+ *  so "inside the tract" means inside at least one ring, not a hole-aware
+ *  even-odd count across all rings combined. */
+export function pointInBoundary(point: [number, number], coords: any): boolean {
+  const rings = toRings(coords)
+  for (const ring of rings) {
+    if (ring.length >= 3 && pointInRing(point, ring)) return true
+  }
+  return false
+}

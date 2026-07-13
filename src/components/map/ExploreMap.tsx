@@ -26,7 +26,7 @@ import {
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { formatAcres } from '@/lib/format'
 import { SOIL_FILTER_ENABLED } from '@/lib/featureFlags'
-import { toRings as toTractRings, ringsToGeometry } from '@/lib/polygonRings'
+import { toRings as toTractRings, ringsToGeometry, pointInBoundary } from '@/lib/polygonRings'
 import Tract3DModal from '@/components/Tract3DModal'
 import GroundTruthPanel from '@/components/portal/GroundTruthPanel'
 import NdviPanel from '@/components/portal/NdviPanel'
@@ -405,7 +405,71 @@ export interface SaleDetail {
   pricePerTillableAcre?: number | null
   pricePerSoilRating?: number | null
   sourceUrl?: string | null
+  // Recorded county-recorder deed(s) folded into this tract because a
+  // Regrid parcel-sale-dot's centroid sits inside the tract's own
+  // polygon (comp-map coincident-dot collapse — see
+  // recomputeCoincidentDeeds below). Undefined/empty = no underlying
+  // deed, omit the section entirely.
+  deeds?: RecordedDeed[]
 }
+
+// One county-recorder deed transfer folded under a GG tract because its
+// Regrid parcel-sale-dot centroid landed inside the tract's polygon.
+// acres/saleprice/saledate/pricePerAcre come straight off the durable dot
+// payload (instant); owner is read synchronously off the live Regrid
+// TILE feature at the dot's point (queryRenderedFeatures — see
+// recomputeCoincidentDeeds) and is null + ownerLoading=true until that
+// tile is loaded. (NOT /api/regrid/parcel?ll_uuid= — verified live to
+// 404 for every durable-dot uuid.)
+export interface RecordedDeed {
+  ll_uuid: string
+  saleprice: number | null
+  saledate: string | null
+  acres: number | null
+  owner: string | null
+  ownerLoading: boolean
+}
+
+// Value-equality for two Set<string>s — used by recomputeCoincidentDeeds
+// to detect "nothing actually changed" so a repeat pass (idle/sourcedata
+// retry with no new information) can skip every map mutation instead of
+// re-running setData/setFeatureState unconditionally (AUDIT FIX, HIGH:
+// an unconditional setData inside an idle-driven recompute re-fired
+// 'idle' itself, an infinite idle -> recompute -> setData -> idle loop).
+function setsEqual(a: Set<string>, b: Set<string>): boolean {
+  if (a === b) return true
+  if (a.size !== b.size) return false
+  for (const v of Array.from(a)) {
+    if (!b.has(v)) return false
+  }
+  return true
+}
+
+// Value-equality for two deed lists (same order, same field values).
+// durableDotsByIdRef / tractMapRef are both append-only accumulators
+// (Map iteration order is insertion order and never reshuffles), so the
+// SAME set of coincident dots always produces its per-tract array in the
+// SAME relative order across recompute passes — a plain index-wise
+// compare is safe, no need to sort or key-match first.
+function recordedDeedsEqual(a: RecordedDeed[] | undefined, b: RecordedDeed[] | undefined): boolean {
+  if (a === b) return true
+  if (!a || !b) return false
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i]
+    const y = b[i]
+    if (
+      x.ll_uuid !== y.ll_uuid ||
+      x.saleprice !== y.saleprice ||
+      x.saledate !== y.saledate ||
+      x.acres !== y.acres ||
+      x.owner !== y.owner ||
+      x.ownerLoading !== y.ownerLoading
+    ) return false
+  }
+  return true
+}
+
 
 interface FilterState {
   // dateRange is the coarse preset ('all' | 'upcoming' | '1month' | '6months' |
@@ -1115,6 +1179,69 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const subjectTractIdRef = useRef<string | null>(null)
   subjectTractIdRef.current = subjectTractId || null
 
+  // ─────────────────────────────────────────────────────────────────
+  // Coincident-deed collapse (comp map only): when a Regrid durable
+  // sale-dot's centroid falls inside a comp tract's own polygon, the
+  // dot + its floating Regrid owner/$/date label are hidden and the
+  // underlying parcel deed(s) are folded into that tract's click panel
+  // instead (CompInlinePopup / PortalTractDetail "Recorded Deeds"
+  // section below). MOBILE PARITY: ComparablesMapView.js should mirror
+  // this exact algorithm — point-in-polygon of each parcel-sale-dot's
+  // (lat,lng) against every loaded tract's polygon_coordinates rings,
+  // via the same pointInBoundary ray-cast (no turf dep on either
+  // platform), and read owner/path the same tile-query way (see
+  // recomputeCoincidentDeeds below — NOT the /api/regrid/parcel
+  // endpoint, which 404s for every durable-dot ll_uuid in production).
+  // ─────────────────────────────────────────────────────────────────
+  // tractId -> the deed(s) folded into that tract. React state (not a
+  // ref) because it feeds the CompInlinePopup/PortalTractDetail panel
+  // directly; the set is small (bounded by dots that actually coincide
+  // with a tract) so re-render cost is negligible.
+  const [tractDeeds, setTractDeeds] = useState<Map<string, RecordedDeed[]>>(new Map())
+  // Mirror of tractDeeds for the tract-click handler below, which is
+  // registered in a useEffect keyed on [mapLoaded, portalMode,
+  // onTractSelected] — tractDeeds isn't in that deps list (recreating
+  // the handler on every deed resolution would be wasteful), so the
+  // handler reads this ref instead of the stale state closure.
+  const tractDeedsRef = useRef<Map<string, RecordedDeed[]>>(new Map())
+  useEffect(() => { tractDeedsRef.current = tractDeeds }, [tractDeeds])
+  // ll_uuids currently suppressed from the durable-dot layer (coincident
+  // with some tract). Read inside fetchDurableDotsForBounds's useCallback
+  // ([] deps), so it must be a ref, not state.
+  const suppressedDeedUuidsRef = useRef<Set<string>>(new Set())
+  // ll_uuids whose Regrid TILE feature we've already found (and read
+  // owner from) at least once — skips re-querying queryRenderedFeatures
+  // every recompute pass once resolved, and avoids a dot that's since
+  // scrolled off-screen (tile unloaded) flickering back to the loading
+  // skeleton. Cleared on comp-mode exit alongside the feature-state
+  // un-suppression below.
+  const resolvedDeedUuidsRef = useRef<Set<string>>(new Set())
+  // Ground truth of feature-state we've actually SET on the
+  // 'regrid-parcels' source (dotSuppressed=true), diffed every recompute
+  // in recomputeCoincidentDeeds so a label that stops qualifying gets
+  // its feature-state REMOVED (AUDIT FIX, HIGH: this was previously a
+  // one-way ratchet — set but never cleared, so a hidden label stayed
+  // blank all session, including after leaving comp mode). Keyed by the
+  // Regrid tile's own `path` id (the source's promoteId target), not
+  // ll_uuid.
+  const suppressedPathsRef = useRef<Set<string>>(new Set())
+  // ll_uuid -> last-known Regrid tile `path` for that parcel — kept so a
+  // deed can still be un-suppressed correctly even on a pass where its
+  // tile can't be re-queried (e.g. panned off-screen).
+  const deedPathByUuidRef = useRef<Map<string, string>>(new Map())
+  // Mirror of regridConfig (declared further below) for use inside
+  // recomputeCoincidentDeeds, which is a stable useCallback ([] deps)
+  // and can't close over the state value directly without going stale.
+  const regridConfigRef = useRef<{ source_layer?: string } | null>(null)
+  // Last SaleDetail handed to the parent via onTractSelected (portalMode
+  // — PortalTractDetail). Unlike CompInlinePopup (a piece of THIS
+  // component's own state, so a useEffect can patch it directly),
+  // PortalTractDetail's data lives in the PARENT's state (/access
+  // page.tsx `selectedTract`) — the only way to refresh it is to call
+  // onTractSelected AGAIN with updated deeds. This ref remembers what we
+  // last sent so the live-refresh effect below can do that.
+  const lastPortalSaleRef = useRef<SaleDetail | null>(null)
+
   const [tracts, setTracts] = useState<ApiMapTract[]>([])
   // Today's auction tracts — kept in a SEPARATE state from the bounds-based
   // `tracts` because:
@@ -1176,6 +1303,42 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // we stash the click lng/lat so onMove can keep the popup anchored.
     lngLat?: [number, number]
   } | null>(null)
+  // Keep an OPEN CompInlinePopup's deeds live as owner resolution lands.
+  // saleData.deeds (built at click time in the tract-pin/-polygon handler
+  // below) is a snapshot read off tractDeedsRef — without this effect, a
+  // popup opened before the Regrid tile finishes loading (owner read
+  // synchronously off queryRenderedFeatures — see recomputeCoincidentDeeds)
+  // would show the "Owner unknown"/skeleton state forever, even after the
+  // tile loads, since compPopup.sale is otherwise never touched again
+  // after the click. Re-syncs from tractDeeds (state, so this effect
+  // re-runs on every recompute) whenever the popup's own tract has an
+  // entry.
+  useEffect(() => {
+    setCompPopup(prev => {
+      if (!prev || !prev.sale.tractId) return prev
+      const deeds = tractDeeds.get(prev.sale.tractId)
+      if (deeds === prev.sale.deeds) return prev
+      return { ...prev, sale: { ...prev.sale, deeds } }
+    })
+  }, [tractDeeds])
+  // Mirror of the effect above, for PortalTractDetail (AUDIT FIX,
+  // MEDIUM: this was missing entirely — a PortalTractDetail opened
+  // before the tile resolved never updated). PortalTractDetail's data
+  // lives in the PARENT's state (/access page.tsx `selectedTract`), so
+  // the only way to refresh it is re-invoking onTractSelected with an
+  // updated `deeds` — lastPortalSaleRef remembers what we last sent (see
+  // its declaration above) so we can patch just that field. Guarded on
+  // portalMode/onTractSelected so this is a no-op everywhere else.
+  useEffect(() => {
+    if (!portalMode || !onTractSelected) return
+    const prevSale = lastPortalSaleRef.current
+    if (!prevSale || !prevSale.tractId) return
+    const deeds = tractDeeds.get(prevSale.tractId)
+    if (deeds === prevSale.deeds) return
+    const updated: SaleDetail = { ...prevSale, deeds }
+    lastPortalSaleRef.current = updated
+    onTractSelected(updated)
+  }, [tractDeeds, portalMode, onTractSelected])
   const [show3DViewer, setShow3DViewer] = useState(false)
   // Unified land-detail panel (replaces both the Regrid parcel popup and
   // the soil/crop popup). A single click collects features from all visible
@@ -1663,6 +1826,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // source atomically right alongside the accumulator so there's never
     // a stale-dots gap, regardless of which path (or neither) re-fills it.
     ;(map.getSource(DURABLE_DOT_SOURCE) as maplibregl.GeoJSONSource)?.setData(EMPTY_FC)
+    // A stale search's coincident-deed fold must not linger into the new
+    // result set (new tracts, new dots — the old suppression/panel data
+    // no longer applies to either) — un-suppress everything, including
+    // any Regrid labels already hidden, not just the local bookkeeping.
+    // fetchDurableDotsForBounds below will re-derive both once the fresh
+    // dots land.
+    clearAllDeedSuppression()
     if (!hasCountyFilter) {
       fetchDurableDotsForBounds(
         { south: qSouth, north: qNorth, west: qWest, east: qEast },
@@ -3192,6 +3362,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     unlimited?: boolean
     subscribed_state_abbrevs?: string[]
   } | null>(null)
+  regridConfigRef.current = regridConfig
 
   // Memoized MapLibre filter expression for the state-plan gate.
   // null = unlimited (no filter applied). The tile carries
@@ -3439,6 +3610,27 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         'text-halo-color': 'rgba(0,0,0,0.85)',
         'text-halo-width': 1.4,
         'text-halo-blur': 0.4,
+        // Comp-map coincident-dot collapse: a parcel whose sale dot sits
+        // inside a GG tract's polygon has its owner/acres/$-acre/date
+        // label folded into that tract's click panel instead (see
+        // recomputeCoincidentDeeds above — reads owner/path straight off
+        // this SAME tile source's rendered features, synchronously). We
+        // can't FILTER this layer by ll_uuid — confirmed unreliable on
+        // custom Regrid tile features (see the promoteId comment in this
+        // same effect, which hit the identical wall for hover-
+        // highlighting and switched to `path`) — so suppression is
+        // feature-state driven instead, keyed on the same `path` id
+        // promoteId already uses.
+        // The label's placement footprint is still reserved even at
+        // opacity 0 (allow-overlap/ignore-placement stay false above),
+        // which is an accepted trade-off: the tract's own pink polygon
+        // already visually dominates that spot, so it's very unlikely to
+        // be the label that would've won the space anyway.
+        'text-opacity': [
+          'case',
+          ['boolean', ['feature-state', 'dotSuppressed'], false], 0,
+          1,
+        ],
       },
     }, beforeId)
 
@@ -4163,6 +4355,238 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     } catch {/* layer torn down */}
   }, [mapLoaded, subjectTractId])
 
+  // LIVE-VERIFIED FINDING (production, 8/8 durable-dot uuids): the async
+  // /api/regrid/parcel?ll_uuid= lookup 404s for EVERY durable-dot uuid —
+  // that endpoint's cache/live-Regrid/durable-fallback chain is keyed off
+  // a different parcel universe than parcel_sale_dots. It is NOT used for
+  // owner/path resolution any more (removed). Instead, owner + `path` are
+  // read SYNCHRONOUSLY off the live Regrid TILE feature at the dot's own
+  // point (queryRenderedFeatures against 'regrid-parcels-fill') — verified
+  // live to carry `owner`, `path`, `saleprice`, `saledate`, `gisacre`/
+  // `ll_gisacre`, `parcelnumb` (no ll_uuid, which is exactly why the
+  // hover-highlight effect above promotes `path`, not `ll_uuid`, as this
+  // source's feature id). No network call, no race — just needs the tile
+  // covering that point to be loaded, which it normally is at comp zoom
+  // (>=REGRID_MIN_ZOOM=11). MOBILE PARITY: ComparablesMapView.js should
+  // read owner/path the same way — query the live Regrid tile at the
+  // dot's projected point — NOT call the parcel-detail endpoint for this.
+  //
+  // (suppressedPathsRef / deedPathByUuidRef / resolvedDeedUuidsRef are
+  // declared up near tractDeeds, at the top of the component.)
+
+  // Un-suppress every currently-hidden Regrid label and reset all deed
+  // bookkeeping. Called from THREE places: comp-mode exit
+  // (recomputeCoincidentDeeds below), a chat search applying a new
+  // filter set, and a filter-panel change (both further below) — any of
+  // these invalidates the previous coincident-deed fold, and the labels
+  // it hid must actually come back (AUDIT FIX, HIGH: dotSuppressed used
+  // to be a one-way ratchet — set but never cleared here, so hidden
+  // labels stayed blank all session, including leaking past comp-mode
+  // exit into explore mode).
+  const clearAllDeedSuppression = useCallback(() => {
+    const map = mapRef.current
+    if (map) {
+      const sourceLayer = regridConfigRef.current?.source_layer || 'parcels'
+      for (const path of Array.from(suppressedPathsRef.current)) {
+        try {
+          map.removeFeatureState({ source: 'regrid-parcels', sourceLayer, id: path }, 'dotSuppressed')
+        } catch {/* source torn down */}
+      }
+    }
+    suppressedPathsRef.current = new Set()
+    suppressedDeedUuidsRef.current = new Set()
+    resolvedDeedUuidsRef.current = new Set()
+    deedPathByUuidRef.current = new Map()
+    setTractDeeds(new Map())
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Re-derive the coincident-deed set from the two live accumulators
+  // (durableDotsByIdRef, tractMapRef) and push the result to both the
+  // durable-dot GL source (suppressing coincident dots) and tractDeeds
+  // state (feeding the click panel). Called with no arguments — always
+  // reads the CURRENT ref contents rather than taking them as params, so
+  // it can't go stale no matter which of the several triggers fired
+  // (dots merged, tracts loaded, subjectTractId changed, sourcedata retry
+  // for a tile that wasn't loaded yet).
+  //
+  // IDEMPOTENT BY DESIGN (AUDIT FIX, HIGH): this function used to call
+  // setData/setTractDeeds/setFeatureState UNCONDITIONALLY every time it
+  // ran. Combined with the (now-removed) 'idle' retry listener, that was
+  // an infinite loop — setData on a GL source briefly un-idles the map,
+  // which re-fires 'idle', which called this again, which called setData
+  // again. Every branch below now diffs the freshly-computed result
+  // against what's ACTUALLY committed (suppressedDeedUuidsRef/
+  // suppressedPathsRef/tractDeedsRef) and skips the corresponding
+  // mutation when nothing changed — a repeat call with no new
+  // information now does ZERO setState/setData/setFeatureState calls.
+  // Comp-map-only: explore mode always shows every dot (spec constraint).
+  const recomputeCoincidentDeeds = useCallback(() => {
+    const map = mapRef.current
+    if (!map) return
+    const src = map.getSource(DURABLE_DOT_SOURCE) as maplibregl.GeoJSONSource | undefined
+    const sourceLayer = regridConfigRef.current?.source_layer || 'parcels'
+
+    if (!subjectTractIdRef.current) {
+      // Explore mode (or comp mode just exited via subjectTractId->null)
+      // — nothing should stay suppressed. AUDIT FIX: actively un-hide
+      // every label we'd previously hidden (not just stop hiding new
+      // ones) — but ONLY when there's actually something suppressed;
+      // otherwise this is a true no-op (no setData call at all).
+      if (suppressedDeedUuidsRef.current.size > 0 || suppressedPathsRef.current.size > 0) {
+        clearAllDeedSuppression()
+        if (src) {
+          src.setData({
+            type: 'FeatureCollection',
+            features: Array.from(durableDotsByIdRef.current.values()),
+          })
+        }
+      }
+      return
+    }
+
+    // tract.polygon_coordinates is fetched via include_polygons=true on
+    // every tract bounds request (both explore and comp mode), so every
+    // tract currently in tractMapRef has boundary data to test against —
+    // no separate polygon fetch needed here.
+    const tractList = Array.from(tractMapRef.current.values()).filter(t => t.polygon_coordinates)
+    const newDeeds = new Map<string, RecordedDeed[]>()
+    const newSuppressedUuids = new Set<string>()
+    const newSuppressedPaths = new Set<string>()
+
+    for (const dotFeature of Array.from(durableDotsByIdRef.current.values())) {
+      if (dotFeature.geometry.type !== 'Point') continue
+      const [lng, lat] = dotFeature.geometry.coordinates as [number, number]
+      for (const t of tractList) {
+        if (!pointInBoundary([lng, lat], t.polygon_coordinates)) continue
+        const props = dotFeature.properties as any
+        const uuid = props.id as string
+        newSuppressedUuids.add(uuid)
+
+        // Owner + path: read straight off the live Regrid TILE feature —
+        // synchronous, no /api/regrid/parcel call (see comment above).
+        let owner: string | null = null
+        let path: string | null = null
+        let tileFound = false
+        if (resolvedDeedUuidsRef.current.has(uuid)) {
+          // Already found the tile feature on a prior pass — reuse the
+          // owner we read then instead of re-querying every recompute
+          // (and so a dot that's scrolled off-screen, tile unloaded,
+          // doesn't flicker back to the loading skeleton).
+          tileFound = true
+          outer: for (const list of Array.from(tractDeedsRef.current.values())) {
+            for (const d of list) {
+              if (d.ll_uuid === uuid) { owner = d.owner; break outer }
+            }
+          }
+        } else {
+          try {
+            const point = map.project([lng, lat])
+            const feats = map.queryRenderedFeatures(point, { layers: ['regrid-parcels-fill'] })
+            if (feats.length) {
+              tileFound = true
+              const tileProps: any = feats[0].properties || {}
+              owner = tileProps.owner || null
+              path = tileProps.path || null
+              resolvedDeedUuidsRef.current.add(uuid)
+            }
+          } catch {/* map mid-teardown / layer not ready yet */}
+        }
+        if (path) deedPathByUuidRef.current.set(uuid, path)
+        const knownPath = path || deedPathByUuidRef.current.get(uuid) || null
+        if (knownPath) newSuppressedPaths.add(knownPath)
+
+        const list = newDeeds.get(t.id) || []
+        list.push({
+          ll_uuid: uuid,
+          saleprice: props.saleprice ?? null,
+          saledate: props.saledate ?? null,
+          acres: props.acres ?? null,
+          owner,
+          // Pending ONLY until the tile feature itself is found — once
+          // found, even a parcel with no `owner` property shows the
+          // static "Owner unknown" text (below), never a perpetual
+          // skeleton just because the tile happens to lack that field.
+          ownerLoading: !tileFound,
+        })
+        newDeeds.set(t.id, list)
+        break // a dot belongs to at most one tract — first containing match wins
+      }
+    }
+
+    // --- Idempotency gate ------------------------------------------
+    // Compare each of the three "did anything actually change" signals
+    // independently, then only touch the piece(s) that did.
+    const uuidsChanged = !setsEqual(newSuppressedUuids, suppressedDeedUuidsRef.current)
+    const pathsChanged = !setsEqual(newSuppressedPaths, suppressedPathsRef.current)
+
+    // Reference-stability pass: reuse the PREVIOUS array for any tract
+    // whose deed list is unchanged BY VALUE, so the CompInlinePopup/
+    // PortalTractDetail live-refresh effects' `deeds === prev.sale.deeds`
+    // guards correctly see "no change" and don't re-invoke
+    // setCompPopup/onTractSelected on every tick (AUDIT FIX, HIGH — part
+    // of the same infinite-loop report: a fresh array reference every
+    // pass, even with identical content, churned those two effects too).
+    const prevTractDeeds = tractDeedsRef.current
+    const stableDeeds = new Map<string, RecordedDeed[]>()
+    let tractDeedsChanged = newDeeds.size !== prevTractDeeds.size
+    for (const [tractId, deeds] of Array.from(newDeeds.entries())) {
+      const prevList = prevTractDeeds.get(tractId)
+      if (prevList && recordedDeedsEqual(prevList, deeds)) {
+        stableDeeds.set(tractId, prevList)
+      } else {
+        stableDeeds.set(tractId, deeds)
+        tractDeedsChanged = true
+      }
+    }
+    if (!tractDeedsChanged) {
+      for (const tractId of Array.from(prevTractDeeds.keys())) {
+        if (!stableDeeds.has(tractId)) { tractDeedsChanged = true; break }
+      }
+    }
+
+    if (!uuidsChanged && !pathsChanged && !tractDeedsChanged) {
+      // Nothing changed at all — a bare retry (sourcedata) with no new
+      // information (e.g. a tile finished loading for a parcel that
+      // isn't even one of ours). Skip EVERY mutation below so this can
+      // never itself trigger another 'sourcedata'/'idle' cycle.
+      return
+    }
+
+    suppressedDeedUuidsRef.current = newSuppressedUuids
+    if (tractDeedsChanged) setTractDeeds(stableDeeds)
+
+    if (pathsChanged) {
+      // Diff feature-state against what's ACTUALLY set right now: add
+      // newly-suppressed paths, REMOVE ones that no longer qualify
+      // (AUDIT FIX, HIGH — previously one-way; a label stayed hidden
+      // forever once suppressed, even after its dot no longer coincided
+      // with any tract).
+      for (const path of Array.from(newSuppressedPaths)) {
+        if (!suppressedPathsRef.current.has(path)) {
+          try {
+            map.setFeatureState({ source: 'regrid-parcels', sourceLayer, id: path }, { dotSuppressed: true })
+          } catch {/* source torn down */}
+        }
+      }
+      for (const path of Array.from(suppressedPathsRef.current)) {
+        if (!newSuppressedPaths.has(path)) {
+          try {
+            map.removeFeatureState({ source: 'regrid-parcels', sourceLayer, id: path }, 'dotSuppressed')
+          } catch {/* source torn down */}
+        }
+      }
+      suppressedPathsRef.current = newSuppressedPaths
+    }
+
+    if (uuidsChanged && src) {
+      const features = Array.from(durableDotsByIdRef.current.values())
+        .filter(f => !newSuppressedUuids.has((f.properties as any)?.id))
+      src.setData({ type: 'FeatureCollection', features })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // Shared durable-dots fetch, parameterized by explicit bounds so it can
   // be called two ways:
   //   1. Viewport pans (moveend effect below) — debounced, zoom-gated,
@@ -4202,7 +4626,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // layer and the accumulator (unlike a plain zoom-out/pan, this is
       // a real "no dots qualify" state, not a viewport gap).
       durableDotsByIdRef.current.clear()
-      ;(map.getSource(DURABLE_DOT_SOURCE) as maplibregl.GeoJSONSource)?.setData(EMPTY_FC)
+      // Coincident-deed suppression must reset in lockstep — with the
+      // accumulator empty, recomputeCoincidentDeeds clears tractDeeds and
+      // writes the (now-empty) source data in one pass instead of a raw
+      // setData(EMPTY_FC) that would leave stale folded deeds in the panel.
+      recomputeCoincidentDeeds()
       return
     }
     const gen = ++durableDotsGenRef.current
@@ -4255,13 +4683,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           properties: { id: d.id, saleprice: d.saleprice, saledate: d.saledate, acres: d.acres },
         })
       }
-      const src = map.getSource(DURABLE_DOT_SOURCE) as maplibregl.GeoJSONSource | undefined
-      if (src) {
-        src.setData({
-          type: 'FeatureCollection',
-          features: Array.from(durableDotsByIdRef.current.values()),
-        })
-      }
+      // recomputeCoincidentDeeds owns pushing the (possibly suppressed)
+      // feature set to the GL source — see its definition above for why
+      // a raw setData here would miss the comp-map coincident-dot fold.
+      recomputeCoincidentDeeds()
     } catch {/* transient fetch failure — next moveend (or the caller) retries */}
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -4318,6 +4743,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // the accumulator here — once per effect run, before the first fetch
       // — drops the old union exactly when the qualifying set can differ.
       durableDotsByIdRef.current.clear()
+      // Same rationale as the chat-search-apply clear above: a filter
+      // change invalidates the old coincident-deed fold too (different
+      // dots/tracts may qualify now) — un-suppress any hidden labels,
+      // not just the local bookkeeping.
+      clearAllDeedSuppression()
       // CODE AUDITOR FIX (round 2): bumping the gen ONLY at fetch kickoff
       // (below) doesn't protect against a fetch that was in flight from the
       // PREVIOUS filter — that response's gen was already "latest" the
@@ -4388,6 +4818,58 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     filters.hasHouse, filters.hasBuildings, filters.keyword,
     fetchDurableDotsForBounds,
   ])
+
+  // Re-run the coincident-deed fold whenever the loaded tract set changes
+  // (new tract polygons arrive as the user pans, so a dot fetched BEFORE
+  // its overlapping tract's polygon loaded needs a second pass once that
+  // polygon shows up) or comp mode toggles on/off (subjectTractId). The
+  // durable-dots effects above already call recomputeCoincidentDeeds every
+  // time the DOT side of the pair changes; this is the TRACT side.
+  useEffect(() => {
+    recomputeCoincidentDeeds()
+  }, [tracts, subjectTractId, recomputeCoincidentDeeds])
+
+  // Retry the owner TILE lookup (see recomputeCoincidentDeeds) once the
+  // Regrid tile covering a coincident dot's point finishes loading — a
+  // dot can be detected (point-in-polygon needs only the tract polygon +
+  // the dot's own lat/lng, both already in hand) before its tile has
+  // actually loaded, so the very first recompute pass for it leaves
+  // owner pending (ownerLoading:true, ONLY acres/$/date shown).
+  //
+  // AUDIT FIX (HIGH — infinite idle loop): this used to ALSO listen on
+  // 'idle' as a catch-all, unconditionally calling recompute on every
+  // idle tick. recomputeCoincidentDeeds calls src.setData, and a GL
+  // source setData briefly leaves the map "not idle" and then re-fires
+  // 'idle' once it settles — idle -> recompute -> setData -> idle was an
+  // infinite loop for the entire time comp mode was active (continuous
+  // repaint/CPU churn + a React re-render every tick). recompute is now
+  // idempotent on its own (see its diff-by-value guards), which alone
+  // breaks the loop, but 'idle' fires far more often than genuinely
+  // useful here, so it's removed entirely rather than relying only on
+  // the idempotency check to make each tick a no-op. Listening ONLY on
+  // 'sourcedata' for the specific source we care about, AND only while
+  // something is still actually pending, means this effect goes
+  // completely quiet once every coincident deed has resolved. Comp-mode-
+  // only; doesn't even attach in explore mode.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded || !subjectTractId) return
+    const hasPendingOwner = () => {
+      for (const list of Array.from(tractDeedsRef.current.values())) {
+        if (list.some(d => d.ownerLoading)) return true
+      }
+      return false
+    }
+    const onSourceData = (e: maplibregl.MapSourceDataEvent) => {
+      if (e.sourceId !== 'regrid-parcels' || !e.isSourceLoaded) return
+      if (!hasPendingOwner()) return
+      recomputeCoincidentDeeds()
+    }
+    map.on('sourcedata', onSourceData)
+    return () => {
+      map.off('sourcedata', onSourceData)
+    }
+  }, [mapLoaded, subjectTractId, recomputeCoincidentDeeds])
 
   // Keep the Regrid fill / line / label layers' filter in sync with the
   // tile-native filter inputs (acreage, state, county, sale date,
@@ -5907,6 +6389,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         pricePerTillableAcre: tract.price_per_tillable_acre,
         pricePerSoilRating: tract.price_per_soil_rating,
         sourceUrl: tract.source_url,
+        // Coincident recorded deed(s) — see recomputeCoincidentDeeds. Read
+        // from the ref (not the `tractDeeds` state directly) because this
+        // handler is registered in an effect that doesn't re-run on every
+        // deed resolution.
+        deeds: tractDeedsRef.current.get(tract.id),
       }
 
       // Task #26 (one click, one panel): tract is top priority — it wins
@@ -5925,6 +6412,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           lngLat: [e.lngLat.lng, e.lngLat.lat],
         })
       } else if (portalMode && onTractSelected) {
+        lastPortalSaleRef.current = saleData
         onTractSelected(saleData)
       } else {
         setCompPopup(null)
@@ -6032,7 +6520,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         setLandDetail(null)
         setCompPopup(null)
         setSelectedSale(null)
-        onTractSelected({
+        const todaySaleData: SaleDetail = {
           id: tract.id,
           listingId: tract.listing_id,
           tractId: tract.id,
@@ -6057,7 +6545,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           pricePerTillableAcre: tract.price_per_tillable_acre,
           pricePerSoilRating: tract.price_per_soil_rating,
           sourceUrl: tract.source_url,
-        })
+          deeds: tractDeedsRef.current.get(tract.id),
+        }
+        lastPortalSaleRef.current = todaySaleData
+        onTractSelected(todaySaleData)
         return
       }
       if (tract.listing_id) {
@@ -8389,6 +8880,18 @@ const FMT_DATE_COMP = (iso: string | null | undefined) => {
   const d = new Date(iso)
   return isNaN(d.getTime()) ? '—' : d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
 }
+// Recorded-deed sale dates render as plain MM/DD/YYYY (per spec) — a
+// county-recorder date, not the "Jul 13, 2026" style FMT_DATE_COMP uses
+// for the tract's own auction date. Parsed as a plain YYYY-MM-DD string
+// (no `new Date()`/timezone conversion — these are date-only Regrid
+// values, not timestamps).
+const FMT_DEED_DATE_COMP = (iso: string | null | undefined) => {
+  if (!iso) return null
+  const m = iso.slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (!m) return null
+  const [, y, mo, d] = m
+  return `${mo}/${d}/${y}`
+}
 
 function CompInlinePopup({
   sale, pos, isSelected,
@@ -8577,6 +9080,78 @@ function CompInlinePopup({
           {ownerLine && (
             <CompPopupRow label="Owner" value={ownerLine} truncate />
           )}
+        </div>
+      )}
+
+      {/* Recorded Deeds — comp-map coincident-dot collapse (see
+          recomputeCoincidentDeeds above). A Regrid parcel sale-dot whose
+          centroid sits inside THIS tract's polygon is hidden from the
+          map and its deed folded in here instead — a tract can have
+          multiple underlying deeds, so every one renders as its own row.
+          Amber "County Record" styling (never pink) keeps this
+          county-recorder $/acre from ever being read as the tract's own
+          auction sold price/acre in the hero stats above. acres/$-acre/
+          date render instantly from the durable-dot payload; only OWNER
+          waits on the Regrid tile at the dot's point being loaded
+          (skeleton pulse until recomputeCoincidentDeeds finds it —
+          never blocks the rest of the row). */}
+      {sale.deeds && sale.deeds.length > 0 && (
+        <div style={{
+          padding: '0 16px 14px',
+          maxHeight: 150,
+          overflowY: 'auto',
+        }}>
+          <div style={{
+            fontSize: 9.5, fontWeight: 700, letterSpacing: 0.8,
+            textTransform: 'uppercase', color: '#B45309',
+            marginBottom: 6,
+          }}>
+            Recorded deed{sale.deeds.length > 1 ? 's' : ''} on this parcel
+          </div>
+          {sale.deeds.map((deed) => {
+            const ppa = deed.saleprice && deed.acres ? Math.round(deed.saleprice / deed.acres) : null
+            const dateStr = FMT_DEED_DATE_COMP(deed.saledate)
+            return (
+              <div
+                key={deed.ll_uuid}
+                style={{
+                  background: '#FFFBEB',
+                  border: '1px solid #FDE68A',
+                  borderRadius: 8,
+                  padding: '7px 9px',
+                  marginBottom: 6,
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                  {deed.owner ? (
+                    <span style={{
+                      fontSize: 12, fontWeight: 700, color: '#1a1a1a',
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    }}>{deed.owner}</span>
+                  ) : deed.ownerLoading ? (
+                    <span style={{
+                      display: 'inline-block', width: 90, height: 11, borderRadius: 4,
+                      background: '#FDE68A', opacity: 0.7,
+                    }} />
+                  ) : (
+                    <span style={{ fontSize: 12, fontWeight: 600, color: '#999' }}>Owner unknown</span>
+                  )}
+                  <span style={{
+                    flexShrink: 0, fontSize: 8, fontWeight: 700, letterSpacing: 0.6,
+                    textTransform: 'uppercase', color: '#B45309',
+                    border: '1px solid #FCD34D', borderRadius: 999, padding: '2px 6px',
+                  }}>
+                    County record
+                  </span>
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 3, fontSize: 11, color: '#78716C' }}>
+                  {deed.acres != null && <span>{FMT_NUM_COMP(deed.acres)} ac</span>}
+                  {ppa != null && <span style={{ color: '#B45309', fontWeight: 600 }}>{FMT_USD_COMP(ppa)}/ac <span style={{ color: '#a8a29e', fontWeight: 400 }}>(recorded)</span></span>}
+                  {dateStr && <span>{dateStr}</span>}
+                </div>
+              </div>
+            )
+          })}
         </div>
       )}
 
