@@ -430,12 +430,18 @@ export default function PortalComparablesPanel({ data, loading, onClose, onSelec
                             <span className="text-gg-gray-500">Sale: </span>
                             <span className="text-white font-medium">{formatCurrency(comp.sale_price)}</span>
                           </div>
-                          {comp.price_per_tillable_acre && (
-                            <div className="text-[10px]">
-                              <span className="text-gg-gray-500">$/Till Ac: </span>
-                              <span className="text-white font-medium">{formatCurrency(comp.price_per_tillable_acre)}</span>
-                            </div>
-                          )}
+                          {(() => {
+                            const ppTillAc = comp.price_per_tillable_acre
+                              ?? ((comp.tillable_acres && comp.total_acres && comp.price_per_acre && comp.tillable_acres > 0)
+                                    ? (comp.price_per_acre * comp.total_acres) / comp.tillable_acres
+                                    : null)
+                            return ppTillAc ? (
+                              <div className="text-[10px]">
+                                <span className="text-gg-gray-500">$/Till Ac: </span>
+                                <span className="text-white font-medium">{formatCurrency(ppTillAc)}</span>
+                              </div>
+                            ) : null
+                          })()}
                           {getSoilValue(comp) && comp.price_per_acre ? (
                             <div className="text-[10px]">
                               <span className="text-gg-gray-500">$/{getSoilLabel(comp.soil_rating_type, comp.state)}: </span>
