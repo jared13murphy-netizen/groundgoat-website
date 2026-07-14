@@ -4446,18 +4446,27 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
     if (!subjectTractIdRef.current) {
       // Explore mode (or comp mode just exited via subjectTractId->null)
-      // — nothing should stay suppressed. AUDIT FIX: actively un-hide
-      // every label we'd previously hidden (not just stop hiding new
-      // ones) — but ONLY when there's actually something suppressed;
-      // otherwise this is a true no-op (no setData call at all).
+      // — nothing should ever stay suppressed here, so un-hide any label
+      // still hidden from a just-exited comp mode (AUDIT FIX), then
+      // ALWAYS push the full accumulated dot set to the source. BUG FIX
+      // (2026-07-13, owner: explore map showing no parcel-sale dots):
+      // this used to setData ONLY inside the `size > 0` un-suppress
+      // branch, so a fresh explore-mode fetch (nothing ever suppressed,
+      // size always 0) populated durableDotsByIdRef but never reached
+      // the GL source — dots were fetched and silently dropped. No loop
+      // risk: nothing listens on DURABLE_DOT_SOURCE's own data event to
+      // re-call this (see call sites: the two fetch call sites, the
+      // tracts/subjectTractId effect, and the comp-mode-only sourcedata
+      // listener gated on the 'regrid-parcels' source, none of which
+      // fire off this source's setData).
       if (suppressedDeedUuidsRef.current.size > 0 || suppressedPathsRef.current.size > 0) {
         clearAllDeedSuppression()
-        if (src) {
-          src.setData({
-            type: 'FeatureCollection',
-            features: Array.from(durableDotsByIdRef.current.values()),
-          })
-        }
+      }
+      if (src) {
+        src.setData({
+          type: 'FeatureCollection',
+          features: Array.from(durableDotsByIdRef.current.values()),
+        })
       }
       return
     }
