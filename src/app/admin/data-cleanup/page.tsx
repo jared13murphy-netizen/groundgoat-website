@@ -1745,11 +1745,6 @@ export default function TractDataCleanupPage() {
                                   </div>
                                 )}
                                 <div className="flex items-center justify-end gap-3 border-t border-gg-gray-800 pt-4">
-                                  {hasUnsaved && (
-                                    <span className="text-xs text-orange-400 inline-flex items-center gap-1">
-                                      <AlertTriangle size={13} /> Save all tract edits first
-                                    </span>
-                                  )}
                                   {!hasUnsaved && allReviewed && !hasViolations && (
                                     <span className="text-xs text-green-600 inline-flex items-center gap-1">
                                       <CheckCircle2 size={13} /> All tracts reviewed
@@ -1757,12 +1752,8 @@ export default function TractDataCleanupPage() {
                                   )}
                                   <button
                                     onClick={() => verifyListing(it.listing_id)}
-                                    disabled={verifyingId === it.listing_id || hasUnsaved || violationsBlock}
-                                    title={
-                                      hasUnsaved ? 'Save all tract edits first' :
-                                      violationsBlock ? 'Fix incomplete fields above before verifying' :
-                                      'Mark every tract on this listing Reviewed and set the listing to Done'
-                                    }
+                                    disabled={verifyingId === it.listing_id}
+                                    title="Mark every tract on this listing Reviewed and set the listing to Done"
                                     className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-bold bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
                                   >
                                     {verifyingId === it.listing_id

@@ -650,8 +650,7 @@ export default function EditListingPage() {
             )}
             <button
               onClick={handleVerify}
-              disabled={verifying || anyTractDirty || listingFormDirty}
-              title={listingFormDirty ? 'Save listing details first' : anyTractDirty ? 'Save changes first' : undefined}
+              disabled={verifying}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium ${
                 listing.verified
                   ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30'
@@ -1132,18 +1131,13 @@ export default function EditListingPage() {
               verified_by + verified_at. */}
           <div className="border-t border-gg-gray-800 mt-6 pt-5 flex items-center justify-between gap-3 flex-wrap">
             <p className="text-sm text-gg-gray-400">
-              {listingFormDirty
-                ? 'Save listing details before verifying.'
-                : anyTractDirty
-                ? 'Save changes in the Data comparison panel before verifying.'
-                : listing.verified
+              {listing.verified
                 ? 'This listing is verified.'
                 : 'Save each tract to mark it reviewed, then verify the whole listing.'}
             </p>
             <button
               onClick={handleVerify}
-              disabled={verifying || anyTractDirty || listingFormDirty}
-              title={listingFormDirty ? 'Save listing details first' : anyTractDirty ? 'Save changes first' : undefined}
+              disabled={verifying}
               className={`flex items-center gap-2 px-6 py-3 rounded-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed ${
                 listing.verified
                   ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30'

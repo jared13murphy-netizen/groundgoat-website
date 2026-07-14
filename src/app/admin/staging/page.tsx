@@ -2650,28 +2650,10 @@ export default function AdminStagingPage() {
                         })()}
 
                         {/* Action Buttons */}
-                        {listingHasUnsaved(listing.id) && (
-                          <div className="flex items-center gap-2 mb-2 px-3 py-2 bg-orange-500/10 border border-orange-500/30 rounded-lg">
-                            <AlertTriangle size={16} className="text-orange-400 flex-shrink-0" />
-                            <span className="text-orange-400 text-sm">Save all tract edits before verifying.</span>
-                          </div>
-                        )}
                         <div className="flex items-center gap-3">
                           <button
                             onClick={() => handleVerify(listing.id)}
-                            disabled={
-                              actionLoading === listing.id ||
-                              listingHasUnsaved(listing.id) ||
-                              (validateResults[listing.id]?.enforce === true &&
-                                (validateResults[listing.id]?.items?.length ?? 0) > 0)
-                            }
-                            title={
-                              listingHasUnsaved(listing.id) ? 'Save all tract edits first' :
-                              (validateResults[listing.id]?.enforce === true &&
-                                (validateResults[listing.id]?.items?.length ?? 0) > 0)
-                                ? 'Fix required fields above before verifying'
-                              : undefined
-                            }
+                            disabled={actionLoading === listing.id}
                             className="flex items-center gap-2 px-5 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-500 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             {actionLoading === listing.id ? <Loader2 className="animate-spin" size={16} /> : <CheckCircle size={16} />}
@@ -2696,8 +2678,7 @@ export default function AdminStagingPage() {
                           {listing.is_incomplete && (
                             <button
                               onClick={() => handlePublishIncomplete(listing.id)}
-                              disabled={actionLoading === listing.id || listingHasUnsaved(listing.id)}
-                              title={listingHasUnsaved(listing.id) ? 'Save all tract edits first' : undefined}
+                              disabled={actionLoading === listing.id}
                               className="flex items-center gap-2 px-5 py-2.5 bg-orange-600 text-white rounded-lg hover:bg-orange-500 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                               {actionLoading === listing.id ? <Loader2 className="animate-spin" size={16} /> : <AlertTriangle size={16} />}
