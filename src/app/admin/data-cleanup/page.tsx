@@ -22,6 +22,7 @@ import TractDataCompare from '@/components/admin/TractDataCompare'
 import SwapTractsPanel from '@/components/admin/SwapTractsPanel'
 import SaleStatusChips from '@/components/admin/SaleStatusChips'
 import { toRings } from '@/lib/polygonRings'
+import ConfirmDeleteTractModal from '@/components/admin/ConfirmDeleteTractModal'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -295,6 +296,32 @@ export default function TractDataCleanupPage() {
   // confirmation in the modal; deleteRescrapingId = the row mid-request.
   const [deleteRescrapeTarget, setDeleteRescrapeTarget] = useState<QueueItem | null>(null)
   const [deleteRescrapingId, setDeleteRescrapingId] = useState<string | null>(null)
+  // Per-tract delete (ConfirmDeleteTractModal). Data Cleanup only ever shows
+  // published tracts (real DB id), so this always hits DELETE /api/tracts/{id}
+  // then refetches the listing to refresh the tract list + rollups.
+  const [deleteTractTarget, setDeleteTractTarget] = useState<{ listingId: string; tract: LiveTract } | null>(null)
+  const [deleteTractLoading, setDeleteTractLoading] = useState(false)
+  const [deleteTractError, setDeleteTractError] = useState<string | null>(null)
+  async function confirmDeleteTract() {
+    if (!deleteTractTarget) return
+    const { listingId, tract } = deleteTractTarget
+    setDeleteTractLoading(true)
+    setDeleteTractError(null)
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/tracts/${tract.id}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const detail = (await res.json().catch(() => ({}))).detail || `HTTP ${res.status}`
+        throw new Error(String(detail))
+      }
+      setDeleteTractTarget(null)
+      await loadListing(listingId)
+      fetchValidation(listingId)
+    } catch (e: any) {
+      setDeleteTractError(e.message || 'Failed to delete tract')
+    } finally {
+      setDeleteTractLoading(false)
+    }
+  }
   // Which staging screen the fresh scrape should land on. Defaults to the
   // listing's current type but is overridable in the modal — a listing's type
   // can change (e.g. an unsold auction relisted as a private treaty).
@@ -1369,22 +1396,31 @@ export default function TractDataCleanupPage() {
                                       </span>
                                     )}
                                   </div>
-                                  <button
-                                    type="button"
-                                    disabled={mapDisabled}
-                                    title={mapDisabled ? 'No location available for this tract' : 'Open this tract on the Explore map'}
-                                    onClick={() => {
-                                      const params = new URLSearchParams({
-                                        focusLat: String(fLat), focusLng: String(fLng), focusZoom: '15',
-                                      })
-                                      window.open(`/access?${params.toString()}`, '_blank')
-                                    }}
-                                    className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors shadow-sm ${
-                                      mapDisabled ? 'bg-gg-gray-800 text-gg-gray-600 cursor-not-allowed' : 'bg-gg-pink text-white hover:bg-gg-pink-light'
-                                    }`}
-                                  >
-                                    <MapPin size={14} /> View on Map
-                                  </button>
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => setDeleteTractTarget({ listingId: it.listing_id, tract })}
+                                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-semibold bg-red-600 text-white hover:bg-red-700 transition-colors shadow-sm"
+                                    >
+                                      <Trash2 size={14} /> Delete tract
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={mapDisabled}
+                                      title={mapDisabled ? 'No location available for this tract' : 'Open this tract on the Explore map'}
+                                      onClick={() => {
+                                        const params = new URLSearchParams({
+                                          focusLat: String(fLat), focusLng: String(fLng), focusZoom: '15',
+                                        })
+                                        window.open(`/access?${params.toString()}`, '_blank')
+                                      }}
+                                      className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors shadow-sm ${
+                                        mapDisabled ? 'bg-gg-gray-800 text-gg-gray-600 cursor-not-allowed' : 'bg-gg-pink text-white hover:bg-gg-pink-light'
+                                      }`}
+                                    >
+                                      <MapPin size={14} /> View on Map
+                                    </button>
+                                  </div>
                                 </div>
 
                                 {/* Has House / Has Buildings — for locked tracts only (actionable
@@ -1863,6 +1899,20 @@ export default function TractDataCleanupPage() {
           </div>
         </div>
       )}
+
+      <ConfirmDeleteTractModal
+        tract={deleteTractTarget ? {
+          tract_number: deleteTractTarget.tract.tract_number ?? null,
+          total_acres: deleteTractTarget.tract.total_acres ?? null,
+          sale_status: deleteTractTarget.tract.sale_status ?? null,
+        } : null}
+        isSold={deleteTractTarget?.tract.sale_status === 'sold'}
+        isLastTract={!!deleteTractTarget && (loadedListings[deleteTractTarget.listingId]?.tracts.length ?? 0) <= 1}
+        onConfirm={confirmDeleteTract}
+        onCancel={() => { setDeleteTractTarget(null); setDeleteTractError(null) }}
+        loading={deleteTractLoading}
+        error={deleteTractError}
+      />
     </div>
   )
 }

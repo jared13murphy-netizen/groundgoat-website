@@ -8,6 +8,7 @@ import TractMapEditor from '@/components/admin/TractMapEditor'
 import TillableCluWorkshop from '@/components/admin/TillableCluWorkshop'
 import LandTypeButtons from '@/components/admin/LandTypeButtons'
 import { toRings } from '@/lib/polygonRings'
+import ConfirmDeleteTractModal from '@/components/admin/ConfirmDeleteTractModal'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -217,12 +218,14 @@ export default function ListingTractCard({ tract, listing, onChanged, onDeleted,
   }
 
   const [deletingTract, setDeletingTract] = useState(false)
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [deleteTractError, setDeleteTractError] = useState<string | null>(null)
 
+  // Confirmation now happens in ConfirmDeleteTractModal before this is called.
   const handleDeleteTract = async () => {
-    if (!confirm('Delete this tract? This cannot be undone.')) return
     const token = localStorage.getItem('auth_token')
     setDeletingTract(true)
-    setErr('')
+    setDeleteTractError(null)
     try {
       const response = await fetch(`${API_URL}/api/tracts/${tract.id}`, {
         method: 'DELETE',
@@ -230,12 +233,13 @@ export default function ListingTractCard({ tract, listing, onChanged, onDeleted,
       })
       if (!response.ok) {
         const detail = (await response.json().catch(() => ({}))).detail || `HTTP ${response.status}`
-        setErr(String(detail))
+        setDeleteTractError(String(detail))
         return
       }
+      setShowDeleteModal(false)
       if (onDeleted) await onDeleted()
     } catch (e: any) {
-      setErr(e.message || 'Failed to delete tract')
+      setDeleteTractError(e.message || 'Failed to delete tract')
     } finally {
       setDeletingTract(false)
     }
@@ -479,16 +483,14 @@ export default function ListingTractCard({ tract, listing, onChanged, onDeleted,
             <CheckCircle2 size={16} /> Saved
           </span>
         )}
-        {tract.created_via === 'manual' && (
-          <button
-            onClick={handleDeleteTract}
-            disabled={deletingTract || savingScalars}
-            className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white font-medium rounded-lg hover:bg-red-700 disabled:opacity-40"
-          >
-            {deletingTract ? <Loader2 className="animate-spin" size={16} /> : <Trash2 size={16} />}
-            {deletingTract ? 'Deleting…' : 'Delete tract'}
-          </button>
-        )}
+        <button
+          onClick={() => setShowDeleteModal(true)}
+          disabled={deletingTract || savingScalars}
+          className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white font-medium rounded-lg hover:bg-red-700 disabled:opacity-40"
+        >
+          {deletingTract ? <Loader2 className="animate-spin" size={16} /> : <Trash2 size={16} />}
+          {deletingTract ? 'Deleting…' : 'Delete tract'}
+        </button>
         <button
           onClick={saveScalars}
           disabled={!dirty || savingScalars}
@@ -547,6 +549,20 @@ export default function ListingTractCard({ tract, listing, onChanged, onDeleted,
         onSaved={() => onChanged()}
       />
       </div>
+
+      <ConfirmDeleteTractModal
+        tract={showDeleteModal ? {
+          tract_number: tract.tract_number ?? null,
+          total_acres: tract.total_acres ?? null,
+          sale_status: tract.sale_status ?? null,
+        } : null}
+        isSold={tract.sale_status === 'sold'}
+        isLastTract={(listing.tracts?.length ?? 0) <= 1}
+        onConfirm={handleDeleteTract}
+        onCancel={() => { setShowDeleteModal(false); setDeleteTractError(null) }}
+        loading={deletingTract}
+        error={deleteTractError}
+      />
     </div>
   )
 }

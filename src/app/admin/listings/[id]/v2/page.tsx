@@ -7,6 +7,7 @@ import Link from 'next/link'
 import { ArrowLeft, Save, Loader2, Trash2, ExternalLink, Pencil, Plus, CheckCircle, ChevronDown, ChevronUp } from 'lucide-react'
 import { getCountiesForState } from '@/data/counties'
 import TractCleanupEditor from '@/components/admin/TractCleanupEditor'
+import ConfirmDeleteTractModal from '@/components/admin/ConfirmDeleteTractModal'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -439,8 +440,10 @@ export default function EditListingPage() {
     }
   }
 
+  // Confirmation now happens in ConfirmDeleteTractModal before this is called.
   const handleDeleteTract = async (tractId: string) => {
-    if (!confirm('Delete this tract? This cannot be undone.')) return
+    setDeleteTractLoading(true)
+    setDeleteTractError(null)
     const token = localStorage.getItem('auth_token')
     try {
       const response = await fetch(`${API_URL}/api/tracts/${tractId}`, {
@@ -449,14 +452,22 @@ export default function EditListingPage() {
       })
       if (!response.ok) {
         const detail = (await response.json().catch(() => ({}))).detail || `HTTP ${response.status}`
-        setError(String(detail))
+        setDeleteTractError(String(detail))
         return
       }
+      setDeleteTractTarget(null)
       await refreshListing()
     } catch (err) {
-      setError('Failed to delete tract')
+      setDeleteTractError('Failed to delete tract')
+    } finally {
+      setDeleteTractLoading(false)
     }
   }
+
+  // Shared confirm-modal wiring for the "Delete" button on each tract row.
+  const [deleteTractTarget, setDeleteTractTarget] = useState<any | null>(null)
+  const [deleteTractLoading, setDeleteTractLoading] = useState(false)
+  const [deleteTractError, setDeleteTractError] = useState<string | null>(null)
 
   const handleVerify = async () => {
     if (!listing) return
@@ -1092,17 +1103,15 @@ export default function EditListingPage() {
                               {reviewed ? '✓ Reviewed' : 'Not reviewed'}
                             </span>
                           </button>
-                          {tract.created_via === 'manual' && (
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteTract(tract.id)}
-                              title="Delete this manually-added tract"
-                              className="flex items-center gap-1.5 px-3 py-2 mr-2 text-sm font-medium text-red-400 hover:text-white hover:bg-red-600 rounded-lg transition-colors shrink-0"
-                            >
-                              <Trash2 size={14} />
-                              Delete
-                            </button>
-                          )}
+                          <button
+                            type="button"
+                            onClick={() => setDeleteTractTarget(tract)}
+                            title="Delete this tract"
+                            className="flex items-center gap-1.5 px-3 py-2 mr-2 text-sm font-medium text-red-400 hover:text-white hover:bg-red-600 rounded-lg transition-colors shrink-0"
+                          >
+                            <Trash2 size={14} />
+                            Delete
+                          </button>
                         </div>
                         {isOpen && (
                           <div className="px-3 pb-3">
@@ -1147,6 +1156,20 @@ export default function EditListingPage() {
           </div>
         </div>
       </div>
+
+      <ConfirmDeleteTractModal
+        tract={deleteTractTarget ? {
+          tract_number: deleteTractTarget.tract_number ?? null,
+          total_acres: deleteTractTarget.total_acres ?? null,
+          sale_status: deleteTractTarget.sale_status ?? null,
+        } : null}
+        isSold={deleteTractTarget?.sale_status === 'sold'}
+        isLastTract={(listing?.tracts?.length ?? 0) <= 1}
+        onConfirm={() => handleDeleteTract(deleteTractTarget.id)}
+        onCancel={() => { setDeleteTractTarget(null); setDeleteTractError(null) }}
+        loading={deleteTractLoading}
+        error={deleteTractError}
+      />
     </div>
   )
 }

@@ -39,6 +39,7 @@ import TillableCluWorkshop from '@/components/admin/TillableCluWorkshop'
 import TractDataCompare from '@/components/admin/TractDataCompare'
 import SwapStagingTractsPanel from '@/components/admin/SwapStagingTractsPanel'
 import SaleStatusChips from '@/components/admin/SaleStatusChips'
+import ConfirmDeleteTractModal from '@/components/admin/ConfirmDeleteTractModal'
 import { polygonAcres, polygonPerimeterFeet, formatPerimeter } from '@/lib/polygonGeometry'
 import { toRings } from '@/lib/polygonRings'
 
@@ -1069,10 +1070,15 @@ export default function AdminPrivateTreatyStagingPage() {
 
   // Delete a manual-only staging tract (no DB id) by removing it from the
   // local scraped_data array and PATCHing the staging record — mirrors addStagingTract.
+  // Confirmation now happens in ConfirmDeleteTractModal before this is called.
   const handleDeleteStagingTract = async (tractNumber: number, listing: StagingListing) => {
-    if (!confirm('Delete this tract? This cannot be undone.')) return
     const updated = JSON.parse(JSON.stringify(listing.scraped_data || {}))
     if (!Array.isArray(updated.tracts)) updated.tracts = []
+    // Defense in depth: the modal already blocks this, but never let a delete
+    // (even one triggered some other way) leave a 0-tract staging listing.
+    if (updated.tracts.length <= 1) {
+      throw new Error("This is the listing's only tract. Delete the whole listing instead.")
+    }
     updated.tracts = updated.tracts.filter((t: any) => t.tract_number !== tractNumber)
     setListings((prev) => prev.map((l) => (l.id === listing.id ? { ...l, scraped_data: updated } : l)))
     // D16-style cleanup: removing a tract shifts every later tract's index
@@ -1103,15 +1109,15 @@ export default function AdminPrivateTreatyStagingPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ scraped_data: updated }),
       })
-      if (!res.ok) showToast('error', 'Failed to delete tract')
-      else fetchValidation(listing.id)
-    } catch {
-      showToast('error', 'Network error — tract not deleted')
+      if (!res.ok) throw new Error('Failed to delete tract')
+      fetchValidation(listing.id)
+    } catch (e: any) {
+      throw new Error(e?.message || 'Network error — tract not deleted')
     }
   }
 
+  // Confirmation now happens in ConfirmDeleteTractModal before this is called.
   const handleDeleteTract = async (tractId: string, listingId: number) => {
-    if (!confirm('Delete this tract? This cannot be undone.')) return
     const token = localStorage.getItem('auth_token')
     try {
       const response = await fetch(`${API_URL}/api/tracts/${tractId}`, {
@@ -1120,8 +1126,7 @@ export default function AdminPrivateTreatyStagingPage() {
       })
       if (!response.ok) {
         const detail = (await response.json().catch(() => ({}))).detail || `HTTP ${response.status}`
-        showToast('error', String(detail))
-        return
+        throw new Error(String(detail))
       }
       // Remove the tract from local scraped_data state
       setListings(prev => prev.map(l => {
@@ -1154,7 +1159,33 @@ export default function AdminPrivateTreatyStagingPage() {
       })
       fetchValidation(listingId)
     } catch (e: any) {
-      showToast('error', e.message || 'Failed to delete tract')
+      throw new Error(e?.message || 'Failed to delete tract')
+    }
+  }
+
+  // Shared confirm-modal wiring for the "Delete tract" buttons below. Holds
+  // the tract + listing awaiting confirmation; routes to the staging-blob
+  // path (no DB id) or the DB DELETE path depending on whether the tract has
+  // been published yet.
+  const [deleteTractTarget, setDeleteTractTarget] = useState<{ tract: any; listing: StagingListing } | null>(null)
+  const [deleteTractLoading, setDeleteTractLoading] = useState(false)
+  const [deleteTractError, setDeleteTractError] = useState<string | null>(null)
+  const confirmDeleteTract = async () => {
+    if (!deleteTractTarget) return
+    const { tract, listing } = deleteTractTarget
+    setDeleteTractLoading(true)
+    setDeleteTractError(null)
+    try {
+      if (tract.id) {
+        await handleDeleteTract(tract.id, listing.id)
+      } else {
+        await handleDeleteStagingTract(tract.tract_number, listing)
+      }
+      setDeleteTractTarget(null)
+    } catch (e: any) {
+      setDeleteTractError(e?.message || 'Failed to delete tract')
+    } finally {
+      setDeleteTractLoading(false)
     }
   }
 
@@ -2090,18 +2121,16 @@ export default function AdminPrivateTreatyStagingPage() {
                                           )}
                                         </div>
                                         <div className="flex items-center gap-2">
-                                          {tract.created_via === 'manual' && (
-                                            <button
-                                              type="button"
-                                              onClick={() => tract.id
-                                                ? handleDeleteTract(tract.id, listing.id)
-                                                : handleDeleteStagingTract(tract.tract_number, listing)
-                                              }
-                                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-semibold bg-red-600 text-white hover:bg-red-700 transition-colors shadow-sm"
-                                            >
-                                              <Trash2 size={14} /> Delete tract
-                                            </button>
-                                          )}
+                                          <button
+                                            type="button"
+                                            onClick={() => setDeleteTractTarget({
+                                              tract: { ...tract, tract_number: tract.tract_number ?? idx + 1, total_acres: stAcres ?? null, sale_status: stStatus },
+                                              listing,
+                                            })}
+                                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-semibold bg-red-600 text-white hover:bg-red-700 transition-colors shadow-sm"
+                                          >
+                                            <Trash2 size={14} /> Delete tract
+                                          </button>
                                           <button
                                             type="button"
                                             disabled={disabled}
@@ -2809,6 +2838,20 @@ export default function AdminPrivateTreatyStagingPage() {
           </div>
         </div>
       )}
+
+      <ConfirmDeleteTractModal
+        tract={deleteTractTarget ? {
+          tract_number: deleteTractTarget.tract.tract_number ?? null,
+          total_acres: deleteTractTarget.tract.total_acres ?? null,
+          sale_status: deleteTractTarget.tract.sale_status ?? null,
+        } : null}
+        isSold={deleteTractTarget?.tract.sale_status === 'sold'}
+        isLastTract={!!deleteTractTarget && (deleteTractTarget.listing.scraped_data?.tracts?.length ?? 0) <= 1}
+        onConfirm={confirmDeleteTract}
+        onCancel={() => { setDeleteTractTarget(null); setDeleteTractError(null) }}
+        loading={deleteTractLoading}
+        error={deleteTractError}
+      />
     </div>
   )
 }
