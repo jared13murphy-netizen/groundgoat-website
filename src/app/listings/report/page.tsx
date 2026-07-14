@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { ArrowLeft, Mail } from 'lucide-react'
 import { fetchWithAuth } from '@/lib/fetchWithAuth'
 import { formatAcres } from '@/lib/format'
+import { computeCompAverages } from '@/lib/compAverages'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -56,24 +57,17 @@ export default function ExploreReportPage() {
     }
   }, [])
 
-  // Calculate averages
-  const withPrice = comparables.filter(c => c.price_per_acre)
+  // Calculate averages. The three price-per-X averages are acre-weighted
+  // (SUM(sale_price)/SUM(denominator)) per the owner rule — see compAverages.ts.
   const withSoil = comparables.filter(c => c.soil_rating && c.price_per_acre)
   const withTillable = comparables.filter(c => c.tillable_acres && c.total_acres && c.price_per_acre)
   const withAcres = comparables.filter(c => c.total_acres)
 
-  const avgPricePerAcre = withPrice.length ? withPrice.reduce((s, c) => s + (c.price_per_acre || 0), 0) / withPrice.length : null
   const avgAcres = withAcres.length ? withAcres.reduce((s, c) => s + (c.total_acres || 0), 0) / withAcres.length : null
   const avgTillable = withTillable.length ? withTillable.reduce((s, c) => s + (c.tillable_acres || 0), 0) / withTillable.length : null
   const avgSoilRating = withSoil.length ? withSoil.reduce((s, c) => s + (c.soil_rating || 0), 0) / withSoil.length : null
 
-  const avgPricePerTillable = withTillable.length
-    ? withTillable.reduce((s, c) => s + ((c.price_per_acre! * c.total_acres!) / c.tillable_acres!), 0) / withTillable.length
-    : null
-
-  const avgPricePerSoil = withSoil.length
-    ? withSoil.reduce((s, c) => s + (c.price_per_acre! / c.soil_rating!), 0) / withSoil.length
-    : null
+  const { avgPricePerAcre, avgPricePerTillable, avgPricePerSoil } = computeCompAverages(comparables)
 
   const handleEmail = async () => {
     setSending(true)

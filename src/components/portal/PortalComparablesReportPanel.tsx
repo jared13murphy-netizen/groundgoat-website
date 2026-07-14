@@ -5,6 +5,7 @@ import { motion } from 'framer-motion'
 import { X, Mail, Loader2, Trash2, Check, Mountain, ExternalLink, Download } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { formatAcres } from '@/lib/format'
+import { computeCompAverages } from '@/lib/compAverages'
 import type { TractSaleData } from './PortalTractDetail'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
@@ -77,27 +78,24 @@ export default function PortalComparablesReportPanel({ subjectInfo, reportTracts
 
   // avgTillable averages tillable acreage across every comp that reports it,
   // independent of price — gating it on price would silently drop comps from
-  // an unrelated metric.
+  // an unrelated metric. The three price-per-X averages are acre-weighted
+  // (SUM(sale_price)/SUM(denominator)) per the owner rule — see compAverages.ts.
   const stats = useMemo(() => {
-    const withPrice = reportTracts.filter(t => t.pricePerAcre)
     const withSoil = reportTracts.filter(t => t.soilRating && t.pricePerAcre)
-    const withTillablePrice = reportTracts.filter(t => t.tillableAcres && t.totalAcres && t.pricePerAcre)
     const withTillable = reportTracts.filter(t => t.tillableAcres)
     const withAcres = reportTracts.filter(t => t.totalAcres)
+    const { avgPricePerAcre, avgPricePerTillable, avgPricePerSoil } = computeCompAverages(reportTracts)
 
     return {
-      avgPricePerAcre: withPrice.length
-        ? withPrice.reduce((s, t) => s + (t.pricePerAcre || 0), 0) / withPrice.length : null,
+      avgPricePerAcre,
       avgAcres: withAcres.length
         ? withAcres.reduce((s, t) => s + (t.totalAcres || 0), 0) / withAcres.length : null,
       avgTillable: withTillable.length
         ? withTillable.reduce((s, t) => s + (t.tillableAcres || 0), 0) / withTillable.length : null,
       avgSoilRating: withSoil.length
         ? withSoil.reduce((s, t) => s + (t.soilRating || 0), 0) / withSoil.length : null,
-      avgPricePerTillable: withTillablePrice.length
-        ? withTillablePrice.reduce((s, t) => s + ((t.pricePerAcre! * t.totalAcres!) / t.tillableAcres!), 0) / withTillablePrice.length : null,
-      avgPricePerSoil: withSoil.length
-        ? withSoil.reduce((s, t) => s + (t.pricePerAcre! / t.soilRating!), 0) / withSoil.length : null,
+      avgPricePerTillable,
+      avgPricePerSoil,
     }
   }, [reportTracts])
 

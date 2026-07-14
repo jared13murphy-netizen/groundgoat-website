@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { ArrowLeft, Mail, Download, Loader2 } from 'lucide-react'
 import { fetchWithAuth } from '@/lib/fetchWithAuth'
 import { formatAcres } from '@/lib/format'
+import { computeCompAverages } from '@/lib/compAverages'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -84,25 +85,18 @@ export default function ComparablesReportPage({ params }: { params: { id: string
 
   // Calculate averages. Note: avgTillable averages tillable acreage across
   // every comp that reports it — it must NOT be filtered by price, since
-  // tillable acreage is independent of whether we have a sale price.
-  const withPrice = comparables.filter(c => c.price_per_acre)
+  // tillable acreage is independent of whether we have a sale price. The
+  // three price-per-X averages are acre-weighted (SUM(sale_price)/SUM(denominator))
+  // per the owner rule — see compAverages.ts.
   const withSoil = comparables.filter(c => c.soil_rating && c.price_per_acre)
-  const withTillablePrice = comparables.filter(c => c.tillable_acres && c.total_acres && c.price_per_acre)
   const withTillable = comparables.filter(c => c.tillable_acres)
   const withAcres = comparables.filter(c => c.total_acres)
 
-  const avgPricePerAcre = withPrice.length ? withPrice.reduce((s, c) => s + (c.price_per_acre || 0), 0) / withPrice.length : null
   const avgAcres = withAcres.length ? withAcres.reduce((s, c) => s + (c.total_acres || 0), 0) / withAcres.length : null
   const avgTillable = withTillable.length ? withTillable.reduce((s, c) => s + (c.tillable_acres || 0), 0) / withTillable.length : null
   const avgSoilRating = withSoil.length ? withSoil.reduce((s, c) => s + (c.soil_rating || 0), 0) / withSoil.length : null
 
-  const avgPricePerTillable = withTillablePrice.length
-    ? withTillablePrice.reduce((s, c) => s + ((c.price_per_acre! * c.total_acres!) / c.tillable_acres!), 0) / withTillablePrice.length
-    : null
-
-  const avgPricePerSoil = withSoil.length
-    ? withSoil.reduce((s, c) => s + (c.price_per_acre! / c.soil_rating!), 0) / withSoil.length
-    : null
+  const { avgPricePerAcre, avgPricePerTillable, avgPricePerSoil } = computeCompAverages(comparables)
 
   // Build the request body shared by the email + download endpoints.
   const buildReportBody = () => ({
