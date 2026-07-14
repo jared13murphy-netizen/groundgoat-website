@@ -5,6 +5,7 @@ import fetchWithAuth from '@/lib/fetchWithAuth'
 import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Save, Loader2, Trash2 } from 'lucide-react'
+import ConfirmDeleteTractModal from '@/components/admin/ConfirmDeleteTractModal'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -42,6 +43,15 @@ export default function EditTractPage() {
   const [success, setSuccess] = useState('')
 
   const [updateParentListing, setUpdateParentListing] = useState(false)
+
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [deletingTract, setDeletingTract] = useState(false)
+  const [deleteTractError, setDeleteTractError] = useState<string | null>(null)
+  // Tract count on the parent listing — used to block deleting the listing's
+  // only tract (mirrors ListingTractCard's isLastTract). Best-effort fetch;
+  // if it fails, isLastTract falls back to false and the backend's 409 for
+  // last-tract deletes still catches it.
+  const [tractCount, setTractCount] = useState<number | null>(null)
 
   const [formData, setFormData] = useState({
     tract_number: '',
@@ -120,6 +130,18 @@ export default function EditTractPage() {
           sale_status: data.sale_status || '',
           image_url: data.image_url || '',
         })
+
+        try {
+          const listingRes = await fetch(`${API_URL}/api/listings/${data.listing_id}`, {
+            headers: { 'Authorization': `Bearer ${token}` },
+          })
+          if (listingRes.ok) {
+            const listingData = await listingRes.json()
+            setTractCount(Array.isArray(listingData.tracts) ? listingData.tracts.length : null)
+          }
+        } catch {
+          // best-effort; isLastTract falls back to false, backend 409 still guards
+        }
       } else {
         setError('Tract not found')
       }
@@ -245,10 +267,11 @@ export default function EditTractPage() {
     }
   }
 
-  const handleDelete = async () => {
-    if (!confirm('Are you sure you want to delete this tract? This cannot be undone.')) return
-
+  // Confirmation now happens in ConfirmDeleteTractModal before this is called.
+  const confirmDeleteTract = async () => {
     const token = localStorage.getItem('auth_token')
+    setDeletingTract(true)
+    setDeleteTractError(null)
 
     try {
       const response = await fetch(`${API_URL}/api/tracts/${tractId}`, {
@@ -257,13 +280,16 @@ export default function EditTractPage() {
       })
 
       if (response.ok && tract) {
+        setShowDeleteModal(false)
         router.push(`/admin/listings/${tract.listing_id}`)
       } else {
         const e = await response.json().catch(() => null)
-        setError(e?.detail || 'Failed to delete tract')
+        setDeleteTractError(e?.detail || 'Failed to delete tract')
       }
     } catch (err) {
-      setError('Failed to delete tract')
+      setDeleteTractError('Failed to delete tract')
+    } finally {
+      setDeletingTract(false)
     }
   }
 
@@ -306,15 +332,13 @@ export default function EditTractPage() {
               <p className="text-gg-gray-400">{tract.total_acres} acres</p>
             </div>
           </div>
-          {tract.created_via === 'manual' && (
-            <button
-              onClick={handleDelete}
-              className="flex items-center gap-2 px-4 py-2 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30"
-            >
-              <Trash2 size={16} />
-              Delete
-            </button>
-          )}
+          <button
+            onClick={() => setShowDeleteModal(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30"
+          >
+            <Trash2 size={16} />
+            Delete
+          </button>
         </div>
 
         {/* Messages */}
@@ -584,6 +608,20 @@ export default function EditTractPage() {
           </div>
         </form>
       </div>
+
+      <ConfirmDeleteTractModal
+        tract={showDeleteModal ? {
+          tract_number: tract.tract_number ?? null,
+          total_acres: tract.total_acres ?? null,
+          sale_status: tract.sale_status ?? null,
+        } : null}
+        isSold={tract.sale_status === 'sold'}
+        isLastTract={tractCount != null ? tractCount <= 1 : false}
+        onConfirm={confirmDeleteTract}
+        onCancel={() => { setShowDeleteModal(false); setDeleteTractError(null) }}
+        loading={deletingTract}
+        error={deleteTractError}
+      />
     </div>
   )
 }
