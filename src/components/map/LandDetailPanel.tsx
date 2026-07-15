@@ -255,6 +255,18 @@ export default function LandDetailPanel({ clickData, onClose }: LandDetailPanelP
   const [regridData, setRegridData] = useState<any>(null)
   const [enrichData, setEnrichData] = useState<any>(null)
   const [loading, setLoading] = useState(false)
+  // Fallback report id (bug fix 2026-07-15): custom Regrid tiles don't
+  // reliably carry ll_uuid on the tile FEATURE itself (see the promoteId
+  // comment in ExploreMap's Regrid-fill effect), so `clickData.ll_uuid`
+  // is null for most direct parcel-polygon clicks even though the panel
+  // still resolves and displays full parcel data via /api/regrid/parcel
+  // (by lat/lng). That fetched record DOES carry its own (live-Regrid-
+  // flavored) ll_uuid — captured here as a fallback once fetchData
+  // resolves it, so the report buttons aren't gated on an id the tile
+  // never had. Reset to null at the top of every fetchData call (same
+  // moment regridData resets) so it never leaks a previous parcel's id
+  // into a render for a newly-clicked one.
+  const [fetchedLlUuid, setFetchedLlUuid] = useState<string | null>(null)
   // Race guard for the auto-close effect below (task #26 defect 2 round-2
   // fix). `clickData` is a fresh object literal at every setLandDetail(...)
   // call site (never reused/mutated), so each click's object is referentially
@@ -276,7 +288,12 @@ export default function LandDetailPanel({ clickData, onClose }: LandDetailPanelP
   const [downloading, setDownloading] = useState(false)
   const [downloadError, setDownloadError] = useState<string | null>(null)
 
-  const llUuid = clickData?.ll_uuid ?? null
+  // Prefer the tile-carried ll_uuid (durable-dot clicks, which keep
+  // working exactly as before). Fall back to the id captured off the
+  // fetched /api/regrid/parcel record when the tile carried none — this
+  // is what makes the buttons appear for every parcel the panel can
+  // display, not just the subset whose tile happened to carry a uuid.
+  const llUuid = clickData?.ll_uuid ?? fetchedLlUuid
 
   // Reset transient send/download state whenever the clicked parcel changes
   // — this panel's component instance persists across clicks (only the
@@ -371,6 +388,7 @@ export default function LandDetailPanel({ clickData, onClose }: LandDetailPanelP
   const fetchData = useCallback(async (data: LandDetailClickData) => {
     setRegridData(null)
     setEnrichData(null)
+    setFetchedLlUuid(null)
     setLoading(true)
 
     const { ll_uuid, parcelProps } = data
@@ -393,7 +411,13 @@ export default function LandDetailPanel({ clickData, onClose }: LandDetailPanelP
       ])
       if (regridRes?.ok) {
         const body = await regridRes.json()
-        setRegridData(body?.parcel || null)
+        const parcel = body?.parcel || null
+        setRegridData(parcel)
+        // Fallback report id — see fetchedLlUuid's declaration comment.
+        // Only matters when the tile gave us no ll_uuid at all (the
+        // lat/lng branch above); harmless to set otherwise since the
+        // effective id always prefers clickData.ll_uuid when present.
+        setFetchedLlUuid(parcel?.ll_uuid || null)
       }
       setEnrichData(enrich)
     } catch {
@@ -413,6 +437,7 @@ export default function LandDetailPanel({ clickData, onClose }: LandDetailPanelP
     if (!clickData) {
       setRegridData(null)
       setEnrichData(null)
+      setFetchedLlUuid(null)
       setLoading(false)
       settledForRef.current = null
       return
@@ -855,9 +880,13 @@ export default function LandDetailPanel({ clickData, onClose }: LandDetailPanelP
             Visual language mirrors TractDetailActionBar's second row
             (PortalTractDetail.tsx) — same padding, rounded buttons, pink
             primary — reimplemented in this file's inline-style idiom
-            since this panel doesn't use Tailwind classes. Requires
-            ll_uuid (the panel's stable parcel identifier); hidden
-            otherwise (e.g. a click that resolved via lat/lng only). */}
+            since this panel doesn't use Tailwind classes. Requires an
+            effective ll_uuid (llUuid above) — the tile-carried id when
+            present, else the id captured off the fetched
+            /api/regrid/parcel record (fetchedLlUuid). Hidden only in
+            the rare case where NEITHER resolves — no tile uuid and the
+            fetch itself found no record at all (nothing to report on;
+            the panel doesn't show data in that case either). */}
         {llUuid && (
           <div style={{ flexShrink: 0, borderTop: '1px solid rgba(0,0,0,0.06)', padding: '16px', background: '#fff' }}>
             <div style={{ display: 'flex', gap: 8 }}>
