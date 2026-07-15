@@ -21,6 +21,7 @@ import PortalReportPanel from '@/components/portal/PortalReportPanel'
 import MapChatPanel from '@/components/portal/MapChatPanel'
 import PortalWatchlistPanel from '@/components/portal/PortalWatchlistPanel'
 import type { TractSaleData } from '@/components/portal/PortalTractDetail'
+import type { OwnerParcelsResponse } from '@/components/map/exploreMapTypes'
 
 const ExploreMap = dynamic(() => import('@/components/map/ExploreMap'), { ssr: false })
 const Tract3DModal = dynamic(() => import('@/components/Tract3DModal'), { ssr: false })
@@ -231,6 +232,17 @@ function AccessPortalPageInner() {
   const [chatMapError, setChatMapError] = useState<{ message: string; nonce: number; kind: 'info' | 'err' } | null>(null)
   const handleChatSearchError = (message: string, kind: 'info' | 'err' = 'err') =>
     setChatMapError({ message, nonce: Date.now(), kind })
+  // Owner "show on map" chat search: renders the owner's parcels as
+  // dots + zooms to them. `nonce` lets the same owner retrigger a
+  // fitBounds if searched twice in a row.
+  const [ownerParcelsResult, setOwnerParcelsResult] = useState<{
+    data: OwnerParcelsResponse
+    reply: string
+    nonce: number
+  } | null>(null)
+  const handleOwnerParcels = (data: OwnerParcelsResponse, reply: string) => {
+    setOwnerParcelsResult({ data, reply, nonce: Date.now() })
+  }
   // Comparables mode
   const [resetFiltersSignal, setResetFiltersSignal] = useState(0)
   const [subjectTractId, setSubjectTractId] = useState<string | null>(null)
@@ -682,6 +694,7 @@ function AccessPortalPageInner() {
           chatSearchStartSignal={chatSearchStartSignal}
           chatSearchEndSignal={chatSearchEndSignal}
           onChatSearchError={handleChatSearchError}
+          ownerParcelsResult={ownerParcelsResult}
           comparableVisibleIds={null}
           neighborParcels={neighborParcels}
           neighborsLoading={neighborsLoading}
@@ -971,6 +984,7 @@ function AccessPortalPageInner() {
           onSearchStart={handleChatSearchStart}
           onSearchEnd={handleChatSearchEnd}
           mapSearchError={chatMapError}
+          onOwnerParcels={handleOwnerParcels}
           hasActiveFilters={
             !!chatAppliedFilters?.filters &&
             Object.keys(chatAppliedFilters.filters).length > 0

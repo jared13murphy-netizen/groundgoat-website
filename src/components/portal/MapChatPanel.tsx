@@ -11,6 +11,7 @@ import {
   XAxis, YAxis, Tooltip, CartesianGrid,
 } from 'recharts'
 import fetchWithAuth from '@/lib/fetchWithAuth'
+import type { OwnerParcelsResponse } from '@/components/map/exploreMapTypes'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -60,6 +61,12 @@ interface MapChatPanelProps {
       point the user already saw the "Filters applied" success toast,
       so this replaces it with the real outcome. */
   mapSearchError?: { message: string; nonce: number; kind: 'info' | 'err' } | null
+  /** Fired when the model returns an owner "show on map" result instead
+      of a filter/analytics/out-of-scope response — e.g. "show me
+      parcels owned by William Sullivan". The map renders the owner's
+      parcels as dots and zooms to them; `reply` is the human-readable
+      summary line (or "none found" message when count is 0). */
+  onOwnerParcels?: (data: OwnerParcelsResponse, reply: string) => void
 }
 
 interface OutOfScopeResponse {
@@ -121,7 +128,7 @@ function buildAnalyticsAnswer(a: AnalyticsResponse | null): string {
   return lines.join('\n')
 }
 
-export default function MapChatPanel({ onApplyFilters, onChatReportResult, currentFilters, hasActiveFilters, onSearchStart, onSearchEnd, mapSearchError }: MapChatPanelProps) {
+export default function MapChatPanel({ onApplyFilters, onChatReportResult, currentFilters, hasActiveFilters, onSearchStart, onSearchEnd, mapSearchError, onOwnerParcels }: MapChatPanelProps) {
   const [open, setOpen] = useState(false)
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -299,11 +306,18 @@ export default function MapChatPanel({ onApplyFilters, onChatReportResult, curre
         scheduleToastDismiss('err', 'Goat Search hit a snag — try again in a moment.')
         return
       }
-      // Three response shapes: out-of-scope (new) / analytics / filter
-      // (existing). out_of_scope_response is checked first — a question
-      // Ground Goat genuinely can't answer takes priority over any other
-      // shape the backend might also send.
-      if (body.out_of_scope_response) {
+      // Four response shapes: owner-parcels (new) / out-of-scope /
+      // analytics / filter (existing). owner_parcels_response is checked
+      // FIRST — it's a distinct, unambiguous shape the backend only sends
+      // for "show me X's parcels" queries, and it draws directly on the
+      // map rather than opening a report panel, so it doesn't go through
+      // onChatReportResult like the other two report-panel shapes below.
+      if (body.owner_parcels_response) {
+        onOwnerParcels?.(body.owner_parcels_response as OwnerParcelsResponse, body.reply || '')
+        setInput('')
+        setToast(null)
+        setOpen(false)
+      } else if (body.out_of_scope_response) {
         setOutOfScope(body.out_of_scope_response as OutOfScopeResponse)
         setInput('')
         setToast(null)

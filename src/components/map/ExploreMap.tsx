@@ -6,7 +6,7 @@ import { Protocol as PMTilesProtocol } from 'pmtiles'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import './ComparablesMap.css'
 import './TractMap.css'
-import type { ApiMapTract, MapTractsResponse } from './exploreMapTypes'
+import type { ApiMapTract, MapTractsResponse, OwnerParcelsResponse } from './exploreMapTypes'
 import { normalizeTownship } from '../../utils/normalizeTownship'
 import {
   buildExplorePolygonGeoJSON,
@@ -75,6 +75,10 @@ const MARKER_LAYERS_BOTTOM_TO_TOP = [
   // then the solid core on top of its own halo).
   'today-pin-pulse',
   'today-pin-core',
+  // Owner "show on map" chat-search dots — distinct blue, sits above
+  // everything else so a searched owner's parcels are never hidden
+  // under a freshly-lifted tract polygon.
+  'owner-parcels-dots',
 ]
 function liftMarkerLayers(map: maplibregl.Map) {
   for (const id of MARKER_LAYERS_BOTTOM_TO_TOP) {
@@ -859,6 +863,11 @@ interface ExploreMapProps {
       AbortError (a superseded query). kind defaults to 'err' when
       omitted by an older caller. */
   onChatSearchError?: (message: string, kind?: 'info' | 'err') => void
+  /** Owner "show on map" chat-search result. Renders `dots` as a
+      distinct-blue native circle layer, zooms to `bbox`, and shows a
+      dismissible chip built from `reply`. `nonce` retriggers the
+      fitBounds even if the same owner is searched twice in a row. */
+  ownerParcelsResult?: { data: OwnerParcelsResponse; reply: string; nonce: number } | null
   comparableVisibleIds?: Set<string> | null
   neighborParcels?: {
     geometry: [number, number][]
@@ -1063,7 +1072,7 @@ function OverlayButton({
   )
 }
 
-export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onLandDetailOpen, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, chatSearchEndSignal, onChatSearchError, comparableVisibleIds, neighborParcels, neighborsLoading }: ExploreMapProps) {
+export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onLandDetailOpen, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, chatSearchEndSignal, onChatSearchError, ownerParcelsResult, comparableVisibleIds, neighborParcels, neighborsLoading }: ExploreMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const stateMarkersRef = useRef<maplibregl.Marker[]>([])
@@ -1159,6 +1168,20 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chatSearchEndSignal])
+
+  // Owner "show on map" chat search: chip text shown while the
+  // owner's parcel dots are on the map. Cleared by the X button (which
+  // also empties the owner-parcels source) or by a subsequent regular
+  // filter search.
+  const [ownerParcelsChip, setOwnerParcelsChip] = useState<{ owner: string; count: number; totalAcres: number; reply: string } | null>(null)
+  const clearOwnerParcels = () => {
+    setOwnerParcelsChip(null)
+    const map = mapRef.current
+    const src = map?.getSource('owner-parcels') as maplibregl.GeoJSONSource | undefined
+    if (src) src.setData(EMPTY_FC)
+  }
+  // The setData/fitBounds effect for ownerParcelsResult lives further
+  // down, right after `mapLoaded` is declared (it reads that state).
 
   // Pull the live soils-overlay coverage list from the backend once on
   // mount. If the request fails the seed defaults stay in place so
@@ -1261,6 +1284,29 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const [todayTracts, setTodayTracts] = useState<ApiMapTract[]>([])
   const [currentZoom, setCurrentZoom] = useState(MAP_INITIAL_ZOOM)
   const [mapLoaded, setMapLoaded] = useState(false)
+
+  // Owner "show on map" chat search: push dots into the owner-parcels
+  // source (added once in the map-init block) and zoom to their bbox.
+  // count:0 / empty dots still shows the chip (an honest "none found"
+  // message) but skips fitBounds and leaves the layer empty.
+  useEffect(() => {
+    if (!ownerParcelsResult) return
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+    const { data, reply } = ownerParcelsResult
+    const features = (data.dots || []).map(d => ({
+      type: 'Feature' as const,
+      properties: { id: d.id, acres: d.acres },
+      geometry: { type: 'Point' as const, coordinates: [d.lng, d.lat] },
+    }))
+    const src = map.getSource('owner-parcels') as maplibregl.GeoJSONSource | undefined
+    if (src) src.setData({ type: 'FeatureCollection', features })
+    setOwnerParcelsChip({ owner: data.owner, count: data.count, totalAcres: data.total_acres, reply })
+    if (features.length > 0 && data.bbox) {
+      map.fitBounds(data.bbox, { padding: 100, duration: 900, maxZoom: 14 })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ownerParcelsResult?.nonce, mapLoaded])
 
   // Live coverage list — counties whose soils / soils-csb / tillable
   // overlays the backend can serve. Replaces the previous hardcoded
@@ -1729,6 +1775,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     if (!applyExternalFilters) return
     const { filters: incoming, clearUnspecified } = applyExternalFilters
 
+    // A regular filter search superseded any owner-parcels dots from a
+    // prior "show me X's parcels" query — clear them so stale blue dots
+    // don't linger under an unrelated result set.
+    clearOwnerParcels()
+
     const base = clearUnspecified ? INITIAL_FILTERS : filtersRef.current
     const nextFilters = { ...base, ...incoming }
     setFilters(nextFilters)
@@ -2138,6 +2189,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   }
 
   const applyFilters = () => {
+    clearOwnerParcels()
     filtersRef.current = filters
     // Clear cached data so it refetches with new filters
     loadedCellsRef.current = new Set()
@@ -2208,6 +2260,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   }
 
   const resetFilters = () => {
+    clearOwnerParcels()
     setFilters(INITIAL_FILTERS)
     filtersRef.current = INITIAL_FILTERS
     // Clear cached data so it refetches without filters
@@ -2813,6 +2866,29 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           'circle-radius': ['interpolate', ['linear'], ['zoom'], 4, 5, 9, 6, 14, 8],
           'circle-stroke-color': '#ffffff',
           'circle-stroke-width': 2,
+        },
+      })
+
+      // ── Owner "show on map" dots — chat search for a specific
+      // owner's parcels ("show me William Sullivan's parcels near
+      // Carthage IL"). Distinct blue (matches parcel-sale-dots-durable-
+      // circle's every-zoom native-layer pattern) so it never reads as
+      // an auction (green pulse) or a sold parcel (pink #f58cde).
+      // Static — no pulse, since pulse means "live today" elsewhere on
+      // this map. No minzoom: visible at every zoom so a wide owner
+      // bbox doesn't vanish when the fitBounds lands on a zoomed-out
+      // view. Driven by setData only; never recreated (see the
+      // ownerParcelsResult effect above, right after mapLoaded).
+      map.addSource('owner-parcels', { type: 'geojson', data: EMPTY_FC })
+      map.addLayer({
+        id: 'owner-parcels-dots',
+        type: 'circle',
+        source: 'owner-parcels',
+        paint: {
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], 9, 4, 14, 7],
+          'circle-color': '#2D8CFF',
+          'circle-stroke-color': '#ffffff',
+          'circle-stroke-width': 1.5,
         },
       })
 
@@ -7295,6 +7371,59 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             animation: 'spin 1s linear infinite',
           }} />
           Loading neighbors...
+        </div>
+      )}
+
+      {/* Owner "show on map" chip — dismissible banner shown while the
+          owner-parcels-dots layer has data (or to honestly report zero
+          matches). X clears both the chip and the dots. */}
+      {ownerParcelsChip && (
+        <div style={{
+          position: 'absolute',
+          top: loading ? 56 : 16,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 11,
+          background: 'rgba(0,0,0,0.8)',
+          backdropFilter: 'blur(4px)',
+          color: '#fff',
+          fontSize: 13,
+          fontWeight: 500,
+          padding: '8px 10px 8px 16px',
+          borderRadius: 9999,
+          border: '1px solid rgba(45, 140, 255, 0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          maxWidth: 'min(560px, calc(100vw - 32px))',
+          boxShadow: '0 4px 12px rgba(45, 140, 255, 0.20)',
+        }}>
+          <span style={{
+            width: 9, height: 9, borderRadius: '50%', flexShrink: 0,
+            background: '#2D8CFF',
+            border: '1.5px solid #fff',
+          }} />
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {ownerParcelsChip.reply || `Owned by ${ownerParcelsChip.owner} · ${ownerParcelsChip.count} parcels · ${ownerParcelsChip.totalAcres} ac`}
+          </span>
+          <button
+            onClick={clearOwnerParcels}
+            aria-label="Clear owner search"
+            style={{
+              flexShrink: 0,
+              width: 20, height: 20,
+              borderRadius: '50%',
+              border: 'none',
+              background: 'rgba(255,255,255,0.12)',
+              color: '#fff',
+              cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 12,
+              lineHeight: 1,
+            }}
+          >
+            ✕
+          </button>
         </div>
       )}
 

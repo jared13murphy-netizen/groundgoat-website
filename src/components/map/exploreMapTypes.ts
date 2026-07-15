@@ -30,3 +30,18 @@ export interface MapTractsResponse {
   count: number
   tracts: ApiMapTract[]
 }
+
+/** Owner "show on map" chat-search result — POST /api/map/chat-filter
+    returns this under `owner_parcels_response` instead of
+    `analytics_response` / `applied_filters` / `out_of_scope_response`
+    when the user asks to see a specific owner's parcels. `dots` is
+    empty when the owner has no parcels; render the `reply` text as an
+    honest "none found" message in that case instead of drawing
+    anything on the map. */
+export interface OwnerParcelsResponse {
+  owner: string
+  count: number
+  total_acres: number
+  dots: { id: string; lat: number; lng: number; acres: number }[]
+  bbox: [[number, number], [number, number]] | null
+}
