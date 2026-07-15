@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Loader2, Mountain, BarChart3, FileText } from 'lucide-react'
+import { Loader2, Mountain, BarChart3, FileText, Mail, Download, Check } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { formatAcres } from '@/lib/format'
 import { formatAuctionDate } from '@/lib/auctionTime'
@@ -537,6 +537,95 @@ export function TractDetailActionBar({
   onFindComparables,
 }: TractDetailActionBarProps) {
   const hasBoundaries = !!(tract.polygonCoordinates && tract.polygonCoordinates.length > 0)
+
+  // "Email me this report" / "Download report" — single-tract PDF, separate
+  // from the multi-tract comparables report (PortalComparablesReportPanel).
+  // Backend contract: POST /api/tracts/{tract_id}/report/email|pdf, no body,
+  // auth header only (fetchWithAuth attaches it). 403 = not entitled,
+  // 400 = no email on account.
+  const [emailStatus, setEmailStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
+  const [emailMessage, setEmailMessage] = useState<string | null>(null)
+  const [downloading, setDownloading] = useState(false)
+  const [downloadError, setDownloadError] = useState<string | null>(null)
+
+  // Reset transient send/download state when the user switches tracts —
+  // the action bar's component instance persists across tract selections
+  // (the slide-out pane doesn't remount), so a stale "Sent!" from the
+  // previous tract must not carry over.
+  const reportTractId = tract.tractId || tract.id
+  useEffect(() => {
+    setEmailStatus('idle')
+    setEmailMessage(null)
+    setDownloading(false)
+    setDownloadError(null)
+  }, [reportTractId])
+
+  const parseErrorMessage = async (res: Response): Promise<string> => {
+    if (res.status === 403) return 'Not available for your account'
+    if (res.status === 400) {
+      try {
+        const body = await res.json()
+        return body?.detail || body?.message || 'No email on file for your account'
+      } catch {
+        return 'No email on file for your account'
+      }
+    }
+    return 'Something went wrong — try again'
+  }
+
+  const handleEmailReport = async () => {
+    setEmailStatus('sending')
+    setEmailMessage(null)
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/tracts/${reportTractId}/report/email`, {
+        method: 'POST',
+      })
+      if (!res.ok) {
+        setEmailStatus('error')
+        setEmailMessage(await parseErrorMessage(res))
+        return
+      }
+      const data = await res.json()
+      setEmailStatus('sent')
+      setEmailMessage(data?.message || 'Sent!')
+    } catch (e) {
+      console.error('Tract report email error:', e)
+      setEmailStatus('error')
+      setEmailMessage('Something went wrong — try again')
+    }
+  }
+
+  const handleDownloadReport = async () => {
+    setDownloading(true)
+    setDownloadError(null)
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/tracts/${reportTractId}/report/pdf`, {
+        method: 'POST',
+      })
+      if (!res.ok) {
+        setDownloadError(await parseErrorMessage(res))
+        return
+      }
+      const blob = await res.blob()
+      const dispo = res.headers.get('Content-Disposition') || ''
+      const match = dispo.match(/filename="?([^";]+)"?/i)
+      const filename = match?.[1] || 'tract-report.pdf'
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      console.error('Tract report download error:', e)
+      setDownloadError('Something went wrong — try again')
+    } finally {
+      setDownloading(false)
+    }
+  }
+
   return (
     // shrink-0 keeps the row at its natural height; the parent scroll
     // area (flex-1) absorbs the remaining space. The ::before overlay
@@ -594,6 +683,62 @@ export function TractDetailActionBar({
           </button>
         )}
       </div>
+
+      {/* Single-tract PDF report — separate row from the buttons above
+          (which can already run to 4-wide at 480px; a 2nd row keeps
+          these legible instead of cramming 6 into one). */}
+      <div className="flex gap-2 px-5 pb-4">
+        <button
+          onClick={handleDownloadReport}
+          disabled={downloading}
+          className={`flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl font-medium transition text-xs border ${
+            downloading
+              ? 'bg-white/5 border-white/10 text-white/60 cursor-wait'
+              : 'bg-white/5 border-white/10 text-white hover:bg-white/10'
+          }`}
+        >
+          {downloading ? (
+            <><Loader2 size={14} className="animate-spin" /> Building PDF...</>
+          ) : (
+            <><Download size={14} /> Download report</>
+          )}
+        </button>
+        <button
+          onClick={handleEmailReport}
+          disabled={emailStatus === 'sending' || emailStatus === 'sent'}
+          className={`flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl font-semibold transition text-xs ${
+            emailStatus === 'sent'
+              ? 'bg-green-500/20 text-green-400 border border-green-500/30'
+              : emailStatus === 'sending'
+                ? 'bg-gg-pink/50 text-white/70 cursor-wait'
+                : 'bg-gg-pink text-white hover:bg-gg-pink/80'
+          }`}
+        >
+          {emailStatus === 'sent' ? (
+            <><Check size={14} /> Sent!</>
+          ) : emailStatus === 'sending' ? (
+            <><Loader2 size={14} className="animate-spin" /> Sending...</>
+          ) : (
+            <><Mail size={14} /> Email me this report</>
+          )}
+        </button>
+      </div>
+
+      {/* Inline status — success shows the backend's "Sent to you@email.com"
+          message; failures show the parsed error (403/400/other). */}
+      {(emailStatus === 'sent' || emailStatus === 'error' || downloadError) && (
+        <div className="px-5 pb-4 -mt-2">
+          {emailStatus === 'sent' && emailMessage && (
+            <p className="text-[11px] text-green-400">{emailMessage}</p>
+          )}
+          {emailStatus === 'error' && emailMessage && (
+            <p className="text-[11px] text-red-400">{emailMessage}</p>
+          )}
+          {downloadError && (
+            <p className="text-[11px] text-red-400">{downloadError}</p>
+          )}
+        </div>
+      )}
     </div>
   )
 }

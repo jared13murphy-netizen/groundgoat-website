@@ -17,6 +17,7 @@
  */
 
 import { useEffect, useState, useCallback, useRef } from 'react'
+import { Mail, Download, Check, Loader2 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { formatAcres } from '@/lib/format'
 import { SOIL_FILTER_ENABLED } from '@/lib/featureFlags'
@@ -265,6 +266,96 @@ export default function LandDetailPanel({ clickData, onClose }: LandDetailPanelP
   // actually finished, regardless of what `loading` (which can lag a
   // render behind setLoading(true)) looks like on an intermediate render.
   const settledForRef = useRef<LandDetailClickData | null>(null)
+
+  // "Email me this report" / "Download report" — single-parcel PDF, mirrors
+  // TractDetailActionBar's handlers in PortalTractDetail.tsx. Backend
+  // contract: POST /api/parcels/{ll_uuid}/report/email|pdf, no body, auth
+  // header only. 403 = not entitled, 400 = no email on account.
+  const [emailStatus, setEmailStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
+  const [emailMessage, setEmailMessage] = useState<string | null>(null)
+  const [downloading, setDownloading] = useState(false)
+  const [downloadError, setDownloadError] = useState<string | null>(null)
+
+  const llUuid = clickData?.ll_uuid ?? null
+
+  // Reset transient send/download state whenever the clicked parcel changes
+  // — this panel's component instance persists across clicks (only the
+  // `clickData` prop changes), so a stale "Sent!" from a previous parcel
+  // must not carry over to the next one.
+  useEffect(() => {
+    setEmailStatus('idle')
+    setEmailMessage(null)
+    setDownloading(false)
+    setDownloadError(null)
+  }, [llUuid])
+
+  const parseReportError = async (res: Response): Promise<string> => {
+    if (res.status === 403) return 'Not available for your account'
+    if (res.status === 400) {
+      try {
+        const body = await res.json()
+        return body?.detail || body?.message || 'No email on file for your account'
+      } catch {
+        return 'No email on file for your account'
+      }
+    }
+    return 'Something went wrong — try again'
+  }
+
+  const handleEmailReport = async () => {
+    if (!llUuid) return
+    setEmailStatus('sending')
+    setEmailMessage(null)
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/parcels/${llUuid}/report/email`, {
+        method: 'POST',
+      })
+      if (!res.ok) {
+        setEmailStatus('error')
+        setEmailMessage(await parseReportError(res))
+        return
+      }
+      const data = await res.json()
+      setEmailStatus('sent')
+      setEmailMessage(data?.message || 'Sent!')
+    } catch (e) {
+      console.error('Parcel report email error:', e)
+      setEmailStatus('error')
+      setEmailMessage('Something went wrong — try again')
+    }
+  }
+
+  const handleDownloadReport = async () => {
+    if (!llUuid) return
+    setDownloading(true)
+    setDownloadError(null)
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/parcels/${llUuid}/report/pdf`, {
+        method: 'POST',
+      })
+      if (!res.ok) {
+        setDownloadError(await parseReportError(res))
+        return
+      }
+      const blob = await res.blob()
+      const dispo = res.headers.get('Content-Disposition') || ''
+      const match = dispo.match(/filename="?([^";]+)"?/i)
+      const filename = match?.[1] || 'parcel-report.pdf'
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      console.error('Parcel report download error:', e)
+      setDownloadError('Something went wrong — try again')
+    } finally {
+      setDownloading(false)
+    }
+  }
 
   const isOpen = clickData !== null
 
@@ -759,6 +850,86 @@ export default function LandDetailPanel({ clickData, onClose }: LandDetailPanelP
             </div>
           )}
         </div>
+
+        {/* ── Footer: Email me this report / Download report ──────────
+            Visual language mirrors TractDetailActionBar's second row
+            (PortalTractDetail.tsx) — same padding, rounded buttons, pink
+            primary — reimplemented in this file's inline-style idiom
+            since this panel doesn't use Tailwind classes. Requires
+            ll_uuid (the panel's stable parcel identifier); hidden
+            otherwise (e.g. a click that resolved via lat/lng only). */}
+        {llUuid && (
+          <div style={{ flexShrink: 0, borderTop: '1px solid rgba(0,0,0,0.06)', padding: '16px', background: '#fff' }}>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={handleDownloadReport}
+                disabled={downloading}
+                style={{
+                  flex: 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                  padding: '11px 10px',
+                  borderRadius: 12,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  border: '1px solid rgba(0,0,0,0.12)',
+                  background: downloading ? 'rgba(0,0,0,0.03)' : '#fff',
+                  color: downloading ? 'rgba(0,0,0,0.4)' : '#1a1a1a',
+                  cursor: downloading ? 'wait' : 'pointer',
+                }}
+              >
+                {downloading ? (
+                  <><Loader2 size={14} className="animate-spin" /> Building PDF...</>
+                ) : (
+                  <><Download size={14} /> Download report</>
+                )}
+              </button>
+              <button
+                onClick={handleEmailReport}
+                disabled={emailStatus === 'sending' || emailStatus === 'sent'}
+                style={{
+                  flex: 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                  padding: '11px 10px',
+                  borderRadius: 12,
+                  fontSize: 12,
+                  fontWeight: 700,
+                  border: 'none',
+                  background: emailStatus === 'sent' ? 'rgba(52,199,89,0.15)' : '#E91E8C',
+                  color: emailStatus === 'sent' ? '#1a9146' : '#fff',
+                  cursor: (emailStatus === 'sending' || emailStatus === 'sent') ? 'default' : 'pointer',
+                  opacity: emailStatus === 'sending' ? 0.7 : 1,
+                }}
+              >
+                {emailStatus === 'sent' ? (
+                  <><Check size={14} /> Sent!</>
+                ) : emailStatus === 'sending' ? (
+                  <><Loader2 size={14} className="animate-spin" /> Sending...</>
+                ) : (
+                  <><Mail size={14} /> Email me this report</>
+                )}
+              </button>
+            </div>
+            {(emailStatus === 'sent' || emailStatus === 'error' || downloadError) && (
+              <div style={{ marginTop: 8 }}>
+                {emailStatus === 'sent' && emailMessage && (
+                  <p style={{ fontSize: 11, color: '#1a9146', margin: 0 }}>{emailMessage}</p>
+                )}
+                {emailStatus === 'error' && emailMessage && (
+                  <p style={{ fontSize: 11, color: '#d33', margin: 0 }}>{emailMessage}</p>
+                )}
+                {downloadError && (
+                  <p style={{ fontSize: 11, color: '#d33', margin: 0 }}>{downloadError}</p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </>
   )
