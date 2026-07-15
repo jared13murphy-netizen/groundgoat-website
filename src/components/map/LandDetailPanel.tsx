@@ -190,6 +190,14 @@ export interface LandDetailClickData {
   csbProps: Record<string, any> | null
   /** Stable Regrid parcel UUID (from parcelProps.ll_uuid) */
   ll_uuid: string | null
+  /** Raw map click coordinate (bug fix 2026-07-15), captured from the
+      MapLibre click event regardless of what the tile itself carried.
+      Ordinary Regrid parcel-fill tiles carry neither `ll_uuid` nor
+      `parcelProps.centroid_lat/lng` — this is the only reliable way to
+      resolve a report for that click (see fetchData's lat/lng fallback
+      and the footer's `reportPoint` gate below). */
+  clickLng: number | null
+  clickLat: number | null
   /** Which overlay was active when the user clicked (drives which section leads) */
   activeOverlay: 'ssurgo' | 'nccpi' | 'crops' | 'csb' | 'fsa' | null
   /** Task #26: distinguishes a direct parcel/dot click (auto-dismiss if the
@@ -295,19 +303,33 @@ export default function LandDetailPanel({ clickData, onClose }: LandDetailPanelP
   // display, not just the subset whose tile happened to carry a uuid.
   const llUuid = clickData?.ll_uuid ?? fetchedLlUuid
 
-  // Reset transient send/download state whenever the clicked parcel changes
-  // — this panel's component instance persists across clicks (only the
-  // `clickData` prop changes), so a stale "Sent!" from a previous parcel
-  // must not carry over to the next one.
+  // Second-attempt fix (2026-07-15): an ordinary Regrid parcel-fill click
+  // carries NEITHER a tile ll_uuid NOR a parcelProps centroid, so llUuid
+  // above can stay null through the entire life of the click (before
+  // fetchData's lat/lng fallback resolves one, or forever if that fetch
+  // errors/misses — a Regrid hiccup must not remove the buttons). The raw
+  // click point is captured on every clickData object (ExploreMap) and is
+  // ALWAYS present for a real parcel click, so it's the fallback report
+  // target the footer and both handlers use when no id has resolved yet.
+  const reportPoint = (clickData?.clickLat != null && clickData?.clickLng != null)
+    ? { lat: clickData.clickLat, lng: clickData.clickLng }
+    : null
+
+  // Reset transient send/download state whenever the clicked parcel changes.
+  // Keyed on `clickData` itself (a fresh object literal per click — see
+  // its declaration comment) rather than `llUuid`, so it resets on every
+  // new click even in the point-fallback case where llUuid stays null
+  // across two different parcels.
   useEffect(() => {
     setEmailStatus('idle')
     setEmailMessage(null)
     setDownloading(false)
     setDownloadError(null)
-  }, [llUuid])
+  }, [clickData])
 
   const parseReportError = async (res: Response): Promise<string> => {
     if (res.status === 403) return 'Not available for your account'
+    if (res.status === 404) return 'No parcel found at that location'
     if (res.status === 400) {
       try {
         const body = await res.json()
@@ -319,14 +341,26 @@ export default function LandDetailPanel({ clickData, onClose }: LandDetailPanelP
     return 'Something went wrong — try again'
   }
 
+  // Both handlers below prefer the resolved ll_uuid (existing single-
+  // parcel endpoints, unchanged). When no id has resolved — the ordinary
+  // parcel-fill click before/without fetchData's own id lookup landing —
+  // they fall back to the by-point endpoints with the raw click
+  // coordinate, which resolve their own ll_uuid server-side (see
+  // main.py's _resolve_ll_uuid_by_point).
   const handleEmailReport = async () => {
-    if (!llUuid) return
+    if (!llUuid && !reportPoint) return
     setEmailStatus('sending')
     setEmailMessage(null)
     try {
-      const res = await fetchWithAuth(`${API_URL}/api/parcels/${llUuid}/report/email`, {
-        method: 'POST',
-      })
+      const res = llUuid
+        ? await fetchWithAuth(`${API_URL}/api/parcels/${llUuid}/report/email`, {
+            method: 'POST',
+          })
+        : await fetchWithAuth(`${API_URL}/api/parcels/report/by-point/email`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(reportPoint),
+          })
       if (!res.ok) {
         setEmailStatus('error')
         setEmailMessage(await parseReportError(res))
@@ -343,13 +377,19 @@ export default function LandDetailPanel({ clickData, onClose }: LandDetailPanelP
   }
 
   const handleDownloadReport = async () => {
-    if (!llUuid) return
+    if (!llUuid && !reportPoint) return
     setDownloading(true)
     setDownloadError(null)
     try {
-      const res = await fetchWithAuth(`${API_URL}/api/parcels/${llUuid}/report/pdf`, {
-        method: 'POST',
-      })
+      const res = llUuid
+        ? await fetchWithAuth(`${API_URL}/api/parcels/${llUuid}/report/pdf`, {
+            method: 'POST',
+          })
+        : await fetchWithAuth(`${API_URL}/api/parcels/report/by-point/pdf`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(reportPoint),
+          })
       if (!res.ok) {
         setDownloadError(await parseReportError(res))
         return
@@ -391,9 +431,14 @@ export default function LandDetailPanel({ clickData, onClose }: LandDetailPanelP
     setFetchedLlUuid(null)
     setLoading(true)
 
-    const { ll_uuid, parcelProps } = data
-    const lat = parcelProps?.centroid_lat ?? null
-    const lng = parcelProps?.centroid_lng ?? null
+    const { ll_uuid, parcelProps, clickLat, clickLng } = data
+    // Fall back to the raw click coordinate (bug fix 2026-07-15) when the
+    // tile carried no centroid — an ordinary Regrid parcel-fill click has
+    // neither ll_uuid nor centroid_lat/lng on parcelProps, which previously
+    // left `qs` empty below and skipped this fetch entirely (so
+    // fetchedLlUuid never got set and the report footer never resolved).
+    const lat = parcelProps?.centroid_lat ?? clickLat ?? null
+    const lng = parcelProps?.centroid_lng ?? clickLng ?? null
 
     const qs = new URLSearchParams()
     if (ll_uuid) qs.set('ll_uuid', ll_uuid)
@@ -880,14 +925,18 @@ export default function LandDetailPanel({ clickData, onClose }: LandDetailPanelP
             Visual language mirrors TractDetailActionBar's second row
             (PortalTractDetail.tsx) — same padding, rounded buttons, pink
             primary — reimplemented in this file's inline-style idiom
-            since this panel doesn't use Tailwind classes. Requires an
-            effective ll_uuid (llUuid above) — the tile-carried id when
-            present, else the id captured off the fetched
-            /api/regrid/parcel record (fetchedLlUuid). Hidden only in
-            the rare case where NEITHER resolves — no tile uuid and the
-            fetch itself found no record at all (nothing to report on;
-            the panel doesn't show data in that case either). */}
-        {llUuid && (
+            since this panel doesn't use Tailwind classes. Gated on
+            `llUuid || reportPoint` (second-attempt fix, 2026-07-15):
+            llUuid covers durable-dot clicks and any parcel click whose
+            id has resolved (tile-carried or fetched); reportPoint is the
+            raw click coordinate, which is ALWAYS present for a real
+            parcel/dot click (see clickLng/clickLat in ExploreMap's
+            setLandDetail calls) — so the buttons show for every parcel,
+            not just the subset with a resolved id. Hidden only for
+            overlay-originated clicks (soil/CSB with no parcel underneath
+            — clickData.source === 'overlay'), which never set a click
+            point in the first place. */}
+        {(llUuid || reportPoint) && (
           <div style={{ flexShrink: 0, borderTop: '1px solid rgba(0,0,0,0.06)', padding: '16px', background: '#fff' }}>
             <div style={{ display: 'flex', gap: 8 }}>
               <button

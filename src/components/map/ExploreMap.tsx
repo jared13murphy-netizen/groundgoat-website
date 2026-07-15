@@ -3821,6 +3821,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         soilProps,
         csbProps,
         ll_uuid,
+        // Bug fix 2026-07-15: custom Regrid tiles carry neither ll_uuid
+        // nor a centroid on ordinary parcel-fill clicks — the raw click
+        // point is the only reliable report target LandDetailPanel can
+        // fall back to (fetchData's lat/lng lookup + the footer's
+        // reportPoint gate).
+        clickLng: e.lngLat.lng,
+        clickLat: e.lngLat.lat,
         activeOverlay: baseOverlayRef.current,
         source: 'parcel',
       })
@@ -4113,6 +4120,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         soilProps: null,
         csbProps: null,
         ll_uuid: ll_uuid || null,
+        // Bug fix 2026-07-15: this "+" pin's tile props don't reliably
+        // carry ll_uuid either — same click-point fallback as the
+        // FILL_LAYER handler above (lat/lng are already read into
+        // local vars a few lines up for the comp-mode branch).
+        clickLng: lng,
+        clickLat: lat,
         activeOverlay: baseOverlayRef.current,
         source: 'parcel',
       })
@@ -4400,6 +4413,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           soilProps: null,
           csbProps: null,
           ll_uuid: props.id || null,
+          // ll_uuid is already guaranteed here, but every 'parcel'-source
+          // setLandDetail call carries the click point for consistency.
+          clickLng: lng,
+          clickLat: lat,
           activeOverlay: baseOverlayRef.current,
           source: 'parcel',
         })
@@ -5731,6 +5748,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         soilProps: null,
         csbProps,
         ll_uuid: null,
+        // No parcel underlies an overlay-only click — no report to offer,
+        // so no click point either (footer stays hidden, as before).
+        clickLng: null,
+        clickLat: null,
         activeOverlay: baseOverlayRef.current,
         source: 'overlay',
       })
@@ -5859,6 +5880,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         soilProps,
         csbProps: null,
         ll_uuid: null,
+        // No parcel underlies an overlay-only click — no report to offer,
+        // so no click point either (footer stays hidden, as before).
+        clickLng: null,
+        clickLat: null,
         activeOverlay: baseOverlayRef.current,
         source: 'overlay',
       })
