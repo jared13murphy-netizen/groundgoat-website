@@ -2655,11 +2655,27 @@ export default function TractMapEditor({
         if (!res.ok || !data.success) {
           throw new Error(data.detail || data.error || `HTTP ${res.status}`)
         }
-        setStatus(`✓ Saved${data.boundary_valid === false ? ' (acreage check: review)' : ''}`)
         setDirty(false)
+        // Business rule: every polygon tract must have image_base64 AND
+        // image_url. The endpoint's image regen is best-effort (a call
+        // out to the scraper) and can fail while the polygon itself
+        // still saves fine — data.image_regenerated / data.image_error
+        // tell us which happened. Surface a FAILURE loudly instead of
+        // silently leaving the stale image in place looking like nothing
+        // is wrong.
+        if (data.image_regenerated === false) {
+          setStatus(`⚠ Boundary saved, but the tract image was NOT regenerated${data.image_error ? `: ${data.image_error}` : ''}. Retry the save so the image matches the new boundary.`)
+        } else {
+          setStatus(`✓ Saved${data.boundary_valid === false ? ' (acreage check: review)' : ''}`)
+        }
         if (onUpdate) onUpdate({
           polygon_coordinates: boundaryPayload as any,
           boundary_valid: data.boundary_valid,
+          // Additive — existing callers (data-cleanup) that don't read these
+          // keys are unaffected; new callers (Control Center) can surface a
+          // visible per-tract error state when a regen fails.
+          image_regenerated: data.image_regenerated,
+          image_error: data.image_error ?? null,
           ...(data.image_base64 ? { image_base64: data.image_base64, image_url: data.image_url ?? null } : {}),
         })
         return

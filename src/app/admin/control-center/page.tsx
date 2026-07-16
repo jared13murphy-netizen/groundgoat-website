@@ -4,7 +4,10 @@ import { useState, useEffect } from 'react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Loader2, Bell, ChevronDown, ChevronUp, RefreshCw, Save, ExternalLink, Lock } from 'lucide-react'
+import { ArrowLeft, Loader2, Bell, ChevronDown, ChevronUp, RefreshCw, Save, ExternalLink, Lock, MapPin, AlertTriangle } from 'lucide-react'
+import { toRings } from '@/lib/polygonRings'
+import TractMapEditor from '@/components/admin/TractMapEditor'
+import TillableCluWorkshop from '@/components/admin/TillableCluWorkshop'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -22,6 +25,21 @@ interface Tract {
   price_per_acre: number | null
   sale_status: string | null
   soil_rating: number | null
+  // Additive read-only flags from GET /api/listings/today — let the condensed
+  // list show which tracts need polygon/tillable/image attention without a
+  // per-tract fetch. All optional since older cached payloads may lack them.
+  has_polygon?: boolean
+  boundary_valid?: boolean | null
+  has_tillable?: boolean
+  has_image?: boolean
+  // Derived read-only DISPLAY fields the CLU save authoritatively
+  // recomputes alongside tillable_acres/soil_rating. price_per_tillable_acre
+  // and price_per_soil_rating are already present (untyped) in the
+  // /api/listings/today payload; soil_rating_type is populated only after a
+  // CLU save this session (not part of the /today projection).
+  soil_rating_type?: string | null
+  price_per_tillable_acre?: number | null
+  price_per_soil_rating?: number | null
 }
 
 interface Company {
@@ -45,6 +63,23 @@ interface Listing {
   tracts: Tract[]
   control_center_locked: boolean
   notified_at: string | null
+  // Already present in the /api/listings/today JSON (untyped here until
+  // now) — used as the polygon editor's fallback reference image and to
+  // gate the verified-listing confirm dialog below.
+  primary_image_url?: string | null
+  verified?: boolean
+}
+
+// Full geometry for one tract — fetched lazily via GET /api/tracts/{id}
+// ONLY when its row is expanded, so the lean /api/listings/today load
+// stays fast. Not part of the Tract row shape above on purpose.
+interface TractGeometry {
+  polygon_coordinates: any
+  tillable_polygon: any
+  image_url: string | null
+  boundary_valid: boolean | null
+  latitude: number | null
+  longitude: number | null
 }
 
 interface TractState {
@@ -78,6 +113,40 @@ export default function ControlCenterPage() {
   const [listings, setListings] = useState<Listing[]>([])
   const [tractStates, setTractStates] = useState<Record<string, TractState>>({})
   const [expandedListings, setExpandedListings] = useState<Set<string>>(new Set())
+  // --- Per-tract polygon/tillable/soil editor (condensed — collapsed by
+  // default; mirrors expandedListings). Opening a tract lazy-fetches its
+  // full geometry via GET /api/tracts/{id}; the editors themselves reuse
+  // the data-cleanup TractMapEditor / TillableCluWorkshop components AS-IS
+  // (same save endpoints: /api/admin/tract-fix-boundary/{id}/apply and
+  // /api/admin/tracts/{id}/clu). No new save logic lives in this file.
+  const [expandedTracts, setExpandedTracts] = useState<Set<string>>(new Set())
+  const [tractGeometry, setTractGeometry] = useState<Record<string, TractGeometry>>({})
+  const [geometryLoading, setGeometryLoading] = useState<Record<string, boolean>>({})
+  const [geometryError, setGeometryError] = useState<Record<string, string>>({})
+  // Sibling-polygon cache for map snapping — listingId -> {tractId: polygon_coordinates}.
+  // Loaded ONCE per listing (not per tract) via GET /api/listings/{id}, the same
+  // listing-level fetch data-cleanup's loadListing uses, so neighborPolygons has
+  // every sibling tract's boundary available for snapping, at parity with
+  // data-cleanup — not just tracts individually expanded this session.
+  const [listingPolygons, setListingPolygons] = useState<Record<string, Record<string, any>>>({})
+  const [listingPolygonsLoading, setListingPolygonsLoading] = useState<Record<string, boolean>>({})
+  // tractId -> visible warning when a polygon save reported
+  // image_regenerated:false (business rule: every polygon tract must keep
+  // image_base64 + image_url — a failed regen must never look silent).
+  const [imageIssues, setImageIssues] = useState<Record<string, string>>({})
+  // Bumped per tract to force TillableCluWorkshop to reload CLUs after the
+  // polygon is saved (same pattern as data-cleanup's cluReloadKeys).
+  const [cluReloadKeys, setCluReloadKeys] = useState<Record<string, number>>({})
+  // tractId -> true once the polygon editor reports unsaved edits, so we can
+  // show a "save the boundary first" note near the CLU workshop (data-cleanup
+  // doesn't gate/hide the CLU workshop on this either — see report).
+  const [polygonDirty, setPolygonDirty] = useState<Record<string, boolean>>({})
+  // listingIds the admin has already confirmed "save anyway" for, this
+  // session, when the listing is verified. Gate lives at the editor-mount
+  // level (see the tract row's expanded panel below) so no save endpoint
+  // can fire before the admin acknowledges — new guard, does not exist
+  // upstream.
+  const [verifiedAcked, setVerifiedAcked] = useState<Set<string>>(new Set())
   const [error, setError] = useState('')
   const [refreshing, setRefreshing] = useState(false)
   const [savingListing, setSavingListing] = useState<string | null>(null)
@@ -241,6 +310,143 @@ export default function ControlCenterPage() {
       }
       return newSet
     })
+  }
+
+  // GET /api/tracts/{id} — read-only fetch, same endpoint the subscriber
+  // side uses. Only called lazily on expand; never touches a save path.
+  const loadTractGeometry = async (tractId: string) => {
+    setGeometryLoading(prev => ({ ...prev, [tractId]: true }))
+    setGeometryError(prev => {
+      if (!(tractId in prev)) return prev
+      const next = { ...prev }
+      delete next[tractId]
+      return next
+    })
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/tracts/${tractId}`)
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`)
+      setTractGeometry(prev => ({
+        ...prev,
+        [tractId]: {
+          polygon_coordinates: Array.isArray(data.polygon_coordinates) ? data.polygon_coordinates : null,
+          tillable_polygon: data.tillable_polygon ?? null,
+          image_url: data.image_url ?? null,
+          boundary_valid: data.boundary_valid ?? null,
+          latitude: data.latitude != null ? Number(data.latitude) : null,
+          longitude: data.longitude != null ? Number(data.longitude) : null,
+        },
+      }))
+    } catch (err) {
+      setGeometryError(prev => ({ ...prev, [tractId]: err instanceof Error ? err.message : 'Failed to load tract geometry' }))
+    } finally {
+      setGeometryLoading(prev => ({ ...prev, [tractId]: false }))
+    }
+  }
+
+  // GET /api/listings/{id} — the same listing-level fetch data-cleanup's
+  // loadListing uses (main.py: ListingDetailResponse, tracts: List[TractResponse],
+  // each carrying polygon_coordinates). Read-only, loaded once per listing and
+  // cached — gives neighborPolygons every sibling tract's boundary up front,
+  // at parity with data-cleanup, instead of only tracts individually expanded.
+  const loadListingPolygons = async (listingId: string) => {
+    setListingPolygonsLoading(prev => ({ ...prev, [listingId]: true }))
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/listings/${listingId}`)
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`)
+      const byTract: Record<string, any> = {}
+      ;(data.tracts || []).forEach((t: any) => {
+        if (t?.id) byTract[t.id] = Array.isArray(t.polygon_coordinates) ? t.polygon_coordinates : null
+      })
+      setListingPolygons(prev => ({ ...prev, [listingId]: byTract }))
+    } catch {
+      // Best-effort — a failed sibling-polygon prefetch just means neighbor
+      // snapping falls back to whatever's individually loaded (or nothing).
+      // It must never block opening the tract's own editor.
+    } finally {
+      setListingPolygonsLoading(prev => ({ ...prev, [listingId]: false }))
+    }
+  }
+
+  // Single-open accordion, ON PURPOSE: TractMapEditor + TillableCluWorkshop
+  // each mount their own maplibre-gl WebGL context, and both lazy-mount via
+  // IntersectionObserver-on-scroll-into-view but then NEVER tear down while
+  // mounted (see TractMapEditor's "hasBeenVisible" comment) — browsers cap
+  // WebGL contexts at roughly 8-16, so letting an admin expand many tract
+  // rows at once (then scroll through all of them) could silently exhaust
+  // that cap and drop an earlier map. Capping to one expanded tract at a
+  // time means at most 2 contexts are ever alive (this file DOES fully
+  // unmount the editors on collapse, since they're behind `isTractExpanded
+  // && (...)` — unlike data-cleanup, which deliberately keeps collapsed
+  // tract bodies mounted-but-hidden and so never frees theirs). The
+  // sibling-polygon prefetch above (listingPolygons) means an admin no
+  // longer needs two tracts open at once just to see a shared boundary —
+  // neighborPolygons is populated regardless of whether the sibling itself
+  // is expanded, so there's no functional loss from this cap.
+  const toggleTract = (listingId: string, tract: Tract) => {
+    const opening = !expandedTracts.has(tract.id)
+    setExpandedTracts(() => (opening ? new Set([tract.id]) : new Set()))
+    if (opening && !tractGeometry[tract.id] && !geometryLoading[tract.id]) {
+      loadTractGeometry(tract.id)
+    }
+    if (opening && !listingPolygons[listingId] && !listingPolygonsLoading[listingId]) {
+      loadListingPolygons(listingId)
+    }
+  }
+
+  // Patch a single tract's server-recomputed fields into BOTH the source
+  // `listings` state (so the condensed row's read-only numbers reflect what
+  // was actually saved) AND `tractStates` — but ONLY the geometry/tillable/
+  // soil fields the polygon-save and CLU-save endpoints actually recompute
+  // (totalAcres from a polygon re-measure, tillableAcres/soilRating from
+  // the CLU union). It must NEVER touch enteredPriceStr / status (or their
+  // "original" baselines): those are the admin's own in-progress price +
+  // sale-status entry for the existing Save All / Save & Notify flow, and
+  // neither the boundary-apply nor the CLU endpoint changes price or sale
+  // status server-side. A prior version of this function also synced price/
+  // status from `fields.sale_price`/`fields.sale_status`/`fields.price_per_acre`
+  // — but the CLU save response ALWAYS echoes those (unchanged) alongside the
+  // tillable/soil values it does recompute, so that sync silently reverted
+  // any unsaved price+status edit the admin was mid-typing and reset the
+  // dirty baseline so no indicator caught it. Removed entirely; see 2026-07-16
+  // review. Only `listings` (read-only display) gets those fields — the
+  // editable tractStates map for price/status is single-source-of-truth from
+  // the existing Save All / Save & Notify inputs alone.
+  const patchListingTract = (listingId: string, tractId: string, fields: Partial<Tract>) => {
+    setListings(prev => prev.map(l => (
+      l.id === listingId
+        ? { ...l, tracts: l.tracts.map(t => (t.id === tractId ? { ...t, ...fields } : t)) }
+        : l
+    )))
+    setTractStates(prev => {
+      const cur = prev[tractId]
+      if (!cur) return prev
+      const next = { ...cur }
+      if ('total_acres' in fields) {
+        next.totalAcres = fields.total_acres ?? 0
+        next.originalTotalAcres = fields.total_acres ?? 0
+      }
+      if ('tillable_acres' in fields) {
+        next.tillableAcres = fields.tillable_acres ?? 0
+        next.originalTillableAcres = fields.tillable_acres ?? 0
+      }
+      if ('soil_rating' in fields) {
+        next.soilRating = fields.soil_rating ?? null
+        next.originalSoilRating = fields.soil_rating ?? null
+      }
+      return { ...prev, [tractId]: next }
+    })
+  }
+
+  // Verified-listing confirm — gate lives at editor-mount time (see JSX
+  // below): the editors simply aren't rendered for a verified listing until
+  // this returns true, so no save endpoint can fire before the admin
+  // acknowledges. Confirming once covers the whole listing (all its tracts),
+  // matching "before the FIRST polygon or tillable save on that listing."
+  const confirmVerifiedListing = (listing: Listing) => {
+    if (!window.confirm('This listing is verified — save anyway?')) return
+    setVerifiedAcked(prev => new Set(prev).add(listing.id))
   }
 
   const updateTractState = (tractId: string, updates: Partial<TractState>) => {
@@ -1037,6 +1243,12 @@ export default function ControlCenterPage() {
                       // Notify is clicked, and then all tracts and
                       // listing information is locked."
                       const isLocked = listing.control_center_locked
+                      const isTractExpanded = expandedTracts.has(tract.id)
+                      // Needs-attention flags come straight from the additive
+                      // /api/listings/today fields — read-only, no fetch needed
+                      // just to show the badge.
+                      const needsPolygonAttention = tract.has_polygon === false || tract.boundary_valid === false
+                      const needsImageAttention = !!imageIssues[tract.id] || (tract.has_polygon && tract.has_image === false)
 
                       return (
                         <div key={tract.id} className="p-4">
@@ -1044,6 +1256,24 @@ export default function ControlCenterPage() {
                           <div className="flex items-center justify-between mb-3">
                             <div className="flex items-center gap-3 flex-wrap">
                               <span className="text-white font-medium">Tract {tract.tract_number}</span>
+                              {/* Polygon/tillable/soil editor toggle — collapsed by
+                                  default so the condensed list is unchanged until
+                                  opened. Reuses TractMapEditor + TillableCluWorkshop
+                                  exactly as the data-cleanup screen does. */}
+                              <button
+                                type="button"
+                                onClick={() => toggleTract(listing.id, tract)}
+                                title={isTractExpanded ? 'Hide polygon/tillable editor' : 'Edit polygon/tillable/soil'}
+                                className={`flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-medium border ${
+                                  needsPolygonAttention || needsImageAttention
+                                    ? 'bg-amber-900/30 text-amber-400 border-amber-700'
+                                    : 'bg-gg-gray-800 text-gg-gray-300 border-gg-gray-700 hover:bg-gg-gray-700'
+                                }`}
+                              >
+                                <MapPin size={12} />
+                                {isTractExpanded ? 'Hide Map' : 'Edit Map'}
+                                {(needsPolygonAttention || needsImageAttention) && <AlertTriangle size={12} />}
+                              </button>
                               <span className="text-gg-gray-600">|</span>
                               <div className="flex items-center gap-1">
                                 <input
@@ -1195,6 +1425,184 @@ export default function ControlCenterPage() {
                               </button>
                             </div>
                           </div>
+
+                          {/* Polygon / tillable / soil editor — collapsed by default.
+                              Reuses TractMapEditor + TillableCluWorkshop EXACTLY as
+                              data-cleanup:1497-1591 does: same props, same save
+                              endpoints (tract-fix-boundary/apply and tracts/{id}/clu).
+                              No new save logic is added here. */}
+                          {isTractExpanded && (
+                            <div className="mt-4 pt-4 border-t border-gg-gray-800">
+                              {isLocked ? (
+                                <p className="text-sm text-gg-gray-400 italic">
+                                  This listing is locked (Save & Notify already sent) — the polygon and tillable/soil editors are read-only until it's unlocked.
+                                </p>
+                              ) : listing.verified && !verifiedAcked.has(listing.id) ? (
+                                // Verified-listing confirm gate: the editors below are
+                                // simply not mounted until the admin acknowledges, so no
+                                // save endpoint can fire before this confirm. Covers the
+                                // whole listing (all its tracts) once acknowledged.
+                                <div className="p-3 bg-amber-900/20 border border-amber-700/40 rounded-lg flex items-center justify-between gap-3">
+                                  <p className="text-sm text-amber-300 flex items-center gap-2">
+                                    <AlertTriangle size={16} />
+                                    This listing is verified — editing its polygon/tillable data will overwrite verified data.
+                                  </p>
+                                  <button
+                                    type="button"
+                                    onClick={() => confirmVerifiedListing(listing)}
+                                    className="px-3 py-1.5 text-sm rounded-lg bg-amber-700 text-white hover:bg-amber-600 whitespace-nowrap"
+                                  >
+                                    Save anyway
+                                  </button>
+                                </div>
+                              ) : geometryLoading[tract.id] ? (
+                                <div className="flex items-center gap-2 text-gg-gray-400 text-sm">
+                                  <Loader2 className="animate-spin" size={16} /> Loading tract geometry…
+                                </div>
+                              ) : geometryError[tract.id] ? (
+                                <div className="p-3 bg-red-900/20 border border-red-700/40 rounded-lg flex items-center justify-between gap-3">
+                                  <p className="text-sm text-red-400">Failed to load tract geometry: {geometryError[tract.id]}</p>
+                                  <button
+                                    type="button"
+                                    onClick={() => loadTractGeometry(tract.id)}
+                                    className="px-3 py-1.5 text-sm rounded-lg bg-gg-gray-700 text-white hover:bg-gg-gray-600 whitespace-nowrap"
+                                  >
+                                    Retry
+                                  </button>
+                                </div>
+                              ) : tractGeometry[tract.id] ? (
+                                <>
+                                  {imageIssues[tract.id] && (
+                                    <div className="mb-3 p-3 bg-red-900/20 border border-red-700/40 rounded-lg text-sm text-red-400 flex items-center gap-2">
+                                      <AlertTriangle size={16} className="flex-shrink-0" />
+                                      <span>{imageIssues[tract.id]}</span>
+                                    </div>
+                                  )}
+                                  {polygonDirty[tract.id] && (
+                                    <div className="mb-3 p-2 bg-amber-900/20 border border-amber-700/40 rounded-lg text-xs text-amber-400">
+                                      Unsaved boundary changes — save the boundary above before editing tillable/soil below; the CLU workshop loads CLUs clipped to the SAVED polygon.
+                                    </div>
+                                  )}
+                                  {/* LIVE-TRACT boundary editor — saves ONLY the polygon via
+                                      the restricted tract-fix-boundary/apply endpoint. */}
+                                  <TractMapEditor
+                                    stagingId={0}
+                                    tractIndex={0}
+                                    liveTractId={tract.id}
+                                    tractNumber={tract.tract_number}
+                                    siblingTracts={listing.tracts.map((t) => ({
+                                      tract_number: t.tract_number ?? null,
+                                      total_acres: t.total_acres ?? null,
+                                      tillable_acres: t.tillable_acres ?? null,
+                                    }))}
+                                    // ALL other tracts on this listing, at parity with
+                                    // data-cleanup: prefer tractGeometry (this session's
+                                    // own GET /api/tracts/{id} fetch — reflects any
+                                    // just-saved edit to that sibling) and fall back to
+                                    // listingPolygons (the bulk GET /api/listings/{id}
+                                    // snapshot loaded once on first expand of any tract
+                                    // on this listing) so every sibling boundary is
+                                    // available for snapping, not just ones individually
+                                    // opened this session.
+                                    neighborPolygons={listing.tracts
+                                      .filter((t) => t.id !== tract.id)
+                                      .flatMap((t) => toRings(
+                                        tractGeometry[t.id]?.polygon_coordinates
+                                        ?? listingPolygons[listing.id]?.[t.id]
+                                        ?? null
+                                      ))
+                                      .filter((r) => Array.isArray(r) && r.length >= 3)}
+                                    initialPolygon={tractGeometry[tract.id].polygon_coordinates}
+                                    hideTillable
+                                    tillablePolygon={null}
+                                    showTillable={false}
+                                    sourceImageUrl={tractGeometry[tract.id].image_url || listing.primary_image_url || null}
+                                    sourceImageKind="listing_image"
+                                    listingUrl={listing.source_url}
+                                    listingState={listing.state}
+                                    listingCounty={listing.county}
+                                    scrapedAcres={tract.total_acres}
+                                    latitude={tractGeometry[tract.id].latitude}
+                                    longitude={tractGeometry[tract.id].longitude}
+                                    onUpdate={(updated) => {
+                                      setTractGeometry((prev) => ({
+                                        ...prev,
+                                        [tract.id]: {
+                                          ...prev[tract.id],
+                                          polygon_coordinates: updated.polygon_coordinates ?? prev[tract.id]?.polygon_coordinates ?? null,
+                                          boundary_valid: updated.boundary_valid ?? prev[tract.id]?.boundary_valid ?? null,
+                                          ...(updated.image_url !== undefined ? { image_url: updated.image_url } : {}),
+                                        },
+                                      }))
+                                      patchListingTract(listing.id, tract.id, {
+                                        boundary_valid: updated.boundary_valid,
+                                        has_polygon: true,
+                                        ...(updated.image_url !== undefined ? { has_image: !!updated.image_url } : {}),
+                                      })
+                                      // Business rule: every polygon tract must have
+                                      // image_base64 AND image_url — surface a failed
+                                      // regen as a visible per-tract error instead of
+                                      // treating the save as fully successful.
+                                      setImageIssues((prev) => {
+                                        const next = { ...prev }
+                                        if (updated.image_regenerated === false) {
+                                          next[tract.id] = `Image not regenerated — retry${updated.image_error ? `: ${updated.image_error}` : ''}.`
+                                        } else if (updated.image_regenerated === true) {
+                                          delete next[tract.id]
+                                        }
+                                        return next
+                                      })
+                                      setCluReloadKeys((prev) => ({ ...prev, [tract.id]: (prev[tract.id] || 0) + 1 }))
+                                    }}
+                                    onDirtyChange={(d) => setPolygonDirty((prev) => ({ ...prev, [tract.id]: d }))}
+                                  />
+                                  {/* FSA-CLU tillable workshop — live published-tract mode. */}
+                                  <TillableCluWorkshop
+                                    tractId={tract.id}
+                                    reloadKey={cluReloadKeys[tract.id] || 0}
+                                    latitude={tractGeometry[tract.id].latitude}
+                                    longitude={tractGeometry[tract.id].longitude}
+                                    onSaved={(r) => {
+                                      // Patch from the SERVER-RECOMPUTED values only —
+                                      // never from client-sent values — so the condensed
+                                      // row's numbers match exactly what was persisted.
+                                      // tillable_acres is a non-nullable number on this
+                                      // screen's Tract type (matches how the rest of the
+                                      // page already treats it, e.g. `tract.tillable_acres
+                                      // || 0`), so a cleared value coerces to 0 same as
+                                      // everywhere else here.
+                                      //
+                                      // ONLY fields the CLU endpoint actually recomputes —
+                                      // tillable acres / soil rating + their derived
+                                      // price-per-* display fields. Deliberately does NOT
+                                      // include sale_price / sale_status / price_per_acre:
+                                      // the CLU response always echoes those back UNCHANGED
+                                      // (it never modifies price or sale status), and
+                                      // patching them here previously clobbered an admin's
+                                      // in-progress price+status edit mid-typing (silently
+                                      // reverted the entered value AND reset the dirty
+                                      // baseline so no indicator caught it) — fixed per
+                                      // 2026-07-16 review. Note: the backend CLU response
+                                      // also includes `nccpi`, but it isn't forwarded here
+                                      // because TillableCluWorkshop's onSaved prop type
+                                      // doesn't expose it (see that component's interface)
+                                      // — out of scope to add without touching the reused
+                                      // component's callback shape.
+                                      patchListingTract(listing.id, tract.id, {
+                                        tillable_acres: r.tillable_acres ?? 0,
+                                        soil_rating: r.soil_rating ?? null,
+                                        soil_rating_type: r.soil_rating_type ?? null,
+                                        price_per_tillable_acre: r.price_per_tillable_acre ?? null,
+                                        price_per_soil_rating: r.price_per_soil_rating ?? null,
+                                        has_tillable: r.tillable_acres != null,
+                                      })
+                                    }}
+                                    onDirtyChange={() => { /* no gating action needed here today */ }}
+                                  />
+                                </>
+                              ) : null}
+                            </div>
+                          )}
                         </div>
                       )
                     })}
