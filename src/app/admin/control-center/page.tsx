@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Loader2, Bell, ChevronDown, ChevronUp, RefreshCw, Save, ExternalLink, Lock, MapPin, AlertTriangle } from 'lucide-react'
+import { ArrowLeft, Loader2, Bell, ChevronDown, ChevronUp, RefreshCw, Save, ExternalLink, Lock, MapPin, AlertTriangle, X } from 'lucide-react'
 import { toRings } from '@/lib/polygonRings'
 import TractMapEditor from '@/components/admin/TractMapEditor'
 import TillableCluWorkshop from '@/components/admin/TillableCluWorkshop'
@@ -159,6 +159,12 @@ export default function ControlCenterPage() {
   const [notifiedListings, setNotifiedListings] = useState<Set<string>>(new Set())
   const [runningMigration, setRunningMigration] = useState(false)
   const [selectedDay, setSelectedDay] = useState<'today' | 'tomorrow'>('today')
+  // Condensed-row thumbnail lightbox — DISPLAY ONLY, no save path. Clicking a
+  // tract's thumbnail (when it has an image) opens this instead of the
+  // polygon editor, so the admin can see the boundary large without
+  // committing to editing it. Carries the listing/tract through so the
+  // in-lightbox "Edit Map" button can still jump straight to toggleTract.
+  const [lightboxTract, setLightboxTract] = useState<{ imageUrl: string; label: string; listingId: string; tract: Tract } | null>(null)
 
   const getDateParam = (day: 'today' | 'tomorrow'): string | undefined => {
     if (day === 'today') return undefined
@@ -277,6 +283,16 @@ export default function ControlCenterPage() {
       fetchTodaysAuctions(token, getDateParam(selectedDay))
     }
   }, [selectedDay])
+
+  // Esc closes the thumbnail lightbox — only wired while it's open.
+  useEffect(() => {
+    if (!lightboxTract) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setLightboxTract(null)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [lightboxTract])
 
   const handleRunMigration = async () => {
     if (!confirm('Run database migration to add lock columns? This is safe to run multiple times.')) {
@@ -1267,19 +1283,34 @@ export default function ControlCenterPage() {
                           <div className="flex items-center justify-between mb-3">
                             <div className="flex items-center gap-3">
                               {/* Boundary-on-satellite thumbnail — lets the owner see
-                                  the drawn polygon without opening the editor. Click
-                                  opens the same Edit Map expand. Red "No boundary"
-                                  tile when there's nothing to show; amber corner badge
-                                  when the boundary exists but failed the acreage check. */}
+                                  the drawn polygon without opening the editor. When
+                                  there's an image, click opens a large lightbox (the
+                                  56px thumbnail is too small to read); the Edit Map
+                                  button next to it is the actual edit affordance. A
+                                  "No boundary" tile has nothing to enlarge, so it
+                                  still opens the editor directly so one can be drawn.
+                                  Amber corner badge when the boundary exists but
+                                  failed the acreage check. */}
                               <button
                                 type="button"
-                                onClick={() => toggleTract(listing.id, tract)}
+                                onClick={() => {
+                                  if (showThumbnailPlaceholder) {
+                                    toggleTract(listing.id, tract)
+                                  } else {
+                                    setLightboxTract({
+                                      imageUrl: tract.image_url as string,
+                                      label: `Tract ${tract.tract_number} — ${listing.county}, ${listing.state}`,
+                                      listingId: listing.id,
+                                      tract,
+                                    })
+                                  }
+                                }}
                                 title={
                                   showThumbnailPlaceholder
                                     ? 'No boundary drawn — click to edit'
                                     : showBoundaryWarningBadge
-                                    ? 'Boundary saved but acreage looks off — click to check'
-                                    : 'Click to view/edit boundary'
+                                    ? 'Boundary saved but acreage looks off — click to view large'
+                                    : 'Click to view larger'
                                 }
                                 className="relative flex-shrink-0 w-14 h-14 rounded-lg overflow-hidden border border-gg-gray-700 hover:border-gg-pink transition-colors"
                               >
@@ -1670,6 +1701,51 @@ export default function ControlCenterPage() {
           ))}
         </div>
       </div>
+
+      {/* Tract thumbnail lightbox — DISPLAY ONLY, no save path. Opened by
+          clicking a tract's boundary thumbnail (see the tract row above);
+          the "Edit Map" button here just closes this and re-uses the
+          existing toggleTract editor-open flow, same as clicking Edit Map
+          directly on the row. */}
+      {lightboxTract && (
+        <div
+          className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 cursor-pointer"
+          onClick={() => setLightboxTract(null)}
+        >
+          <div
+            className="relative max-w-[90vw] max-h-[85vh] flex flex-col items-center cursor-default"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => setLightboxTract(null)}
+              className="absolute -top-2 -right-2 bg-black/60 text-white rounded-full p-1.5 hover:bg-black/80 z-10"
+              title="Close"
+            >
+              <X size={20} />
+            </button>
+            <img
+              src={lightboxTract.imageUrl}
+              alt={lightboxTract.label}
+              className="max-w-[90vw] max-h-[75vh] object-contain rounded-lg bg-gg-gray-800"
+            />
+            <div className="mt-3 flex items-center gap-3">
+              <p className="text-white text-sm font-medium">{lightboxTract.label}</p>
+              <button
+                type="button"
+                onClick={() => {
+                  const { listingId, tract } = lightboxTract
+                  setLightboxTract(null)
+                  toggleTract(listingId, tract)
+                }}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold border bg-gg-pink/10 text-gg-pink border-gg-pink hover:bg-gg-pink/20"
+              >
+                <MapPin size={12} />
+                Edit this boundary
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
