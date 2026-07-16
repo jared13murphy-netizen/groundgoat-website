@@ -68,6 +68,7 @@
    maplibre's positioning gets clobbered. */
 .aem-marker-shell {
   will-change: transform;
+  z-index: 50;
 }
 /* Inner badges get the fade-in / fade-out keyframes. */
 .aem-state-badge,
@@ -165,6 +166,55 @@
 .aem-state-link:hover {
   color: #fff;
   background: #f58cde;
+}
+
+/* Today's-auction green dot — DOM marker (2D mode only) positioned via
+   maplibregl.Marker.setLngLat (NOT manual projection, so it can't drift the
+   way the old clustered DOM markers did). z-index is set above
+   .aem-marker-shell (state silhouette badges, z-index 50) so the dot always
+   paints on top of a badge, regardless of which was added to the DOM last —
+   DOM stacking of position:absolute maplibre marker elements is decided by
+   z-index, not insertion order. The 3D-mode GL layer (today-pin-pulse /
+   today-pin-core) keeps the same look via circle-color/circle-radius. */
+.gg-today-dot-shell {
+  /* NO `position` here — maplibre adds `.maplibregl-marker { position:absolute }`
+     to this same element and positions it purely via inline transform; setting
+     position:relative pulls it back into document flow and each same-day dot
+     stacks ~44px below the last (cumulative drift). Mirrors .aem-marker-shell,
+     which also never sets position. z-index still applies (maplibre's own
+     absolute positioning makes this a positioned element). */
+  width: 44px;
+  height: 44px;
+  z-index: 60;
+  cursor: pointer;
+}
+.gg-today-dot-core {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  border-radius: 50%;
+  background: #16A34A;
+  border: 2px solid #ffffff;
+  box-sizing: border-box;
+}
+.gg-today-dot-halo {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  border-radius: 50%;
+  background: #22C55E;
+  opacity: 0.45;
+  animation: gg-today-pulse 1.6s ease-out infinite;
+}
+@keyframes gg-today-pulse {
+  0% { transform: scale(1); opacity: 0.45; }
+  100% { transform: scale(3.1); opacity: 0; }
 }
 
 /* County square — small rounded card with name + count. */

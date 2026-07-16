@@ -1077,6 +1077,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const mapRef = useRef<maplibregl.Map | null>(null)
   const stateMarkersRef = useRef<maplibregl.Marker[]>([])
   const countyMarkersRef = useRef<maplibregl.Marker[]>([])
+  // Today's-auction green dots — DOM markers (2D only) so they paint above
+  // the state silhouette DOM badges (DOM always paints above the GL canvas,
+  // which is why the native today-pin-core/today-pin-pulse GL layer sat
+  // BEHIND the silhouettes). The GL layer is kept for 3D mode, where the
+  // silhouettes are already suppressed. See the today-marker build effect
+  // and the 3D toggle effect for the show/hide wiring.
+  const todayMarkersRef = useRef<maplibregl.Marker[]>([])
   // Filter-active per-county count bubbles (number + "tracts" label),
   // shown when zoomed too low for individual tract dots.
   const countyCountMarkersRef = useRef<maplibregl.Marker[]>([])
@@ -6101,10 +6108,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // terrainExaggeration intentionally NOT in dep array — slider changes are
   // handled by the separate slider effect so easeTo doesn't re-fire.
   //
-  // NOTE: county labels, tract pins, and today's green dots are all native GPU
-  // GeoJSON layers — MapLibre draws them on the 3D terrain mesh for free,
-  // nothing to suppress. Only the State silhouettes are DOM markers; hide those
-  // while 3D is active so they don't reproject incorrectly on the terrain mesh.
+  // NOTE: county labels and tract pins are native GPU GeoJSON layers —
+  // MapLibre draws them on the 3D terrain mesh for free, nothing to
+  // suppress. The State silhouettes are DOM markers; hide those while 3D is
+  // active so they don't reproject incorrectly on the terrain mesh. Today's
+  // green dots have TWO renderers now (DOM marker in 2D so they paint above
+  // the state silhouettes; native GL circle layer in 3D so they stay opaque
+  // on the terrain mesh instead of fading like other DOM markers) — flip
+  // between them here, same place the silhouette DOM markers are toggled.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded) return
@@ -6119,13 +6130,18 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         const targetPitch = z < 6 ? 30 : z < 9 ? 40 : 45
         map.easeTo({ pitch: targetPitch, duration: 600 })
         // Suppress state silhouette DOM markers in 3D mode (big shapes that
-        // distort on the terrain mesh). The today's-auction dots are small
-        // points that MapLibre reprojects correctly onto the terrain, so they
-        // stay visible — toggling 3D must not hide them.
+        // distort on the terrain mesh).
         stateMarkersRef.current.forEach(m => {
           const el = m.getElement()
           if (el) el.style.display = 'none'
         })
+        // Today's-auction dots: hide the DOM markers, show the GL layer.
+        todayMarkersRef.current.forEach(m => {
+          const el = m.getElement()
+          if (el) el.style.display = 'none'
+        })
+        if (map.getLayer('today-pin-pulse')) map.setLayoutProperty('today-pin-pulse', 'visibility', 'visible')
+        if (map.getLayer('today-pin-core')) map.setLayoutProperty('today-pin-core', 'visibility', 'visible')
       } else {
         map.setTerrain(null)
         map.easeTo({ pitch: 0, bearing: 0, duration: 600 })
@@ -6134,6 +6150,15 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           const el = m.getElement()
           if (el) el.style.display = ''
         })
+        // Today's-auction dots: restore the DOM markers, hide the GL layer
+        // (also the correct initial 2D state on mount — this branch runs
+        // once mapLoaded flips true since terrain3DOn defaults to false).
+        todayMarkersRef.current.forEach(m => {
+          const el = m.getElement()
+          if (el) el.style.display = ''
+        })
+        if (map.getLayer('today-pin-pulse')) map.setLayoutProperty('today-pin-pulse', 'visibility', 'none')
+        if (map.getLayer('today-pin-core')) map.setLayoutProperty('today-pin-core', 'visibility', 'none')
       }
     } catch {/* map not ready */}
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -6616,10 +6641,71 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     return () => cancelAnimationFrame(raf)
   }, [mapLoaded, hasTodayDots])
 
-  // today-pin-core interactions. A green dot represents the WHOLE auction (not
-  // a single tract), so a click opens the full Listing Details — except in the
-  // firm portal, where onTractSelected keeps the portal flow intact. (Per user
-  // 2026-06-05.)
+  // Shared today-pin click dispatch. A green dot represents the WHOLE
+  // auction (not a single tract), so a click opens the full Listing Details
+  // — except in the firm portal, where onTractSelected keeps the portal flow
+  // intact. (Per user 2026-06-05.) Extracted to a callback so BOTH the GL
+  // today-pin-core layer (3D mode) and the DOM today-marker (2D mode, added
+  // below so the dots paint above the state silhouettes) resolve a click
+  // identically.
+  const handleTodayPinClick = useCallback((tractId: string) => {
+    const tract = todayTractsByIdRef.current.get(tractId)
+    if (!tract) return
+
+    if (portalMode && onTractSelected) {
+      const isPrivateTreaty = (tract.listing_type || '').toLowerCase() === 'private_treaty'
+      const isPending = (tract.sale_status || '').toLowerCase() === 'pending'
+      const ppa = (isPrivateTreaty || isPending) && tract.asking_price && tract.total_acres
+        ? tract.asking_price / tract.total_acres
+        : tract.price_per_acre ?? null
+      const ppaBasis: 'sold' | 'asking' | null =
+        ((isPrivateTreaty || isPending) && tract.asking_price && tract.total_acres)
+          ? 'asking'
+          : (tract.price_per_acre ? 'sold' : null)
+      // Task #26 (one click, one panel): tract is top priority — opening
+      // the portal Tract Detail panel must close the parcel/land panel
+      // and any comp popup left over from a previous click.
+      setLandDetail(null)
+      setCompPopup(null)
+      setSelectedSale(null)
+      const todaySaleData: SaleDetail = {
+        id: tract.id,
+        listingId: tract.listing_id,
+        tractId: tract.id,
+        auctionDate: tract.auction_date,
+        totalAcres: tract.total_acres,
+        tillableAcres: tract.tillable_acres,
+        companyName: tract.company_name,
+        salePrice: tract.sale_price,
+        pricePerAcre: ppa,
+        priceBasis: ppaBasis,
+        county: tract.county,
+        state: tract.state,
+        township: tract.township,
+        soilRating: tract.soil_rating,
+        polygonCoordinates: tract.polygon_coordinates,
+        saleStatus: tract.sale_status,
+        listingType: tract.listing_type,
+        askingPrice: tract.asking_price,
+        landType: tract.land_type,
+        landTypes: tract.land_types,
+        pctTillable: tract.pct_tillable,
+        pricePerTillableAcre: tract.price_per_tillable_acre,
+        pricePerSoilRating: tract.price_per_soil_rating,
+        sourceUrl: tract.source_url,
+        deeds: tractDeedsRef.current.get(tract.id),
+      }
+      lastPortalSaleRef.current = todaySaleData
+      onTractSelected(todaySaleData)
+      return
+    }
+    if (tract.listing_id) {
+      window.location.href = `/listings/${tract.listing_id}`
+    }
+  }, [portalMode, onTractSelected])
+
+  // today-pin-core interactions — GL layer path, active in 3D mode (the DOM
+  // today-marker below handles clicks in 2D).
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded) return
@@ -6628,59 +6714,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       const f = e.features?.[0]
       if (!f) return
       const tractId = (f.properties?.tractId as string) || ''
-      const tract = todayTractsByIdRef.current.get(tractId)
-      if (!tract) return
-
-      if (portalMode && onTractSelected) {
-        const isPrivateTreaty = (tract.listing_type || '').toLowerCase() === 'private_treaty'
-        const isPending = (tract.sale_status || '').toLowerCase() === 'pending'
-        const ppa = (isPrivateTreaty || isPending) && tract.asking_price && tract.total_acres
-          ? tract.asking_price / tract.total_acres
-          : tract.price_per_acre ?? null
-        const ppaBasis: 'sold' | 'asking' | null =
-          ((isPrivateTreaty || isPending) && tract.asking_price && tract.total_acres)
-            ? 'asking'
-            : (tract.price_per_acre ? 'sold' : null)
-        // Task #26 (one click, one panel): tract is top priority — opening
-        // the portal Tract Detail panel must close the parcel/land panel
-        // and any comp popup left over from a previous click.
-        setLandDetail(null)
-        setCompPopup(null)
-        setSelectedSale(null)
-        const todaySaleData: SaleDetail = {
-          id: tract.id,
-          listingId: tract.listing_id,
-          tractId: tract.id,
-          auctionDate: tract.auction_date,
-          totalAcres: tract.total_acres,
-          tillableAcres: tract.tillable_acres,
-          companyName: tract.company_name,
-          salePrice: tract.sale_price,
-          pricePerAcre: ppa,
-          priceBasis: ppaBasis,
-          county: tract.county,
-          state: tract.state,
-          township: tract.township,
-          soilRating: tract.soil_rating,
-          polygonCoordinates: tract.polygon_coordinates,
-          saleStatus: tract.sale_status,
-          listingType: tract.listing_type,
-          askingPrice: tract.asking_price,
-          landType: tract.land_type,
-          landTypes: tract.land_types,
-          pctTillable: tract.pct_tillable,
-          pricePerTillableAcre: tract.price_per_tillable_acre,
-          pricePerSoilRating: tract.price_per_soil_rating,
-          sourceUrl: tract.source_url,
-          deeds: tractDeedsRef.current.get(tract.id),
-        }
-        lastPortalSaleRef.current = todaySaleData
-        onTractSelected(todaySaleData)
-        return
-      }
-      if (tract.listing_id) {
-        window.location.href = `/listings/${tract.listing_id}`
-      }
+      handleTodayPinClick(tractId)
     }
 
     const onEnter = () => { map.getCanvas().style.cursor = 'pointer' }
@@ -6694,7 +6728,62 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       map.off('mouseenter', 'today-pin-core', onEnter)
       map.off('mouseleave', 'today-pin-core', onLeave)
     }
-  }, [mapLoaded, portalMode, onTractSelected])
+  }, [mapLoaded, handleTodayPinClick])
+
+  // Today's-auction green dots — DOM marker path, active in 2D mode. Built
+  // from the SAME todayPinGeoJSON that feeds the today-pins GL source above
+  // (identical per-tract lng/lat, including the co-location fan-out for
+  // stacked auctions), so the DOM dot and the GL dot never disagree on
+  // position. Uses plain marker.setLngLat per tract — no clustering, no
+  // manual projection — which is why the state-name badges (also DOM
+  // markers) don't drift on zoom; this follows the same pattern. Mirrors the
+  // today-pins source-update effect's deps (mapLoaded, todayPinGeoJSON).
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+
+    todayMarkersRef.current.forEach(m => m.remove())
+    todayMarkersRef.current = []
+
+    for (const feature of todayPinGeoJSON.features) {
+      const geom = feature.geometry
+      if (!geom || geom.type !== 'Point') continue
+      const [lng, lat] = geom.coordinates as [number, number]
+      const tractId = (feature.properties?.tractId as string) || ''
+
+      const el = document.createElement('div')
+      el.className = 'gg-today-dot-shell'
+      // 3D mode uses the GL layer instead (stays opaque on the terrain
+      // mesh) — if this effect rebuilds while 3D is active (today dots
+      // refetched), keep the new markers hidden until 2D is restored.
+      if (terrain3DOnRef.current) el.style.display = 'none'
+
+      const halo = document.createElement('div')
+      halo.className = 'gg-today-dot-halo'
+      el.appendChild(halo)
+
+      const core = document.createElement('div')
+      core.className = 'gg-today-dot-core'
+      el.appendChild(core)
+
+      // Click/hover mirror the today-pin-core GL layer's behavior exactly
+      // (via the shared handleTodayPinClick callback) so switching between
+      // 2D DOM markers and 3D GL circles never changes what a click does.
+      el.addEventListener('click', () => handleTodayPinClick(tractId))
+      el.addEventListener('mouseenter', () => { map.getCanvas().style.cursor = 'pointer' })
+      el.addEventListener('mouseleave', () => { map.getCanvas().style.cursor = '' })
+
+      const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
+        .setLngLat([lng, lat])
+        .addTo(map)
+      todayMarkersRef.current.push(marker)
+    }
+
+    return () => {
+      todayMarkersRef.current.forEach(m => m.remove())
+      todayMarkersRef.current = []
+    }
+  }, [mapLoaded, todayPinGeoJSON, handleTodayPinClick])
 
   // ── Report-highlight (portal mode): drive the tract-pin-circles pink
   // stroke via setFeatureState({highlighted}) instead of mutating DOM.
