@@ -32,6 +32,11 @@ interface Tract {
   boundary_valid?: boolean | null
   has_tillable?: boolean
   has_image?: boolean
+  // Additive, read-only boundary-on-satellite thumbnail URL from GET
+  // /api/listings/today (Tract.image_url — already a full renderable URL,
+  // e.g. f"{backend}/api/tracts/{id}/image"). Used ONLY for the condensed
+  // list's at-a-glance thumbnail; never image_base64 (too heavy for a list).
+  image_url?: string | null
   // Derived read-only DISPLAY fields the CLU save authoritatively
   // recomputes alongside tillable_acres/soil_rating. price_per_tillable_acre
   // and price_per_soil_rating are already present (untyped) in the
@@ -1249,25 +1254,76 @@ export default function ControlCenterPage() {
                       // just to show the badge.
                       const needsPolygonAttention = tract.has_polygon === false || tract.boundary_valid === false
                       const needsImageAttention = !!imageIssues[tract.id] || (tract.has_polygon && tract.has_image === false)
+                      // Condensed-row thumbnail state (display-only — no save path).
+                      // Placeholder when there's no polygon yet or no renderable
+                      // image; amber corner badge when a polygon exists but its
+                      // acreage/geometry failed the boundary_valid check.
+                      const showThumbnailPlaceholder = tract.has_polygon === false || !tract.image_url
+                      const showBoundaryWarningBadge = tract.has_polygon === true && tract.boundary_valid === false
 
                       return (
                         <div key={tract.id} className="p-4">
                           {/* Tract Header with Inline Editing */}
                           <div className="flex items-center justify-between mb-3">
-                            <div className="flex items-center gap-3 flex-wrap">
+                            <div className="flex items-center gap-3">
+                              {/* Boundary-on-satellite thumbnail — lets the owner see
+                                  the drawn polygon without opening the editor. Click
+                                  opens the same Edit Map expand. Red "No boundary"
+                                  tile when there's nothing to show; amber corner badge
+                                  when the boundary exists but failed the acreage check. */}
+                              <button
+                                type="button"
+                                onClick={() => toggleTract(listing.id, tract)}
+                                title={
+                                  showThumbnailPlaceholder
+                                    ? 'No boundary drawn — click to edit'
+                                    : showBoundaryWarningBadge
+                                    ? 'Boundary saved but acreage looks off — click to check'
+                                    : 'Click to view/edit boundary'
+                                }
+                                className="relative flex-shrink-0 w-14 h-14 rounded-lg overflow-hidden border border-gg-gray-700 hover:border-gg-pink transition-colors"
+                              >
+                                {showThumbnailPlaceholder ? (
+                                  <div className="w-full h-full flex flex-col items-center justify-center gap-0.5 bg-red-900/40 text-red-400">
+                                    <AlertTriangle size={14} />
+                                    <span className="text-[8px] leading-none font-semibold text-center px-0.5">No boundary</span>
+                                  </div>
+                                ) : (
+                                  <img
+                                    src={tract.image_url || undefined}
+                                    alt={`Tract ${tract.tract_number} boundary`}
+                                    loading="lazy"
+                                    className="w-full h-full object-cover bg-gg-gray-800"
+                                  />
+                                )}
+                                {showBoundaryWarningBadge && (
+                                  <span
+                                    className="absolute top-0 right-0 flex items-center justify-center w-4 h-4 bg-amber-600 text-white rounded-bl"
+                                    title="Check acres — boundary saved but acreage looks off"
+                                  >
+                                    <AlertTriangle size={10} />
+                                  </span>
+                                )}
+                              </button>
+                              <div className="flex items-center gap-3 flex-wrap">
                               <span className="text-white font-medium">Tract {tract.tract_number}</span>
                               {/* Polygon/tillable/soil editor toggle — collapsed by
                                   default so the condensed list is unchanged until
                                   opened. Reuses TractMapEditor + TillableCluWorkshop
-                                  exactly as the data-cleanup screen does. */}
+                                  exactly as the data-cleanup screen does. Restyled to
+                                  GG-pink so it reads as the primary per-tract action
+                                  (was subtle gray) — amber attention-needed styling
+                                  still takes priority when the tract needs a look. */}
                               <button
                                 type="button"
                                 onClick={() => toggleTract(listing.id, tract)}
                                 title={isTractExpanded ? 'Hide polygon/tillable editor' : 'Edit polygon/tillable/soil'}
-                                className={`flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-medium border ${
+                                className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold border transition-colors ${
                                   needsPolygonAttention || needsImageAttention
-                                    ? 'bg-amber-900/30 text-amber-400 border-amber-700'
-                                    : 'bg-gg-gray-800 text-gg-gray-300 border-gg-gray-700 hover:bg-gg-gray-700'
+                                    ? 'bg-amber-900/30 text-amber-400 border-amber-700 hover:bg-amber-900/50'
+                                    : isTractExpanded
+                                    ? 'bg-gg-pink text-white border-gg-pink hover:bg-gg-pink/90'
+                                    : 'bg-gg-pink/10 text-gg-pink border-gg-pink hover:bg-gg-pink/20'
                                 }`}
                               >
                                 <MapPin size={12} />
@@ -1309,6 +1365,7 @@ export default function ControlCenterPage() {
                                 <span className="text-gg-gray-400 text-sm">{getSoilRatingLabel(listing.state)}</span>
                               </div>
                               <span className="text-gg-gray-400 text-sm">{tract.land_type || ''}</span>
+                              </div>
                             </div>
                             <span className={`px-2 py-0.5 rounded-lg text-xs font-medium ${getStatusColor(state.status)}`}>
                               {state.status}
