@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Map, Calendar, Building2, BarChart3, LogOut, User, Users, Settings, Filter, Bookmark } from 'lucide-react'
+import { SHOW_PRIVATE_TREATY } from '@/lib/featureFlags'
 
 type TabType = 'map' | 'auctions' | 'private_treaty' | 'results'
 
@@ -53,7 +54,8 @@ export default function PortalNavBar({ activeTab, onTabChange, onFilterToggle, f
   const tabs: { key: TabType; label: string; icon: React.ReactNode }[] = [
     { key: 'map', label: 'Map', icon: <Map size={15} /> },
     { key: 'auctions', label: 'Auctions', icon: <Calendar size={15} /> },
-    { key: 'private_treaty', label: 'Private Treaty', icon: <Building2 size={15} /> },
+    // PT hidden 2026-07-20, reversible
+    ...(SHOW_PRIVATE_TREATY ? [{ key: 'private_treaty' as TabType, label: 'Private Treaty', icon: <Building2 size={15} /> }] : []),
     { key: 'results', label: 'Results', icon: <BarChart3 size={15} /> },
   ]
 

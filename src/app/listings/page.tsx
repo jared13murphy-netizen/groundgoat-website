@@ -6,6 +6,7 @@ import Link from 'next/link'
 import dynamic from 'next/dynamic'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { formatAcres } from '@/lib/format'
+import { SHOW_PRIVATE_TREATY } from '@/lib/featureFlags'
 import { Loader2, MapPin, Calendar, DollarSign, Building2, Filter, X, ChevronLeft, ChevronRight, Map } from 'lucide-react'
 import { getCountiesForState, getStateAbbreviation, US_STATES } from '@/data/counties'
 import { getDistanceToCounty } from '@/data/countyCoordinates'
@@ -385,6 +386,7 @@ function ListingsPageContent() {
           >
             Auctions
           </button>
+          {SHOW_PRIVATE_TREATY && (
           <button
             onClick={() => { setActiveTab('private_treaty'); setPage(1) }}
             className={`px-6 py-3 rounded-lg font-medium transition-colors ${
@@ -395,6 +397,7 @@ function ListingsPageContent() {
           >
             Private Treaty
           </button>
+          )}
           <button
             onClick={() => { setActiveTab('results'); setPage(1) }}
             className={`px-6 py-3 rounded-lg font-medium transition-colors ${

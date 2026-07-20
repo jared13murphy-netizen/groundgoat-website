@@ -8,6 +8,7 @@ import Link from 'next/link'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Loader2, BarChart3, ArrowLeft } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
+import { SHOW_PRIVATE_TREATY } from '@/lib/featureFlags'
 import { toRings as toTractRings } from '@/lib/polygonRings'
 import { getDistanceToCounty, getCountyCoordinates } from '@/data/countyCoordinates'
 import PortalNavBar from '@/components/portal/PortalNavBar'
@@ -352,8 +353,13 @@ function AccessPortalPageInner() {
       const res = await fetchWithAuth(`${API_URL}/api/watchlist`)
       if (res.ok) {
         const data = await res.json()
-        const ids = new Set<string>(data.map((w: any) => String(w.listing_id || w.listing?.id)))
-        const listings = data.map((w: any) => w.listing).filter(Boolean)
+        // PT hidden 2026-07-20, reversible — guard against a previously-
+        // favorited PT listing still showing up client-side.
+        const filtered = SHOW_PRIVATE_TREATY
+          ? data
+          : data.filter((w: any) => w.listing?.listing_type !== 'private_treaty')
+        const ids = new Set<string>(filtered.map((w: any) => String(w.listing_id || w.listing?.id)))
+        const listings = filtered.map((w: any) => w.listing).filter(Boolean)
         setWatchlistIds(ids)
         setWatchlistListings(listings)
       } else {
