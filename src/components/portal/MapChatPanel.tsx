@@ -452,14 +452,34 @@ export default function MapChatPanel({ onApplyFilters, onChatReportResult, curre
         transition={{ type: 'spring', damping: 28, stiffness: 240 }}
         style={{
           filter: 'drop-shadow(0 3px 12px rgba(0,0,0,0.7)) drop-shadow(0 1px 4px rgba(0,0,0,0.5))',
+          // Collapsed state gets the brand pink→magenta gradient (same
+          // family as the Goat Analysis pane's gradient) instead of a
+          // flat fill. Expanded state keeps its dark glass look.
+          ...(!open && {
+            background: 'linear-gradient(135deg, #F58CDE 0%, #EC4899 100%)',
+            borderColor: 'rgba(255,255,255,0.35)',
+          }),
         }}
-        className={`relative rounded-full flex items-center gap-2 pl-5 pr-1.5 py-1.5 overflow-hidden transition-colors duration-300 ${
+        className={`group relative rounded-full flex items-center gap-2 pl-5 pr-1.5 py-1.5 overflow-hidden transition-colors duration-300 ${
           open
             ? 'bg-black/75 backdrop-blur-xl border border-white/15 focus-within:border-gg-pink/70'
-            : 'bg-gg-pink hover:bg-gg-pink-light border border-gg-pink cursor-pointer'
+            : 'border cursor-pointer hover:brightness-110'
         }`}
         onClick={!open ? () => setOpen(true) : undefined}
       >
+        {/* Shiny sheen — a soft top highlight over the gradient so the
+            collapsed pill reads as glossy rather than a flat fill.
+            Pointer-events-none so it never blocks the click-to-open
+            handler on the form above. */}
+        {!open && (
+          <span
+            className="absolute inset-0 rounded-full pointer-events-none"
+            style={{
+              background:
+                'linear-gradient(180deg, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0.08) 32%, rgba(255,255,255,0) 58%)',
+            }}
+          />
+        )}
         <Sparkles
           size={18}
           className={`flex-shrink-0 transition-colors duration-300 ${

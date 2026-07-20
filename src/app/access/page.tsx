@@ -41,6 +41,7 @@ interface User {
   account_type: string
   home_county?: string
   home_state?: string
+  can_use_goat_search?: boolean
 }
 
 interface Listing {
@@ -980,10 +981,12 @@ function AccessPortalPageInner() {
         onClose={() => setShow3DViewer(false)}
       />
 
-      {/* AI Map Search — admin only for now (operator pilot). Once
-          validated we drop the gating and surface for all signed-in
-          subscribers. */}
-      {user?.account_type === 'groundgoat_admin' && (
+      {/* AI Map Search — gated on the backend's can_use_goat_search flag,
+          with the admin account_type check kept as an OR fallback so
+          admins never lose access if the backend flag isn't present yet
+          (deploy-order safety: this frontend change can ship before the
+          backend starts sending the field). */}
+      {(user?.can_use_goat_search || user?.account_type === 'groundgoat_admin') && (
         <MapChatPanel
           onApplyFilters={handleChatApplyFilters}
           onChatReportResult={handleChatReportResult}
