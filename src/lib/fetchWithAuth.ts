@@ -190,7 +190,16 @@ export async function fetchScraperProxy(path: string, init: RequestInit = {}): P
   }
 }
 
-export async function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Response> {
+export async function fetchWithAuth(
+  url: string,
+  options: RequestInit = {},
+  // Per-call override for DEFAULT_TIMEOUT_MS. Only pass this for an
+  // endpoint that's KNOWN to legitimately run longer than 20s (e.g.
+  // /api/map/chat-filter, whose backend does bounded LLM-call retries
+  // within a ~24s budget) — do not bump the global default, since that
+  // would slow down fail-fast detection for every other endpoint.
+  timeoutMs: number = DEFAULT_TIMEOUT_MS,
+): Promise<Response> {
   const token = localStorage.getItem('auth_token')
 
   const headers = new Headers(options.headers || {})
@@ -198,7 +207,7 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}): Pro
     headers.set('Authorization', `Bearer ${token}`)
   }
 
-  let response = await fetchWithTransientRetry(url, { ...options, headers }, DEFAULT_TIMEOUT_MS)
+  let response = await fetchWithTransientRetry(url, { ...options, headers }, timeoutMs)
 
   // Only attempt refresh on 401 (token actually rejected). 502/503/504 are
   // backend transients — we surface them to the caller so the UI can show
@@ -214,7 +223,7 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}): Pro
 
     if (result.kind === 'ok') {
       headers.set('Authorization', `Bearer ${result.token}`)
-      response = await fetchWithTimeout(url, { ...options, headers }, DEFAULT_TIMEOUT_MS)
+      response = await fetchWithTimeout(url, { ...options, headers }, timeoutMs)
     } else if (result.kind === 'expired') {
       // Genuinely signed out. Skip redirect when we're already on /signin
       // so we don't create a redirect loop.

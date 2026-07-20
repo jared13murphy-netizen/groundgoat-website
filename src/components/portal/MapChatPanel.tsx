@@ -281,20 +281,49 @@ export default function MapChatPanel({ onApplyFilters, onChatReportResult, curre
     // while the filtered search was still in flight and the camera
     // hadn't snapped to the new results yet.
     let handedOffToMapFetch = false
+    // Backend does bounded LLM-call retries within a ~24s budget, so this
+    // request needs to outlast that — 30s, passed as a per-call override
+    // so we don't slow down fetchWithAuth's 20s default for every other
+    // endpoint on the site.
+    const CHAT_FILTER_TIMEOUT_MS = 30_000
+    // A failure inside 6s is a transient network/connection blip (dropped
+    // socket, DNS hiccup) — worth one silent retry before bothering the
+    // user. A failure that took longer means the backend already spent
+    // its own ~24s retry budget and genuinely gave up; retrying THAT would
+    // just double the wait for the same outcome, so we don't.
+    const FAST_FAIL_THRESHOLD_MS = 6_000
+    const requestChatFilter = () =>
+      fetchWithAuth(
+        `${API_URL}/api/map/chat-filter`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            message: text,
+            // Per user spec 2026-05-08: every new search is FRESH, not a
+            // refinement of the previous results. Sending {} means the
+            // LLM has no prior-filter context to inherit — queries like
+            // "Steffes Dec 2025 auctions" don't get intersected with a
+            // previous "Iowa CSR2 70+" filter.
+            current_filters: {},
+          }),
+        },
+        CHAT_FILTER_TIMEOUT_MS,
+      )
     try {
-      const res = await fetchWithAuth(`${API_URL}/api/map/chat-filter`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: text,
-          // Per user spec 2026-05-08: every new search is FRESH, not a
-          // refinement of the previous results. Sending {} means the
-          // LLM has no prior-filter context to inherit — queries like
-          // "Steffes Dec 2025 auctions" don't get intersected with a
-          // previous "Iowa CSR2 70+" filter.
-          current_filters: {},
-        }),
-      })
+      let res: Response
+      const attemptStart = Date.now()
+      try {
+        res = await requestChatFilter()
+      } catch (firstError) {
+        if (Date.now() - attemptStart < FAST_FAIL_THRESHOLD_MS) {
+          // Silent retry — spinner (loading state) stays up, no toast yet.
+          console.warn('chat-filter fast-fail, retrying once:', firstError)
+          res = await requestChatFilter()
+        } else {
+          throw firstError
+        }
+      }
       const body = await res.json().catch(() => ({} as any))
       if (!res.ok) {
         // Never surface raw `detail` here — historically that's a Python
@@ -351,11 +380,13 @@ export default function MapChatPanel({ onApplyFilters, onChatReportResult, curre
       }
     } catch (e: any) {
       // fetchWithAuth doesn't receive a caller-owned AbortSignal here, so
-      // any AbortError is its own internal 20s timeout — not an unmount/
-      // cancellation we can silently ignore. Never surface e.message
-      // (e.g. "Failed to fetch", "The user aborted a request") — log the
-      // real error for debugging and show the same friendly toast as the
-      // non-OK path.
+      // any AbortError is its own internal 30s timeout (CHAT_FILTER_TIMEOUT_MS
+      // above) — not an unmount/cancellation we can silently ignore. Reaching
+      // this catch means either the fast-fail retry above also failed, or the
+      // failure took >= 6s the first time (a real, exhausted backend timeout)
+      // and was never retried. Never surface e.message (e.g. "Failed to
+      // fetch", "The user aborted a request") — log the real error for
+      // debugging and show the same friendly toast as the non-OK path.
       console.error('chat-filter request failed:', e)
       setToast({ kind: 'err', text: 'Goat Search hit a snag — try again in a moment.' })
       scheduleToastDismiss('err', 'Goat Search hit a snag — try again in a moment.')
