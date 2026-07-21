@@ -292,7 +292,14 @@ export default function MapChatPanel({ onApplyFilters, onChatReportResult, curre
     // its own ~24s retry budget and genuinely gave up; retrying THAT would
     // just double the wait for the same outcome, so we don't.
     const FAST_FAIL_THRESHOLD_MS = 6_000
-    const requestChatFilter = () =>
+    // A SLOW failure (>= 6s) usually means our own 30s client abort fired,
+    // or a late network error, while the backend's hardened budget is only
+    // ~24s and typical success is 2-6s. That shape matches a lost-response
+    // blip (backend finished, client never got it) more often than a truly
+    // stuck backend, so it still deserves one retry — just with a shorter
+    // 15s timeout so the worst case is ~45s total, not 60s.
+    const SLOW_RETRY_TIMEOUT_MS = 15_000
+    const requestChatFilter = (timeoutMs: number = CHAT_FILTER_TIMEOUT_MS) =>
       fetchWithAuth(
         `${API_URL}/api/map/chat-filter`,
         {
@@ -308,7 +315,7 @@ export default function MapChatPanel({ onApplyFilters, onChatReportResult, curre
             current_filters: {},
           }),
         },
-        CHAT_FILTER_TIMEOUT_MS,
+        timeoutMs,
       )
     try {
       let res: Response
@@ -316,12 +323,19 @@ export default function MapChatPanel({ onApplyFilters, onChatReportResult, curre
       try {
         res = await requestChatFilter()
       } catch (firstError) {
-        if (Date.now() - attemptStart < FAST_FAIL_THRESHOLD_MS) {
+        const elapsed = Date.now() - attemptStart
+        if (elapsed < FAST_FAIL_THRESHOLD_MS) {
           // Silent retry — spinner (loading state) stays up, no toast yet.
           console.warn('chat-filter fast-fail, retrying once:', firstError)
           res = await requestChatFilter()
         } else {
-          throw firstError
+          // Slow first failure (30s abort or late network error) — one
+          // more silent retry with a shorter 15s timeout. Max attempts
+          // stays at 2 total: this branch only runs on the FIRST attempt's
+          // failure, so a fast-fail retry that then fails slowly lands in
+          // the outer catch below instead of looping back here.
+          console.warn('chat-filter slow-fail, retrying once with shorter timeout:', firstError)
+          res = await requestChatFilter(SLOW_RETRY_TIMEOUT_MS)
         }
       }
       const body = await res.json().catch(() => ({} as any))
@@ -380,13 +394,14 @@ export default function MapChatPanel({ onApplyFilters, onChatReportResult, curre
       }
     } catch (e: any) {
       // fetchWithAuth doesn't receive a caller-owned AbortSignal here, so
-      // any AbortError is its own internal 30s timeout (CHAT_FILTER_TIMEOUT_MS
-      // above) — not an unmount/cancellation we can silently ignore. Reaching
-      // this catch means either the fast-fail retry above also failed, or the
-      // failure took >= 6s the first time (a real, exhausted backend timeout)
-      // and was never retried. Never surface e.message (e.g. "Failed to
-      // fetch", "The user aborted a request") — log the real error for
-      // debugging and show the same friendly toast as the non-OK path.
+      // any AbortError is its own internal timeout (CHAT_FILTER_TIMEOUT_MS
+      // or SLOW_RETRY_TIMEOUT_MS above) — not an unmount/cancellation we
+      // can silently ignore. Reaching this catch means the retry (fast-fail
+      // OR slow-fail, whichever branch ran above) also failed — total
+      // attempts are always capped at 2, so there's no further retry from
+      // here. Never surface e.message (e.g. "Failed to fetch", "The user
+      // aborted a request") — log the real error for debugging and show
+      // the same friendly toast as the non-OK path.
       console.error('chat-filter request failed:', e)
       setToast({ kind: 'err', text: 'Goat Search hit a snag — try again in a moment.' })
       scheduleToastDismiss('err', 'Goat Search hit a snag — try again in a moment.')
