@@ -26,6 +26,7 @@ import {
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { formatAcres } from '@/lib/format'
 import { SOIL_FILTER_ENABLED } from '@/lib/featureFlags'
+import { shouldHideParcelDotsForFilters } from '@/lib/parcelDotsFilterGate'
 import { toRings as toTractRings, ringsToGeometry, pointInBoundary } from '@/lib/polygonRings'
 import Tract3DModal from '@/components/Tract3DModal'
 import GroundTruthPanel from '@/components/portal/GroundTruthPanel'
@@ -4458,6 +4459,20 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // the floor to REGRID_MIN_ZOOM=11 and reveals the "+" — see the mount
   // effect above for why (no Regrid parcel outline below z11, so a dot
   // there has no boundary to sit on and nothing to open at that zoom).
+  // Goat Search / filter-panel gate (owner bug report 2026-07-21): a
+  // search that constrains LISTINGS/TRACTS can NEVER be satisfied by a
+  // raw Regrid sale parcel — see shouldHideParcelDotsForFilters'
+  // docstring (src/lib/parcelDotsFilterGate.ts) for the full field-list
+  // rationale and the future-evolution note (delete a field from that
+  // ONE shared list, not from every map, once the backend endpoint
+  // understands it). FilterState's field names match ParcelDotsGateInput
+  // 1:1 (both mirror get_map_parcel_sale_dots' query params), so this is
+  // a direct pass-through — no per-map adapter needed here. This effect
+  // reacts to the SAME filter fields the moveend-fetch effect below
+  // reacts to, and re-applies visibility on every one of their changes,
+  // not just on mount, so panning after a search can't un-hide them.
+  const hideParcelDotsForFilters = shouldHideParcelDotsForFilters(filters)
+
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded) return
@@ -4465,12 +4480,25 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     try {
       if (map.getLayer(DURABLE_DOT_LAYER)) {
         map.setLayerZoomRange(DURABLE_DOT_LAYER, inComp ? REGRID_MIN_ZOOM : DURABLE_DOT_MIN_ZOOM, 24)
+        map.setLayoutProperty(DURABLE_DOT_LAYER, 'visibility', hideParcelDotsForFilters ? 'none' : 'visible')
       }
       if (map.getLayer(DURABLE_DOT_PLUS_LAYER)) {
-        map.setLayoutProperty(DURABLE_DOT_PLUS_LAYER, 'visibility', inComp ? 'visible' : 'none')
+        map.setLayoutProperty(DURABLE_DOT_PLUS_LAYER, 'visibility', (inComp && !hideParcelDotsForFilters) ? 'visible' : 'none')
       }
     } catch {/* layer torn down */}
-  }, [mapLoaded, subjectTractId])
+  }, [
+    mapLoaded, subjectTractId, hideParcelDotsForFilters,
+    filters.soilRatingMin, filters.soilRatingMax,
+    filters.pctTillableMin, filters.pctTillableMax,
+    filters.landTypes, filters.listingType,
+    filters.pricePerAcreMin, filters.pricePerAcreMax,
+    filters.askingPriceMin, filters.askingPriceMax,
+    filters.pricePerSoilRatingMin, filters.pricePerSoilRatingMax,
+    filters.nearLat, filters.nearLng, filters.radiusMiles,
+    filters.cornersMin, filters.cornersMax,
+    filters.companyName, filters.buyer, filters.seller,
+    filters.hasHouse, filters.hasBuildings, filters.hasPolygon, filters.keyword,
+  ])
 
   // LIVE-VERIFIED FINDING (production, 8/8 durable-dot uuids): the async
   // /api/regrid/parcel?ll_uuid= lookup 404s for EVERY durable-dot uuid —
@@ -4745,6 +4773,21 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const zoomFloor = subjectTractIdRef.current ? REGRID_MIN_ZOOM : DURABLE_DOT_MIN_ZOOM
     if (!opts?.bypassZoomGate && map.getZoom() < zoomFloor) return
     if (!map.getSource(DURABLE_DOT_SOURCE)) return
+    // Defensive re-assertion (owner ask 2026-07-21): visibility is set by
+    // the dedicated filter-reactive effect above, but every moveend/pan-
+    // triggered call into this function re-checks it too, so a stale
+    // 'visible' state can never survive a pan even if something else
+    // touched this layer's layout between renders.
+    try {
+      const hideForFilters = shouldHideParcelDotsForFilters(filtersRef.current)
+      const inComp = !!subjectTractIdRef.current
+      if (map.getLayer(DURABLE_DOT_LAYER)) {
+        map.setLayoutProperty(DURABLE_DOT_LAYER, 'visibility', hideForFilters ? 'none' : 'visible')
+      }
+      if (map.getLayer(DURABLE_DOT_PLUS_LAYER)) {
+        map.setLayoutProperty(DURABLE_DOT_PLUS_LAYER, 'visibility', (inComp && !hideForFilters) ? 'visible' : 'none')
+      }
+    } catch {/* layer torn down */}
     const { from, to, upcomingOnly } = resolveDateWindow(filtersRef.current)
     if (upcomingOnly) {
       // Same rule as buildRegridSaleDotFilter: "upcoming" can't match

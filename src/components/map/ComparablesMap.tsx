@@ -19,6 +19,7 @@ import {
 import type { FilterState as CompFilterState } from '@/components/ComparablesFilterPanel'
 import { formatAcres } from '@/lib/format'
 import fetchWithAuth from '@/lib/fetchWithAuth'
+import { shouldHideParcelDotsForFilters } from '@/lib/parcelDotsFilterGate'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -403,6 +404,34 @@ export default function ComparablesMap({
       } catch {/* map already torn down */}
     }
   }, [mapReady, subjectCounty, subjectState])
+
+  // Goat Search / filter-panel gate (owner bug report 2026-07-21, same
+  // fix as ExploreMap.tsx): CompFilterState's soilRatingMin/Max and
+  // tillableMin/Max (this map's name for pct-tillable) can never be
+  // satisfied by a raw Regrid sale parcel — see shouldHideParcelDotsForFilters'
+  // docstring (src/lib/parcelDotsFilterGate.ts) for the full rationale.
+  // NOTE (2026-07-21 audit): this component currently has zero importers
+  // in the repo — the live comp map is comp mode inside ExploreMap.tsx
+  // (already fixed) — so this gate is currently unreachable in
+  // production. Applied anyway for consistency/future-proofing rather
+  // than letting this file bit-rot further from ExploreMap.tsx; flagged
+  // to the owner to confirm whether to keep, gate, or delete this file.
+  const hideParcelDotsForFilters = shouldHideParcelDotsForFilters({
+    soilRatingMin: filters?.soilRatingMin,
+    soilRatingMax: filters?.soilRatingMax,
+    pctTillableMin: filters?.tillableMin,
+    pctTillableMax: filters?.tillableMax,
+  })
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapReady) return
+    try {
+      if (map.getLayer(DURABLE_DOT_LAYER)) {
+        map.setLayoutProperty(DURABLE_DOT_LAYER, 'visibility', hideParcelDotsForFilters ? 'none' : 'visible')
+      }
+    } catch {/* layer torn down */}
+  }, [mapReady, hideParcelDotsForFilters])
 
   // Fetch durable dots on moveend at every zoom >= DURABLE_DOT_MIN_ZOOM, no
   // upper bound (mirrors the Web Explore map's durable-dot fetch in
