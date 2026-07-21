@@ -2,6 +2,7 @@ import type { ApiMapTract } from './exploreMapTypes'
 import type { StateAggregate } from './mapTypes'
 import { STATE_ABBR, STATE_BOUNDS, STATE_CENTERS, STATE_NAMES, derivePinStatus } from './mapConstants'
 import { formatAcres } from '@/lib/format'
+import { resolveTractDotLngLat } from '@/lib/polygonCentroid'
 
 function getStateAbbr(state: string): string {
   return STATE_ABBR[state] || state
@@ -17,15 +18,6 @@ function fmtCurrency(amount: number | null | undefined): string {
 }
 function fmtAcres(acres: number | null | undefined): string {
   return formatAcres(acres)
-}
-
-function getPolygonCentroid(polygon: [number, number][]): [number, number] {
-  let sumLng = 0, sumLat = 0
-  for (const [lng, lat] of polygon) {
-    sumLng += lng
-    sumLat += lat
-  }
-  return [sumLng / polygon.length, sumLat / polygon.length]
 }
 
 // A tract boundary is one ring [[lng,lat],...] (legacy) or a list of rings
@@ -71,26 +63,23 @@ function applyColocationOffset(
 }
 
 export function buildExplorePointGeoJSON(tracts: ApiMapTract[]): GeoJSON.FeatureCollection {
-  const filtered = tracts.filter(t => t.latitude != null && t.longitude != null)
+  // Dot position: STORED lat/lng always wins when present (this is the same
+  // point the backend's viewport/bbox filter selected on — matching the
+  // filter is the whole point). Only a tract with no stored coordinate AND
+  // no usable polygon (<3 pts) drops out here (no marker, same as before).
+  const resolved = tracts
+    .map(t => ({ t, pt: resolveTractDotLngLat(t.latitude, t.longitude, t.polygon_coordinates) }))
+    .filter((x): x is { t: ApiMapTract; pt: [number, number] } => x.pt !== null)
 
   // Handle co-located tracts with offset
   const coordCounts: Record<string, number> = {}
 
   return {
     type: 'FeatureCollection',
-    features: filtered.map(t => {
-      let lng = t.longitude!
-      let lat = t.latitude!
+    features: resolved.map(({ t, pt }) => {
+      let [lng, lat] = pt
 
-      // Use polygon centroid for point placement if available. For a
-      // multi-piece tract, place the dot on the LARGEST piece's centroid.
       const rings = toRings(t.polygon_coordinates).filter(r => r.length >= 3)
-      if (rings.length) {
-        const biggest = rings.reduce((a, b) => (b.length > a.length ? b : a))
-        const centroid = getPolygonCentroid(biggest)
-        lng = centroid[0]
-        lat = centroid[1]
-      }
 
       // Offset co-located points
       ;[lng, lat] = applyColocationOffset(lat, lng, coordCounts)

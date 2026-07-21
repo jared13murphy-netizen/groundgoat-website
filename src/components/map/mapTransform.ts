@@ -1,5 +1,6 @@
 import type { ApiListing, MapTract, StateAggregate } from './mapTypes'
-import { largestRing, ringsToGeometry } from '@/lib/polygonRings'
+import { ringsToGeometry } from '@/lib/polygonRings'
+import { resolveTractDotLngLat } from '@/lib/polygonCentroid'
 import countyCentroids from '@/data/countyCentroids'
 import { STATE_ABBR, STATE_BOUNDS, STATE_CENTERS, STATE_NAMES } from './mapConstants'
 
@@ -128,19 +129,13 @@ export function transformListingsToMapTracts(
 }
 
 function getTractPointCoords(tract: MapTract): [number, number] {
-  if (tract.dataResolution === 'polygon' && tract.polygon) {
-    // Centroid of the largest ring (handles multi-polygon tracts).
-    const ring = largestRing(tract.polygon)
-    if (ring && ring.length) {
-      let sumLng = 0, sumLat = 0
-      for (const [lng, lat] of ring) { sumLng += lng; sumLat += lat }
-      return [sumLng / ring.length, sumLat / ring.length]
-    }
-  }
-  if (tract.dataResolution === 'point' && tract.lat != null && tract.lng != null) {
-    return [tract.lng, tract.lat]
-  }
-  // Centroid fallback
+  // STORED lat/lng wins when present (matches the backend's own area
+  // centroid, and matches whatever filter selected this tract); otherwise
+  // fall back to the polygon's AREA centroid — never a plain average of
+  // vertices, which skews toward whichever ring edge has the most points.
+  const resolved = resolveTractDotLngLat(tract.lat, tract.lng, tract.polygon)
+  if (resolved) return resolved
+  // Neither a stored coordinate nor a usable polygon — county centroid.
   return [tract.countyLng, tract.countyLat]
 }
 

@@ -2,7 +2,8 @@
 
 import { useRef, useEffect, useState } from 'react'
 import maplibregl from 'maplibre-gl'
-import { ringsToGeometry, largestRing } from '@/lib/polygonRings'
+import { ringsToGeometry, toRings } from '@/lib/polygonRings'
+import { resolveTractDotLngLat } from '@/lib/polygonCentroid'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import './ComparablesMap.css'
 import { TILE_URL, TILE_ATTRIBUTION, GLYPH_URL, LABEL_TILE_URL } from './mapConstants'
@@ -525,13 +526,15 @@ export default function ComparablesMap({
   useEffect(() => {
     if (!mapContainerRef.current) return
 
-    // Determine subject pin coordinates
+    // Determine subject pin coordinates: STORED lat/lng first (same point
+    // the backend derived from the polygon), else the subject polygon's own
+    // AREA centroid, else the county centroid, else a hardcoded fallback.
     let subjectLng: number
     let subjectLat: number
 
-    if (subjectLatitude && subjectLongitude) {
-      subjectLat = subjectLatitude
-      subjectLng = subjectLongitude
+    const subjectResolved = resolveTractDotLngLat(subjectLatitude, subjectLongitude, subjectPolygon)
+    if (subjectResolved) {
+      [subjectLng, subjectLat] = subjectResolved
     } else {
       const centroid = getCountyCentroid(subjectCounty, subjectState)
       if (centroid) {
@@ -739,17 +742,6 @@ export default function ComparablesMap({
         map.on('mouseleave', 'tract-polygon-fill', () => { map.getCanvas().style.cursor = '' })
       }
 
-      // Helper: calculate polygon centroid
-      const getPolygonCentroid = (coords: number[][]): [number, number] | null => {
-        if (!coords || coords.length < 3) return null
-        let sumLng = 0, sumLat = 0
-        for (const [lng, lat] of coords) {
-          sumLng += lng
-          sumLat += lat
-        }
-        return [sumLng / coords.length, sumLat / coords.length]
-      }
-
       // Create markers for sold tracts with boundaries only
       // When visibleIds is provided, only show tracts in that set
       markerElementsRef.current.clear()
@@ -761,18 +753,15 @@ export default function ComparablesMap({
         // Skip tracts not in visible set (when filtering is active)
         if (visibleIds && !visibleIds.has(String(sale.id)) && !visibleIds.has(String(sale.tract_id))) continue
         // Skip tracts without boundary data (single ring OR multi-polygon)
-        const _ring = largestRing(sale.polygon_coordinates)
-        if (!_ring) continue
+        if (!toRings(sale.polygon_coordinates).some(r => r.length >= 3)) continue
 
-        // Use the largest ring's centroid for marker placement
-        let markerLng = sale.longitude
-        let markerLat = sale.latitude
-        const centroid = getPolygonCentroid(_ring)
-        if (centroid) {
-          markerLng = centroid[0]
-          markerLat = centroid[1]
-        }
-        if (!markerLat || !markerLng) continue
+        // Dot position: STORED lat/lng wins when present; otherwise the
+        // polygon's AREA centroid (area-weighted across every disjoint
+        // ring) — never a plain average-of-vertices, which skews toward
+        // whichever ring edge has the most vertices.
+        const resolved = resolveTractDotLngLat(sale.latitude, sale.longitude, sale.polygon_coordinates)
+        if (!resolved) continue
+        const [markerLng, markerLat] = resolved
 
         if (sale.county && sale.state) {
           const ckey = `${sale.state}-${sale.county}`

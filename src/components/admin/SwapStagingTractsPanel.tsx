@@ -18,6 +18,7 @@
 import { useState } from 'react'
 import { Loader2, ChevronsUpDown, Check } from 'lucide-react'
 import { formatAcres } from '@/lib/format'
+import { polygonAreaCentroid } from '@/lib/polygonCentroid'
 
 type SwapMode = 'polygons' | 'data' | 'everything'
 
@@ -43,7 +44,11 @@ const POLYGON_KEYS = [
 
 const DATA_KEYS = [
   'acres', 'soil_rating', 'soil_rating_type',
-  'description', 'name', 'latitude', 'longitude',
+  'description', 'name',
+  // latitude/longitude are intentionally NOT here — they no longer travel
+  // as an independent "data" field. Every mode recomputes both tracts'
+  // lat/lng from their own FINAL polygon_coordinates after the swap (see
+  // handleSwap), so a tract's dot is always its own polygon's center.
   'land_type', 'land_types',
   'has_house', 'has_building',
   'corn_acres', 'soybean_acres', 'wheat_acres', 'hay_acres',
@@ -127,6 +132,25 @@ export default function SwapStagingTractsPanel({
       nb.image_base64 = null
       nb.image_url = null
     }
+    // ONE uniform rule, independent of mode: after whatever swap just
+    // happened, each tract's latitude/longitude is recomputed from its OWN
+    // resulting (final) polygon_coordinates — never carried over as
+    // independent "data". This is what keeps a tract's dot pinned to its
+    // own boundary no matter which mode moved what:
+    //   - 'polygons' mode: na/nb each got the OTHER tract's polygon, so
+    //     this derives fresh lat/lng for it (the bug this originally fixed).
+    //   - 'data' mode: polygon_coordinates is untouched, so this is a no-op
+    //     re-derivation of each tract's own existing centroid.
+    //   - 'everything' mode: same as 'polygons' — each tract's polygon
+    //     moved, so its lat/lng is re-derived to match.
+    // Same rule the backend's geo_centroid.py uses on every tract-polygon
+    // write: an edited/moved polygon is the new source of truth for
+    // location. If a tract has no polygon at all, its lat/lng is left
+    // untouched (an area centroid is undefined without a polygon).
+    const centroidA = polygonAreaCentroid(na.polygon_coordinates)
+    if (centroidA) { na.longitude = centroidA[0]; na.latitude = centroidA[1] }
+    const centroidB = polygonAreaCentroid(nb.polygon_coordinates)
+    if (centroidB) { nb.longitude = centroidB[0]; nb.latitude = centroidB[1] }
     updated[ia] = na
     updated[ib] = nb
 
