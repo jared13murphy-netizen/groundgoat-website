@@ -2842,11 +2842,14 @@ export default function AdminStagingPage() {
                   </table>
                 </div>
 
-                {/* Error details */}
-                {latestRunResults.runs.some((r) => r.error_message) && (
+                {/* Error details — only true failures. Successful discovery runs may
+                    carry informational text in error_message (e.g. the no_date_kept/
+                    no_date_dropped counts from the date-gate fix); showing those here
+                    would bury real failures in noise. */}
+                {latestRunResults.runs.some((r) => r.error_message && r.status === 'failed') && (
                   <div className="mt-4 space-y-2">
                     <h3 className="text-sm font-semibold text-white">Errors</h3>
-                    {latestRunResults.runs.filter((r) => r.error_message).map((run, idx) => (
+                    {latestRunResults.runs.filter((r) => r.error_message && r.status === 'failed').map((run, idx) => (
                       <div key={idx} className="bg-red-500/10 border border-red-500/20 rounded-lg p-3">
                         <span className="text-sm text-red-400 font-medium">{run.company_name}:</span>
                         <span className="text-sm text-red-400/80 ml-2 font-mono">{run.error_message}</span>
