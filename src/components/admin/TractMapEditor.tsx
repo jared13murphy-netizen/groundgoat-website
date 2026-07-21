@@ -55,8 +55,9 @@ import { fetchWithAuth, fetchScraperProxy } from '@/lib/fetchWithAuth'
 const SCRAPER_PROXY = '/api/scraper-proxy'
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 // Multi-polygon CREATION gate. ON now that every display surface (website
-// ExploreMap + access-page zoom/pin, ComparablesMap, mobile ExploreMapView,
-// PDF report) + enrichment + validation render/handle all rings. Fixed
+// ExploreMap + access-page zoom/pin (browse AND comp mode), mobile
+// ExploreMapView, PDF report) + enrichment + validation render/handle
+// all rings. Fixed
 // 2026-07-13: several of those renderers had a raw `.length >= 3` check on
 // the OUTER array (ring count, not point count) that silently dropped
 // multi-ring tracts or, worse, treated each ring as a single flat point and

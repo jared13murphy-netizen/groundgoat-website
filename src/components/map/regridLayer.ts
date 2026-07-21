@@ -1,8 +1,9 @@
 /**
  * Shared Regrid vector-tile layer wiring.
  *
- * Used by ExploreMap (browse view) and ComparablesMap (comp report
- * view). Same tiles, same click → popup behavior on both surfaces.
+ * Used by ExploreMap (browse view AND comp-mode; the comp report view
+ * is comp mode inside ExploreMap, not a separate component). Same
+ * tiles, same click → popup behavior on both.
  *
  * The popup ALWAYS renders Owner / Address / Acres / Last Sale.
  * Missing values display as "—". Backend (`/api/regrid/parcel`) is

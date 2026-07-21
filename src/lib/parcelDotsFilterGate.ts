@@ -4,7 +4,7 @@
  * (source 'parcel-sale-dots-durable', fed by GET /api/map/parcel-sale-dots)
  * AND supports search/filtering:
  *   - Web Explore Map   (src/components/map/ExploreMap.tsx)
- *   - Web Comp Map      (src/components/map/ComparablesMap.tsx, if it filters)
+ *   - Web Comp Map      (comp mode inside src/components/map/ExploreMap.tsx)
  *   - Mobile Explore Map, Mobile Comp Map — mirrored as a .js file, see below.
  *
  * OWNER BUG (2026-07-21): a Goat Search or filter-panel search that

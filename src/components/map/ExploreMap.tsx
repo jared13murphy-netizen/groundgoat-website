@@ -8414,7 +8414,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         </div>
       )}
 
-      {/* Sale Detail Modal — same as ComparablesMap */}
+      {/* Sale Detail Modal — styling shared via ComparablesMap.css */}
       {selectedSale && (
         <div className="sale-modal-overlay" onClick={() => setSelectedSale(null)}>
           <div className="sale-modal-content" onClick={(e) => e.stopPropagation()}>
