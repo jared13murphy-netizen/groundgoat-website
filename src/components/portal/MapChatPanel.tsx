@@ -784,6 +784,14 @@ export default function MapChatPanel({ onApplyFilters, onChatReportResult, curre
                     </ResponsiveContainer>
                   </motion.div>
                 )}
+
+                {/* Disclaimer — owner-approved copy (2026-07-22). Sits as
+                    the last element in the scrollable content, below the
+                    chart when present, so it's always visible once the
+                    user scrolls to the end of the analysis. */}
+                <p className="mt-6 pt-4 border-t border-white/15 text-[11px] leading-relaxed text-white/50">
+                  This analysis is based on Ground Goat&apos;s data and may not encompass all real estate transactions in the area.
+                </p>
               </div>
             </motion.div>
           </>
