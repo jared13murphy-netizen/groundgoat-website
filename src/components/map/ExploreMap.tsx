@@ -2961,6 +2961,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         type: 'fill',
         source: 'tract-polygons',
         minzoom: TRACT_TIER_MIN,
+        // Created lazily (first polygon batch), so the owner-search gate's
+        // effect may already have run — stamp the current gate state here
+        // or a search-in-progress would show polygons the pins are hiding.
+        layout: { visibility: ownerSearchActiveRef.current ? 'none' : 'visible' },
         paint: {
           'fill-color': '#E91E8C',
           // Bumped 0.08 → 0.20 per user 2026-05-15 — when zoomed in
@@ -2974,6 +2978,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         type: 'line',
         source: 'tract-polygons',
         minzoom: TRACT_TIER_MIN,
+        layout: { visibility: ownerSearchActiveRef.current ? 'none' : 'visible' },
         paint: {
           'line-color': '#E91E8C',
           'line-width': 3,
@@ -6575,6 +6580,15 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       }
       if (map.getLayer('tract-pin-labels')) {
         map.setLayoutProperty('tract-pin-labels', 'visibility', ownerSearchActive ? 'none' : 'visible')
+      }
+      // The pink tract polygon fill/outline must hide with the pins —
+      // they're the same "pink tract" visual as far as an owner search
+      // is concerned (mobile gates its tract-polygon layers the same way).
+      if (map.getLayer('tract-polygon-fill')) {
+        map.setLayoutProperty('tract-polygon-fill', 'visibility', ownerSearchActive ? 'none' : 'visible')
+      }
+      if (map.getLayer('tract-polygon-line')) {
+        map.setLayoutProperty('tract-polygon-line', 'visibility', ownerSearchActive ? 'none' : 'visible')
       }
     } catch {/* layer torn down */}
   }, [mapLoaded, ownerSearchActive])
