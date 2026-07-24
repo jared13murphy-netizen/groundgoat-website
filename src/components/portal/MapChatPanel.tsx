@@ -67,6 +67,25 @@ interface MapChatPanelProps {
       parcels as dots and zooms to them; `reply` is the human-readable
       summary line (or "none found" message when count is 0). */
   onOwnerParcels?: (data: OwnerParcelsResponse, reply: string) => void
+  /** Fired ONLY in the two branches of submit() that actually change what
+      the map shows — owner_parcels_response and a non-empty
+      applied_filters — with the raw query text the user typed. Lets the
+      parent (access/page.tsx) surface the active-search bubble below.
+      Deliberately distinct from onSearchStart (which fires unconditionally,
+      the instant ANY search is submitted, to kick off the map's loading
+      animation before the response shape is even known) — this one only
+      fires when there's real map state for the bubble's X to clear. */
+  onSearchQueryStart?: (text: string) => void
+  /** Active Goat Search bubble (designer spec 2026-07-24) — replaces the
+      old owner chip (ExploreMap.tsx) and this panel's own "Clear search"
+      pill with one unified bubble. Text of the search currently driving
+      the map, or null when nothing is active. Owned by the parent since
+      it must survive independent of this panel's own submit() calls. */
+  activeSearchQuery?: string | null
+  /** Clears activeSearchQuery AND resets the map's chat-applied filters
+      (which, via ExploreMap's applyExternalFilters effect, also clears
+      any owner-parcels dots) — the bubble's X button. */
+  clearActiveSearch?: () => void
 }
 
 interface OutOfScopeResponse {
@@ -128,7 +147,7 @@ function buildAnalyticsAnswer(a: AnalyticsResponse | null): string {
   return lines.join('\n')
 }
 
-export default function MapChatPanel({ onApplyFilters, onChatReportResult, currentFilters, hasActiveFilters, onSearchStart, onSearchEnd, mapSearchError, onOwnerParcels }: MapChatPanelProps) {
+export default function MapChatPanel({ onApplyFilters, onChatReportResult, currentFilters, hasActiveFilters, onSearchStart, onSearchEnd, mapSearchError, onOwnerParcels, onSearchQueryStart, activeSearchQuery, clearActiveSearch }: MapChatPanelProps) {
   const [open, setOpen] = useState(false)
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -357,6 +376,7 @@ export default function MapChatPanel({ onApplyFilters, onChatReportResult, curre
       // onChatReportResult like the other two report-panel shapes below.
       if (body.owner_parcels_response) {
         onOwnerParcels?.(body.owner_parcels_response as OwnerParcelsResponse, body.reply || '')
+        onSearchQueryStart?.(text)
         setInput('')
         setToast(null)
         setOpen(false)
@@ -384,6 +404,7 @@ export default function MapChatPanel({ onApplyFilters, onChatReportResult, curre
         if (af && Object.keys(af).length > 0) {
           onApplyFilters(af, !!body.clear_unspecified)
           handedOffToMapFetch = true
+          onSearchQueryStart?.(text)
         }
         setInput('')
         const okText = body.reply || 'Filters applied.'
@@ -461,25 +482,28 @@ export default function MapChatPanel({ onApplyFilters, onChatReportResult, curre
         )}
       </AnimatePresence>
 
-      {/* Clear search — visible whenever any filter is active. One
-          click reverts the map to the unfiltered default view. */}
+      {/* Active Goat Search bubble (designer spec 2026-07-24) — replaces
+          the old "Clear search" pill above AND the owner chip that used
+          to live in ExploreMap.tsx with one unified affordance. Shows the
+          raw query text that's currently driving the map (filter search
+          OR owner-parcels search); its X clears both activeSearchQuery
+          and the map's chat-applied filters (which, via ExploreMap's
+          applyExternalFilters effect, also clears owner-parcels dots and
+          restores every layer that search hid). */}
       <AnimatePresence>
-        {hasActiveFilters && !loading && (
-          <motion.button
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 6 }}
+        {activeSearchQuery && !loading && (
+          <motion.div
+            initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 6 }}
             transition={{ duration: 0.15 }}
-            onClick={() => {
-              onApplyFilters({}, true)
-              setToast({ kind: 'ok', text: 'Filters cleared.' })
-              scheduleToastDismiss('ok', 'Filters cleared.')
-            }}
-            className="px-3 py-1 rounded-full text-[11px] bg-black/70 hover:bg-black/85 text-white border border-white/15 hover:border-gg-pink/50 backdrop-blur-md flex items-center gap-1 transition-colors"
-            style={{ filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.5))' }}
+            className="flex items-center gap-2 pl-4 pr-1.5 py-1.5 rounded-full text-[12px] font-medium bg-black/70 border border-gg-pink/40 backdrop-blur-md text-white"
+            style={{ maxWidth: 'min(520px, calc(100vw - 96px))', filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.5))' }}
           >
-            <X size={11} /> Clear search
-          </motion.button>
+            <span className="truncate">{activeSearchQuery}</span>
+            <button onClick={clearActiveSearch} aria-label="Clear search"
+              className="flex-shrink-0 w-6 h-6 rounded-full bg-white/12 hover:bg-white/20 flex items-center justify-center transition-colors">
+              <X size={12} />
+            </button>
+          </motion.div>
         )}
       </AnimatePresence>
 

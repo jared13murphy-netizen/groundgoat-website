@@ -1190,6 +1190,21 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   }
   // The setData/fitBounds effect for ownerParcelsResult lives further
   // down, right after `mapLoaded` is declared (it reads that state).
+  // Owner-search-only display gate (owner bug report 2026-07-24): a
+  // search like "show me parcels owned by X" must show ONLY the owner's
+  // blue dots — every tract-pin and sold-parcel pink-dot layer has to
+  // disappear while the chip is up, or the two result sets visually
+  // blend. Derived directly from ownerParcelsChip (single source of
+  // truth) so restoration falls out of clearOwnerParcels going to null —
+  // called both by the chip's own X button and, already, by a subsequent
+  // regular filter search inside the applyExternalFilters effect below.
+  // Green today-pin layers are deliberately excluded everywhere this is
+  // read: owner canon says today's auctions always show.
+  const ownerSearchActive = !!ownerParcelsChip
+  // Mirror for use inside fetchDurableDotsForBounds's moveend re-assert,
+  // which is a stable useCallback ([] deps) and can't close over state.
+  const ownerSearchActiveRef = useRef(false)
+  ownerSearchActiveRef.current = ownerSearchActive
 
   // Pull the live soils-overlay coverage list from the backend once on
   // mount. If the request fails the seed defaults stay in place so
@@ -4471,7 +4486,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // reacts to the SAME filter fields the moveend-fetch effect below
   // reacts to, and re-applies visibility on every one of their changes,
   // not just on mount, so panning after a search can't un-hide them.
-  const hideParcelDotsForFilters = shouldHideParcelDotsForFilters(filters)
+  // Owner-search gate (see ownerSearchActive above) ORs in here so the
+  // durable/parcel-sale dot layers hide for the SAME reason a
+  // filter-panel search would hide them, and restore correctly the
+  // instant ownerSearchActive goes false again — one boolean, one
+  // effect, no separate restore path to keep in sync.
+  const hideParcelDotsForFilters = shouldHideParcelDotsForFilters(filters) || ownerSearchActive
 
   useEffect(() => {
     const map = mapRef.current
@@ -4779,7 +4799,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // 'visible' state can never survive a pan even if something else
     // touched this layer's layout between renders.
     try {
-      const hideForFilters = shouldHideParcelDotsForFilters(filtersRef.current)
+      // Owner-search gate (owner bug report 2026-07-24): OR'd in via the
+      // ref, not the ownerSearchActive const, since this is a stable
+      // useCallback([] deps) that can't close over state — see
+      // ownerSearchActiveRef's declaration up near ownerParcelsChip.
+      // Panning during an owner search must never resurrect these dots.
+      const hideForFilters = shouldHideParcelDotsForFilters(filtersRef.current) || ownerSearchActiveRef.current
       const inComp = !!subjectTractIdRef.current
       if (map.getLayer(DURABLE_DOT_LAYER)) {
         map.setLayoutProperty(DURABLE_DOT_LAYER, 'visibility', hideForFilters ? 'none' : 'visible')
@@ -6521,14 +6546,38 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // already-mounted map, same as the DURABLE_DOT_PLUS_LAYER mode-sync
   // effect above). tract-pin-labels' price/acre text is never touched —
   // explore mode's label is unchanged, comp mode just adds the "+" on top.
+  // ownerSearchActive ANDs in here too (owner bug report 2026-07-24): an
+  // owner-parcels search must hide the "+" glyph the same as every other
+  // tract-pin layer, even in comp mode — see ownerSearchActive's
+  // declaration up near ownerParcelsChip for the single-source-of-truth
+  // rationale.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded) return
     if (!map.getLayer('tract-pin-plus')) return
     try {
-      map.setLayoutProperty('tract-pin-plus', 'visibility', subjectTractId ? 'visible' : 'none')
+      map.setLayoutProperty('tract-pin-plus', 'visibility', (subjectTractId && !ownerSearchActive) ? 'visible' : 'none')
     } catch {/* layer torn down */}
-  }, [mapLoaded, subjectTractId])
+  }, [mapLoaded, subjectTractId, ownerSearchActive])
+
+  // Owner-search-only display gate, tract-pin-circles/-labels half (owner
+  // bug report 2026-07-24): these two layers have no other visibility
+  // effect (they're 'visible' from map-init and never toggled elsewhere),
+  // so this is their sole source of truth. Hides both while
+  // ownerSearchActive is true and restores 'visible' the instant it goes
+  // false — see ownerSearchActive's declaration up near ownerParcelsChip.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+    try {
+      if (map.getLayer('tract-pin-circles')) {
+        map.setLayoutProperty('tract-pin-circles', 'visibility', ownerSearchActive ? 'none' : 'visible')
+      }
+      if (map.getLayer('tract-pin-labels')) {
+        map.setLayoutProperty('tract-pin-labels', 'visibility', ownerSearchActive ? 'none' : 'visible')
+      }
+    } catch {/* layer torn down */}
+  }, [mapLoaded, ownerSearchActive])
 
   // ── Tract-pin interactions (click → detail/comp popup; hover cursor).
   // Wired ONCE per mapLoaded. Reads the full SaleDetail from
@@ -7528,59 +7577,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             animation: 'spin 1s linear infinite',
           }} />
           Loading neighbors...
-        </div>
-      )}
-
-      {/* Owner "show on map" chip — dismissible banner shown while the
-          owner-parcels-dots layer has data (or to honestly report zero
-          matches). X clears both the chip and the dots. */}
-      {ownerParcelsChip && (
-        <div style={{
-          position: 'absolute',
-          top: loading ? 56 : 16,
-          left: '50%',
-          transform: 'translateX(-50%)',
-          zIndex: 11,
-          background: 'rgba(0,0,0,0.8)',
-          backdropFilter: 'blur(4px)',
-          color: '#fff',
-          fontSize: 13,
-          fontWeight: 500,
-          padding: '8px 10px 8px 16px',
-          borderRadius: 9999,
-          border: '1px solid rgba(45, 140, 255, 0.5)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 10,
-          maxWidth: 'min(560px, calc(100vw - 32px))',
-          boxShadow: '0 4px 12px rgba(45, 140, 255, 0.20)',
-        }}>
-          <span style={{
-            width: 9, height: 9, borderRadius: '50%', flexShrink: 0,
-            background: '#2D8CFF',
-            border: '1.5px solid #fff',
-          }} />
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {ownerParcelsChip.reply || `Owned by ${ownerParcelsChip.owner} · ${ownerParcelsChip.count} parcels · ${ownerParcelsChip.totalAcres} ac`}
-          </span>
-          <button
-            onClick={clearOwnerParcels}
-            aria-label="Clear owner search"
-            style={{
-              flexShrink: 0,
-              width: 20, height: 20,
-              borderRadius: '50%',
-              border: 'none',
-              background: 'rgba(255,255,255,0.12)',
-              color: '#fff',
-              cursor: 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 12,
-              lineHeight: 1,
-            }}
-          >
-            ✕
-          </button>
         </div>
       )}
 

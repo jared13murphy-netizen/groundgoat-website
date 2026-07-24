@@ -212,6 +212,14 @@ function AccessPortalPageInner() {
     if (chatFiltersActiveRef.current) {
       setResetFiltersSignal(prev => prev + 1)
       chatFiltersActiveRef.current = false
+      // The reset above just reverted the map to its unfiltered default,
+      // so the active-search bubble must drop with it — otherwise it
+      // keeps showing the old query text over a map it no longer
+      // describes. Only inside this branch: an owner-parcels search
+      // (chatFiltersActiveRef stays false) leaves its blue dots on the
+      // map through an analytics answer, so its bubble must survive too
+      // or the dots become unclearable.
+      setActiveSearchQuery(null)
     }
   }
   // Bumped on every Goat Search submit — kicks off the map's loading
@@ -244,6 +252,25 @@ function AccessPortalPageInner() {
   } | null>(null)
   const handleOwnerParcels = (data: OwnerParcelsResponse, reply: string) => {
     setOwnerParcelsResult({ data, reply, nonce: Date.now() })
+  }
+  // Active Goat Search bubble (designer spec 2026-07-24) — replaces the
+  // old owner chip (ExploreMap.tsx) and MapChatPanel's own "Clear search"
+  // pill with one unified bubble. Set ONLY from MapChatPanel's
+  // onSearchQueryStart, which itself only fires for the two branches of
+  // submit() that actually change the map (owner_parcels_response and a
+  // non-empty applied_filters) — never for analytics/out-of-scope/error,
+  // which leave no map state for the bubble's X to clear.
+  const [activeSearchQuery, setActiveSearchQuery] = useState<string | null>(null)
+  // Bubble's X button: clears the bubble AND resets the map's
+  // chat-applied filters. handleChatApplyFilters({}, true) bumps
+  // chatAppliedFilters' nonce, which ExploreMap's applyExternalFilters
+  // effect reacts to — that effect already calls clearOwnerParcels() and
+  // resets filters to INITIAL_FILTERS, which (with the owner-search
+  // display gate in ExploreMap) also restores every tract-pin/parcel-dot
+  // layer an owner search had hidden.
+  const clearActiveSearch = () => {
+    setActiveSearchQuery(null)
+    handleChatApplyFilters({}, true)
   }
   // Comparables mode
   const [resetFiltersSignal, setResetFiltersSignal] = useState(0)
@@ -994,6 +1021,9 @@ function AccessPortalPageInner() {
           onSearchEnd={handleChatSearchEnd}
           mapSearchError={chatMapError}
           onOwnerParcels={handleOwnerParcels}
+          onSearchQueryStart={setActiveSearchQuery}
+          activeSearchQuery={activeSearchQuery}
+          clearActiveSearch={clearActiveSearch}
           hasActiveFilters={
             !!chatAppliedFilters?.filters &&
             Object.keys(chatAppliedFilters.filters).length > 0
