@@ -7994,8 +7994,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               <div style={{ color: '#CCCCCC', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>Status</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 24 }}>
                 {[
-                  { label: 'Listed', value: 'active' },
-                  { label: 'Live', value: 'live,pending' },
+                  { label: 'Listed', value: 'listed' },
+                  { label: 'Live', value: 'auction,live,pending' },
                   { label: 'Sold', value: 'sold' },
                 ].map(opt => {
                   const isActive = filters.statuses.includes(opt.value)
