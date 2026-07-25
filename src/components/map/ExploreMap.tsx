@@ -4242,21 +4242,26 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // see its mode-sync effect above) to avoid double-rendering the same
   // parcels at z>=REGRID_MIN_ZOOM.
   //
-  // COMP MODE MINZOOM (bug fix — subject-dot/comp-dot parity sweep):
-  // unlike explore, comp mode's floor is REGRID_MIN_ZOOM (11), not
-  // DURABLE_DOT_MIN_ZOOM (9) — set via setLayerZoomRange in the mode-sync
-  // effect right below the mount effect. Below z11 the Regrid
-  // parcel-boundary layer renders nothing (empirically 204 at z10), so a
-  // dot there would float with no outline under it. This layer also now
-  // carries a companion symbol layer, DURABLE_DOT_PLUS_LAYER, with a
-  // white "+" text-field visible ONLY in comp mode — plain pink circles
-  // read as "no dots" per the bug report.
+  // COMP MODE MINZOOM (OWNER RULING 2026-07-25, supersedes the 2026-07-11
+  // comp-mode z11 floor): tract dots and parcel-sale dots must appear at
+  // the SAME zoom on every map. Comp mode now shares explore's
+  // DURABLE_DOT_MIN_ZOOM (9) floor instead of REGRID_MIN_ZOOM (11) — set
+  // via setLayerZoomRange in the mode-sync effect right below the mount
+  // effect. Below z11 the Regrid parcel-boundary layer still renders
+  // nothing (empirically 204 at z10, and that tile floor stays put — see
+  // REGRID_MIN_ZOOM's own comment), so a dot at z9-10.99 in comp mode has
+  // no outline under it yet; the click handler below compensates by
+  // zooming to REGRID_MIN_ZOOM before opening the popup ("zoom to it +
+  // open" per owner decision) instead of gating the dot's visibility.
+  // This layer also carries a companion symbol layer,
+  // DURABLE_DOT_PLUS_LAYER, with a white "+" text-field visible ONLY in
+  // comp mode — plain pink circles read as "no dots" per the bug report.
   //
   // Fade only on the way OUT (zooming below DURABLE_DOT_MIN_ZOOM), which
-  // only applies in explore mode since comp mode's floor is above it:
-  // circle-opacity/circle-stroke-opacity interpolate 0 at z8.8 to fully
-  // opaque at z9.3. Above z9.3 the style is 100% constant — same radius/
-  // color/stroke at every zoom.
+  // now applies identically in both modes since comp mode's floor matches
+  // explore's: circle-opacity/circle-stroke-opacity interpolate 0 at z8.8
+  // to fully opaque at z9.3. Above z9.3 the style is 100% constant — same
+  // radius/color/stroke at every zoom.
   //
   // Styled identical to the live sale-dot pin (#f58cde pink, white
   // ring) so there's no visual seam between explore and comp mode.
@@ -4293,13 +4298,16 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     if (!map.getSource(DURABLE_DOT_SOURCE)) {
       map.addSource(DURABLE_DOT_SOURCE, { type: 'geojson', data: EMPTY_FC })
     }
-    // Comp mode gates the dot (and its "+") to REGRID_MIN_ZOOM (11), not
-    // DURABLE_DOT_MIN_ZOOM (9): below z11 the Regrid parcel-boundary
-    // layer renders nothing (empirically 204 at z10), so a comp dot at
-    // z9-10 would float with no parcel outline under it and no way to
-    // open it at the zoom it appears. Explore mode keeps the original z9
-    // floor (owner directive: dots never go away once zoomed in) — this
-    // gate only applies while a subject tract is set.
+    // OWNER RULING 2026-07-25 (supersedes the 2026-07-11 comp-mode z11
+    // floor): comp mode now shares explore's DURABLE_DOT_MIN_ZOOM (9)
+    // floor for the dot itself — tract dots and parcel-sale dots must
+    // appear at the same zoom everywhere. Below REGRID_MIN_ZOOM (11) the
+    // Regrid parcel-boundary layer still renders nothing (empirically 204
+    // at z10), so a comp dot at z9-10.99 has no parcel outline under it
+    // yet and can't be opened in place; the click handler below zooms to
+    // REGRID_MIN_ZOOM first, then opens ("zoom to it + open"). Retained
+    // as a variable (rather than inlining DURABLE_DOT_MIN_ZOOM below)
+    // since the "+" glyph layer further down still branches on comp mode.
     const inCompModeAtMount = !!subjectTractIdRef.current
     // Captured BEFORE addLayer() below — the click-handler registration
     // further down must run exactly once (on first mount), but it used
@@ -4314,10 +4322,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         source: DURABLE_DOT_SOURCE,
         // No maxzoom — uncapped in BOTH explore and comp mode. The owner
         // directive ("dots should never change... never go away no matter
-        // how much I zoom in") has no comp-mode exception. minzoom is
-        // comp-mode-gated (see comment above); kept in sync on
-        // subjectTractId change by the mode-sync effect below.
-        minzoom: inCompModeAtMount ? REGRID_MIN_ZOOM : DURABLE_DOT_MIN_ZOOM,
+        // how much I zoom in") has no comp-mode exception, and the
+        // 2026-07-25 ruling extends that to minzoom too: DURABLE_DOT_MIN_ZOOM
+        // now applies in BOTH modes (was REGRID_MIN_ZOOM in comp mode —
+        // see the mode-sync effect below, kept in sync there for symmetry
+        // even though it's now a constant across the mode flip).
+        minzoom: DURABLE_DOT_MIN_ZOOM,
         paint: {
           // Matches ensureParcelSaleDotImage: #f58cde fill, white ring.
           'circle-color': '#f58cde',
@@ -4334,10 +4344,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         id: DURABLE_DOT_PLUS_LAYER,
         type: 'symbol',
         source: DURABLE_DOT_SOURCE,
-        // Fixed at REGRID_MIN_ZOOM — this layer is ONLY ever visible in
-        // comp mode (layout.visibility gated below), so it never needs
-        // the explore-mode z9 floor DURABLE_DOT_LAYER carries.
-        minzoom: REGRID_MIN_ZOOM,
+        // OWNER RULING 2026-07-25: the "+" must show whenever the dot
+        // shows, so this layer now shares DURABLE_DOT_MIN_ZOOM with
+        // DURABLE_DOT_LAYER (was pinned to REGRID_MIN_ZOOM). It's still
+        // ONLY ever visible in comp mode (layout.visibility gated below),
+        // just no longer gated to a higher zoom than the dot itself.
+        minzoom: DURABLE_DOT_MIN_ZOOM,
         layout: {
           'text-field': '+',
           'text-font': ['Open Sans Bold'],
@@ -4366,6 +4378,17 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         const ll_uuid = props.id as string | undefined
 
         if (subjectTractIdRef.current) {
+          // OWNER RULING 2026-07-25 ("zoom to it + open"): the dot now
+          // shows as low as z9 in comp mode (see the mount effect above),
+          // but the Regrid parcel-boundary tile it should sit on still
+          // only renders at REGRID_MIN_ZOOM (11). Tapping a dot below that
+          // zoom first eases the camera to REGRID_MIN_ZOOM on that dot,
+          // then falls straight through to the same popup logic that runs
+          // unchanged at z>=11 today — no separate code path, just an
+          // extra camera move ahead of it.
+          if (map.getZoom() < REGRID_MIN_ZOOM) {
+            map.easeTo({ center: [lng, lat], zoom: REGRID_MIN_ZOOM, duration: 900 })
+          }
           // COMP MODE: same inline CompInlinePopup + buildParcelSale shape
           // PARCEL_SALE_PLUS_LAYER's onPinClick builds (see that handler
           // above) — parity is required now that this layer is the sole
@@ -4469,16 +4492,17 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
   }, [mapLoaded])
 
-  // Keep the durable-dot "+" glyph and the dot's own zoom floor in sync
-  // with comp mode, on every subjectTractId change (mount always happens
-  // in whatever mode is active at the time, captured above as
-  // inCompModeAtMount — this effect covers a mode flip on an
-  // already-mounted map). DURABLE_DOT_PLUS_LAYER stays hidden and
-  // DURABLE_DOT_LAYER stays at the DURABLE_DOT_MIN_ZOOM=9 floor in
-  // explore mode (owner directive: dots never go away); comp mode raises
-  // the floor to REGRID_MIN_ZOOM=11 and reveals the "+" — see the mount
-  // effect above for why (no Regrid parcel outline below z11, so a dot
-  // there has no boundary to sit on and nothing to open at that zoom).
+  // Keep the durable-dot "+" glyph in sync with comp mode, on every
+  // subjectTractId change (mount always happens in whatever mode is
+  // active at the time, captured above as inCompModeAtMount — this effect
+  // covers a mode flip on an already-mounted map). OWNER RULING 2026-07-25:
+  // DURABLE_DOT_LAYER's zoom range stays at the DURABLE_DOT_MIN_ZOOM=9
+  // floor in BOTH modes now (was raised to REGRID_MIN_ZOOM=11 in comp
+  // mode — see the mount effect above for the superseded rationale and
+  // the click handler for how comp mode now handles the sub-z11 gap
+  // instead: zoom to it, then open). setLayerZoomRange is still called
+  // here every mode flip for symmetry with the "+" glyph's visibility
+  // toggle below, even though the range itself no longer varies by mode.
   // Goat Search / filter-panel gate (owner bug report 2026-07-21): a
   // search that constrains LISTINGS/TRACTS can NEVER be satisfied by a
   // raw Regrid sale parcel — see shouldHideParcelDotsForFilters'
@@ -4504,7 +4528,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const inComp = !!subjectTractId
     try {
       if (map.getLayer(DURABLE_DOT_LAYER)) {
-        map.setLayerZoomRange(DURABLE_DOT_LAYER, inComp ? REGRID_MIN_ZOOM : DURABLE_DOT_MIN_ZOOM, 24)
+        map.setLayerZoomRange(DURABLE_DOT_LAYER, DURABLE_DOT_MIN_ZOOM, 24)
         map.setLayoutProperty(DURABLE_DOT_LAYER, 'visibility', hideParcelDotsForFilters ? 'none' : 'visible')
       }
       if (map.getLayer(DURABLE_DOT_PLUS_LAYER)) {
@@ -4791,11 +4815,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   ) => {
     const map = mapRef.current
     if (!map) return
-    // Comp mode's effective floor is REGRID_MIN_ZOOM (11), not
-    // DURABLE_DOT_MIN_ZOOM (9) — see the mount effect above. Gating the
-    // fetch itself (not just the layer's minzoom) avoids firing bbox
-    // requests for a zoom range comp mode will never render.
-    const zoomFloor = subjectTractIdRef.current ? REGRID_MIN_ZOOM : DURABLE_DOT_MIN_ZOOM
+    // OWNER RULING 2026-07-25: comp mode's floor now matches explore's —
+    // DURABLE_DOT_MIN_ZOOM (9) in BOTH modes (was REGRID_MIN_ZOOM=11 in
+    // comp mode — see the mount effect above). Gating the fetch itself
+    // (not just the layer's minzoom) avoids firing bbox requests below
+    // the zoom range the layer will actually render.
+    const zoomFloor = DURABLE_DOT_MIN_ZOOM
     if (!opts?.bypassZoomGate && map.getZoom() < zoomFloor) return
     if (!map.getSource(DURABLE_DOT_SOURCE)) return
     // Defensive re-assertion (owner ask 2026-07-21): visibility is set by
