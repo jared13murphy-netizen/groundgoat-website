@@ -1518,9 +1518,31 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       .catch(() => {})
   }, [])
 
+  // Filter state. Declared here (ABOVE the today's-tracts fetch effect
+  // below, out of its usual reading-order position) because that effect
+  // now depends on `appliedFilters` — a hook referenced in an effect's
+  // closure/dep-array must already be initialized by the time that
+  // effect statement runs during the component's render pass, or React
+  // throws a TDZ "Cannot access before initialization" error.
+  const [filters, setFilters] = useState<FilterState>(INITIAL_FILTERS)
+  const [filterOpen, setFilterOpenInternal] = useState(false)
+  const filtersRef = useRef<FilterState>(INITIAL_FILTERS)
+  // Apply-atomic model: `filters` is the DRAFT the panel edits live;
+  // `appliedFilters` is the committed snapshot that drives every
+  // indicator (count bubbles, Filter-button dot, durable-dot refetch).
+  // The two only converge at the same handful of commit points where
+  // filtersRef.current is assigned today (Apply, Reset, chat-search
+  // commit, external reset) — see each site below. Editing the panel
+  // must NEVER touch this.
+  const [appliedFilters, setAppliedFilters] = useState<FilterState>(INITIAL_FILTERS)
+
   // Fetch today's auction tracts on mount and re-fetch every 10 minutes so
   // the dots roll over correctly when the user keeps the tab open past
-  // midnight (Central Time).
+  // midnight (Central Time). Today's green dots are currently ALWAYS-ON
+  // (unfiltered) — making them respect the applied filter is a decoupled
+  // follow-up that needs the /api/map/tracts/today backend endpoint to
+  // accept filter params first (sending them now would be inert and add a
+  // blank→repopulate flicker on every Apply). Mount + 10-min refresh only.
   useEffect(() => {
     let cancelled = false
     const fetchToday = async () => {
@@ -1544,10 +1566,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
   }, [])
 
-  // Filter state
-  const [filters, setFilters] = useState<FilterState>(INITIAL_FILTERS)
-  const [filterOpen, setFilterOpenInternal] = useState(false)
-  const filtersRef = useRef<FilterState>(INITIAL_FILTERS)
   // Mutable ref so the unified map-click handler always reads the
   // current overlay without being torn down/re-created on every change.
   const baseOverlayRef = useRef<'crops' | 'csb' | 'ssurgo' | 'nccpi' | 'fsa' | null>(null)
@@ -1555,12 +1573,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   useEffect(() => { baseOverlayRef.current = baseOverlay }, [baseOverlay])
 
   // Serialized filter params used by the new state/county count
-  // endpoints (and any future filter-aware fetcher). Re-computes
-  // whenever `filters` change, which causes the count effects below
-  // to re-fire automatically.
+  // endpoints (and any future filter-aware fetcher). Apply-atomic model
+  // (owner spec, 2026-07-25): keyed on appliedFilters, NOT the draft
+  // `filters` the panel edits — count bubbles must not move until the
+  // user hits Apply. Re-computes whenever appliedFilters changes, which
+  // causes the count effects below to re-fire automatically.
   const filterParamString = useMemo(() => {
-    return new URLSearchParams(buildFilterParams(filters)).toString()
-  }, [filters])
+    return new URLSearchParams(buildFilterParams(appliedFilters)).toString()
+  }, [appliedFilters])
 
   // Load nationwide county centroids ONCE so the county-tier badges
   // can render for every U.S. county.
@@ -1641,13 +1661,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   useEffect(() => {
     let cancel = false
     setCountyCounts([])
-    const stateScope = filters.stateFilter ? `state=${filters.stateFilter}&` : ''
+    const stateScope = appliedFilters.stateFilter ? `state=${appliedFilters.stateFilter}&` : ''
     fetchWithAuth(`${API_URL}/api/map/county-tract-counts?${stateScope}${filterParamString}`)
       .then(r => r.ok ? r.json() : { counties: [] })
       .then(d => { if (!cancel) setCountyCounts(d.counties || []) })
       .catch(() => { if (!cancel) setCountyCounts([]) })
     return () => { cancel = true }
-  }, [filterParamString, filters.stateFilter])
+  }, [filterParamString, appliedFilters.stateFilter])
 
   // Admin parcel-overlay state. Lights up the map with every parcel
   // (boundary + owner + acres). Visible only to groundgoat_admin users.
@@ -1756,6 +1776,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     if (resetFiltersSignal && resetFiltersSignal > 0) {
       setFilters(INITIAL_FILTERS)
       filtersRef.current = INITIAL_FILTERS
+      setAppliedFilters(INITIAL_FILTERS)
       loadedCellsRef.current = new Set()
       tractMapRef.current = new Map()
       tractsGenRef.current++
@@ -1807,6 +1828,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const nextFilters = { ...base, ...incoming }
     setFilters(nextFilters)
     filtersRef.current = nextFilters
+    // Chat commits instantly (out of scope for Apply-atomic — see task
+    // spec) — but indicators still key off appliedFilters, so commit it
+    // here too or count bubbles/Filter-button dot would silently lag a
+    // chat search until the next manual Apply.
+    setAppliedFilters(nextFilters)
 
     // Clear current tract markers / cache so the new results render fresh
     loadedCellsRef.current = new Set()
@@ -2128,6 +2154,22 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     onFilterOpenChange?.(open)
   }
 
+  // Apply-atomic model (owner spec, 2026-07-25): when the panel OPENS,
+  // re-seed the draft `filters` from the committed `appliedFilters` so the
+  // panel always reflects what's actually live on the map. Without this,
+  // draft edits abandoned via the X (closed without Apply) would linger and
+  // silently get committed on a later Apply — there'd be no way to tell a
+  // stale unapplied edit from the live filter. Mirrors the mobile panels'
+  // re-seed keyed on `visible` (ExploreFilterPanel.js, ResultsScreen.js).
+  // Keyed on filterOpen ONLY — it must NOT re-run while the panel is open
+  // (that would wipe the user's in-progress edits mid-session).
+  useEffect(() => {
+    if (filterOpen) {
+      setFilters(appliedFilters)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterOpen])
+
   // Selection / report state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [selectedTracts, setSelectedTracts] = useState<SaleDetail[]>([])
@@ -2211,25 +2253,48 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
   }
 
+  // Apply-atomic model (owner spec, 2026-07-25): the ONE place a draft
+  // filter edit is allowed to touch the map. Everything the panel changed
+  // while open (state/county/township chips, range fields, etc. — all
+  // draft-only now, see the chip onClicks below) takes effect here, all
+  // at once: commit draft→applied, wipe every layer, fly to the target
+  // location, refetch. Nothing about this list is optional — a partial
+  // clear would leave stale dots/tracts from the PRE-apply filter mixed
+  // with the new set.
   const applyFilters = () => {
     clearOwnerParcels()
+
+    // a. Commit: draft becomes the applied snapshot every indicator reads.
     filtersRef.current = filters
-    // Clear cached data so it refetches with new filters
+    setAppliedFilters(filters)
+
+    // b. CLEAR everything off the map — tract layer, durable parcel-sale
+    // dots, and today's green dots — before firing any refetch, so there
+    // is never a frame where old-filter dots sit next to new-filter tracts.
     loadedCellsRef.current = new Set()
     tractMapRef.current = new Map()
     tractsGenRef.current++
     setTracts([])
-    // Remove existing markers
-    const map = mapRef.current
+    durableDotsByIdRef.current.clear()
+    const durableSrc = mapRef.current?.getSource(DURABLE_DOT_SOURCE)
+    if (durableSrc && 'setData' in durableSrc) {
+      (durableSrc as maplibregl.GeoJSONSource).setData(EMPTY_FC)
+    }
+    // Today's green dots are always-on (unfiltered) for now — do NOT clear
+    // them on Apply (would blank then repopulate = flicker). They become
+    // filter-aware only once the backend today endpoint accepts params.
 
-    // If county filter is set, animate the map to the selected
-    // county/counties so the user sees what they just narrowed to.
-    // Uses the existing countyCentroids dataset (every Midwest county
-    // has a centroid) — no backend roundtrip. Single county = easeTo
-    // at a county-level zoom; multiple = fitBounds over their
-    // centroids with padding so they all fit on screen.
+    const map = mapRef.current
+    const inCompMode = !!subjectTractIdRef.current
+
+    // c. FLY-TO. Comp mode keeps the camera on the subject tract — never
+    // yank it to a state/county filter (owner guardrail). Explore mode:
+    // county filter wins (existing centroid-based fly, unchanged); else
+    // a state-only filter fits across the selected states' STATE_BOUNDS
+    // (this branch used to live in the state chip's onClick — it now
+    // only fires here, on Apply, per the atomic model).
     let targetBounds: { min_lat: number; max_lat: number; min_lng: number; max_lng: number } | null = null
-    if (map && filters.countyFilters.length > 0 && filters.stateFilter) {
+    if (!inCompMode && map && filters.countyFilters.length > 0 && filters.stateFilter) {
       // Picked counties may belong to different states (rare but
       // possible via Goat Search). Build "County, ST" keys per the
       // countyCentroids file format.
@@ -2261,12 +2326,32 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         map.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 80, duration: 1000 })
         targetBounds = { min_lat: minLat, max_lat: maxLat, min_lng: minLng, max_lng: maxLng }
       }
+    } else if (!inCompMode && map && filters.stateFilter) {
+      // State-only filter (no county narrowing) — fit across every
+      // selected state's bounds. Moved from the state chip's onClick
+      // (was: instant-apply on chip click); same STATE_BOUNDS math.
+      const states = filters.stateFilter.split(',').filter(Boolean)
+      let minLng = 180, minLat = 90, maxLng = -180, maxLat = -90
+      for (const s of states) {
+        const b = STATE_BOUNDS[s]
+        if (b) {
+          if (b[0][0] < minLng) minLng = b[0][0]
+          if (b[0][1] < minLat) minLat = b[0][1]
+          if (b[1][0] > maxLng) maxLng = b[1][0]
+          if (b[1][1] > maxLat) maxLat = b[1][1]
+        }
+      }
+      if (minLng < 180) {
+        map.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 40, duration: 1000 })
+        targetBounds = { min_lat: minLat, max_lat: maxLat, min_lng: minLng, max_lng: maxLng }
+      }
     }
 
     // Refetch tracts for whichever viewport the user is about to see.
     // For the single-county case we let the moveend handler do it
-    // (the easeTo will fire moveend). For multi-county and the
-    // no-county-filter case we kick a manual load here.
+    // (the easeTo will fire moveend). For multi-county/state-only/
+    // comp-mode/no-location-filter cases we kick a manual load here at
+    // the current (or just-set) viewport.
     if (!targetBounds && map) {
       const bounds = map.getBounds()
       targetBounds = {
@@ -2286,11 +2371,20 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     clearOwnerParcels()
     setFilters(INITIAL_FILTERS)
     filtersRef.current = INITIAL_FILTERS
+    setAppliedFilters(INITIAL_FILTERS)
     // Clear cached data so it refetches without filters
     loadedCellsRef.current = new Set()
     tractMapRef.current = new Map()
     tractsGenRef.current++
     setTracts([])
+    // Atomic reset (owner spec): clear durable dots the same way Apply
+    // does, so nothing from the old filter lingers. Today's green dots are
+    // always-on (unfiltered) — leave them in place (clearing would flicker).
+    durableDotsByIdRef.current.clear()
+    const durableSrc = mapRef.current?.getSource(DURABLE_DOT_SOURCE)
+    if (durableSrc && 'setData' in durableSrc) {
+      (durableSrc as maplibregl.GeoJSONSource).setData(EMPTY_FC)
+    }
     const map = mapRef.current
     if (map) {
       const bounds = map.getBounds()
@@ -2314,24 +2408,27 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // results. Must cover every field buildFilterParams sends, chat-only
   // fields included (2026-07-09 audit: countyFilters, near*/radiusMiles,
   // corners*, and pricePerSoilRating* were missing).
-  const hasActiveFilters = filters.dateRange !== 'all' || filters.stateFilter !== '' ||
-    filters.countyFilters.length > 0 ||
-    filters.townshipFilters.length > 0 ||
-    (SOIL_FILTER_ENABLED && (filters.soilRatingMin !== '' || filters.soilRatingMax !== '' ||
-      filters.pricePerSoilRatingMin !== '' || filters.pricePerSoilRatingMax !== '')) ||
-    filters.acreageMin !== '' || filters.acreageMax !== '' ||
-    filters.pctTillableMin !== '' || filters.pctTillableMax !== '' ||
-    filters.statuses.length > 0 ||
-    filters.landTypes.length > 0 ||
-    filters.listingType !== '' ||
-    filters.pricePerAcreMin !== '' || filters.pricePerAcreMax !== '' ||
-    filters.salePriceMin !== '' || filters.salePriceMax !== '' ||
-    filters.askingPriceMin !== '' || filters.askingPriceMax !== '' ||
-    (filters.nearLat !== '' && filters.nearLng !== '' && filters.radiusMiles !== '') ||
-    filters.cornersMin !== '' || filters.cornersMax !== '' ||
-    filters.companyName !== '' || filters.buyer !== '' || filters.seller !== '' ||
-    filters.hasHouse !== null || filters.hasBuildings !== null ||
-    filters.hasPolygon !== null || filters.keyword !== ''
+  // Apply-atomic model (owner spec, 2026-07-25): reads appliedFilters,
+  // NOT the draft `filters` — this indicator must not move while the
+  // panel is being edited, only on Apply/Reset/chat-search commit.
+  const hasActiveFilters = appliedFilters.dateRange !== 'all' || appliedFilters.stateFilter !== '' ||
+    appliedFilters.countyFilters.length > 0 ||
+    appliedFilters.townshipFilters.length > 0 ||
+    (SOIL_FILTER_ENABLED && (appliedFilters.soilRatingMin !== '' || appliedFilters.soilRatingMax !== '' ||
+      appliedFilters.pricePerSoilRatingMin !== '' || appliedFilters.pricePerSoilRatingMax !== '')) ||
+    appliedFilters.acreageMin !== '' || appliedFilters.acreageMax !== '' ||
+    appliedFilters.pctTillableMin !== '' || appliedFilters.pctTillableMax !== '' ||
+    appliedFilters.statuses.length > 0 ||
+    appliedFilters.landTypes.length > 0 ||
+    appliedFilters.listingType !== '' ||
+    appliedFilters.pricePerAcreMin !== '' || appliedFilters.pricePerAcreMax !== '' ||
+    appliedFilters.salePriceMin !== '' || appliedFilters.salePriceMax !== '' ||
+    appliedFilters.askingPriceMin !== '' || appliedFilters.askingPriceMax !== '' ||
+    (appliedFilters.nearLat !== '' && appliedFilters.nearLng !== '' && appliedFilters.radiusMiles !== '') ||
+    appliedFilters.cornersMin !== '' || appliedFilters.cornersMax !== '' ||
+    appliedFilters.companyName !== '' || appliedFilters.buyer !== '' || appliedFilters.seller !== '' ||
+    appliedFilters.hasHouse !== null || appliedFilters.hasBuildings !== null ||
+    appliedFilters.hasPolygon !== null || appliedFilters.keyword !== ''
 
   const polygonGeoJSON = useMemo(() => {
     const fc = buildExplorePolygonGeoJSON(tracts)
@@ -4186,14 +4283,18 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     if (!REGRID_SALE_PINS_ENABLED) return
     const map = mapRef.current
     if (!map || !mapLoaded) return
-    const saleExpr: any = buildRegridSaleDotFilter(filters, PARCEL_MIN_SALE_ACRES)
+    // Apply-atomic model: read appliedFilters (NOT the draft `filters`) so
+    // this layer's filter only changes on Apply — the twin of the parcel
+    // boundary/fill/label filter effect below. (Layer is currently always
+    // hidden, but keep it consistent so a future re-enable can't leak.)
+    const saleExpr: any = buildRegridSaleDotFilter(appliedFilters, PARCEL_MIN_SALE_ACRES)
     // Compose the state-plan gate so sale dots also respect the
     // subscriber's allowed state(s).
     const expr: any = regridStateFilter ? ['all', saleExpr, regridStateFilter] : saleExpr
     if (map.getLayer(PARCEL_SALE_PLUS_LAYER)) {
       try { map.setFilter(PARCEL_SALE_PLUS_LAYER, expr) } catch {/* layer torn down */}
     }
-  }, [mapLoaded, regridStateFilter, filters.dateRange, filters.dateFrom, filters.dateTo, filters.salePriceMin, filters.salePriceMax, filters.acreageMin, filters.acreageMax])
+  }, [mapLoaded, regridStateFilter, appliedFilters.dateRange, appliedFilters.dateFrom, appliedFilters.dateTo, appliedFilters.salePriceMin, appliedFilters.salePriceMax, appliedFilters.acreageMin, appliedFilters.acreageMax])
 
   // AUDIT FIX 2026-07-04 round 2: this layer used to flip visible between
   // explore form (plain pink dot) and comparables form (pink dot + white
@@ -4520,7 +4621,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // filter-panel search would hide them, and restore correctly the
   // instant ownerSearchActive goes false again — one boolean, one
   // effect, no separate restore path to keep in sync.
-  const hideParcelDotsForFilters = shouldHideParcelDotsForFilters(filters) || ownerSearchActive
+  // Apply-atomic model (owner spec 2026-07-25): the durable-dot HIDE gate
+  // reads appliedFilters, NOT the draft `filters` the panel edits — the
+  // pink dots must not vanish/reappear while the user is mid-edit; they
+  // only change on Apply, same as every other layer.
+  const hideParcelDotsForFilters = shouldHideParcelDotsForFilters(appliedFilters) || ownerSearchActive
 
   useEffect(() => {
     const map = mapRef.current
@@ -4537,16 +4642,16 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     } catch {/* layer torn down */}
   }, [
     mapLoaded, subjectTractId, hideParcelDotsForFilters,
-    filters.soilRatingMin, filters.soilRatingMax,
-    filters.pctTillableMin, filters.pctTillableMax,
-    filters.landTypes, filters.listingType,
-    filters.pricePerAcreMin, filters.pricePerAcreMax,
-    filters.askingPriceMin, filters.askingPriceMax,
-    filters.pricePerSoilRatingMin, filters.pricePerSoilRatingMax,
-    filters.nearLat, filters.nearLng, filters.radiusMiles,
-    filters.cornersMin, filters.cornersMax,
-    filters.companyName, filters.buyer, filters.seller,
-    filters.hasHouse, filters.hasBuildings, filters.hasPolygon, filters.keyword,
+    appliedFilters.soilRatingMin, appliedFilters.soilRatingMax,
+    appliedFilters.pctTillableMin, appliedFilters.pctTillableMax,
+    appliedFilters.landTypes, appliedFilters.listingType,
+    appliedFilters.pricePerAcreMin, appliedFilters.pricePerAcreMax,
+    appliedFilters.askingPriceMin, appliedFilters.askingPriceMax,
+    appliedFilters.pricePerSoilRatingMin, appliedFilters.pricePerSoilRatingMax,
+    appliedFilters.nearLat, appliedFilters.nearLng, appliedFilters.radiusMiles,
+    appliedFilters.cornersMin, appliedFilters.cornersMax,
+    appliedFilters.companyName, appliedFilters.buyer, appliedFilters.seller,
+    appliedFilters.hasHouse, appliedFilters.hasBuildings, appliedFilters.hasPolygon, appliedFilters.keyword,
   ])
 
   // LIVE-VERIFIED FINDING (production, 8/8 durable-dot uuids): the async
@@ -5013,12 +5118,20 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       if (durableDotsDebounceRef.current) clearTimeout(durableDotsDebounceRef.current)
     }
   }, [
+    // Apply-atomic model (owner spec, 2026-07-25): every field below reads
+    // appliedFilters, NOT the draft `filters` — this effect's body reads
+    // filtersRef.current (which only moves at Apply/Reset/chat-commit),
+    // so its dep array must match: durable dots refetch ONLY on Apply,
+    // never while the panel is being edited. If this drifted back to
+    // `filters.*`, editing the draft would clear+refetch dots again,
+    // which is exactly the "nothing until Apply" rule this whole
+    // rearchitecture exists to enforce.
     mapLoaded,
-    filters.dateRange, filters.dateFrom, filters.dateTo,
-    filters.stateFilter, filters.countyFilters, filters.townshipFilters,
-    filters.statuses,
-    filters.acreageMin, filters.acreageMax,
-    filters.salePriceMin, filters.salePriceMax,
+    appliedFilters.dateRange, appliedFilters.dateFrom, appliedFilters.dateTo,
+    appliedFilters.stateFilter, appliedFilters.countyFilters, appliedFilters.townshipFilters,
+    appliedFilters.statuses,
+    appliedFilters.acreageMin, appliedFilters.acreageMax,
+    appliedFilters.salePriceMin, appliedFilters.salePriceMax,
     // The rest of buildFilterParams' surface (2026-07-09 audit): without
     // these, a chat search that changes ONLY e.g. seller/listingType (no
     // state/status/date/county/acreage/price change) never clears the
@@ -5030,16 +5143,16 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // main.py), so those specific fields can't actually narrow this
     // layer server-side, but re-running on every filter change at least
     // stops old, no-longer-matching dots from lingering on screen.
-    filters.landTypes, filters.listingType,
-    filters.pctTillableMin, filters.pctTillableMax,
-    filters.soilRatingMin, filters.soilRatingMax,
-    filters.pricePerAcreMin, filters.pricePerAcreMax,
-    filters.askingPriceMin, filters.askingPriceMax,
-    filters.pricePerSoilRatingMin, filters.pricePerSoilRatingMax,
-    filters.nearLat, filters.nearLng, filters.radiusMiles,
-    filters.cornersMin, filters.cornersMax,
-    filters.companyName, filters.buyer, filters.seller,
-    filters.hasHouse, filters.hasBuildings, filters.keyword,
+    appliedFilters.landTypes, appliedFilters.listingType,
+    appliedFilters.pctTillableMin, appliedFilters.pctTillableMax,
+    appliedFilters.soilRatingMin, appliedFilters.soilRatingMax,
+    appliedFilters.pricePerAcreMin, appliedFilters.pricePerAcreMax,
+    appliedFilters.askingPriceMin, appliedFilters.askingPriceMax,
+    appliedFilters.pricePerSoilRatingMin, appliedFilters.pricePerSoilRatingMax,
+    appliedFilters.nearLat, appliedFilters.nearLng, appliedFilters.radiusMiles,
+    appliedFilters.cornersMin, appliedFilters.cornersMax,
+    appliedFilters.companyName, appliedFilters.buyer, appliedFilters.seller,
+    appliedFilters.hasHouse, appliedFilters.hasBuildings, appliedFilters.keyword,
     fetchDurableDotsForBounds,
   ])
 
@@ -5109,7 +5222,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded) return
-    const baseExpr = buildRegridParcelFilter(webExploreFiltersToRegrid(filters))
+    // Apply-atomic model: filter the Regrid parcel boundary/fill/label
+    // layers off appliedFilters, NOT the draft `filters` — the visible
+    // parcel overlay must not narrow while the user is mid-edit.
+    const baseExpr = buildRegridParcelFilter(webExploreFiltersToRegrid(appliedFilters))
     // Compose the state-plan gate so the fill / line / label layers
     // also hide parcels outside the subscriber's allowed state(s).
     const expr: any = regridStateFilter
@@ -5123,17 +5239,17 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   }, [
     mapLoaded,
     regridStateFilter,
-    filters.acreageMin,
-    filters.acreageMax,
-    filters.stateFilter,
-    filters.countyFilters,
-    filters.dateRange,
-    filters.dateFrom,
-    filters.dateTo,
-    filters.salePriceMin,
-    filters.salePriceMax,
-    filters.statuses,
-    filters.hasBuildings,
+    appliedFilters.acreageMin,
+    appliedFilters.acreageMax,
+    appliedFilters.stateFilter,
+    appliedFilters.countyFilters,
+    appliedFilters.dateRange,
+    appliedFilters.dateFrom,
+    appliedFilters.dateTo,
+    appliedFilters.salePriceMin,
+    appliedFilters.salePriceMax,
+    appliedFilters.statuses,
+    appliedFilters.hasBuildings,
   ])
 
   // ─────────────────────────────────────────────────────────────────
@@ -8123,39 +8239,15 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                         <button
                           key={st}
                           onClick={() => {
+                            // Apply-atomic model (owner spec, 2026-07-25): draft-only.
+                            // No filtersRef write, no cache clear, no camera move —
+                            // the map doesn't react until Apply commits this draft
+                            // (see applyFilters, which now owns the state-bounds
+                            // fitBounds logic that used to fire right here).
                             const current = filters.stateFilter ? filters.stateFilter.split(',') : []
                             const next = isActive ? current.filter(s => s !== st) : [...current, st]
                             const newFilters = { ...filters, stateFilter: next.join(','), countyFilters: [], townshipFilters: [] }
                             setFilters(newFilters)
-                            filtersRef.current = newFilters
-
-                            // Always clear everything and reload with the new filter
-                            loadedCellsRef.current = new Set()
-                            tractMapRef.current = new Map()
-                            tractsGenRef.current++
-                            setTracts([])
-
-                            if (next.length > 0) {
-                              // Load each selected state's bounds individually
-                              let minLng = 180, minLat = 90, maxLng = -180, maxLat = -90
-                              for (const s of next) {
-                                const b = STATE_BOUNDS[s]
-                                if (b) {
-                                  if (b[0][0] < minLng) minLng = b[0][0]
-                                  if (b[0][1] < minLat) minLat = b[0][1]
-                                  if (b[1][0] > maxLng) maxLng = b[1][0]
-                                  if (b[1][1] > maxLat) maxLat = b[1][1]
-                                  // Load this state's tracts
-                                  loadTractsForBounds({ min_lat: b[0][1], max_lat: b[1][1], min_lng: b[0][0], max_lng: b[1][0] })
-                                }
-                              }
-                              if (minLng < 180) {
-                                mapRef.current?.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 40, duration: 1000 })
-                              }
-                            } else if (mapRef.current) {
-                              const bounds = mapRef.current.getBounds()
-                              loadTractsForBounds({ min_lat: bounds.getSouth(), max_lat: bounds.getNorth(), min_lng: bounds.getWest(), max_lng: bounds.getEast() })
-                            }
                           }}
                           style={{
                             padding: '6px 14px',
@@ -8206,20 +8298,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                           <button
                             key={county}
                             onClick={() => {
+                              // Draft-only (Apply-atomic model) — see state chip above.
                               const newCounties = isActive
                                 ? filters.countyFilters.filter(c => c !== county)
                                 : [...filters.countyFilters, county]
                               const newFilters = { ...filters, countyFilters: newCounties, townshipFilters: [] }
                               setFilters(newFilters)
-                              filtersRef.current = newFilters
-                              loadedCellsRef.current = new Set()
-                              tractMapRef.current = new Map()
-                              tractsGenRef.current++
-                              setTracts([])
-                              if (mapRef.current) {
-                                const bounds = mapRef.current.getBounds()
-                                loadTractsForBounds({ min_lat: bounds.getSouth(), max_lat: bounds.getNorth(), min_lng: bounds.getWest(), max_lng: bounds.getEast() })
-                              }
                             }}
                             style={{
                               padding: '4px 10px',
@@ -8269,20 +8353,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                         <button
                           key={twp}
                           onClick={() => {
+                            // Draft-only (Apply-atomic model) — see state chip above.
                             const newTownships = isActive
                               ? filters.townshipFilters.filter(t => t !== twp)
                               : [...filters.townshipFilters, twp]
                             const newFilters = { ...filters, townshipFilters: newTownships }
                             setFilters(newFilters)
-                            filtersRef.current = newFilters
-                            loadedCellsRef.current = new Set()
-                            tractMapRef.current = new Map()
-                            tractsGenRef.current++
-                            setTracts([])
-                            if (mapRef.current) {
-                              const bounds = mapRef.current.getBounds()
-                              loadTractsForBounds({ min_lat: bounds.getSouth(), max_lat: bounds.getNorth(), min_lng: bounds.getWest(), max_lng: bounds.getEast() })
-                            }
                           }}
                           style={{
                             padding: '4px 10px',
