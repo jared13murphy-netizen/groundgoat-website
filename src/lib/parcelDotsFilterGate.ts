@@ -23,8 +23,18 @@
  *
  * A search that targets PARCELS themselves — acreage, sale price/date,
  * state/county/township, an owner-name lookup, a parcel-number lookup —
- * must keep showing dots, so acreage/date/state/county/township/status
- * are DELIBERATELY EXCLUDED from the hide-list below.
+ * must keep showing dots, so acreage/date/state/county/township are
+ * DELIBERATELY EXCLUDED from the hide-list below.
+ *
+ * STATUS is the ONE exception (owner bug 2026-07-25): every parcel_sale_dots
+ * row is a completed SALE, so it can only ever satisfy a 'sold' status. A
+ * status filter that does NOT include 'sold' (Listed / Live / Auction /
+ * Pending) matches zero parcels and MUST hide the layer — otherwise the
+ * previously-loaded sold dots linger under a Listed/Live filter. A status
+ * filter that DOES include 'sold' (or no status filter at all) keeps the
+ * dots. This mirrors get_map_parcel_sale_dots' backend short-circuit
+ * (returns zero dots when 'sold' isn't among the requested statuses). See
+ * statusFilterExcludesSold below.
  *
  * FUTURE EVOLUTION: this list is a mirror of what the backend endpoint
  * does NOT understand today, not a permanent business rule. When the
@@ -73,6 +83,26 @@ export interface ParcelDotsGateInput {
   hasBuildings?: boolean | null
   hasPolygon?: boolean | null
   keyword?: string | null
+  // Sale-status pills (Listed / Live / Sold). Values are comma-joined
+  // (e.g. 'auction,live,pending'). Parcel dots hide when this is set to a
+  // non-'sold' status — see statusFilterExcludesSold.
+  statuses?: Array<string | null | undefined> | null
+}
+
+/**
+ * True when a status filter is active and NONE of its statuses is 'sold'.
+ * Parcel-sale dots are all sold comps, so such a filter (Listed / Live /
+ * Auction / Pending) can never match a parcel and the layer must hide.
+ * Pill values are comma-joined, so split before checking. No status
+ * filter (or one that includes 'sold') → false, dots stay.
+ */
+function statusFilterExcludesSold(statuses?: Array<string | null | undefined> | null): boolean {
+  if (!statuses || statuses.length === 0) return false
+  const flat = statuses
+    .flatMap(s => String(s ?? '').split(','))
+    .map(s => s.trim().toLowerCase())
+    .filter(Boolean)
+  return flat.length > 0 && !flat.includes('sold')
 }
 
 /**
@@ -85,6 +115,7 @@ export interface ParcelDotsGateInput {
  */
 export function shouldHideParcelDotsForFilters(input: ParcelDotsGateInput): boolean {
   return !!(
+    statusFilterExcludesSold(input.statuses) ||
     input.soilRatingMin || input.soilRatingMax ||
     input.pctTillableMin || input.pctTillableMax ||
     (input.landTypes && input.landTypes.length > 0) ||
