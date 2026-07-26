@@ -2308,10 +2308,28 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         }
       }
       if (lookups.length === 1) {
-        // Single county — easeTo the centroid at a zoom level that
-        // shows the typical county (~30-mile span) with margin.
+        // Single county. Build an explicit county-sized bbox around the
+        // centroid and fitBounds to it (like the multi-county/state-only
+        // branches below) instead of a bare easeTo + relying on its
+        // moveend to trigger the refetch at the end of this function.
+        // LIVE BUG (2026-07-25): the old easeTo-only approach sometimes
+        // never moved the camera at all — its moveend either didn't fire
+        // in time or was superseded by something else — so the
+        // `!targetBounds` fetch below ran at the STALE pre-apply
+        // viewport (e.g. IA+Adams County apply kept fetching central
+        // Illinois). fitBounds + an explicit targetBounds makes both the
+        // camera move and the refetch deterministic and independent of
+        // moveend timing, and guarantees a real fly-to even when the
+        // county has zero results (no empty-result fitBounds elsewhere
+        // can "win" a race against a fetch that was never queued here).
         const [lat, lng] = lookups[0]
-        map.easeTo({ center: [lng, lat], zoom: 10, duration: 1000 })
+        const pad = 0.35
+        const bounds: [[number, number], [number, number]] = [
+          [lng - pad, lat - pad],
+          [lng + pad, lat + pad],
+        ]
+        map.fitBounds(bounds, { padding: 60, duration: 1000, maxZoom: 11 })
+        targetBounds = { min_lat: lat - pad, max_lat: lat + pad, min_lng: lng - pad, max_lng: lng + pad }
       } else if (lookups.length > 1) {
         // Multiple counties — fitBounds across their centroids. The
         // centroids are interior points so fitBounds with padding
@@ -2348,10 +2366,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
 
     // Refetch tracts for whichever viewport the user is about to see.
-    // For the single-county case we let the moveend handler do it
-    // (the easeTo will fire moveend). For multi-county/state-only/
-    // comp-mode/no-location-filter cases we kick a manual load here at
-    // the current (or just-set) viewport.
+    // Single-county/multi-county/state-only all set targetBounds above,
+    // so this always fires a manual load at the destination the camera
+    // is flying to — never dependent on moveend timing. Only comp-mode/
+    // no-location-filter cases fall through to the current viewport.
     if (!targetBounds && map) {
       const bounds = map.getBounds()
       targetBounds = {
@@ -2567,8 +2585,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     try {
       setLoading(true)
       const filterParams = buildFilterParams(filtersRef.current)
-      // In comparables mode, only show sold tracts
-      if (subjectTractIdRef.current && !filterParams.sale_status) {
+      // In comparables mode, only show sold tracts. Force this
+      // unconditionally (not just when unset) — comp mode is an
+      // invariant, not a default: a Live/Listed status pill left active
+      // from the explore map must not leak a non-sold status into the
+      // comp query, since there is no server-side sold-only enforcement
+      // on /api/map/tracts.
+      if (subjectTractIdRef.current) {
         filterParams.sale_status = 'sold'
       }
       const extraParams = Object.entries(filterParams).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&')

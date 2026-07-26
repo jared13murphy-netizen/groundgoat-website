@@ -572,6 +572,15 @@ function AccessPortalPageInner() {
     setShowMainReportPanel(false)
     setActiveTab('map')
     setSubjectTractId(tractId)
+    // Clear any explore-map status filter (Live/Listed pill) before
+    // entering comp mode — otherwise a stale non-sold status survives
+    // into the comp query. ExploreMap's own comp-mode override only
+    // fires per-fetch inside loadTractsForBounds, which is a second
+    // layer of defense; this reset is the one that actually clears the
+    // pill's visible/active state instead of just overriding the param.
+    // Same signal handleCloseComparables already uses to reset the map
+    // cache when LEAVING comp mode.
+    setResetFiltersSignal(prev => prev + 1)
 
     // Fetch subject tract info for the panel header
     try {
