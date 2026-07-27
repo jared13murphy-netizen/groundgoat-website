@@ -2903,7 +2903,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           // count is now tracts + sold parcel-sale dots combined (see
           // countyCountGeoJSON above), so labeling it "tracts" would be
           // wrong as well as unwanted.
-          'text-field': ['to-string', ['get', 'count']],
+          // number-format adds thousands separators (1,402); small values
+          // like 6 render unchanged.
+          'text-field': ['number-format', ['get', 'count'], {}],
           'text-font': ['Open Sans Bold'],
           'text-size': 11,
           'text-anchor': 'center',
