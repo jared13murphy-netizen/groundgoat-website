@@ -2533,7 +2533,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     return {
       type: 'FeatureCollection',
       features: countyCounts
-        .filter(c => c.count && c.lat != null && c.lng != null)
+        // Include parcel-ONLY counties (tract count 0 but dot_count > 0, e.g.
+        // Greene IN) — the backend now returns them so the circle shows
+        // wherever sold-parcel dots render, per "the circle must equal the
+        // dots underneath." Was `c.count` alone, which dropped them.
+        .filter(c => (c.count || c.dot_count) && c.lat != null && c.lng != null)
         .map(c => ({
           type: 'Feature' as const,
           geometry: { type: 'Point' as const, coordinates: [c.lng, c.lat] },
