@@ -4031,6 +4031,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // (ll_gisacre, gisacre fallback) get a marker. Per user spec.
   const PARCEL_MIN_SALE_ACRES = 10
   // icon-size for the dot image (36px @ pixelRatio 2 = 18px base).
+  // RESTORED 2026-07-26 (audit fix — see PARCEL_SALE_PLUS_LAYER's addLayer
+  // below): a maplibre `circle` layer bound to this POLYGON source draws a
+  // dot at every ring vertex of every parcel, not one dot per parcel. Only
+  // a `symbol` layer with 'point' placement renders exactly one icon per
+  // feature (at its point-on-surface), so the layer is back to type
+  // 'symbol' and these icon-size constants are back in use.
   const PARCEL_DOT_ICON_SIZE = 0.78  // ≈14px — matches the 14px sold pin
   const PARCEL_COMP_ICON_SIZE = 1.2  // ≈22px — matches the comp "+" button
   // Re-enabled 2026-05-31. The original placement bug (pins landing on
@@ -4107,6 +4113,33 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           : filterExpr
         map.addLayer({
           id: PARCEL_SALE_PLUS_LAYER,
+          // RESTORED 2026-07-26 (owner: "pink dots come from what's on the
+          // map" — every displayed sold parcel, owner+$/acre+saledate label
+          // included, must have a dot). Was hidden 2026-07-04 ('visibility':
+          // 'none', see git history) because DURABLE_DOT_LAYER was uncapped
+          // and this layer would double-render the same parcels at
+          // z>=REGRID_MIN_ZOOM. Fixed here by zoom-partitioning instead of
+          // hiding: DURABLE_DOT_LAYER's maxzoom is now capped to
+          // REGRID_MIN_ZOOM (see its setLayerZoomRange call below), so the
+          // two layers never overlap — durable owns z9-11, this layer owns
+          // z>=11, matching the live Regrid tile floor.
+          //
+          // AUDIT FIX 2026-07-26 round 2: a same-day change briefly swapped
+          // this to a plain `circle` layer (styled like DURABLE_DOT_LAYER)
+          // to visually match the durable dot with no seam at the zoom
+          // boundary. That is WRONG — this source (REGRID_SOURCE /
+          // 'regrid-parcels') is POLYGON geometry, and a maplibre `circle`
+          // layer bound to a polygon source draws a circle at EVERY RING
+          // VERTEX of every feature, not one dot per parcel — it rendered a
+          // ring of dots tracing each parcel's boundary instead of a single
+          // marker. Reverted to 'symbol': a symbol layer with the default
+          // 'point' placement renders exactly ONE icon at each polygon's
+          // point-on-surface. Kept everything else from that change
+          // (un-hidden, minzoom: REGRID_MIN_ZOOM, the durable-layer zoom
+          // cap, the coincident-deed opacity suppression) — see icon-opacity
+          // / text-opacity in paint below for the suppression, now
+          // expressed in symbol-layer terms since a symbol layer has no
+          // circle paint.
           type: 'symbol',
           source: REGRID_SOURCE,
           'source-layer': sourceLayer,
@@ -4123,24 +4156,39 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             'text-size': ['interpolate', ['linear'], ['zoom'], 12, 13, 16, 17],
             'text-allow-overlap': true,
             'text-ignore-placement': true,
-            // AUDIT FIX 2026-07-04 round 2: hidden UNCONDITIONALLY now, in
-            // BOTH modes. DURABLE_DOT_LAYER is uncapped and click-correct
-            // (branches on subjectTractId to open the same comp popup this
-            // layer used to open) at every zoom in both explore AND comp
-            // mode now, so this layer would double-render the exact same
-            // parcels at z>=REGRID_MIN_ZOOM in comp mode if left visible —
-            // the dedupe bug the task flagged. Left mounted (not removed)
-            // because its filter/state-plan-gate sync effects and the
-            // click-arbitration guard lists (topPinLayers, guardLayers,
-            // the CSB/soils overlay defer lists) still reference its id;
-            // hiding it is the minimal change that avoids touching all of
-            // those. A hidden layer can't be clicked or queried into by
-            // queryRenderedFeatures, so those guards simply never match it
-            // now — harmless dead branches, not bugs.
-            'visibility': 'none',
+            // No 'visibility': 'none' here (AUDIT FIX 2026-07-26, kept from
+            // the reverted change) — DURABLE_DOT_LAYER is now zoom-capped
+            // to REGRID_MIN_ZOOM instead, so the two layers partition by
+            // zoom rather than one of them being permanently hidden.
           },
           paint: {
             'text-color': '#ffffff',
+            // Coincident-deed suppression (BUG FIX 2026-07-26, kept from
+            // the reverted change, re-expressed for a symbol layer): this
+            // layer shares the SAME 'regrid-parcels' source/source-layer —
+            // and therefore the same `path`-promoted feature id — as the
+            // Regrid label layer above, which already hides a parcel's
+            // label via 'dotSuppressed' feature-state whenever its sale is
+            // folded into a tract's Recorded Deeds panel instead
+            // (recomputeCoincidentDeeds sets/clears this feature-state,
+            // keyed on `path`). Symbol layers have no circle-opacity —
+            // icon-opacity/text-opacity are the equivalent, covering both
+            // the dot icon and the comp-mode "+" glyph so a suppressed
+            // parcel never shows either. Explore mode is unaffected:
+            // recomputeCoincidentDeeds only ever sets dotSuppressed when
+            // subjectTractIdRef is set (comp mode), and clears it all on
+            // comp-mode exit (clearAllDeedSuppression), so every
+            // standalone sold-parcel dot in explore mode keeps opacity 1.
+            'icon-opacity': [
+              'case',
+              ['boolean', ['feature-state', 'dotSuppressed'], false], 0,
+              1,
+            ],
+            'text-opacity': [
+              'case',
+              ['boolean', ['feature-state', 'dotSuppressed'], false], 0,
+              1,
+            ],
           },
         })
       }
@@ -4319,18 +4367,15 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
   }, [mapLoaded, regridStateFilter, appliedFilters.dateRange, appliedFilters.dateFrom, appliedFilters.dateTo, appliedFilters.salePriceMin, appliedFilters.salePriceMax, appliedFilters.acreageMin, appliedFilters.acreageMax])
 
-  // AUDIT FIX 2026-07-04 round 2: this layer used to flip visible between
-  // explore form (plain pink dot) and comparables form (pink dot + white
-  // "+") when subjectTractId changed, and was hidden in explore mode only.
-  // The owner directive has no comp-mode exception — DURABLE_DOT_LAYER is
-  // now uncapped and click-correct (branches on subjectTractId to open the
-  // same comp popup) in BOTH modes, so this layer is HIDDEN UNCONDITIONALLY
-  // now (see the 'visibility': 'none' in its addLayer layout above) to
-  // avoid double-rendering the same parcels at z>=REGRID_MIN_ZOOM in comp
-  // mode. The text-field/icon-size mode toggle is dead code with nothing
-  // left to toggle for (kept harmless — cheap no-op setLayoutProperty calls
-  // on a layer nothing ever displays) rather than restructuring this
-  // effect, since removing it entirely isn't necessary for correctness.
+  // RESTORED 2026-07-26 (audit fix — see PARCEL_SALE_PLUS_LAYER's addLayer
+  // above, reverted back to a 'symbol' layer): this layer's icon-size and
+  // text-field are set once at addLayer() time from inCompModeNow, which
+  // is only read at layer-creation time — so this effect keeps them in
+  // sync any time subjectTractId changes after that (mode flips between
+  // explore's plain dot and comp mode's dot + "+" without recreating the
+  // layer). The layer is un-hidden now (no more 'visibility': 'none'), so
+  // this toggle is live again, not the dead/no-op branch it was when the
+  // layer was permanently hidden.
   useEffect(() => {
     if (!REGRID_SALE_PINS_ENABLED) return
     const map = mapRef.current
@@ -4656,11 +4701,34 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const inComp = !!subjectTractId
     try {
       if (map.getLayer(DURABLE_DOT_LAYER)) {
-        map.setLayerZoomRange(DURABLE_DOT_LAYER, DURABLE_DOT_MIN_ZOOM, 24)
+        // CAPPED 2026-07-26 (was uncapped at 24): PARCEL_SALE_PLUS_LAYER is
+        // restored as a live-tile dot layer at z>=REGRID_MIN_ZOOM (11), so
+        // the durable layer must stop exactly there to avoid double-
+        // rendering the same parcels — durable owns z9-11, the live layer
+        // owns z>=11.
+        map.setLayerZoomRange(DURABLE_DOT_LAYER, DURABLE_DOT_MIN_ZOOM, REGRID_MIN_ZOOM)
         map.setLayoutProperty(DURABLE_DOT_LAYER, 'visibility', hideParcelDotsForFilters ? 'none' : 'visible')
       }
       if (map.getLayer(DURABLE_DOT_PLUS_LAYER)) {
+        // Same cap as DURABLE_DOT_LAYER above — this "+" glyph sits on the
+        // same source/points and must stop at the same boundary, or a comp
+        // dot at z>=11 would show a durable "+" with no dot underneath it
+        // (DURABLE_DOT_LAYER capped) while the live circle layer renders
+        // separately at the same spot.
+        map.setLayerZoomRange(DURABLE_DOT_PLUS_LAYER, DURABLE_DOT_MIN_ZOOM, REGRID_MIN_ZOOM)
         map.setLayoutProperty(DURABLE_DOT_PLUS_LAYER, 'visibility', (inComp && !hideParcelDotsForFilters) ? 'visible' : 'none')
+      }
+      // AUDIT FIX 2026-07-26: PARCEL_SALE_PLUS_LAYER (the live-tile dot
+      // layer that owns z>=REGRID_MIN_ZOOM) was never wired to this gate —
+      // a Listed/Live status filter or an active owner search hid
+      // DURABLE_DOT_LAYER at z9-11 but left this layer's sold-parcel dots
+      // showing at z>=11, the exact zoom band real usage happens in. Same
+      // boolean, same reasoning as DURABLE_DOT_LAYER above: hide on a
+      // status filter that excludes sold parcels, or while an owner search
+      // is active (matches mobile's ExploreMapView.js, which already gates
+      // its live-tile layer on hideDurableDotsForFilters || ownerSearchActive).
+      if (map.getLayer(PARCEL_SALE_PLUS_LAYER)) {
+        map.setLayoutProperty(PARCEL_SALE_PLUS_LAYER, 'visibility', hideParcelDotsForFilters ? 'none' : 'visible')
       }
     } catch {/* layer torn down */}
   }, [
@@ -4950,6 +5018,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // the zoom range the layer will actually render.
     const zoomFloor = DURABLE_DOT_MIN_ZOOM
     if (!opts?.bypassZoomGate && map.getZoom() < zoomFloor) return
+    // CEILING ADDED 2026-07-26: PARCEL_SALE_PLUS_LAYER (live Regrid-tile
+    // dots) now owns z>=REGRID_MIN_ZOOM — DURABLE_DOT_LAYER is capped to
+    // maxzoom REGRID_MIN_ZOOM (see the mode-sync effect above), so once the
+    // map is at/above that zoom the durable layer isn't rendering anyway.
+    // Stop fetching/accumulating durable dots there too, so panning at high
+    // zoom doesn't keep growing durableDotsByIdRef for a layer that's
+    // invisible at this zoom.
+    if (!opts?.bypassZoomGate && map.getZoom() >= REGRID_MIN_ZOOM) return
     if (!map.getSource(DURABLE_DOT_SOURCE)) return
     // Defensive re-assertion (owner ask 2026-07-21): visibility is set by
     // the dedicated filter-reactive effect above, but every moveend/pan-
