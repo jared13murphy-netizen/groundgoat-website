@@ -5134,11 +5134,31 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       recomputeCoincidentDeeds()
     } catch {/* transient fetch failure — next moveend (or the caller) retries */}
     finally {
-      // Only the still-latest generation clears the indicator — a rapid
-      // pan can supersede this call (gen bumped by a newer fetch) before
-      // this one's await resolves, and that superseded call must NOT
-      // clear an indicator that the newer, still-in-flight fetch owns.
-      if (gen === durableDotsGenRef.current) setDotsLoading(false)
+      // Keep the "Loading Ground" badge up until the dots actually finish
+      // DRAWING, not just until the fetch resolves. The fetch is ~1s, but
+      // rendering the up-to-~10k dots takes far longer — clearing here
+      // dropped the badge while the map was still visibly drawing, so a
+      // filtered county looked frozen/broken for the whole render (owner
+      // report 2026-07-27). Clear on the map's next 'idle' (render settled)
+      // instead, with an 8s safety cap so the badge can never stick.
+      // Still gen-gated: a rapid pan bumps gen and its own fetch owns the
+      // badge, so a superseded call must never clear it.
+      if (gen === durableDotsGenRef.current) {
+        const map = mapRef.current
+        if (map) {
+          let done = false
+          const clearBadge = () => {
+            if (done) return
+            done = true
+            try { map.off('idle', clearBadge) } catch {/* map torn down */}
+            if (gen === durableDotsGenRef.current) setDotsLoading(false)
+          }
+          map.once('idle', clearBadge)
+          setTimeout(clearBadge, 8000)
+        } else {
+          setDotsLoading(false)
+        }
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
