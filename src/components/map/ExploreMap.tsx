@@ -25,7 +25,7 @@ import {
 } from './mapConstants'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { formatAcres } from '@/lib/format'
-import { SOIL_FILTER_ENABLED } from '@/lib/featureFlags'
+import { SOIL_FILTER_ENABLED, TILLABLE_FILTER_ENABLED } from '@/lib/featureFlags'
 import { shouldHideParcelDotsForFilters } from '@/lib/parcelDotsFilterGate'
 import { toRings as toTractRings, ringsToGeometry, pointInBoundary } from '@/lib/polygonRings'
 import Tract3DModal from '@/components/Tract3DModal'
@@ -598,8 +598,11 @@ function buildFilterParams(filters: FilterState) {
   if (SOIL_FILTER_ENABLED && filters.soilRatingMax) params.soil_rating_max = filters.soilRatingMax
   if (filters.acreageMin) params.acreage_min = filters.acreageMin
   if (filters.acreageMax) params.acreage_max = filters.acreageMax
-  if (filters.pctTillableMin) params.pct_tillable_min = filters.pctTillableMin
-  if (filters.pctTillableMax) params.pct_tillable_max = filters.pctTillableMax
+  // Gated (unlike soil): the control is hidden, so a lingering value the user
+  // can't see or clear must not keep filtering — it would blank the parcel
+  // dots and drop the county circles to tract-only counts.
+  if (TILLABLE_FILTER_ENABLED && filters.pctTillableMin) params.pct_tillable_min = filters.pctTillableMin
+  if (TILLABLE_FILTER_ENABLED && filters.pctTillableMax) params.pct_tillable_max = filters.pctTillableMax
   if (filters.landTypes?.length > 0) params.land_types = filters.landTypes.join(',')
   // Chat-driven additions
   if (filters.listingType) params.listing_type = filters.listingType
@@ -2439,7 +2442,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     (SOIL_FILTER_ENABLED && (appliedFilters.soilRatingMin !== '' || appliedFilters.soilRatingMax !== '' ||
       appliedFilters.pricePerSoilRatingMin !== '' || appliedFilters.pricePerSoilRatingMax !== '')) ||
     appliedFilters.acreageMin !== '' || appliedFilters.acreageMax !== '' ||
-    appliedFilters.pctTillableMin !== '' || appliedFilters.pctTillableMax !== '' ||
+    (TILLABLE_FILTER_ENABLED && (appliedFilters.pctTillableMin !== '' || appliedFilters.pctTillableMax !== '')) ||
     appliedFilters.statuses.length > 0 ||
     appliedFilters.landTypes.length > 0 ||
     appliedFilters.listingType !== '' ||
@@ -8608,7 +8611,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                 maxKey: 'soilRatingMax' as keyof FilterState
               }] : []),
               { label: 'Acreage', minKey: 'acreageMin' as keyof FilterState, maxKey: 'acreageMax' as keyof FilterState },
-              { label: '% Tillable', minKey: 'pctTillableMin' as keyof FilterState, maxKey: 'pctTillableMax' as keyof FilterState },
+              // % Tillable hidden behind TILLABLE_FILTER_ENABLED (2026-07-27):
+              // parcels carry no tillable data, so it blanks the parcel dots
+              // and drops the county circles to tract-only counts.
+              ...(TILLABLE_FILTER_ENABLED ? [{ label: '% Tillable', minKey: 'pctTillableMin' as keyof FilterState, maxKey: 'pctTillableMax' as keyof FilterState }] : []),
             ].map(({ label, minKey, maxKey }) => (
               <div key={label} style={{ marginBottom: 20 }}>
                 <div style={{ color: '#CCCCCC', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>{label}</div>
