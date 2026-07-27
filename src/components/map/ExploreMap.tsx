@@ -4623,13 +4623,17 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         // live-tile dot layer — that layer is hidden again, see its addLayer
         // comment above): max 24 restores "dots show at every zoom,
         // uncapped" — durable is the ONLY sale-dot layer again.
-        map.setLayerZoomRange(DURABLE_DOT_LAYER, DURABLE_DOT_MIN_ZOOM, 24)
+        // Dots only appear ZOOMED OUT when a filter is active (owner rule
+        // 2026-07-27). Unfiltered → floor at 9 so the map doesn't flood with
+        // every sold dot nationwide; filtered → floor at DURABLE_DOT_MIN_ZOOM
+        // (6) so dots show when you fly to the filtered state.
+        map.setLayerZoomRange(DURABLE_DOT_LAYER, hasActiveFilters ? DURABLE_DOT_MIN_ZOOM : 9, 24)
         map.setLayoutProperty(DURABLE_DOT_LAYER, 'visibility', hideParcelDotsForFilters ? 'none' : 'visible')
       }
       if (map.getLayer(DURABLE_DOT_PLUS_LAYER)) {
-        // Same uncap as DURABLE_DOT_LAYER above — this "+" glyph sits on the
-        // same source/points and must match its range.
-        map.setLayerZoomRange(DURABLE_DOT_PLUS_LAYER, DURABLE_DOT_MIN_ZOOM, 24)
+        // Same filter-gated floor as DURABLE_DOT_LAYER above — this "+" glyph
+        // sits on the same source/points and must match its range.
+        map.setLayerZoomRange(DURABLE_DOT_PLUS_LAYER, hasActiveFilters ? DURABLE_DOT_MIN_ZOOM : 9, 24)
         map.setLayoutProperty(DURABLE_DOT_PLUS_LAYER, 'visibility', (inComp && !hideParcelDotsForFilters) ? 'visible' : 'none')
       }
       // PARCEL_SALE_PLUS_LAYER's dynamic visibility toggle (AUDIT FIX
@@ -4639,7 +4643,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // un-hide it whenever hideParcelDotsForFilters is false.
     } catch {/* layer torn down */}
   }, [
-    mapLoaded, subjectTractId, hideParcelDotsForFilters,
+    mapLoaded, subjectTractId, hideParcelDotsForFilters, hasActiveFilters,
     appliedFilters.soilRatingMin, appliedFilters.soilRatingMax,
     appliedFilters.pctTillableMin, appliedFilters.pctTillableMax,
     appliedFilters.landTypes, appliedFilters.listingType,
