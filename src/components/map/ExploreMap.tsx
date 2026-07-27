@@ -7525,7 +7525,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const map = mapRef.current
     if (!map || !mapLoaded) return
     const countVis = hasActiveFilters ? 'visible' : 'none'
-    const nameVis = hasActiveFilters ? 'none' : 'visible'
+    // Owner 2026-07-27: county NAME badges must stay visible even when a
+    // filter is active (was hidden here so only the count circles showed).
+    // Their own minzoom/maxzoom tier still governs WHEN they appear; this
+    // only stops the filter state from suppressing them.
+    const nameVis = 'visible'
     for (const [id, v] of [
       ['county-count-circles', countVis],
       ['county-count-labels', countVis],
