@@ -1396,6 +1396,49 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     Record<string, [[number, number], [number, number]]>
   >({})
   const [loading, setLoading] = useState(false)
+  // Durable parcel-sale dots load a beat after the tract dots on a filter
+  // Apply (bigger payload + county join). Owner rule 2026-07-27: the user must
+  // never see a filtered map with no dots and no explanation, so we show a
+  // "Loading sales…" indicator from Apply until the durable-on-apply fetch
+  // resolves. A safety timeout guarantees it can never get stuck on.
+  const [durableApplyLoading, setDurableApplyLoading] = useState(false)
+  const durableApplyLoadingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // In-flight COUNTER, not a boolean: a rapid second Apply starts a second
+  // durable fetch before the first resolves; a bare boolean would let the
+  // first fetch's completion clear the spinner while the second is still
+  // loading. The counter keeps it up until the LAST apply fetch settles.
+  const durableApplyInflightRef = useRef(0)
+  // Set synchronously by applyFilters to the destination bbox so the
+  // filter-reactive durable-dots effect (which owns durableDotsGenRef) can
+  // fetch THAT bbox with the fresh generation — a fetch fired directly here
+  // would be discarded by the effect's gen-bump (gg-reviewer blocker).
+  const pendingApplyDurableBboxRef = useRef<{ south: number; north: number; west: number; east: number; bypass: boolean } | null>(null)
+  // Bumped by every Apply so the filter-reactive durable-dots effect re-runs
+  // even when the applied filter fields are identical to last time — that
+  // guarantees the stashed bbox is consumed and the spinner's begin/end fire
+  // as a matched pair (no stuck spinner on a repeat Apply).
+  const [durableApplyNonce, setDurableApplyNonce] = useState(0)
+  const beginDurableApplyLoading = useCallback(() => {
+    durableApplyInflightRef.current += 1
+    setDurableApplyLoading(true)
+    if (durableApplyLoadingTimerRef.current) clearTimeout(durableApplyLoadingTimerRef.current)
+    // Safety backstop: force-clear (+ reset counter) after 12s so the
+    // spinner can never get stuck on.
+    durableApplyLoadingTimerRef.current = setTimeout(() => {
+      durableApplyInflightRef.current = 0
+      setDurableApplyLoading(false)
+    }, 12000)
+  }, [])
+  const endDurableApplyLoading = useCallback(() => {
+    durableApplyInflightRef.current = Math.max(0, durableApplyInflightRef.current - 1)
+    if (durableApplyInflightRef.current === 0) {
+      if (durableApplyLoadingTimerRef.current) {
+        clearTimeout(durableApplyLoadingTimerRef.current)
+        durableApplyLoadingTimerRef.current = null
+      }
+      setDurableApplyLoading(false)
+    }
+  }, [])
   const [selectedSale, setSelectedSale] = useState<SaleDetail | null>(null)
   // Inline popup ON THE MAP (comparables mode only). Click a tract pin
   // in comp mode opens this; click outside (anywhere else on the map) or
@@ -2406,7 +2449,31 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         max_lng: bounds.getEast(),
       }
     }
-    if (targetBounds) loadTractsForBounds(targetBounds, { bypassZoomGate: flewToFilteredBounds })
+    if (targetBounds) {
+      loadTractsForBounds(targetBounds, { bypassZoomGate: flewToFilteredBounds })
+      // Durable parcel-sale dots are a SEPARATE fetch that otherwise only
+      // fires on the fly's moveend — which proved unreliable (owner 2026-07-27:
+      // a 4-county filter showed only tract dots until the map was nudged,
+      // because the moveend either didn't re-fire or settled below the zoom
+      // floor). Fetch them explicitly at the SAME destination bbox, bypassing
+      // the zoom gate when we flew to a filtered bbox, so the pink dots appear
+      // on Apply exactly like the tract dots — never "tract dots only".
+      // Durable parcel-sale dots are refetched by the filter-reactive effect
+      // (it owns durableDotsGenRef). Firing the fetch directly HERE would be
+      // discarded by that effect's gen-bump, and the effect's own fetch reads
+      // map.getBounds() — the WRONG, mid-flyTo viewport — which is exactly why
+      // a multi-county filter showed only tract dots (owner 2026-07-27). So
+      // hand the effect the real DESTINATION bbox via a ref; it fetches that
+      // (bypassing the zoom gate) under the fresh gen and toggles the spinner
+      // in a matched begin/end pair. The nonce bump forces that effect to run
+      // even on an identical re-Apply.
+      pendingApplyDurableBboxRef.current = {
+        south: targetBounds.min_lat, north: targetBounds.max_lat,
+        west: targetBounds.min_lng, east: targetBounds.max_lng,
+        bypass: flewToFilteredBounds,
+      }
+      setDurableApplyNonce(n => n + 1)
+    }
 
     setFilterOpen(false)
     onFiltersApplied?.({ stateFilter: filters.stateFilter, countyFilters: filters.countyFilters })
@@ -5089,6 +5156,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const map = mapRef.current
     if (!map || !mapLoaded) return
 
+    // Apply-time durable fetch: applyFilters stashed the real DESTINATION
+    // bbox and bumped durableApplyNonce to force this effect to run. Grab +
+    // NULL it up front (before the chat gate below): a manual filter Apply
+    // SUPERSEDES any in-flight chat search, and nulling here guarantees a
+    // later Reset / chat commit can never consume a stale apply bbox.
+    const applyBbox = pendingApplyDurableBboxRef.current
+    pendingApplyDurableBboxRef.current = null
+
     // CODE AUDITOR FIX (gen race, 2026-07-09): while a chat search is in
     // flight, the chat-search-apply effect already cleared the
     // accumulator and captured its OWN gen inside fetchDurableDotsForBounds
@@ -5113,29 +5188,20 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // fetchDurableDotsForBounds, so no stale dots survive. Off a normal
     // (non-chat) filter-panel change, chatSearchingRef is false and this
     // runs exactly as before: clear, bump, debounced viewport fetch.
-    if (!chatSearchingRef.current) {
-      // Accumulate across pans; reset on filter change (owner: dots must
-      // never reload once loaded). This effect's own re-run (its deps are
-      // the filter fields below) IS the filter-change signal, so clearing
-      // the accumulator here — once per effect run, before the first fetch
-      // — drops the old union exactly when the qualifying set can differ.
+    // Clear + bump the generation on a real filter change: an Apply (which
+    // supersedes chat) OR a normal non-chat panel change. Skipped ONLY while a
+    // chat search owns the fetch (it already did its own clear + captured its
+    // own gen — see the long note above). On an Apply the bump also invalidates
+    // any in-flight chat fetch, which is correct: the manual Apply wins.
+    if (applyBbox || !chatSearchingRef.current) {
       durableDotsByIdRef.current.clear()
-      // Same rationale as the chat-search-apply clear above: a filter
-      // change invalidates the old coincident-deed fold too (different
-      // dots/tracts may qualify now) — un-suppress any hidden labels,
-      // not just the local bookkeeping.
       clearAllDeedSuppression()
-      // CODE AUDITOR FIX (round 2): bumping the gen ONLY at fetch kickoff
-      // (below) doesn't protect against a fetch that was in flight from the
-      // PREVIOUS filter — that response's gen was already "latest" the
-      // instant it fired, so the staleness check at response-time passed
-      // and it merged filter-violating dots into the just-cleared
-      // accumulator. Bumping here too, on every effect re-run (= every
-      // filter change), immediately invalidates any older in-flight fetch's
-      // captured gen before it ever gets to the merge step.
       durableDotsGenRef.current++
     }
 
+    // Debounced viewport top-up fetch — the moveend handler and the normal
+    // (non-apply) kickoff. Reads map.getBounds(), correct once the camera has
+    // settled after any fly.
     const fetchDurableDots = () => {
       if (durableDotsDebounceRef.current) clearTimeout(durableDotsDebounceRef.current)
       durableDotsDebounceRef.current = setTimeout(() => {
@@ -5144,22 +5210,26 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       }, 500)
     }
 
-    // TIMING FIX (owner complaint 2026-07-09): a chat search already owns
-    // the dots fetch for this filter change (see the chat-search-apply
-    // effect, which fires fetchDurableDotsForBounds immediately with its
-    // own qbbox, in parallel with the tract fetch). Firing the debounced
-    // viewport-based fetch here TOO would race it — the map's camera is
-    // still at its PRE-search position/zoom when this effect runs (the
-    // fitBounds animation hasn't started yet), so this fetch would either
-    // no-op (zoom < DURABLE_DOT_MIN_ZOOM) or fetch the wrong region. Skip
-    // the initial kickoff during an active chat search; 'moveend' stays
-    // registered so once fitBounds' animation completes AND the search
-    // has settled, a normal pan resumes the usual debounced-refresh
-    // behavior with no missed refresh (this is a harmless top-up fetch
-    // against the already-populated set, not a second source of truth).
-    if (!chatSearchingRef.current) {
+    if (applyBbox) {
+      // APPLY: fetch the real DESTINATION bbox IMMEDIATELY (no debounce, zoom
+      // gate bypassed) under the fresh gen just bumped, so it survives the
+      // staleness guard and populates dots the instant the map flies there —
+      // not the wrong mid-flyTo viewport that getBounds would read. This is the
+      // fix for "multi-county filter showed only tract dots until nudged"
+      // (owner 2026-07-27). Drive the "Loading sales…" spinner off THIS fetch.
+      beginDurableApplyLoading()
+      fetchDurableDotsForBounds(
+        { south: applyBbox.south, north: applyBbox.north, west: applyBbox.west, east: applyBbox.east },
+        { bypassZoomGate: applyBbox.bypass },
+      ).finally(endDurableApplyLoading)
+    } else if (!chatSearchingRef.current) {
+      // Normal (non-apply, non-chat) filter change: existing debounced fetch.
+      // Skipped during an active chat search — that effect owns the fetch and
+      // the camera is still pre-fitBounds here (see the long note above);
+      // 'moveend' below resumes the usual top-up once the search settles.
       fetchDurableDots()
     }
+
     map.on('moveend', fetchDurableDots)
     return () => {
       map.off('moveend', fetchDurableDots)
@@ -5202,6 +5272,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     appliedFilters.companyName, appliedFilters.buyer, appliedFilters.seller,
     appliedFilters.hasHouse, appliedFilters.hasBuildings, appliedFilters.keyword,
     fetchDurableDotsForBounds,
+    // Apply-time durable fetch (owner 2026-07-27): the nonce forces a re-run
+    // on every Apply so the stashed destination bbox is consumed; the two
+    // callbacks are stable (useCallback([])) but listed for exhaustive-deps.
+    durableApplyNonce, beginDurableApplyLoading, endDurableApplyLoading,
   ])
 
   // Re-run the coincident-deed fold whenever the loaded tract set changes
@@ -7676,8 +7750,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         </div>
       )}
 
-      {/* Loading indicator */}
-      {loading && (
+      {/* Loading indicator — covers BOTH the tract fetch (loading) and the
+          durable parcel-sale-dot fetch a filter Apply kicks off
+          (durableApplyLoading), so a filtered map is never shown blank (or
+          tract-dots-only) without an explanation (owner rule 2026-07-27). */}
+      {(loading || durableApplyLoading) && (
         <div style={{
           position: 'absolute',
           top: 16,
@@ -7702,7 +7779,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             borderRadius: '50%',
             animation: 'spin 1s linear infinite',
           }} />
-          Loading tracts...
+          {durableApplyLoading ? 'Loading sales…' : 'Loading tracts...'}
         </div>
       )}
 
@@ -7713,7 +7790,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       {neighborsLoading && (
         <div style={{
           position: 'absolute',
-          top: loading ? 56 : 16,
+          top: (loading || durableApplyLoading) ? 56 : 16,
           left: '50%',
           transform: 'translateX(-50%)',
           zIndex: 10,
