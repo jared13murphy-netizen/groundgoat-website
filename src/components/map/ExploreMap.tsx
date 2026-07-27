@@ -5078,6 +5078,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       return
     }
     const gen = ++durableDotsGenRef.current
+    // Owner rule 2026-07-27: the "Loading Ground" indicator must show whenever
+    // dots are actually loading — on pan/zoom, not just on a filter Apply. So
+    // drive it from HERE, the single choke point every durable fetch passes
+    // through (moveend, apply, comp). Counter-based, cleared in finally, so it
+    // survives concurrent pans and never gets stuck.
+    beginDurableApplyLoading()
     try {
       // Task #30: dots used to ignore the filter panel entirely (bbox
       // only) — filtering to a county/township or a non-Sold status
@@ -5132,6 +5138,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // a raw setData here would miss the comp-map coincident-dot fold.
       recomputeCoincidentDeeds()
     } catch {/* transient fetch failure — next moveend (or the caller) retries */}
+    finally { endDurableApplyLoading() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -5216,12 +5223,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // staleness guard and populates dots the instant the map flies there —
       // not the wrong mid-flyTo viewport that getBounds would read. This is the
       // fix for "multi-county filter showed only tract dots until nudged"
-      // (owner 2026-07-27). Drive the "Loading sales…" spinner off THIS fetch.
-      beginDurableApplyLoading()
+      // (owner 2026-07-27). The "Loading Ground" indicator is driven from
+      // inside fetchDurableDotsForBounds now (covers pan/zoom too), so no
+      // begin/end wrapping needed here.
       fetchDurableDotsForBounds(
         { south: applyBbox.south, north: applyBbox.north, west: applyBbox.west, east: applyBbox.east },
         { bypassZoomGate: applyBbox.bypass },
-      ).finally(endDurableApplyLoading)
+      )
     } else if (!chatSearchingRef.current) {
       // Normal (non-apply, non-chat) filter change: existing debounced fetch.
       // Skipped during an active chat search — that effect owns the fetch and
@@ -7750,10 +7758,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         </div>
       )}
 
-      {/* Loading indicator — covers BOTH the tract fetch (loading) and the
-          durable parcel-sale-dot fetch a filter Apply kicks off
-          (durableApplyLoading), so a filtered map is never shown blank (or
-          tract-dots-only) without an explanation (owner rule 2026-07-27). */}
+      {/* Loading indicator — an animated "Loading Ground" wordmark shown
+          whenever dots are actually loading: tract fetch (loading) OR any
+          durable parcel-sale-dot fetch (durableApplyLoading, driven from
+          inside fetchDurableDotsForBounds so it covers pan/zoom, not just a
+          filter Apply). Owner rule 2026-07-27: the user must never think the
+          map is blank — always dots or this indicator. */}
       {(loading || durableApplyLoading) && (
         <div style={{
           position: 'absolute',
@@ -7761,25 +7771,33 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           left: '50%',
           transform: 'translateX(-50%)',
           zIndex: 10,
-          background: 'rgba(0,0,0,0.8)',
-          backdropFilter: 'blur(4px)',
-          color: '#fff',
-          fontSize: 13,
-          padding: '8px 16px',
+          background: 'rgba(0,0,0,0.72)',
+          backdropFilter: 'blur(6px)',
+          padding: '9px 20px',
           borderRadius: 9999,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
+          fontSize: 14,
+          fontWeight: 800,
+          letterSpacing: 0.4,
+          boxShadow: '0 2px 10px rgba(0,0,0,0.25)',
+          pointerEvents: 'none',
         }}>
-          <div style={{
-            width: 16,
-            height: 16,
-            border: '2px solid rgba(255,255,255,0.3)',
-            borderTopColor: '#fff',
-            borderRadius: '50%',
-            animation: 'spin 1s linear infinite',
-          }} />
-          {durableApplyLoading ? 'Loading sales…' : 'Loading tracts...'}
+          <style>{`
+            @keyframes ggLoadingShimmer {
+              0%   { background-position: 200% center; }
+              100% { background-position: -200% center; }
+            }
+          `}</style>
+          <span style={{
+            // Pink→white→pink sweep clipped to the text, animated across it —
+            // "Loading Ground" shimmers in Ground Goat pink while dots load.
+            backgroundImage: 'linear-gradient(100deg, rgba(236,72,153,0.65) 0%, #ffffff 42%, #ff9ed6 58%, rgba(236,72,153,0.65) 100%)',
+            backgroundSize: '200% auto',
+            backgroundClip: 'text',
+            WebkitBackgroundClip: 'text',
+            WebkitTextFillColor: 'transparent',
+            color: 'transparent',
+            animation: 'ggLoadingShimmer 1.6s linear infinite',
+          }}>Loading Ground</span>
         </div>
       )}
 
