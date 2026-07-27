@@ -7539,6 +7539,19 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         try { map.setLayoutProperty(id, 'visibility', v) } catch {/* */}
       }
     }
+    // Owner 2026-07-27: when the count circle is showing (filter active),
+    // the name pill and the circle share the county centroid and collide —
+    // text-allow-overlap:false then suppressed the NAME entirely (numbered
+    // county showed no name). Push the name pill BELOW the circle and let it
+    // overlap so it always renders under the number. No filter → no circle →
+    // name centered at the centroid as before.
+    if (map.getLayer('county-labels')) {
+      try {
+        map.setLayoutProperty('county-labels', 'text-offset', hasActiveFilters ? [0, 2.4] : [0, 0])
+        map.setLayoutProperty('county-labels', 'text-allow-overlap', hasActiveFilters)
+        map.setLayoutProperty('county-labels', 'icon-allow-overlap', hasActiveFilters)
+      } catch {/* */}
+    }
   }, [mapLoaded, hasActiveFilters])
 
   const getStatusLabel = (status: string | null | undefined) => {
