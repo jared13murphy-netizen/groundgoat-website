@@ -51,9 +51,6 @@ const EMPTY_FC: GeoJSON.FeatureCollection = { type: 'FeatureCollection', feature
 // (in this order) whenever the tract-polygon layers are moved to the top
 // elsewhere, so pins/labels always render ABOVE the polygon fills.
 const MARKER_LAYERS_BOTTOM_TO_TOP = [
-  'county-labels',
-  'county-count-circles',
-  'county-count-labels',
   // Regrid sale "+"/dot markers sit BELOW the tract pins (task #26 z-order
   // invariant: tract always wins the click when both are under the point).
   // parcel-sale-dots-durable-circle (the continuous durable dot layer,
@@ -69,6 +66,15 @@ const MARKER_LAYERS_BOTTOM_TO_TOP = [
   'parcel-sale-dots-durable-circle',
   'parcel-sale-dots-durable-symbol',
   'parcel-sale-pin-plus',
+  // OWNER REDESIGN 2026-07-27: 'county-labels' moved here, ABOVE the
+  // sale-dot layers (was the very bottom of this list, i.e. rendered
+  // BELOW every dot layer) — owner: "leave the county badges on top of
+  // the pink dots so the user can see the county name." Now that the
+  // durable dot layer is uncapped down to county tier (z6), the two
+  // genuinely overlap in zoom range, so this order now matters.
+  // 'county-count-circles'/'county-count-labels' (formerly listed here
+  // too) are removed along with the layers themselves.
+  'county-labels',
   'tract-pin-circles',
   'tract-pin-labels',
   'tract-pin-plus',
@@ -1085,9 +1091,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // silhouettes are already suppressed. See the today-marker build effect
   // and the 3D toggle effect for the show/hide wiring.
   const todayMarkersRef = useRef<maplibregl.Marker[]>([])
-  // Filter-active per-county count bubbles (number + "tracts" label),
-  // shown when zoomed too low for individual tract dots.
-  const countyCountMarkersRef = useRef<maplibregl.Marker[]>([])
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Debounce timer + request-generation counter for the durable-dots
   // fetch (z9-10 gap), mirroring debounceTimerRef's pattern above so a
@@ -1352,9 +1355,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // loaded once from /data/us-states.json on mount.
   const [stateCounts, setStateCounts] = useState<
     Array<{ state: string; count: number }>
-  >([])
-  const [countyCounts, setCountyCounts] = useState<
-    Array<{ state: string; county: string; count: number; lat: number; lng: number; dot_count?: number }>
   >([])
   // Full nationwide county centroid list (3,221 entries). Loaded once
   // from /data/county-centroids.json so we can render a badge for every
@@ -1655,19 +1655,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     return () => { cancel = true }
   }, [filterParamString])
 
-  // Filter-aware county-tier counts (scoped to selected state(s) when set).
-  // Same clear-then-fetch / never-stale-on-error rule as the state-tier
-  // effect above.
-  useEffect(() => {
-    let cancel = false
-    setCountyCounts([])
-    const stateScope = appliedFilters.stateFilter ? `state=${appliedFilters.stateFilter}&` : ''
-    fetchWithAuth(`${API_URL}/api/map/county-tract-counts?${stateScope}${filterParamString}`)
-      .then(r => r.ok ? r.json() : { counties: [] })
-      .then(d => { if (!cancel) setCountyCounts(d.counties || []) })
-      .catch(() => { if (!cancel) setCountyCounts([]) })
-    return () => { cancel = true }
-  }, [filterParamString, appliedFilters.stateFilter])
+  // County-tract-counts fetch (setCountyCounts) removed 2026-07-27 along
+  // with the numbered county COUNT bubbles it fed (see countyCountGeoJSON's
+  // former home, and the county-count-circles/-labels layers, near the
+  // county-labels layer definition below) — owner redesign: "throw the
+  // number circle icon out."
 
   // Admin parcel-overlay state. Lights up the map with every parcel
   // (boundary + owner + acres). Visible only to groundgoat_admin users.
@@ -2506,41 +2498,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     [todayTracts],
   )
 
-  // ── County COUNT bubbles GeoJSON (filter-active). One Point per county
-  // with a matching count + real polygon centroid from the
-  // /county-tract-counts endpoint.
-  //
-  // Position (owner complaint 2026-07-09): the backend used to anchor this
-  // at avg(matched-tract lat/lng), which skews toward wherever the search
-  // results happen to cluster inside the county (reported: bottom-right
-  // corner of Hancock County, IL for a "sold" search). The backend now
-  // returns the real county-polygon centroid (ST_Centroid over Soils DB
-  // county_boundaries) instead — see get_county_tract_counts /
-  // _get_county_dot_counts_and_centroids in ground-goat-backend main.py.
-  // Nothing to change here beyond consuming c.lat/c.lng as before.
-  //
-  // Count (owner complaint 2026-07-09): must be tracts + sold PARCELS
-  // combined, not tracts alone. dot_count is additive on the backend
-  // response (count itself stays tract-only for the mobile app, which
-  // reads the same endpoint and still labels it "tracts" — see backend
-  // comment) so this combines them client-side for the website's own
-  // (word-free) bubble label.
-  const countyCountGeoJSON = useMemo((): GeoJSON.FeatureCollection => {
-    return {
-      type: 'FeatureCollection',
-      features: countyCounts
-        .filter(c => c.count && c.lat != null && c.lng != null)
-        .map(c => ({
-          type: 'Feature' as const,
-          geometry: { type: 'Point' as const, coordinates: [c.lng, c.lat] },
-          properties: {
-            count: c.count + (c.dot_count || 0),
-            state: c.state,
-            county: c.county,
-          },
-        })),
-    }
-  }, [countyCounts])
+  // countyCountGeoJSON (the numbered county COUNT bubble memo) removed
+  // 2026-07-27 — see the county-tract-counts fetch removal note above and
+  // the county-labels layer comment below for the full redesign.
 
   // Load tracts for a bounding box
   const CELL_LIMIT = 1000
@@ -2837,12 +2797,20 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
       // ── Native marker GeoJSON sources (driven by setData effects) ───
       map.addSource('tract-pins', { type: 'geojson', data: EMPTY_FC })
-      map.addSource('county-counts', { type: 'geojson', data: EMPTY_FC })
 
       // County NAME labels — restyled dark pill. Only between the
       // county tier and the tract tier; text-allow-overlap:false declutters
-      // automatically. Hidden via setLayoutProperty when a filter is active
-      // (the county-COUNT bubbles show instead).
+      // automatically.
+      // OWNER REDESIGN 2026-07-27: renders UNCONDITIONALLY now — the
+      // numbered county-COUNT bubbles (pink circle + bare number) that used
+      // to replace this on a filter are removed entirely (owner: "throw the
+      // number circle icon out... leave the county badges on top of the
+      // pink dots so the user can see the county name"). See
+      // MARKER_LAYERS_BOTTOM_TO_TOP above — 'county-labels' was moved above
+      // the sale-dot layers in that list so it renders ON TOP of them at
+      // every zoom now that the durable dot layer is uncapped down to
+      // county tier (previously the two never actually overlapped in
+      // z-range, so the old bottom-of-stack position never mattered).
       map.addLayer({
         id: 'county-labels',
         type: 'symbol',
@@ -2867,41 +2835,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           'text-halo-color': 'rgba(0,0,0,0.4)',
           'text-halo-width': 0.6,
         },
-      })
-
-      // County COUNT bubbles (filter-active): pink circle + number.
-      // Visibility toggled by setLayoutProperty(hasActiveFilters).
-      map.addLayer({
-        id: 'county-count-circles',
-        type: 'circle',
-        source: 'county-counts',
-        maxzoom: TRACT_TIER_MIN,
-        layout: { visibility: 'none' },
-        paint: {
-          'circle-color': '#E91E8C',
-          'circle-radius': 16,
-          'circle-stroke-color': '#ffffff',
-          'circle-stroke-width': 2,
-        },
-      })
-      map.addLayer({
-        id: 'county-count-labels',
-        type: 'symbol',
-        source: 'county-counts',
-        maxzoom: TRACT_TIER_MIN,
-        layout: {
-          visibility: 'none',
-          // Owner rule (2026-07-09): number only, no "TRACTS" word — the
-          // count is now tracts + sold parcel-sale dots combined (see
-          // countyCountGeoJSON above), so labeling it "tracts" would be
-          // wrong as well as unwanted.
-          'text-field': ['to-string', ['get', 'count']],
-          'text-font': ['Open Sans Bold'],
-          'text-size': 11,
-          'text-anchor': 'center',
-          'text-allow-overlap': true,
-        },
-        paint: { 'text-color': '#ffffff' },
       })
 
       // ── Tract pins (the crux) — circles + price/acres labels. Both
@@ -4134,12 +4067,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           // ring of dots tracing each parcel's boundary instead of a single
           // marker. Reverted to 'symbol': a symbol layer with the default
           // 'point' placement renders exactly ONE icon at each polygon's
-          // point-on-surface. Kept everything else from that change
-          // (un-hidden, minzoom: REGRID_MIN_ZOOM, the durable-layer zoom
-          // cap, the coincident-deed opacity suppression) — see icon-opacity
-          // / text-opacity in paint below for the suppression, now
-          // expressed in symbol-layer terms since a symbol layer has no
-          // circle paint.
+          // point-on-surface.
+          // RE-HIDDEN 2026-07-27 (owner redesign): this layer is hidden
+          // again ('visibility': 'none' below) — sold-parcel dots come only
+          // from the durable (Soils DB) layer now, at every zoom, uncapped
+          // (see DURABLE_DOT_LAYER below). The coincident-deed icon-opacity/
+          // text-opacity suppression added for this layer's brief
+          // un-hidden window is removed too — moot on a hidden layer.
           type: 'symbol',
           source: REGRID_SOURCE,
           'source-layer': sourceLayer,
@@ -4156,39 +4090,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             'text-size': ['interpolate', ['linear'], ['zoom'], 12, 13, 16, 17],
             'text-allow-overlap': true,
             'text-ignore-placement': true,
-            // No 'visibility': 'none' here (AUDIT FIX 2026-07-26, kept from
-            // the reverted change) — DURABLE_DOT_LAYER is now zoom-capped
-            // to REGRID_MIN_ZOOM instead, so the two layers partition by
-            // zoom rather than one of them being permanently hidden.
+            'visibility': 'none',
           },
           paint: {
             'text-color': '#ffffff',
-            // Coincident-deed suppression (BUG FIX 2026-07-26, kept from
-            // the reverted change, re-expressed for a symbol layer): this
-            // layer shares the SAME 'regrid-parcels' source/source-layer —
-            // and therefore the same `path`-promoted feature id — as the
-            // Regrid label layer above, which already hides a parcel's
-            // label via 'dotSuppressed' feature-state whenever its sale is
-            // folded into a tract's Recorded Deeds panel instead
-            // (recomputeCoincidentDeeds sets/clears this feature-state,
-            // keyed on `path`). Symbol layers have no circle-opacity —
-            // icon-opacity/text-opacity are the equivalent, covering both
-            // the dot icon and the comp-mode "+" glyph so a suppressed
-            // parcel never shows either. Explore mode is unaffected:
-            // recomputeCoincidentDeeds only ever sets dotSuppressed when
-            // subjectTractIdRef is set (comp mode), and clears it all on
-            // comp-mode exit (clearAllDeedSuppression), so every
-            // standalone sold-parcel dot in explore mode keeps opacity 1.
-            'icon-opacity': [
-              'case',
-              ['boolean', ['feature-state', 'dotSuppressed'], false], 0,
-              1,
-            ],
-            'text-opacity': [
-              'case',
-              ['boolean', ['feature-state', 'dotSuppressed'], false], 0,
-              1,
-            ],
           },
         })
       }
@@ -4367,15 +4272,15 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
   }, [mapLoaded, regridStateFilter, appliedFilters.dateRange, appliedFilters.dateFrom, appliedFilters.dateTo, appliedFilters.salePriceMin, appliedFilters.salePriceMax, appliedFilters.acreageMin, appliedFilters.acreageMax])
 
-  // RESTORED 2026-07-26 (audit fix — see PARCEL_SALE_PLUS_LAYER's addLayer
-  // above, reverted back to a 'symbol' layer): this layer's icon-size and
-  // text-field are set once at addLayer() time from inCompModeNow, which
-  // is only read at layer-creation time — so this effect keeps them in
-  // sync any time subjectTractId changes after that (mode flips between
-  // explore's plain dot and comp mode's dot + "+" without recreating the
-  // layer). The layer is un-hidden now (no more 'visibility': 'none'), so
-  // this toggle is live again, not the dead/no-op branch it was when the
-  // layer was permanently hidden.
+  // This layer's icon-size and text-field are set once at addLayer() time
+  // from inCompModeNow, which is only read at layer-creation time — so
+  // this effect keeps them in sync any time subjectTractId changes after
+  // that (mode flips between explore's plain dot and comp mode's dot + "+"
+  // without recreating the layer). RE-HIDDEN 2026-07-27 (owner redesign):
+  // the layer itself is 'visibility': 'none' again (see its addLayer
+  // comment above), so this effect is currently a harmless no-op on a
+  // hidden layer — kept in place (not deleted) so a future re-enable of
+  // PARCEL_SALE_PLUS_LAYER doesn't also need to rebuild this sync.
   useEffect(() => {
     if (!REGRID_SALE_PINS_ENABLED) return
     const map = mapRef.current
@@ -4414,7 +4319,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // COMP MODE MINZOOM (OWNER RULING 2026-07-25, supersedes the 2026-07-11
   // comp-mode z11 floor): tract dots and parcel-sale dots must appear at
   // the SAME zoom on every map. Comp mode now shares explore's
-  // DURABLE_DOT_MIN_ZOOM (9) floor instead of REGRID_MIN_ZOOM (11) — set
+  // DURABLE_DOT_MIN_ZOOM floor instead of REGRID_MIN_ZOOM (11) — set
   // via setLayerZoomRange in the mode-sync effect right below the mount
   // effect. Below z11 the Regrid parcel-boundary layer still renders
   // nothing (empirically 204 at z10, and that tile floor stays put — see
@@ -4428,9 +4333,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   //
   // Fade only on the way OUT (zooming below DURABLE_DOT_MIN_ZOOM), which
   // now applies identically in both modes since comp mode's floor matches
-  // explore's: circle-opacity/circle-stroke-opacity interpolate 0 at z8.8
-  // to fully opaque at z9.3. Above z9.3 the style is 100% constant — same
-  // radius/color/stroke at every zoom.
+  // explore's: circle-opacity/circle-stroke-opacity interpolate over a
+  // narrow 0.5-zoom band just above the floor (see the addLayer paint
+  // below — the exact stops move in lockstep with DURABLE_DOT_MIN_ZOOM).
+  // Above that band the style is 100% constant — same radius/color/stroke
+  // at every zoom.
   //
   // Styled identical to the live sale-dot pin (#f58cde pink, white
   // ring) so there's no visual seam between explore and comp mode.
@@ -4457,7 +4364,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // point, so that layer's existing onClick (below) already fires for
   // clicks on the glyph.
   const DURABLE_DOT_PLUS_LAYER = 'parcel-sale-dots-durable-symbol'
-  const DURABLE_DOT_MIN_ZOOM = 9
+  // LOWERED 2026-07-27 (owner redesign, was 9): dots must show at
+  // state-level zoom too — "fly to Missouri and all the dots just show
+  // up" — not just once the user has zoomed to county tier. Matches
+  // COUNTY_TIER_MIN (6), mobile's ExploreMapView.js DURABLE_DOT_MIN_ZOOM.
+  const DURABLE_DOT_MIN_ZOOM = 6
   const DURABLE_DOT_MIN_ACRES = 10 // owner rule: never show parcel dots under 10 acres
 
   useEffect(() => {
@@ -4468,8 +4379,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       map.addSource(DURABLE_DOT_SOURCE, { type: 'geojson', data: EMPTY_FC })
     }
     // OWNER RULING 2026-07-25 (supersedes the 2026-07-11 comp-mode z11
-    // floor): comp mode now shares explore's DURABLE_DOT_MIN_ZOOM (9)
-    // floor for the dot itself — tract dots and parcel-sale dots must
+    // floor): comp mode now shares explore's DURABLE_DOT_MIN_ZOOM (see that
+    // constant's own comment for its current value) floor for the dot
+    // itself — tract dots and parcel-sale dots must
     // appear at the same zoom everywhere. Below REGRID_MIN_ZOOM (11) the
     // Regrid parcel-boundary layer still renders nothing (empirically 204
     // at z10), so a comp dot at z9-10.99 has no parcel outline under it
@@ -4503,8 +4415,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           'circle-radius': 6,
           'circle-stroke-color': '#ffffff',
           'circle-stroke-width': 2,
-          'circle-opacity': ['interpolate', ['linear'], ['zoom'], 8.8, 0, 9.3, 1],
-          'circle-stroke-opacity': ['interpolate', ['linear'], ['zoom'], 8.8, 0, 9.3, 1],
+          // Fade-in band moved down in lockstep with DURABLE_DOT_MIN_ZOOM
+          // (5.8→6.3, was 8.8→9.3 when the floor was 9) — otherwise dots
+          // would stay invisible from z6 to z8.7 despite minzoom allowing
+          // them, defeating the point of lowering the floor.
+          'circle-opacity': ['interpolate', ['linear'], ['zoom'], 5.8, 0, 6.3, 1],
+          'circle-stroke-opacity': ['interpolate', ['linear'], ['zoom'], 5.8, 0, 6.3, 1],
         },
       })
     }
@@ -4548,8 +4464,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
         if (subjectTractIdRef.current) {
           // OWNER RULING 2026-07-25 ("zoom to it + open"): the dot now
-          // shows as low as z9 in comp mode (see the mount effect above),
-          // but the Regrid parcel-boundary tile it should sit on still
+          // shows as low as DURABLE_DOT_MIN_ZOOM in comp mode (see the
+          // mount effect above), but the Regrid parcel-boundary tile it
+          // should sit on still
           // only renders at REGRID_MIN_ZOOM (11). Tapping a dot below that
           // zoom first eases the camera to REGRID_MIN_ZOOM on that dot,
           // then falls straight through to the same popup logic that runs
@@ -4701,35 +4618,25 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const inComp = !!subjectTractId
     try {
       if (map.getLayer(DURABLE_DOT_LAYER)) {
-        // CAPPED 2026-07-26 (was uncapped at 24): PARCEL_SALE_PLUS_LAYER is
-        // restored as a live-tile dot layer at z>=REGRID_MIN_ZOOM (11), so
-        // the durable layer must stop exactly there to avoid double-
-        // rendering the same parcels — durable owns z9-11, the live layer
-        // owns z>=11.
-        map.setLayerZoomRange(DURABLE_DOT_LAYER, DURABLE_DOT_MIN_ZOOM, REGRID_MIN_ZOOM)
+        // UNCAPPED 2026-07-27 (owner redesign, was capped to REGRID_MIN_ZOOM
+        // on 2026-07-26 to partition against PARCEL_SALE_PLUS_LAYER as a
+        // live-tile dot layer — that layer is hidden again, see its addLayer
+        // comment above): max 24 restores "dots show at every zoom,
+        // uncapped" — durable is the ONLY sale-dot layer again.
+        map.setLayerZoomRange(DURABLE_DOT_LAYER, DURABLE_DOT_MIN_ZOOM, 24)
         map.setLayoutProperty(DURABLE_DOT_LAYER, 'visibility', hideParcelDotsForFilters ? 'none' : 'visible')
       }
       if (map.getLayer(DURABLE_DOT_PLUS_LAYER)) {
-        // Same cap as DURABLE_DOT_LAYER above — this "+" glyph sits on the
-        // same source/points and must stop at the same boundary, or a comp
-        // dot at z>=11 would show a durable "+" with no dot underneath it
-        // (DURABLE_DOT_LAYER capped) while the live circle layer renders
-        // separately at the same spot.
-        map.setLayerZoomRange(DURABLE_DOT_PLUS_LAYER, DURABLE_DOT_MIN_ZOOM, REGRID_MIN_ZOOM)
+        // Same uncap as DURABLE_DOT_LAYER above — this "+" glyph sits on the
+        // same source/points and must match its range.
+        map.setLayerZoomRange(DURABLE_DOT_PLUS_LAYER, DURABLE_DOT_MIN_ZOOM, 24)
         map.setLayoutProperty(DURABLE_DOT_PLUS_LAYER, 'visibility', (inComp && !hideParcelDotsForFilters) ? 'visible' : 'none')
       }
-      // AUDIT FIX 2026-07-26: PARCEL_SALE_PLUS_LAYER (the live-tile dot
-      // layer that owns z>=REGRID_MIN_ZOOM) was never wired to this gate —
-      // a Listed/Live status filter or an active owner search hid
-      // DURABLE_DOT_LAYER at z9-11 but left this layer's sold-parcel dots
-      // showing at z>=11, the exact zoom band real usage happens in. Same
-      // boolean, same reasoning as DURABLE_DOT_LAYER above: hide on a
-      // status filter that excludes sold parcels, or while an owner search
-      // is active (matches mobile's ExploreMapView.js, which already gates
-      // its live-tile layer on hideDurableDotsForFilters || ownerSearchActive).
-      if (map.getLayer(PARCEL_SALE_PLUS_LAYER)) {
-        map.setLayoutProperty(PARCEL_SALE_PLUS_LAYER, 'visibility', hideParcelDotsForFilters ? 'none' : 'visible')
-      }
+      // PARCEL_SALE_PLUS_LAYER's dynamic visibility toggle (AUDIT FIX
+      // 2026-07-26) is removed 2026-07-27 — that layer is hidden
+      // unconditionally again (layout.visibility: 'none' at addLayer time),
+      // so re-asserting a filter-driven visibility here would incorrectly
+      // un-hide it whenever hideParcelDotsForFilters is false.
     } catch {/* layer torn down */}
   }, [
     mapLoaded, subjectTractId, hideParcelDotsForFilters,
@@ -5012,20 +4919,19 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const map = mapRef.current
     if (!map) return
     // OWNER RULING 2026-07-25: comp mode's floor now matches explore's —
-    // DURABLE_DOT_MIN_ZOOM (9) in BOTH modes (was REGRID_MIN_ZOOM=11 in
+    // DURABLE_DOT_MIN_ZOOM in BOTH modes (was REGRID_MIN_ZOOM=11 in
     // comp mode — see the mount effect above). Gating the fetch itself
     // (not just the layer's minzoom) avoids firing bbox requests below
     // the zoom range the layer will actually render.
     const zoomFloor = DURABLE_DOT_MIN_ZOOM
     if (!opts?.bypassZoomGate && map.getZoom() < zoomFloor) return
-    // CEILING ADDED 2026-07-26: PARCEL_SALE_PLUS_LAYER (live Regrid-tile
-    // dots) now owns z>=REGRID_MIN_ZOOM — DURABLE_DOT_LAYER is capped to
-    // maxzoom REGRID_MIN_ZOOM (see the mode-sync effect above), so once the
-    // map is at/above that zoom the durable layer isn't rendering anyway.
-    // Stop fetching/accumulating durable dots there too, so panning at high
-    // zoom doesn't keep growing durableDotsByIdRef for a layer that's
-    // invisible at this zoom.
-    if (!opts?.bypassZoomGate && map.getZoom() >= REGRID_MIN_ZOOM) return
+    // CEILING REMOVED 2026-07-27 (owner redesign, added 2026-07-26): that
+    // ceiling stopped fetching once PARCEL_SALE_PLUS_LAYER's live-tile
+    // dots took over at z>=REGRID_MIN_ZOOM. That live-tile layer is hidden
+    // again — DURABLE_DOT_LAYER is uncapped (see the mode-sync effect
+    // above) and is the only sale-dot layer at every zoom, so this
+    // function must keep fetching/accumulating durable dots at every zoom
+    // too, not just below REGRID_MIN_ZOOM.
     if (!map.getSource(DURABLE_DOT_SOURCE)) return
     // Defensive re-assertion (owner ask 2026-07-21): visibility is set by
     // the dedicated filter-reactive effect above, but every moveend/pan-
@@ -7301,10 +7207,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // Owner screenshot (2026-07-10): a filter or Goat Search result
     // overlaps the state silhouettes/labels/Filter-badges/goat icons at
     // low zoom, cluttering the map on top of the actual result bubbles.
-    // Reuse the SAME hasActiveFilters signal the county count-bubble
-    // layer gates on (line ~6317) so the two stay consistent — hide the
-    // whole silhouette overlay whenever a filter/search is active, show
-    // it again once cleared. Doesn't touch the result bubbles/pins.
+    // hasActiveFilters (the same signal that used to also gate the
+    // now-removed county count-bubble layer) — hide the whole silhouette
+    // overlay whenever a filter/search is active, show it again once
+    // cleared. Doesn't touch the result bubbles/pins.
     if (currentTier !== 'state' || hasActiveFilters) return
 
     const sized: Array<{
@@ -7467,57 +7373,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stateCounts, mapLoaded, currentTier, stateSilhouettes, stateBboxes, hasActiveFilters])
 
-  // ── County COUNT bubbles (filter-active): setData + click. Visibility
-  // is toggled by the hasActiveFilters effect below (setLayoutProperty),
-  // and the county-NAME labels are hidden in the same effect so the two
-  // never stack on a centroid.
-  useEffect(() => {
-    const map = mapRef.current
-    if (!map || !mapLoaded) return
-    const src = map.getSource('county-counts') as maplibregl.GeoJSONSource | undefined
-    if (src) src.setData(countyCountGeoJSON)
-  }, [mapLoaded, countyCountGeoJSON])
-
-  useEffect(() => {
-    const map = mapRef.current
-    if (!map || !mapLoaded) return
-    const onClick = (e: maplibregl.MapLayerMouseEvent) => {
-      const f = e.features?.[0]
-      if (!f) return
-      const geom = f.geometry as GeoJSON.Point
-      map.easeTo({ center: geom.coordinates as [number, number], zoom: 10, duration: 800 })
-    }
-    const onEnter = () => { map.getCanvas().style.cursor = 'pointer' }
-    const onLeave = () => { map.getCanvas().style.cursor = '' }
-    map.on('click', 'county-count-circles', onClick)
-    map.on('mouseenter', 'county-count-circles', onEnter)
-    map.on('mouseleave', 'county-count-circles', onLeave)
-    return () => {
-      map.off('click', 'county-count-circles', onClick)
-      map.off('mouseenter', 'county-count-circles', onEnter)
-      map.off('mouseleave', 'county-count-circles', onLeave)
-    }
-  }, [mapLoaded])
-
-  // ── Filter-aware visibility swap (no layer recreation): when a filter
-  // is active, show the pink county-COUNT bubbles and HIDE the plain
-  // county-NAME labels; otherwise the reverse. Native minzoom/maxzoom on
-  // each layer still governs the tier within these visibility states.
-  useEffect(() => {
-    const map = mapRef.current
-    if (!map || !mapLoaded) return
-    const countVis = hasActiveFilters ? 'visible' : 'none'
-    const nameVis = hasActiveFilters ? 'none' : 'visible'
-    for (const [id, v] of [
-      ['county-count-circles', countVis],
-      ['county-count-labels', countVis],
-      ['county-labels', nameVis],
-    ] as const) {
-      if (map.getLayer(id)) {
-        try { map.setLayoutProperty(id, 'visibility', v) } catch {/* */}
-      }
-    }
-  }, [mapLoaded, hasActiveFilters])
+  // County-COUNT-bubble setData/click/hover effects removed 2026-07-27
+  // along with the 'county-count-circles'/'county-count-labels' layers
+  // (owner redesign) — see the county-labels addLayer comment above.
+  //
+  // The filter-aware visibility swap that hid 'county-labels' whenever a
+  // filter was active is removed too: county-labels now stays 'visible'
+  // unconditionally (its own native minzoom/maxzoom still governs the
+  // tier), so there is nothing left to react to hasActiveFilters here.
 
   const getStatusLabel = (status: string | null | undefined) => {
     if (!status) return 'Unknown'
