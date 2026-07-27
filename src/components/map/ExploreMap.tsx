@@ -1079,6 +1079,34 @@ function OverlayButton({
   )
 }
 
+// True when ANY filter field is set to a non-default value. Pure function of
+// a FilterState so it can be evaluated against the SYNCHRONOUSLY-updated
+// filtersRef.current inside loadTractsForBounds (which runs in the same
+// synchronous Apply tick, before React re-renders) — never against a
+// render-lagged mirror. Mirrors mobile's countExploreActiveFilters(...) > 0.
+function hasAnyActiveFilter(f: FilterState): boolean {
+  return (
+    f.dateRange !== 'all' || f.stateFilter !== '' ||
+    f.countyFilters.length > 0 ||
+    f.townshipFilters.length > 0 ||
+    (SOIL_FILTER_ENABLED && (f.soilRatingMin !== '' || f.soilRatingMax !== '' ||
+      f.pricePerSoilRatingMin !== '' || f.pricePerSoilRatingMax !== '')) ||
+    f.acreageMin !== '' || f.acreageMax !== '' ||
+    f.pctTillableMin !== '' || f.pctTillableMax !== '' ||
+    f.statuses.length > 0 ||
+    f.landTypes.length > 0 ||
+    f.listingType !== '' ||
+    f.pricePerAcreMin !== '' || f.pricePerAcreMax !== '' ||
+    f.salePriceMin !== '' || f.salePriceMax !== '' ||
+    f.askingPriceMin !== '' || f.askingPriceMax !== '' ||
+    (f.nearLat !== '' && f.nearLng !== '' && f.radiusMiles !== '') ||
+    f.cornersMin !== '' || f.cornersMax !== '' ||
+    f.companyName !== '' || f.buyer !== '' || f.seller !== '' ||
+    f.hasHouse !== null || f.hasBuildings !== null ||
+    f.hasPolygon !== null || f.keyword !== ''
+  )
+}
+
 export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onLandDetailOpen, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, chatSearchEndSignal, onChatSearchError, ownerParcelsResult, comparableVisibleIds, neighborParcels, neighborsLoading }: ExploreMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
@@ -2286,6 +2314,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // (this branch used to live in the state chip's onClick — it now
     // only fires here, on Apply, per the atomic model).
     let targetBounds: { min_lat: number; max_lat: number; min_lng: number; max_lng: number } | null = null
+    // True once a county/state filter has flown the camera to an explicit
+    // filtered bbox — the loadTractsForBounds call below then bypasses the
+    // zoom gate (getZoom() still reads the pre-fly zoom mid-animation).
+    let flewToFilteredBounds = false
     if (!inCompMode && map && filters.countyFilters.length > 0 && filters.stateFilter) {
       // Picked counties may belong to different states (rare but
       // possible via Goat Search). Build "County, ST" keys per the
@@ -2322,6 +2354,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         ]
         map.fitBounds(bounds, { padding: 60, duration: 1000, maxZoom: 11 })
         targetBounds = { min_lat: lat - pad, max_lat: lat + pad, min_lng: lng - pad, max_lng: lng + pad }
+        flewToFilteredBounds = true
       } else if (lookups.length > 1) {
         // Multiple counties — fitBounds across their centroids. The
         // centroids are interior points so fitBounds with padding
@@ -2335,6 +2368,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         }
         map.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 80, duration: 1000 })
         targetBounds = { min_lat: minLat, max_lat: maxLat, min_lng: minLng, max_lng: maxLng }
+        flewToFilteredBounds = true
       }
     } else if (!inCompMode && map && filters.stateFilter) {
       // State-only filter (no county narrowing) — fit across every
@@ -2354,6 +2388,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       if (minLng < 180) {
         map.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 40, duration: 1000 })
         targetBounds = { min_lat: minLat, max_lat: maxLat, min_lng: minLng, max_lng: maxLng }
+        flewToFilteredBounds = true
       }
     }
 
@@ -2371,7 +2406,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         max_lng: bounds.getEast(),
       }
     }
-    if (targetBounds) loadTractsForBounds(targetBounds)
+    if (targetBounds) loadTractsForBounds(targetBounds, { bypassZoomGate: flewToFilteredBounds })
 
     setFilterOpen(false)
     onFiltersApplied?.({ stateFilter: filters.stateFilter, countyFilters: filters.countyFilters })
@@ -2421,24 +2456,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // Apply-atomic model (owner spec, 2026-07-25): reads appliedFilters,
   // NOT the draft `filters` — this indicator must not move while the
   // panel is being edited, only on Apply/Reset/chat-search commit.
-  const hasActiveFilters = appliedFilters.dateRange !== 'all' || appliedFilters.stateFilter !== '' ||
-    appliedFilters.countyFilters.length > 0 ||
-    appliedFilters.townshipFilters.length > 0 ||
-    (SOIL_FILTER_ENABLED && (appliedFilters.soilRatingMin !== '' || appliedFilters.soilRatingMax !== '' ||
-      appliedFilters.pricePerSoilRatingMin !== '' || appliedFilters.pricePerSoilRatingMax !== '')) ||
-    appliedFilters.acreageMin !== '' || appliedFilters.acreageMax !== '' ||
-    appliedFilters.pctTillableMin !== '' || appliedFilters.pctTillableMax !== '' ||
-    appliedFilters.statuses.length > 0 ||
-    appliedFilters.landTypes.length > 0 ||
-    appliedFilters.listingType !== '' ||
-    appliedFilters.pricePerAcreMin !== '' || appliedFilters.pricePerAcreMax !== '' ||
-    appliedFilters.salePriceMin !== '' || appliedFilters.salePriceMax !== '' ||
-    appliedFilters.askingPriceMin !== '' || appliedFilters.askingPriceMax !== '' ||
-    (appliedFilters.nearLat !== '' && appliedFilters.nearLng !== '' && appliedFilters.radiusMiles !== '') ||
-    appliedFilters.cornersMin !== '' || appliedFilters.cornersMax !== '' ||
-    appliedFilters.companyName !== '' || appliedFilters.buyer !== '' || appliedFilters.seller !== '' ||
-    appliedFilters.hasHouse !== null || appliedFilters.hasBuildings !== null ||
-    appliedFilters.hasPolygon !== null || appliedFilters.keyword !== ''
+  const hasActiveFilters = hasAnyActiveFilter(appliedFilters)
 
   const polygonGeoJSON = useMemo(() => {
     const fc = buildExplorePolygonGeoJSON(tracts)
@@ -2506,17 +2524,29 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const CELL_LIMIT = 1000
   const loadTractsForBounds = useCallback(async (bounds: {
     min_lat: number; max_lat: number; min_lng: number; max_lng: number
-  }) => {
+  }, opts: { bypassZoomGate?: boolean } = {}) => {
     const { min_lat, max_lat, min_lng, max_lng } = bounds
 
     // Skip the tract API call if we're below the tract-pin zoom.
-    // Tract pins / polygons don't render below z=9 (TRACT_TIER_MIN),
+    // Tract pins / polygons don't render below z=9 UNFILTERED (TRACT_TIER_MIN),
     // so loading them at state/county tier is wasted Railway compute,
     // wasted bandwidth, and a stalled "Loading…" affordance for data
     // the user can't see yet. 8.5 = small preload margin so the data
     // is already in the local cache the instant pins appear at z=9.
+    //
+    // WHEN A FILTER IS ACTIVE the floor drops to COUNTY_TIER_MIN (6) so the
+    // matching sold-tract dots show the instant the map flies to the
+    // filtered state/county (mirrors the tract-pin-circles layer floor,
+    // dropped in the hasActiveFilters effect). opts.bypassZoomGate: an
+    // Apply just flew the camera to a KNOWN filtered bbox — getZoom() still
+    // reports the PRE-fly zoom mid-animation, so that one call skips the
+    // gate entirely rather than bailing and relying on moveend timing.
     const map = mapRef.current
-    if (map && map.getZoom() < 8.5) return
+    // filtersRef.current is updated synchronously in applyFilters (before this
+    // runs in the same Apply tick), so this reflects the just-applied filters
+    // — no render-lag race.
+    const fetchFloor = hasAnyActiveFilter(filtersRef.current) ? COUNTY_TIER_MIN : 8.5
+    if (!opts.bypassZoomGate && map && map.getZoom() < fetchFloor) return
 
     // Use precise bounds rounded to 0.5 degrees for cache keys
     const r = (v: number) => Math.round(v * 2) / 2
@@ -4635,6 +4665,15 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         // sits on the same source/points and must match its range.
         map.setLayerZoomRange(DURABLE_DOT_PLUS_LAYER, hasActiveFilters ? DURABLE_DOT_MIN_ZOOM : 9, 24)
         map.setLayoutProperty(DURABLE_DOT_PLUS_LAYER, 'visibility', (inComp && !hideParcelDotsForFilters) ? 'visible' : 'none')
+      }
+      // Tract sold-dots (tract-pin-circles): same filter-gated floor as the
+      // durable parcel dots. Unfiltered → TRACT_TIER_MIN (9) so the map
+      // doesn't flood zoomed out; filtered → DURABLE_DOT_MIN_ZOOM (6) so the
+      // real sold-tract dots (listings DB) show the instant Apply flies to
+      // the filtered state/county — the owner's "all the dots just show up".
+      // Paired with the filter-aware fetch floor in loadTractsForBounds.
+      if (map.getLayer('tract-pin-circles')) {
+        map.setLayerZoomRange('tract-pin-circles', hasActiveFilters ? DURABLE_DOT_MIN_ZOOM : TRACT_TIER_MIN, 24)
       }
       // PARCEL_SALE_PLUS_LAYER's dynamic visibility toggle (AUDIT FIX
       // 2026-07-26) is removed 2026-07-27 — that layer is hidden
