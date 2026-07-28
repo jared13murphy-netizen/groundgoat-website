@@ -7608,7 +7608,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           filter Apply). Centered in the map area, not a top-corner pill.
           Shimmer keyframes + pink/white/pink text-clip reused verbatim from
           the prior shipped indicator (commit 83c2347) so it matches. */}
-      {(loading || dotsLoading) && (
+      {/* Only at the dot tier (z >= TRACT_TIER_MIN): at state/county zoom the
+          map shows silhouettes/county names + count circles, NOT dots — so a
+          "Loading Ground" (loading dots) badge there is wrong (owner 2026-07-27).
+          currentZoom updates on every zoom, so the badge appears/hides as the
+          user crosses into the dot tier. */}
+      {(loading || dotsLoading) && currentZoom >= TRACT_TIER_MIN && (
         <>
           <div style={{
             position: 'absolute',
