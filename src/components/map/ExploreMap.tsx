@@ -9839,7 +9839,19 @@ function CompInlinePopup({
       )}
 
       {/* Action row — Add to Report is the primary CTA (filled pink).
-          3D and Details are subtle secondary buttons. */}
+          3D and Details are subtle secondary buttons, each shown ONLY
+          when it has something to open (owner report 2026-07-28: on a
+          parcel they rendered but did nothing).
+
+          A comparable is either one of OUR TRACTS (from a listing) or a
+          raw Regrid PARCEL. buildParcelSale / buildDurableSale both set
+          `tractId: null` and `listingId: null`, so on a parcel:
+            - onView3D early-returns (it needs sale.tractId)
+            - onViewDetails has no listingId and, for a parcel, no
+              sourceUrl either — so it early-returns too
+          Gating on the exact fields each handler requires means the
+          buttons can never again appear without working. Add to Report
+          stays visible for both kinds — a parcel IS a valid comparable. */}
       <div style={{
         display: 'flex',
         gap: 8,
@@ -9847,26 +9859,30 @@ function CompInlinePopup({
         borderTop: '1px solid rgba(0,0,0,0.06)',
         background: '#fff',
       }}>
-        <button
-          onClick={onView3D}
-          style={compPopupSecondaryBtn}
-          title="View 3D terrain map"
-          onMouseEnter={(e) => { e.currentTarget.style.background = '#f5f5f7'; e.currentTarget.style.borderColor = 'rgba(0,0,0,0.18)' }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = '#fff'; e.currentTarget.style.borderColor = 'rgba(0,0,0,0.12)' }}
-        >
-          <span style={{ fontSize: 14 }}>🏔</span>
-          <span>3D</span>
-        </button>
-        <button
-          onClick={onViewDetails}
-          style={compPopupSecondaryBtn}
-          title="View full listing details"
-          onMouseEnter={(e) => { e.currentTarget.style.background = '#f5f5f7'; e.currentTarget.style.borderColor = 'rgba(0,0,0,0.18)' }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = '#fff'; e.currentTarget.style.borderColor = 'rgba(0,0,0,0.12)' }}
-        >
-          <span style={{ fontSize: 14 }}>🔎</span>
-          <span>Details</span>
-        </button>
+        {sale.tractId ? (
+          <button
+            onClick={onView3D}
+            style={compPopupSecondaryBtn}
+            title="View 3D terrain map"
+            onMouseEnter={(e) => { e.currentTarget.style.background = '#f5f5f7'; e.currentTarget.style.borderColor = 'rgba(0,0,0,0.18)' }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = '#fff'; e.currentTarget.style.borderColor = 'rgba(0,0,0,0.12)' }}
+          >
+            <span style={{ fontSize: 14 }}>🏔</span>
+            <span>3D</span>
+          </button>
+        ) : null}
+        {(sale.listingId || sale.sourceUrl) ? (
+          <button
+            onClick={onViewDetails}
+            style={compPopupSecondaryBtn}
+            title="View full listing details"
+            onMouseEnter={(e) => { e.currentTarget.style.background = '#f5f5f7'; e.currentTarget.style.borderColor = 'rgba(0,0,0,0.18)' }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = '#fff'; e.currentTarget.style.borderColor = 'rgba(0,0,0,0.12)' }}
+          >
+            <span style={{ fontSize: 14 }}>🔎</span>
+            <span>Details</span>
+          </button>
+        ) : null}
         <button
           onClick={onAddToReport}
           title={isSelected ? 'Remove from report' : 'Add to report'}
