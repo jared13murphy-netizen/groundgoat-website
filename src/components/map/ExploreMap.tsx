@@ -1375,6 +1375,19 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // drives the centered "Loading Ground" wordmark below alongside `loading`
   // so pan/zoom dot fetches, not just the tract fetch, show feedback.
   const [dotsLoading, setDotsLoading] = useState(false)
+  // Cap the "Loading Ground" badge at 5s (owner rule: no loading state >5s;
+  // stream behind a fast first paint). A dense viewport's durable-dot fetch
+  // can keep running long after the (cached) dots are already on screen, so
+  // the raw `dotsLoading` made the badge look stuck (owner 2026-07-27: "went
+  // away after ~45s"). The dots keep loading in the background — only the
+  // INDICATOR is time-boxed, and it also hides the instant the fetch finishes.
+  const [dotsBadgeVisible, setDotsBadgeVisible] = useState(false)
+  useEffect(() => {
+    if (!dotsLoading) { setDotsBadgeVisible(false); return }
+    setDotsBadgeVisible(true)
+    const _capT = setTimeout(() => setDotsBadgeVisible(false), 5000)
+    return () => clearTimeout(_capT)
+  }, [dotsLoading])
   const [selectedSale, setSelectedSale] = useState<SaleDetail | null>(null)
   // Inline popup ON THE MAP (comparables mode only). Click a tract pin
   // in comp mode opens this; click outside (anywhere else on the map) or
@@ -7618,7 +7631,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             `loading` (tract fetch), only `dotsLoading` (the real dot fetch).
           currentZoom updates on every zoom so the badge hides the instant you
           leave the dot-loading window. */}
-      {dotsLoading && currentZoom >= DURABLE_DOT_MIN_ZOOM && currentZoom < REGRID_MIN_ZOOM && (
+      {dotsBadgeVisible && currentZoom >= DURABLE_DOT_MIN_ZOOM && currentZoom < REGRID_MIN_ZOOM && (
         <>
           <div style={{
             position: 'absolute',
