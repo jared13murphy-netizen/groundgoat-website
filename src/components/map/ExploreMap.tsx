@@ -7608,12 +7608,17 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           filter Apply). Centered in the map area, not a top-corner pill.
           Shimmer keyframes + pink/white/pink text-clip reused verbatim from
           the prior shipped indicator (commit 83c2347) so it matches. */}
-      {/* Only at the dot tier (z >= TRACT_TIER_MIN): at state/county zoom the
-          map shows silhouettes/county names + count circles, NOT dots — so a
-          "Loading Ground" (loading dots) badge there is wrong (owner 2026-07-27).
-          currentZoom updates on every zoom, so the badge appears/hides as the
-          user crosses into the dot tier. */}
-      {(loading || dotsLoading) && currentZoom >= TRACT_TIER_MIN && (
+      {/* "Loading Ground" shows ONLY while the durable parcel-sale DOTS are
+          actually loading, and ONLY in the zoom window where those dots render
+          — z9 (DURABLE_DOT_MIN_ZOOM) up to z11 (REGRID_MIN_ZOOM). Owner 2026-07-27:
+          - It must NOT show at state/county zoom (<9): no dots there.
+          - It must NOT show at z>=11: the durable dots stopped fetching (the
+            live Regrid tiles own that zoom) and are already on screen — the
+            tract-cell fetch still fires there, so we deliberately DON'T key off
+            `loading` (tract fetch), only `dotsLoading` (the real dot fetch).
+          currentZoom updates on every zoom so the badge hides the instant you
+          leave the dot-loading window. */}
+      {dotsLoading && currentZoom >= DURABLE_DOT_MIN_ZOOM && currentZoom < REGRID_MIN_ZOOM && (
         <>
           <div style={{
             position: 'absolute',
