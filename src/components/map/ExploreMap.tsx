@@ -1375,19 +1375,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // drives the centered "Loading Ground" wordmark below alongside `loading`
   // so pan/zoom dot fetches, not just the tract fetch, show feedback.
   const [dotsLoading, setDotsLoading] = useState(false)
-  // Cap the "Loading Ground" badge at 5s (owner rule: no loading state >5s;
-  // stream behind a fast first paint). A dense viewport's durable-dot fetch
-  // can keep running long after the (cached) dots are already on screen, so
-  // the raw `dotsLoading` made the badge look stuck (owner 2026-07-27: "went
-  // away after ~45s"). The dots keep loading in the background — only the
-  // INDICATOR is time-boxed, and it also hides the instant the fetch finishes.
-  const [dotsBadgeVisible, setDotsBadgeVisible] = useState(false)
-  useEffect(() => {
-    if (!dotsLoading) { setDotsBadgeVisible(false); return }
-    setDotsBadgeVisible(true)
-    const _capT = setTimeout(() => setDotsBadgeVisible(false), 5000)
-    return () => clearTimeout(_capT)
-  }, [dotsLoading])
+  // Count of durable-dot fetches actually in flight. The badge is driven off
+  // this count (see fetchDurableDotsForBounds' finally), NOT off the fetch
+  // generation: the old gen-gated clear was skipped whenever a fetch was
+  // superseded, and its replacement is often a gated-out zoom/no-source early
+  // return that bumps the gen but never clears — so `dotsLoading` stuck true
+  // for ~45s (owner 2026-07-27) even though the fetch itself is ~0.35s. A
+  // counter clears reliably the moment no fetch is in flight.
+  const durableDotsInflightRef = useRef(0)
   const [selectedSale, setSelectedSale] = useState<SaleDetail | null>(null)
   // Inline popup ON THE MAP (comparables mode only). Click a tract pin
   // in comp mode opens this; click outside (anywhere else on the map) or
@@ -5088,6 +5083,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       return
     }
     const gen = ++durableDotsGenRef.current
+    // Balanced increment/decrement guard for the in-flight counter that drives
+    // the "Loading Ground" badge. Set true only once the increment below runs,
+    // so a throw before it can't cause a spurious decrement in the finally.
+    let counted = false
     try {
       // Task #30: dots used to ignore the filter panel entirely (bbox
       // only) — filtering to a county/township or a non-Sold status
@@ -5112,6 +5111,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // never leave the wordmark stuck on. finally below always clears it
       // for the latest generation, covering the early `return`s after this
       // line (!res.ok, stale gen) as well as the success path.
+      durableDotsInflightRef.current += 1
+      counted = true
       setDotsLoading(true)
       const res = await fetchWithAuth(`${API_URL}/api/map/parcel-sale-dots?${qs.toString()}`)
       if (!res.ok) return
@@ -5150,29 +5151,46 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       recomputeCoincidentDeeds()
     } catch {/* transient fetch failure — next moveend (or the caller) retries */}
     finally {
-      // Keep the "Loading Ground" badge up until the dots actually finish
-      // DRAWING, not just until the fetch resolves. The fetch is ~1s, but
-      // rendering the up-to-~10k dots takes far longer — clearing here
-      // dropped the badge while the map was still visibly drawing, so a
-      // filtered county looked frozen/broken for the whole render (owner
-      // report 2026-07-27). Clear on the map's next 'idle' (render settled)
-      // instead, with an 8s safety cap so the badge can never stick.
-      // Still gen-gated: a rapid pan bumps gen and its own fetch owns the
-      // badge, so a superseded call must never clear it.
-      if (gen === durableDotsGenRef.current) {
-        const map = mapRef.current
-        if (map) {
-          let done = false
-          const clearBadge = () => {
-            if (done) return
-            done = true
-            try { map.off('idle', clearBadge) } catch {/* map torn down */}
-            if (gen === durableDotsGenRef.current) setDotsLoading(false)
+      // Clear the "Loading Ground" badge off the IN-FLIGHT COUNTER, not the
+      // fetch generation. The old clear was gen-gated (`gen === current`), so a
+      // superseded fetch skipped it entirely and relied on its replacement to
+      // own the badge — but that replacement is often a gated-out zoom/no-source
+      // early return that bumps the gen and never clears, leaving the badge
+      // stuck ~45s (owner 2026-07-27) even though the fetch is ~0.35s. The
+      // counter clears the moment NO durable fetch is in flight — reliably,
+      // regardless of supersession. We still wait for the map's next 'idle' so
+      // the badge covers the dot RENDER (not just the fetch — a dense county can
+      // draw up to ~10k dots), with a hard cap so it can never stick, and a
+      // final in-flight recheck so a fetch that starts mid-wait keeps it up.
+      // `counted` keeps the increment/decrement balanced even if a throw landed
+      // before the increment above.
+      if (counted) {
+        durableDotsInflightRef.current = Math.max(0, durableDotsInflightRef.current - 1)
+        if (durableDotsInflightRef.current === 0) {
+          const map = mapRef.current
+          if (!map) {
+            setDotsLoading(false)
+          } else {
+            let done = false
+            const clearBadge = () => {
+              if (done) return
+              done = true
+              try { map.off('idle', clearBadge) } catch {/* map torn down */}
+              clearTimeout(cap)
+              // A newer fetch may have started while we waited for 'idle' —
+              // only drop the badge if nothing is in flight now.
+              if (durableDotsInflightRef.current === 0) setDotsLoading(false)
+            }
+            // 5s hard cap (owner rule feedback_loading_max_5s: no loading state
+            // may exceed 5s). This cap only starts once the counter hit 0 — the
+            // fetch(es) are already DONE, so it bounds only the render-settle
+            // wait (GL circle layers draw in ms, so 'idle' virtually always
+            // fires first); it never truncates an in-flight load. The debounced
+            // (500ms) moveend fetch (~0.35s each) can't overlap, so the counter
+            // returns to 0 between settles and this cap applies per settle.
+            const cap = setTimeout(clearBadge, 5000)
+            map.once('idle', clearBadge)
           }
-          map.once('idle', clearBadge)
-          setTimeout(clearBadge, 8000)
-        } else {
-          setDotsLoading(false)
         }
       }
     }
@@ -7631,7 +7649,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             `loading` (tract fetch), only `dotsLoading` (the real dot fetch).
           currentZoom updates on every zoom so the badge hides the instant you
           leave the dot-loading window. */}
-      {dotsBadgeVisible && currentZoom >= DURABLE_DOT_MIN_ZOOM && currentZoom < REGRID_MIN_ZOOM && (
+      {dotsLoading && currentZoom >= DURABLE_DOT_MIN_ZOOM && currentZoom < REGRID_MIN_ZOOM && (
         <>
           <div style={{
             position: 'absolute',
