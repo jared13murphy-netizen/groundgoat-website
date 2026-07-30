@@ -3,11 +3,12 @@
 import { useState, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import Image from 'next/image'
-import { X, Calendar, Building2, DollarSign, Loader2, MapPin, Bookmark, Pencil } from 'lucide-react'
+import { X, Calendar, Building2, DollarSign, Loader2, MapPin, Bookmark, Pencil, Search } from 'lucide-react'
 import Link from 'next/link'
 import PortalListingDetail from './PortalListingDetail'
 import { getStatusBadge } from '@/lib/listingStatusBadge'
 import { formatAcres } from '@/lib/format'
+import { listingMatchesSearch } from '@/lib/listingSearch'
 
 type TabType = 'auctions' | 'private_treaty' | 'results'
 
@@ -291,6 +292,12 @@ function ListingCard({ listing, activeTab, onClick, isWatchlisted, onToggleWatch
 
 export default function PortalListPanel({ listings, loading, activeTab, onClose, onTractSelected, onListingLoaded, onFindComparables, activeFilters, onClearFilters, userAccountType, watchlistIds, onToggleWatchlist }: PortalListPanelProps) {
   const [selectedListingId, setSelectedListingId] = useState<string | null>(null)
+  // Free-text search over the panel's listings (owner ask 2026-07-28 — parity
+  // with the mobile Auctions/Results screens). Filters CLIENT-SIDE over the
+  // already-fetched page; it deliberately does not refetch, so typing is
+  // instant and costs no API calls. Shared matcher: @/lib/listingSearch.
+  const [searchQuery, setSearchQuery] = useState('')
+  const visibleListings = listings.filter(l => listingMatchesSearch(l, searchQuery))
 
   return (
     <motion.div
@@ -323,6 +330,35 @@ export default function PortalListPanel({ listings, loading, activeTab, onClose,
             <X size={16} className="text-gg-gray-400" />
           </button>
         </div>
+        {/* Free-text search (owner ask 2026-07-28, mobile parity). Hidden in
+            the listing-detail view, where there's no list to filter. */}
+        {!selectedListingId && (
+          <div className="relative mt-3">
+            <Search
+              size={15}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-gg-gray-500 pointer-events-none"
+            />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search by county, state, auctioneer..."
+              aria-label="Search listings"
+              className="w-full bg-white/5 border border-white/10 rounded-lg pl-9 pr-9 py-2 text-sm text-white placeholder:text-gg-gray-500 focus:outline-none focus:border-gg-pink/50 transition"
+            />
+            {/* Clear button — rendered only when there's text, so it's never
+                dead chrome. */}
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                aria-label="Clear search"
+                className="absolute right-2 top-1/2 -translate-y-1/2 w-6 h-6 rounded-md flex items-center justify-center text-gg-gray-400 hover:text-white hover:bg-white/10 transition"
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+        )}
         {/* Active filters display with clear button */}
         {!selectedListingId && activeFilters && (activeFilters.stateFilter || activeFilters.countyFilters.length > 0) && (
           <div className="flex items-center justify-between mt-2">
@@ -360,13 +396,27 @@ export default function PortalListPanel({ listings, loading, activeTab, onClose,
           <div className="flex items-center justify-center h-40">
             <Loader2 className="animate-spin text-gg-pink" size={28} />
           </div>
-        ) : listings.length === 0 ? (
+        ) : visibleListings.length === 0 ? (
           <div className="text-center text-gg-gray-500 py-12">
-            <p className="text-sm">No listings found</p>
+            {/* Distinguish "your search matched nothing" from "there's nothing
+                here at all" — otherwise a stray query looks like missing data. */}
+            {searchQuery.trim() && listings.length > 0 ? (
+              <>
+                <p className="text-sm">No listings match &ldquo;{searchQuery.trim()}&rdquo;</p>
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="mt-2 text-xs text-gg-pink hover:text-gg-pink/80 font-medium transition"
+                >
+                  Clear search
+                </button>
+              </>
+            ) : (
+              <p className="text-sm">No listings found</p>
+            )}
           </div>
         ) : (
           <div className="space-y-4">
-            {listings.map(listing => (
+            {visibleListings.map(listing => (
               <ListingCard
                 key={listing.id}
                 listing={listing}
