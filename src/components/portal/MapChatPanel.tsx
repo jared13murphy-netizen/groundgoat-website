@@ -1,9 +1,9 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Send, Loader2, Sparkles, X, Check, Info, AlertTriangle, Compass } from 'lucide-react'
+import { Send, Loader2, Sparkles, X, Check, Info, AlertTriangle, Compass, Square } from 'lucide-react'
 import {
   ResponsiveContainer,
   LineChart, Line,
@@ -151,6 +151,33 @@ export default function MapChatPanel({ onApplyFilters, onChatReportResult, curre
   const [open, setOpen] = useState(false)
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+  // ── Cancelable search (owner 2026-07-28) ───────────────────────────
+  // A Goat Search could previously run ~45-60s with no way out (30s
+  // request + one silent retry) and no cancel affordance, so a slow query
+  // looked like a hung app. These let the user stop it immediately.
+  //
+  // searchAbortRef holds the in-flight request's controller. NOTE:
+  // fetchWithTimeout only applies its OWN timeout when the caller passes
+  // no signal — so once we supply one we must also arm our own timer, or
+  // the request would hang forever. Both are wired in submit() below.
+  const searchAbortRef = useRef<AbortController | null>(null)
+  // Distinguishes a USER cancel from a timeout abort. Both surface as the
+  // same AbortError, but only a timeout should trigger the silent retry —
+  // retrying after the user hit stop is exactly the "it kept trying and
+  // wouldn't stop" behaviour we're fixing.
+  const userCanceledRef = useRef(false)
+
+  const cancelSearch = useCallback(() => {
+    if (!searchAbortRef.current) return
+    userCanceledRef.current = true
+    try { searchAbortRef.current.abort() } catch {/* already settled */}
+    searchAbortRef.current = null
+    setLoading(false)
+    // Stop the map's loading animation too — otherwise the "Loading
+    // Ground" indicator would spin forever after a cancel.
+    onSearchEnd?.()
+    setToast({ kind: 'info', text: 'Search canceled' })
+  }, [onSearchEnd])
   /** Most recent confirmation/caveat/error to show inline. 'ok' toasts
       auto-clear on a short, message-length-scaled timer; 'info'/'err'
       toasts are sticky (dismissed via the X, a new search, or Clear
@@ -318,11 +345,21 @@ export default function MapChatPanel({ onApplyFilters, onChatReportResult, curre
     // stuck backend, so it still deserves one retry — just with a shorter
     // 15s timeout so the worst case is ~45s total, not 60s.
     const SLOW_RETRY_TIMEOUT_MS = 15_000
-    const requestChatFilter = (timeoutMs: number = CHAT_FILTER_TIMEOUT_MS) =>
-      fetchWithAuth(
+    // Fresh controller per submit so the Stop button can abort THIS search.
+    // Because we pass a signal, fetchWithTimeout skips its own timer — so we
+    // arm one here per attempt and abort through the same controller.
+    userCanceledRef.current = false
+    const controller = new AbortController()
+    searchAbortRef.current = controller
+    const requestChatFilter = (timeoutMs: number = CHAT_FILTER_TIMEOUT_MS) => {
+      const timer = setTimeout(() => {
+        try { controller.abort() } catch {/* already settled */}
+      }, timeoutMs)
+      return fetchWithAuth(
         `${API_URL}/api/map/chat-filter`,
         {
           method: 'POST',
+          signal: controller.signal,
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             message: text,
@@ -335,13 +372,18 @@ export default function MapChatPanel({ onApplyFilters, onChatReportResult, curre
           }),
         },
         timeoutMs,
-      )
+      ).finally(() => clearTimeout(timer))
+    }
     try {
       let res: Response
       const attemptStart = Date.now()
       try {
         res = await requestChatFilter()
       } catch (firstError) {
+        // USER CANCEL: never retry. Without this the silent retry below
+        // would immediately fire a second request after the user hit Stop —
+        // exactly the "it kept trying and wouldn't stop" behaviour reported.
+        if (userCanceledRef.current) return
         const elapsed = Date.now() - attemptStart
         if (elapsed < FAST_FAIL_THRESHOLD_MS) {
           // Silent retry — spinner (loading state) stays up, no toast yet.
@@ -423,10 +465,17 @@ export default function MapChatPanel({ onApplyFilters, onChatReportResult, curre
       // here. Never surface e.message (e.g. "Failed to fetch", "The user
       // aborted a request") — log the real error for debugging and show
       // the same friendly toast as the non-OK path.
+      // A user cancel surfaces here as an AbortError. That's not a failure —
+      // cancelSearch already cleared the spinner and showed "Search
+      // canceled", so showing the red error toast on top would be wrong.
+      if (userCanceledRef.current) return
       console.error('chat-filter request failed:', e)
       setToast({ kind: 'err', text: 'Goat Search hit a snag — try again in a moment.' })
       scheduleToastDismiss('err', 'Goat Search hit a snag — try again in a moment.')
     } finally {
+      // This request is no longer in flight — drop the controller so a later
+      // Stop press can't abort an already-finished search.
+      searchAbortRef.current = null
       setLoading(false)
       // Tell the map the search is done — UNLESS we just handed off to
       // ExploreMap's own wide-bbox fetch, which owns stopping the
@@ -434,7 +483,8 @@ export default function MapChatPanel({ onApplyFilters, onChatReportResult, curre
       // or failure). Firing it here too would race ahead of that fetch
       // and re-arm the normal cell-loader mid-search (see the note on
       // `handedOffToMapFetch` above).
-      if (!handedOffToMapFetch) onSearchEnd?.()
+      // cancelSearch already fired onSearchEnd; don't double-fire.
+      if (!handedOffToMapFetch && !userCanceledRef.current) onSearchEnd?.()
     }
   }
 
@@ -584,18 +634,23 @@ export default function MapChatPanel({ onApplyFilters, onChatReportResult, curre
 
         {/* Send button — fades + scales in once expanded */}
         <motion.button
-          type="submit"
           animate={{
             opacity: open ? 1 : 0,
             scale: open ? 1 : 0.4,
           }}
           transition={{ duration: 0.18, delay: open ? 0.15 : 0 }}
           style={{ pointerEvents: open ? 'auto' : 'none' }}
-          disabled={loading || !input.trim()}
-          aria-label="Submit"
+          type={loading ? 'button' : 'submit'}
+          onClick={loading ? (e) => { e.preventDefault(); cancelSearch() } : undefined}
+          disabled={loading ? false : !input.trim()}
+          aria-label={loading ? 'Stop search' : 'Submit'}
+          title={loading ? 'Stop search' : undefined}
           className="bg-gg-pink hover:bg-gg-pink-light disabled:opacity-40 disabled:hover:bg-gg-pink text-white rounded-full w-9 h-9 flex items-center justify-center transition-colors flex-shrink-0"
         >
-          {loading ? <Loader2 className="animate-spin" size={16} /> : <Send size={15} />}
+          {/* While a search is in flight this becomes a STOP button (owner
+              2026-07-28: a slow query had no way out and looked hung). Same
+              affordance as the send button so the control never moves. */}
+          {loading ? <Square size={12} fill="currentColor" /> : <Send size={15} />}
         </motion.button>
       </motion.form>
 
