@@ -5189,14 +5189,15 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               // only drop the badge if nothing is in flight now.
               if (durableDotsInflightRef.current === 0) setDotsLoading(false)
             }
-            // 5s hard cap (owner rule feedback_loading_max_5s: no loading state
-            // may exceed 5s). This cap only starts once the counter hit 0 — the
+            // 9s hard cap (owner 2026-07-30 raised this from 5s and set mobile's
+            // 12s to the same number, so the two surfaces match). This cap only
+            // starts once the counter hit 0 — the
             // fetch(es) are already DONE, so it bounds only the render-settle
             // wait (GL circle layers draw in ms, so 'idle' virtually always
             // fires first); it never truncates an in-flight load. The debounced
             // (500ms) moveend fetch (~0.35s each) can't overlap, so the counter
             // returns to 0 between settles and this cap applies per settle.
-            const cap = setTimeout(clearBadge, 5000)
+            const cap = setTimeout(clearBadge, 9000)
             map.once('idle', clearBadge)
           }
         }
