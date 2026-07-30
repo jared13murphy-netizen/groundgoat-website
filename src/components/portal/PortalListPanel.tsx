@@ -342,11 +342,14 @@ export default function PortalListPanel({ listings, loading, activeTab, onClose,
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search by county, state, auctioneer..."
+              placeholder="Search by county, state..."
               aria-label="Search listings"
               className="w-full bg-white/5 border border-white/10 rounded-lg pl-9 pr-9 py-2 text-sm text-white placeholder:text-gg-gray-500 focus:outline-none focus:border-gg-pink/50 transition"
             />
-            {/* Clear button — rendered only when there's text, so it's never
+            {/* Placeholder deliberately says only "county, state" (owner
+                2026-07-28) — auctioneer/company IS still matched by
+                listingMatchesSearch, we just don't advertise it in the hint.
+                Clear button renders only when there's text, so it's never
                 dead chrome. */}
             {searchQuery && (
               <button
