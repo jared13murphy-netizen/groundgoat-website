@@ -35,11 +35,10 @@ import LandDetailPanel, { type LandDetailClickData } from './LandDetailPanel'
 import { countyCentroids } from '@/data/countyCentroids'
 import { getCountiesForState } from '@/data/counties'
 import { STATE_ABBR, STATE_BOUNDS } from './mapConstants'
-import {
-  buildRegridParcelFilter,
-  REGRID_PARCEL_LAYER_IDS,
-  type RegridFilterInput,
-} from '@/lib/regridParcelFilter'
+// buildRegridParcelFilter / RegridFilterInput are no longer imported here:
+// the Regrid parcel layers are unfiltered by design as of 2026-07-30 (see
+// the setFilter effect below). Only the layer-id list is still needed.
+import { REGRID_PARCEL_LAYER_IDS } from '@/lib/regridParcelFilter'
 
 const API_URL = 'https://practical-serenity-production.up.railway.app'
 
@@ -723,10 +722,11 @@ function buildRegridSaleDotFilter(filters: FilterState, minAcres: number): any[]
     expr.push(['any', ['has', 'll_gisacre'], ['has', 'gisacre']])
     expr.push(['<=', acreVal, userAcresMax])
   }
-  // Date window — match the parcel-sale LABELS exactly. The label layer
-  // (buildRegridParcelFilter) applies a date filter ONLY when the user
-  // picks a timeframe preset; "All time" applies none. We do the same:
-  // apply from/to when the user set a window, otherwise no date floor.
+  // Date window — apply from/to when the user set a timeframe preset,
+  // otherwise no date floor. (This used to be described as matching the
+  // parcel LABEL layer; since 2026-07-30 the label/fill/line layers carry
+  // no user filter at all, so the dots are now the only thing a date
+  // window narrows.)
   //
   // There is intentionally NO hardcoded 3-year floor anymore. The old
   // floor hid every parcel whose sale was older than 3 years even though
@@ -782,34 +782,6 @@ function ensureParcelSaleDotImage(map: maplibregl.Map) {
   try { map.addImage(PARCEL_SALE_DOT_IMAGE, img, { pixelRatio: 2 }) } catch {/* added by a racing call */}
 }
 
-/**
- * Map this surface's filter state into the shared RegridFilterInput
- * shape, so the universal builder in src/lib/regridParcelFilter.ts
- * produces the MapLibre expression. Single source of truth for filter
- * LOGIC across all 4 maps; this is the per-surface adapter.
- */
-function webExploreFiltersToRegrid(filters: FilterState): RegridFilterInput {
-  const { from, to, upcomingOnly } = resolveDateWindow(filters)
-  const acresMin = filters.acreageMin ? parseFloat(filters.acreageMin) : NaN
-  const acresMax = filters.acreageMax ? parseFloat(filters.acreageMax) : NaN
-  const priceMin = filters.salePriceMin ? parseFloat(filters.salePriceMin) : NaN
-  const priceMax = filters.salePriceMax ? parseFloat(filters.salePriceMax) : NaN
-  return {
-    acresMin: Number.isFinite(acresMin) ? acresMin : null,
-    acresMax: Number.isFinite(acresMax) ? acresMax : null,
-    salePriceMin: Number.isFinite(priceMin) ? priceMin : null,
-    salePriceMax: Number.isFinite(priceMax) ? priceMax : null,
-    saleDateFrom: from || null,
-    saleDateTo: to || null,
-    upcomingOnly,
-    stateAbbr: filters.stateFilter || null,
-    countyNames: filters.countyFilters && filters.countyFilters.length > 0
-      ? filters.countyFilters
-      : null,
-    soldOnly: filters.statuses?.includes('sold') || false,
-    hasBuildings: filters.hasBuildings,
-  }
-}
 
 interface ExploreMapProps {
   height?: string
@@ -5394,49 +5366,33 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
   }, [mapLoaded, subjectTractId, recomputeCoincidentDeeds])
 
-  // Keep the Regrid fill / line / label layers' filter in sync with the
-  // tile-native filter inputs (acreage, state, county, sale date,
-  // sale price, status=sold). When any of these change, non-matching
-  // parcels disappear from the map immediately — boundary, fill,
-  // owner+acres label all go away in one shot.
+  // Regrid parcel fill / line / label layers.
   //
-  // DB-native filters (soil rating, % tillable, status=live/listed,
-  // township) are intentionally NOT here — they need a backend lookup
-  // and will be wired through /api/regrid/filter-uuids in a follow-up
-  // effect once Phase 1 of the soils roll-out delivers the
-  // parcel_soil_rating table. See project_regrid_tile_filterability_plan.md.
+  // OWNER DECISION 2026-07-30: parcel tiles and their owner/acres labels
+  // are BASE MAP REFERENCE, not search results. They must ALWAYS draw once
+  // the user zooms past REGRID_MIN_ZOOM, whether or not each parcel would
+  // satisfy the active filter or Goat Search. Only the DOTS answer to the
+  // filter (see shouldHideParcelDotsForFilters + the durable-dot effects).
+  //
+  // Before this, buildRegridParcelFilter(appliedFilters) was pushed onto
+  // these three layers, so filtering blanked the parcel grid underneath —
+  // e.g. the "Upcoming" preset set upcomingOnly and hid EVERY parcel (a
+  // recorded sale can't match a future auction), leaving the user zoomed
+  // in on bare satellite with no boundaries to orient by.
+  //
+  // regridStateFilter STAYS. It is not a user filter — it's the
+  // subscription state gate, and a subscriber must never see parcels
+  // outside the states they pay for.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded) return
-    // Apply-atomic model: filter the Regrid parcel boundary/fill/label
-    // layers off appliedFilters, NOT the draft `filters` — the visible
-    // parcel overlay must not narrow while the user is mid-edit.
-    const baseExpr = buildRegridParcelFilter(webExploreFiltersToRegrid(appliedFilters))
-    // Compose the state-plan gate so the fill / line / label layers
-    // also hide parcels outside the subscriber's allowed state(s).
-    const expr: any = regridStateFilter
-      ? (baseExpr ? ['all', baseExpr, regridStateFilter] : regridStateFilter)
-      : baseExpr
+    const expr: any = regridStateFilter ?? null
     for (const id of REGRID_PARCEL_LAYER_IDS) {
       if (map.getLayer(id)) {
         try { map.setFilter(id, expr as any) } catch {/* layer torn down */}
       }
     }
-  }, [
-    mapLoaded,
-    regridStateFilter,
-    appliedFilters.acreageMin,
-    appliedFilters.acreageMax,
-    appliedFilters.stateFilter,
-    appliedFilters.countyFilters,
-    appliedFilters.dateRange,
-    appliedFilters.dateFrom,
-    appliedFilters.dateTo,
-    appliedFilters.salePriceMin,
-    appliedFilters.salePriceMax,
-    appliedFilters.statuses,
-    appliedFilters.hasBuildings,
-  ])
+  }, [mapLoaded, regridStateFilter])
 
   // ─────────────────────────────────────────────────────────────────
   // Parcel-enrichment overlay (Hancock IL pilot)
