@@ -1714,12 +1714,19 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     'VT','WA','WI','WV','WY',
   ]
   const [isAdmin, setIsAdmin] = useState(false)
+  // Layers-panel entitlement, from /api/auth/me's can_use_layers —
+  // firm_admin / firm_user / premium_state / staff, NOT basic_state
+  // (owner 2026-07-30). Backed by get_layers_entitlement() server-side,
+  // the same rule that decides Goat Search and the mobile Layers button,
+  // so the three can't drift. The admin OR is a deploy-order fallback:
+  // this frontend can ship before the backend starts sending the field.
+  const [canUseLayers, setCanUseLayers] = useState(false)
+  const layersEnabled = canUseLayers || isAdmin
   // Pilot-owner gate for the parcel-enrichment overlay (Hancock IL
-  // tillable + PI). Tied to the existing groundgoat_admin role rather
-  // than a hard-coded email — same audience in practice (I'm the only
-  // admin) but avoids the dead-end where /api/auth/me's `email` field
-  // wasn't always populated on the client. Backend also 404s for
-  // non-admins so this is defense-in-depth.
+  // tillable + PI). STAYS admin-only — this is R&D scratch (the Hancock
+  // tillable pilot and the /api/tiles/parcels endpoint, which 404s for
+  // non-admins), NOT part of the customer Layers panel. Do not fold it
+  // into layersEnabled.
   const isEnrichmentPilot = isAdmin
   // Force-OFF: the legacy state_parcels pmtiles overlay (with its own
   // hover popups) is superseded by the always-on Regrid layer. We keep
@@ -1760,6 +1767,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         if (cancelled) return
         const admin = me?.account_type === 'groundgoat_admin'
         setIsAdmin(admin)
+        setCanUseLayers(Boolean(me?.can_use_layers))
         // The tile-server discovery fetch that used to live here has
         // been removed. It populated `adminParcelStates`, which fed
         // the "Show Parcels" admin toggle — but that toggle has been
@@ -5652,7 +5660,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded) return
-    if (!isEnrichmentPilot) return
+    if (!layersEnabled) return
 
     const SRC_TILLABLE = 'parcel-enrichment-tillable'
     const SRC_TILLABLE_WC = 'parcel-enrichment-tillable-worldcover'
@@ -6323,13 +6331,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         }
       } catch {/* map torn down */}
     }
-  }, [mapLoaded, isEnrichmentPilot])
+  }, [mapLoaded, layersEnabled])
 
   // Toggle layer visibility when the user flips the overlay button.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded) return
-    if (!isEnrichmentPilot) return
+    if (!layersEnabled) return
     const vis = enrichmentOverlay ? 'visible' : 'none'
     // FSA always follows the overall toggle. Tillable + labels each
     // have CDL and WorldCover variants — only the matching pair is
@@ -6368,7 +6376,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         }
       }
     }
-  }, [enrichmentOverlay, tillableSource, baseOverlay, mapLoaded, isEnrichmentPilot])
+  }, [enrichmentOverlay, tillableSource, baseOverlay, mapLoaded, layersEnabled])
 
   // Toggle NCCPI layer visibility — iterate over per-state pmtiles layers.
   useEffect(() => {
@@ -8042,7 +8050,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       {/* Soil overlay toggles are in the in-map Layer Panel below. */}
 
       {/* Layers Button */}
-      {isEnrichmentPilot && (
+      {layersEnabled && (
         <button
           onClick={() => setLayerPanelOpen(v => !v)}
           title="Layers"
@@ -8076,7 +8084,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       )}
 
       {/* Layer Control Panel */}
-      {isEnrichmentPilot && layerPanelOpen && (
+      {layersEnabled && layerPanelOpen && (
         <div style={{
           position: 'absolute',
           bottom: 100,
@@ -8752,7 +8760,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           A compact fallback dot-legend is shown when the panel is
           closed AND the pilot overlay is not available, so non-pilot
           users still see the tract status key. */}
-      {!isEnrichmentPilot && (
+      {!layersEnabled && (
         <div style={{
           position: 'absolute',
           bottom: 16,
