@@ -3619,21 +3619,20 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   //   - at 14 for everything: "a little too far in"
   //   - tried 11 (matching mobile explore, which runs the owner name
   //     alongside the boundaries): "that zoom level is too far out now"
-  //   - settled on 13 — one step earlier than the original 14, which is
-  //     what "a little too far in" actually asked for.
+  //   - settled on 12 (owner's call, after seeing 13 deployed).
   //
-  // So: an owner-name-only layer covers 13 -> 14, and the full four-part
+  // So: an owner-name-only layer covers 12 -> 14, and the full four-part
   // label (owner + acres + $/ac + sale date) takes over at 14. maxzoom on
   // the owner layer equals the combined layer's minzoom, so the handoff is
   // exact and the name is never drawn twice.
   //
   // NOTE this is deliberately NOT mobile-identical: mobile explore starts
   // its owner label at REGRID_MIN_ZOOM (11). The owner reviewed both and
-  // chose 11 on mobile / 13 on web — a phone viewport holds far fewer
+  // chose 11 on mobile / 12 on web — a phone viewport holds far fewer
   // parcels at a given zoom, so the same number reads as much denser on a
   // desktop map. Don't "fix" this to match without asking.
   const REGRID_LABEL_MIN_ZOOM = 14
-  const REGRID_OWNER_LABEL_MIN_ZOOM = 13
+  const REGRID_OWNER_LABEL_MIN_ZOOM = 12
   const [regridConfig, setRegridConfig] = useState<{
     tile_url_template: string
     // Custom-source tiles name their MVT layer with the source UUID;
@@ -3922,8 +3921,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       },
     }, beforeId)
 
-    // Owner-name-only label for z13 -> 14, so the name shows up a zoom
-    // level before the full four-part label does (owner 2026-07-31; see
+    // Owner-name-only label for z12 -> 14, so the name shows up before
+    // the full four-part label does (owner 2026-07-31; see
     // the REGRID_OWNER_LABEL_MIN_ZOOM comment for how 13 was landed on).
     // maxzoom here is the same number as the combined layer's minzoom,
     // so the two hand off precisely and the owner name is never rendered
