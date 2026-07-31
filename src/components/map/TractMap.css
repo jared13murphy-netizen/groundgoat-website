@@ -69,6 +69,14 @@
 .aem-marker-shell {
   will-change: transform;
   z-index: 50;
+  /* Positioning wrapper only — it must never catch a pointer. It's sized
+     to the state badge, and badges stop shrinking at MIN_BADGE_PX (70px),
+     so zoomed out they overlap their neighbours heavily. Without this,
+     Missouri's shell sat over Illinois' Filter link and swallowed the
+     click even once .aem-state-overlay stopped doing so. The painted
+     silhouette (.aem-state-shape path) and the overlay's own children
+     opt back in below. */
+  pointer-events: none;
 }
 /* Inner badges get the fade-in / fade-out keyframes. */
 .aem-state-badge,
@@ -108,6 +116,23 @@
 .aem-state-shape rect {
   pointer-events: visiblePainted;
 }
+/* OWNER BUG (reported 2026-07-31, long-standing): hovering Illinois'
+   Filter button highlighted MISSOURI's, and clicking it zoomed to
+   Missouri. Cause: this overlay is `inset: 0`, so it spans the badge's
+   whole RECTANGULAR bbox — and with `pointer-events: auto` it re-enabled
+   hit-testing across that entire rectangle, defeating the
+   empty-space-passthrough that .aem-state-badge's `pointer-events: none`
+   is there to provide. State bboxes overlap heavily (Illinois' badge
+   centre [-89.3, 40.0] sits INSIDE Missouri's bbox
+   [[-95.774, 35.995], [-89.098, 40.613]]), and Missouri's marker is
+   later in DOM order, so Missouri's invisible rectangle sat on top of
+   Illinois' Filter link and stole both the hover and the click.
+
+   Fix: the overlay is now transparent to the pointer and only its actual
+   painted children opt back in. Those children sit at the state's
+   centroid and are a few dozen pixels across, so they no longer overlap
+   a neighbour. `.aem-state-badge:hover` still fires, because :hover
+   propagates from a hovered child up to its ancestors. */
 .aem-state-overlay {
   position: absolute;
   inset: 0;
@@ -116,6 +141,9 @@
   align-items: center;
   justify-content: center;
   gap: 1px;
+  pointer-events: none;
+}
+.aem-state-overlay > * {
   pointer-events: auto;
 }
 .aem-state-badge:hover .aem-state-link {
