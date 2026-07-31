@@ -1313,7 +1313,7 @@ function SignUpContent() {
                     </button>
                     
                     {showStateDropdown && (
-                      <div className="absolute z-10 w-full mt-1 bg-white border border-gg-gray-300 rounded-lg shadow-xl max-h-60 overflow-y-auto">
+                      <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-xl max-h-60 overflow-y-auto">
                         {loadingStates ? (
                           <div className="px-4 py-3 text-gray-600 flex items-center gap-2">
                             <Loader2 size={16} className="animate-spin" />
