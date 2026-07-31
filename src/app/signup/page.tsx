@@ -1295,14 +1295,21 @@ function SignUpContent() {
                     Select State
                   </label>
                   <div className="relative">
+                    {/* Matches the text inputs on these forms (owner,
+                        2026-07-31). globals.css gives every <input> a white
+                        background with #1a1a1a text and a #d1d5db border —
+                        this control is a <button>, so it never picked that
+                        up and stayed dark next to the white Promo Code box.
+                        Values below are copied from that rule so the two
+                        read as the same control. */}
                     <button
                       onClick={() => setShowStateDropdown(!showStateDropdown)}
-                      className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-left text-white flex items-center justify-between focus:border-gg-pink focus:outline-none"
+                      className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-left text-[#1a1a1a] flex items-center justify-between focus:border-gg-pink focus:outline-none"
                     >
-                      <span className="text-gg-gray-500">
+                      <span className="text-gray-400">
                         Add a state...
                       </span>
-                      <ChevronDown size={20} className={`text-gg-gray-500 transition-transform ${showStateDropdown ? 'rotate-180' : ''}`} />
+                      <ChevronDown size={20} className={`text-gray-400 transition-transform ${showStateDropdown ? 'rotate-180' : ''}`} />
                     </button>
                     
                     {showStateDropdown && (
