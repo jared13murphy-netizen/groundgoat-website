@@ -8,7 +8,7 @@ import { US_STATES, getCountiesForState, getStateAbbreviation } from '@/data/cou
 import { parseApiError } from '@/lib/parseApiError'
 import { PRICING, displayPriceLabel, formatPrice } from '@/config/pricing'
 
-const API_URL = 'https://practical-serenity-production.up.railway.app'
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
 
 // VALID_STATES now imported from @/data/counties as US_STATES
@@ -76,6 +76,13 @@ function SignUpContent() {
   const referralCode = urlRef || (typeof window !== 'undefined' ? localStorage.getItem('groundgoat_referral_code') : null)
   
   const [step, setStep] = useState(initialStep)
+
+  // Every step change starts at the top of the page. Without this, advancing
+  // to "Select Your States" left the user scrolled at the bottom, below the
+  // card they were meant to act on (owner, 2026-07-31).
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'auto' })
+  }, [step])
   const [selectedPlan, setSelectedPlan] = useState(initialPlan)
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('annual')
   const [showPassword, setShowPassword] = useState(false)
@@ -327,8 +334,9 @@ function SignUpContent() {
       annual = Math.max(selectedAreas.length, 1) * plan.pricePerState
     }
 
-    const shown = billingCycle === 'annual' ? annual : annual / 12
-    return formatPrice(shown)
+    // Always the ANNUAL figure — billing is annual and the display-only
+    // monthly toggle is gone (see step 2).
+    return formatPrice(annual)
   }
 
   const getTotalSteps = () => {
@@ -856,6 +864,39 @@ function SignUpContent() {
                   />
                 </div>
 
+              {/* Terms + Privacy sit directly under Confirm Password (owner,
+                          2026-07-31). They used to live outside the step container,
+                          which rendered them at the very bottom of EVERY step. */}
+                      <div className="space-y-3">
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={agreedToTerms}
+                    onChange={(e) => setAgreedToTerms(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-gg-gray-600 bg-gg-gray-900 text-gg-pink accent-gg-pink cursor-pointer flex-shrink-0"
+                  />
+                  <span className="text-gg-gray-400 text-sm">
+                    I have read and agree to the{' '}
+                    <Link href="/terms" className="text-gg-pink hover:underline">Terms of Service</Link>
+                  </span>
+                </label>
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={agreedToPrivacy}
+                    onChange={(e) => setAgreedToPrivacy(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-gg-gray-600 bg-gg-gray-900 text-gg-pink accent-gg-pink cursor-pointer flex-shrink-0"
+                  />
+                  <span className="text-gg-gray-400 text-sm">
+                    I have read and agree to the{' '}
+                    <Link href="/privacy" className="text-gg-pink hover:underline">Privacy Policy</Link>
+                  </span>
+                </label>
+                {error === 'You must agree to the Terms of Service and Privacy Policy to create an account.' && (
+                  <p className="text-red-400 text-sm">{error}</p>
+                )}
+              </div>
+
                 {/* Home Location */}
                 <div className="pt-4 border-t border-gg-gray-700">
                   <p className="text-sm text-gg-gray-400 mb-4">
@@ -1035,22 +1076,14 @@ function SignUpContent() {
           {/* Step 2: Plan Selection */}
           {step === 2 && (
             <div className="space-y-6">
-              <div className="flex justify-center mb-8">
-                <div className="bg-gg-gray-800 rounded-full p-1 flex">
-                  <button
-                    onClick={() => setBillingCycle('monthly')}
-                    className={`px-6 py-2 rounded-full text-sm font-medium transition-colors ${billingCycle === 'monthly' ? 'bg-gg-pink text-black' : 'text-white bg-gg-gray-700 hover:bg-gg-gray-600'}`}
-                  >
-                    Monthly
-                  </button>
-                  <button
-                    onClick={() => setBillingCycle('annual')}
-                    className={`px-6 py-2 rounded-full text-sm font-medium transition-colors ${billingCycle === 'annual' ? 'bg-gg-pink text-black' : 'text-white bg-gg-gray-700 hover:bg-gg-gray-600'}`}
-                  >
-                    Annual
-                  </button>
-                </div>
-              </div>
+              {/* Monthly/Annual toggle REMOVED (owner, 2026-07-31). Monthly
+                  plans are no longer sold, and the toggle was DISPLAY-ONLY:
+                  it divided the annual price by 12 on screen while both
+                  checkout call sites hardcoded billing_cycle:'annual'. A
+                  customer who clicked Monthly was shown ~1/12th the price and
+                  then charged the full annual amount. Plan cards now show the
+                  annual price with the monthly equivalent underneath, clearly
+                  labelled as billed annually. */}
 
               <div className="space-y-4">
                 {Object.entries(PLANS).map(([key, p]) => (
@@ -1071,19 +1104,28 @@ function SignUpContent() {
                         </div>
                         <p className="text-gg-gray-400 text-sm">{p.description}</p>
                       </div>
+                      {/* Annual price is the headline; the monthly equivalent
+                          sits under it and says plainly that billing is
+                          annual (owner, 2026-07-31). Replaces the old
+                          display-only Monthly/Annual toggle, which showed a
+                          monthly figure and then charged the annual one. */}
                       <div className="text-right">
-                        <span className="text-2xl font-bold text-white">
-                          ${key === 'firm'
-                            ? displayPriceLabel((p as typeof PLANS.firm).basePrice, billingCycle)
-                            : displayPriceLabel((p as typeof PLANS.basic_state).pricePerState, billingCycle)
-                          }
-                        </span>
-                        <span className="text-gg-gray-400 text-sm">
-                          {key === 'firm'
-                            ? `/${billingCycle === 'annual' ? 'year' : 'mo'}`
-                            : `/state/${billingCycle === 'annual' ? 'year' : 'mo'}`
-                          }
-                        </span>
+                        <div>
+                          <span className="text-2xl font-bold text-white">
+                            ${key === 'firm'
+                              ? (p as typeof PLANS.firm).basePrice
+                              : (p as typeof PLANS.basic_state).pricePerState}
+                          </span>
+                          <span className="text-gg-gray-400 text-sm">
+                            {key === 'firm' ? '/year' : '/state/year'}
+                          </span>
+                        </div>
+                        <div className="text-gg-gray-400 text-xs mt-0.5 whitespace-nowrap">
+                          ${(((key === 'firm'
+                              ? (p as typeof PLANS.firm).basePrice
+                              : (p as typeof PLANS.basic_state).pricePerState) / 12)
+                              .toFixed(2))}/mo &middot; billed annually
+                        </div>
                       </div>
                     </div>
                     <p className="text-gg-pink text-sm mt-2">Start with a {p.trialDays}-day free trial</p>
@@ -1264,14 +1306,14 @@ function SignUpContent() {
                     </button>
                     
                     {showStateDropdown && (
-                      <div className="absolute z-10 w-full mt-1 bg-gg-gray-800 border border-gg-gray-700 rounded-lg shadow-xl max-h-60 overflow-y-auto">
+                      <div className="absolute z-10 w-full mt-1 bg-white border border-gg-gray-300 rounded-lg shadow-xl max-h-60 overflow-y-auto">
                         {loadingStates ? (
-                          <div className="px-4 py-3 text-gg-gray-400 flex items-center gap-2">
+                          <div className="px-4 py-3 text-gray-600 flex items-center gap-2">
                             <Loader2 size={16} className="animate-spin" />
                             Loading states...
                           </div>
                         ) : availableStates.length === 0 ? (
-                          <div className="px-4 py-3 text-gg-gray-400">No states available</div>
+                          <div className="px-4 py-3 text-gray-600">No states available</div>
                         ) : (
                           availableStates.map(state => (
                             <button
@@ -1280,7 +1322,7 @@ function SignUpContent() {
                                 addArea(state)
                                 setShowStateDropdown(false)
                               }}
-                              className="w-full px-4 py-3 text-left text-gg-gray-300 hover:bg-gg-gray-700 hover:text-white transition-colors"
+                              className="w-full px-4 py-3 text-left text-black hover:bg-gray-100 transition-colors"
                             >
                               {state}
                             </button>
@@ -1290,11 +1332,13 @@ function SignUpContent() {
                     )}
                   </div>
                 </div>
-              </div>
 
-              {selectedAreas.length > 0 && (
-                <div className="card">
-                  <h4 className="font-medium text-white mb-4">Selected Areas</h4>
+                {/* Selected states live INSIDE this card, directly under the
+                    dropdown (owner, 2026-07-31) — having them in a separate
+                    card below read as an unrelated section. */}
+                {selectedAreas.length > 0 && (
+                <div className="mt-6 pt-6 border-t border-gg-gray-700">
+                  <h4 className="font-medium text-white mb-4">Selected States</h4>
                   <div className="space-y-2">
                     {selectedAreas.map((area, index) => (
                       <div
@@ -1322,12 +1366,13 @@ function SignUpContent() {
                       </span>
                       <div className="text-right">
                         <span className="text-2xl font-bold text-white">${calculatePrice()}</span>
-                        <span className="text-gg-gray-400 text-sm">/{billingCycle === 'annual' ? 'year' : 'mo'}</span>
+                        <span className="text-gg-gray-400 text-sm">/year</span>
                       </div>
                     </div>
                   </div>
                 </div>
-              )}
+                )}
+              </div>
 
               {/* Promo Code */}
               <div className="card">
@@ -1623,36 +1668,6 @@ function SignUpContent() {
           )}
         </div>
 
-        {/* Terms */}
-        <div className="mt-8 space-y-3">
-          <label className="flex items-start gap-3 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={agreedToTerms}
-              onChange={(e) => setAgreedToTerms(e.target.checked)}
-              className="mt-0.5 h-4 w-4 rounded border-gg-gray-600 bg-gg-gray-900 text-gg-pink accent-gg-pink cursor-pointer flex-shrink-0"
-            />
-            <span className="text-gg-gray-400 text-sm">
-              I have read and agree to the{' '}
-              <Link href="/terms" className="text-gg-pink hover:underline">Terms of Service</Link>
-            </span>
-          </label>
-          <label className="flex items-start gap-3 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={agreedToPrivacy}
-              onChange={(e) => setAgreedToPrivacy(e.target.checked)}
-              className="mt-0.5 h-4 w-4 rounded border-gg-gray-600 bg-gg-gray-900 text-gg-pink accent-gg-pink cursor-pointer flex-shrink-0"
-            />
-            <span className="text-gg-gray-400 text-sm">
-              I have read and agree to the{' '}
-              <Link href="/privacy" className="text-gg-pink hover:underline">Privacy Policy</Link>
-            </span>
-          </label>
-          {error === 'You must agree to the Terms of Service and Privacy Policy to create an account.' && (
-            <p className="text-red-400 text-sm">{error}</p>
-          )}
-        </div>
       </div>
     </div>
   )

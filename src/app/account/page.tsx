@@ -7,7 +7,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { User, CreditCard, LogOut, MapPin, ChevronRight, CheckCircle, AlertCircle, Loader2, Users, Mail, Trash2, Bell } from 'lucide-react'
 
-const API_URL = 'https://practical-serenity-production.up.railway.app'
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
 function AccountContent() {
   const router = useRouter()
@@ -17,6 +17,14 @@ function AccountContent() {
   const [loading, setLoading] = useState(true)
   const [hasSubscription, setHasSubscription] = useState<boolean | null>(null)
   const [subscriptionData, setSubscriptionData] = useState<any>(null)
+  // True for Basic State / Premium State subscribers — the plans whose day-to-day
+  // use happens in the mobile app rather than on the website.
+  const isStatePlan = Boolean(
+    subscriptionData?.areas?.some(
+      (a: any) => (a.subscription_type === 'basic_state' || a.subscription_type === 'premium_state')
+        && (a.status === 'active' || a.status === 'trialing'),
+    ),
+  )
   const [sendingVerification, setSendingVerification] = useState(false)
   const [verificationSent, setVerificationSent] = useState(false)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
@@ -169,13 +177,39 @@ const handleResendVerification = async () => {
   return (
     <div className="min-h-screen bg-gg-black pt-24 pb-12">
       <div className="max-w-4xl mx-auto px-6">
-        {/* Subscription Success Message */}
-        {subscriptionSuccess && (
+        {/* Subscription success / still-finalising.
+
+            OWNER BUG (2026-07-31): this banner used to render on
+            `subscriptionSuccess` alone — i.e. purely because the URL said
+            ?subscription=success — so it appeared ABOVE the "No active
+            subscription / Choose a Plan" card whenever provisioning hadn't
+            landed yet. The customer was told both that they were activated
+            and that they had no subscription. Stripe redirects the buyer
+            back the instant they pay and the webhook arrives a moment
+            later, so this was reachable in production, not just locally.
+
+            Now it reflects the POLL above (which already retries for ~10s):
+            confirmed -> success; still nothing after the poll -> an honest
+            "we're finalising it" message instead of a contradiction; still
+            loading -> nothing. */}
+        {subscriptionSuccess && hasSubscription === true && (
           <div className="mb-6 bg-green-500/10 border border-green-500/30 rounded-lg p-4 flex items-center gap-3">
             <CheckCircle className="text-green-500 flex-shrink-0" size={24} />
             <div>
               <p className="text-green-400 font-medium">Subscription activated!</p>
               <p className="text-green-400/70 text-sm">You now have access to your selected areas.</p>
+            </div>
+          </div>
+        )}
+        {subscriptionSuccess && hasSubscription === false && (
+          <div className="mb-6 bg-blue-500/10 border border-blue-500/30 rounded-lg p-4 flex items-center gap-3">
+            <Loader2 className="text-blue-400 flex-shrink-0 animate-spin" size={24} />
+            <div>
+              <p className="text-blue-400 font-medium">Finalising your subscription…</p>
+              <p className="text-blue-400/70 text-sm">
+                Your payment went through. Access usually appears within a minute —
+                refresh this page shortly. If it doesn&apos;t, contact us and we&apos;ll sort it out.
+              </p>
             </div>
           </div>
         )}
@@ -269,11 +303,17 @@ const handleResendVerification = async () => {
               />
             </div>
             <div className="flex-1 text-center sm:text-left">
+              {/* State subscribers use their plan in the APP — the website is
+                  for account and billing (owner, 2026-07-31). Say so plainly
+                  and keep the download one tap away, without making it read
+                  like the website is broken. */}
               <h3 className="font-display text-xl font-bold text-white mb-1">
-                Download the Ground Goat App
+                {isStatePlan ? 'Your subscription lives in the app' : 'Download the Ground Goat App'}
               </h3>
               <p className="text-gg-gray-300 text-sm">
-                Get real-time auction alerts, browse listings, and never miss a sale. The full Ground Goat experience, right in your pocket.
+                {isStatePlan
+                  ? 'Your State plan is built for the Ground Goat app — that\u2019s where you\u2019ll find the interactive map, real-time auction alerts and sale results. Manage your plan and billing here on the website any time.'
+                  : 'Get real-time auction alerts, browse listings, and never miss a sale. The full Ground Goat experience, right in your pocket.'}
               </p>
             </div>
             <a
