@@ -269,21 +269,41 @@ function ListingCard({ listing, activeTab, onClick, isWatchlisted, onToggleWatch
           )}
         </div>
 
-        {/* Results: price per acre + date */}
+        {/* Results: price per acre + date.
+
+            OWNER BUG (2026-07-31): this whole block used to be
+            `return ppa.avg ? (...) : null`, so a listing with no price —
+            a NO SALE, or a sold auction whose price hasn't been entered
+            yet — lost its AUCTION DATE along with the price. The date is
+            essential on every results card regardless of outcome (owner:
+            "even if it's a no_sale auction, the date needs to be on the
+            card"), so the row now always renders whenever there IS a
+            date, and only the $/ac part is conditional. */}
         {activeTab === 'results' && (() => {
           const ppa = getListingAvgPricePerAcre(listing)
-          return ppa.avg ? (
+          const date = formatDate(listing)
+          if (!ppa.avg && !date) return null
+          return (
             <div className="mt-3 pt-2 border-t border-white/15">
               <div className="flex items-center gap-1.5 text-xs">
-                <DollarSign size={12} className="text-gg-gray-300" />
-                <span className="text-gg-pink font-bold text-sm">{formatPrice(ppa.avg)}/ac</span>
-                <span className="text-gg-gray-300">· {formatDate(listing)}</span>
+                {ppa.avg ? (
+                  <>
+                    <DollarSign size={12} className="text-gg-gray-300" />
+                    <span className="text-gg-pink font-bold text-sm">{formatPrice(ppa.avg)}/ac</span>
+                    {date && <span className="text-gg-gray-300">· {date}</span>}
+                  </>
+                ) : (
+                  <>
+                    <Calendar size={12} className="text-gg-gray-300" />
+                    <span className="text-gg-gray-300">{date}</span>
+                  </>
+                )}
               </div>
-              {ppa.isAverage && (
+              {ppa.avg && ppa.isAverage && (
                 <div className="text-[10px] text-gg-gray-300 mt-1 italic">Avg of {listing.tract_count || listing.tracts?.length} tracts</div>
               )}
             </div>
-          ) : null
+          )
         })()}
       </div>
     </div>
