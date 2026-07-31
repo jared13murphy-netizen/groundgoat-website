@@ -2326,17 +2326,33 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         map.fitBounds(bounds, { padding: 60, duration: 1000, maxZoom: 11 })
         targetBounds = { min_lat: lat - pad, max_lat: lat + pad, min_lng: lng - pad, max_lng: lng + pad }
       } else if (lookups.length > 1) {
-        // Multiple counties — fitBounds across their centroids. The
-        // centroids are interior points so fitBounds with padding
-        // keeps each county's edges on screen.
+        // Multiple counties — fit across each county's FOOTPRINT, not
+        // its centroid.
+        //
+        // OWNER BUG (2026-07-31): filtering IL + Knox & Warren zoomed in
+        // far past both counties. The old code fitted the box spanning
+        // the two CENTROIDS — for Knox [40.9322, -90.2128] and Warren
+        // [40.8478, -90.6117] that's 0.40° x 0.08°, a sliver thinner
+        // than one county — and 80px of padding can't recover the ~0.2°
+        // of county still hanging off each edge. The old comment claimed
+        // "centroids are interior points so padding keeps each county's
+        // edges on screen"; that was simply wrong.
+        //
+        // We have no per-county bbox data (countyCentroids is centroids
+        // only), so expand each centroid by the SAME ±0.35° half-county
+        // pad the single-county branch above already uses, then fit the
+        // union. Two adjacent IL counties now frame with margin instead
+        // of overshooting. maxZoom mirrors the single-county branch so a
+        // duplicate/degenerate selection can't punch through it either.
+        const pad = 0.35
         let minLng = 180, minLat = 90, maxLng = -180, maxLat = -90
         for (const [lat, lng] of lookups) {
-          if (lng < minLng) minLng = lng
-          if (lat < minLat) minLat = lat
-          if (lng > maxLng) maxLng = lng
-          if (lat > maxLat) maxLat = lat
+          if (lng - pad < minLng) minLng = lng - pad
+          if (lat - pad < minLat) minLat = lat - pad
+          if (lng + pad > maxLng) maxLng = lng + pad
+          if (lat + pad > maxLat) maxLat = lat + pad
         }
-        map.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 80, duration: 1000 })
+        map.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 80, duration: 1000, maxZoom: 11 })
         targetBounds = { min_lat: minLat, max_lat: maxLat, min_lng: minLng, max_lng: maxLng }
       }
     } else if (!inCompMode && map && filters.stateFilter) {
