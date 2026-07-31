@@ -40,7 +40,7 @@ import { STATE_ABBR, STATE_BOUNDS } from './mapConstants'
 // the setFilter effect below). Only the layer-id list is still needed.
 import { REGRID_PARCEL_LAYER_IDS } from '@/lib/regridParcelFilter'
 
-const API_URL = 'https://practical-serenity-production.up.railway.app'
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
 // Empty FeatureCollection used to initialize native GeoJSON sources
 // before their setData effects fire.

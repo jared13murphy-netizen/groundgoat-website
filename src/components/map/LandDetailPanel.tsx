@@ -22,7 +22,7 @@ import fetchWithAuth from '@/lib/fetchWithAuth'
 import { formatAcres } from '@/lib/format'
 import { SOIL_FILTER_ENABLED } from '@/lib/featureFlags'
 
-const API_URL = 'https://practical-serenity-production.up.railway.app'
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
 // ─── CDL palette (re-declared here so this file is self-contained) ──────────
 const CDL_PALETTE: Record<number, { name: string; color: string }> = {

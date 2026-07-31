@@ -10,7 +10,7 @@ import LandTypeButtons from '@/components/admin/LandTypeButtons'
 import { toRings } from '@/lib/polygonRings'
 import ConfirmDeleteTractModal from '@/components/admin/ConfirmDeleteTractModal'
 
-const API_URL = 'https://practical-serenity-production.up.railway.app'
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
 const LAND_TYPES = ['Farm', 'Recreational', 'Pasture', 'Timber', 'Hunting', 'Vacant Land', 'CRP', 'Commercial', 'Residential', 'Development', 'Other']
 const SOIL_TYPES = ['PI', 'CSR2', 'CPI', 'NCCPI', 'WAPI']

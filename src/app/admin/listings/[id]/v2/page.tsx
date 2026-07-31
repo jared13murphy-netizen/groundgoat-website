@@ -9,7 +9,7 @@ import { getCountiesForState } from '@/data/counties'
 import TractCleanupEditor from '@/components/admin/TractCleanupEditor'
 import ConfirmDeleteTractModal from '@/components/admin/ConfirmDeleteTractModal'
 
-const API_URL = 'https://practical-serenity-production.up.railway.app'
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
 const US_STATES: Record<string, string> = {
   "AL": "Alabama", "AK": "Alaska", "AZ": "Arizona", "AR": "Arkansas", "CA": "California",

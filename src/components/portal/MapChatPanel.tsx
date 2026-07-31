@@ -13,7 +13,7 @@ import {
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import type { OwnerParcelsResponse } from '@/components/map/exploreMapTypes'
 
-const API_URL = 'https://practical-serenity-production.up.railway.app'
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
 type ToastKind = 'ok' | 'info' | 'err'
 

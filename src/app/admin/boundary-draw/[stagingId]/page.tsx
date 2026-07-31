@@ -8,7 +8,7 @@ import { ArrowLeft, Save, RotateCcw, Trash2, Loader2, ExternalLink, X } from 'lu
 import fetchWithAuth, { fetchScraperProxy } from '@/lib/fetchWithAuth'
 import { formatAcres } from '@/lib/format'
 
-const API_URL = 'https://practical-serenity-production.up.railway.app'
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 const SCRAPER_PROXY = '/api/scraper-proxy'
 
 const TILE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'

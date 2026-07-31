@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, TrendingUp, Users, FileText, DollarSign, Calendar, MapPin, Loader2 } from 'lucide-react'
 
-const API_URL = 'https://practical-serenity-production.up.railway.app'
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
 export default function AdminReportsPage() {
   const router = useRouter()

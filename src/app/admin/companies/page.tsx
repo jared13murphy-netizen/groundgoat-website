@@ -7,7 +7,7 @@ import Link from 'next/link'
 import { Loader2, Pencil, Trash2, Building2, ArrowLeft, ExternalLink, Plus, X, Search } from 'lucide-react'
 import DeleteCompanyModal from '@/components/admin/DeleteCompanyModal'
 
-const API_URL = 'https://practical-serenity-production.up.railway.app'
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
 const PAGE_SIZE = 50
 

@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { ArrowLeft, User, Loader2 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 
-const API_URL = 'https://practical-serenity-production.up.railway.app'
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
 interface UsageData {
   user_id: string

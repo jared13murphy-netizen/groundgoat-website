@@ -27,7 +27,7 @@ import type { ApiListing } from '@/components/map/mapTypes'
 import type { CountySalesData } from '@/components/map/CountySalesMap'
 import { COMPANY_COLORS } from '@/components/map/CountySalesMap'
 
-const API_URL = 'https://practical-serenity-production.up.railway.app'
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
 // Temporary button for one-time scripts
 const SHOW_SOLD_ACRES_BUTTON = false

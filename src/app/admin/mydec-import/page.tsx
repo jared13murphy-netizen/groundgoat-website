@@ -27,7 +27,7 @@ import fetchWithAuth, { fetchScraperProxy } from '@/lib/fetchWithAuth'
 import { formatAcres } from '@/lib/format'
 import NassStagingPreview from '@/components/admin/NassStagingPreview'
 
-const API_URL = 'https://practical-serenity-production.up.railway.app'
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 const SCRAPER_PROXY = '/api/scraper-proxy'
 
 // Must match ALLOWED_LAND_TYPES in main.py:11654

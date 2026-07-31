@@ -9,7 +9,7 @@ import Link from 'next/link'
 import { Loader2, Trash2, ChevronLeft, ChevronRight, MapPin, ArrowLeft, Filter, Pencil, CheckCircle, ExternalLink, Plus, X, FileText, Search } from 'lucide-react'
 import { getCountiesForState } from '@/data/counties'
 
-const API_URL = 'https://practical-serenity-production.up.railway.app'
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
 const US_STATES: Record<string, string> = {
   "AL": "Alabama", "AK": "Alaska", "AZ": "Arizona", "AR": "Arkansas", "CA": "California",

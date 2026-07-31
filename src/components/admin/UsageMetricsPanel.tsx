@@ -7,7 +7,7 @@ import {
 } from 'recharts'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 
-const API_URL = 'https://practical-serenity-production.up.railway.app'
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
 // All numbers shown here are populated by the backend's request-metrics
 // middleware (web + mobile API traffic, customer accounts only — staff

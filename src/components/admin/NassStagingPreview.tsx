@@ -20,7 +20,7 @@ import { useEffect, useState } from 'react'
 import { Sprout, AlertTriangle } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 
-const API_URL = 'https://practical-serenity-production.up.railway.app'
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
 interface YieldRow { year: number; practice: string | null; ypa: number | null; unit: string | null }
 interface RentRow { year: number; dpa: number | null }

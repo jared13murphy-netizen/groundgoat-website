@@ -27,7 +27,7 @@ import type { OwnerParcelsResponse } from '@/components/map/exploreMapTypes'
 const ExploreMap = dynamic(() => import('@/components/map/ExploreMap'), { ssr: false })
 const Tract3DModal = dynamic(() => import('@/components/Tract3DModal'), { ssr: false })
 
-const API_URL = 'https://practical-serenity-production.up.railway.app'
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
 const ALLOWED_ROLES = ['groundgoat_admin', 'groundgoat_sales', 'firm_admin', 'firm_user']
 

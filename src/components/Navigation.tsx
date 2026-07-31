@@ -6,7 +6,7 @@ import { useState, useEffect } from 'react'
 import { Menu, X, LogOut, User, List } from 'lucide-react'
 import { useRouter, usePathname } from 'next/navigation'
 
-const API_URL = 'https://practical-serenity-production.up.railway.app'
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
 export default function Navigation() {
   const router = useRouter()

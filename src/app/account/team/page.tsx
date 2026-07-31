@@ -7,7 +7,7 @@ import Link from 'next/link'
 import { ArrowLeft, Loader2, Users, UserPlus, Trash2, Mail, Check, AlertCircle, Crown, Shield } from 'lucide-react'
 import { SALES_CONTACT_EMAIL } from '@/config/pricing'
 
-const API_URL = 'https://practical-serenity-production.up.railway.app'
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
 interface TeamMember {
   id: string

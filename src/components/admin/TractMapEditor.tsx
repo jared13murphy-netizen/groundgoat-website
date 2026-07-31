@@ -53,7 +53,7 @@ import { formatAcres } from '@/lib/format'
 import { fetchWithAuth, fetchScraperProxy } from '@/lib/fetchWithAuth'
 
 const SCRAPER_PROXY = '/api/scraper-proxy'
-const API_URL = 'https://practical-serenity-production.up.railway.app'
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 // Multi-polygon CREATION gate. ON now that every display surface (website
 // ExploreMap + access-page zoom/pin (browse AND comp mode), mobile
 // ExploreMapView, PDF report) + enrichment + validation render/handle

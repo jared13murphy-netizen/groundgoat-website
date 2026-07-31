@@ -27,7 +27,7 @@ import fetchWithAuth, { fetchScraperProxy } from '@/lib/fetchWithAuth'
 import { formatAcres } from '@/lib/format'
 
 const SCRAPER_PROXY = '/api/scraper-proxy'
-const API_URL = 'https://practical-serenity-production.up.railway.app'
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 const TILE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
 const TILE_ATTRIBUTION = '© Esri, Maxar, Earthstar Geographics'
 // Per-tract polygon colors. Primary (first / single-tract) is pink

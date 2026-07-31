@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Bell, ChevronDown, ChevronUp, Check, Loader2 } from 'lucide-react'
 
-const API_URL = 'https://practical-serenity-production.up.railway.app'
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

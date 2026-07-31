@@ -18,7 +18,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { CheckCircle2, XCircle, Loader2 } from 'lucide-react'
 
-const API_URL = 'https://practical-serenity-production.up.railway.app'
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
 type Status = 'loading' | 'success' | 'error' | 'missing-token'
 

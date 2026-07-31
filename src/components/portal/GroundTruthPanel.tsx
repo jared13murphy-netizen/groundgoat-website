@@ -23,7 +23,7 @@ import { Loader2, Sprout } from 'lucide-react'
 import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip } from 'recharts'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 
-const API_URL = 'https://practical-serenity-production.up.railway.app'
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
 interface YieldRow {
   year: number

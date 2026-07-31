@@ -8,7 +8,7 @@ import { ArrowLeft, Loader2, Filter } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import type { ApiListing } from '@/components/map/mapTypes'
 
-const API_URL = 'https://practical-serenity-production.up.railway.app'
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
 // Dynamically import the map component to avoid SSR issues
 const TractMap = dynamic(() => import('@/components/map/TractMap'), {

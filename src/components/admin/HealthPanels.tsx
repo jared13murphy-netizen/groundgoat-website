@@ -7,7 +7,7 @@ import {
 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 
-const API_URL = 'https://practical-serenity-production.up.railway.app'
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
 // All four panels here read the same `/api/admin/metrics/dashboard`
 // payload so they share one network call. Each owns its own slice of

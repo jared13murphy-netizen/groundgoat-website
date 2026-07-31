@@ -6,7 +6,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { COMPANY_COLORS } from './CountySalesMap'
 
-const API_URL = 'https://practical-serenity-production.up.railway.app'
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
 interface CompanyDetail {
   company_id: string

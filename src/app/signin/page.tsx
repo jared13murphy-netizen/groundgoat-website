@@ -7,7 +7,7 @@ import Image from 'next/image'
 import { Eye, EyeOff, ArrowRight, CheckCircle } from 'lucide-react'
 import { parseApiError } from '@/lib/parseApiError'
 
-const API_URL = 'https://practical-serenity-production.up.railway.app'
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
 function SignInContent() {
   const searchParams = useSearchParams()

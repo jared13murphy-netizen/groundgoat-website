@@ -24,7 +24,7 @@ import SaleStatusChips from '@/components/admin/SaleStatusChips'
 import { toRings } from '@/lib/polygonRings'
 import ConfirmDeleteTractModal from '@/components/admin/ConfirmDeleteTractModal'
 
-const API_URL = 'https://practical-serenity-production.up.railway.app'
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
 // Which states are "not held" (soil + FSA CLU finished) is the BACKEND's call —
 // it's served in the stats response as `actionable_states`, the single source

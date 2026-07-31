@@ -8,7 +8,7 @@ import { ArrowLeft, Loader2, CreditCard, Calendar, AlertTriangle, CheckCircle, C
 import { parseApiError } from '@/lib/parseApiError'
 import { PRICING, formatPrice } from '@/config/pricing'
 
-const API_URL = 'https://practical-serenity-production.up.railway.app'
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
 interface Subscription {
   id: string

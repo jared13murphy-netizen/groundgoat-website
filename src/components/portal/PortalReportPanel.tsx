@@ -8,7 +8,7 @@ import { formatAcres } from '@/lib/format'
 import { computeCompAverages } from '@/lib/compAverages'
 import type { TractSaleData } from './PortalTractDetail'
 
-const API_URL = 'https://practical-serenity-production.up.railway.app'
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
 const STATE_SOIL_LABELS: Record<string, string> = {
   IL: 'PI', IA: 'CSR2', IN: 'WAPI', MO: 'NCCPI', MN: 'CPI',

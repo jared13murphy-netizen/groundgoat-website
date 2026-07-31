@@ -19,7 +19,7 @@ import { Loader2, ChevronsUpDown, Check } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { formatAcres } from '@/lib/format'
 
-const API_URL = 'https://practical-serenity-production.up.railway.app'
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
 type SwapTract = {
   id: string

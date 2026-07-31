@@ -8,7 +8,7 @@ import { parseApiError } from '@/lib/parseApiError'
 import { PRICING, formatPrice } from '@/config/pricing'
 import { STATE_ABBREVIATIONS, getStateAbbreviation, getStateFullName } from '@/data/counties'
 
-const API_URL = 'https://practical-serenity-production.up.railway.app'
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
 interface SubscribedArea {
   id: string

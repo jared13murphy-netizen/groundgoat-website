@@ -7,7 +7,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { getCountiesForState, US_STATES } from '@/data/counties'
 
-const API_URL = 'https://practical-serenity-production.up.railway.app'
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
 interface TownshipDetail {
   total_acres: number

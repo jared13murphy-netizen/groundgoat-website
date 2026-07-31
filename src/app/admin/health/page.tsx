@@ -7,7 +7,7 @@ import dynamic from 'next/dynamic'
 import { ArrowLeft, Activity, Loader2 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 
-const API_URL = 'https://practical-serenity-production.up.railway.app'
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
 // Lazy-load the heavy chart-bearing panels so the first paint of the
 // Health Monitor isn't gated on Recharts.

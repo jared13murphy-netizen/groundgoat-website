@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Search, UserCheck, UserX, Shield, Loader2, ChevronDown, Edit2, X, Check, DollarSign, RefreshCw } from 'lucide-react'
 
-const API_URL = 'https://practical-serenity-production.up.railway.app'
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
 const ACCOUNT_TYPES = [
   { value: 'individual', label: 'Individual' },

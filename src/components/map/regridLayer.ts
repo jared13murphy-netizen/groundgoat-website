@@ -13,7 +13,7 @@
 import maplibregl from 'maplibre-gl'
 import { fetchWithAuth } from '@/lib/fetchWithAuth'
 
-const API_URL = 'https://practical-serenity-production.up.railway.app'
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
 export interface RegridConfig {
   tile_url_template: string
