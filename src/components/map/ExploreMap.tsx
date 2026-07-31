@@ -1513,6 +1513,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // throws a TDZ "Cannot access before initialization" error.
   const [filters, setFilters] = useState<FilterState>(INITIAL_FILTERS)
   const [filterOpen, setFilterOpenInternal] = useState(false)
+  // Filters to layer on top of appliedFilters the next time the panel
+  // opens — see the re-seed effect below. Set by the state badge's
+  // "Filter" link so the panel opens with that state already selected.
+  const pendingFilterSeedRef = useRef<Partial<FilterState> | null>(null)
   const filtersRef = useRef<FilterState>(INITIAL_FILTERS)
   // Apply-atomic model: `filters` is the DRAFT the panel edits live;
   // `appliedFilters` is the committed snapshot that drives every
@@ -2158,10 +2162,20 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // re-seed keyed on `visible` (ExploreFilterPanel.js, ResultsScreen.js).
   // Keyed on filterOpen ONLY — it must NOT re-run while the panel is open
   // (that would wipe the user's in-progress edits mid-session).
+  //
+  // OWNER BUG (2026-07-31): a state badge's "Filter" link sets the draft
+  // state and THEN opens the panel — and this effect, running on the
+  // open, overwrote that draft with appliedFilters, so the panel slid out
+  // with no state selected. The re-seed itself is correct and stays; the
+  // badge click now leaves its selection in pendingFilterSeedRef and the
+  // re-seed layers it ON TOP of appliedFilters. The ref is cleared on
+  // every open AND close, so a seed can never leak into a later opening.
   useEffect(() => {
     if (filterOpen) {
-      setFilters(appliedFilters)
+      const seed = pendingFilterSeedRef.current
+      setFilters(seed ? { ...appliedFilters, ...seed } : appliedFilters)
     }
+    pendingFilterSeedRef.current = null
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterOpen])
 
@@ -3601,10 +3615,23 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // dot layer (see PARCEL_SALE_DOT_DURABLE_LAYER below) instead of
   // trying to push the Regrid source itself down to z9.
   const REGRID_MIN_ZOOM = 11
-  // Label sub-layer only — owner/acres/$/sale-date text is dense and
-  // stays gated at 14 even though boundaries/fill render starting at
-  // REGRID_MIN_ZOOM (11).
+  // Label sub-layers. OWNER (2026-07-31): "what zoom level shows our
+  // parcel tile labels? It feels like it's a little too far in."
+  //
+  // It was: everything (owner + acres + $/ac + sale date) in ONE symbol
+  // layer gated at 14, three whole zoom levels after the boundaries
+  // appear at REGRID_MIN_ZOOM (11). Mobile's explore map has always run
+  // the OWNER NAME at 11 alongside the boundaries and gated only the
+  // three secondary labels to 14 — so web was the odd one out.
+  //
+  // Web now matches mobile: an owner-only layer covers 11 -> 14, and the
+  // full four-part label takes over at 14. maxzoom on the owner layer
+  // makes the handoff exact, so the owner name is never drawn twice.
+  // The secondaries stay at 14 for the reason mobile documents: at
+  // z11-13 there are thousands of parcels in view and running collision
+  // detection over dense multi-line text is what makes the map stutter.
   const REGRID_LABEL_MIN_ZOOM = 14
+  const REGRID_OWNER_LABEL_MIN_ZOOM = REGRID_MIN_ZOOM
   const [regridConfig, setRegridConfig] = useState<{
     tile_url_template: string
     // Custom-source tiles name their MVT layer with the source UUID;
@@ -3665,6 +3692,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const FILL_LAYER = 'regrid-parcels-fill'
     const LINE_LAYER = 'regrid-parcels-line'
     const LABEL_LAYER = 'regrid-parcels-label'
+    const OWNER_LABEL_LAYER = 'regrid-parcels-owner-label'
 
     if (map.getSource(SOURCE_ID)) return
 
@@ -3892,6 +3920,45 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       },
     }, beforeId)
 
+    // Owner-name-only label for z11 -> 14, so the parcel grid isn't
+    // anonymous for three zoom levels after the boundaries appear
+    // (owner 2026-07-31: labels "feel a little too far in"). This is
+    // exactly what mobile's explore map already does. maxzoom here is
+    // the same number as the combined layer's minzoom, so the two hand
+    // off precisely and the owner name is never rendered twice.
+    // Deliberately owner-only: acres/$-ac/date stay at 14 because dense
+    // multi-line text over thousands of parcels is what costs collision
+    // detection at z11-13.
+    map.addLayer({
+      id: OWNER_LABEL_LAYER,
+      type: 'symbol',
+      source: SOURCE_ID,
+      'source-layer': sourceLayer,
+      minzoom: REGRID_OWNER_LABEL_MIN_ZOOM,
+      maxzoom: REGRID_LABEL_MIN_ZOOM,
+      ...(regridStateFilter ? { filter: regridStateFilter } : {}),
+      layout: {
+        'text-field': ['coalesce', ['get', 'owner'], 'Coming Soon'],
+        'text-font': ['Open Sans Bold'],
+        'text-size': 11,
+        'text-max-width': 9,
+        'text-allow-overlap': false,
+        'text-ignore-placement': false,
+      },
+      paint: {
+        'text-color': '#ffffff',
+        'text-halo-color': 'rgba(0,0,0,0.85)',
+        'text-halo-width': 1.4,
+        'text-halo-blur': 0.4,
+        // Same comp-map coincident-dot suppression as the combined layer.
+        'text-opacity': [
+          'case',
+          ['boolean', ['feature-state', 'dotSuppressed'], false], 0,
+          1,
+        ],
+      },
+    }, beforeId)
+
     // Push tract polygons to the TOP of the layer stack — if Regrid
     // arrived after tract-polygon-* mounted, beforeId above missed
     // and Regrid landed on top. moveLayer (no second arg) lifts the
@@ -4018,7 +4085,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         map.off('mousemove', FILL_LAYER, onMove)
         map.off('mouseleave', FILL_LAYER, onLeave)
         map.off('click', FILL_LAYER, onClick)
-        for (const id of [LABEL_LAYER, LINE_LAYER, FILL_LAYER]) {
+        for (const id of [OWNER_LABEL_LAYER, LABEL_LAYER, LINE_LAYER, FILL_LAYER]) {
           if (map.getLayer(id)) map.removeLayer(id)
         }
         if (map.getSource(SOURCE_ID)) map.removeSource(SOURCE_ID)
@@ -7461,9 +7528,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         const isFilterLink = target?.closest('[data-action="filter"]')
         ev.stopPropagation()
         if (isFilterLink) {
-          setFilters(prev => ({
-            ...prev, stateFilter: state, countyFilters: [], townshipFilters: [],
-          }))
+          const seed = { stateFilter: state, countyFilters: [], townshipFilters: [] }
+          // Direct set covers the panel-already-open case (the re-seed
+          // effect is keyed on filterOpen and won't run); the ref covers
+          // the normal closed -> open case, where it would otherwise be
+          // overwritten by appliedFilters.
+          pendingFilterSeedRef.current = seed
+          setFilters(prev => ({ ...prev, ...seed }))
           setFilterOpen(true)
         }
         map.easeTo({ center: [lng!, lat!], zoom: 7, duration: 900 })

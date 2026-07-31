@@ -176,4 +176,7 @@ export const REGRID_PARCEL_LAYER_IDS = [
   'regrid-parcels-fill',
   'regrid-parcels-line',
   'regrid-parcels-label',
+  // Owner-only label that covers z11-14 (the combined label starts at 14).
+  // Must be listed here or the subscription state gate would skip it.
+  'regrid-parcels-owner-label',
 ] as const
