@@ -3615,23 +3615,25 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // dot layer (see PARCEL_SALE_DOT_DURABLE_LAYER below) instead of
   // trying to push the Regrid source itself down to z9.
   const REGRID_MIN_ZOOM = 11
-  // Label sub-layers. OWNER (2026-07-31): "what zoom level shows our
-  // parcel tile labels? It feels like it's a little too far in."
+  // Label sub-layers. OWNER, 2026-07-31, in two rounds:
+  //   - at 14 for everything: "a little too far in"
+  //   - tried 11 (matching mobile explore, which runs the owner name
+  //     alongside the boundaries): "that zoom level is too far out now"
+  //   - settled on 13 — one step earlier than the original 14, which is
+  //     what "a little too far in" actually asked for.
   //
-  // It was: everything (owner + acres + $/ac + sale date) in ONE symbol
-  // layer gated at 14, three whole zoom levels after the boundaries
-  // appear at REGRID_MIN_ZOOM (11). Mobile's explore map has always run
-  // the OWNER NAME at 11 alongside the boundaries and gated only the
-  // three secondary labels to 14 — so web was the odd one out.
+  // So: an owner-name-only layer covers 13 -> 14, and the full four-part
+  // label (owner + acres + $/ac + sale date) takes over at 14. maxzoom on
+  // the owner layer equals the combined layer's minzoom, so the handoff is
+  // exact and the name is never drawn twice.
   //
-  // Web now matches mobile: an owner-only layer covers 11 -> 14, and the
-  // full four-part label takes over at 14. maxzoom on the owner layer
-  // makes the handoff exact, so the owner name is never drawn twice.
-  // The secondaries stay at 14 for the reason mobile documents: at
-  // z11-13 there are thousands of parcels in view and running collision
-  // detection over dense multi-line text is what makes the map stutter.
+  // NOTE this is deliberately NOT mobile-identical: mobile explore starts
+  // its owner label at REGRID_MIN_ZOOM (11). The owner reviewed both and
+  // chose 11 on mobile / 13 on web — a phone viewport holds far fewer
+  // parcels at a given zoom, so the same number reads as much denser on a
+  // desktop map. Don't "fix" this to match without asking.
   const REGRID_LABEL_MIN_ZOOM = 14
-  const REGRID_OWNER_LABEL_MIN_ZOOM = REGRID_MIN_ZOOM
+  const REGRID_OWNER_LABEL_MIN_ZOOM = 13
   const [regridConfig, setRegridConfig] = useState<{
     tile_url_template: string
     // Custom-source tiles name their MVT layer with the source UUID;
@@ -3920,15 +3922,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       },
     }, beforeId)
 
-    // Owner-name-only label for z11 -> 14, so the parcel grid isn't
-    // anonymous for three zoom levels after the boundaries appear
-    // (owner 2026-07-31: labels "feel a little too far in"). This is
-    // exactly what mobile's explore map already does. maxzoom here is
-    // the same number as the combined layer's minzoom, so the two hand
-    // off precisely and the owner name is never rendered twice.
-    // Deliberately owner-only: acres/$-ac/date stay at 14 because dense
-    // multi-line text over thousands of parcels is what costs collision
-    // detection at z11-13.
+    // Owner-name-only label for z13 -> 14, so the name shows up a zoom
+    // level before the full four-part label does (owner 2026-07-31; see
+    // the REGRID_OWNER_LABEL_MIN_ZOOM comment for how 13 was landed on).
+    // maxzoom here is the same number as the combined layer's minzoom,
+    // so the two hand off precisely and the owner name is never rendered
+    // twice. Deliberately owner-only: acres/$-ac/date stay at 14 because
+    // dense multi-line text over thousands of parcels is what costs
+    // collision detection at the wider zooms.
     map.addLayer({
       id: OWNER_LABEL_LAYER,
       type: 'symbol',
