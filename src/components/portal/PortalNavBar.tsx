@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Map, Calendar, Building2, BarChart3, LogOut, User, Users, Settings, Filter, Bookmark } from 'lucide-react'
+import { Map, Calendar, Building2, BarChart3, LogOut, User, Users, Settings, Filter, Bookmark, UserCircle } from 'lucide-react'
 import { SHOW_PRIVATE_TREATY } from '@/lib/featureFlags'
 
 type TabType = 'map' | 'auctions' | 'private_treaty' | 'results'
@@ -158,6 +158,14 @@ export default function PortalNavBar({ activeTab, onTabChange, onFilterToggle, f
               </div>
             </div>
             <div className="py-1">
+              <Link
+                href="/account"
+                className="flex items-center gap-2.5 px-4 py-2 text-sm text-gg-gray-300 hover:bg-white/5 hover:text-white transition"
+                onClick={() => setShowUserMenu(false)}
+              >
+                <UserCircle size={14} />
+                Account
+              </Link>
               <Link
                 href="/account/profile"
                 className="flex items-center gap-2.5 px-4 py-2 text-sm text-gg-gray-300 hover:bg-white/5 hover:text-white transition"

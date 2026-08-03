@@ -54,7 +54,6 @@ interface TeamMember {
   email: string
   firstName: string
   lastName: string
-  password: string
 }
 
 interface ReferrerInfo {
@@ -110,13 +109,16 @@ function SignUpContent() {
     firmName: '',
     firmWebsite: '',
     firmPhone: '',
+    firmAddress: '',
+    firmCity: '',
+    firmState: '',
+    firmZip: '',
   })
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
   const [newMember, setNewMember] = useState<TeamMember>({
     email: '',
     firstName: '',
     lastName: '',
-    password: '',
   })
   const [additionalSeats, setAdditionalSeats] = useState(0)
   const [showAddMember, setShowAddMember] = useState(false)
@@ -198,7 +200,7 @@ function SignUpContent() {
     setError('')
   }
 
-  const handleFirmInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFirmInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setFirmData({ ...firmData, [e.target.name]: e.target.value })
     setError('')
   }
@@ -251,6 +253,13 @@ function SignUpContent() {
 
   const validateFirmProfile = () => {
     if (!firmData.firmName.trim()) return 'Company name is required'
+    if (!firmData.firmPhone.trim()) return 'Company phone number is required'
+    if (!/^[\d\s()+.-]{7,}$/.test(firmData.firmPhone.trim())) return 'Please enter a valid phone number'
+    if (!firmData.firmAddress.trim()) return 'Company address is required'
+    if (!firmData.firmCity.trim()) return 'City is required'
+    if (!firmData.firmState) return 'State is required'
+    if (!firmData.firmZip.trim()) return 'ZIP code is required'
+    if (!/^\d{5}(-\d{4})?$/.test(firmData.firmZip.trim())) return 'Please enter a valid ZIP code'
     return null
   }
 
@@ -295,11 +304,7 @@ function SignUpContent() {
       setError('Last name is required')
       return
     }
-    if (newMember.password.length < 8) {
-      setError('Password must be at least 8 characters')
-      return
-    }
-    
+
     if (teamMembers.some(m => m.email.toLowerCase() === newMember.email.toLowerCase())) {
       setError('This team member is already added')
       return
@@ -313,7 +318,7 @@ function SignUpContent() {
     }
     
     setTeamMembers([...teamMembers, newMember])
-    setNewMember({ email: '', firstName: '', lastName: '', password: '' })
+    setNewMember({ email: '', firstName: '', lastName: '' })
     setShowAddMember(false)
     setError('')
   }
@@ -560,12 +565,15 @@ function SignUpContent() {
           admin_last_name: formData.lastName,
           firm_name: firmData.firmName,
           firm_website: firmData.firmWebsite || null,
-          firm_phone: firmData.firmPhone || null,
+          firm_phone: firmData.firmPhone.trim(),
+          firm_address: firmData.firmAddress.trim(),
+          firm_city: firmData.firmCity.trim(),
+          firm_state: firmData.firmState,
+          firm_zip: firmData.firmZip.trim(),
           team_members: teamMembers.map(m => ({
             email: m.email,
             first_name: m.firstName,
             last_name: m.lastName,
-            password: m.password,
           })),
           home_state: getStateAbbreviation(formData.homeState),
           home_county: formData.homeCounty,
@@ -1207,7 +1215,7 @@ function SignUpContent() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gg-gray-300 mb-2">Phone (optional)</label>
+                    <label className="block text-sm font-medium text-gg-gray-300 mb-2">Phone *</label>
                     <input
                       type="tel"
                       name="firmPhone"
@@ -1216,6 +1224,57 @@ function SignUpContent() {
                       className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none"
                       placeholder="(555) 123-4567"
                     />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gg-gray-300 mb-2">Address *</label>
+                    <input
+                      type="text"
+                      name="firmAddress"
+                      value={firmData.firmAddress}
+                      onChange={handleFirmInputChange}
+                      className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none"
+                      placeholder="123 Main St"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gg-gray-300 mb-2">City *</label>
+                      <input
+                        type="text"
+                        name="firmCity"
+                        value={firmData.firmCity}
+                        onChange={handleFirmInputChange}
+                        className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none"
+                        placeholder="Springfield"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gg-gray-300 mb-2">State *</label>
+                      <select
+                        name="firmState"
+                        value={firmData.firmState}
+                        onChange={handleFirmInputChange}
+                        className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-[#1a1a1a] focus:border-gg-pink focus:outline-none"
+                      >
+                        <option value="">Select...</option>
+                        {US_STATES.map(state => (
+                          <option key={state} value={state}>{state}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gg-gray-300 mb-2">ZIP *</label>
+                      <input
+                        type="text"
+                        name="firmZip"
+                        value={firmData.firmZip}
+                        onChange={handleFirmInputChange}
+                        className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none"
+                        placeholder="62704"
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1530,24 +1589,13 @@ function SignUpContent() {
                         className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none"
                         placeholder="jane@example.com"
                       />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gg-gray-300 mb-2">Temporary Password</label>
-                      <input
-                        type="password"
-                        name="password"
-                        value={newMember.password}
-                        onChange={handleNewMemberChange}
-                        className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none"
-                        placeholder="••••••••"
-                      />
-                      <p className="text-gg-gray-500 text-xs mt-1">They can change this after signing in</p>
+                      <p className="text-gg-gray-500 text-xs mt-1">They&apos;ll receive an email invitation to set up their own password</p>
                     </div>
                     <div className="flex gap-2">
                       <button
                         onClick={() => {
                           setShowAddMember(false)
-                          setNewMember({ email: '', firstName: '', lastName: '', password: '' })
+                          setNewMember({ email: '', firstName: '', lastName: '' })
                           setError('')
                         }}
                         className="btn-secondary flex-1"

@@ -27,6 +27,7 @@ export default function TeamPage() {
   const [showInviteModal, setShowInviteModal] = useState(false)
   const [inviting, setInviting] = useState(false)
   const [removingId, setRemovingId] = useState<string | null>(null)
+  const [memberPendingRemoval, setMemberPendingRemoval] = useState<TeamMember | null>(null)
   const [maxSeats, setMaxSeats] = useState(3)
   const [upgradingSeats, setUpgradingSeats] = useState(false)
   const [error, setError] = useState('')
@@ -155,6 +156,7 @@ export default function TeamPage() {
       setError(err.message || 'Failed to remove team member')
     } finally {
       setRemovingId(null)
+      setMemberPendingRemoval(null)
     }
   }
 
@@ -340,7 +342,7 @@ export default function TeamPage() {
                   </div>
                 </div>
                 <button
-                  onClick={() => handleRemoveMember(member.id)}
+                  onClick={() => setMemberPendingRemoval(member)}
                   disabled={removingId === member.id}
                   className="text-gg-gray-500 hover:text-red-400 transition-colors p-2"
                 >
@@ -370,6 +372,47 @@ export default function TeamPage() {
             </div>
           )}
         </div>
+
+        {/* Remove Member Confirmation */}
+        {memberPendingRemoval && (
+          <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+            <div className="bg-gg-gray-900 rounded-xl p-6 max-w-md w-full border border-gg-gray-700">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 bg-red-500/20 rounded-full flex items-center justify-center">
+                  <Trash2 className="text-red-500" size={20} />
+                </div>
+                <h3 className="text-xl font-semibold text-white">Remove Team Member</h3>
+              </div>
+
+              <p className="text-gg-gray-400 mb-6">
+                Remove {memberPendingRemoval.first_name} {memberPendingRemoval.last_name} from your firm?
+                They will immediately lose access to your firm&apos;s subscription.
+              </p>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setMemberPendingRemoval(null)}
+                  disabled={removingId === memberPendingRemoval.id}
+                  className="flex-1 btn-secondary"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => handleRemoveMember(memberPendingRemoval.id)}
+                  disabled={removingId === memberPendingRemoval.id}
+                  className="flex-1 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg px-4 py-3 flex items-center justify-center gap-2 disabled:opacity-50 transition-colors"
+                >
+                  {removingId === memberPendingRemoval.id ? (
+                    <Loader2 size={18} className="animate-spin" />
+                  ) : (
+                    <Trash2 size={18} />
+                  )}
+                  Remove
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Invite Modal */}
         {showInviteModal && (
