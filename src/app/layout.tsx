@@ -16,6 +16,11 @@ export const metadata: Metadata = {
     type: 'website',
     url: 'https://www.groundgoat.com',
   },
+  // Apple's Smart App Banner. Safari on iPhone/iPad renders the "Get the app"
+  // strip itself from this tag; every other browser and all desktops ignore it
+  // entirely, which is exactly the behaviour the owner asked for (8/3).
+  // app-id is the App Store ID for Ground Goat.
+  itunes: { appId: '6753321116' },
 }
 
 export default function RootLayout({

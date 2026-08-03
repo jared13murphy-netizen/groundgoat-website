@@ -326,3 +326,21 @@ button {
 .staging-light tr:hover {
   background-color: #f9fafb;
 }
+
+/* Chrome repaints autofilled inputs with its own light background, which made
+   some fields on a form look white while untouched ones stayed dark — the
+   owner saw exactly that on the firm signup Company step (8/3), where phone
+   was the only field Chrome had nothing saved for. There is no property to
+   set the autofill background directly, so the standard trick is an inset
+   shadow the size of the field plus a matching text fill colour. */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+textarea:-webkit-autofill,
+select:-webkit-autofill {
+  -webkit-box-shadow: 0 0 0 1000px #111111 inset !important;
+  box-shadow: 0 0 0 1000px #111111 inset !important;
+  -webkit-text-fill-color: #ffffff !important;
+  caret-color: #ffffff;
+  transition: background-color 9999s ease-in-out 0s;
+}
