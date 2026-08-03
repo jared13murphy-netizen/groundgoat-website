@@ -13,10 +13,6 @@ function AccountContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const subscriptionSuccess = searchParams.get('subscription') === 'success'
-  // Set by the backend on the Stripe success_url after firm checkout so the
-  // admin lands signed in instead of hitting /signin (owner walkthrough, 8/3).
-  // NOT YET SENT BY THE BACKEND — see FIX 5 note where this is consumed below.
-  const magicToken = searchParams.get('magic_token')
   const [user, setUser] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [hasSubscription, setHasSubscription] = useState<boolean | null>(null)
@@ -36,53 +32,20 @@ function AccountContent() {
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
   useEffect(() => {
-    const bootstrap = async () => {
-      let token = localStorage.getItem('auth_token')
-
-      // Landed here unauthenticated with a one-time magic link token (e.g.
-      // straight off a Stripe firm-checkout success redirect) — exchange it
-      // the same way /auth/magic-link/page.tsx does before falling back to
-      // /signin.
-      if (!token && magicToken) {
-        try {
-          const response = await fetch(
-            `${API_URL}/api/auth/exchange-magic-link?token=${encodeURIComponent(magicToken)}`
-          )
-          if (response.ok) {
-            const data = await response.json()
-            localStorage.setItem('auth_token', data.access_token)
-            if (data.refresh_token) {
-              localStorage.setItem('refresh_token', data.refresh_token)
-            }
-            token = data.access_token
-
-            // Strip magic_token from the URL — it's single-use, so a refresh
-            // must not try to redeem it again.
-            const cleanParams = new URLSearchParams(searchParams.toString())
-            cleanParams.delete('magic_token')
-            router.replace(`/account${cleanParams.toString() ? `?${cleanParams.toString()}` : ''}`)
-          }
-        } catch (err) {
-          console.error('Magic link exchange failed:', err)
-        }
-      }
-
-      if (!token) {
-        router.push('/signin')
-        return
-      }
-
-      // Try to get cached user first
-      const cachedUser = localStorage.getItem('user')
-      if (cachedUser) {
-        setUser(JSON.parse(cachedUser))
-      }
-
-      // Fetch fresh user data and subscription status
-      fetchUserAndSubscription(token)
+    const token = localStorage.getItem('auth_token')
+    if (!token) {
+      router.push('/signin')
+      return
     }
 
-    bootstrap()
+    // Try to get cached user first
+    const cachedUser = localStorage.getItem('user')
+    if (cachedUser) {
+      setUser(JSON.parse(cachedUser))
+    }
+
+    // Fetch fresh user data and subscription status
+    fetchUserAndSubscription(token)
   }, [router])
 
   const fetchUserAndSubscription = async (token: string) => {

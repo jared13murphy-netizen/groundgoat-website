@@ -37,7 +37,6 @@ export default function TeamPage() {
     email: '',
     firstName: '',
     lastName: '',
-    password: '',
   })
 
   useEffect(() => {
@@ -107,7 +106,6 @@ export default function TeamPage() {
           email: inviteForm.email,
           first_name: inviteForm.firstName,
           last_name: inviteForm.lastName,
-          password: inviteForm.password,
         })
       })
 
@@ -118,7 +116,7 @@ export default function TeamPage() {
 
       setSuccess(`Successfully added ${inviteForm.firstName} to your team!`)
       setShowInviteModal(false)
-      setInviteForm({ email: '', firstName: '', lastName: '', password: '' })
+      setInviteForm({ email: '', firstName: '', lastName: '' })
       
       // Refresh team list
       fetchTeamMembers(token)
@@ -461,21 +459,9 @@ export default function TeamPage() {
                   />
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gg-gray-300 mb-2">Temporary Password</label>
-                  <input
-                    type="text"
-                    value={inviteForm.password}
-                    onChange={(e) => setInviteForm({ ...inviteForm, password: e.target.value })}
-                    className="w-full bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none"
-                    placeholder="Enter a temporary password"
-                    minLength={8}
-                    required
-                  />
-                  <p className="text-xs text-gg-gray-500 mt-1">
-                    Share this password with the team member. They can change it later.
-                  </p>
-                </div>
+                <p className="text-xs text-gg-gray-500">
+                  We&apos;ll email them an invitation to set up their own password.
+                </p>
 
                 {error && (
                   <p className="text-red-400 text-sm">{error}</p>
