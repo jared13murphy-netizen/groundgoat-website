@@ -4126,7 +4126,27 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // Re-enabled 2026-05-31. The original placement bug (pins landing on
   // neighboring parcels) came from a -42px text-translate that has since
   // been removed — the marker now sits AT the polygon centroid.
-  const REGRID_SALE_PINS_ENABLED = true
+  //
+  // DISABLED 2026-08-03 (owner bug report): this layer reads straight off
+  // the live Regrid vector tile and its only filter is
+  // buildRegridSaleDotFilter (saleprice/acreage/saledate/price — no
+  // location fields at all) plus regridStateFilter (the subscription
+  // state gate, not the user's county/state filter choice). Once zoomed
+  // to REGRID_MIN_ZOOM (11) — exactly where Regrid's parcel boundary
+  // lines start rendering — this layer took over from DURABLE_DOT_LAYER
+  // (capped to maxzoom REGRID_MIN_ZOOM below) and showed pink dots for
+  // EVERY county/state, ignoring an active county filter (e.g. McDonough
+  // County, IL). Mobile hit the identical bug 2026-07-26 and fixed it the
+  // next day by reverting to a single sale-dot layer — the durable one,
+  // fed by /api/map/parcel-sale-dots with the same buildFilterParams the
+  // tract fetch uses, uncapped (no maxzoom) — see ExploreMapView.js's
+  // "THE ONLY sale-dot layer again" comment. Website never got that
+  // revert. Porting it here: this flag now disables
+  // PARCEL_SALE_PLUS_LAYER entirely (its mount/filter-sync/mode-sync
+  // effects below all early-return on this flag), and DURABLE_DOT_LAYER /
+  // DURABLE_DOT_PLUS_LAYER are uncapped again so they keep rendering
+  // (filter-correct) above z11 instead of handing off to this layer.
+  const REGRID_SALE_PINS_ENABLED = false
 
   useEffect(() => {
     const map = mapRef.current
@@ -4785,21 +4805,22 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const inComp = !!subjectTractId
     try {
       if (map.getLayer(DURABLE_DOT_LAYER)) {
-        // CAPPED 2026-07-26 (was uncapped at 24): PARCEL_SALE_PLUS_LAYER is
-        // restored as a live-tile dot layer at z>=REGRID_MIN_ZOOM (11), so
-        // the durable layer must stop exactly there to avoid double-
-        // rendering the same parcels — durable owns z9-11, the live layer
-        // owns z>=11.
-        map.setLayerZoomRange(DURABLE_DOT_LAYER, DURABLE_DOT_MIN_ZOOM, REGRID_MIN_ZOOM)
+        // UNCAPPED 2026-08-03 (owner bug report — reverts the 2026-07-26
+        // cap): PARCEL_SALE_PLUS_LAYER (the live-tile dot layer that used
+        // to own z>=REGRID_MIN_ZOOM) is now disabled — see
+        // REGRID_SALE_PINS_ENABLED above — because its filter is
+        // location-blind and showed unfiltered dots for every county past
+        // z11. This durable layer is the only sale-dot layer again, so it
+        // must render past REGRID_MIN_ZOOM too, same as mobile's uncapped
+        // parcel-sale-dots-durable-circle (ExploreMapView.js).
+        map.setLayerZoomRange(DURABLE_DOT_LAYER, DURABLE_DOT_MIN_ZOOM, 24)
         map.setLayoutProperty(DURABLE_DOT_LAYER, 'visibility', hideParcelDotsForFilters ? 'none' : 'visible')
       }
       if (map.getLayer(DURABLE_DOT_PLUS_LAYER)) {
-        // Same cap as DURABLE_DOT_LAYER above — this "+" glyph sits on the
-        // same source/points and must stop at the same boundary, or a comp
-        // dot at z>=11 would show a durable "+" with no dot underneath it
-        // (DURABLE_DOT_LAYER capped) while the live circle layer renders
-        // separately at the same spot.
-        map.setLayerZoomRange(DURABLE_DOT_PLUS_LAYER, DURABLE_DOT_MIN_ZOOM, REGRID_MIN_ZOOM)
+        // Same uncap as DURABLE_DOT_LAYER above — this "+" glyph sits on
+        // the same source/points and must stay in sync with it at every
+        // zoom now that the live-tile handoff no longer exists.
+        map.setLayerZoomRange(DURABLE_DOT_PLUS_LAYER, DURABLE_DOT_MIN_ZOOM, 24)
         map.setLayoutProperty(DURABLE_DOT_PLUS_LAYER, 'visibility', (inComp && !hideParcelDotsForFilters) ? 'visible' : 'none')
       }
       // AUDIT FIX 2026-07-26: PARCEL_SALE_PLUS_LAYER (the live-tile dot
@@ -5102,14 +5123,17 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // the zoom range the layer will actually render.
     const zoomFloor = DURABLE_DOT_MIN_ZOOM
     if (!opts?.bypassZoomGate && map.getZoom() < zoomFloor) return
-    // CEILING ADDED 2026-07-26: PARCEL_SALE_PLUS_LAYER (live Regrid-tile
-    // dots) now owns z>=REGRID_MIN_ZOOM — DURABLE_DOT_LAYER is capped to
-    // maxzoom REGRID_MIN_ZOOM (see the mode-sync effect above), so once the
-    // map is at/above that zoom the durable layer isn't rendering anyway.
-    // Stop fetching/accumulating durable dots there too, so panning at high
-    // zoom doesn't keep growing durableDotsByIdRef for a layer that's
-    // invisible at this zoom.
-    if (!opts?.bypassZoomGate && map.getZoom() >= REGRID_MIN_ZOOM) return
+    // CEILING REMOVED 2026-08-03 (owner bug report — reverts the
+    // 2026-07-26 ceiling): that cap assumed PARCEL_SALE_PLUS_LAYER (live
+    // Regrid-tile dots) took over at z>=REGRID_MIN_ZOOM, but that layer's
+    // filter is location-blind (buildRegridSaleDotFilter has no
+    // county/state check) — it showed EVERY county's dots once zoomed
+    // in far enough to see Regrid's parcel lines, ignoring an active
+    // county filter. PARCEL_SALE_PLUS_LAYER is now disabled
+    // (REGRID_SALE_PINS_ENABLED = false) and DURABLE_DOT_LAYER is
+    // uncapped again, so this fetch must keep running above
+    // REGRID_MIN_ZOOM too, or panning at high zoom would stop
+    // accumulating dots for the layer that's now rendering there.
     if (!map.getSource(DURABLE_DOT_SOURCE)) return
     // Defensive re-assertion (owner ask 2026-07-21): visibility is set by
     // the dedicated filter-reactive effect above, but every moveend/pan-
@@ -7692,16 +7716,18 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           Shimmer keyframes + pink/white/pink text-clip reused verbatim from
           the prior shipped indicator (commit 83c2347) so it matches. */}
       {/* "Loading Ground" shows ONLY while the durable parcel-sale DOTS are
-          actually loading, and ONLY in the zoom window where those dots render
-          — z9 (DURABLE_DOT_MIN_ZOOM) up to z11 (REGRID_MIN_ZOOM). Owner 2026-07-27:
-          - It must NOT show at state/county zoom (<9): no dots there.
-          - It must NOT show at z>=11: the durable dots stopped fetching (the
-            live Regrid tiles own that zoom) and are already on screen — the
-            tract-cell fetch still fires there, so we deliberately DON'T key off
-            `loading` (tract fetch), only `dotsLoading` (the real dot fetch).
-          currentZoom updates on every zoom so the badge hides the instant you
-          leave the dot-loading window. */}
-      {dotsLoading && currentZoom >= DURABLE_DOT_MIN_ZOOM && currentZoom < REGRID_MIN_ZOOM && (
+          actually loading, at or above DURABLE_DOT_MIN_ZOOM (z9). Owner
+          2026-07-27: must NOT show at state/county zoom (<9): no dots there.
+          UPPER BOUND REMOVED 2026-08-03: this used to also cut off at z>=11
+          on the theory that the durable fetch stopped there and live Regrid
+          tiles took over — that theory is gone now (see
+          fetchDurableDotsForBounds' ceiling-removal comment and
+          REGRID_SALE_PINS_ENABLED above); the durable fetch keeps running
+          past z11, so the badge must too, matching mobile's
+          LoadingGroundIndicator (no zoom ceiling at all — just
+          loading/durableApplyLoading). currentZoom updates on every zoom so
+          the badge hides the instant you drop below the floor. */}
+      {dotsLoading && currentZoom >= DURABLE_DOT_MIN_ZOOM && (
         <>
           <div style={{
             position: 'absolute',
