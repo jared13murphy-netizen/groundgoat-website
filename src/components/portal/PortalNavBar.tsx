@@ -119,20 +119,12 @@ export default function PortalNavBar({ activeTab, onTabChange, onFilterToggle, f
             </button>
           )}
 
-          {/* Analytics button */}
-          {onAnalyticsToggle && (
-            <button
-              onClick={onAnalyticsToggle}
-              className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-all flex items-center gap-1.5 ${
-                analyticsOpen
-                  ? 'bg-gg-pink/15 text-gg-pink border-gg-pink/30'
-                  : 'border-transparent text-white/60 hover:text-white hover:bg-white/5'
-              }`}
-            >
-              <BarChart3 size={14} />
-              <span className="hidden md:inline">Analytics</span>
-            </button>
-          )}
+          {/* Analytics button REMOVED 2026-08-04 (owner): analytics reports
+              are delivered through Goat Search now, so the separate panel is
+              no longer offered. The onAnalyticsToggle/analyticsOpen props and
+              the panel itself are left in place deliberately — nothing else
+              renders them, and keeping them costs nothing while making this
+              trivially reversible if the standalone view is ever wanted back. */}
 
         </nav>
       </div>
