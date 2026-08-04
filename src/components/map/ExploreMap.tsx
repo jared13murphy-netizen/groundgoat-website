@@ -1356,6 +1356,19 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     Record<string, [[number, number], [number, number]]>
   >({})
   const [loading, setLoading] = useState(false)
+  // State-tier + county-tier count fetch in flight (the state-tract-counts
+  // and county-tract-counts effects below, which back the pink circle
+  // badges at z<=9). Owner report 2026-08-04: applying a 4-county IL filter
+  // at z6-8 left the county circles taking "a LONG time" to appear with NO
+  // loading indicator — `dotsLoading` below only ever fires at
+  // z>=DURABLE_DOT_MIN_ZOOM (9), so the entire state/county-tier zoom band
+  // had no feedback at all. Tracked the same way as durableDotsInflightRef
+  // (a plain in-flight counter, immune to fetch supersession) but WITHOUT
+  // the dot fetch's map-idle-wait — circle layers here draw at most a few
+  // hundred features, so there's no render-settle worth waiting for; the
+  // fetch resolving is close enough to "done" for this signal.
+  const [countCountsLoading, setCountCountsLoading] = useState(false)
+  const countCountsInflightRef = useRef(0)
   // Durable parcel-sale-dot fetch in flight (fetchDurableDotsForBounds) —
   // drives the centered "Loading Ground" wordmark below alongside `loading`
   // so pan/zoom dot fetches, not just the tract fetch, show feedback.
@@ -1380,12 +1393,23 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // `dotsLoading` itself already coalesces overlapping/superseded fetches
   // into a single true..false session via the inflight counter — so this
   // stays a single show/hide cycle per session, not per fetch.
+  //
+  // 2026-08-04: `badgeLoading` widens the trigger to `dotsLoading ||
+  // countCountsLoading` — same single delay/min-visible/hard-cap pipeline,
+  // now fed by whichever fetch is actually relevant. It's one OR'd boolean,
+  // not a second parallel mechanism: which source is "relevant" at the
+  // current zoom is decided at render time (see the REGRID_MIN_ZOOM ceiling
+  // on the pill JSX below), not here — `countCountsLoading` can only ever be
+  // true when a state/county-count fetch is genuinely in flight, and that
+  // fetch never runs at the dot tier's zoom the way `dotsLoading` never runs
+  // below it, so the two barely overlap in practice.
+  const badgeLoading = dotsLoading || countCountsLoading
   const [dotsLoadingVisible, setDotsLoadingVisible] = useState(false)
   const dotsLoadingShowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const dotsLoadingHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const dotsLoadingShownAtRef = useRef(0)
   useEffect(() => {
-    if (dotsLoading) {
+    if (badgeLoading) {
       // Starting a new session — cancel any hide-delay left over from a
       // session that had already shown the pill (shouldn't happen given the
       // counter coalescing above, but cheap to guard so the pill can't be
@@ -1421,7 +1445,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dotsLoading])
+  }, [badgeLoading])
   // Unmount safety — don't fire a setState after the map unmounts.
   useEffect(() => {
     return () => {
@@ -1713,24 +1737,44 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   useEffect(() => {
     let cancel = false
     setStateCounts([])
+    // Loading-badge bookkeeping (owner report 2026-08-04) — see
+    // countCountsInflightRef's declaration up top for why this is a plain
+    // in-flight counter rather than a gen-gated flag: a superseded fetch
+    // (rapid filter changes) must still decrement so the badge can't stick.
+    countCountsInflightRef.current += 1
+    setCountCountsLoading(true)
     fetchWithAuth(`${API_URL}/api/map/state-tract-counts?${filterParamString}`)
       .then(r => r.ok ? r.json() : { states: [] })
       .then(d => { if (!cancel) setStateCounts(d.states || []) })
       .catch(() => { if (!cancel) setStateCounts([]) })
+      .finally(() => {
+        countCountsInflightRef.current = Math.max(0, countCountsInflightRef.current - 1)
+        if (countCountsInflightRef.current === 0) setCountCountsLoading(false)
+      })
     return () => { cancel = true }
   }, [filterParamString])
 
   // Filter-aware county-tier counts (scoped to selected state(s) when set).
   // Same clear-then-fetch / never-stale-on-error rule as the state-tier
-  // effect above.
+  // effect above. Shares countCountsInflightRef with the state-tier fetch
+  // above — they're siblings (both back pink circle-tier badges below
+  // DURABLE_DOT_MIN_ZOOM) and this endpoint is the one the owner's 2026-08-04
+  // report was actually about (4-county IL filter, z6-8, no loading feedback
+  // while it ran).
   useEffect(() => {
     let cancel = false
     setCountyCounts([])
+    countCountsInflightRef.current += 1
+    setCountCountsLoading(true)
     const stateScope = appliedFilters.stateFilter ? `state=${appliedFilters.stateFilter}&` : ''
     fetchWithAuth(`${API_URL}/api/map/county-tract-counts?${stateScope}${filterParamString}`)
       .then(r => r.ok ? r.json() : { counties: [] })
       .then(d => { if (!cancel) setCountyCounts(d.counties || []) })
       .catch(() => { if (!cancel) setCountyCounts([]) })
+      .finally(() => {
+        countCountsInflightRef.current = Math.max(0, countCountsInflightRef.current - 1)
+        if (countCountsInflightRef.current === 0) setCountCountsLoading(false)
+      })
     return () => { cancel = true }
   }, [filterParamString, appliedFilters.stateFilter])
 
@@ -7782,13 +7826,28 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     <div className="comparables-map-container" style={{ height }}>
       <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
 
-      {/* "Loading Ground" pill — owner-approved restyle 2026-08-04. Shown
-          whenever durable parcel-sale dots are loading (`dotsLoading`, set
-          from inside fetchDurableDotsForBounds so it covers pan/zoom, not
-          just a filter Apply), gated to the same z9..z11 band as before (see
-          DURABLE_DOT_MIN_ZOOM / REGRID_MIN_ZOOM — that ceiling is unchanged,
-          restored 2026-08-04 after the badge was firing continuously through
-          z13-z20).
+      {/* "Loading Ground" pill — owner-approved restyle 2026-08-04, widened
+          2026-08-04 to also cover the county/state count-badge fetch. Shown
+          whenever EITHER durable parcel-sale dots (`dotsLoading`, set from
+          inside fetchDurableDotsForBounds — covers pan/zoom, not just a
+          filter Apply) OR the state/county-tier count fetch
+          (`countCountsLoading`, set from the state-tract-counts /
+          county-tract-counts effects — covers Apply at the circle tiers) are
+          loading. The two are OR'd into one `badgeLoading` boolean feeding
+          the SAME anti-flicker pipeline (see its declaration near
+          `dotsLoading`) — there's still exactly one pill mechanism.
+
+          Owner report 2026-08-04: applying a 4-county IL filter at z6-8 (the
+          county-circle tier, BELOW DURABLE_DOT_MIN_ZOOM) took "a LONG time"
+          with no loading indicator at all — `dotsLoading` alone never fires
+          below z9, so that entire zoom band had zero feedback. The two raw
+          signals are naturally close to zoom-exclusive by how their fetches
+          are triggered (dots never fetch below z9; the count fetch is what
+          renders at/below z9), so a single REGRID_MIN_ZOOM(11) ceiling below
+          — unchanged, restored 2026-08-04 after the badge was firing
+          continuously through z13-z20 — is enough to keep the pill out of
+          the parcel-tier zoom range without needing a separate floor per
+          source.
 
           The old full-viewport dim+blur scrim is gone — it was
           pointerEvents:none (blocked nothing) and only washed out the map;
@@ -7797,7 +7856,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           maps" hint (see zoomToast below) — same top:72/left:50%/
           translateX(-50%) anchoring and role="status" aria-live="polite".
 
-          Anti-flicker: `dotsLoadingVisible` (not `dotsLoading` directly)
+          Anti-flicker: `dotsLoadingVisible` (not `badgeLoading` directly)
           gates render — see the effect near the dotsLoading state decl for
           the 400ms show-delay / 500ms minimum-visible logic. Healthy fetches
           (~350ms) never show the pill at all.
@@ -7807,7 +7866,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           bar) but now only animates under prefers-reduced-motion:
           no-preference — reduced-motion users get static pink text. */}
       {dotsLoadingVisible
-        && currentZoom >= DURABLE_DOT_MIN_ZOOM
         && currentZoom < REGRID_MIN_ZOOM && (
         <div
           role="status"
