@@ -1355,6 +1355,67 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // for ~45s (owner 2026-07-27) even though the fetch itself is ~0.35s. A
   // counter clears reliably the moment no fetch is in flight.
   const durableDotsInflightRef = useRef(0)
+  // Anti-flicker layer on top of `dotsLoading` (owner spec 2026-08-04 restyle).
+  // `dotsLoading` itself flips true the instant a durable-dot fetch starts and
+  // false once the counter above hits 0 AND the map has settled — that logic
+  // is untouched. Healthy fetches are ~350ms, well under blink-visibility, so:
+  //   - the PILL doesn't show until `dotsLoading` has been true for 400ms
+  //     (a fetch that finishes before then never shows anything)
+  //   - once shown, it stays up at least 500ms so it can't strobe
+  // This effect only reacts to actual false<->true transitions of
+  // `dotsLoading` (React bails on a same-value setState re-render), and
+  // `dotsLoading` itself already coalesces overlapping/superseded fetches
+  // into a single true..false session via the inflight counter — so this
+  // stays a single show/hide cycle per session, not per fetch.
+  const [dotsLoadingVisible, setDotsLoadingVisible] = useState(false)
+  const dotsLoadingShowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const dotsLoadingHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const dotsLoadingShownAtRef = useRef(0)
+  useEffect(() => {
+    if (dotsLoading) {
+      // Starting a new session — cancel any hide-delay left over from a
+      // session that had already shown the pill (shouldn't happen given the
+      // counter coalescing above, but cheap to guard so the pill can't be
+      // yanked away mid-load).
+      if (dotsLoadingHideTimerRef.current) {
+        clearTimeout(dotsLoadingHideTimerRef.current)
+        dotsLoadingHideTimerRef.current = null
+      }
+      dotsLoadingShowTimerRef.current = setTimeout(() => {
+        dotsLoadingShowTimerRef.current = null
+        dotsLoadingShownAtRef.current = Date.now()
+        setDotsLoadingVisible(true)
+      }, 400)
+    } else {
+      if (dotsLoadingShowTimerRef.current) {
+        // Fetch finished before the 400ms show-delay elapsed — the pill
+        // never appeared, nothing to hide.
+        clearTimeout(dotsLoadingShowTimerRef.current)
+        dotsLoadingShowTimerRef.current = null
+        return
+      }
+      // Pill is visible (or its show timer already fired) — enforce the
+      // 500ms minimum-visible floor before hiding it.
+      const elapsed = Date.now() - dotsLoadingShownAtRef.current
+      const remaining = 500 - elapsed
+      if (remaining <= 0) {
+        setDotsLoadingVisible(false)
+      } else {
+        dotsLoadingHideTimerRef.current = setTimeout(() => {
+          dotsLoadingHideTimerRef.current = null
+          setDotsLoadingVisible(false)
+        }, remaining)
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dotsLoading])
+  // Unmount safety — don't fire a setState after the map unmounts.
+  useEffect(() => {
+    return () => {
+      if (dotsLoadingShowTimerRef.current) clearTimeout(dotsLoadingShowTimerRef.current)
+      if (dotsLoadingHideTimerRef.current) clearTimeout(dotsLoadingHideTimerRef.current)
+    }
+  }, [])
   const [selectedSale, setSelectedSale] = useState<SaleDetail | null>(null)
   // Inline popup ON THE MAP (comparables mode only). Click a tract pin
   // in comp mode opens this; click outside (anywhere else on the map) or
@@ -7708,79 +7769,74 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     <div className="comparables-map-container" style={{ height }}>
       <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
 
-      {/* Centered "Loading Ground" wordmark + light gray scrim — owner spec
-          2026-07-27: shown whenever dots are loading (tract fetch `loading`
-          OR any durable parcel-sale-dot fetch, `dotsLoading`, driven from
-          inside fetchDurableDotsForBounds so it covers pan/zoom, not just a
-          filter Apply). Centered in the map area, not a top-corner pill.
-          Shimmer keyframes + pink/white/pink text-clip reused verbatim from
-          the prior shipped indicator (commit 83c2347) so it matches. */}
-      {/* "Loading Ground" shows ONLY while the durable parcel-sale DOTS are
-          actually loading, and ONLY in the z9..z11 band. Owner 2026-07-27:
-          must NOT show at state/county zoom (<9) — no dots there.
+      {/* "Loading Ground" pill — owner-approved restyle 2026-08-04. Shown
+          whenever durable parcel-sale dots are loading (`dotsLoading`, set
+          from inside fetchDurableDotsForBounds so it covers pan/zoom, not
+          just a filter Apply), gated to the same z9..z11 band as before (see
+          DURABLE_DOT_MIN_ZOOM / REGRID_MIN_ZOOM — that ceiling is unchanged,
+          restored 2026-08-04 after the badge was firing continuously through
+          z13-z20).
 
-          UPPER BOUND RESTORED 2026-08-04. I removed it a day earlier while
-          fixing a real bug (dots ignoring the county filter above z11): the
-          durable FETCH legitimately has to keep running past z11 now, so I
-          removed the badge's ceiling along with the fetch's. That was wrong
-          to couple. The fetch re-runs on every debounced pan/zoom, so with
-          no ceiling the badge fired continuously through the z13-z20 range
-          where people actually browse fields — owner 2026-08-04: "shows up
-          all the time and is on the screen for way too long."
+          The old full-viewport dim+blur scrim is gone — it was
+          pointerEvents:none (blocked nothing) and only washed out the map;
+          the pill alone now carries contrast. Repositioned to the top-center
+          toast slot this file already uses for the "zoom in to view soil
+          maps" hint (see zoomToast below) — same top:72/left:50%/
+          translateX(-50%) anchoring and role="status" aria-live="polite".
 
-          The fetch keeps its uncapped behaviour (dots stay correct); only
-          the ANNOUNCEMENT is bounded again. Above z11 the dots you are
-          panning over are already loaded, so there is nothing worth
-          interrupting the view for. Note the website badge is a
-          full-viewport dim+blur, unlike mobile's small pill — which is why
-          the same frequency is intolerable here and unnoticed there; a
-          designer-led restyle is queued separately. */}
-      {dotsLoading
+          Anti-flicker: `dotsLoadingVisible` (not `dotsLoading` directly)
+          gates render — see the effect near the dotsLoading state decl for
+          the 400ms show-delay / 500ms minimum-visible logic. Healthy fetches
+          (~350ms) never show the pill at all.
+
+          Shimmer text keeps the website's pink/white/pink gradient sweep
+          (owner explicitly prefers this over mobile's solid-pink-plus-shine-
+          bar) but now only animates under prefers-reduced-motion:
+          no-preference — reduced-motion users get static pink text. */}
+      {dotsLoadingVisible
         && currentZoom >= DURABLE_DOT_MIN_ZOOM
         && currentZoom < REGRID_MIN_ZOOM && (
-        <>
-          <div style={{
+        <div
+          role="status"
+          aria-live="polite"
+          style={{
             position: 'absolute',
-            inset: 0,
-            zIndex: 19,
-            background: 'rgba(120,120,120,0.12)',
-            pointerEvents: 'none',
-          }} />
-          <div style={{
-            position: 'absolute',
-            top: '50%',
+            top: 72,
             left: '50%',
-            transform: 'translate(-50%, -50%)',
+            transform: 'translateX(-50%)',
             zIndex: 20,
-            background: 'rgba(0,0,0,0.72)',
-            backdropFilter: 'blur(6px)',
-            padding: '9px 20px',
+            background: 'rgba(20,20,20,0.82)',
+            backdropFilter: 'blur(4px)',
+            padding: '8px 18px',
             borderRadius: 9999,
-            fontSize: 14,
-            fontWeight: 800,
-            letterSpacing: 0.4,
-            boxShadow: '0 2px 10px rgba(0,0,0,0.25)',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
             pointerEvents: 'none',
-          }}>
-            <style>{`
-              @keyframes ggLoadingShimmer {
-                0%   { background-position: 200% center; }
-                100% { background-position: -200% center; }
+          }}
+        >
+          <style>{`
+            @keyframes ggLoadingShimmer {
+              0%   { background-position: 200% center; }
+              100% { background-position: -200% center; }
+            }
+            .gg-loading-shimmer-text {
+              font-size: 13px;
+              font-weight: 700;
+              color: #ff6bc4;
+            }
+            @media (prefers-reduced-motion: no-preference) {
+              .gg-loading-shimmer-text {
+                background-image: linear-gradient(100deg, rgba(236,72,153,0.65) 0%, #ffffff 42%, #ff9ed6 58%, rgba(236,72,153,0.65) 100%);
+                background-size: 200% auto;
+                background-clip: text;
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+                color: transparent;
+                animation: ggLoadingShimmer 1.6s linear infinite;
               }
-            `}</style>
-            <span style={{
-              // Pink→white→pink sweep clipped to the text, animated across it —
-              // "Loading Ground" shimmers in Ground Goat pink while dots load.
-              backgroundImage: 'linear-gradient(100deg, rgba(236,72,153,0.65) 0%, #ffffff 42%, #ff9ed6 58%, rgba(236,72,153,0.65) 100%)',
-              backgroundSize: '200% auto',
-              backgroundClip: 'text',
-              WebkitBackgroundClip: 'text',
-              WebkitTextFillColor: 'transparent',
-              color: 'transparent',
-              animation: 'ggLoadingShimmer 1.6s linear infinite',
-            }}>Loading Ground</span>
-          </div>
-        </>
+            }
+          `}</style>
+          <span className="gg-loading-shimmer-text">Loading Ground</span>
+        </div>
       )}
 
       {/* Inline toast — fades in/out, used today only for the
