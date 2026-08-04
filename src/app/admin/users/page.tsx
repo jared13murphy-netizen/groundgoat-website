@@ -70,6 +70,17 @@ interface User {
   sales_rep?: { id: string; first_name: string; last_name: string; email: string } | null
   referred_by?: { id: string; first_name: string; last_name: string; email: string } | null
   payment_source: string | null
+  // null when no activity was ever recorded. Collection began 2026-06-07, so
+  // for anyone who went quiet before that null means "not measured", NOT
+  // "never used it" — rendered as "—" rather than "0" so reading the screen
+  // can't confuse the two.
+  usage?: {
+    last_active_at: string | null
+    active_days_30: number
+    active_days_7: number
+    requests_30: number
+    requests_7: number
+  } | null
 }
 
 export default function AdminUsersPage() {
@@ -282,6 +293,21 @@ export default function AdminUsersPage() {
     })
   }
 
+  // "3d ago" reads faster than a date when scanning for who's gone quiet.
+  const timeAgo = (iso: string | null | undefined) => {
+    if (!iso) return null
+    const then = new Date(iso).getTime()
+    if (Number.isNaN(then)) return null
+    const mins = Math.floor((Date.now() - then) / 60000)
+    if (mins < 60) return mins <= 1 ? 'just now' : `${mins}m ago`
+    const hrs = Math.floor(mins / 60)
+    if (hrs < 24) return `${hrs}h ago`
+    const days = Math.floor(hrs / 24)
+    if (days < 30) return `${days}d ago`
+    const months = Math.floor(days / 30)
+    return months < 12 ? `${months}mo ago` : `${Math.floor(months / 12)}y ago`
+  }
+
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount)
   }
@@ -380,6 +406,8 @@ export default function AdminUsersPage() {
                   <th className="text-left py-2 px-2 text-gg-gray-400 font-medium text-xs">Price</th>
                   <th className="text-left py-2 px-2 text-gg-gray-400 font-medium text-xs">Billing</th>
                   <th className="text-left py-2 px-2 text-gg-gray-400 font-medium text-xs">Promo / Trial</th>
+                  <th className="text-left py-2 px-2 text-gg-gray-400 font-medium text-xs">Last Active</th>
+                  <th className="text-left py-2 px-2 text-gg-gray-400 font-medium text-xs">Activity (30d)</th>
                   <th className="text-left py-2 px-2 text-gg-gray-400 font-medium text-xs">Joined</th>
                   <th className="text-left py-2 px-2 text-gg-gray-400 font-medium text-xs">Referred By</th>
                   {canEdit && <th className="text-left py-2 px-2 text-gg-gray-400 font-medium text-xs">Actions</th>}
@@ -388,7 +416,7 @@ export default function AdminUsersPage() {
               <tbody>
                 {filteredUsers.length === 0 ? (
                   <tr>
-                    <td colSpan={canEdit ? 10 : 9} className="text-center py-8 text-gg-gray-400">
+                    <td colSpan={canEdit ? 12 : 11} className="text-center py-8 text-gg-gray-400">
                       No users found
                     </td>
                   </tr>
@@ -477,6 +505,35 @@ export default function AdminUsersPage() {
                             <span className="text-gg-gray-500 text-xs">–</span>
                           ) : null}
                         </td>
+                        <td className="py-2 px-2 text-xs">
+                          {user.usage?.last_active_at ? (
+                            <span
+                              className={
+                                (Date.now() - new Date(user.usage.last_active_at).getTime()) / 86400000 <= 7
+                                  ? 'text-green-400'
+                                  : 'text-gg-gray-300'
+                              }
+                              title={formatDate(user.usage.last_active_at)}
+                            >
+                              {timeAgo(user.usage.last_active_at)}
+                            </span>
+                          ) : (
+                            // "—" not "Never": activity collection began
+                            // 2026-06-07, so a blank can mean "went quiet
+                            // before we measured", not "never used it".
+                            <span className="text-gg-gray-600" title="No activity recorded (tracking began Jun 7, 2026)">—</span>
+                          )}
+                        </td>
+                        <td className="py-2 px-2 text-xs">
+                          {user.usage && user.usage.requests_30 > 0 ? (
+                            <span className="text-gg-gray-300">
+                              {user.usage.active_days_30}d
+                              <span className="text-gg-gray-500"> · {user.usage.requests_30.toLocaleString()} req</span>
+                            </span>
+                          ) : (
+                            <span className="text-gg-gray-600">—</span>
+                          )}
+                        </td>
                         <td className="py-2 px-2 text-gg-gray-400 text-xs">{formatDate(user.created_at)}</td>
                         <td className="py-2 px-2">
                           {user.referred_by ? (
@@ -519,7 +576,7 @@ export default function AdminUsersPage() {
                       {/* Expanded Subscription + Payment Details */}
                       {expandedUser === user.id && (
                         <tr key={`${user.id}-subs`} className="bg-gg-gray-800/30">
-                          <td colSpan={canEdit ? 14 : 13} className="py-3 px-8">
+                          <td colSpan={canEdit ? 12 : 11} className="py-3 px-8">
                             <div className="text-sm space-y-4">
                               {user.subscriptions && user.subscriptions.length > 0 && (
                                 <div>
