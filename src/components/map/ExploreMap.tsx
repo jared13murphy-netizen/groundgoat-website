@@ -7716,18 +7716,28 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           Shimmer keyframes + pink/white/pink text-clip reused verbatim from
           the prior shipped indicator (commit 83c2347) so it matches. */}
       {/* "Loading Ground" shows ONLY while the durable parcel-sale DOTS are
-          actually loading, at or above DURABLE_DOT_MIN_ZOOM (z9). Owner
-          2026-07-27: must NOT show at state/county zoom (<9): no dots there.
-          UPPER BOUND REMOVED 2026-08-03: this used to also cut off at z>=11
-          on the theory that the durable fetch stopped there and live Regrid
-          tiles took over — that theory is gone now (see
-          fetchDurableDotsForBounds' ceiling-removal comment and
-          REGRID_SALE_PINS_ENABLED above); the durable fetch keeps running
-          past z11, so the badge must too, matching mobile's
-          LoadingGroundIndicator (no zoom ceiling at all — just
-          loading/durableApplyLoading). currentZoom updates on every zoom so
-          the badge hides the instant you drop below the floor. */}
-      {dotsLoading && currentZoom >= DURABLE_DOT_MIN_ZOOM && (
+          actually loading, and ONLY in the z9..z11 band. Owner 2026-07-27:
+          must NOT show at state/county zoom (<9) — no dots there.
+
+          UPPER BOUND RESTORED 2026-08-04. I removed it a day earlier while
+          fixing a real bug (dots ignoring the county filter above z11): the
+          durable FETCH legitimately has to keep running past z11 now, so I
+          removed the badge's ceiling along with the fetch's. That was wrong
+          to couple. The fetch re-runs on every debounced pan/zoom, so with
+          no ceiling the badge fired continuously through the z13-z20 range
+          where people actually browse fields — owner 2026-08-04: "shows up
+          all the time and is on the screen for way too long."
+
+          The fetch keeps its uncapped behaviour (dots stay correct); only
+          the ANNOUNCEMENT is bounded again. Above z11 the dots you are
+          panning over are already loaded, so there is nothing worth
+          interrupting the view for. Note the website badge is a
+          full-viewport dim+blur, unlike mobile's small pill — which is why
+          the same frequency is intolerable here and unnoticed there; a
+          designer-led restyle is queued separately. */}
+      {dotsLoading
+        && currentZoom >= DURABLE_DOT_MIN_ZOOM
+        && currentZoom < REGRID_MIN_ZOOM && (
         <>
           <div style={{
             position: 'absolute',
