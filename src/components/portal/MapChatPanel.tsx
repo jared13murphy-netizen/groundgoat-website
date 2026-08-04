@@ -417,10 +417,28 @@ export default function MapChatPanel({ onApplyFilters, onChatReportResult, curre
       // map rather than opening a report panel, so it doesn't go through
       // onChatReportResult like the other two report-panel shapes below.
       if (body.owner_parcels_response) {
-        onOwnerParcels?.(body.owner_parcels_response as OwnerParcelsResponse, body.reply || '')
+        const orp = body.owner_parcels_response as OwnerParcelsResponse
+        onOwnerParcels?.(orp, body.reply || '')
         onSearchQueryStart?.(text)
         setInput('')
-        setToast(null)
+        // Zero-result honesty: owner_parcels_response is also the shape
+        // used for a locate_place geocode miss and a lookup_parcel zero
+        // match, not just an owner lookup with no parcels — so this one
+        // branch covers all three. The backend's `reply` is already a
+        // clear, actionable message (e.g. "No parcels found for ... Try
+        // a shorter or differently-spelled name.") — show it verbatim as
+        // the same sticky 'info' toast the apply_map_filters zero-result
+        // path uses (see the "Zero-result honesty" toast in
+        // ExploreMap.tsx) instead of silently suppressing it below.
+        // Non-empty results are untouched: no toast, panel collapses,
+        // exactly as before.
+        if (!orp.dots || orp.dots.length === 0) {
+          const emptyText = body.reply || 'No results found.'
+          setToast({ kind: 'info', text: emptyText })
+          scheduleToastDismiss('info', emptyText)
+        } else {
+          setToast(null)
+        }
         setOpen(false)
       } else if (body.out_of_scope_response) {
         setOutOfScope(body.out_of_scope_response as OutOfScopeResponse)
