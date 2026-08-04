@@ -1285,14 +1285,27 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
   // Owner "show on map" chat search: push dots into the owner-parcels
   // source (added once in the map-init block) and zoom to their bbox.
-  // count:0 / empty dots still shows the chip (an honest "none found"
-  // message) but skips fitBounds and leaves the layer empty.
+  //
+  // Empty result (owner directive 2026-08-04: "If a search yields no
+  // results, then the map should not be filtered.") must never touch
+  // the map at all — this shape is shared by owner lookup, a
+  // locate_place geocode miss, and a lookup_parcel zero match, so this
+  // one early-return covers all three. Concretely that means: never
+  // call setOwnerParcelsChip (which is what flips ownerSearchActive and
+  // hides every tract-pin/parcel-dot layer above), never touch the
+  // owner-parcels source, never move the camera. If a PREVIOUS owner
+  // search is still active (chip already set, layers already hidden),
+  // this leaves it exactly as-is — a deliberate choice not to silently
+  // drop the user out of a filter they applied on purpose. The
+  // zero-result toast (MapChatPanel.tsx) is the only feedback the user
+  // gets for this search.
   useEffect(() => {
     if (!ownerParcelsResult) return
     const map = mapRef.current
     if (!map || !mapLoaded) return
     const { data, reply } = ownerParcelsResult
-    const features = (data.dots || []).map(d => ({
+    if (!data.dots || data.dots.length === 0) return
+    const features = data.dots.map(d => ({
       type: 'Feature' as const,
       properties: { id: d.id, acres: d.acres },
       geometry: { type: 'Point' as const, coordinates: [d.lng, d.lat] },
@@ -1300,7 +1313,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const src = map.getSource('owner-parcels') as maplibregl.GeoJSONSource | undefined
     if (src) src.setData({ type: 'FeatureCollection', features })
     setOwnerParcelsChip({ owner: data.owner, count: data.count, totalAcres: data.total_acres, reply })
-    if (features.length > 0 && data.bbox) {
+    if (data.bbox) {
       map.fitBounds(data.bbox, { padding: 100, duration: 900, maxZoom: 14 })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

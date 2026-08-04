@@ -418,21 +418,33 @@ export default function MapChatPanel({ onApplyFilters, onChatReportResult, curre
       // onChatReportResult like the other two report-panel shapes below.
       if (body.owner_parcels_response) {
         const orp = body.owner_parcels_response as OwnerParcelsResponse
-        onOwnerParcels?.(orp, body.reply || '')
-        onSearchQueryStart?.(text)
-        setInput('')
+        const isEmpty = !orp.dots || orp.dots.length === 0
         // Zero-result honesty: owner_parcels_response is also the shape
         // used for a locate_place geocode miss and a lookup_parcel zero
         // match, not just an owner lookup with no parcels — so this one
-        // branch covers all three. The backend's `reply` is already a
-        // clear, actionable message (e.g. "No parcels found for ... Try
-        // a shorter or differently-spelled name.") — show it verbatim as
-        // the same sticky 'info' toast the apply_map_filters zero-result
-        // path uses (see the "Zero-result honesty" toast in
-        // ExploreMap.tsx) instead of silently suppressing it below.
-        // Non-empty results are untouched: no toast, panel collapses,
-        // exactly as before.
-        if (!orp.dots || orp.dots.length === 0) {
+        // branch covers all three. onOwnerParcels still fires either way
+        // (ExploreMap's effect no-ops on empty dots — see that file), but
+        // onSearchQueryStart is deliberately SKIPPED on empty: it drives
+        // the active-search bubble, and a bubble implies a filter is
+        // currently applied to the map, which is false here (owner
+        // directive 2026-08-04 — nothing gets filtered on zero results).
+        // If a PREVIOUS search's bubble is still showing, skipping this
+        // leaves that text in place rather than overwriting it with the
+        // new (non-)search — consistent with leaving that search's map
+        // state untouched too (see ExploreMap.tsx).
+        onOwnerParcels?.(orp, body.reply || '')
+        if (!isEmpty) {
+          onSearchQueryStart?.(text)
+        }
+        setInput('')
+        // The backend's `reply` is already a clear, actionable message
+        // (e.g. "No parcels found for ... Try a shorter or differently-
+        // spelled name.") — show it verbatim as the same sticky 'info'
+        // toast the apply_map_filters zero-result path uses (see the
+        // "Zero-result honesty" toast in ExploreMap.tsx) instead of
+        // silently suppressing it. Non-empty results are untouched: no
+        // toast, panel collapses, exactly as before.
+        if (isEmpty) {
           const emptyText = body.reply || 'No results found.'
           setToast({ kind: 'info', text: emptyText })
           scheduleToastDismiss('info', emptyText)
