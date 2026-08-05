@@ -4704,6 +4704,41 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const DURABLE_DOT_MIN_ZOOM = 9
   const DURABLE_DOT_MIN_ACRES = 10 // owner rule: never show parcel dots under 10 acres
 
+  // Selected comps recolour their dot (owner, 2026-08-05: "when I add a
+  // parcel to the report, the plus sign icon used to change to blue but
+  // that's not working anymore"). The web dot's circle-color was a hardcoded
+  // pink with no selected state at all, so nothing could ever recolour it —
+  // mobile has had this since launch (ComparablesMapView.js ~2097:
+  // `['case', ['==', ['get','selected'], 1], '#16A34A', '#E91E8C']`).
+  //
+  // Driven by a paint expression rather than a `selected` feature property,
+  // because these features live in the append-only durableDotsByIdRef
+  // accumulator — baking selection into them would mean rebuilding and
+  // re-pushing the whole union on every add/remove. setPaintProperty
+  // recolours in place and touches no data.
+  //
+  // Colour matches mobile (#16A34A) so the two platforms agree; the owner
+  // remembered it as blue, so this is the one thing to confirm.
+  const DURABLE_DOT_COLOR = '#f58cde'
+  const DURABLE_DOT_SELECTED_COLOR = '#16A34A'
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+    const ids = Array.from(selectedIds)
+    const colorExpr: any = ids.length
+      ? ['case', ['in', ['get', 'id'], ['literal', ids]],
+         DURABLE_DOT_SELECTED_COLOR, DURABLE_DOT_COLOR]
+      : DURABLE_DOT_COLOR
+    // DURABLE_DOT_LAYER is the only circle layer that renders comp dots —
+    // parcel-sale-pin-plus is a symbol ("+" glyph) drawn on top of it and
+    // has no circle-color to set.
+    if (!map.getLayer(DURABLE_DOT_LAYER)) return
+    try { map.setPaintProperty(DURABLE_DOT_LAYER, 'circle-color', colorExpr) }
+    catch {/* layer torn down mid-update */}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedIds, mapLoaded, subjectTractId])
+
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded) return
@@ -4743,7 +4778,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         minzoom: DURABLE_DOT_MIN_ZOOM,
         paint: {
           // Matches ensureParcelSaleDotImage: #f58cde fill, white ring.
-          'circle-color': '#f58cde',
+          'circle-color': DURABLE_DOT_COLOR,
           'circle-radius': 6,
           'circle-stroke-color': '#ffffff',
           'circle-stroke-width': 2,
