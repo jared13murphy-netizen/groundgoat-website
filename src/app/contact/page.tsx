@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { Send, CheckCircle } from 'lucide-react'
 
@@ -10,12 +10,34 @@ export default function ContactPage() {
   const [loading, setLoading] = useState(false)
   const [submitted, setSubmitted] = useState(false)
   const [error, setError] = useState('')
-  
+
+  // Anti-spam. The endpoint is public, and it was being harvested — 15
+  // machine-generated submissions in one morning (owner, 2026-08-05).
+  //
+  // The token is issued by the API when this page loads and is required to
+  // post. It proves the submission came from someone who actually opened
+  // the page: a bot hitting /api/contact directly never gets one and cannot
+  // forge one. The server also reads the token's issue time, so a
+  // submission arriving within 3s of load is treated as automated.
+  const [formToken, setFormToken] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    fetch(`${API_URL}/api/contact/form-token`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (!cancelled && d?.token) setFormToken(d.token) })
+      .catch(() => { /* submit surfaces the real error; don't block page load */ })
+    return () => { cancelled = true }
+  }, [])
+
   const [formData, setFormData] = useState({
     name: '',
     email: '',
     subject: '',
     message: '',
+    // Honeypot. Hidden from real users, so anything here means a bot filled
+    // in every field it found. Named "website" to look worth filling.
+    website: '',
   })
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -38,14 +60,24 @@ export default function ContactPage() {
       const response = await fetch(`${API_URL}/api/contact`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
+        body: JSON.stringify({ ...formData, form_token: formToken }),
       })
       if (!response.ok) {
-        throw new Error('Failed to send message')
+        // 400 = expired/missing token: a tab left open, or a page cached
+        // from before this shipped. Surface the server's wording so the
+        // person knows a refresh fixes it, rather than a generic failure
+        // that reads like their message vanished.
+        let detail = ''
+        try { detail = (await response.json())?.detail || '' } catch { /* non-JSON body */ }
+        throw new Error(response.status === 400 && detail ? detail : 'Failed to send message')
       }
       setSubmitted(true)
     } catch (err: any) {
-      setError('Failed to send message. Please try again or email us directly at jmurphy@groundgoat.com')
+      setError(
+        err?.message && err.message !== 'Failed to send message'
+          ? err.message
+          : 'Failed to send message. Please try again or email us directly at jmurphy@groundgoat.com'
+      )
     } finally {
       setLoading(false)
     }
@@ -103,6 +135,27 @@ export default function ContactPage() {
           {/* Contact Form */}
           <div className="lg:col-span-2">
             <form onSubmit={handleSubmit} className="card">
+              {/* Honeypot. Hidden with absolute positioning rather than
+                  `display:none` or `hidden` — some bots skip fields that are
+                  obviously hidden, but happily fill one that is merely off
+                  screen. tabIndex={-1} keeps keyboard users from ever landing
+                  on it, aria-hidden keeps screen readers from announcing it,
+                  and autoComplete="off" stops browsers offering to fill it.
+                  A real person can neither see nor reach this input, so any
+                  value in it means the submission was automated. */}
+              <div aria-hidden="true" className="absolute left-[-9999px] top-auto w-px h-px overflow-hidden">
+                <label htmlFor="website">Website</label>
+                <input
+                  type="text"
+                  id="website"
+                  name="website"
+                  value={formData.website}
+                  onChange={handleInputChange}
+                  tabIndex={-1}
+                  autoComplete="off"
+                />
+              </div>
+
               <div className="space-y-6">
                 <div className="grid md:grid-cols-2 gap-6">
                   <div>
