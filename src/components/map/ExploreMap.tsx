@@ -4261,35 +4261,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // duplicates on a few large parcels are the cost of reliable
     // rendering on every parcel.
 
-    // NO-COVERAGE FALLBACK (owner, 2026-08-05: "if I haven't cached the
-    // data, then you're supposed to use Regrid's API").
-    //
-    // regrid_parcels doesn't cover the whole country. Where we hold nothing
-    // — Oklahoma, for one — /api/tiles/parcel-labels returns Regrid's own
-    // cached tile bytes instead, which carry Regrid's layer name rather than
-    // 'parcel-labels'. With no layer bound to that name the labels simply
-    // vanished there, which is how this first shipped and broke.
-    //
-    // So each label gets a twin, identical except for the source-layer it
-    // reads. Exactly one of a pair ever has features for a given tile — the
-    // endpoint emits our layer OR Regrid's, never both — so there is no
-    // double-labelling, and cached data wins wherever it exists.
-    //
-    // Cloned from the specs added above rather than duplicating those large
-    // layout/paint blocks, so the two can never drift apart.
-    for (const baseId of [LABEL_LAYER, OWNER_LABEL_LAYER]) {
-      const spec: any = (map.getStyle()?.layers || []).find((l: any) => l.id === baseId)
-      if (!spec || map.getLayer(`${baseId}-regrid`)) continue
-      map.addLayer({ ...spec, id: `${baseId}-regrid`, 'source-layer': sourceLayer } as any)
-    }
-
     return () => {
       try {
         if (!map.getStyle()) return
         map.off('mousemove', FILL_LAYER, onMove)
         map.off('mouseleave', FILL_LAYER, onLeave)
         map.off('click', FILL_LAYER, onClick)
-        for (const id of [`${OWNER_LABEL_LAYER}-regrid`, `${LABEL_LAYER}-regrid`, OWNER_LABEL_LAYER, LABEL_LAYER, LINE_LAYER, FILL_LAYER]) {
+        for (const id of [OWNER_LABEL_LAYER, LABEL_LAYER, LINE_LAYER, FILL_LAYER]) {
           if (map.getLayer(id)) map.removeLayer(id)
         }
         if (map.getSource(SOURCE_ID)) map.removeSource(SOURCE_ID)
