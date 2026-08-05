@@ -2912,7 +2912,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // GPU runs out of memory and loses the WebGL context.
       maxTileCacheSize: 200,
       transformRequest: (url: string) => {
-        if (url.includes(`${API_URL}/api/tiles/soils/`) || url.includes(`${API_URL}/api/tiles/soils-full/`) || url.includes(`${API_URL}/api/tiles/csb-fields/`) || url.includes(`${API_URL}/api/tiles/nccpi/`) || url.includes(`${API_URL}/api/regrid/tile/`)) {
+        if (url.includes(`${API_URL}/api/tiles/soils/`) || url.includes(`${API_URL}/api/tiles/soils-full/`) || url.includes(`${API_URL}/api/tiles/csb-fields/`) || url.includes(`${API_URL}/api/tiles/nccpi/`) || url.includes(`${API_URL}/api/tiles/parcel-labels/`) || url.includes(`${API_URL}/api/regrid/tile/`)) {
           const token = localStorage.getItem('auth_token')
           return { url, headers: token ? { Authorization: `Bearer ${token}` } : {} }
         }
@@ -3832,6 +3832,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const LINE_LAYER = 'regrid-parcels-line'
     const LABEL_LAYER = 'regrid-parcels-label'
     const OWNER_LABEL_LAYER = 'regrid-parcels-owner-label'
+    // Label TEXT comes from our own soils DB (see LABEL_LAYER below).
+    const PARCEL_LABEL_SOURCE = 'parcel-labels'
 
     if (map.getSource(SOURCE_ID)) return
 
@@ -3861,6 +3863,27 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // built-in attribution control at the bottom of the map.
       attribution: 'Parcel data &copy; <a href="https://regrid.com" target="_blank" rel="noopener">Regrid</a>',
     } as any)
+
+    // Label-text source: one POINT per parcel, straight out of our
+    // regrid_parcels table, carrying owner / ll_gisacre / saleprice /
+    // saledate. Separate from the Regrid source above so outlines keep
+    // coming from Regrid (unchanged, still cached) while the words on the
+    // map come from the same rows the popup and comp report read.
+    //
+    // minzoom matches REGRID_LABEL_MIN_ZOOM — the endpoint returns an empty
+    // tile below z14 anyway, so requesting them would be pure waste. No
+    // maxzoom over-zoom trick here: points are cheap, and reusing a z14 tile
+    // at z20 would place labels using stale geometry after an edit.
+    if (!map.getSource(PARCEL_LABEL_SOURCE)) {
+      map.addSource(PARCEL_LABEL_SOURCE, {
+        type: 'vector',
+        tiles: [`${API_URL}/api/tiles/parcel-labels/{z}/{x}/{y}.mvt`],
+        // OWNER floor (12), not the full-label floor (14) — the owner-only
+        // layer renders from z12 and reads this same source.
+        minzoom: REGRID_OWNER_LABEL_MIN_ZOOM,
+        maxzoom: 22,
+      } as any)
+    }
 
     // Insert Regrid BELOW the existing tract polygons (the auction /
     // sold listings) so those remain visually on top — per product
@@ -3905,19 +3928,34 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       },
     }, beforeId)
 
-    // Owner + acres label — bound DIRECTLY to the Regrid vector tile
-    // source. Multi-tile parcels will get N labels (one per clipped
-    // piece), which is the trade-off for reliable rendering. The
-    // earlier dedup-via-GeoJSON-source approach kept silently
-    // dropping labels in prod and we've spent too long on it; one
-    // working label per piece beats zero labels everywhere.
+    // Owner + acres label — read from OUR soils DB, not from the Regrid
+    // tile (owner, 2026-08-05: "the tile label text has to match the parcel
+    // data ALWAYS... this should always read from cached data when cached
+    // data is available in the soils DB").
+    //
+    // Regrid still draws the outlines above; only the text moved. Their tile
+    // bakes in its own sale fields, which lag our cached copy — verified
+    // against the Van Buren County IA assessor, where our table had a
+    // $61,000 1987 sale that Regrid's tile carried no trace of, so the label
+    // printed nothing while the popup showed the sale. Same row now feeds
+    // both, so they cannot disagree.
+    //
+    // PARCEL_LABEL_SOURCE serves POINTS (one per parcel, ST_PointOnSurface)
+    // rather than polygons — measured 1,076 bytes for a z14 tile against
+    // 1,083 kB for the equivalent full-polygon tile. It also fixes the
+    // duplicate-label problem noted below for free: one point per parcel
+    // instead of one per clipped polygon piece.
+    //
+    // regridStateFilter is deliberately NOT applied here. It filtered
+    // client-side on `path`, which this source doesn't emit — and doesn't
+    // need to, because /api/tiles/parcel-labels scopes by the caller's
+    // subscribed states server-side, which is the stronger guarantee.
     map.addLayer({
       id: LABEL_LAYER,
       type: 'symbol',
-      source: SOURCE_ID,
-      'source-layer': sourceLayer,
+      source: PARCEL_LABEL_SOURCE,
+      'source-layer': 'parcel-labels',
       minzoom: REGRID_LABEL_MIN_ZOOM,
-      ...(regridStateFilter ? { filter: regridStateFilter } : {}),
       layout: {
         // Four segments: owner (bold) → acres → $/acre → sale date.
         // Total sale price was removed 2026-05-26 — the per-acre
@@ -4070,11 +4108,15 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     map.addLayer({
       id: OWNER_LABEL_LAYER,
       type: 'symbol',
-      source: SOURCE_ID,
-      'source-layer': sourceLayer,
+      // Same soils-DB source as LABEL_LAYER. If this one stayed on the
+      // Regrid tile, the owner name would still be stale between z12-14 —
+      // the exact mismatch this change exists to remove (Regrid showed
+      // "Rotenburger, Dennis L" where the county and our table both say
+      // Jarid). State scoping is server-side here, so no client filter.
+      source: PARCEL_LABEL_SOURCE,
+      'source-layer': 'parcel-labels',
       minzoom: REGRID_OWNER_LABEL_MIN_ZOOM,
       maxzoom: REGRID_LABEL_MIN_ZOOM,
-      ...(regridStateFilter ? { filter: regridStateFilter } : {}),
       layout: {
         'text-field': ['coalesce', ['get', 'owner'], 'Coming Soon'],
         'text-font': ['Open Sans Bold'],
@@ -4229,6 +4271,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           if (map.getLayer(id)) map.removeLayer(id)
         }
         if (map.getSource(SOURCE_ID)) map.removeSource(SOURCE_ID)
+        // Both label layers are removed above, so this is safe to drop too.
+        if (map.getSource(PARCEL_LABEL_SOURCE)) map.removeSource(PARCEL_LABEL_SOURCE)
       } catch {
         // map already torn down
       }
