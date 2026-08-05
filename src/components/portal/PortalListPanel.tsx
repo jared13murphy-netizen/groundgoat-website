@@ -7,7 +7,7 @@ import { X, Calendar, Building2, DollarSign, Loader2, MapPin, Bookmark, Pencil, 
 import Link from 'next/link'
 import PortalListingDetail from './PortalListingDetail'
 import { getStatusBadge } from '@/lib/listingStatusBadge'
-import { formatAcres } from '@/lib/format'
+import { formatAcres, toNum } from '@/lib/format'
 import { listingMatchesSearch } from '@/lib/listingSearch'
 
 type TabType = 'auctions' | 'private_treaty' | 'results'
@@ -98,20 +98,26 @@ export function getSoilLabel(state?: string): string {
 
 export function getListingTillableAcres(tracts?: { tillable_acres?: number; total_acres?: number }[]): number | null {
   if (!tracts?.length) return null
-  const total = tracts.reduce((sum, t) => sum + (t.tillable_acres || 0), 0)
+  // toNum, not raw +. The API sends DECIMALs as strings, so `0 + "59.94"`
+  // concatenated to "059.94" — the leading zero the owner reported — and a
+  // two-tract listing silently produced a nonsense total. See lib/format.ts.
+  // getListingSoilRating below already did this correctly with Number();
+  // these two sums were the ones that missed it.
+  const total = tracts.reduce((sum, t) => sum + (toNum(t.tillable_acres) ?? 0), 0)
   return total > 0 ? total : null
 }
 
 function getListingAvgPricePerAcre(listing: Listing): { avg: number | null; isAverage: boolean } {
   // Use listing-level price_per_acre if available
-  if (listing.price_per_acre) {
-    return { avg: listing.price_per_acre, isAverage: (listing.tract_count || 1) > 1 }
+  const listingPpa = toNum(listing.price_per_acre)
+  if (listingPpa) {
+    return { avg: listingPpa, isAverage: (listing.tract_count || 1) > 1 }
   }
   // Compute from tracts
   if (!listing.tracts?.length) return { avg: null, isAverage: false }
-  const withPrice = listing.tracts.filter(t => t.price_per_acre)
+  const withPrice = listing.tracts.filter(t => toNum(t.price_per_acre))
   if (withPrice.length === 0) return { avg: null, isAverage: false }
-  const avg = withPrice.reduce((sum, t) => sum + (t.price_per_acre || 0), 0) / withPrice.length
+  const avg = withPrice.reduce((sum, t) => sum + (toNum(t.price_per_acre) ?? 0), 0) / withPrice.length
   return { avg: Math.round(avg), isAverage: withPrice.length > 1 }
 }
 

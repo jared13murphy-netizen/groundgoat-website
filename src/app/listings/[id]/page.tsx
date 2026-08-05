@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import fetchWithAuth from '@/lib/fetchWithAuth'
-import { formatAcres } from '@/lib/format'
+import { formatAcres, toNum } from '@/lib/format'
 import {
   Loader2, ArrowLeft, MapPin, Calendar, Clock, Building2,
   DollarSign, ExternalLink, Share2, BarChart3
@@ -197,7 +197,7 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
   const getTotalAcres = () => {
     if (listing?.total_acres) return listing.total_acres
     if (listing?.tracts?.length) {
-      const sum = listing.tracts.reduce((acc, tract) => acc + (tract.total_acres || 0), 0)
+      const sum = listing.tracts.reduce((acc, tract) => acc + (toNum(tract.total_acres) ?? 0), 0)
       if (sum > 0) return sum
     }
     return null

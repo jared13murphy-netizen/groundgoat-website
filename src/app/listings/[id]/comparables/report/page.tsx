@@ -4,7 +4,7 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { ArrowLeft, Mail, Download, Loader2 } from 'lucide-react'
 import { fetchWithAuth } from '@/lib/fetchWithAuth'
-import { formatAcres } from '@/lib/format'
+import { formatAcres, toNum } from '@/lib/format'
 import { computeCompAverages } from '@/lib/compAverages'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
@@ -92,9 +92,9 @@ export default function ComparablesReportPage({ params }: { params: { id: string
   const withTillable = comparables.filter(c => c.tillable_acres)
   const withAcres = comparables.filter(c => c.total_acres)
 
-  const avgAcres = withAcres.length ? withAcres.reduce((s, c) => s + (c.total_acres || 0), 0) / withAcres.length : null
-  const avgTillable = withTillable.length ? withTillable.reduce((s, c) => s + (c.tillable_acres || 0), 0) / withTillable.length : null
-  const avgSoilRating = withSoil.length ? withSoil.reduce((s, c) => s + (c.soil_rating || 0), 0) / withSoil.length : null
+  const avgAcres = withAcres.length ? withAcres.reduce((s, c) => s + (toNum(c.total_acres) ?? 0), 0) / withAcres.length : null
+  const avgTillable = withTillable.length ? withTillable.reduce((s, c) => s + (toNum(c.tillable_acres) ?? 0), 0) / withTillable.length : null
+  const avgSoilRating = withSoil.length ? withSoil.reduce((s, c) => s + (toNum(c.soil_rating) ?? 0), 0) / withSoil.length : null
 
   const { avgPricePerAcre, avgPricePerTillable, avgPricePerSoil } = computeCompAverages(comparables)
 

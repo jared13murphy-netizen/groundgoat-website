@@ -1,3 +1,4 @@
+import { toNum } from './format'
 // Shared comp-report averaging helper.
 //
 // OWNER RULE: the three PRICE averages (avg $/acre, avg $/tillable-acre,
@@ -32,20 +33,32 @@ export interface CompAverages {
   avgSoilRating: number | null
 }
 
+// Every accessor coerces through toNum. The API serialises DECIMAL columns as
+// JSON strings (see lib/format.ts), and the weighted sums below accumulate
+// with `+=` — so a string denominator would CONCATENATE rather than add:
+// 0 += "99.00" -> "099.00" -> "099.0041.28" -> NaN after the divide. Every
+// average in every comp report would read NaN or, worse, a plausible-looking
+// wrong number.
+//
+// Today's comparables endpoints happen to cast with float() before returning,
+// so this has never fired in production. That is luck, not design — it holds
+// only until someone adds a comp field that skips the cast. Coercing here
+// makes the helper correct regardless of what the endpoint sends.
+
 function pricePerAcreOf(c: CompAverageInput): number | null | undefined {
-  return c.price_per_acre ?? c.pricePerAcre
+  return toNum(c.price_per_acre ?? c.pricePerAcre)
 }
 
 function totalAcresOf(c: CompAverageInput): number | null | undefined {
-  return c.total_acres ?? c.totalAcres
+  return toNum(c.total_acres ?? c.totalAcres)
 }
 
 function tillableAcresOf(c: CompAverageInput): number | null | undefined {
-  return c.tillable_acres ?? c.tillableAcres
+  return toNum(c.tillable_acres ?? c.tillableAcres)
 }
 
 function soilRatingOf(c: CompAverageInput): number | null | undefined {
-  return c.soil_rating ?? c.soilRating
+  return toNum(c.soil_rating ?? c.soilRating)
 }
 
 /**

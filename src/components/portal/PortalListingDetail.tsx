@@ -9,7 +9,7 @@ import {
   DollarSign, ExternalLink, Share2, BarChart3, Loader2, RefreshCw, Bookmark
 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
-import { formatAcres } from '@/lib/format'
+import { formatAcres, toNum } from '@/lib/format'
 import { getStatusBadge } from '@/lib/listingStatusBadge'
 import { getListingTillableAcres, getListingSoilRating, getSoilLabel } from './PortalListPanel'
 
@@ -154,7 +154,7 @@ export default function PortalListingDetail({ listingId, onBack, onTractSelected
   const getTotalAcres = () => {
     if (listing?.total_acres) return listing.total_acres
     if (listing?.tracts?.length) {
-      const sum = listing.tracts.reduce((acc, tract) => acc + (tract.total_acres || 0), 0)
+      const sum = listing.tracts.reduce((acc, tract) => acc + (toNum(tract.total_acres) ?? 0), 0)
       if (sum > 0) return sum
     }
     return null

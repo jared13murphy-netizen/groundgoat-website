@@ -4,7 +4,7 @@ import { useState, useMemo } from 'react'
 import { motion } from 'framer-motion'
 import { X, Mail, Loader2, Trash2, Check, Download } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
-import { formatAcres } from '@/lib/format'
+import { formatAcres, toNum } from '@/lib/format'
 import { computeCompAverages } from '@/lib/compAverages'
 import type { TractSaleData } from './PortalTractDetail'
 
@@ -112,11 +112,11 @@ export default function PortalReportPanel({ tracts, onClose, onRemoveTract, subj
     return {
       avgPricePerAcre,
       avgAcres: withAcres.length
-        ? withAcres.reduce((s, t) => s + (t.totalAcres || 0), 0) / withAcres.length : null,
+        ? withAcres.reduce((s, t) => s + (toNum(t.totalAcres) ?? 0), 0) / withAcres.length : null,
       avgTillable: withTillable.length
-        ? withTillable.reduce((s, t) => s + (t.tillableAcres || 0), 0) / withTillable.length : null,
+        ? withTillable.reduce((s, t) => s + (toNum(t.tillableAcres) ?? 0), 0) / withTillable.length : null,
       avgSoilRating: withSoil.length
-        ? withSoil.reduce((s, t) => s + (t.soilRating || 0), 0) / withSoil.length : null,
+        ? withSoil.reduce((s, t) => s + (toNum(t.soilRating) ?? 0), 0) / withSoil.length : null,
       avgPricePerTillable,
       avgPricePerSoil,
     }
