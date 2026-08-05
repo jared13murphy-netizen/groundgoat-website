@@ -97,6 +97,26 @@ function liftMarkerLayers(map: maplibregl.Map) {
 // on a layer id that isn't currently registered), then does one
 // queryRenderedFeatures call. Used by BOTH the Regrid parcel-fill onClick
 // and the parcel-sale-pin-plus onClick so the two guards can't drift.
+// EVERY sale-dot layer, in one place. The priority order documented above is
+// "tract > sale dot > parcel fill", but the durable dot's two layers were
+// missing from the parcel-fill guard and from the comp-popup auto-close
+// guard — only the older `parcel-sale-pin-plus` was listed. So a click on a
+// durable dot ran BOTH handlers: the dot's own handler opened the comp
+// popup, then the parcel-fill handler (which never deferred) immediately
+// ran setCompPopup(null) and opened LandDetailPanel over the top. The
+// symptom the owner reported 2026-08-05 — clicking a "+" in comp mode gives
+// the parcel panel, which has no "Add to Report" button, so a comparable
+// cannot be added at all.
+//
+// Same omission the z-order list above had to fix ("previously this list
+// didn't include the durable layer at all"). Anything that needs to defer to
+// a sale dot must use THIS constant, never a hand-written subset.
+const SALE_DOT_LAYERS = [
+  'parcel-sale-pin-plus',
+  'parcel-sale-dots-durable-circle',
+  'parcel-sale-dots-durable-symbol',
+]
+
 function clickClaimedByLayers(
   map: maplibregl.Map,
   point: maplibregl.PointLike,
@@ -1547,7 +1567,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       //   - parcel-sale-pin-plus: Regrid sale "+" markers
       //   - tract-pin-circles: native tract pins (replaces the old DOM
       //     marker's stopPropagation, which native layers can't do)
-      const guardLayers = ['parcel-sale-pin-plus', 'tract-pin-circles']
+      const guardLayers = [...SALE_DOT_LAYERS, 'tract-pin-circles']
         .filter(id => map.getLayer(id))
       if (guardLayers.length) {
         try {
@@ -4132,7 +4152,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // landed on a tract pin OR a tract polygon, that layer's own handler opens
       // the tract details. Never open the parcel/land panel for land that has a
       // tract on top of it.
-      const topPinLayers = ['parcel-sale-pin-plus', 'tract-pin-circles', 'tract-polygon-fill']
+      // Sale dots outrank the parcel fill (see SALE_DOT_LAYERS): all three
+      // sale-dot layers must be here, not just parcel-sale-pin-plus.
+      const topPinLayers = [...SALE_DOT_LAYERS, 'tract-pin-circles', 'tract-polygon-fill']
       if (clickClaimedByLayers(map, e.point, topPinLayers)) return
       const parcelProps: any = f.properties || {}
       const ll_uuid = (parcelProps.ll_uuid as string | undefined) || null
