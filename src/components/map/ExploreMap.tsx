@@ -133,8 +133,9 @@ function syncDurableDotLayers(
   circleId: string,
   plusId: string,
   minZoom: number,
-  opts: { inComp: boolean; hide: boolean },
+  opts: { inComp: boolean; hide: boolean; maxZoom?: number },
 ): void {
+  const maxZoom = opts.maxZoom ?? 24
   // IDEMPOTENT ON PURPOSE (owner incident 2026-08-06: "Loading Ground"
   // stuck for minutes). This runs on EVERY dots fetch, i.e. every pan and
   // every moveend. setLayerZoomRange and setLayoutProperty are not free on
@@ -145,8 +146,8 @@ function syncDurableDotLayers(
   const setZoomRangeIfChanged = (id: string) => {
     const layer: any = map.getLayer(id)
     if (!layer) return
-    if (layer.minzoom !== minZoom || layer.maxzoom !== 24) {
-      map.setLayerZoomRange(id, minZoom, 24)
+    if (layer.minzoom !== minZoom || layer.maxzoom !== maxZoom) {
+      map.setLayerZoomRange(id, minZoom, maxZoom)
     }
   }
   const setVisibilityIfChanged = (id: string, want: 'visible' | 'none') => {
@@ -773,7 +774,44 @@ function buildRegridSaleDotFilter(filters: FilterState, minAcres: number): any[]
     'all',
     ['has', 'saleprice'],
     ['>', ['to-number', ['get', 'saleprice']], 0],
+    // OWNER RULE 2026-08-06: "every time the parcel tile shows a sale price
+    // AND a sale date, we HAVE to have a pink dot". Price alone is not
+    // enough — without this a priced parcel with no recorded date drew a
+    // dot the label couldn't justify. Only the from/to window used to touch
+    // saledate, so on "All time" (no window) there was no date check at all.
+    ['has', 'saledate'],
+    ['!=', ['coalesce', ['get', 'saledate'], ''], ''],
   ]
+  // LOCATION (state / county / township).
+  //
+  // This is the gap that got this whole layer disabled on 2026-08-03:
+  // "its filter is location-blind — it showed EVERY county's dots once
+  // zoomed in far enough, ignoring an active county filter."
+  //
+  // The tile has no state/county columns, but every feature carries
+  // `path` = /us/<st>/<county>/<township>/<parcel>. MapLibre's ['in', a, b]
+  // does substring matching when b is a string, so the path IS the
+  // location index. Slashes on both sides keep 'in' from matching 'indiana'
+  // inside another word, and county/township are lowercased with spaces to
+  // dashes to match Regrid's path format.
+  const pathSeg = (v: string) => v.trim().toLowerCase().replace(/\s+/g, '-')
+  const st = (filters.stateFilter || '').trim().toLowerCase()
+  if (st) {
+    const counties = (filters.countyFilters || []).filter(Boolean)
+    const townships = (filters.townshipFilters || []).filter(Boolean)
+    if (townships.length > 0) {
+      // Township names are not unique across counties, so each alternative
+      // pins the state too. Regrid's path is /us/<st>/<county>/<township>/…
+      expr.push(['in', `/us/${st}/`, ['get', 'path']])
+      expr.push(['any', ...townships.map(t =>
+        ['in', `/${pathSeg(t)}/`, ['get', 'path']] as any)])
+    } else if (counties.length > 0) {
+      expr.push(['any', ...counties.map(c =>
+        ['in', `/us/${st}/${pathSeg(c)}/`, ['get', 'path']])])
+    } else {
+      expr.push(['in', `/us/${st}/`, ['get', 'path']])
+    }
+  }
   // Acreage floor + the user's Acreage filter range. The baseline floor
   // (minAcres) hides tiny non-comp parcels; the user's acreageMin/Max
   // from the Filters panel narrows further. We fold the user's min into
@@ -4383,7 +4421,18 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // effects below all early-return on this flag), and DURABLE_DOT_LAYER /
   // DURABLE_DOT_PLUS_LAYER are uncapped again so they keep rendering
   // (filter-correct) above z11 instead of handing off to this layer.
-  const REGRID_SALE_PINS_ENABLED = false
+  // ON as of 2026-08-06 (owner ruling). The dot now comes from the SAME
+  // tile feature as the label, so "label shows a price and a date" and
+  // "there is a dot" are the same fact — they cannot drift the way a
+  // separate database table drifted from the tile. Disabled 2026-08-03
+  // only because the filter was location-blind; see the location block in
+  // buildRegridSaleDotFilter, which fixes exactly that.
+  //
+  // Below REGRID_MIN_ZOOM there are no tiles, so DURABLE_DOT_LAYER still
+  // owns z9-11 off /api/map/parcel-sale-dots and is capped at
+  // REGRID_MIN_ZOOM (see syncDurableDotLayers) so the two never
+  // double-draw the same parcel.
+  const REGRID_SALE_PINS_ENABLED = true
 
   useEffect(() => {
     const map = mapRef.current
@@ -5095,6 +5144,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       syncDurableDotLayers(map, DURABLE_DOT_LAYER, DURABLE_DOT_PLUS_LAYER, DURABLE_DOT_MIN_ZOOM, {
         inComp,
         hide: hideParcelDotsForFilters,
+        // Tile dots own z>=REGRID_MIN_ZOOM; cap here so one parcel is never
+        // drawn by both layers at the same zoom.
+        maxZoom: REGRID_SALE_PINS_ENABLED ? REGRID_MIN_ZOOM : 24,
       })
       // AUDIT FIX 2026-07-26: PARCEL_SALE_PLUS_LAYER (the live-tile dot
       // layer that owns z>=REGRID_MIN_ZOOM) was never wired to this gate —
@@ -5447,6 +5499,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       syncDurableDotLayers(map, DURABLE_DOT_LAYER, DURABLE_DOT_PLUS_LAYER, DURABLE_DOT_MIN_ZOOM, {
         inComp,
         hide: hideForFilters,
+        maxZoom: REGRID_SALE_PINS_ENABLED ? REGRID_MIN_ZOOM : 24,
       })
     } catch {/* layer torn down */}
     const { from, to, upcomingOnly } = resolveDateWindow(filtersRef.current)
