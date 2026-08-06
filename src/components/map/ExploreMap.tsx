@@ -4992,14 +4992,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // reads appliedFilters, NOT the draft `filters` the panel edits — the
   // pink dots must not vanish/reappear while the user is mid-edit; they
   // only change on Apply, same as every other layer.
-  // COMP MODE NEVER HIDES ITS DOTS (owner, 2026-08-06 — urgent).
-  // This gate is right on the explore map, wrong in comp mode: every dot is
-  // a candidate comp, and hiding them leaves nothing to add to the report.
-  // Applies to BOTH gates — see the twin in fetchDurableDotsForBounds, which
-  // re-asserts visibility on every pan and will silently undo this if it
-  // ever drifts. One rule, two places.
-  const hideParcelDotsForFilters =
-    !subjectTractId && (shouldHideParcelDotsForFilters(appliedFilters) || ownerSearchActive)
+  const hideParcelDotsForFilters = shouldHideParcelDotsForFilters(appliedFilters) || ownerSearchActive
 
   useEffect(() => {
     const map = mapRef.current
@@ -5348,13 +5341,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // useCallback([] deps) that can't close over state — see
       // ownerSearchActiveRef's declaration up near ownerParcelsChip.
       // Panning during an owner search must never resurrect these dots.
-      // Twin of hideParcelDotsForFilters above — this runs on EVERY moveend,
-      // so without the same comp-mode escape it overwrites that decision on
-      // the next pan.
+      const hideForFilters = shouldHideParcelDotsForFilters(filtersRef.current) || ownerSearchActiveRef.current
       const inComp = !!subjectTractIdRef.current
-      const hideForFilters = !inComp && (
-        shouldHideParcelDotsForFilters(filtersRef.current) || ownerSearchActiveRef.current
-      )
       if (map.getLayer(DURABLE_DOT_LAYER)) {
         map.setLayoutProperty(DURABLE_DOT_LAYER, 'visibility', hideForFilters ? 'none' : 'visible')
       }
@@ -5491,6 +5479,48 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // FIND COMPS STARTS FROM A CLEAN SLATE (owner, 2026-08-06):
+  //   "I want the Find Comps button to clear all searches and filters to
+  //    show the plus dots properly. Then if the user searches or filters
+  //    after being on the comp report map mode, then the plus buttons
+  //    should hide and show based on the filter or search."
+  //
+  // Both halves matter. A search like "auctions in Kansas today" sets
+  // statuses=[auction], which excludes sold — and shouldHideParcelDotsForFilters
+  // hides every parcel-sale dot and its "+" glyph on exactly that. So entering
+  // comp mode from a search left the user with nothing to add.
+  //
+  // The page already fires resetFiltersSignal here, but that races the mode
+  // switch and clearly wasn't landing. This does it unconditionally, in one
+  // place, keyed on comp mode turning on — and then gets out of the way: the
+  // hide gates are left completely untouched, so a filter applied AFTER
+  // entering comp mode hides and shows the dots exactly as it always has.
+  // (An earlier attempt made comp mode ignore the gates entirely; that broke
+  // the owner's second requirement and is reverted.)
+  //
+  // No camera move — clearing via handleChatApplyFilters is what zooms the
+  // map out, which the owner has flagged repeatedly.
+  useEffect(() => {
+    if (!subjectTractId) return
+    clearOwnerParcels()
+    setFilters(INITIAL_FILTERS)
+    filtersRef.current = INITIAL_FILTERS
+    setAppliedFilters(INITIAL_FILTERS)
+    // The accumulator holds whatever the pre-comp filter allowed through, and
+    // dots never reload once loaded (owner rule) — so it has to be dropped
+    // and the gen bumped, or the cleared filter would never be reflected.
+    durableDotsByIdRef.current = new Map()
+    durableDotsGenRef.current++
+    const map = mapRef.current
+    if (map) {
+      const b = map.getBounds()
+      fetchDurableDotsForBounds({
+        south: b.getSouth(), north: b.getNorth(), west: b.getWest(), east: b.getEast(),
+      })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subjectTractId])
 
   // Fetch durable dots on moveend at every zoom >= DURABLE_DOT_MIN_ZOOM, no
   // upper bound, in BOTH explore and comp mode (AUDIT FIX 2026-07-04 round
