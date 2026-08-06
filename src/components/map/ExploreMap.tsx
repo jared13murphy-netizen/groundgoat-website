@@ -4992,7 +4992,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // reads appliedFilters, NOT the draft `filters` the panel edits — the
   // pink dots must not vanish/reappear while the user is mid-edit; they
   // only change on Apply, same as every other layer.
-  const hideParcelDotsForFilters = shouldHideParcelDotsForFilters(appliedFilters) || ownerSearchActive
+  // COMP MODE NEVER HIDES ITS DOTS (owner, 2026-08-06 — urgent).
+  // This gate is right on the explore map, wrong in comp mode: every dot is
+  // a candidate comp, and hiding them leaves nothing to add to the report.
+  // Applies to BOTH gates — see the twin in fetchDurableDotsForBounds, which
+  // re-asserts visibility on every pan and will silently undo this if it
+  // ever drifts. One rule, two places.
+  const hideParcelDotsForFilters =
+    !subjectTractId && (shouldHideParcelDotsForFilters(appliedFilters) || ownerSearchActive)
 
   useEffect(() => {
     const map = mapRef.current
@@ -5341,8 +5348,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // useCallback([] deps) that can't close over state — see
       // ownerSearchActiveRef's declaration up near ownerParcelsChip.
       // Panning during an owner search must never resurrect these dots.
-      const hideForFilters = shouldHideParcelDotsForFilters(filtersRef.current) || ownerSearchActiveRef.current
+      // Twin of hideParcelDotsForFilters above — this runs on EVERY moveend,
+      // so without the same comp-mode escape it overwrites that decision on
+      // the next pan.
       const inComp = !!subjectTractIdRef.current
+      const hideForFilters = !inComp && (
+        shouldHideParcelDotsForFilters(filtersRef.current) || ownerSearchActiveRef.current
+      )
       if (map.getLayer(DURABLE_DOT_LAYER)) {
         map.setLayoutProperty(DURABLE_DOT_LAYER, 'visibility', hideForFilters ? 'none' : 'visible')
       }
