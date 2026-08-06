@@ -2836,6 +2836,30 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
   const polygonGeoJSON = useMemo(() => {
     const fc = buildExplorePolygonGeoJSON(tracts)
+    // Today's-auction tracts get their boundary too.
+    //
+    // OWNER BUG 2026-08-06: of five green "auction today" dots, three drew a
+    // polygon and later none did. Today's tracts come from their OWN
+    // endpoint (/api/map/tracts/today, always-on and unfiltered) and are
+    // deliberately NOT merged into `tracts` — see todayTractsByIdRef's
+    // comment. This memo built polygons from `tracts` alone, so a green dot
+    // only ever got a boundary when the SAME tract happened to also arrive
+    // via the viewport/cell fetch and pass isAcceptableMapTract under the
+    // active filters. That is chance, not design: it explains both the 3-of-5
+    // and the 0-of-5.
+    //
+    // The today payload already carries polygon_coordinates (backend
+    // get_map_tracts_today selects Tract.polygon_coordinates), so the data
+    // was in the browser the whole time and simply never reached the layer.
+    // Deduped by id so a tract present in BOTH sets is not drawn twice.
+    const haveIds = new Set(
+      fc.features.map((f: any) => f.properties?.tractId ?? f.id),
+    )
+    const todayOnly = todayTracts.filter(t => !haveIds.has(t.id))
+    if (todayOnly.length > 0) {
+      const todayFc = buildExplorePolygonGeoJSON(todayOnly)
+      ;(fc.features as any[]).push(...todayFc.features)
+    }
     // Overlay the user's currently-pinned tract polygon (clicked from a
     // slide-out) regardless of whether it passed isAcceptableMapTract.
     // Some listings have tracts whose status would normally exclude them
@@ -2867,7 +2891,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       }
     }
     return fc
-  }, [tracts, pinnedTractPolygon])
+  }, [tracts, pinnedTractPolygon, todayTracts])
 
   // ── Native tract-pin GeoJSON (drives the tract-pin-circles/labels
   // layers via setData). One Point per tract with status / pre-formatted
