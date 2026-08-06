@@ -5339,8 +5339,16 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // useCallback([] deps) that can't close over state — see
       // ownerSearchActiveRef's declaration up near ownerParcelsChip.
       // Panning during an owner search must never resurrect these dots.
-      const hideForFilters = shouldHideParcelDotsForFilters(filtersRef.current) || ownerSearchActiveRef.current
+      // COMP MODE ESCAPE — must match the filter-reactive effect above
+      // (hideParcelDotsForFilters). This block re-asserts visibility on
+      // EVERY moveend, so without the same escape it silently overwrote
+      // that effect's decision on the next pan: the owner's "+" dots came
+      // back for an instant and vanished again. Two gates, one rule — if
+      // you change one, change both.
       const inComp = !!subjectTractIdRef.current
+      const hideForFilters = !inComp && (
+        shouldHideParcelDotsForFilters(filtersRef.current) || ownerSearchActiveRef.current
+      )
       if (map.getLayer(DURABLE_DOT_LAYER)) {
         map.setLayoutProperty(DURABLE_DOT_LAYER, 'visibility', hideForFilters ? 'none' : 'visible')
       }
