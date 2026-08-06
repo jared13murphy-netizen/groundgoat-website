@@ -171,7 +171,7 @@ function AccessPortalPageInner() {
     }
   }
   // AI chat → map filter pipeline (admin only, see render below)
-  const [chatAppliedFilters, setChatAppliedFilters] = useState<{ filters: any; clearUnspecified?: boolean; nonce: number } | null>(null)
+  const [chatAppliedFilters, setChatAppliedFilters] = useState<{ filters: any; clearUnspecified?: boolean; preserveCamera?: boolean; nonce: number } | null>(null)
   // AUDIT FIX (2026-07-10): tracks whether the map's CURRENTLY active
   // filters came from a chat map-filter search and haven't since been
   // overridden by a manual Filter Panel apply. Lives here (not inside
@@ -183,8 +183,8 @@ function AccessPortalPageInner() {
   // cause of a ship-blocker: an analytics/out-of-scope chat answer was
   // silently wiping filters the user had just set by hand in the panel.
   const chatFiltersActiveRef = useRef(false)
-  const handleChatApplyFilters = (filters: Record<string, any>, clearUnspecified: boolean) => {
-    setChatAppliedFilters({ filters, clearUnspecified, nonce: Date.now() })
+  const handleChatApplyFilters = (filters: Record<string, any>, clearUnspecified: boolean, preserveCamera = false) => {
+    setChatAppliedFilters({ filters, clearUnspecified, preserveCamera, nonce: Date.now() })
     // Empty filters here means a chat-side "Clear search" — nothing
     // chat-sourced is left active. Non-empty means a real map-filter
     // search just took ownership of the map's filter state.
@@ -268,9 +268,11 @@ function AccessPortalPageInner() {
   // resets filters to INITIAL_FILTERS, which (with the owner-search
   // display gate in ExploreMap) also restores every tract-pin/parcel-dot
   // layer an owner search had hidden.
-  const clearActiveSearch = () => {
+  // preserveCamera: clear the search but leave the camera alone. The
+  // bubble's X keeps the default (false); Find Comps passes true.
+  const clearActiveSearch = (preserveCamera = false) => {
     setActiveSearchQuery(null)
-    handleChatApplyFilters({}, true)
+    handleChatApplyFilters({}, true, preserveCamera)
   }
   // Comparables mode
   const [resetFiltersSignal, setResetFiltersSignal] = useState(0)
@@ -589,7 +591,9 @@ function AccessPortalPageInner() {
     // call actually achieves (it routes through handleChatApplyFilters with
     // clearUnspecified, which rebuilds from INITIAL_FILTERS and commits
     // draft + applied together).
-    clearActiveSearch()
+    // true = clear the search WITHOUT the wide-bbox refit, which would
+    // otherwise fit the camera to every result in the country.
+    clearActiveSearch(true)
 
     // Fetch subject tract info for the panel header
     try {

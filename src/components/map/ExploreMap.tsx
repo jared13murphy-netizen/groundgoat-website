@@ -111,6 +111,41 @@ function liftMarkerLayers(map: maplibregl.Map) {
 // Same omission the z-order list above had to fix ("previously this list
 // didn't include the durable layer at all"). Anything that needs to defer to
 // a sale dot must use THIS constant, never a hand-written subset.
+// ONE place that decides whether the durable parcel-sale dot and its
+// comp-mode "+" glyph are on screen.
+//
+// OWNER RULE 2026-08-06: "the plus sign icon should work identically to
+// the pink dot icon." They are two layers over the SAME source and the
+// same points — a circle and the "+" drawn on top of it — so every
+// property that decides whether they draw has to be set from the same
+// value at the same instant. Previously each of the two call sites
+// (the filter-reactive effect, and the moveend fetch) recomputed the
+// gate separately from different inputs — one from appliedFilters, the
+// other from filtersRef — so the "+" could silently end up hidden while
+// the dot underneath it was visible. That is the bug: a dot with no "+"
+// on it can't be added to a comp report.
+//
+// The "+" derives from the circle's ACTUAL resolved visibility rather
+// than recomputing `hide`, so it cannot drift even if the two ever get
+// different inputs again. comp mode is the only difference between them.
+function syncDurableDotLayers(
+  map: maplibregl.Map,
+  circleId: string,
+  plusId: string,
+  minZoom: number,
+  opts: { inComp: boolean; hide: boolean },
+): void {
+  try {
+    if (!map.getLayer(circleId)) return
+    map.setLayerZoomRange(circleId, minZoom, 24)
+    map.setLayoutProperty(circleId, 'visibility', opts.hide ? 'none' : 'visible')
+    if (!map.getLayer(plusId)) return
+    map.setLayerZoomRange(plusId, minZoom, 24)
+    const dotVisible = (map.getLayoutProperty(circleId, 'visibility') ?? 'visible') === 'visible'
+    map.setLayoutProperty(plusId, 'visibility', opts.inComp && dotVisible ? 'visible' : 'none')
+  } catch {/* layer torn down mid-update */}
+}
+
 const SALE_DOT_LAYERS = [
   'parcel-sale-pin-plus',
   'parcel-sale-dots-durable-circle',
@@ -840,7 +875,8 @@ interface ExploreMapProps {
   /** AI chat hook: when this object changes, merge its keys into the
       current FilterState. Pass a fresh object each call (not just a
       changed property of the same object). */
-  applyExternalFilters?: { filters: Partial<FilterState>; clearUnspecified?: boolean; nonce: number } | null
+  // preserveCamera: apply/clear filters WITHOUT moving the camera (Find Comps).
+  applyExternalFilters?: { filters: Partial<FilterState>; clearUnspecified?: boolean; preserveCamera?: boolean; nonce: number } | null
   /** Bumped externally when the user submits a chat query. Triggers
       the map's search animation immediately, BEFORE the
       applyExternalFilters payload arrives (which can take 1-2s for the
@@ -1954,7 +1990,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // mid-search.
   useEffect(() => {
     if (!applyExternalFilters) return
-    const { filters: incoming, clearUnspecified } = applyExternalFilters
+    const { filters: incoming, clearUnspecified, preserveCamera } = applyExternalFilters
 
     // A regular filter search superseded any owner-parcels dots from a
     // prior "show me X's parcels" query — clear them so stale blue dots
@@ -2002,7 +2038,17 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // EVERY match, then we'll fit-to-results.
     const stateFit = (incoming as any).stateFilter as string | undefined
     let qbbox: [[number, number], [number, number]]
-    if (stateFit && STATE_BOUNDS[stateFit]) {
+    if (preserveCamera) {
+      // Find Comps: the user is already on their subject tract. Query only
+      // what's on screen (padded) instead of the whole country.
+      const cb = map.getBounds()
+      const padLat = (cb.getNorth() - cb.getSouth()) * 0.25 || 0.1
+      const padLng = (cb.getEast() - cb.getWest()) * 0.25 || 0.1
+      qbbox = [
+        [cb.getWest() - padLng, cb.getSouth() - padLat],
+        [cb.getEast() + padLng, cb.getNorth() + padLat],
+      ]
+    } else if (stateFit && STATE_BOUNDS[stateFit]) {
       qbbox = STATE_BOUNDS[stateFit]
     } else {
       qbbox = [[-125, 24], [-66, 50]]
@@ -2163,9 +2209,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             let minLng = Math.min(...lngs), maxLng = Math.max(...lngs)
             if (minLat === maxLat) { minLat -= 0.05; maxLat += 0.05 }
             if (minLng === maxLng) { minLng -= 0.05; maxLng += 0.05 }
-            map.fitBounds([[minLng, minLat], [maxLng, maxLat]], {
-              padding: 100, duration: 900, maxZoom: 12,
-            })
+            // preserveCamera (Find Comps): never move the camera — the
+            // caller is about to zoom to the subject tract itself.
+            if (!preserveCamera) {
+              map.fitBounds([[minLng, minLat], [maxLng, maxLat]], {
+                padding: 100, duration: 900, maxZoom: 12,
+              })
+            }
 
             // County-scoped dots (see the hasCountyFilter branch above):
             // fire it now that we have a tight bbox, padded 20% per side
@@ -4979,25 +5029,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     if (!map || !mapLoaded) return
     const inComp = !!subjectTractId
     try {
-      if (map.getLayer(DURABLE_DOT_LAYER)) {
-        // UNCAPPED 2026-08-03 (owner bug report — reverts the 2026-07-26
-        // cap): PARCEL_SALE_PLUS_LAYER (the live-tile dot layer that used
-        // to own z>=REGRID_MIN_ZOOM) is now disabled — see
-        // REGRID_SALE_PINS_ENABLED above — because its filter is
-        // location-blind and showed unfiltered dots for every county past
-        // z11. This durable layer is the only sale-dot layer again, so it
-        // must render past REGRID_MIN_ZOOM too, same as mobile's uncapped
-        // parcel-sale-dots-durable-circle (ExploreMapView.js).
-        map.setLayerZoomRange(DURABLE_DOT_LAYER, DURABLE_DOT_MIN_ZOOM, 24)
-        map.setLayoutProperty(DURABLE_DOT_LAYER, 'visibility', hideParcelDotsForFilters ? 'none' : 'visible')
-      }
-      if (map.getLayer(DURABLE_DOT_PLUS_LAYER)) {
-        // Same uncap as DURABLE_DOT_LAYER above — this "+" glyph sits on
-        // the same source/points and must stay in sync with it at every
-        // zoom now that the live-tile handoff no longer exists.
-        map.setLayerZoomRange(DURABLE_DOT_PLUS_LAYER, DURABLE_DOT_MIN_ZOOM, 24)
-        map.setLayoutProperty(DURABLE_DOT_PLUS_LAYER, 'visibility', (inComp && !hideParcelDotsForFilters) ? 'visible' : 'none')
-      }
+      syncDurableDotLayers(map, DURABLE_DOT_LAYER, DURABLE_DOT_PLUS_LAYER, DURABLE_DOT_MIN_ZOOM, {
+        inComp,
+        hide: hideParcelDotsForFilters,
+      })
       // AUDIT FIX 2026-07-26: PARCEL_SALE_PLUS_LAYER (the live-tile dot
       // layer that owns z>=REGRID_MIN_ZOOM) was never wired to this gate —
       // a Listed/Live status filter or an active owner search hid
@@ -5323,12 +5358,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // Panning during an owner search must never resurrect these dots.
       const hideForFilters = shouldHideParcelDotsForFilters(filtersRef.current) || ownerSearchActiveRef.current
       const inComp = !!subjectTractIdRef.current
-      if (map.getLayer(DURABLE_DOT_LAYER)) {
-        map.setLayoutProperty(DURABLE_DOT_LAYER, 'visibility', hideForFilters ? 'none' : 'visible')
-      }
-      if (map.getLayer(DURABLE_DOT_PLUS_LAYER)) {
-        map.setLayoutProperty(DURABLE_DOT_PLUS_LAYER, 'visibility', (inComp && !hideForFilters) ? 'visible' : 'none')
-      }
+      // Same one helper the filter-reactive effect uses — the pan path
+      // must never compute this differently from the effect, which is
+      // exactly how the "+" ended up hidden over a visible dot.
+      syncDurableDotLayers(map, DURABLE_DOT_LAYER, DURABLE_DOT_PLUS_LAYER, DURABLE_DOT_MIN_ZOOM, {
+        inComp,
+        hide: hideForFilters,
+      })
     } catch {/* layer torn down */}
     const { from, to, upcomingOnly } = resolveDateWindow(filtersRef.current)
     // An "upcoming" date window (e.g. the Goat Search "auctions in Kansas
