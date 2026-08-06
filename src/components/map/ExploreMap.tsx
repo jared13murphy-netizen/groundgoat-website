@@ -1159,6 +1159,20 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // filter changes (see the fetch effect's dependency array below) — a
   // changed filter changes which parcels qualify, so the old union is stale.
   const durableDotsByIdRef = useRef<Map<string, GeoJSON.Feature>>(new Map())
+  // Size of the accumulator the LAST time it was pushed to the GL source.
+  // -1 = "the source does not match the accumulator, push regardless".
+  //
+  // OWNER BUG 2026-08-06 ("super glitchy when I zoom in and out — takes a
+  // couple seconds to respond, then jumps to the next zoom level without
+  // animating"): explore mode pushed the ENTIRE accumulator on every dots
+  // response, even when the response added nothing new. Building a fresh
+  // 140k-feature array and serialising it to the map worker takes seconds
+  // and blocks the main thread, so the zoom animation drops every frame and
+  // snaps to its end state. Dots are immutable per id, so an unchanged size
+  // means the source already holds exactly these features and the push is
+  // pure waste. Every clear site below resets this to -1, so a clear
+  // followed by a same-size refill can never be mistaken for "unchanged".
+  const durableDotsPushedSizeRef = useRef(-1)
   // Cells we've FULLY loaded (got all matching tracts back, didn't hit
   // the per-cell 1000 cap). Future moveends won't re-fetch these.
   const loadedCellsRef = useRef<Set<string>>(new Set())
@@ -2132,7 +2146,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // Same signal drives the "large searches take longer" overlay copy —
     // county-scoped searches are small/fast and never show it.
     setChatSearchLargeArea(!hasCountyFilter)
-    durableDotsByIdRef.current.clear()
+    durableDotsByIdRef.current.clear(); durableDotsPushedSizeRef.current = -1
     // CODE AUDITOR FIX (2026-07-09): clearing the JS accumulator above
     // isn't enough on its own — the rendered GeoJSONSource still holds
     // the PREVIOUS search's dots until something calls setData again.
@@ -2524,7 +2538,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     tractMapRef.current = new Map()
     tractsGenRef.current++
     setTracts([])
-    durableDotsByIdRef.current.clear()
+    durableDotsByIdRef.current.clear(); durableDotsPushedSizeRef.current = -1
     const durableSrc = mapRef.current?.getSource(DURABLE_DOT_SOURCE)
     if (durableSrc && 'setData' in durableSrc) {
       (durableSrc as maplibregl.GeoJSONSource).setData(EMPTY_FC)
@@ -2663,7 +2677,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // Atomic reset (owner spec): clear durable dots the same way Apply
     // does, so nothing from the old filter lingers. Today's green dots are
     // always-on (unfiltered) — leave them in place (clearing would flicker).
-    durableDotsByIdRef.current.clear()
+    durableDotsByIdRef.current.clear(); durableDotsPushedSizeRef.current = -1
     const durableSrc = mapRef.current?.getSource(DURABLE_DOT_SOURCE)
     if (durableSrc && 'setData' in durableSrc) {
       (durableSrc as maplibregl.GeoJSONSource).setData(EMPTY_FC)
@@ -5209,10 +5223,17 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         clearAllDeedSuppression()
       }
       if (src) {
-        src.setData({
-          type: 'FeatureCollection',
-          features: Array.from(durableDotsByIdRef.current.values()),
-        })
+        // Skip the push entirely when the accumulator hasn't grown — see
+        // durableDotsPushedSizeRef. This is the common case while zooming
+        // or panning over ground whose dots are already loaded.
+        const size = durableDotsByIdRef.current.size
+        if (durableDotsPushedSizeRef.current !== size) {
+          src.setData({
+            type: 'FeatureCollection',
+            features: Array.from(durableDotsByIdRef.current.values()),
+          })
+          durableDotsPushedSizeRef.current = size
+        }
       }
       return
     }
@@ -5351,10 +5372,23 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       suppressedPathsRef.current = newSuppressedPaths
     }
 
-    if (uuidsChanged && src) {
+    // Push when the SUPPRESSED set changed (a deed folded into a tract) OR
+    // when the accumulator itself grew.
+    //
+    // OWNER BUG 2026-08-06 (comp "+" dots "have never worked"): this used to
+    // fire on `uuidsChanged` alone. Suppression only changes when a dot's
+    // centroid falls inside a comp tract's polygon — rare, and usually never
+    // — so in the normal case a comp-mode fetch merged its dots into the
+    // accumulator and then dropped them on the floor: the GL source was never
+    // updated, so no dot and no "+" appeared. Explore mode always pushed,
+    // which is exactly why the same parcel showed a pink dot the moment you
+    // left comp mode.
+    const compSize = durableDotsByIdRef.current.size
+    if (src && (uuidsChanged || durableDotsPushedSizeRef.current !== compSize)) {
       const features = Array.from(durableDotsByIdRef.current.values())
         .filter(f => !newSuppressedUuids.has((f.properties as any)?.id))
       src.setData({ type: 'FeatureCollection', features })
+      durableDotsPushedSizeRef.current = compSize
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -5441,7 +5475,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // recorded past sales — nothing can qualify, so clear BOTH the
       // layer and the accumulator (unlike a plain zoom-out/pan, this is
       // a real "no dots qualify" state, not a viewport gap).
-      durableDotsByIdRef.current.clear()
+      durableDotsByIdRef.current.clear(); durableDotsPushedSizeRef.current = -1
       // Coincident-deed suppression must reset in lockstep — with the
       // accumulator empty, recomputeCoincidentDeeds clears tractDeeds and
       // writes the (now-empty) source data in one pass instead of a raw
@@ -5629,7 +5663,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // the filter fields below) IS the filter-change signal, so clearing
       // the accumulator here — once per effect run, before the first fetch
       // — drops the old union exactly when the qualifying set can differ.
-      durableDotsByIdRef.current.clear()
+      durableDotsByIdRef.current.clear(); durableDotsPushedSizeRef.current = -1
       // Same rationale as the chat-search-apply clear above: a filter
       // change invalidates the old coincident-deed fold too (different
       // dots/tracts may qualify now) — un-suppress any hidden labels,
