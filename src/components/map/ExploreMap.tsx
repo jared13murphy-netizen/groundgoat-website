@@ -4038,7 +4038,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       type: 'symbol',
       source: SOURCE_ID,
       'source-layer': sourceLayer,
-      minzoom: REGRID_OWNER_LABEL_MIN_ZOOM,
+      minzoom: REGRID_LABEL_MIN_ZOOM,
       ...(regridStateFilter ? { filter: regridStateFilter } : {}),
       layout: {
         // Four segments: owner (bold) → acres → $/acre → sale date.
@@ -4180,19 +4180,44 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         ],
       },
     }, beforeId)
-    // SINGLE LABEL LAYER (owner ruling 2026-08-06). There used to be a
-    // second, owner-ONLY layer covering z13-14, with this combined layer
-    // (owner + acres + $/ac + sale date) only starting at 14 — added
-    // 2026-07-31 in "Parcel owner labels: z13, not z11".
-    //
-    // Owner: "The old version always showed owner name, acres, sale date,
-    // and sale price. There was no zoom level that only showed the owner
-    // name previously." Crossing z14 also meant tearing down one symbol
-    // layer and laying out another over thousands of parcels, which is
-    // work landing at exactly the zoom people work at.
-    //
-    // One layer, full text, from REGRID_OWNER_LABEL_MIN_ZOOM up. No
-    // handoff, and the label never changes shape as you zoom.
+
+    // Owner-name-only label for z12 -> 14, so the name shows up before
+    // the full four-part label does (owner 2026-07-31; see
+    // the REGRID_OWNER_LABEL_MIN_ZOOM comment for how 13 was landed on).
+    // maxzoom here is the same number as the combined layer's minzoom,
+    // so the two hand off precisely and the owner name is never rendered
+    // twice. Deliberately owner-only: acres/$-ac/date stay at 14 because
+    // dense multi-line text over thousands of parcels is what costs
+    // collision detection at the wider zooms.
+    map.addLayer({
+      id: OWNER_LABEL_LAYER,
+      type: 'symbol',
+      source: SOURCE_ID,
+      'source-layer': sourceLayer,
+      minzoom: REGRID_OWNER_LABEL_MIN_ZOOM,
+      maxzoom: REGRID_LABEL_MIN_ZOOM,
+      ...(regridStateFilter ? { filter: regridStateFilter } : {}),
+      layout: {
+        'text-field': ['coalesce', ['get', 'owner'], 'Coming Soon'],
+        'text-font': ['Open Sans Bold'],
+        'text-size': 11,
+        'text-max-width': 9,
+        'text-allow-overlap': false,
+        'text-ignore-placement': false,
+      },
+      paint: {
+        'text-color': '#ffffff',
+        'text-halo-color': 'rgba(0,0,0,0.85)',
+        'text-halo-width': 1.4,
+        'text-halo-blur': 0.4,
+        // Same comp-map coincident-dot suppression as the combined layer.
+        'text-opacity': [
+          'case',
+          ['boolean', ['feature-state', 'dotSuppressed'], false], 0,
+          1,
+        ],
+      },
+    }, beforeId)
 
     // Push tract polygons to the TOP of the layer stack — if Regrid
     // arrived after tract-polygon-* mounted, beforeId above missed
