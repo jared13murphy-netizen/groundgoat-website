@@ -581,6 +581,15 @@ function AccessPortalPageInner() {
     // Same signal handleCloseComparables already uses to reset the map
     // cache when LEAVING comp mode.
     setResetFiltersSignal(prev => prev + 1)
+    // Clear the Goat Search exactly the way the chip's X does. The owner
+    // established the behaviour empirically: with a search active the comp
+    // "+" dots don't render, and clicking the X makes them appear. So do
+    // literally that, rather than reimplementing the teardown — earlier
+    // attempts reset filter state by hand and never reproduced what this
+    // call actually achieves (it routes through handleChatApplyFilters with
+    // clearUnspecified, which rebuilds from INITIAL_FILTERS and commits
+    // draft + applied together).
+    clearActiveSearch()
 
     // Fetch subject tract info for the panel header
     try {
