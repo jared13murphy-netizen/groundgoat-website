@@ -882,6 +882,50 @@ function buildRegridSaleDotFilter(filters: FilterState, minAcres: number): any[]
 // pins (.comp-marker-pin, background #f58cde) so the two look identical
 // on the explore map. In comparables mode we overlay a white "+" on top.
 const PARCEL_SALE_DOT_IMAGE = 'parcel-sale-dot'
+// Green twin of the dot sprite, for a parcel already in the comp report.
+// A symbol layer's icon can't be recoloured by paint the way a circle layer's
+// fill can, so "selected" is a SECOND image chosen by a data expression —
+// see PARCEL_SALE_DOT_ICON_EXPR.
+const PARCEL_SALE_DOT_SELECTED_IMAGE = 'parcel-sale-dot-selected'
+function ensureParcelSaleDotSelectedImage(map: maplibregl.Map) {
+  if (map.hasImage(PARCEL_SALE_DOT_SELECTED_IMAGE)) return
+  const size = 36
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return
+  const c = size / 2
+  ctx.beginPath()
+  ctx.arc(c, c, c - 4, 0, Math.PI * 2)
+  ctx.fillStyle = COMP_SELECTED_COLOR
+  ctx.fill()
+  ctx.lineWidth = 3
+  ctx.strokeStyle = '#ffffff'
+  ctx.stroke()
+  const img = ctx.getImageData(0, 0, size, size)
+  try { map.addImage(PARCEL_SALE_DOT_SELECTED_IMAGE, img, { pixelRatio: 2 }) } catch {/* racing call */}
+}
+
+// icon-image for the tile sale-dot layer: green when this parcel is in the
+// report, pink otherwise.
+//
+// The report keys a tile parcel by `path` — onPinClick builds
+// `parcelId = ll_uuid || props.path`, and Regrid's custom tiles never
+// populate ll_uuid, so it is always the path. reportIds therefore holds
+// paths for parcels (and tract uuids for tracts, which simply never match
+// a path here).
+function buildParcelSaleDotIconExpr(reportIds?: Set<string> | null): any {
+  const ids = reportIds ? Array.from(reportIds) : []
+  if (ids.length === 0) return PARCEL_SALE_DOT_IMAGE
+  return [
+    'case',
+    ['in', ['get', 'path'], ['literal', ids]],
+    PARCEL_SALE_DOT_SELECTED_IMAGE,
+    PARCEL_SALE_DOT_IMAGE,
+  ]
+}
+
 function ensureParcelSaleDotImage(map: maplibregl.Map) {
   if (map.hasImage(PARCEL_SALE_DOT_IMAGE)) return
   const size = 36 // rendered at pixelRatio 2 → 18px at icon-size 1
@@ -4449,6 +4493,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // demand any time MapLibre asks for it.
     const onStyleImageMissing = (ev: { id: string }) => {
       if (ev.id === PARCEL_SALE_DOT_IMAGE) ensureParcelSaleDotImage(map)
+      if (ev.id === PARCEL_SALE_DOT_SELECTED_IMAGE) ensureParcelSaleDotSelectedImage(map)
     }
     map.on('styleimagemissing', onStyleImageMissing)
 
@@ -4493,6 +4538,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // should have a pin/+". Collision de-cluttering was hiding most of
       // them, which read as "not enough plus signs".
       ensureParcelSaleDotImage(map)
+      ensureParcelSaleDotSelectedImage(map)
       const inCompModeNow = !!subjectTractIdRef.current
       if (!map.getLayer(PARCEL_SALE_PLUS_LAYER)) {
         // Compose the sale filter with the state-plan gate so basic_state
@@ -4536,7 +4582,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           minzoom: REGRID_MIN_ZOOM,
           filter: composedFilter,
           layout: {
-            'icon-image': PARCEL_SALE_DOT_IMAGE,
+            'icon-image': buildParcelSaleDotIconExpr(reportIds),
             'icon-size': inCompModeNow ? PARCEL_COMP_ICON_SIZE : PARCEL_DOT_ICON_SIZE,
             'icon-allow-overlap': true,
             'icon-ignore-placement': true,
@@ -4895,6 +4941,16 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // DURABLE_DOT_LAYER is the only circle layer that renders comp dots —
     // parcel-sale-pin-plus is a symbol ("+" glyph) drawn on top of it and
     // has no circle-color to set.
+    // Tile sale-dot layer (z>=REGRID_MIN_ZOOM) picks the green sprite for
+    // parcels in the report — same trigger, different mechanism, because a
+    // symbol layer's icon can't be recoloured by paint.
+    if (map.getLayer(PARCEL_SALE_PLUS_LAYER)) {
+      try {
+        map.setLayoutProperty(
+          PARCEL_SALE_PLUS_LAYER, 'icon-image', buildParcelSaleDotIconExpr(reportIds),
+        )
+      } catch {/* layer torn down mid-update */}
+    }
     if (!map.getLayer(DURABLE_DOT_LAYER)) return
     try { map.setPaintProperty(DURABLE_DOT_LAYER, 'circle-color', colorExpr) }
     catch {/* layer torn down mid-update */}
