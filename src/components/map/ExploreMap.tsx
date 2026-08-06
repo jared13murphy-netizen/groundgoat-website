@@ -5331,7 +5331,18 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       }
     } catch {/* layer torn down */}
     const { from, to, upcomingOnly } = resolveDateWindow(filtersRef.current)
-    if (upcomingOnly) {
+    // An "upcoming" date window (e.g. the Goat Search "auctions in Kansas
+    // today") is an AUCTION-date concept. On the explore map it correctly
+    // means "no recorded past sale can qualify", so the block below wipes
+    // the dots. In COMP mode those past sales are the entire point — they
+    // are the comparables being added to the report — so an upcoming window
+    // must not apply to them at all.
+    //
+    // This is why searching and then clicking Find Comps left no "+" dots:
+    // the accumulator was cleared and the fetch skipped outright. Clearing
+    // the search fixed it only because that reset dateRange back to 'all'.
+    const inCompDots = !!subjectTractIdRef.current
+    if (upcomingOnly && !inCompDots) {
       // Same rule as buildRegridSaleDotFilter: "upcoming" can't match
       // recorded past sales — nothing can qualify, so clear BOTH the
       // layer and the accumulator (unlike a plain zoom-out/pan, this is
@@ -5367,6 +5378,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // has_polygon is a tract-only concept (dots have no polygon) —
       // strip it so it doesn't silently no-op server-side.
       qs.delete('has_polygon')
+      // Strip the SERVER-side date window too when it's an upcoming-auction
+      // one and we're in comp mode. buildFilterParams turns "upcoming" into
+      // date_from = today, which would make the endpoint return only sales
+      // dated today or later — i.e. nothing. Same rule as the client-side
+      // filter below; both halves have to agree or the fetch comes back
+      // empty and the layer has nothing to draw.
+      if (upcomingOnly && inCompDots) { qs.delete('date_from'); qs.delete('date_to') }
       // Only the actual network fetch drives the loading indicator — every
       // early return above (no map, zoom gate, no source, upcomingOnly) is
       // BEFORE this point and never sets it, so a superseded/gated call can
@@ -5384,8 +5402,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       const filtered = dots.filter(d => {
         if (d.lat == null || d.lng == null) return false
         if (d.acres == null || d.acres < DURABLE_DOT_MIN_ACRES) return false
-        if (from && (!d.saledate || d.saledate < from)) return false
-        if (to && (!d.saledate || d.saledate > to)) return false
+        // Same reasoning as the upcomingOnly guard above: an upcoming
+        // auction window would exclude every historical sale, so it is not
+        // applied to comp dots. A real user-chosen comp date range (a past
+        // window) still filters normally, which is what the owner wants
+        // filters for.
+        const applyDates = !(upcomingOnly && inCompDots)
+        if (applyDates && from && (!d.saledate || d.saledate < from)) return false
+        if (applyDates && to && (!d.saledate || d.saledate > to)) return false
         return true
       })
       // Accumulate across pans; reset on filter change (owner: dots must
