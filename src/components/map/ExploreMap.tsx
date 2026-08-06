@@ -4847,7 +4847,23 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded) return
-    const ids = Array.from(selectedIds)
+    // Colour off the REAL report, not just this component's local set.
+    //
+    // OWNER BUG 2026-08-06 ("the plus icon doesn't turn green when I add a
+    // parcel or tract to the comp report"): this read only `selectedIds`,
+    // which is ExploreMap's own legacy selection state, updated by
+    // toggleSelection in its internal comp panel. The actual Add-to-Report
+    // flow (the comp popup's onAddToReport) calls onToggleReport, which
+    // lives on the /access page and updates `reportIds` — it never touches
+    // selectedIds. So the set driving the colour was never the set the user
+    // was adding to, and the dot stayed pink no matter what. Union of both,
+    // so either path recolours. reportIds carries the parcel's ll_uuid for a
+    // dot and the tract id for a tract, which is exactly what these features
+    // are keyed by.
+    const ids = Array.from(new Set([
+      ...Array.from(selectedIds),
+      ...(reportIds ? Array.from(reportIds) : []),
+    ]))
     const colorExpr: any = ids.length
       ? ['case', ['in', ['get', 'id'], ['literal', ids]],
          DURABLE_DOT_SELECTED_COLOR, DURABLE_DOT_COLOR]
@@ -4859,7 +4875,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     try { map.setPaintProperty(DURABLE_DOT_LAYER, 'circle-color', colorExpr) }
     catch {/* layer torn down mid-update */}
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedIds, mapLoaded, subjectTractId])
+  }, [selectedIds, reportIds, mapLoaded, subjectTractId])
 
   useEffect(() => {
     const map = mapRef.current
