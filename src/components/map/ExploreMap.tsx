@@ -206,6 +206,31 @@ const DEFAULT_PIN_COLOR = '#eab308' // Yellow for NULL/unknown status (= listed)
 // ComparablesMapView.js selected colour.
 const COMP_SELECTED_COLOR = '#16A34A'
 
+// Tract pins in the comp report render green, driven by a DATA EXPRESSION
+// on the feature's own tractId — not by feature-state.
+//
+// OWNER BUG 2026-08-06 ("when I add a tract to the comp report the plus icon
+// doesn't turn green"): the report highlight was applied with
+// setFeatureState({source:'tract-pins', id}), but these features carry UUID
+// ids, and feature-state on a plain GeoJSON source only takes effect for ids
+// that are integers (or strings castable to one). Every one of those calls
+// was silently a no-op — which is also why the pink "in report" ring it was
+// supposed to draw never appeared either.
+//
+// The parcel dots already colour correctly because they use an expression,
+// so this brings tracts onto the same mechanism instead of adding a
+// promoteId and depending on feature-state semantics.
+function buildTractPinColorExpr(reportIds?: Set<string> | null): any {
+  const ids = reportIds ? Array.from(reportIds) : []
+  if (ids.length === 0) return buildPinColorMatchExpression()
+  return [
+    'case',
+    ['in', ['get', 'tractId'], ['literal', ids]],
+    COMP_SELECTED_COLOR,
+    buildPinColorMatchExpression(),
+  ]
+}
+
 // Data-driven `circle-color` for the native tract-pin-circles layer.
 // A MapLibre `match` over the `status` property using the EXACT same
 // PIN_COLORS the old DOM pins used. Built once from PIN_COLORS so the
@@ -3285,11 +3310,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           // dot. `highlighted` is the same feature-state the report-
           // highlight effect already drives off reportIds, so nothing new
           // has to be tracked. Otherwise fall back to the status colour.
-          'circle-color': [
-            'case',
-            ['boolean', ['feature-state', 'highlighted'], false], COMP_SELECTED_COLOR,
-            buildPinColorMatchExpression(),
-          ],
+          'circle-color': buildTractPinColorExpr(reportIds),
           // White ring in both states now that the FILL carries "in report".
           // A pink ring around a green pin read as two conflicting signals.
           'circle-stroke-color': '#ffffff',
@@ -4798,6 +4819,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // Compose the state-plan gate so sale dots also respect the
     // subscriber's allowed state(s).
     const expr: any = regridStateFilter ? ['all', saleExpr, regridStateFilter] : saleExpr
+    if (map.getLayer('tract-pin-circles')) {
+      try {
+        map.setPaintProperty('tract-pin-circles', 'circle-color', buildTractPinColorExpr(reportIds))
+      } catch {/* layer torn down mid-update */}
+    }
     if (map.getLayer(PARCEL_SALE_PLUS_LAYER)) {
       try { map.setFilter(PARCEL_SALE_PLUS_LAYER, expr) } catch {/* layer torn down */}
     }
