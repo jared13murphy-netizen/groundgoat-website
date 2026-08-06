@@ -4819,11 +4819,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // Compose the state-plan gate so sale dots also respect the
     // subscriber's allowed state(s).
     const expr: any = regridStateFilter ? ['all', saleExpr, regridStateFilter] : saleExpr
-    if (map.getLayer('tract-pin-circles')) {
-      try {
-        map.setPaintProperty('tract-pin-circles', 'circle-color', buildTractPinColorExpr(reportIds))
-      } catch {/* layer torn down mid-update */}
-    }
     if (map.getLayer(PARCEL_SALE_PLUS_LAYER)) {
       try { map.setFilter(PARCEL_SALE_PLUS_LAYER, expr) } catch {/* layer torn down */}
     }
@@ -4975,6 +4970,16 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         map.setLayoutProperty(
           PARCEL_SALE_PLUS_LAYER, 'icon-image', buildParcelSaleDotIconExpr(reportIds),
         )
+      } catch {/* layer torn down mid-update */}
+    }
+    // Tract pins, same trigger. This MUST live in this effect: its deps
+    // include reportIds. The first attempt put it in the filter-sync effect
+    // (deps: mapLoaded / regridStateFilter / appliedFilters.*), which never
+    // re-runs when a tract is added to the report — so the colour was
+    // computed once at mount, with an empty report, and never updated.
+    if (map.getLayer('tract-pin-circles')) {
+      try {
+        map.setPaintProperty('tract-pin-circles', 'circle-color', buildTractPinColorExpr(reportIds))
       } catch {/* layer torn down mid-update */}
     }
     if (!map.getLayer(DURABLE_DOT_LAYER)) return
