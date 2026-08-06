@@ -579,7 +579,11 @@ export default function MapChatPanel({ onApplyFilters, onChatReportResult, curre
             style={{ maxWidth: 'min(520px, calc(100vw - 96px))', filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.5))' }}
           >
             <span className="truncate">{activeSearchQuery}</span>
-            <button onClick={clearActiveSearch} aria-label="Clear search"
+            {/* Wrapped, not passed bare: clearActiveSearch now takes an
+                optional preserveCamera flag, and onClick would hand it the
+                MouseEvent (truthy) — silently changing this button's
+                behaviour. The X keeps the default. */}
+            <button onClick={() => clearActiveSearch?.()} aria-label="Clear search"
               className="flex-shrink-0 w-6 h-6 rounded-full bg-white/12 hover:bg-white/20 flex items-center justify-center transition-colors">
               <X size={12} />
             </button>

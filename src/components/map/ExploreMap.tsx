@@ -840,7 +840,13 @@ interface ExploreMapProps {
   /** AI chat hook: when this object changes, merge its keys into the
       current FilterState. Pass a fresh object each call (not just a
       changed property of the same object). */
-  applyExternalFilters?: { filters: Partial<FilterState>; clearUnspecified?: boolean; nonce: number } | null
+  // preserveCamera: clear/apply the filters WITHOUT moving the camera.
+  // Find Comps uses it — it clears the Goat Search (so the "+" dots aren't
+  // suppressed) but must keep the user on the tract they were looking at.
+  // Without it, the clear runs the continental-US query below and then
+  // fits to every accepted result, which zooms the user out to the whole
+  // country (owner bug 2026-08-06).
+  applyExternalFilters?: { filters: Partial<FilterState>; clearUnspecified?: boolean; preserveCamera?: boolean; nonce: number } | null
   /** Bumped externally when the user submits a chat query. Triggers
       the map's search animation immediately, BEFORE the
       applyExternalFilters payload arrives (which can take 1-2s for the
@@ -1954,7 +1960,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // mid-search.
   useEffect(() => {
     if (!applyExternalFilters) return
-    const { filters: incoming, clearUnspecified } = applyExternalFilters
+    const { filters: incoming, clearUnspecified, preserveCamera } = applyExternalFilters
 
     // A regular filter search superseded any owner-parcels dots from a
     // prior "show me X's parcels" query — clear them so stale blue dots
@@ -2002,7 +2008,20 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // EVERY match, then we'll fit-to-results.
     const stateFit = (incoming as any).stateFilter as string | undefined
     let qbbox: [[number, number], [number, number]]
-    if (stateFit && STATE_BOUNDS[stateFit]) {
+    if (preserveCamera) {
+      // Find Comps: the user is already looking at the subject tract. Query
+      // only what's on screen (padded a little so pins just outside the edge
+      // still load) instead of the whole country — a continental query here
+      // is both pointless and the thing that used to trigger the fit-to-all
+      // zoom-out below.
+      const b = map.getBounds()
+      const padLat = (b.getNorth() - b.getSouth()) * 0.25 || 0.1
+      const padLng = (b.getEast() - b.getWest()) * 0.25 || 0.1
+      qbbox = [
+        [b.getWest() - padLng, b.getSouth() - padLat],
+        [b.getEast() + padLng, b.getNorth() + padLat],
+      ]
+    } else if (stateFit && STATE_BOUNDS[stateFit]) {
       qbbox = STATE_BOUNDS[stateFit]
     } else {
       qbbox = [[-125, 24], [-66, 50]]
@@ -2163,9 +2182,15 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             let minLng = Math.min(...lngs), maxLng = Math.max(...lngs)
             if (minLat === maxLat) { minLat -= 0.05; maxLat += 0.05 }
             if (minLng === maxLng) { minLng -= 0.05; maxLng += 0.05 }
-            map.fitBounds([[minLng, minLat], [maxLng, maxLat]], {
-              padding: 100, duration: 900, maxZoom: 12,
-            })
+            // preserveCamera (Find Comps): never move the camera. The user
+            // is on their subject tract and handleFindComparables is about
+            // to zoom to it — fitting to results here fought that and won,
+            // dumping the user at national zoom.
+            if (!preserveCamera) {
+              map.fitBounds([[minLng, minLat], [maxLng, maxLat]], {
+                padding: 100, duration: 900, maxZoom: 12,
+              })
+            }
 
             // County-scoped dots (see the hasCountyFilter branch above):
             // fire it now that we have a tight bbox, padded 20% per side
