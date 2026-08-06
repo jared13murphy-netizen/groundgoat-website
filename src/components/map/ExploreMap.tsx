@@ -4972,7 +4972,25 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // reads appliedFilters, NOT the draft `filters` the panel edits — the
   // pink dots must not vanish/reappear while the user is mid-edit; they
   // only change on Apply, same as every other layer.
-  const hideParcelDotsForFilters = shouldHideParcelDotsForFilters(appliedFilters) || ownerSearchActive
+  // COMP MODE OVERRIDES THE HIDE GATE (owner, 2026-08-05).
+  //
+  // On the explore map this gate is right: parcel dots carry no soil rating
+  // or % tillable, so showing them under those filters would imply they'd
+  // been evaluated when they never were, and an owner search hides them so
+  // the searched parcels stand alone.
+  //
+  // In comp mode it is backwards. The owner ran a Goat Search to FIND his
+  // subject tract, started a comp report, and had no "+" dots to add —
+  // ownerSearchActive was still true, so the dot and glyph layers were told
+  // not to draw. The data was there: 105 qualifying sales sat in that exact
+  // viewport. Comp mode's entire job is "show every comparable sale near
+  // this subject", so nothing about how the user got here may suppress them.
+  //
+  // Note this only ungates VISIBILITY. The fetch still honours the filter
+  // panel, so a deliberate comp date range keeps working — the owner's
+  // reason for having filters at all.
+  const hideParcelDotsForFilters =
+    !subjectTractId && (shouldHideParcelDotsForFilters(appliedFilters) || ownerSearchActive)
 
   useEffect(() => {
     const map = mapRef.current
