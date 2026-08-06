@@ -178,6 +178,13 @@ const PIN_COLORS: Record<string, string> = {
 }
 const DEFAULT_PIN_COLOR = '#eab308' // Yellow for NULL/unknown status (= listed)
 
+// Anything currently IN the comparables report renders green (owner,
+// 2026-08-06: "I need the + icon to be green if the parcel or tract is
+// added to the comp report"). One constant so a parcel dot and a tract
+// pin can never show two different greens; matches mobile's
+// ComparablesMapView.js selected colour.
+const COMP_SELECTED_COLOR = '#16A34A'
+
 // Data-driven `circle-color` for the native tract-pin-circles layer.
 // A MapLibre `match` over the `status` property using the EXACT same
 // PIN_COLORS the old DOM pins used. Built once from PIN_COLORS so the
@@ -3133,12 +3140,18 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         minzoom: TRACT_TIER_MIN,
         paint: {
           'circle-radius': ['interpolate', ['linear'], ['zoom'], 9, 4, 14, 7],
-          'circle-color': buildPinColorMatchExpression(),
-          'circle-stroke-color': [
+          // In the comp report -> green, exactly like a selected parcel
+          // dot. `highlighted` is the same feature-state the report-
+          // highlight effect already drives off reportIds, so nothing new
+          // has to be tracked. Otherwise fall back to the status colour.
+          'circle-color': [
             'case',
-            ['boolean', ['feature-state', 'highlighted'], false], '#E91E8C',
-            '#ffffff',
+            ['boolean', ['feature-state', 'highlighted'], false], COMP_SELECTED_COLOR,
+            buildPinColorMatchExpression(),
           ],
+          // White ring in both states now that the FILL carries "in report".
+          // A pink ring around a green pin read as two conflicting signals.
+          'circle-stroke-color': '#ffffff',
           'circle-stroke-width': [
             'case',
             ['boolean', ['feature-state', 'highlighted'], false], 3,
@@ -4770,7 +4783,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // Colour matches mobile (#16A34A) so the two platforms agree; the owner
   // remembered it as blue, so this is the one thing to confirm.
   const DURABLE_DOT_COLOR = '#f58cde'
-  const DURABLE_DOT_SELECTED_COLOR = '#16A34A'
+  const DURABLE_DOT_SELECTED_COLOR = COMP_SELECTED_COLOR
 
   useEffect(() => {
     const map = mapRef.current
