@@ -135,14 +135,34 @@ function syncDurableDotLayers(
   minZoom: number,
   opts: { inComp: boolean; hide: boolean },
 ): void {
+  // IDEMPOTENT ON PURPOSE (owner incident 2026-08-06: "Loading Ground"
+  // stuck for minutes). This runs on EVERY dots fetch, i.e. every pan and
+  // every moveend. setLayerZoomRange and setLayoutProperty are not free on
+  // a symbol layer - each one invalidates the layer and forces MapLibre to
+  // re-run label placement across every tile of the source. With ~140k dots
+  // loaded, doing that on each pan grinds the map to a halt. Read first,
+  // write only on an actual change, so the steady-state call costs nothing.
+  const setZoomRangeIfChanged = (id: string) => {
+    const layer: any = map.getLayer(id)
+    if (!layer) return
+    if (layer.minzoom !== minZoom || layer.maxzoom !== 24) {
+      map.setLayerZoomRange(id, minZoom, 24)
+    }
+  }
+  const setVisibilityIfChanged = (id: string, want: 'visible' | 'none') => {
+    const current = map.getLayoutProperty(id, 'visibility') ?? 'visible'
+    if (current !== want) map.setLayoutProperty(id, 'visibility', want)
+  }
   try {
     if (!map.getLayer(circleId)) return
-    map.setLayerZoomRange(circleId, minZoom, 24)
-    map.setLayoutProperty(circleId, 'visibility', opts.hide ? 'none' : 'visible')
+    setZoomRangeIfChanged(circleId)
+    const circleVis: 'visible' | 'none' = opts.hide ? 'none' : 'visible'
+    setVisibilityIfChanged(circleId, circleVis)
     if (!map.getLayer(plusId)) return
-    map.setLayerZoomRange(plusId, minZoom, 24)
-    const dotVisible = (map.getLayoutProperty(circleId, 'visibility') ?? 'visible') === 'visible'
-    map.setLayoutProperty(plusId, 'visibility', opts.inComp && dotVisible ? 'visible' : 'none')
+    setZoomRangeIfChanged(plusId)
+    // Derived from the value just applied to the circle, so the "+" still
+    // cannot diverge from the dot it sits on.
+    setVisibilityIfChanged(plusId, opts.inComp && circleVis === 'visible' ? 'visible' : 'none')
   } catch {/* layer torn down mid-update */}
 }
 
@@ -2132,8 +2152,33 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // dots land.
     clearAllDeedSuppression()
     if (!hasCountyFilter) {
+      // DOTS ARE VIEWPORT-SCOPED, ALWAYS (owner incident 2026-08-06:
+      // "Loading Ground" stuck for 4+ minutes).
+      //
+      // This used to reuse qbbox, the TRACT query's bbox — which for a
+      // "clear search" (the bubble's X, and Find Comps, which clears the
+      // same way) is the whole continental US. Tracts are few, so a wide
+      // tract query is cheap. Dots are not: parcel_sale_dots holds 2.46M
+      // rows, and a 3x4-degree viewport alone measures 140,297 dots / 21MB
+      // of JSON. A continental bbox is effectively the entire table —
+      // hundreds of MB to transfer, parse, and turn into GeoJSON features
+      // on the main thread. That is the stall, and no zoom gate caught it
+      // because this call passes bypassZoomGate.
+      //
+      // The map can only ever DRAW the dots inside the viewport, so fetch
+      // exactly that (padded, so a small pan doesn't refetch). Nothing is
+      // capped or paginated — panning still loads every dot it reaches,
+      // via the normal moveend fetch.
+      const vb = map.getBounds()
+      const padLat = (vb.getNorth() - vb.getSouth()) * 0.25 || 0.1
+      const padLng = (vb.getEast() - vb.getWest()) * 0.25 || 0.1
       fetchDurableDotsForBounds(
-        { south: qSouth, north: qNorth, west: qWest, east: qEast },
+        {
+          south: Math.max(vb.getSouth() - padLat, qSouth),
+          north: Math.min(vb.getNorth() + padLat, qNorth),
+          west: Math.max(vb.getWest() - padLng, qWest),
+          east: Math.min(vb.getEast() + padLng, qEast),
+        },
         { bypassZoomGate: true },
       )
     }
