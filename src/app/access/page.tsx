@@ -1035,7 +1035,20 @@ function AccessPortalPageInner() {
           admins never lose access if the backend flag isn't present yet
           (deploy-order safety: this frontend change can ship before the
           backend starts sending the field). */}
-      {(user?.can_use_goat_search || user?.account_type === 'groundgoat_admin') && (
+      {/* HIDDEN IN COMP MODE (owner ruling 2026-08-06). Goat Search fights
+          the comparables flow in two ways: a search refits the camera to
+          all of its results, throwing the user off the subject tract; and
+          most queries set filters a parcel tile cannot answer (soil rating,
+          land type, keyword), which hides the comp dots wholesale via
+          shouldHideParcelDotsForFilters — leaving a comp map with nothing
+          to click and no visible reason why.
+
+          Nothing is lost: the Filters panel stays available in comp mode and
+          narrows the dots correctly (county, acreage, price, date). Find
+          Comps already clears any active search on entry, so hiding the
+          panel here can't strand a search the user can no longer reach. */}
+      {!subjectTractId &&
+        (user?.can_use_goat_search || user?.account_type === 'groundgoat_admin') && (
         <MapChatPanel
           onApplyFilters={handleChatApplyFilters}
           onChatReportResult={handleChatReportResult}
