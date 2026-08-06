@@ -1183,6 +1183,26 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const src = map?.getSource('owner-parcels') as maplibregl.GeoJSONSource | undefined
     if (src) src.setData(EMPTY_FC)
   }
+  // Starting a comp report clears any active Goat Search — exactly what the
+  // chip's X button does (owner, 2026-08-06: "You just need to clear the
+  // Goat Search... When I click the 'x' icon on the search bubble, then all
+  // the plus icons show up").
+  //
+  // An owner search hides the parcel-sale dots and their "+" glyphs on
+  // purpose, so the searched parcels stand alone. That is right on the
+  // explore map and wrong the moment a comp report opens: the owner used
+  // Goat Search to FIND his subject tract, so the search that got him there
+  // was still suppressing every dot he needed to add.
+  //
+  // Clearing the search — rather than teaching the hide-gates to ignore it —
+  // is deliberate. There are two of those gates and they are re-asserted on
+  // every pan; special-casing both left the rule in two places. This leaves
+  // one rule, and it matches what the user would have done by hand.
+  useEffect(() => {
+    if (subjectTractId) clearOwnerParcels()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subjectTractId])
+
   // The setData/fitBounds effect for ownerParcelsResult lives further
   // down, right after `mapLoaded` is declared (it reads that state).
   // Owner-search-only display gate (owner bug report 2026-07-24): a
@@ -4972,25 +4992,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // reads appliedFilters, NOT the draft `filters` the panel edits — the
   // pink dots must not vanish/reappear while the user is mid-edit; they
   // only change on Apply, same as every other layer.
-  // COMP MODE OVERRIDES THE HIDE GATE (owner, 2026-08-05).
-  //
-  // On the explore map this gate is right: parcel dots carry no soil rating
-  // or % tillable, so showing them under those filters would imply they'd
-  // been evaluated when they never were, and an owner search hides them so
-  // the searched parcels stand alone.
-  //
-  // In comp mode it is backwards. The owner ran a Goat Search to FIND his
-  // subject tract, started a comp report, and had no "+" dots to add —
-  // ownerSearchActive was still true, so the dot and glyph layers were told
-  // not to draw. The data was there: 105 qualifying sales sat in that exact
-  // viewport. Comp mode's entire job is "show every comparable sale near
-  // this subject", so nothing about how the user got here may suppress them.
-  //
-  // Note this only ungates VISIBILITY. The fetch still honours the filter
-  // panel, so a deliberate comp date range keeps working — the owner's
-  // reason for having filters at all.
-  const hideParcelDotsForFilters =
-    !subjectTractId && (shouldHideParcelDotsForFilters(appliedFilters) || ownerSearchActive)
+  const hideParcelDotsForFilters = shouldHideParcelDotsForFilters(appliedFilters) || ownerSearchActive
 
   useEffect(() => {
     const map = mapRef.current
@@ -5339,16 +5341,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // useCallback([] deps) that can't close over state — see
       // ownerSearchActiveRef's declaration up near ownerParcelsChip.
       // Panning during an owner search must never resurrect these dots.
-      // COMP MODE ESCAPE — must match the filter-reactive effect above
-      // (hideParcelDotsForFilters). This block re-asserts visibility on
-      // EVERY moveend, so without the same escape it silently overwrote
-      // that effect's decision on the next pan: the owner's "+" dots came
-      // back for an instant and vanished again. Two gates, one rule — if
-      // you change one, change both.
+      const hideForFilters = shouldHideParcelDotsForFilters(filtersRef.current) || ownerSearchActiveRef.current
       const inComp = !!subjectTractIdRef.current
-      const hideForFilters = !inComp && (
-        shouldHideParcelDotsForFilters(filtersRef.current) || ownerSearchActiveRef.current
-      )
       if (map.getLayer(DURABLE_DOT_LAYER)) {
         map.setLayoutProperty(DURABLE_DOT_LAYER, 'visibility', hideForFilters ? 'none' : 'visible')
       }
