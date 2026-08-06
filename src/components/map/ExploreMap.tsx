@@ -1183,26 +1183,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const src = map?.getSource('owner-parcels') as maplibregl.GeoJSONSource | undefined
     if (src) src.setData(EMPTY_FC)
   }
-  // Starting a comp report clears any active Goat Search — exactly what the
-  // chip's X button does (owner, 2026-08-06: "You just need to clear the
-  // Goat Search... When I click the 'x' icon on the search bubble, then all
-  // the plus icons show up").
-  //
-  // An owner search hides the parcel-sale dots and their "+" glyphs on
-  // purpose, so the searched parcels stand alone. That is right on the
-  // explore map and wrong the moment a comp report opens: the owner used
-  // Goat Search to FIND his subject tract, so the search that got him there
-  // was still suppressing every dot he needed to add.
-  //
-  // Clearing the search — rather than teaching the hide-gates to ignore it —
-  // is deliberate. There are two of those gates and they are re-asserted on
-  // every pan; special-casing both left the rule in two places. This leaves
-  // one rule, and it matches what the user would have done by hand.
-  useEffect(() => {
-    if (subjectTractId) clearOwnerParcels()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [subjectTractId])
-
   // The setData/fitBounds effect for ownerParcelsResult lives further
   // down, right after `mapLoaded` is declared (it reads that state).
   // Owner-search-only display gate (owner bug report 2026-07-24): a
@@ -5479,48 +5459,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-
-  // FIND COMPS STARTS FROM A CLEAN SLATE (owner, 2026-08-06):
-  //   "I want the Find Comps button to clear all searches and filters to
-  //    show the plus dots properly. Then if the user searches or filters
-  //    after being on the comp report map mode, then the plus buttons
-  //    should hide and show based on the filter or search."
-  //
-  // Both halves matter. A search like "auctions in Kansas today" sets
-  // statuses=[auction], which excludes sold — and shouldHideParcelDotsForFilters
-  // hides every parcel-sale dot and its "+" glyph on exactly that. So entering
-  // comp mode from a search left the user with nothing to add.
-  //
-  // The page already fires resetFiltersSignal here, but that races the mode
-  // switch and clearly wasn't landing. This does it unconditionally, in one
-  // place, keyed on comp mode turning on — and then gets out of the way: the
-  // hide gates are left completely untouched, so a filter applied AFTER
-  // entering comp mode hides and shows the dots exactly as it always has.
-  // (An earlier attempt made comp mode ignore the gates entirely; that broke
-  // the owner's second requirement and is reverted.)
-  //
-  // No camera move — clearing via handleChatApplyFilters is what zooms the
-  // map out, which the owner has flagged repeatedly.
-  useEffect(() => {
-    if (!subjectTractId) return
-    clearOwnerParcels()
-    setFilters(INITIAL_FILTERS)
-    filtersRef.current = INITIAL_FILTERS
-    setAppliedFilters(INITIAL_FILTERS)
-    // The accumulator holds whatever the pre-comp filter allowed through, and
-    // dots never reload once loaded (owner rule) — so it has to be dropped
-    // and the gen bumped, or the cleared filter would never be reflected.
-    durableDotsByIdRef.current = new Map()
-    durableDotsGenRef.current++
-    const map = mapRef.current
-    if (map) {
-      const b = map.getBounds()
-      fetchDurableDotsForBounds({
-        south: b.getSouth(), north: b.getNorth(), west: b.getWest(), east: b.getEast(),
-      })
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [subjectTractId])
 
   // Fetch durable dots on moveend at every zoom >= DURABLE_DOT_MIN_ZOOM, no
   // upper bound, in BOTH explore and comp mode (AUDIT FIX 2026-07-04 round

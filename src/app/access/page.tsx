@@ -581,21 +581,6 @@ function AccessPortalPageInner() {
     // Same signal handleCloseComparables already uses to reset the map
     // cache when LEAVING comp mode.
     setResetFiltersSignal(prev => prev + 1)
-    // Drop the Goat Search too (owner, 2026-08-06). A search like "auctions
-    // in Kansas today" sets statuses=[auction], which excludes sold — and
-    // shouldHideParcelDotsForFilters hides every parcel-sale dot and its "+"
-    // glyph on a status filter that excludes sold. So the search used to FIND
-    // the subject tract was suppressing the very dots needed to build the
-    // report, with the chip still visible at the bottom of the map.
-    //
-    // Cleared here rather than by calling clearActiveSearch(): that routes
-    // through handleChatApplyFilters({}, true), which re-applies filters and
-    // moves the camera — the "zooms way out" the owner has flagged twice.
-    // setResetFiltersSignal above already clears the map's filters WITHOUT
-    // any camera move, so this only needs to retire the chip and the page's
-    // own copy of the filters.
-    setActiveSearchQuery(null)
-    setActiveFilters({ stateFilter: '', countyFilters: [] })
 
     // Fetch subject tract info for the panel header
     try {
