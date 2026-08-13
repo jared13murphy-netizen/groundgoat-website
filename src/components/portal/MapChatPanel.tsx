@@ -147,6 +147,53 @@ function buildAnalyticsAnswer(a: AnalyticsResponse | null): string {
   return lines.join('\n')
 }
 
+/* ── Goat Search loading ring ────────────────────────────────────────────────
+ *
+ * Owner 2026-08-13: "whenever I do a goat search, I need some sort of loading
+ * icon... like having dots spin around it while the search is filtering", on
+ * the website AND the phone/iPad apps. This is the web half; the RN half lives
+ * in ground-goat-mobile/src/components/MapChatPanel.js and is deliberately the
+ * same 8 dots / same radius / same fade so the two surfaces match.
+ *
+ * Dots are WHITE here because this ring sits on the pink send button. The
+ * owner's rule is dark gray on light, white on dark — gray on the pink read as
+ * muddy in a side-by-side render. The mobile button is white, so that one uses
+ * dark gray. Same rule, opposite answer.
+ *
+ * Rendered inside the button, absolutely positioned, pointer-events-none — the
+ * button stays fully clickable to CANCEL while the ring spins over it.
+ */
+const SPINNER_DOTS = 8
+const SPINNER_RADIUS = 12   // px — sits just inside the 36px (w-9) button
+const SPINNER_DOT_SIZE = 3
+
+function SearchSpinner() {
+  return (
+    <span
+      aria-hidden="true"
+      className="pointer-events-none absolute inset-0 flex items-center justify-center animate-spin"
+      style={{ animationDuration: '900ms' }}
+    >
+      {Array.from({ length: SPINNER_DOTS }).map((_, i) => {
+        const angle = (i / SPINNER_DOTS) * 2 * Math.PI
+        return (
+          <span
+            key={i}
+            className="absolute rounded-full bg-white"
+            style={{
+              width: SPINNER_DOT_SIZE,
+              height: SPINNER_DOT_SIZE,
+              // Trailing fade so the ring reads as rotating, not blinking.
+              opacity: 0.18 + (i / (SPINNER_DOTS - 1)) * 0.82,
+              transform: `translate(${SPINNER_RADIUS * Math.cos(angle)}px, ${SPINNER_RADIUS * Math.sin(angle)}px)`,
+            }}
+          />
+        )
+      })}
+    </span>
+  )
+}
+
 export default function MapChatPanel({ onApplyFilters, onChatReportResult, currentFilters, hasActiveFilters, onSearchStart, onSearchEnd, mapSearchError, onOwnerParcels, onSearchQueryStart, activeSearchQuery, clearActiveSearch }: MapChatPanelProps) {
   const [open, setOpen] = useState(false)
   const [input, setInput] = useState('')
@@ -675,11 +722,14 @@ export default function MapChatPanel({ onApplyFilters, onChatReportResult, curre
           disabled={loading ? false : !input.trim()}
           aria-label={loading ? 'Stop search' : 'Submit'}
           title={loading ? 'Stop search' : undefined}
-          className="bg-gg-pink hover:bg-gg-pink-light disabled:opacity-40 disabled:hover:bg-gg-pink text-white rounded-full w-9 h-9 flex items-center justify-center transition-colors flex-shrink-0"
+          className="relative bg-gg-pink hover:bg-gg-pink-light disabled:opacity-40 disabled:hover:bg-gg-pink text-white rounded-full w-9 h-9 flex items-center justify-center transition-colors flex-shrink-0"
         >
           {/* While a search is in flight this becomes a STOP button (owner
               2026-07-28: a slow query had no way out and looked hung). Same
-              affordance as the send button so the control never moves. */}
+              affordance as the send button so the control never moves.
+              The orbiting ring around it is the loading indicator (owner
+              2026-08-13) — matches the phone/iPad apps. */}
+          {loading && <SearchSpinner />}
           {loading ? <Square size={12} fill="currentColor" /> : <Send size={15} />}
         </motion.button>
       </motion.form>

@@ -565,6 +565,21 @@ export default function LandDetailPanel({ clickData, onClose }: LandDetailPanelP
   const hasAssessed = !!(fmtMoney(parval) || fmtMoney(landval) || fmtMoney(improvval))
   const hasBuildings = !!(buildings || bldgSqft || yearbuilt)
 
+  // Mailing address — owner 2026-08-13: clicking a parcel on the website
+  // explore map showed no address at all. `street` above is the SITUS address
+  // and is routinely blank on farmland (a bare field has no street number);
+  // the mailing address is where the owner actually gets post, which is what
+  // he's after. Regrid field names verified against a live Records API
+  // response: mailadd / mail_city / mail_state2 / mail_zip. Same fields, same
+  // two-line shape as the phone/iPad parcel sheet.
+  const mailStreet = (record?.mailadd ?? '').toString().trim()
+  const mailCityLine = [
+    (record?.mail_city ?? '').toString().trim(),
+    [(record?.mail_state2 ?? record?.mail_state ?? '').toString().trim(),
+     (record?.mail_zip ?? '').toString().trim()].filter(Boolean).join(' '),
+  ].filter(Boolean).join(', ')
+  const hasMailing = !!(mailStreet || mailCityLine)
+
   const activeOverlay = clickData?.activeOverlay ?? null
 
   // Whether a section should auto-expand (the active overlay's section leads)
@@ -590,7 +605,7 @@ export default function LandDetailPanel({ clickData, onClose }: LandDetailPanelP
     validSalePrice
   )
   const hasAnyDataSection =
-    visibleHasSoilData || hasCropData || hasTillable || hasLastSale || hasProperty || hasAssessed || hasBuildings
+    visibleHasSoilData || hasCropData || hasTillable || hasLastSale || hasProperty || hasAssessed || hasBuildings || hasMailing
   const isEmptyResult = !hasMeaningfulRecord && !hasAnyDataSection
   // ROUND-2 AUDITOR BLOCKER FIX: gating on `!loading` alone raced the fetch.
   // On the render right after a NEW click, `loading` can still hold its
@@ -902,6 +917,14 @@ export default function LandDetailPanel({ clickData, onClose }: LandDetailPanelP
               {buildings && <DetailRow label="Count" value={String(buildings)} />}
               {bldgSqft && <DetailRow label="Footprint" value={`${Math.round(bldgSqft).toLocaleString()} sq ft`} />}
               {yearbuilt && <DetailRow label="Year Built" value={String(yearbuilt)} />}
+            </Section>
+          )}
+
+          {/* ── H: Mailing Address ───────────────────────────────── */}
+          {hasMailing && (
+            <Section title="Mailing Address">
+              {mailStreet && <DetailRow label="Street" value={mailStreet} />}
+              {mailCityLine && <DetailRow label="City / State / Zip" value={mailCityLine} />}
             </Section>
           )}
 
