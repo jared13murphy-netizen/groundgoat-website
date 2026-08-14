@@ -45,6 +45,17 @@ function fmtDate(dateStr?: string | null): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
+// Regrid's ll_uuid is a standard-shaped UUID. A parcel row's `id` (see
+// ExploreMap.tsx buildParcelSale/buildDurableSale) is ll_uuid when the
+// tile carried one, but falls back to a Regrid tile `path` string or the
+// synthetic "parcel:lng,lat" click-point id when it didn't — neither of
+// those is a real parcel identity the backend can look up by ll_uuid, so
+// only forward values that actually look like one.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+function asRealUuid(id: string | null | undefined): string | null {
+  return id && UUID_RE.test(id) ? id : null
+}
+
 interface SubjectInfo {
   county?: string
   state?: string
@@ -139,6 +150,14 @@ export default function PortalComparablesReportPanel({ subjectInfo, reportTracts
       sale_price: t.salePrice,
       auction_date: t.auctionDate,
       company_name: t.companyName,
+      // A comparable is either one of our tracts (tractId set) or a raw
+      // Regrid parcel (tractId null) — see the "either OUR TRACTS or a
+      // raw Regrid PARCEL" comment on CompInlinePopup in ExploreMap.tsx.
+      source: t.tractId ? 'tract' : 'parcel',
+      ll_uuid: t.tractId ? null : asRealUuid(t.id),
+      owner: t.owner ?? null,
+      latitude: t.latitude ?? null,
+      longitude: t.longitude ?? null,
     })),
   })
 
@@ -306,7 +325,11 @@ export default function PortalComparablesReportPanel({ subjectInfo, reportTracts
                       <div className="text-sm font-semibold">{t.county}, {t.state}</div>
                       <div className="flex items-center gap-2 mt-0.5 text-[10px] text-gg-gray-400">
                         {t.auctionDate && <span className="text-gg-pink font-medium">{fmtDate(t.auctionDate)}</span>}
-                        {t.companyName && <span>{'\u00B7'} {t.companyName}</span>}
+                        {/* Tract rows show the listing company; parcel rows (no
+                            company, listingId null) show the Regrid owner instead --
+                            neither is labeled "Company" here, so this never mislabels
+                            a parcel owner. */}
+                        {(t.companyName || t.owner) && <span>{'\u00B7'} {t.companyName || t.owner}</span>}
                       </div>
                     </div>
                     <button

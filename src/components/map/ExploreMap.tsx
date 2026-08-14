@@ -503,6 +503,18 @@ export interface SaleDetail {
   totalAcres?: number | null
   tillableAcres?: number | null
   companyName?: string | null
+  // Parcel owner (Regrid). Distinct from companyName (a TRACT's listing
+  // company) — never conflate the two, or an emailed report renders a
+  // parcel's owner name under a "Company" label. See buildParcelSale /
+  // buildDurableSale below and CompInlinePopup's ownerLine.
+  owner?: string | null
+  // Click point coordinates, so the backend can resolve a durable
+  // parcel's polygon/owner/soil-rating by point-in-polygon when this
+  // comp has no real ll_uuid (a Regrid tile `path`-only id or the
+  // synthetic "parcel:lng,lat" click-point id). See buildParcelSale /
+  // buildDurableSale below.
+  latitude?: number | null
+  longitude?: number | null
   salePrice?: number | null
   pricePerAcre?: number | null
   county: string
@@ -4815,7 +4827,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             tillableAcres: tillable,
             soilRating: soil,
             pctTillable,
-            companyName: owner,
+            // Bug fix: this used to be stuffed into companyName, which
+            // renders under a "Company" label in emailed reports — a
+            // parcel has no listing company, only a Regrid owner.
+            companyName: null,
+            owner,
+            latitude: lat,
+            longitude: lng,
             salePrice,
             pricePerAcre: ppa,
             county: (rec ? rec.county : null) || props.county || props.county_name || '',
@@ -5208,7 +5226,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               tillableAcres: tillable,
               soilRating: soil,
               pctTillable,
-              companyName: owner,
+              // Same fix as buildParcelSale above — owner is not a company.
+              companyName: null,
+              owner,
+              latitude: lat,
+              longitude: lng,
               salePrice,
               pricePerAcre: ppa,
               county: (rec ? rec.county : null) || '',
@@ -10265,7 +10287,11 @@ function CompInlinePopup({
 
   // Headline = the property location/owner. Subhead = sale date.
   const locationLine = [sale.county, sale.state].filter(Boolean).join(', ') || 'Tract sale'
-  const ownerLine = sale.companyName || null
+  // Parcel popups carry a real `owner`; tract popups (this same component
+  // is shared, see setCompPopup at the tract-pin handler above) have no
+  // owner field, so this falls back to companyName for them — unchanged
+  // behavior there.
+  const ownerLine = sale.owner || sale.companyName || null
 
   // Hero stats — only include cells that have a real value. The hero
   // row collapses gracefully (1/2/3 columns) so a tract missing one

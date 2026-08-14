@@ -19,6 +19,14 @@ export interface TractSaleData {
   totalAcres?: number | null
   tillableAcres?: number | null
   companyName?: string | null
+  // Parcel owner (Regrid) — distinct from companyName (a tract's listing
+  // company). See ExploreMap.tsx's SaleDetail.owner / buildParcelSale.
+  owner?: string | null
+  // Click point coordinates — see ExploreMap.tsx's SaleDetail.latitude/
+  // longitude for why these are needed (durable-parcel point-in-polygon
+  // fallback when there's no real ll_uuid).
+  latitude?: number | null
+  longitude?: number | null
   salePrice?: number | null
   pricePerAcre?: number | null
   county: string
