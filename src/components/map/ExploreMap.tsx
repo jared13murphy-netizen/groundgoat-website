@@ -674,8 +674,36 @@ const INITIAL_FILTERS: FilterState = {
 // States and counties are now built dynamically from loaded tract data
 
 
+// Default sale-date window for PINK PARCEL DOTS when the user has not set a
+// date filter (owner 2026-08-13). Sold parcels older than this stop drawing —
+// measured at 1,715,489 of 2,458,824 dated dots nationwide, i.e. ~70% fewer.
+//
+// Deliberately NOT a change to `dateRange`'s default: 'all' still means all,
+// so picking "All time" in the panel really does show everything. This floor
+// only applies while the date filter is untouched.
+//
+// It rides on `parcel_sale_from`, a parcel-ONLY backend parameter, never on
+// `date_from`. The county-count endpoint applies date_from to the TRACT half
+// too, where the predicate is `Listing.auction_datetime >= cutoff` — and
+// NULL >= cutoff is false, so reusing date_from would silently erase every
+// listing with no auction date (314 sold / 258 listed / 118 pending as of
+// 2026-08-13). Because it lives in buildFilterParams, the dots and the county
+// bubbles read the same value by construction — owner: "the circles and dots
+// need to always agree with each other."
+const DEFAULT_PARCEL_SALE_WINDOW_YEARS = 6
+
+function defaultParcelSaleFrom(): string {
+  const d = new Date()
+  d.setFullYear(d.getFullYear() - DEFAULT_PARCEL_SALE_WINDOW_YEARS)
+  return d.toISOString().split('T')[0]
+}
+
 function buildFilterParams(filters: FilterState) {
   const params: Record<string, string> = {}
+  // Untouched date filter -> apply the default parcel window. Any explicit
+  // choice (a preset, a custom range, upcoming, or All time) means the user
+  // has spoken and this stays off entirely.
+  if (filters.dateRange === 'all') params.parcel_sale_from = defaultParcelSaleFrom()
   if (filters.dateRange === 'custom') {
     // Explicit user-entered window — only set the bounds we actually have
     // so a one-sided range (e.g. "since March 2024", no end date) works.
@@ -5668,6 +5696,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // filter below; both halves have to agree or the fetch comes back
       // empty and the layer has nothing to draw.
       if (upcomingOnly && inCompDots) { qs.delete('date_from'); qs.delete('date_to') }
+      // COMP MODE IS EXEMPT from the default 6-year parcel window. Owner
+      // 2026-08-13: "do not change the comp report map because we are going to
+      // leave it as-is." On this site the comp report map IS this component
+      // with a subject tract set (there is no separate ComparablesMap), and as
+      // the note above says, old recorded sales are the entire point of the
+      // comparables flow — capping them at 6 years would gut it.
+      if (inCompDots) qs.delete('parcel_sale_from')
       // Only the actual network fetch drives the loading indicator — every
       // early return above (no map, zoom gate, no source, upcomingOnly) is
       // BEFORE this point and never sets it, so a superseded/gated call can
