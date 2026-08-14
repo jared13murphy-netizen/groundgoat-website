@@ -113,6 +113,18 @@ function fmtAcres(n: any): string | null {
   return v.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 2 }) + ' ac'
 }
 
+// Land Composition acres + Soil Rating value round to the owner-specified
+// precision (tenths) locally — the shared `formatAcres` (@/lib/format) goes
+// to 3dp and other screens depend on that, so it isn't touched here.
+function fmtAcres1(n: number): string {
+  return n.toFixed(1)
+}
+
+function fmtRating1(v: any): string {
+  const n = typeof v === 'number' ? v : Number(v)
+  return isFinite(n) ? n.toFixed(1) : String(v)
+}
+
 function fmtDate(s: any): string | null {
   if (!s) return null
   const d = new Date(String(s))
@@ -516,12 +528,25 @@ export default function LandDetailPanel({ clickData, onClose }: LandDetailPanelP
 
   // ── Soil section ─────────────────────────────────────────────────────────
   const ratingLabel = deriveRatingLabel(enrichData?.soil_rating_type, state)
-  const soilRating = enrichData?.soil_rating ?? null
-  const tillableAcres = enrichData?.tillable_acres ?? null
-  const pctTillable = enrichData?.pct_tillable ?? null
+  const soilRating = enrichData?.soil_rating ?? regridData?.soil_rating ?? null
+  const soilRatingType = enrichData?.soil_rating_type ?? regridData?.soil_rating_type ?? null
+  const tillableAcres = enrichData?.tillable_acres ?? regridData?.tillable_acres ?? null
+  const pctTillable = enrichData?.pct_tillable ?? regridData?.pct_tillable ?? null
   const dominantLandcover = enrichData?.dominant_landcover ?? null
   const soilBreakdown: Array<{ mukey?: string; soil?: string; acres?: number; pi?: number }> =
     Array.isArray(enrichData?.soils) ? enrichData.soils : []
+
+  // ── Land composition (Illinois parcels only — every field below is
+  // hide-when-null: a missing key means don't render, never 0 or '-'.
+  // Merges enrichment first, falls back to the Regrid record, same pattern
+  // as the soil fields above.) ────────────────────────────────────────────
+  const landTypes: string[] | null = enrichData?.land_types ?? regridData?.land_types ?? null
+  const pastureAcres = enrichData?.pasture_acres ?? regridData?.pasture_acres ?? null
+  const timberAcres = enrichData?.timber_acres ?? regridData?.timber_acres ?? null
+  const pctTimber = enrichData?.pct_timber ?? regridData?.pct_timber ?? null
+  const pondAcres = enrichData?.pond_acres ?? regridData?.pond_acres ?? null
+  const pctWater = enrichData?.pct_water ?? regridData?.pct_water ?? null
+  const backfillStatus = enrichData?.backfill_status ?? regridData?.backfill_status ?? null
 
   // Soil at clicked point (from the tile feature)
   const clickedMuname = soilProps?.muname || soilProps?.mukey || null
@@ -559,7 +584,19 @@ export default function LandDetailPanel({ clickData, onClose }: LandDetailPanelP
   const yearbuilt = record?.yearbuilt ?? null
 
   const hasSoilData = clickedMuname || soilRating != null || tillableAcres != null || soilBreakdown.length > 0
-  const hasTillable = tillableAcres != null || dominantLandcover
+  // LAND COMPOSITION section (renamed from "Tillable"): backfill_status
+  // 'partial_pending' or no land-composition fields at all means the
+  // section simply doesn't render — no caveat text, it just isn't there.
+  const hasLandCompositionData =
+    tillableAcres != null || pastureAcres != null || timberAcres != null ||
+    pondAcres != null || pctWater != null || !!dominantLandcover ||
+    pctTillable != null || pctTimber != null
+  const hasLandComposition = hasLandCompositionData && backfillStatus !== 'partial_pending'
+  // Soil Rating row is intentionally NOT gated by SOIL_FILTER_ENABLED (that
+  // flag only hides the old SSURGO section below) and not gated by the
+  // LAND COMPOSITION backfill check above — it renders on its own whenever
+  // both halves of the combined "PI 128"-style value are present.
+  const hasSoilRatingRow = soilRating != null && soilRatingType != null
   const hasLastSale = !!(fmtDate(saledate) || saleType || lastTransferDate || previousOwner)
   const hasProperty = !!(deeded || usedesc || zoning)
   const hasAssessed = !!(fmtMoney(parval) || fmtMoney(landval) || fmtMoney(improvval))
@@ -605,7 +642,7 @@ export default function LandDetailPanel({ clickData, onClose }: LandDetailPanelP
     validSalePrice
   )
   const hasAnyDataSection =
-    visibleHasSoilData || hasCropData || hasTillable || hasLastSale || hasProperty || hasAssessed || hasBuildings || hasMailing
+    visibleHasSoilData || hasCropData || hasLandComposition || hasSoilRatingRow || hasLastSale || hasProperty || hasAssessed || hasBuildings || hasMailing
   const isEmptyResult = !hasMeaningfulRecord && !hasAnyDataSection
   // ROUND-2 AUDITOR BLOCKER FIX: gating on `!loading` alone raced the fetch.
   // On the render right after a NEW click, `loading` can still hold its
@@ -693,6 +730,29 @@ export default function LandDetailPanel({ clickData, onClose }: LandDetailPanelP
           )}
           {township && (
             <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 1, lineHeight: 1.3 }}>{township} Township</div>
+          )}
+
+          {/* Land-type badges (Illinois parcels) — one pink pill per type,
+              mirrors PortalTractDetail.tsx's badge row styling. flexWrap so
+              3+ types (e.g. a farm-and-recreational-and-pasture parcel)
+              don't overflow the 380px panel. */}
+          {landTypes && landTypes.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+              {landTypes.map(lt => (
+                <span key={lt} style={{
+                  display: 'inline-flex',
+                  padding: '3px 10px',
+                  borderRadius: 999,
+                  fontSize: 10,
+                  fontWeight: 700,
+                  background: 'rgba(245,140,222,0.15)',
+                  color: '#F58CDE',
+                  border: '1px solid rgba(245,140,222,0.3)',
+                }}>
+                  {lt}
+                </span>
+              ))}
+            </div>
           )}
 
           {/* Close button */}
@@ -861,21 +921,67 @@ export default function LandDetailPanel({ clickData, onClose }: LandDetailPanelP
             </div>
           )}
 
-          {/* ── C: Tillable ─────────────────────────────────────── */}
-          {hasTillable && (
-            <Section title="Tillable">
-              {tillableAcres != null && (
+          {/* ── C: Land Composition (Illinois parcels) ────────────────
+              Hide-when-null throughout: each row is gated on `!= null`
+              (not truthy), so a real 0.4-acre pond or 0% timber still
+              renders instead of vanishing. Whole section is absent when
+              backfill_status is 'partial_pending' or no land-composition
+              field is present at all — see hasLandComposition above. */}
+          {hasLandComposition && (
+            <Section title="Land Composition">
+              {(tillableAcres != null || pctTillable != null) && (
                 <DetailRow
-                  label="Tillable Acres"
-                  value={`${formatAcres(Number(tillableAcres))} ac${pctTillable != null ? ` (${Number(pctTillable).toFixed(0)}%)` : ''}`}
+                  label="Tillable"
+                  value={
+                    tillableAcres != null
+                      ? `${fmtAcres1(Number(tillableAcres))} ac${pctTillable != null ? ` (${Number(pctTillable).toFixed(0)}%)` : ''}`
+                      : `${Number(pctTillable).toFixed(0)}%`
+                  }
+                />
+              )}
+              {pastureAcres != null && (
+                <DetailRow
+                  label="Pasture"
+                  value={`${fmtAcres1(Number(pastureAcres))} ac`}
+                />
+              )}
+              {(timberAcres != null || pctTimber != null) && (
+                <DetailRow
+                  label="Timber"
+                  value={
+                    timberAcres != null
+                      ? `${fmtAcres1(Number(timberAcres))} ac${pctTimber != null ? ` (${Math.round(Number(pctTimber))}%)` : ''}`
+                      : `${Math.round(Number(pctTimber))}%`
+                  }
+                />
+              )}
+              {(pondAcres != null || pctWater != null) && (
+                <DetailRow
+                  label="Water"
+                  value={
+                    pondAcres != null
+                      ? `${fmtAcres1(Number(pondAcres))} ac${pctWater != null ? ` (${Math.round(Number(pctWater))}%)` : ''}`
+                      : `${Math.round(Number(pctWater))}%`
+                  }
                 />
               )}
               {dominantLandcover && (
                 <DetailRow
-                  label="Land Cover"
+                  label="Dominant Cover"
                   value={String(dominantLandcover).replace(/(^|[\s-])\S/g, m => m.toUpperCase())}
                 />
               )}
+            </Section>
+          )}
+
+          {/* ── C2: Soil Rating (Illinois parcels) — un-gated: independent
+              of SOIL_FILTER_ENABLED (which only hides the old SSURGO
+              section below) and independent of the LAND COMPOSITION
+              backfill_status gate above. Renders whenever both halves of
+              the combined "PI 128"-style value are present. */}
+          {hasSoilRatingRow && (
+            <Section title="Soil Rating">
+              <DetailRow label="Rating" value={`${soilRatingType} ${fmtRating1(soilRating)}`} />
             </Section>
           )}
 
@@ -942,6 +1048,13 @@ export default function LandDetailPanel({ clickData, onClose }: LandDetailPanelP
               No additional parcel data available.
             </div>
           )}
+
+          {/* ── Disclaimer — owner-requested (2026-08-14), always renders
+              as the last item in the scroll area regardless of which
+              sections above are present. Verbatim text, do not edit. */}
+          <div style={{ padding: '18px 16px 4px', color: 'rgba(0,0,0,0.4)', fontSize: 11.5, lineHeight: 1.5 }}>
+            All parcel, land composition, and soil data are estimates provided for informational purposes only and should not be relied upon when making financial decisions.
+          </div>
         </div>
 
         {/* ── Footer: Email me this report / Download report ──────────
