@@ -633,8 +633,18 @@ interface FilterState {
   keyword: string
 }
 
+// The UNTOUCHED value of the date filter, deliberately NOT 'all'.
+//
+// Owner 2026-08-13: "if someone changes the filter to show parcel dots prior to
+// 6 years, then we need to honor that." 'all' is a real user choice — the "All
+// time" option in the panel — so it cannot double as "user has not chosen
+// anything", or picking All time would silently keep the 6-year cap and there
+// would be no way back to full history except a custom range.
+export const DEFAULT_DATE_RANGE = 'default6y'
+
 const INITIAL_FILTERS: FilterState = {
-  dateRange: 'all',
+  // Not 'all' — see DEFAULT_DATE_RANGE. 'all' is the user's explicit All time.
+  dateRange: DEFAULT_DATE_RANGE,
   dateFrom: '',
   dateTo: '',
   stateFilter: '',
@@ -703,7 +713,7 @@ function buildFilterParams(filters: FilterState) {
   // Untouched date filter -> apply the default parcel window. Any explicit
   // choice (a preset, a custom range, upcoming, or All time) means the user
   // has spoken and this stays off entirely.
-  if (filters.dateRange === 'all') params.parcel_sale_from = defaultParcelSaleFrom()
+  if (filters.dateRange === DEFAULT_DATE_RANGE) params.parcel_sale_from = defaultParcelSaleFrom()
   if (filters.dateRange === 'custom') {
     // Explicit user-entered window — only set the bounds we actually have
     // so a one-sided range (e.g. "since March 2024", no end date) works.
@@ -711,7 +721,10 @@ function buildFilterParams(filters: FilterState) {
     if (filters.dateTo) params.date_to = filters.dateTo
   } else if (filters.dateRange === 'upcoming') {
     params.date_from = new Date().toISOString().split('T')[0]
-  } else if (filters.dateRange !== 'all') {
+  // DEFAULT_DATE_RANGE must be excluded here as well as 'all': it is not a
+  // month preset, so it would fall through the ternary chain below to the
+  // final `: 24` and silently send a 24-month date_from.
+  } else if (filters.dateRange !== 'all' && filters.dateRange !== DEFAULT_DATE_RANGE) {
     const months = filters.dateRange === '1month' ? 1
       : filters.dateRange === '6months' ? 6
       : filters.dateRange === '1year' ? 12
@@ -788,7 +801,20 @@ function resolveDateWindow(filters: FilterState): {
     return { from: new Date().toISOString().split('T')[0], to: undefined, upcomingOnly: true }
   }
   if (filters.dateRange === 'all') {
+    // Explicitly chosen "All time" — genuinely unbounded. Distinct from the
+    // DEFAULT_DATE_RANGE default below, which is the whole point of having a
+    // separate sentinel: picking All time has to be able to bring back the
+    // pre-2020 dots.
     return { from: undefined, to: undefined, upcomingOnly: false }
+  }
+  if (filters.dateRange === DEFAULT_DATE_RANGE) {
+    // Untouched filter -> the default 6-year sold-parcel window. Returned here
+    // (not only as a query param) because this window ALSO drives the
+    // client-side expression on the Regrid tile sale-dot layer via
+    // buildRegridSaleDotFilter. Without it the server-side parcel_sale_from
+    // would bound the z9-11 durable dots while zooming past z11 brought two
+    // decades of dots straight back.
+    return { from: defaultParcelSaleFrom(), to: undefined, upcomingOnly: false }
   }
   const months = filters.dateRange === '1month' ? 1
     : filters.dateRange === '6months' ? 6
@@ -811,6 +837,17 @@ function resolveDateWindow(filters: FilterState): {
 // coalesced to a sentinel that fails any active date check — so under
 // "Last 6 months" we only show dots whose sale we can prove falls in
 // the window.
+// Comp report map exemption for the SALE-DOT layers. Owner 2026-08-13: "do not
+// change the comp report map because we are going to leave it as-is." On this
+// site the comp report map IS this component with a subject tract set, and old
+// recorded sales are the entire point of the comparables flow — a 6-year cap
+// would gut it. Swapping the default sentinel for an explicit 'all' makes
+// resolveDateWindow return an unbounded window, exactly as before this change.
+function saleDotFilters(f: FilterState, inCompMode: boolean): FilterState {
+  if (!inCompMode || f.dateRange !== DEFAULT_DATE_RANGE) return f
+  return { ...f, dateRange: 'all' }
+}
+
 function buildRegridSaleDotFilter(filters: FilterState, minAcres: number): any[] {
   const { from, to, upcomingOnly } = resolveDateWindow(filters)
   // "Upcoming auctions" can't match recorded past sales — return a
@@ -2843,7 +2880,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // Apply-atomic model (owner spec, 2026-07-25): reads appliedFilters,
   // NOT the draft `filters` — this indicator must not move while the
   // panel is being edited, only on Apply/Reset/chat-search commit.
-  const hasActiveFilters = appliedFilters.dateRange !== 'all' || appliedFilters.stateFilter !== '' ||
+  // Compared against the DEFAULT sentinel, not 'all' — otherwise the map
+  // reports active filters on a cold load, before the user has touched
+  // anything. Explicitly choosing All time IS an active filter.
+  const hasActiveFilters = appliedFilters.dateRange !== DEFAULT_DATE_RANGE || appliedFilters.stateFilter !== '' ||
     appliedFilters.countyFilters.length > 0 ||
     appliedFilters.townshipFilters.length > 0 ||
     (SOIL_FILTER_ENABLED && (appliedFilters.soilRatingMin !== '' || appliedFilters.soilRatingMax !== '' ||
@@ -4592,7 +4632,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // a filter applied when the map mounted, the layers come up with
       // the right expression. A separate effect below keeps both
       // layers in sync as the filter changes.
-      const filterExpr: any = buildRegridSaleDotFilter(filtersRef.current, PARCEL_MIN_SALE_ACRES)
+      const filterExpr: any = buildRegridSaleDotFilter(saleDotFilters(filtersRef.current, !!subjectTractIdRef.current), PARCEL_MIN_SALE_ACRES)
 
       // IMPORTANT: this is a SYMBOL layer (icon at the polygon centroid),
       // NOT a circle layer. A maplibre `circle` layer bound to a POLYGON
@@ -4867,7 +4907,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // this layer's filter only changes on Apply — the twin of the parcel
     // boundary/fill/label filter effect below. (Layer is currently always
     // hidden, but keep it consistent so a future re-enable can't leak.)
-    const saleExpr: any = buildRegridSaleDotFilter(appliedFilters, PARCEL_MIN_SALE_ACRES)
+    const saleExpr: any = buildRegridSaleDotFilter(saleDotFilters(appliedFilters, !!subjectTractIdRef.current), PARCEL_MIN_SALE_ACRES)
     // Compose the state-plan gate so sale dots also respect the
     // subscriber's allowed state(s).
     const expr: any = regridStateFilter ? ['all', saleExpr, regridStateFilter] : saleExpr
@@ -9021,6 +9061,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                 { label: 'Last 1 year', value: '1year' },
                 { label: 'Last 18 months', value: '18months' },
                 { label: 'Last 2 years', value: '2years' },
+                { label: 'Last 6 years', value: DEFAULT_DATE_RANGE },
                 { label: 'All time', value: 'all' },
                 { label: 'Custom range…', value: 'custom' },
               ].map(opt => (
