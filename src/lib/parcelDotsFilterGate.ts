@@ -48,6 +48,23 @@
  * edits, no fetch/plumbing rewrite (the fetch calls already send these
  * fields today; the backend just ignores them until it's updated).
  *
+ * REGISTRY-GATED EXCEPTION (2026-08-15, step 3 of registry-gated map
+ * filters): the backend now understands soilRatingMin/Max, pctTillableMin/
+ * Max, and landTypes, but ONLY for states listed in GET /api/regrid/config's
+ * parcel_data_states — everywhere else those params are still silently
+ * ignored server-side, so the three fields above must keep hiding dots
+ * there. Callers pass the resolved `parcelDataScope` (the single state the
+ * CURRENT filter state is scoped to, or null) through this input; when it's
+ * set, soilRating(Min/Max), pctTillable(Min/Max), and landTypes are
+ * excluded from the hide check below because the backend actually honors
+ * them for that state. This is additive to the block above, not a
+ * replacement — once a field's backend support goes nationwide, delete it
+ * from the checks below same as before.
+ * Mobile parity: apply the identical parcelDataScope carve-out to the .js
+ * twin (ground-goat-mobile/src/utils/parcelDotsFilterGate.js) when that map
+ * gets its own registry-gated filter UI — the two files must stay in
+ * lockstep or web/mobile will disagree about when dots should hide.
+ *
  * Each map has its own local filter-state shape, so each one defines a
  * tiny adapter mapping its own state into ParcelDotsGateInput and calls
  * shouldHideParcelDotsForFilters — same "one builder, one adapter per
@@ -87,6 +104,14 @@ export interface ParcelDotsGateInput {
   // (e.g. 'auction,live,pending'). Parcel dots hide when this is set to a
   // non-'sold' status — see statusFilterExcludesSold.
   statuses?: Array<string | null | undefined> | null
+  // Registry-gated map filters (2026-08-15) — the single state the CURRENT
+  // filter state is scoped to (the applied state filter resolves to exactly
+  // one state AND that state is in GET /api/regrid/config's
+  // parcel_data_states), or null/undefined otherwise. When set, the backend
+  // actually understands soilRatingMin/Max, pctTillableMin/Max, and
+  // landTypes for this query, so those three fields are excluded from the
+  // hide check below — see the REGISTRY-GATED EXCEPTION note above.
+  parcelDataScope?: string | null
 }
 
 /**
@@ -114,11 +139,14 @@ function statusFilterExcludesSold(statuses?: Array<string | null | undefined> | 
  * stay visible.
  */
 export function shouldHideParcelDotsForFilters(input: ParcelDotsGateInput): boolean {
+  // Registry-gated exception: within parcelDataScope the backend actually
+  // understands these three fields, so they must NOT trigger a hide.
+  const registryScoped = !!input.parcelDataScope
   return !!(
     statusFilterExcludesSold(input.statuses) ||
-    input.soilRatingMin || input.soilRatingMax ||
-    input.pctTillableMin || input.pctTillableMax ||
-    (input.landTypes && input.landTypes.length > 0) ||
+    (!registryScoped && (input.soilRatingMin || input.soilRatingMax)) ||
+    (!registryScoped && (input.pctTillableMin || input.pctTillableMax)) ||
+    (!registryScoped && input.landTypes && input.landTypes.length > 0) ||
     input.listingType ||
     input.pricePerAcreMin || input.pricePerAcreMax ||
     input.askingPriceMin || input.askingPriceMax ||

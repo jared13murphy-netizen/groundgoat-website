@@ -5,6 +5,14 @@
 // displays (e.g. comp popups, sale modals) are unaffected and stay visible.
 //
 // Flip to true to restore the soil filter UI everywhere it's gated.
+//
+// Distinct from parcelDataScope (ExploreMap.tsx, 2026-08-15): that's a
+// SEPARATE, registry-gated PARCEL-level soil-rating filter — scoped to
+// whichever single state is listed in GET /api/regrid/config's
+// parcel_data_states — that unhides the SAME soilRatingMin/Max control
+// independent of this flag. This flag still gates only the old NATIONWIDE
+// tract-level soil filter; flipping it does not touch parcelDataScope, and
+// vice versa.
 export const SOIL_FILTER_ENABLED = false
 
 // "% Tillable" map filter — hidden 2026-07-27 because PARCELS carry no
@@ -21,6 +29,11 @@ export const SOIL_FILTER_ENABLED = false
 //
 // Owner: re-enable once the parcel backfill lands, together with soil rating
 // range and land types. Flip to true to restore.
+//
+// Distinct from parcelDataScope (ExploreMap.tsx, 2026-08-15) — same
+// relationship as the SOIL_FILTER_ENABLED note above: parcelDataScope
+// unhides the SAME pctTillableMin/Max control for a single registry-gated
+// state, independent of this flag.
 export const TILLABLE_FILTER_ENABLED = false
 
 // Private Treaty hidden from the public website UI (backend stops returning

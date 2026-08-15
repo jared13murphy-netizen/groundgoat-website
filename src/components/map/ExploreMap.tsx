@@ -720,8 +720,36 @@ function defaultParcelSaleFrom(): string {
   return d.toISOString().split('T')[0]
 }
 
-function buildFilterParams(filters: FilterState) {
+// Registry-gated map filters (step 3, 2026-08-15). regridConfig.parcel_data_states
+// lists the states where the backend's parcel-sale-dots / county-count
+// endpoints actually understand pct_tillable_min/max, land_types, and
+// soil_rating_min/max. Resolves to the single state in scope, or null when
+// the applied state filter is empty, multi-selected, or outside the
+// registry — in every one of those cases the params must stay unsent and
+// the corresponding controls stay hidden, same as the un-registered
+// default. `stateFilter` is the comma-joined multi-select string used
+// throughout this file (see the state chip onClick above the filter panel).
+function resolveParcelDataScope(stateFilter: string, parcelDataStates?: string[] | null): string | null {
+  if (!parcelDataStates || parcelDataStates.length === 0) return null
+  const selected = (stateFilter || '').split(',').map(s => s.trim().toUpperCase()).filter(Boolean)
+  if (selected.length !== 1) return null
+  const registry = new Set(parcelDataStates.map(s => s.toUpperCase()))
+  return registry.has(selected[0]) ? selected[0] : null
+}
+
+function buildFilterParams(filters: FilterState, parcelDataStates?: string[] | null) {
   const params: Record<string, string> = {}
+  // Registry-gated scope for THIS call's filter state (see
+  // resolveParcelDataScope above) — soil_rating_min/max and
+  // pct_tillable_min/max below are sent when it's non-null, in addition
+  // to (not instead of) the old SOIL_FILTER_ENABLED/TILLABLE_FILTER_ENABLED
+  // nationwide-tract gates. Two distinct concepts sharing the same query
+  // params: SOIL_FILTER_ENABLED/TILLABLE_FILTER_ENABLED gate a nationwide
+  // TRACT-level filter (still off — see featureFlags.ts), while
+  // parcelDataScope gates a PARCEL-level filter the backend understands
+  // only for states in the registry. Neither flag's other uses change.
+  const parcelDataScope = resolveParcelDataScope(filters.stateFilter, parcelDataStates)
+  const registryScoped = parcelDataScope != null
   // Untouched date filter -> apply the default parcel window. Any explicit
   // choice (a preset, a custom range, upcoming, or All time) means the user
   // has spoken and this stays off entirely.
@@ -754,15 +782,16 @@ function buildFilterParams(filters: FilterState) {
   if (filters.stateFilter) params.state_abbr = filters.stateFilter
   if (filters.countyFilters?.length > 0) params.county_name = filters.countyFilters.join(',')
   if (filters.townshipFilters?.length > 0) params.township = filters.townshipFilters.join(',')
-  if (SOIL_FILTER_ENABLED && filters.soilRatingMin) params.soil_rating_min = filters.soilRatingMin
-  if (SOIL_FILTER_ENABLED && filters.soilRatingMax) params.soil_rating_max = filters.soilRatingMax
+  if ((SOIL_FILTER_ENABLED || registryScoped) && filters.soilRatingMin) params.soil_rating_min = filters.soilRatingMin
+  if ((SOIL_FILTER_ENABLED || registryScoped) && filters.soilRatingMax) params.soil_rating_max = filters.soilRatingMax
   if (filters.acreageMin) params.acreage_min = filters.acreageMin
   if (filters.acreageMax) params.acreage_max = filters.acreageMax
-  // Gated (unlike soil): the control is hidden, so a lingering value the user
-  // can't see or clear must not keep filtering — it would blank the parcel
-  // dots and drop the county circles to tract-only counts.
-  if (TILLABLE_FILTER_ENABLED && filters.pctTillableMin) params.pct_tillable_min = filters.pctTillableMin
-  if (TILLABLE_FILTER_ENABLED && filters.pctTillableMax) params.pct_tillable_max = filters.pctTillableMax
+  // Gated (unlike the old nationwide soil flag): the control is hidden
+  // unless TILLABLE_FILTER_ENABLED or registryScoped, so a lingering value
+  // the user can't see or clear must not keep filtering — it would blank
+  // the parcel dots and drop the county circles to tract-only counts.
+  if ((TILLABLE_FILTER_ENABLED || registryScoped) && filters.pctTillableMin) params.pct_tillable_min = filters.pctTillableMin
+  if ((TILLABLE_FILTER_ENABLED || registryScoped) && filters.pctTillableMax) params.pct_tillable_max = filters.pctTillableMax
   if (filters.landTypes?.length > 0) params.land_types = filters.landTypes.join(',')
   // Chat-driven additions
   if (filters.listingType) params.listing_type = filters.listingType
@@ -1542,7 +1571,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // Mirror of regridConfig (declared further below) for use inside
   // recomputeCoincidentDeeds, which is a stable useCallback ([] deps)
   // and can't close over the state value directly without going stale.
-  const regridConfigRef = useRef<{ source_layer?: string } | null>(null)
+  // parcel_data_states mirrored here too (2026-08-15, registry-gated map
+  // filters step 3) for the same reason: buildFilterParams is invoked
+  // from several stable-deps effects/callbacks below (chat search, cell
+  // loader, durable-dot fetch) that can't read the regridConfig state
+  // value directly without risking a stale read.
+  const regridConfigRef = useRef<{ source_layer?: string; parcel_data_states?: string[] } | null>(null)
   // Last SaleDetail handed to the parent via onTractSelected (portalMode
   // — PortalTractDetail). Unlike CompInlinePopup (a piece of THIS
   // component's own state, so a useEffect can patch it directly),
@@ -1905,6 +1939,16 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // commit, external reset) — see each site below. Editing the panel
   // must NEVER touch this.
   const [appliedFilters, setAppliedFilters] = useState<FilterState>(INITIAL_FILTERS)
+  // Registry-gated map filters (step 3, 2026-08-15): parcel_data_states off
+  // GET /api/regrid/config, mirrored into its OWN early state for the exact
+  // TDZ reason documented above `filters`/`appliedFilters` — filterParamString
+  // (just below) needs it in a dependency array and is declared here, well
+  // before the full regridConfig state + fetch effect further down the
+  // component. Set from that SAME fetch (see the regridConfig effect below),
+  // not a second network call. The full regridConfig object (declared later)
+  // remains the source of truth for parcelDataScope/UI derivations that
+  // don't have this ordering constraint.
+  const [parcelDataStates, setParcelDataStates] = useState<string[] | undefined>(undefined)
 
   // Fetch today's auction tracts on mount and re-fetch every 10 minutes so
   // the dots roll over correctly when the user keeps the tab open past
@@ -1947,10 +1991,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // (owner spec, 2026-07-25): keyed on appliedFilters, NOT the draft
   // `filters` the panel edits — count bubbles must not move until the
   // user hits Apply. Re-computes whenever appliedFilters changes, which
-  // causes the count effects below to re-fire automatically.
+  // causes the count effects below to re-fire automatically. Also
+  // re-computes when parcelDataStates loads/changes, so a state that just
+  // came into scope forwards soil/tillable params to the count endpoints
+  // without needing another Apply — same reason the dots/counts must never
+  // disagree (see DEFAULT_PARCEL_SALE_WINDOW_YEARS above).
   const filterParamString = useMemo(() => {
-    return new URLSearchParams(buildFilterParams(appliedFilters)).toString()
-  }, [appliedFilters])
+    return new URLSearchParams(buildFilterParams(appliedFilters, parcelDataStates)).toString()
+  }, [appliedFilters, parcelDataStates])
 
   // Load nationwide county centroids ONCE so the county-tier badges
   // can render for every U.S. county.
@@ -2223,7 +2271,23 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     clearOwnerParcels()
 
     const base = clearUnspecified ? INITIAL_FILTERS : filtersRef.current
-    const nextFilters = { ...base, ...incoming }
+    // If this chat filter set changes the state selection without itself
+    // specifying the registry-gated fields (soil rating, % tillable, land
+    // types), clear those out of `base` too — otherwise a value carried
+    // over from the previous state's draft keeps force-hiding dots via
+    // shouldHideParcelDotsForFilters even though its control no longer
+    // shows for the new state. Mirrors the state-chip handler below.
+    // Sits between base and incoming so any value the chat filters DO
+    // provide always wins.
+    const stateChanging = 'stateFilter' in incoming && incoming.stateFilter !== base.stateFilter
+    const registryGatedReset = stateChanging ? {
+      ...(incoming.soilRatingMin === undefined ? { soilRatingMin: '' } : {}),
+      ...(incoming.soilRatingMax === undefined ? { soilRatingMax: '' } : {}),
+      ...(incoming.pctTillableMin === undefined ? { pctTillableMin: '' } : {}),
+      ...(incoming.pctTillableMax === undefined ? { pctTillableMax: '' } : {}),
+      ...(incoming.landTypes === undefined ? { landTypes: [] } : {}),
+    } : {}
+    const nextFilters = { ...base, ...registryGatedReset, ...incoming }
     setFilters(nextFilters)
     filtersRef.current = nextFilters
     // Chat commits instantly (out of scope for Apply-atomic — see task
@@ -2390,7 +2454,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // result is silently dropped and the user sees zero pins — even
     // though the count badges (which come from a different endpoint)
     // claim matches exist.
-    const filterParams = buildFilterParams(nextFilters)
+    const filterParams = buildFilterParams(nextFilters, regridConfigRef.current?.parcel_data_states)
     const extra = Object.entries(filterParams)
       .map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&')
     const url = `${API_URL}/api/map/tracts?min_lat=${qSouth}&max_lat=${qNorth}&min_lng=${qWest}&max_lng=${qEast}&include_polygons=true${extra ? '&' + extra : ''}`
@@ -3078,7 +3142,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     let cellComplete = false
     try {
       setLoading(true)
-      const filterParams = buildFilterParams(filtersRef.current)
+      const filterParams = buildFilterParams(filtersRef.current, regridConfigRef.current?.parcel_data_states)
       // In comparables mode, only show sold tracts. Force this
       // unconditionally (not just when unset) — comp mode is an
       // invariant, not a default: a Live/Listed status pill left active
@@ -4114,6 +4178,19 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // path starts with /us/<abbrev>/ for one of these.
     unlimited?: boolean
     subscribed_state_abbrevs?: string[]
+    // Registry-gated map filters (step 3, 2026-08-15): states where
+    // GET /api/map/parcel-sale-dots + the county-count endpoint actually
+    // understand pct_tillable_min/max, land_types, and soil_rating_min/max
+    // (backend teaches these params state-by-state as the parcel soil/
+    // land-type backfill lands, not all-at-once nationwide). Drives
+    // parcelDataScope below — when the applied state filter resolves to
+    // exactly one state in this list, the % Tillable / soil-rating /
+    // land-type map controls unhide and their params are forwarded;
+    // otherwise they stay hidden/unsent, matching the backend's own
+    // defensive ignoring of those params for un-registered states. Absent
+    // or empty on older backend responses → no state is ever in scope,
+    // same fail-closed default as unlimited/subscribed_state_abbrevs above.
+    parcel_data_states?: string[]
   } | null>(null)
   regridConfigRef.current = regridConfig
 
@@ -4128,6 +4205,19 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     return ['in', ['slice', ['get', 'path'], 4, 6], ['literal', states]]
   }, [regridConfig])
 
+  // Registry-gated map filters (step 3, 2026-08-15): resolved from the
+  // DRAFT `filters.stateFilter` (not appliedFilters) — same convention the
+  // SOIL_FILTER_ENABLED range-filter condition below already uses — so the
+  // % Tillable / soil-rating / land-type controls unhide the instant the
+  // user picks a registry state in the panel, before they hit Apply. Fetch
+  // call sites (buildFilterParams, shouldHideParcelDotsForFilters) each
+  // resolve their OWN scope from whichever FilterState (appliedFilters /
+  // filtersRef) actually drives that fetch — see resolveParcelDataScope.
+  const parcelDataScope = useMemo(
+    () => resolveParcelDataScope(filters.stateFilter, regridConfig?.parcel_data_states),
+    [filters.stateFilter, regridConfig]
+  )
+
   useEffect(() => {
     let cancelled = false
     const fetchConfig = async () => {
@@ -4141,6 +4231,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         const data = await res.json()
         if (!cancelled && data?.tile_url_template) {
           setRegridConfig(data)
+          // Mirror into the early-declared state too — see
+          // parcelDataStates' declaration up near `filters` for why.
+          setParcelDataStates(data?.parcel_data_states)
         }
       } catch {
         // Silent — Regrid is enrichment. The map still works without it.
@@ -5334,8 +5427,15 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // Apply-atomic model (owner spec 2026-07-25): the durable-dot HIDE gate
   // reads appliedFilters, NOT the draft `filters` the panel edits — the
   // pink dots must not vanish/reappear while the user is mid-edit; they
-  // only change on Apply, same as every other layer.
-  const hideParcelDotsForFilters = shouldHideParcelDotsForFilters(appliedFilters) || ownerSearchActive
+  // only change on Apply, same as every other layer. parcelDataScope is
+  // resolved from that same applied state (registry-gated map filters,
+  // 2026-08-15) so the gate's soil/tillable/land-type carve-out only
+  // fires when the backend actually understands those params for the
+  // applied state.
+  const hideParcelDotsForFilters = shouldHideParcelDotsForFilters({
+    ...appliedFilters,
+    parcelDataScope: resolveParcelDataScope(appliedFilters.stateFilter, regridConfig?.parcel_data_states),
+  }) || ownerSearchActive
 
   useEffect(() => {
     const map = mapRef.current
@@ -5692,7 +5792,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // useCallback([] deps) that can't close over state — see
       // ownerSearchActiveRef's declaration up near ownerParcelsChip.
       // Panning during an owner search must never resurrect these dots.
-      const hideForFilters = shouldHideParcelDotsForFilters(filtersRef.current) || ownerSearchActiveRef.current
+      // regridConfigRef (not the regridConfig state) for the same
+      // stable-deps reason — see its declaration.
+      const hideForFilters = shouldHideParcelDotsForFilters({
+        ...filtersRef.current,
+        parcelDataScope: resolveParcelDataScope(filtersRef.current.stateFilter, regridConfigRef.current?.parcel_data_states),
+      }) || ownerSearchActiveRef.current
       const inComp = !!subjectTractIdRef.current
       // Same one helper the filter-reactive effect uses — the pan path
       // must never compute this differently from the effect, which is
@@ -5740,7 +5845,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // produces the same location/status/acreage/price/date params
       // the tract fetch sends; the backend now understands them for
       // this endpoint too (see get_map_parcel_sale_dots in main.py).
-      const filterParams = buildFilterParams(filtersRef.current)
+      const filterParams = buildFilterParams(filtersRef.current, regridConfigRef.current?.parcel_data_states)
       const qs = new URLSearchParams({
         min_lat: String(bounds.south),
         max_lat: String(bounds.north),
@@ -8131,7 +8236,25 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         const isFilterLink = target?.closest('[data-action="filter"]')
         ev.stopPropagation()
         if (isFilterLink) {
-          const seed = { stateFilter: state, countyFilters: [], townshipFilters: [] }
+          // Registry-gated fields cleared here too (same reason as the
+          // state-chip handler in the panel) — this seed jumps straight to
+          // a single new state, so a soil/tillable/land-type value left
+          // over from wherever the user was before must not keep
+          // force-hiding dots via shouldHideParcelDotsForFilters once its
+          // control is gone. Feeds both consumers below (the direct
+          // setFilters here AND the re-seed effect that layers this same
+          // object onto appliedFilters when the panel opens), so one fix
+          // covers both paths.
+          const seed = {
+            stateFilter: state,
+            countyFilters: [],
+            townshipFilters: [],
+            soilRatingMin: '',
+            soilRatingMax: '',
+            pctTillableMin: '',
+            pctTillableMax: '',
+            landTypes: [],
+          }
           // Direct set covers the panel-already-open case (the re-seed
           // effect is keyed on filterOpen and won't run); the ref covers
           // the normal closed -> open case, where it would otherwise be
@@ -9180,7 +9303,24 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                             // fitBounds logic that used to fire right here).
                             const current = filters.stateFilter ? filters.stateFilter.split(',') : []
                             const next = isActive ? current.filter(s => s !== st) : [...current, st]
-                            const newFilters = { ...filters, stateFilter: next.join(','), countyFilters: [], townshipFilters: [] }
+                            // Registry-gated fields (soil rating, % tillable, land
+                            // types) are only meaningful for parcel-data states —
+                            // clear them on any state change so a value left over
+                            // from the old state doesn't keep force-hiding dots via
+                            // shouldHideParcelDotsForFilters after its control has
+                            // vanished from the panel. Mirrors mobile's
+                            // ExploreFilterPanel.js state-chip handler.
+                            const newFilters = {
+                              ...filters,
+                              stateFilter: next.join(','),
+                              countyFilters: [],
+                              townshipFilters: [],
+                              soilRatingMin: '',
+                              soilRatingMax: '',
+                              pctTillableMin: '',
+                              pctTillableMax: '',
+                              landTypes: [],
+                            }
                             setFilters(newFilters)
                           }}
                           style={{
@@ -9316,23 +9456,30 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
             {/* Range filters */}
             {[
-              // Soil/PI rating filter intentionally hidden until soil data
-              // is cleaned up nationwide (many states have unreliable
-              // ratings). SOIL_FILTER_ENABLED = false hides the control;
-              // the filter state + buildFilterParams plumbing is left
-              // intact so re-enabling is a one-line flag flip.
-              ...(SOIL_FILTER_ENABLED && filters.stateFilter ? [{
-                label: filters.stateFilter === 'IL' ? 'PI Rating' :
-                       filters.stateFilter === 'IN' ? 'WAPI' :
-                       filters.stateFilter === 'IA' ? 'CSR2' : 'Soil Rating',
+              // Two distinct soil-rating concepts share soilRatingMin/Max:
+              // SOIL_FILTER_ENABLED (currently false) is the old NATIONWIDE
+              // tract-level filter, hidden until soil data is cleaned up
+              // across every state — the filter state + buildFilterParams
+              // plumbing is left intact so re-enabling is a one-line flag
+              // flip. parcelDataScope (2026-08-15) is the NEW registry-gated
+              // PARCEL-level filter: it unhides the same control, independent
+              // of that flag, only for a single applied state the backend has
+              // confirmed it understands (GET /api/regrid/config's
+              // parcel_data_states). Either condition shows the control.
+              ...(SOIL_FILTER_ENABLED && filters.stateFilter || parcelDataScope ? [{
+                label: (parcelDataScope || filters.stateFilter) === 'IL' ? 'PI Rating' :
+                       (parcelDataScope || filters.stateFilter) === 'IN' ? 'WAPI' :
+                       (parcelDataScope || filters.stateFilter) === 'IA' ? 'CSR2' : 'Soil Rating',
                 minKey: 'soilRatingMin' as keyof FilterState,
                 maxKey: 'soilRatingMax' as keyof FilterState
               }] : []),
               { label: 'Acreage', minKey: 'acreageMin' as keyof FilterState, maxKey: 'acreageMax' as keyof FilterState },
               // % Tillable hidden behind TILLABLE_FILTER_ENABLED (2026-07-27):
-              // parcels carry no tillable data, so it blanks the parcel dots
-              // and drops the county circles to tract-only counts.
-              ...(TILLABLE_FILTER_ENABLED ? [{ label: '% Tillable', minKey: 'pctTillableMin' as keyof FilterState, maxKey: 'pctTillableMax' as keyof FilterState }] : []),
+              // parcels carry no tillable data nationwide, so it blanks the
+              // parcel dots and drops the county circles to tract-only
+              // counts. parcelDataScope unhides it for a registry state the
+              // same way it does soil rating above — see the comment there.
+              ...(TILLABLE_FILTER_ENABLED || parcelDataScope ? [{ label: '% Tillable', minKey: 'pctTillableMin' as keyof FilterState, maxKey: 'pctTillableMax' as keyof FilterState }] : []),
             ].map(({ label, minKey, maxKey }) => (
               <div key={label} style={{ marginBottom: 20 }}>
                 <div style={{ color: '#CCCCCC', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>{label}</div>
@@ -9365,6 +9512,49 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                 </div>
               </div>
             ))}
+
+            {/* Land Type — registry-gated map filters (2026-08-15). Only
+                shown once the applied state resolves to a single
+                parcel_data_states entry (parcelDataScope) — outside that
+                scope the backend silently ignores land_types on the parcel
+                endpoints, so a control the user can't tell is a no-op would
+                be misleading. Wired straight to filters.landTypes, already
+                sent unconditionally by buildFilterParams. */}
+            {parcelDataScope && (
+              <div style={{ marginBottom: 24 }}>
+                <div style={{ color: '#CCCCCC', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>Land Type</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                  {(['Farm', 'Recreational', 'Pasture'] as const).map(lt => {
+                    const isActive = filters.landTypes.includes(lt)
+                    return (
+                      <button
+                        key={lt}
+                        onClick={() => {
+                          // Draft-only (Apply-atomic model) — same pattern
+                          // as the state/county chips above.
+                          const next = isActive
+                            ? filters.landTypes.filter(t => t !== lt)
+                            : [...filters.landTypes, lt]
+                          setFilters(f => ({ ...f, landTypes: next }))
+                        }}
+                        style={{
+                          padding: '6px 14px',
+                          borderRadius: 20,
+                          border: `1px solid ${isActive ? '#E91E8C' : 'rgba(255,255,255,0.2)'}`,
+                          backgroundColor: isActive ? 'rgba(233,30,140,0.2)' : 'transparent',
+                          color: isActive ? '#E91E8C' : '#BBBBBB',
+                          fontSize: 13,
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {lt}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* Buildings filter intentionally removed until the
                 has_buildings tract data is cleaned up. The hasBuildings
