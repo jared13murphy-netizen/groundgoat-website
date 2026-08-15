@@ -587,9 +587,10 @@ export default function LandDetailPanel({ clickData, onClose }: LandDetailPanelP
   // LAND COMPOSITION section (renamed from "Tillable"): backfill_status
   // 'partial_pending' or no land-composition fields at all means the
   // section simply doesn't render — no caveat text, it just isn't there.
+  // water hidden per owner 8/15 (engine pond recall unreliable) — restore when water detection is fixed.
   const hasLandCompositionData =
     tillableAcres != null || pastureAcres != null || timberAcres != null ||
-    pondAcres != null || pctWater != null || !!dominantLandcover ||
+    !!dominantLandcover ||
     pctTillable != null || pctTimber != null
   const hasLandComposition = hasLandCompositionData && backfillStatus !== 'partial_pending'
   // Soil Rating row is intentionally NOT gated by SOIL_FILTER_ENABLED (that
@@ -955,16 +956,7 @@ export default function LandDetailPanel({ clickData, onClose }: LandDetailPanelP
                   }
                 />
               )}
-              {(pondAcres != null || pctWater != null) && (
-                <DetailRow
-                  label="Water"
-                  value={
-                    pondAcres != null
-                      ? `${fmtAcres1(Number(pondAcres))} ac${pctWater != null ? ` (${Math.round(Number(pctWater))}%)` : ''}`
-                      : `${Math.round(Number(pctWater))}%`
-                  }
-                />
-              )}
+              {/* water hidden per owner 8/15 (engine pond recall unreliable) — restore when water detection is fixed. */}
               {dominantLandcover && (
                 <DetailRow
                   label="Dominant Cover"
