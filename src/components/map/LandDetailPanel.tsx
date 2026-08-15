@@ -193,6 +193,11 @@ function deriveRatingLabel(soilRatingType: string | null | undefined, state: str
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+/** Fixed right-docked panel width (see the `width: 380` style below). Exported
+ *  so ExploreMap can pad camera moves (easeTo/fitBounds) by the same amount
+ *  when this panel is open, instead of re-guessing the value. */
+export const LAND_DETAIL_PANEL_WIDTH = 380
+
 export interface LandDetailClickData {
   /** Tile-level props from the Regrid parcel fill layer (lightweight) */
   parcelProps: Record<string, any> | null
@@ -750,7 +755,7 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
           top: 0,
           right: 0,
           bottom: 0,
-          width: 380,
+          width: LAND_DETAIL_PANEL_WIDTH,
           zIndex: 20,
           background: '#fff',
           boxShadow: '-4px 0 24px rgba(0,0,0,0.18)',

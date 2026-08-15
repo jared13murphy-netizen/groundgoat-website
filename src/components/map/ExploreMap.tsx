@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useEffect, useState, useCallback, useMemo } from 'react'
+import { useRef, useEffect, useState, useCallback, useMemo, type MutableRefObject } from 'react'
 import maplibregl from 'maplibre-gl'
 import { Protocol as PMTilesProtocol } from 'pmtiles'
 import 'maplibre-gl/dist/maplibre-gl.css'
@@ -31,7 +31,7 @@ import { toRings as toTractRings, ringsToGeometry, pointInBoundary } from '@/lib
 import Tract3DModal from '@/components/Tract3DModal'
 import GroundTruthPanel from '@/components/portal/GroundTruthPanel'
 import NdviPanel from '@/components/portal/NdviPanel'
-import LandDetailPanel, { type LandDetailClickData } from './LandDetailPanel'
+import LandDetailPanel, { type LandDetailClickData, LAND_DETAIL_PANEL_WIDTH } from './LandDetailPanel'
 import { countyCentroids } from '@/data/countyCentroids'
 import { getCountiesForState } from '@/data/counties'
 import { STATE_ABBR, STATE_BOUNDS } from './mapConstants'
@@ -216,6 +216,170 @@ const VEIL_DIP_STEP_MS = 75
 function veilPrefersReducedMotion(): boolean {
   return typeof window !== 'undefined'
     && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+}
+
+// ─── Parcel-center-on-select camera move (owner-approved addition,
+// 2026-08-15, on top of the shipped Parcel Spotlight veil) ─────────────────
+const PARCEL_CENTER_DURATION_MS = 600
+// Below this container width the fixed-380px right-docked LandDetailPanel
+// would swallow most of the map — shifting the camera to dodge it stops
+// being meaningful (LandDetailPanel never becomes a bottom sheet at narrow
+// widths; it's an unconditional right overlay at every viewport size, so
+// this is a "is there enough room to matter" guard, not a layout-mode one).
+const PARCEL_CENTER_MIN_CONTAINER_WIDTH = LAND_DETAIL_PANEL_WIDTH * 2
+
+/** Bounding-box center of a Polygon/MultiPolygon's outer ring(s). A true
+ *  area centroid isn't needed here — bbox-center is what every other
+ *  fitBounds/zoomToBoundsSignal flow in this file already uses (see
+ *  zoomToBoundsSignal's effect above), and it's stable for the odd-shaped/
+ *  multi-piece parcel geometry this feeds from (only outer rings scanned,
+ *  same as buildVeilFeatureCollection above — holes don't affect the bbox). */
+function geometryBboxCenter(
+  geometry: GeoJSON.Polygon | GeoJSON.MultiPolygon,
+): [number, number] | null {
+  let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity
+  const scanRing = (ring: GeoJSON.Position[] | undefined) => {
+    if (!ring) return
+    for (const pos of ring) {
+      const lng = pos[0], lat = pos[1]
+      if (typeof lng !== 'number' || typeof lat !== 'number') continue
+      if (lng < minLng) minLng = lng
+      if (lng > maxLng) maxLng = lng
+      if (lat < minLat) minLat = lat
+      if (lat > maxLat) maxLat = lat
+    }
+  }
+  if (geometry.type === 'Polygon') {
+    scanRing(geometry.coordinates[0])
+  } else {
+    for (const poly of geometry.coordinates) scanRing(poly[0])
+  }
+  if (!Number.isFinite(minLng)) return null
+  return [(minLng + maxLng) / 2, (minLat + maxLat) / 2]
+}
+
+/** Ease (or, under reduced motion, jump) the camera so `geometry`'s bbox
+ *  center lands in the middle of the map area actually VISIBLE next to the
+ *  right-docked LandDetailPanel — not the whole canvas, which would leave
+ *  an off-center parcel sitting half-hidden behind the panel. Keeps the
+ *  CURRENT zoom (never zooms in/out from a selection — spec 2026-08-15).
+ *
+ *  Deliberately does NOT use MapLibre's `padding` CameraOptions: padding
+ *  lives on the map's transform and persists across calls that don't
+ *  re-specify it, so setting `{right: LAND_DETAIL_PANEL_WIDTH}` here would
+ *  silently offset every OTHER easeTo/flyTo/fitBounds elsewhere in this
+ *  file for as long as the panel stayed open (many of them omit padding
+ *  entirely, expecting a true center). Instead this projects the parcel to
+ *  a screen point, shifts it right by half the panel width, and unprojects
+ *  that back to a lnglat to use as the new map center — a one-shot,
+ *  self-contained move with nothing to reset later. (Panning is a uniform
+ *  screen-space translation, so aiming the new center at the point
+ *  panelWidth/2 to the parcel's right drags the parcel itself left by that
+ *  same amount, landing it in the visible-area center — see the inline
+ *  comment below for the full derivation.)
+ *
+ *  No-ops (does nothing, camera stays put) if: there's no usable geometry,
+ *  or the map is already mid-animation (`isEasing()`) — MapLibre's own
+ *  "an eased transition is running" signal, checked here so this never
+ *  fights an in-flight camera move already in progress (comp-mode subject
+ *  fly, a Find Comparables fitBounds, the explore-mode sale-dot zoom-in
+ *  fired at click time, a filter-apply fitBounds, etc.). Returns which of
+ *  the two no-op reasons applied (if either) so callers that DO want a
+ *  second chance — see centerOnParcelSelectionWithRetry below — can tell
+ *  "nothing to center" apart from "something else is animating, try once
+ *  more after it settles". */
+function centerOnParcelSelection(
+  map: maplibregl.Map,
+  geometry: GeoJSON.Polygon | GeoJSON.MultiPolygon,
+): 'moved' | 'skipped-easing' | 'no-geometry' {
+  const center = geometryBboxCenter(geometry)
+  if (!center) return 'no-geometry'
+  if (map.isEasing()) return 'skipped-easing'
+
+  let target: [number, number] = center
+  const containerWidth = map.getContainer().clientWidth
+  if (containerWidth >= PARCEL_CENTER_MIN_CONTAINER_WIDTH) {
+    // Panning is a uniform screen-space translation: after easeTo, whatever
+    // lnglat we pick as the new `center` lands at the canvas's true
+    // geometric center (containerWidth/2), not at the visible-area center
+    // we actually want (containerWidth/2 - panelWidth/2, i.e. shifted left
+    // to clear the right-docked panel). So the TARGET has to be the lnglat
+    // that currently sits panelWidth/2 to the RIGHT of the parcel on
+    // screen — moving the camera there drags that point back to true
+    // center and, by the same translation, drags the parcel left by
+    // exactly panelWidth/2, landing it in the visible-area center. (Get
+    // the sign wrong here and the parcel eases in BEHIND the panel instead
+    // of clear of it — caught by live-clicking a parcel and re-projecting
+    // its bbox center after the move, 2026-08-15.)
+    const screenPoint = map.project(center)
+    screenPoint.x += LAND_DETAIL_PANEL_WIDTH / 2
+    const unprojected = map.unproject(screenPoint)
+    target = [unprojected.lng, unprojected.lat]
+  }
+
+  if (veilPrefersReducedMotion()) {
+    map.jumpTo({ center: target })
+    return 'moved'
+  }
+  map.easeTo({ center: target, duration: PARCEL_CENTER_DURATION_MS })
+  return 'moved'
+}
+
+/** Wraps centerOnParcelSelection with a single-shot retry for the one case
+ *  it deliberately no-ops on that deserves a second try: the explore-mode
+ *  sale-dot click path starts its own `map.easeTo(...)` zoom-in (900ms,
+ *  see the DURABLE_DOT_LAYER click handler) synchronously, BEFORE the
+ *  landDetail effect below runs showOrMoveVeil — so `isEasing()` is
+ *  already true the first time we get here and centering is skipped. That
+ *  selection gets no second call into showOrMoveVeil (the veil key is
+ *  reassigned unconditionally right after this runs, and any later
+ *  authoritative-geometry delivery from handleParcelGeometryResolved takes
+ *  the `silent: true` branch, which never reaches this centering line at
+ *  all) — so without a retry, sale-dot-click centering would be
+ *  permanently skipped. Owner-reported 2026-08-15 audit finding.
+ *
+ *  Arms `map.once('moveend', ...)` — fires once the in-flight animation
+ *  (whatever it is) finishes — and at fire time re-checks BOTH guards
+ *  before trying again:
+ *   - same selection still active: `key` is captured at schedule time and
+ *     compared against `veilKeyRef.current`; a second click on a different
+ *     parcel, or the panel closing, changes that ref before moveend fires,
+ *     so the stale retry is dropped instead of recentering on an
+ *     abandoned selection.
+ *   - `isEasing()` is false: if something ELSE started animating in the
+ *     interim, this gives up rather than chaining another moveend listener
+ *     — map.once already self-removes, so there is no listener leak, and
+ *     no possibility of a retry loop (at most one extra centering attempt
+ *     per selection, ever).
+ *  Only one retry is ever pending at a time: any previously-armed listener
+ *  is torn down (via centerRetryCleanupRef) before a new one is armed, and
+ *  hideVeil clears it too so closing the panel mid-animation can't fire a
+ *  centering move after the veil is gone. */
+function centerOnParcelSelectionWithRetry(
+  map: maplibregl.Map,
+  geometry: GeoJSON.Polygon | GeoJSON.MultiPolygon,
+  key: LandDetailClickData,
+  veilKeyRef: MutableRefObject<LandDetailClickData | null>,
+  centerRetryCleanupRef: MutableRefObject<(() => void) | null>,
+): void {
+  // At most one pending retry ever — a new selection (or a call that's
+  // about to move the camera again) invalidates whatever was armed before.
+  if (centerRetryCleanupRef.current) {
+    centerRetryCleanupRef.current()
+    centerRetryCleanupRef.current = null
+  }
+
+  const result = centerOnParcelSelection(map, geometry)
+  if (result !== 'skipped-easing') return
+
+  const onMoveEnd = () => {
+    centerRetryCleanupRef.current = null
+    if (veilKeyRef.current !== key) return // selection changed since scheduling
+    if (map.isEasing()) return // something else is animating — bail, don't chain another retry
+    centerOnParcelSelection(map, geometry)
+  }
+  map.once('moveend', onMoveEnd)
+  centerRetryCleanupRef.current = () => map.off('moveend', onMoveEnd)
 }
 
 // Layer placement rule (spec): ABOVE parcel/dot/tract fills, BELOW basemap
@@ -1923,6 +2087,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // rapid selection change can cancel a still-pending step instead of
   // racing it.
   const veilTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Cleanup for a pending single-shot centerOnParcelSelection retry (armed
+  // when the sale-dot click's own 900ms zoom-in was still easing at
+  // selection time — see centerOnParcelSelectionWithRetry below). Removes
+  // the still-attached 'moveend' listener; null when no retry is pending.
+  const centerRetryCleanupRef = useRef<(() => void) | null>(null)
   // Regrid parcel-fill hover highlight (task #24) must be suppressed while
   // Parcel Spotlight is active — see the effect below and the onMove/
   // onLeave handlers in the Regrid source/layers effect.
@@ -8702,6 +8871,21 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       return
     }
 
+    // Center-on-select camera move: once per genuinely NEW selection (this
+    // read happens before veilKeyRef.current is reassigned below, and the
+    // opts.silent branch above — the authoritative-geometry swap for the
+    // SAME selection — already returned, so reaching here with an
+    // unchanged key only happens on a harmless re-fire of this same
+    // selection, e.g. the landDetail effect re-running because
+    // regridConfig changed underneath it). See centerOnParcelSelection's
+    // own doc comment for the padding/isEasing reasoning, and
+    // centerOnParcelSelectionWithRetry's for why a retry is armed when the
+    // initial attempt is skipped for still-easing (the sale-dot click
+    // path's own zoom-in racing this).
+    if (veilKeyRef.current !== key) {
+      centerOnParcelSelectionWithRetry(map, geometry, key, veilKeyRef, centerRetryCleanupRef)
+    }
+
     const reduced = veilPrefersReducedMotion()
     const isMove = veilKeyRef.current !== null && veilKeyRef.current !== key
 
@@ -8734,6 +8918,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const map = mapRef.current
     veilKeyRef.current = null
     if (veilTimerRef.current) { clearTimeout(veilTimerRef.current); veilTimerRef.current = null }
+    if (centerRetryCleanupRef.current) { centerRetryCleanupRef.current(); centerRetryCleanupRef.current = null }
     if (!map || !map.getSource(VEIL_SOURCE_ID)) return
     const reduced = veilPrefersReducedMotion()
     setVeilOpacityTransition(map, reduced ? 0 : VEIL_FADE_OUT_MS)
