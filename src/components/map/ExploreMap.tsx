@@ -187,6 +187,93 @@ function clickClaimedByLayers(
   }
 }
 
+// ─────────────────────────────────────────────────────────────────
+// Parcel Spotlight veil (owner-approved 2026-08-15). When LandDetailPanel
+// opens for a parcel, the whole map dims under a veil with a hole cut out
+// for that parcel, plus a pink highlight on the parcel itself. See the
+// two effects + handleParcelGeometryResolved near the bottom of the
+// component for the reactive wiring; these are the pure/module-level
+// pieces (no map/React state) shared by both.
+const VEIL_WORLD_RING: [number, number][] = [
+  [-180, -85], [180, -85], [180, 85], [-180, 85], [-180, -85],
+]
+const VEIL_COLOR = '#0D0714'
+const SELECT_COLOR = '#F58CDE'
+const VEIL_SOURCE_ID = 'parcel-veil-src'
+const VEIL_FILL_LAYER = 'parcel-veil-fill'
+const SELECT_SOURCE_ID = 'parcel-select-src'
+const SELECT_FILL_LAYER = 'parcel-select-fill'
+const SELECT_GLOW_LAYER = 'parcel-select-glow'
+const SELECT_LINE_LAYER = 'parcel-select-line'
+const VEIL_MAX_OPACITY = 0.45
+const VEIL_DIP_OPACITY = 0.30
+const VEIL_FADE_IN_MS = 250
+const VEIL_FADE_OUT_MS = 200
+// The 150ms "move" dip (spec: 0.45→0.30→0.45) is two back-to-back
+// transitions of half that duration each.
+const VEIL_DIP_STEP_MS = 75
+
+function veilPrefersReducedMotion(): boolean {
+  return typeof window !== 'undefined'
+    && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+}
+
+// Layer placement rule (spec): ABOVE parcel/dot/tract fills, BELOW basemap
+// symbol/label layers, so road/place labels and pins stay readable over
+// the dim. All layers this app draws are added at runtime (the raster
+// basemap itself has none), so "first symbol layer currently in the
+// style" is whichever label layer this component happened to add first —
+// correct as long as this is computed AFTER the other layer-creation
+// effects have run (it is; see the mount-order comment on the veil
+// layer-setup effect below).
+function firstSymbolLayerId(map: maplibregl.Map): string | undefined {
+  const layers = map.getStyle()?.layers || []
+  return layers.find((l: any) => l.type === 'symbol')?.id
+}
+
+/** World-covering polygon with one hole per outer ring of the selected
+ *  parcel's geometry (Polygon → one hole; MultiPolygon → one per piece) —
+ *  i.e. "dim everything except the parcel." */
+function buildVeilFeatureCollection(
+  geometry: GeoJSON.Polygon | GeoJSON.MultiPolygon,
+): GeoJSON.FeatureCollection {
+  const holes: GeoJSON.Position[][] = []
+  const addHole = (ring: GeoJSON.Position[] | undefined) => {
+    if (!ring || ring.length < 3) return
+    const first = ring[0]
+    const last = ring[ring.length - 1]
+    const closed = (first[0] === last[0] && first[1] === last[1]) ? ring : [...ring, first]
+    holes.push(closed)
+  }
+  if (geometry.type === 'Polygon') {
+    addHole(geometry.coordinates[0])
+  } else {
+    for (const poly of geometry.coordinates) addHole(poly[0])
+  }
+  return {
+    type: 'FeatureCollection',
+    features: [{
+      type: 'Feature',
+      properties: {},
+      geometry: { type: 'Polygon', coordinates: [VEIL_WORLD_RING, ...holes] },
+    }],
+  }
+}
+
+/** Same geometry, no holes — the pink highlight drawn over the parcel. */
+function buildSelectFeatureCollection(
+  geometry: GeoJSON.Polygon | GeoJSON.MultiPolygon,
+): GeoJSON.FeatureCollection {
+  return {
+    type: 'FeatureCollection',
+    features: [{ type: 'Feature', properties: {}, geometry }],
+  }
+}
+
+function setVeilOpacityTransition(map: maplibregl.Map, durationMs: number): void {
+  try { map.setPaintProperty(VEIL_FILL_LAYER, 'fill-opacity-transition', { duration: durationMs, delay: 0 }) } catch {/* layer gone */}
+}
+
 // Pin colors by sale status (matching mobile app)
 const PIN_COLORS: Record<string, string> = {
   sold: '#f58cde',
@@ -1821,6 +1908,26 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // the soil/crop popup). A single click collects features from all visible
   // tile layers and passes them here as bucketed props.
   const [landDetail, setLandDetail] = useState<LandDetailClickData | null>(null)
+
+  // ── Parcel Spotlight veil refs (see the layer-setup + reactive effects
+  // near the bottom of the component, and handleParcelGeometryResolved) ──
+  // Always mirrors `landDetail` — read inside imperative map callbacks
+  // (handleParcelGeometryResolved) that can't close over the latest state
+  // directly.
+  const landDetailRef = useRef<LandDetailClickData | null>(null)
+  // Identity (by clickData object reference — a fresh object per click,
+  // same pattern LandDetailPanel's own settledForRef uses) of the parcel
+  // selection the veil sources CURRENTLY render. null = veil hidden.
+  const veilKeyRef = useRef<LandDetailClickData | null>(null)
+  // In-flight setTimeout for the fade-out-then-clear / dip sequences, so a
+  // rapid selection change can cancel a still-pending step instead of
+  // racing it.
+  const veilTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Regrid parcel-fill hover highlight (task #24) must be suppressed while
+  // Parcel Spotlight is active — see the effect below and the onMove/
+  // onLeave handlers in the Regrid source/layers effect.
+  const parcelSelectionActiveRef = useRef(false)
+  const hoveredParcelPathRef = useRef<string | null>(null)
 
   // Entering or exiting comparables mode invalidates the bbox tract
   // cache — the sold-only filter (and the eventual sale_status change)
@@ -4503,36 +4610,85 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // Keep native marker layers above the polygons we just lifted.
     liftMarkerLayers(map)
 
+    // Parcel Spotlight veil bug fix (2026-08-15 regression), 2nd half — see
+    // the matching comment on the veil's own layer-setup effect near the
+    // bottom of this component for the full race explanation. That effect
+    // now prefers 'regrid-parcels-line' as its beforeId when this effect
+    // already won the race; this half covers the opposite ordering (veil
+    // effect ran first, before regrid-parcels-line existed, so its
+    // firstSymbolLayerId() fallback landed the veil above the basemap but
+    // below every overlay/parcel fill added afterward). Once
+    // regrid-parcels-line exists (guaranteed here), reposition the veil
+    // group to sit directly below it — above every parcel/overlay fill
+    // (matching the veil's own "ABOVE parcel/dot/tract fills" spec), below
+    // the boundary lines/labels that must stay readable over the dim.
+    // Idempotent and a safe no-op if the veil hasn't been created yet
+    // (this effect won the race — the other half then lands it correctly).
+    //
+    // Self-healing, staggered retries (2026-08-15, same regression): a
+    // single synchronous correction here — even deferred one rAF — was
+    // measured to NOT reliably stick. Initial mount fires a dozen-plus
+    // layer-creation effects (soils, nccpi, fsa, tract polygons, sale
+    // dots, this one) back to back, and something in that burst keeps
+    // re-landing above the veil after a single corrective pass. Retrying
+    // the same idempotent moveLayer on a short staggered schedule (next
+    // frame, then a few more times over ~3s) guarantees the LAST
+    // correction wins once the mount burst has genuinely settled, without
+    // having to prove exactly which later effect was the culprit. Each
+    // pass is 4 cheap moveLayer calls — imperceptible even run several
+    // times. try/catch + getStyle() guard covers the map having been
+    // torn down before a later retry fires.
+    const correctVeilPosition = () => {
+      try {
+        if (!map.getStyle()) return
+        if (map.getLayer('regrid-parcels-line')) {
+          for (const id of [VEIL_FILL_LAYER, SELECT_FILL_LAYER, SELECT_GLOW_LAYER, SELECT_LINE_LAYER]) {
+            if (map.getLayer(id)) map.moveLayer(id, 'regrid-parcels-line')
+          }
+        }
+      } catch {/* map torn down between schedule and fire */}
+    }
+    requestAnimationFrame(correctVeilPosition)
+    for (const delay of [100, 300, 800, 1500, 3000]) {
+      setTimeout(correctVeilPosition, delay)
+    }
+
     // Hover highlight — track which feature is under the cursor so
     // the fill brightens on hover. `path` promotion above (NOT ll_uuid,
     // which custom Regrid tiles never populate on tile features) means
     // setFeatureState targets the parcel reliably even across tiles.
-    let hoveredPath: string | null = null
+    // hoveredParcelPathRef (component-level, not a local var) so Parcel
+    // Spotlight's activation effect can clear a stuck hover highlight the
+    // instant a selection opens — see that effect near the bottom of the
+    // component.
     const onMove = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
       if (!e.features?.length) return
       map.getCanvas().style.cursor = 'pointer'
+      // Parcel Spotlight active: the pink selection layers replace this
+      // highlight, so don't paint a second, competing one underneath them.
+      if (parcelSelectionActiveRef.current) return
       const newPath = (e.features[0].properties as any)?.path as string | undefined
-      if (!newPath || newPath === hoveredPath) return
-      if (hoveredPath) {
+      if (!newPath || newPath === hoveredParcelPathRef.current) return
+      if (hoveredParcelPathRef.current) {
         map.setFeatureState(
-          { source: SOURCE_ID, sourceLayer: sourceLayer, id: hoveredPath },
+          { source: SOURCE_ID, sourceLayer: sourceLayer, id: hoveredParcelPathRef.current },
           { hover: false },
         )
       }
-      hoveredPath = newPath
+      hoveredParcelPathRef.current = newPath
       map.setFeatureState(
-        { source: SOURCE_ID, sourceLayer: sourceLayer, id: hoveredPath },
+        { source: SOURCE_ID, sourceLayer: sourceLayer, id: hoveredParcelPathRef.current },
         { hover: true },
       )
     }
     const onLeave = () => {
       map.getCanvas().style.cursor = ''
-      if (hoveredPath) {
+      if (hoveredParcelPathRef.current) {
         map.setFeatureState(
-          { source: SOURCE_ID, sourceLayer: sourceLayer, id: hoveredPath },
+          { source: SOURCE_ID, sourceLayer: sourceLayer, id: hoveredParcelPathRef.current },
           { hover: false },
         )
-        hoveredPath = null
+        hoveredParcelPathRef.current = null
       }
     }
 
@@ -4555,6 +4711,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       if (clickClaimedByLayers(map, e.point, topPinLayers)) return
       const parcelProps: any = f.properties || {}
       const ll_uuid = (parcelProps.ll_uuid as string | undefined) || null
+      // Parcel Spotlight veil: this IS the tile-clipped geometry (see the
+      // interface comment on LandDetailClickData.tileGeometry) — the only
+      // click site where queryRenderedFeatures hands us the polygon
+      // directly, since every other 'parcel'-source click is on a Point
+      // (sale-dot) layer.
+      const rawGeom = f.geometry as GeoJSON.Geometry | undefined
+      const tileGeometry: GeoJSON.Polygon | GeoJSON.MultiPolygon | null =
+        (rawGeom && (rawGeom.type === 'Polygon' || rawGeom.type === 'MultiPolygon')) ? rawGeom : null
 
       // Also query soil layers and CSB at the same point so the panel
       // gets point-specific soil type and crop history.
@@ -4599,6 +4763,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         clickLat: e.lngLat.lat,
         activeOverlay: baseOverlayRef.current,
         source: 'parcel',
+        tileGeometry,
       })
     }
 
@@ -4971,6 +5136,21 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       setSelectedSale(null)
       setCompPopup(null)
       onLandDetailOpen?.()
+      // Parcel Spotlight veil: this "+" pin's OWN tile feature is a Point
+      // (no polygon to punch a hole with), but the pin sits on top of the
+      // Regrid parcel-fill polygon underneath it — an extra same-point
+      // query against that layer gets the veil its immediate tile-clipped
+      // geometry too, instead of leaving it dark until the authoritative
+      // fetch resolves (defect: veil absent through the whole loading
+      // phase for every sale-dot click).
+      let tileGeometry: GeoJSON.Polygon | GeoJSON.MultiPolygon | null = null
+      try {
+        if (map.getLayer('regrid-parcels-fill')) {
+          const underFeat = map.queryRenderedFeatures(e.point, { layers: ['regrid-parcels-fill'] })[0]
+          const g = underFeat?.geometry as GeoJSON.Geometry | undefined
+          if (g && (g.type === 'Polygon' || g.type === 'MultiPolygon')) tileGeometry = g
+        }
+      } catch {/* layer torn down mid-click */}
       setLandDetail({
         parcelProps: props,
         soilProps: null,
@@ -4984,6 +5164,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         clickLat: lat,
         activeOverlay: baseOverlayRef.current,
         source: 'parcel',
+        tileGeometry,
       })
     }
     const setPointer = () => { map.getCanvas().style.cursor = 'pointer' }
@@ -5363,6 +5544,19 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         setSelectedSale(null)
         setCompPopup(null)
         onLandDetailOpen?.()
+        // Parcel Spotlight veil: same fix as PARCEL_SALE_PLUS_LAYER above —
+        // this dot's own tile feature is a Point, but the Regrid parcel
+        // fill polygon underneath it is one extra same-point query away,
+        // so the veil doesn't have to sit dark through the whole loading
+        // phase waiting on the authoritative fetch.
+        let tileGeometry: GeoJSON.Polygon | GeoJSON.MultiPolygon | null = null
+        try {
+          if (map.getLayer('regrid-parcels-fill')) {
+            const underFeat = map.queryRenderedFeatures(e.point, { layers: ['regrid-parcels-fill'] })[0]
+            const g = underFeat?.geometry as GeoJSON.Geometry | undefined
+            if (g && (g.type === 'Polygon' || g.type === 'MultiPolygon')) tileGeometry = g
+          }
+        } catch {/* layer torn down mid-click */}
         setLandDetail({
           parcelProps: { ll_uuid: props.id, centroid_lat: lat, centroid_lng: lng },
           soilProps: null,
@@ -5374,6 +5568,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           clickLat: lat,
           activeOverlay: baseOverlayRef.current,
           source: 'parcel',
+          tileGeometry,
         })
         // Owner spec 2026-07-02: strong zoom-in ALONGSIDE the details panel
         // (not either/or) — z14.5 puts the parcel + its labels on screen.
@@ -8392,6 +8587,232 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
   }, [mapLoaded, hasActiveFilters])
 
+  // ─────────────────────────────────────────────────────────────────
+  // Parcel Spotlight veil (owner-approved 2026-08-15). Sources/layers are
+  // created ONCE, here, and torn down in this same effect's cleanup.
+  //
+  // Bug fix (2026-08-15 regression, "veil never renders"): this effect
+  // only depends on `mapLoaded`, but the Regrid parcel layers (and the
+  // soil/tillable overlay fills) depend on `mapLoaded && regridConfig` —
+  // regridConfig is an extra async fetch, so on a real page load which of
+  // these two effects runs FIRST is a genuine race, not a fixed order.
+  // Declaration order in this file does NOT decide it (that was the
+  // previous, incorrect assumption here — effects fire in declaration
+  // order only within the same commit; these two fire on whichever
+  // render each one's own deps first become truthy on, which differ).
+  // When the veil effect wins the race, firstSymbolLayerId(map) finds no
+  // real symbol layer yet (the only layers that exist are the raster
+  // basemap + line borders) and returns undefined, so the veil gets
+  // appended at the CURRENT top of the stack — which every layer added by
+  // every later effect (with no beforeId of its own) then piles on top
+  // of, burying the veil under every parcel fill and every soil/tillable
+  // overlay fill permanently. regrid-parcels-fill is near-invisible so
+  // this went unnoticed; any overlay fill toggled on paints solid color
+  // right over the dim and the veil reads as "never rendering."
+  // Fix, two-sided so it's correct regardless of which effect wins:
+  //   1. Here: prefer 'regrid-parcels-line' as beforeId when it already
+  //      exists (this effect lost the race) — lands the veil correctly on
+  //      the very first paint.
+  //   2. In the Regrid layer-registration effect above (search "Parcel
+  //      Spotlight veil bug fix"): once regrid-parcels-line exists,
+  //      reposition the veil group there if it was already created (this
+  //      effect won the race) — corrects it after the fact.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+    if (map.getSource(VEIL_SOURCE_ID)) return // already set up
+
+    const beforeId = map.getLayer('regrid-parcels-line') ? 'regrid-parcels-line' : firstSymbolLayerId(map)
+
+    map.addSource(VEIL_SOURCE_ID, { type: 'geojson', data: EMPTY_FC })
+    map.addSource(SELECT_SOURCE_ID, { type: 'geojson', data: EMPTY_FC })
+
+    // Veil fill — opacity starts at 0 and is only ever changed via
+    // setPaintProperty (see showOrMoveVeil/hideVeil below), each preceded
+    // by a matching fill-opacity-transition so every state change animates
+    // at the spec'd duration (or instantly under reduced motion).
+    map.addLayer({
+      id: VEIL_FILL_LAYER,
+      type: 'fill',
+      source: VEIL_SOURCE_ID,
+      paint: { 'fill-color': VEIL_COLOR, 'fill-opacity': 0 },
+    }, beforeId)
+
+    // Selected-parcel highlight: fill, then a wide/blurred glow line, then
+    // a crisp line on top of the glow. No click handler on any of these —
+    // fill layers don't intercept pointer events unless one is attached,
+    // so clicks pass straight through to the parcel-fill layer underneath.
+    map.addLayer({
+      id: SELECT_FILL_LAYER,
+      type: 'fill',
+      source: SELECT_SOURCE_ID,
+      paint: { 'fill-color': SELECT_COLOR, 'fill-opacity': 0.12 },
+    }, beforeId)
+    map.addLayer({
+      id: SELECT_GLOW_LAYER,
+      type: 'line',
+      source: SELECT_SOURCE_ID,
+      paint: { 'line-color': SELECT_COLOR, 'line-width': 6, 'line-blur': 4, 'line-opacity': 0.5 },
+    }, beforeId)
+    map.addLayer({
+      id: SELECT_LINE_LAYER,
+      type: 'line',
+      source: SELECT_SOURCE_ID,
+      paint: { 'line-color': SELECT_COLOR, 'line-width': 2.5, 'line-opacity': 1 },
+    }, beforeId)
+
+    return () => {
+      if (veilTimerRef.current) { clearTimeout(veilTimerRef.current); veilTimerRef.current = null }
+      veilKeyRef.current = null
+      try {
+        if (!map.getStyle()) return
+        for (const id of [SELECT_LINE_LAYER, SELECT_GLOW_LAYER, SELECT_FILL_LAYER, VEIL_FILL_LAYER]) {
+          if (map.getLayer(id)) map.removeLayer(id)
+        }
+        for (const id of [SELECT_SOURCE_ID, VEIL_SOURCE_ID]) {
+          if (map.getSource(id)) map.removeSource(id)
+        }
+      } catch {
+        // map already torn down
+      }
+    }
+  }, [mapLoaded])
+
+  // Imperative veil transitions. Both are stable (empty deps — everything
+  // they touch is a ref or a map/module constant) so they're safe to hand
+  // to LandDetailPanel as a prop without retriggering its fetch effect.
+  const showOrMoveVeil = useCallback((
+    geometry: GeoJSON.Polygon | GeoJSON.MultiPolygon,
+    key: LandDetailClickData,
+    opts: { silent?: boolean } = {},
+  ) => {
+    const map = mapRef.current
+    if (!map || !map.getSource(VEIL_SOURCE_ID)) return
+    const veilSrc = map.getSource(VEIL_SOURCE_ID) as maplibregl.GeoJSONSource
+    const selectSrc = map.getSource(SELECT_SOURCE_ID) as maplibregl.GeoJSONSource
+    if (veilTimerRef.current) { clearTimeout(veilTimerRef.current); veilTimerRef.current = null }
+
+    if (opts.silent) {
+      // Authoritative geometry replacing this SAME selection's already-
+      // shown tile-clipped shape — a silent shape correction, no
+      // animation (spec point 3: "REPLACE the source data").
+      veilSrc.setData(buildVeilFeatureCollection(geometry))
+      selectSrc.setData(buildSelectFeatureCollection(geometry))
+      veilKeyRef.current = key
+      return
+    }
+
+    const reduced = veilPrefersReducedMotion()
+    const isMove = veilKeyRef.current !== null && veilKeyRef.current !== key
+
+    if (isMove && !reduced) {
+      // 150ms dip: ease down, swap geometry at the bottom (hidden by the
+      // dim, so the shape change itself is never visible), ease back up.
+      setVeilOpacityTransition(map, VEIL_DIP_STEP_MS)
+      try { map.setPaintProperty(VEIL_FILL_LAYER, 'fill-opacity', VEIL_DIP_OPACITY) } catch {/* */}
+      veilTimerRef.current = setTimeout(() => {
+        veilSrc.setData(buildVeilFeatureCollection(geometry))
+        selectSrc.setData(buildSelectFeatureCollection(geometry))
+        setVeilOpacityTransition(map, VEIL_DIP_STEP_MS)
+        try { map.setPaintProperty(VEIL_FILL_LAYER, 'fill-opacity', VEIL_MAX_OPACITY) } catch {/* */}
+        veilTimerRef.current = null
+      }, VEIL_DIP_STEP_MS)
+      veilKeyRef.current = key
+      return
+    }
+
+    // OPEN (veil currently hidden), or a move under reduced motion: set
+    // the new geometry immediately and fade/snap the opacity to target.
+    veilSrc.setData(buildVeilFeatureCollection(geometry))
+    selectSrc.setData(buildSelectFeatureCollection(geometry))
+    setVeilOpacityTransition(map, reduced ? 0 : VEIL_FADE_IN_MS)
+    try { map.setPaintProperty(VEIL_FILL_LAYER, 'fill-opacity', VEIL_MAX_OPACITY) } catch {/* */}
+    veilKeyRef.current = key
+  }, [])
+
+  const hideVeil = useCallback(() => {
+    const map = mapRef.current
+    veilKeyRef.current = null
+    if (veilTimerRef.current) { clearTimeout(veilTimerRef.current); veilTimerRef.current = null }
+    if (!map || !map.getSource(VEIL_SOURCE_ID)) return
+    const reduced = veilPrefersReducedMotion()
+    setVeilOpacityTransition(map, reduced ? 0 : VEIL_FADE_OUT_MS)
+    try { map.setPaintProperty(VEIL_FILL_LAYER, 'fill-opacity', 0) } catch {/* */}
+    const clearData = () => {
+      const veilSrc = map.getSource(VEIL_SOURCE_ID) as maplibregl.GeoJSONSource | undefined
+      const selectSrc = map.getSource(SELECT_SOURCE_ID) as maplibregl.GeoJSONSource | undefined
+      veilSrc?.setData(EMPTY_FC)
+      selectSrc?.setData(EMPTY_FC)
+      veilTimerRef.current = null
+    }
+    if (reduced) clearData()
+    else veilTimerRef.current = setTimeout(clearData, VEIL_FADE_OUT_MS)
+  }, [])
+
+  // Reactive: mirrors `landDetail` into landDetailRef (race-guard for
+  // handleParcelGeometryResolved below) and drives the veil's fast-
+  // feedback path — open/move using the click's own tile-clipped geometry
+  // when the click site had one, close whenever the panel isn't showing a
+  // parcel (closed entirely, or an overlay-only soil/CSB click). Sale-dot
+  // 'parcel' clicks carry no tileGeometry (their tile feature is a Point,
+  // not the parcel polygon) — those leave the veil exactly as it was
+  // until handleParcelGeometryResolved's authoritative geometry lands.
+  useEffect(() => {
+    landDetailRef.current = landDetail
+    parcelSelectionActiveRef.current = !!(landDetail && landDetail.source === 'parcel')
+
+    if (!landDetail || landDetail.source !== 'parcel') {
+      if (veilKeyRef.current !== null) hideVeil()
+      return
+    }
+
+    // Suppress any stuck Regrid hover highlight the instant a selection
+    // opens (spec point 2) — the pink selection layers own this parcel's
+    // emphasis now.
+    const map = mapRef.current
+    if (map && hoveredParcelPathRef.current) {
+      try {
+        map.setFeatureState(
+          { source: 'regrid-parcels', sourceLayer: regridConfig?.source_layer || 'parcels', id: hoveredParcelPathRef.current },
+          { hover: false },
+        )
+      } catch {/* source/layer not ready */}
+      hoveredParcelPathRef.current = null
+    }
+
+    if (landDetail.tileGeometry) {
+      showOrMoveVeil(landDetail.tileGeometry, landDetail)
+    }
+  }, [landDetail, regridConfig, showOrMoveVeil, hideVeil])
+
+  // Fired by LandDetailPanel once ITS OWN /api/regrid/parcel fetch settles
+  // with the authoritative `_geometry` (or null). Stable identity (useCallback)
+  // so passing it as a prop never retriggers the panel's fetch effect.
+  const handleParcelGeometryResolved = useCallback((
+    geometry: GeoJSON.Polygon | GeoJSON.MultiPolygon | null,
+    forClickData: LandDetailClickData,
+  ) => {
+    // Stale resolution from a click the user has since moved on from
+    // (closed the panel, or selected a different parcel) — ignore.
+    if (landDetailRef.current !== forClickData) return
+    if (!geometry) {
+      // No authoritative geometry at all for the CURRENT selection. If the
+      // veil is showing this selection's own tile-clipped shape already,
+      // leave it — that's still a real (if seam-prone) hole, better than
+      // nothing. Otherwise (veil hidden, or still showing a stale prior
+      // parcel) there is truly no geometry to show: hide it (spec point 3:
+      // "no veil, panel opens normally").
+      if (veilKeyRef.current !== forClickData) hideVeil()
+      return
+    }
+    // Already showing THIS selection's tile geometry → silent shape
+    // correction. Otherwise (veil hidden, or showing a different parcel —
+    // the sale-dot-click path, which had no immediate geometry) → a normal
+    // open/move transition.
+    const silent = veilKeyRef.current === forClickData
+    showOrMoveVeil(geometry, forClickData, { silent })
+  }, [showOrMoveVeil, hideVeil])
+
   const getStatusLabel = (status: string | null | undefined) => {
     if (!status) return 'Unknown'
     switch (status.toLowerCase()) {
@@ -8630,6 +9051,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       <LandDetailPanel
         clickData={landDetail}
         onClose={() => setLandDetail(null)}
+        onGeometryResolved={handleParcelGeometryResolved}
       />
 
       {/* Goat Search animation overlay — renders while a chat-driven

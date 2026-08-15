@@ -218,11 +218,32 @@ export interface LandDetailClickData {
       empty state is a legitimate, expected result there, not a failure).
       Defaults to 'parcel' for any call site that doesn't set it. */
   source?: 'parcel' | 'overlay'
+  /** Parcel Spotlight veil (2026-08-15): the TILE-CLIPPED geometry of the
+      clicked feature, when the click landed on the Regrid parcel-fill
+      layer directly (queryRenderedFeatures gives us the polygon for free
+      at click time). A parcel crossing a tile boundary yields a partial
+      ring here — good enough for immediate "fast feedback" veil placement,
+      but ExploreMap replaces it with the authoritative rings once
+      `onGeometryResolved` fires below. null/undefined for every other
+      'parcel'-source call site (sale-dot clicks only carry a Point on the
+      tile, not the parcel polygon) — those rely on `onGeometryResolved`
+      alone. */
+  tileGeometry?: GeoJSON.Polygon | GeoJSON.MultiPolygon | null
 }
 
 interface LandDetailPanelProps {
   clickData: LandDetailClickData | null
   onClose: () => void
+  /** Parcel Spotlight veil (2026-08-15): fired once this click's own
+      /api/regrid/parcel fetch has settled (success, miss, or error) with
+      the record's authoritative `_geometry` — or null if none is
+      available. `forClickData` is the exact `clickData` object this
+      resolution belongs to; ExploreMap must ignore any call where that no
+      longer matches the current selection (the user already moved on). */
+  onGeometryResolved?: (
+    geometry: GeoJSON.Polygon | GeoJSON.MultiPolygon | null,
+    forClickData: LandDetailClickData,
+  ) => void
 }
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
@@ -271,7 +292,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export default function LandDetailPanel({ clickData, onClose }: LandDetailPanelProps) {
+export default function LandDetailPanel({ clickData, onClose, onGeometryResolved }: LandDetailPanelProps) {
   const [regridData, setRegridData] = useState<any>(null)
   const [enrichData, setEnrichData] = useState<any>(null)
   const [loading, setLoading] = useState(false)
@@ -298,6 +319,14 @@ export default function LandDetailPanel({ clickData, onClose }: LandDetailPanelP
   // actually finished, regardless of what `loading` (which can lag a
   // render behind setLoading(true)) looks like on an intermediate render.
   const settledForRef = useRef<LandDetailClickData | null>(null)
+
+  // Parcel Spotlight veil: latest onGeometryResolved prop, read from a ref
+  // inside fetchData so the callback's identity doesn't have to be a
+  // useCallback dependency of fetchData itself — fetchData is deliberately
+  // deps-free (see below) so the fetch-effect only reruns on a genuine
+  // clickData change, never on an unrelated parent re-render.
+  const onGeometryResolvedRef = useRef(onGeometryResolved)
+  useEffect(() => { onGeometryResolvedRef.current = onGeometryResolved }, [onGeometryResolved])
 
   // "Email me this report" / "Download report" — single-parcel PDF, mirrors
   // TractDetailActionBar's handlers in PortalTractDetail.tsx. Backend
@@ -461,6 +490,13 @@ export default function LandDetailPanel({ clickData, onClose }: LandDetailPanelP
           .then(r => r.ok ? r.json() : null).catch(() => null)
       : Promise.resolve(null)
 
+    // Parcel Spotlight veil: the authoritative polygon/multipolygon this
+    // fetch resolves, if any. Reported to ExploreMap in `finally` below
+    // regardless of outcome — null tells the map "don't/stop showing a
+    // veil for this selection" just as clearly as a real geometry tells
+    // it what hole to punch.
+    let resolvedGeometry: GeoJSON.Polygon | GeoJSON.MultiPolygon | null = null
+
     try {
       const [regridRes, enrich] = await Promise.all([
         qs.toString() ? fetchWithAuth(`${API_URL}/api/regrid/parcel?${qs.toString()}`).catch(() => null) : Promise.resolve(null),
@@ -475,6 +511,10 @@ export default function LandDetailPanel({ clickData, onClose }: LandDetailPanelP
         // lat/lng branch above); harmless to set otherwise since the
         // effective id always prefers clickData.ll_uuid when present.
         setFetchedLlUuid(parcel?.ll_uuid || null)
+        const geom = parcel?._geometry
+        if (geom && (geom.type === 'Polygon' || geom.type === 'MultiPolygon')) {
+          resolvedGeometry = geom
+        }
       }
       setEnrichData(enrich)
     } catch {
@@ -487,6 +527,7 @@ export default function LandDetailPanel({ clickData, onClose }: LandDetailPanelP
       // triggered by this write always sees the up-to-date regridData/
       // enrichData alongside settledForRef.current === data.
       settledForRef.current = data
+      onGeometryResolvedRef.current?.(resolvedGeometry, data)
     }
   }, [])
 
@@ -672,16 +713,29 @@ export default function LandDetailPanel({ clickData, onClose }: LandDetailPanelP
 
   return (
     <>
-      {/* Backdrop — clicking it closes the panel */}
+      {/* Backdrop — inert (bug fix 2026-08-15). This used to sit
+          `inset:0` over the WHOLE map with pointerEvents:'auto' any time
+          the panel was open, which put it above the MapLibre canvas in
+          the DOM/paint order for the panel's entire z-index-19 footprint —
+          not just the strip to the right of the 380px panel. A DOM click
+          hits whichever element is topmost at that pixel, so every click
+          meant for the map underneath (a different parcel's fill, a
+          tract, a sale dot) was being swallowed here and turned into
+          onClose() before MapLibre's own canvas ever saw a 'click' event —
+          the panel closed instead of switching to the newly-clicked
+          parcel. pointerEvents is now unconditionally 'none': clicking a
+          different parcel/tract/dot now reaches the map and its own
+          handler (which already calls setLandDetail with the new
+          selection, or closes this panel itself when something
+          higher-priority wins). The one behavior this removes is
+          "click a blank, non-interactive patch of map to dismiss the
+          panel" — Escape and the X button (below) still close it. */}
       <div
-        onClick={onClose}
         style={{
           position: 'absolute',
           inset: 0,
           zIndex: 19,
-          pointerEvents: isOpen ? 'auto' : 'none',
-          // transparent — just catches clicks outside the panel
-          background: 'transparent',
+          pointerEvents: 'none',
           display: isOpen ? 'block' : 'none',
         }}
         aria-hidden="true"
