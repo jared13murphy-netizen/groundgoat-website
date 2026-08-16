@@ -213,7 +213,11 @@ export default function AdminUsersPage() {
 
   const fetchUsers = async (token: string) => {
     try {
-      const response = await fetch(`${API_URL}/api/admin/users?limit=200`, {
+      // No limit param — the endpoint used to default+cap at 200, which
+      // would silently drop every user past that ceiling with no error and
+      // no visual sign. The owner is about to cross 200 users; omitting
+      // `limit` now returns everyone (project rule: NO PAGINATION EVER).
+      const response = await fetch(`${API_URL}/api/admin/users`, {
         headers: { 'Authorization': `Bearer ${token}` },
       })
 
@@ -600,8 +604,16 @@ export default function AdminUsersPage() {
                           </button>
                         </td>
                         <td className="py-2 px-2">
+                          {/* total_monthly is always a monthly-equivalent now (backend
+                              divides every annual row by 12 — owner correction
+                              2026-08-16: annual rows store the FULL ANNUAL total, for
+                              every plan type, not just basic_state/premium_state). It
+                              used to pair the raw per-row price with a suffix keyed off
+                              subscriptions[0].billing_cycle, which mislabeled any user
+                              whose rows didn't all share one cycle. Always "/mo" now — the
+                              value is unconditionally monthly, so the label always matches it. */}
                           {user.total_monthly > 0 ? (
-                            <span className="text-green-400 text-xs">{formatCurrency(user.total_monthly)}/{user.subscriptions.length > 0 && user.subscriptions[0].billing_cycle === 'annual' ? 'yr' : 'mo'}</span>
+                            <span className="text-green-400 text-xs">{formatCurrency(user.total_monthly)}/mo</span>
                           ) : user.subscription_count > 0 ? (
                             <span className="text-orange-400 text-xs">$0</span>
                           ) : (

@@ -127,8 +127,12 @@ export default function AdminReportsPage() {
           <MetricCard
             icon={<DollarSign />}
             label="Monthly Revenue"
-            value={`$${(stats?.monthly_revenue || 0).toLocaleString()}`}
-            change="+12% vs last month"
+            value={`$${(stats?.mrr ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+            change={
+              stats?.trialing_count
+                ? `+ ${stats.trialing_count} trialing ($${(stats.trialing_mrr_potential ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/mo if they convert — not yet revenue)`
+                : 'Active subscriptions only — trials excluded'
+            }
             positive={true}
           />
         </div>

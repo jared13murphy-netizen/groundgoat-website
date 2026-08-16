@@ -61,7 +61,9 @@ export default function UserDetailPage() {
         }
 
         Promise.all([
-          fetchWithAuth(`${API_URL}/api/admin/users?limit=200`).then(r => r.json()),
+          // No limit: this page finds one user client-side, so a capped list
+          // silently 404s anyone outside the cap (users come back newest-first).
+          fetchWithAuth(`${API_URL}/api/admin/users`).then(r => r.json()),
           fetchWithAuth(`${API_URL}/api/admin/users/${id}/usage`).then(r => r.json()),
         ])
           .then(([usersData, usageData]) => {
