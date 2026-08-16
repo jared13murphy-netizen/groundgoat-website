@@ -50,14 +50,16 @@
  *
  * REGISTRY-GATED EXCEPTION (2026-08-15, step 3 of registry-gated map
  * filters): the backend now understands soilRatingMin/Max, pctTillableMin/
- * Max, and landTypes, but ONLY for states listed in GET /api/regrid/config's
- * parcel_data_states — everywhere else those params are still silently
- * ignored server-side, so the three fields above must keep hiding dots
- * there. Callers pass the resolved `parcelDataScope` (the single state the
- * CURRENT filter state is scoped to, or null) through this input; when it's
- * set, soilRating(Min/Max), pctTillable(Min/Max), and landTypes are
- * excluded from the hide check below because the backend actually honors
- * them for that state. This is additive to the block above, not a
+ * Max, tillableAcresMin/Max, and landTypes, but ONLY for states listed in
+ * GET /api/regrid/config's parcel_data_states — everywhere else those
+ * params are still silently ignored server-side, so the fields above must
+ * keep hiding dots there. Callers pass the resolved `parcelDataScope` (the
+ * single state the CURRENT filter state is scoped to, or null) through
+ * this input; when it's set, soilRating(Min/Max), pctTillable(Min/Max),
+ * tillableAcres(Min/Max), and landTypes are excluded from the hide check
+ * below because the backend actually honors them for that state (dots
+ * derive tillable_acres as acres * pct_tillable / 100 — see
+ * get_map_parcel_sale_dots in main.py). This is additive to the block above, not a
  * replacement — once a field's backend support goes nationwide, delete it
  * from the checks below same as before.
  * Mobile parity: apply the identical parcelDataScope carve-out to the .js
@@ -80,6 +82,12 @@ export interface ParcelDotsGateInput {
   soilRatingMax?: string | number | null
   pctTillableMin?: string | number | null
   pctTillableMax?: string | number | null
+  // Absolute tillable acres (not a percentage) — same registry-gated
+  // handling as pctTillableMin/Max above; the dots endpoint derives this
+  // from acres * pct_tillable / 100 and only does so within
+  // parcelDataScope. See the REGISTRY-GATED EXCEPTION note above.
+  tillableAcresMin?: string | number | null
+  tillableAcresMax?: string | number | null
   landTypes?: string[] | null
   listingType?: string | null
   pricePerAcreMin?: string | number | null
@@ -146,6 +154,7 @@ export function shouldHideParcelDotsForFilters(input: ParcelDotsGateInput): bool
     statusFilterExcludesSold(input.statuses) ||
     (!registryScoped && (input.soilRatingMin || input.soilRatingMax)) ||
     (!registryScoped && (input.pctTillableMin || input.pctTillableMax)) ||
+    (!registryScoped && (input.tillableAcresMin || input.tillableAcresMax)) ||
     (!registryScoped && input.landTypes && input.landTypes.length > 0) ||
     input.listingType ||
     input.pricePerAcreMin || input.pricePerAcreMax ||

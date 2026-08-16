@@ -867,6 +867,12 @@ interface FilterState {
   acreageMax: string
   pctTillableMin: string
   pctTillableMax: string
+  // Absolute tillable acres (not a percentage) — chat-only, no UI control
+  // yet. Same registry-gated handling as pctTillableMin/Max everywhere it
+  // appears (buildFilterParams, shouldHideParcelDotsForFilters, the
+  // registry-gated clear sites).
+  tillableAcresMin: string
+  tillableAcresMax: string
   statuses: string[]
   landTypes: string[]
   // Chat-driven filters (no UI control yet — surfaced via Goat Search).
@@ -919,6 +925,8 @@ const INITIAL_FILTERS: FilterState = {
   acreageMax: '',
   pctTillableMin: '',
   pctTillableMax: '',
+  tillableAcresMin: '',
+  tillableAcresMax: '',
   statuses: [],
   landTypes: [],
   listingType: '',
@@ -1043,6 +1051,12 @@ function buildFilterParams(filters: FilterState, parcelDataStates?: string[] | n
   // the parcel dots and drop the county circles to tract-only counts.
   if ((TILLABLE_FILTER_ENABLED || registryScoped) && filters.pctTillableMin) params.pct_tillable_min = filters.pctTillableMin
   if ((TILLABLE_FILTER_ENABLED || registryScoped) && filters.pctTillableMax) params.pct_tillable_max = filters.pctTillableMax
+  // Absolute tillable acres — same gate as pct_tillable above (see that
+  // comment): hidden control unless TILLABLE_FILTER_ENABLED or
+  // registryScoped, so a stray value can't silently filter dots/counts
+  // the user has no way to see or clear.
+  if ((TILLABLE_FILTER_ENABLED || registryScoped) && filters.tillableAcresMin) params.tillable_acres_min = filters.tillableAcresMin
+  if ((TILLABLE_FILTER_ENABLED || registryScoped) && filters.tillableAcresMax) params.tillable_acres_max = filters.tillableAcresMax
   if (filters.landTypes?.length > 0) params.land_types = filters.landTypes.join(',')
   // Chat-driven additions
   if (filters.listingType) params.listing_type = filters.listingType
@@ -2561,6 +2575,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       ...(incoming.soilRatingMax === undefined ? { soilRatingMax: '' } : {}),
       ...(incoming.pctTillableMin === undefined ? { pctTillableMin: '' } : {}),
       ...(incoming.pctTillableMax === undefined ? { pctTillableMax: '' } : {}),
+      ...(incoming.tillableAcresMin === undefined ? { tillableAcresMin: '' } : {}),
+      ...(incoming.tillableAcresMax === undefined ? { tillableAcresMax: '' } : {}),
       ...(incoming.landTypes === undefined ? { landTypes: [] } : {}),
     } : {}
     const nextFilters = { ...base, ...registryGatedReset, ...incoming }
@@ -3242,6 +3258,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       appliedFilters.pricePerSoilRatingMin !== '' || appliedFilters.pricePerSoilRatingMax !== '')) ||
     appliedFilters.acreageMin !== '' || appliedFilters.acreageMax !== '' ||
     (TILLABLE_FILTER_ENABLED && (appliedFilters.pctTillableMin !== '' || appliedFilters.pctTillableMax !== '')) ||
+    (TILLABLE_FILTER_ENABLED && (appliedFilters.tillableAcresMin !== '' || appliedFilters.tillableAcresMax !== '')) ||
     appliedFilters.statuses.length > 0 ||
     appliedFilters.landTypes.length > 0 ||
     appliedFilters.listingType !== '' ||
@@ -5830,6 +5847,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     mapLoaded, subjectTractId, hideParcelDotsForFilters,
     appliedFilters.soilRatingMin, appliedFilters.soilRatingMax,
     appliedFilters.pctTillableMin, appliedFilters.pctTillableMax,
+    appliedFilters.tillableAcresMin, appliedFilters.tillableAcresMax,
     appliedFilters.landTypes, appliedFilters.listingType,
     appliedFilters.pricePerAcreMin, appliedFilters.pricePerAcreMax,
     appliedFilters.askingPriceMin, appliedFilters.askingPriceMax,
@@ -6458,6 +6476,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // stops old, no-longer-matching dots from lingering on screen.
     appliedFilters.landTypes, appliedFilters.listingType,
     appliedFilters.pctTillableMin, appliedFilters.pctTillableMax,
+    appliedFilters.tillableAcresMin, appliedFilters.tillableAcresMax,
     appliedFilters.soilRatingMin, appliedFilters.soilRatingMax,
     appliedFilters.pricePerAcreMin, appliedFilters.pricePerAcreMax,
     appliedFilters.askingPriceMin, appliedFilters.askingPriceMax,
@@ -8617,6 +8636,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             soilRatingMax: '',
             pctTillableMin: '',
             pctTillableMax: '',
+            tillableAcresMin: '',
+            tillableAcresMax: '',
             landTypes: [],
           }
           // Direct set covers the panel-already-open case (the re-seed
@@ -9926,6 +9947,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                               soilRatingMax: '',
                               pctTillableMin: '',
                               pctTillableMax: '',
+                              tillableAcresMin: '',
+                              tillableAcresMax: '',
                               landTypes: [],
                             }
                             setFilters(newFilters)
