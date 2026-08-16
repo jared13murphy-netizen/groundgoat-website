@@ -17,6 +17,7 @@ const ACCOUNT_TYPES = [
 ]
 
 interface Subscription {
+  subscription_type: string | null
   county: string | null
   state: string
   status: string
@@ -376,6 +377,67 @@ export default function AdminUsersPage() {
     return <span className="text-gray-600">–</span>
   }
 
+  // Human-readable plan names — kept in sync with how the app already names
+  // these tiers elsewhere (mobile IAP config's "Basic State"/"Premium State",
+  // the website account page's getPlanLabel, and pricing.ts's "Management
+  // Firm"), not invented here.
+  const getPlanLabel = (type: string | null | undefined) => {
+    switch (type) {
+      case 'basic_state': return 'Basic State'
+      case 'premium_state': return 'Premium State'
+      case 'county': return 'County'
+      case 'state': return 'State'
+      case 'firm': return 'Management Firm'
+      default: return type || null
+    }
+  }
+
+  // Plan + scope in one cell (owner: keep the table scannable rather than
+  // adding more wide columns). Reads subscriptions[0] — the same primary
+  // row the Sub/Billing/Price columns already read, deterministically
+  // ordered by the backend's _subscription_display_order.
+  //
+  // firm_user members carry no subscription row of their own — the firm
+  // admin holds the Stripe subscription, per management_firm_id — so a
+  // firm_user with an empty subscriptions array is labeled from
+  // account_type instead of falling through to a bare "–", which would
+  // read as "no plan" when they actually have full firm-granted access.
+  const getPlanCell = (user: User) => {
+    const sub = user.subscriptions[0]
+    if (sub) {
+      const label = getPlanLabel(sub.subscription_type)
+      const scope = sub.subscription_type === 'firm'
+        ? null
+        : (sub.county ? `${sub.county} County, ${sub.state}` : sub.state)
+      return (
+        <div>
+          <span className="text-white text-xs">{label}</span>
+          {scope && <div className="text-gg-gray-500 text-[10px]">{scope}</div>}
+        </div>
+      )
+    }
+    if (user.account_type === 'firm_user') {
+      return <span className="text-gg-gray-400 text-xs">Firm (managed)</span>
+    }
+    return <span className="text-gg-gray-500 text-xs">–</span>
+  }
+
+  // Signup source badge next to the Sub cell. Reuses subscriptions[0]'s
+  // payment_method, which the backend derives from concrete evidence on
+  // the row (stripe_subscription_id / apple_original_transaction_id)
+  // rather than users.payment_source, since the two can disagree (an
+  // account created one way can carry a subscription paid the other way).
+  // A firm_user shows a plain label instead of guessing Stripe/Apple —
+  // they don't hold the billing relationship, their firm admin does.
+  const getSourceCell = (user: User) => {
+    const sub = user.subscriptions[0]
+    if (sub) return getPaymentSourceBadge(sub.payment_method)
+    if (user.account_type === 'firm_user') {
+      return <span className="text-gg-gray-600 text-[10px]" title="Billed via the firm admin's subscription">Firm-managed</span>
+    }
+    return <span className="text-gray-600">–</span>
+  }
+
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-US', {
       month: 'short',
@@ -531,6 +593,7 @@ export default function AdminUsersPage() {
                 <tr className="border-b border-gg-gray-700">
                   <th className="text-left py-2 px-2 text-gg-gray-400 font-medium text-xs">User</th>
                   <th className="text-left py-2 px-2 text-gg-gray-400 font-medium text-xs">Type</th>
+                  <th className="text-left py-2 px-2 text-gg-gray-400 font-medium text-xs">Plan</th>
                   <th className="text-left py-2 px-2 text-gg-gray-400 font-medium text-xs">Status</th>
                   <th className="text-left py-2 px-2 text-gg-gray-400 font-medium text-xs">Sub</th>
                   <th className="text-left py-2 px-2 text-gg-gray-400 font-medium text-xs">Price</th>
@@ -546,7 +609,7 @@ export default function AdminUsersPage() {
               <tbody>
                 {sortedUsers.length === 0 ? (
                   <tr>
-                    <td colSpan={canEdit ? 12 : 11} className="text-center py-8 text-gg-gray-400">
+                    <td colSpan={canEdit ? 13 : 12} className="text-center py-8 text-gg-gray-400">
                       No users found
                     </td>
                   </tr>
@@ -577,6 +640,9 @@ export default function AdminUsersPage() {
                           )}
                         </td>
                         <td className="py-2 px-2">
+                          {getPlanCell(user)}
+                        </td>
+                        <td className="py-2 px-2">
                           {editingUser === user.id ? (
                             <select
                               value={editForm.is_active ? 'active' : 'inactive'}
@@ -602,6 +668,7 @@ export default function AdminUsersPage() {
                             {getSubscriptionStatusBadge(user.subscription_status, user.subscription_count)}
                             {user.subscription_count > 0 && <span className="text-gg-gray-400 text-[10px] ml-1">({user.subscription_count})</span>}
                           </button>
+                          <div className="mt-1">{getSourceCell(user)}</div>
                         </td>
                         <td className="py-2 px-2">
                           {/* total_monthly is always a monthly-equivalent now (backend
@@ -714,7 +781,7 @@ export default function AdminUsersPage() {
                       {/* Expanded Subscription + Payment Details */}
                       {expandedUser === user.id && (
                         <tr key={`${user.id}-subs`} className="bg-gg-gray-800/30">
-                          <td colSpan={canEdit ? 12 : 11} className="py-3 px-8">
+                          <td colSpan={canEdit ? 13 : 12} className="py-3 px-8">
                             <div className="text-sm space-y-4">
                               {user.subscriptions && user.subscriptions.length > 0 && (
                                 <div>
