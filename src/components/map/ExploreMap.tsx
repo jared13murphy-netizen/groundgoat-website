@@ -32,6 +32,7 @@ import Tract3DModal from '@/components/Tract3DModal'
 import GroundTruthPanel from '@/components/portal/GroundTruthPanel'
 import NdviPanel from '@/components/portal/NdviPanel'
 import LandDetailPanel, { type LandDetailClickData, LAND_DETAIL_PANEL_WIDTH } from './LandDetailPanel'
+import { deriveParcelDetail, ParcelDetailSections, LandTypeBadges, PARCEL_DISCLAIMER_TEXT } from './parcelDetailFields'
 import { countyCentroids } from '@/data/countyCentroids'
 import { getCountiesForState } from '@/data/counties'
 import { STATE_ABBR, STATE_BOUNDS } from './mapConstants'
@@ -2060,6 +2061,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // For Regrid "+" parcels (no tract marker to re-project from on pan),
     // we stash the click lng/lat so onMove can keep the popup anchored.
     lngLat?: [number, number]
+    // Raw /api/regrid/parcel record (owner 2026-08-16: comp map parcel
+    // popup must show the same Land Composition / Soil Rating / Last Sale
+    // / Property / Assessed Value / Buildings / Mailing Address data as
+    // LandDetailPanel — see ParcelDetailSections in parcelDetailFields.tsx).
+    // null for a tract-pin popup (no Regrid record involved) and for a
+    // parcel/durable-dot popup until its fetch resolves.
+    record?: any | null
   } | null>(null)
   // Keep an OPEN CompInlinePopup's deeds live as owner resolution lands.
   // saleData.deeds (built at click time in the tract-pin/-polygon handler
@@ -5368,7 +5376,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             const enriched = buildParcelSale(rec)
             // Only patch if the user is still looking at THIS parcel's popup.
             setCompPopup(prev => (prev && prev.sale.id === parcelId)
-              ? { ...prev, sale: enriched } : prev)
+              ? { ...prev, sale: enriched, record: rec } : prev)
           } catch {/* keep the pin-derived popup */}
         })()
         return
@@ -5774,7 +5782,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               if (!rec) return
               const enriched = buildDurableSale(rec)
               setCompPopup(prev => (prev && prev.sale.id === parcelId)
-                ? { ...prev, sale: enriched } : prev)
+                ? { ...prev, sale: enriched, record: rec } : prev)
             } catch {/* keep the pin-derived popup */}
           })()
           return
@@ -9307,6 +9315,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       {compPopup && (
         <CompInlinePopup
           sale={compPopup.sale}
+          record={compPopup.record ?? null}
           pos={compPopup.pos}
           isSelected={!!(reportIds && reportIds.has(compPopup.sale.id))}
           onClose={() => setCompPopup(null)}
@@ -11157,10 +11166,17 @@ const FMT_DEED_DATE_COMP = (iso: string | null | undefined) => {
 }
 
 function CompInlinePopup({
-  sale, pos, isSelected,
+  sale, record, pos, isSelected,
   onClose, onView3D, onViewDetails, onAddToReport,
 }: {
   sale: SaleDetail
+  // Raw /api/regrid/parcel record — null for a tract-pin popup, or until a
+  // parcel/durable-dot popup's own fetch resolves. See ParcelDetailSections
+  // (parcelDetailFields.tsx): owner 2026-08-16, this modal must show the
+  // same Land Composition / Soil Rating / Last Sale / Property / Assessed
+  // Value / Buildings / Mailing Address data as LandDetailPanel does on the
+  // explore map, not just the summarized SaleDetail report row.
+  record: any | null
   pos: { x: number; y: number }
   isSelected: boolean
   onClose: () => void
@@ -11186,7 +11202,16 @@ function CompInlinePopup({
   ) : pos.x
 
   const ppa = sale.pricePerAcre
-  const rating = sale.soilRating
+
+  // Land Composition / Soil Rating / Last Sale / Property / Assessed Value /
+  // Buildings / Mailing Address fields — shared with LandDetailPanel (see
+  // parcelDetailFields.tsx) so this popup's data can't drift from the
+  // explore map's. `record` is null until this popup's own /api/regrid/
+  // parcel fetch resolves (or for a tract-pin popup, which has none), so
+  // these sections simply aren't present yet — same progressive-render
+  // behavior LandDetailPanel already has (its own "Loading parcel
+  // details…" state before regridData resolves).
+  const derived = deriveParcelDetail(record, null, null)
 
   // Headline = the property location/owner. Subhead = sale date.
   const locationLine = [sale.county, sale.state].filter(Boolean).join(', ') || 'Tract sale'
@@ -11271,6 +11296,9 @@ function CompInlinePopup({
                 {sale.township}
               </div>
             )}
+            {/* Land-type badges (Illinois parcels) — shared with
+                LandDetailPanel via parcelDetailFields.tsx. */}
+            <LandTypeBadges landTypes={derived.landTypes} />
           </div>
           <button
             onClick={onClose}
@@ -11334,21 +11362,26 @@ function CompInlinePopup({
         </div>
       )}
 
-      {/* Secondary detail rows — each is rendered only when its value
-          is present. Hides the whole section if nothing qualifies. */}
-      {(sale.auctionDate || rating != null || ownerLine) && (
-        <div style={{ padding: '12px 16px 14px' }}>
-          {sale.auctionDate && (
-            <CompPopupRow label="Sale date" value={FMT_DATE_COMP(sale.auctionDate)} />
-          )}
-          {rating != null && (
-            <CompPopupRow label="Soil rating" value={FMT_NUM_COMP(rating)} />
-          )}
-          {ownerLine && (
-            <CompPopupRow label="Owner" value={ownerLine} truncate />
-          )}
+      {/* Owner — pin-derived, available immediately (unlike the sections
+          below, which wait on this popup's own /api/regrid/parcel fetch). */}
+      {ownerLine && (
+        <div style={{ padding: '12px 16px 0' }}>
+          <CompPopupRow label="Owner" value={ownerLine} truncate />
         </div>
       )}
+
+      {/* Land Composition / Soil Rating / Last Sale / Property / Assessed
+          Value / Buildings / Mailing Address — owner 2026-08-16: "I would
+          like the data to be the same in the modal between the two maps".
+          Shared with LandDetailPanel via parcelDetailFields.tsx so the two
+          modals' data/order/formatting can't drift apart. */}
+      <ParcelDetailSections d={derived} />
+
+      {/* Disclaimer — owner-requested (2026-08-14), verbatim text (shared
+          constant, parcelDetailFields.tsx), do not edit. */}
+      <div style={{ padding: '10px 16px 4px', color: 'rgba(0,0,0,0.4)', fontSize: 11, lineHeight: 1.45 }}>
+        {PARCEL_DISCLAIMER_TEXT}
+      </div>
 
       {/* Recorded Deeds — comp-map coincident-dot collapse (see
           recomputeCoincidentDeeds above). A Regrid parcel sale-dot whose

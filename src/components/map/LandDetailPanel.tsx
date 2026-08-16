@@ -21,6 +21,11 @@ import { Mail, Download, Check, Loader2 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { formatAcres } from '@/lib/format'
 import { SOIL_FILTER_ENABLED } from '@/lib/featureFlags'
+import {
+  fmtMoney, fmtAcres,
+  PARCEL_DISCLAIMER_TEXT, deriveParcelDetail,
+  DetailRow, Section, LandTypeBadges, ParcelDetailSections,
+} from './parcelDetailFields'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -99,97 +104,10 @@ const CDL_PALETTE: Record<number, { name: string; color: string }> = {
   195: { name: 'Herbaceous Wetlands',   color: '#7CB3D6' },
 }
 
-// ─── Formatters (mirrors the module-level helpers in ExploreMap.tsx) ─────────
-
-function fmtMoney(n: any): string | null {
-  const v = typeof n === 'number' ? n : (n ? Number(n) : NaN)
-  if (!isFinite(v) || v === 0) return null
-  return '$' + Math.round(v).toLocaleString('en-US')
-}
-
-function fmtAcres(n: any): string | null {
-  const v = typeof n === 'number' ? n : (n ? Number(n) : NaN)
-  if (!isFinite(v) || v <= 0) return null
-  return v.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 2 }) + ' ac'
-}
-
-// Land Composition acres + Soil Rating value round to the owner-specified
-// precision (tenths) locally — the shared `formatAcres` (@/lib/format) goes
-// to 3dp and other screens depend on that, so it isn't touched here.
-function fmtAcres1(n: number): string {
-  return n.toFixed(1)
-}
-
-function fmtRating1(v: any): string {
-  const n = typeof v === 'number' ? v : Number(v)
-  return isFinite(n) ? n.toFixed(1) : String(v)
-}
-
-function fmtDate(s: any): string | null {
-  if (!s) return null
-  const d = new Date(String(s))
-  if (isNaN(d.getTime())) return String(s)
-  return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
-}
-
-const INSTRUMENT_LABELS: Record<string, string> = {
-  WD: 'Warranty Deed', SWD: 'Special Warranty Deed', GWD: 'General Warranty Deed',
-  QC: 'Quit Claim', QCD: 'Quit Claim Deed',
-  TR: 'Trust Transfer', TRD: 'Trust Deed', TRUST: 'Trust Transfer',
-  GFT: 'Gift Deed', GD: 'Gift Deed',
-  TXD: 'Tax Deed', TAX: 'Tax Deed',
-  CFD: 'Contract for Deed',
-  PR: 'Personal Representative Deed', PRD: 'Personal Representative Deed',
-  EXE: "Executor's Deed", ADM: "Administrator's Deed", SHF: "Sheriff's Deed",
-  REL: 'Release', CD: 'Correction Deed',
-  FORE: 'Foreclosure', AUC: 'Auction', ML: 'MLS',
-}
-function fmtSaleType(raw: any): string | null {
-  if (!raw) return null
-  const s = String(raw).trim()
-  if (!s) return null
-  const code = s.toUpperCase().replace(/[^A-Z]/g, '')
-  return INSTRUMENT_LABELS[code] || s
-}
-
-function firstNonEmpty(...vals: any[]): any {
-  for (const v of vals) {
-    if (v !== null && v !== undefined && String(v).trim() !== '') return v
-  }
-  return null
-}
-
-function titleCase(s: string): string {
-  if (!s) return ''
-  return s.toLowerCase().replace(/\b\w/g, c => c.toUpperCase())
-}
-
-function extractTownship(record: any): string {
-  const path: unknown = record?.path
-  if (typeof path !== 'string') return ''
-  const parts = path.split('/').filter(Boolean)
-  if (parts.length < 5) return ''
-  const slug = parts[3] || ''
-  if (!slug || slug === parts[2]) return ''
-  return titleCase(slug.replace(/-/g, ' '))
-}
-
-/**
- * Derive the state-correct soil rating label.
- * Logic mirrors the comment in ExploreMap:
- *   IA → CSR2, IL → PI, MN → CPI, else NCCPI
- * The enrichment endpoint returns the correct `soil_rating_type` string
- * directly; this fallback is for cases where we only have the state code
- * (e.g. from tile feature props before enrichment resolves).
- */
-function deriveRatingLabel(soilRatingType: string | null | undefined, state: string | null | undefined): string {
-  if (soilRatingType) return soilRatingType.toUpperCase()
-  const s = (state || '').toUpperCase()
-  if (s === 'IA') return 'CSR2'
-  if (s === 'IL') return 'PI'
-  if (s === 'MN') return 'CPI'
-  return 'NCCPI'
-}
+// Formatters, field derivation (deriveParcelDetail), and the "Land
+// Composition ... Mailing Address" section block are shared with
+// CompInlinePopup (ExploreMap.tsx, comp mode) — see parcelDetailFields.tsx.
+// Both modals render the SAME derivation + JSX so they can't drift apart.
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -249,50 +167,6 @@ interface LandDetailPanelProps {
     geometry: GeoJSON.Polygon | GeoJSON.MultiPolygon | null,
     forClickData: LandDetailClickData,
   ) => void
-}
-
-// ─── Sub-components ──────────────────────────────────────────────────────────
-
-function SectionHeader({ title }: { title: string }) {
-  return (
-    <div style={{
-      fontSize: 10,
-      fontWeight: 700,
-      letterSpacing: '0.8px',
-      textTransform: 'uppercase',
-      color: '#E91E8C',
-      marginBottom: 6,
-      marginTop: 2,
-    }}>
-      {title}
-    </div>
-  )
-}
-
-function DetailRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div style={{
-      display: 'flex',
-      justifyContent: 'space-between',
-      alignItems: 'baseline',
-      gap: 12,
-      padding: '5px 0',
-      fontSize: 12.5,
-      borderBottom: '1px solid rgba(0,0,0,0.05)',
-    }}>
-      <span style={{ color: '#888', fontWeight: 500, flexShrink: 0 }}>{label}</span>
-      <span style={{ color: '#1a1a1a', fontWeight: 600, textAlign: 'right', wordBreak: 'break-word' }}>{value}</span>
-    </div>
-  )
-}
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div style={{ padding: '10px 16px 4px' }}>
-      <SectionHeader title={title} />
-      {children}
-    </div>
-  )
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
@@ -554,45 +428,19 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
   const soilProps = clickData?.soilProps ?? {}
   const csbProps = clickData?.csbProps ?? {}
 
-  // ── Derived parcel fields ─────────────────────────────────────────────────
-  const owner = record?.owner || parcelProps?.owner || 'Unknown'
-  const county = titleCase(record?.county || parcelProps?.county || '')
-  const state = record?.state2 || record?.state || parcelProps?.state || parcelProps?.state_abbr || ''
-  const countyState = county
-    ? `${county} County${state ? ', ' + state : ''}`
-    : state || ''
-  const street = typeof record?.address === 'string' && record.address.trim()
-    ? record.address.trim()
-    : (typeof parcelProps?.address === 'string' ? parcelProps.address.trim() : '')
-  const township = extractTownship(record)
-
-  // ── Hero strip ─────────────────────────────────────────────────────────────
-  const gisacre: number | null = record?.ll_gisacre ?? record?.gisacre ?? parcelProps?.ll_gisacre ?? parcelProps?.gisacre ?? null
-  const saleprice = record?.saleprice ?? null
+  // Owner/county/state/street/township/land-types/hero-strip figures and
+  // every "Land Composition ... Mailing Address" section field/boolean are
+  // shared with CompInlinePopup (comp map) via parcelDetailFields.tsx so the
+  // two can't drift apart — same derivation, same precedence rules this
+  // component used inline before (see that file's deriveParcelDetail doc
+  // comment).
+  const derived = deriveParcelDetail(regridData, parcelProps, enrichData)
+  const { owner, county, state, countyState, street, township, landTypes,
+    gisacre, saleprice, ppa, ratingLabel, soilRating, soilRatingType,
+    tillableAcres, dominantLandcover } = derived
   const validSalePrice = typeof saleprice === 'number' && saleprice > 0
-  const ppa = (validSalePrice && typeof gisacre === 'number' && gisacre > 0) ? saleprice / gisacre : null
-
-  // ── Soil section ─────────────────────────────────────────────────────────
-  const ratingLabel = deriveRatingLabel(enrichData?.soil_rating_type, state)
-  const soilRating = enrichData?.soil_rating ?? regridData?.soil_rating ?? null
-  const soilRatingType = enrichData?.soil_rating_type ?? regridData?.soil_rating_type ?? null
-  const tillableAcres = enrichData?.tillable_acres ?? regridData?.tillable_acres ?? null
-  const pctTillable = enrichData?.pct_tillable ?? regridData?.pct_tillable ?? null
-  const dominantLandcover = enrichData?.dominant_landcover ?? null
   const soilBreakdown: Array<{ mukey?: string; soil?: string; acres?: number; pi?: number }> =
     Array.isArray(enrichData?.soils) ? enrichData.soils : []
-
-  // ── Land composition (Illinois parcels only — every field below is
-  // hide-when-null: a missing key means don't render, never 0 or '-'.
-  // Merges enrichment first, falls back to the Regrid record, same pattern
-  // as the soil fields above.) ────────────────────────────────────────────
-  const landTypes: string[] | null = enrichData?.land_types ?? regridData?.land_types ?? null
-  const pastureAcres = enrichData?.pasture_acres ?? regridData?.pasture_acres ?? null
-  const timberAcres = enrichData?.timber_acres ?? regridData?.timber_acres ?? null
-  const pctTimber = enrichData?.pct_timber ?? regridData?.pct_timber ?? null
-  const pondAcres = enrichData?.pond_acres ?? regridData?.pond_acres ?? null
-  const pctWater = enrichData?.pct_water ?? regridData?.pct_water ?? null
-  const backfillStatus = enrichData?.backfill_status ?? regridData?.backfill_status ?? null
 
   // Soil at clicked point (from the tile feature)
   const clickedMuname = soilProps?.muname || soilProps?.mukey || null
@@ -603,66 +451,7 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
   const CDL_YEARS = [2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024]
   const hasCropData = CDL_YEARS.some(yr => csbProps?.[`cdl${yr}`] && csbProps[`cdl${yr}`] !== 0)
 
-  // ── Regrid property fields ────────────────────────────────────────────────
-  const saledate = record?.saledate ?? null
-  const saleType = fmtSaleType(firstNonEmpty(
-    record?.salestype, record?.saletype, record?.sale_type,
-    record?.recordtype, record?.record_type,
-    record?.instrument, record?.instrumtyp, record?.instrumenttype,
-    record?.legaldoc, record?.transrec, record?.deed_type,
-    record?.deedtype, record?.s1deedtype, record?.deed,
-  ))
-  const previousOwner = typeof record?.previous_owner === 'string' && record.previous_owner.trim()
-    ? record.previous_owner.trim() : ''
-  const lastTransferDate = record?.last_ownership_transfer_date ?? null
-  const deeded = record?.deeded_acres ?? null
-  const usedescRaw = record?.usedesc
-  const usedesc = (typeof usedescRaw === 'string' && usedescRaw.trim() && !/^\d+$/.test(usedescRaw.trim()))
-    ? usedescRaw.trim() : ''
-  const zoningRaw = record?.zoning_description || record?.zoning || ''
-  const zoning = (typeof zoningRaw === 'string' && zoningRaw.trim() && !/^(no zoning|none|n\/a|na)$/i.test(zoningRaw.trim()))
-    ? zoningRaw.trim() : ''
-  const parval = record?.parval ?? null
-  const landval = record?.landval ?? null
-  const improvval = record?.improvval ?? null
-  const buildings = record?.ll_bldg_count ?? null
-  const bldgSqft = record?.ll_bldg_footprint_sqft ?? null
-  const yearbuilt = record?.yearbuilt ?? null
-
   const hasSoilData = clickedMuname || soilRating != null || tillableAcres != null || soilBreakdown.length > 0
-  // LAND COMPOSITION section (renamed from "Tillable"): backfill_status
-  // 'partial_pending' or no land-composition fields at all means the
-  // section simply doesn't render — no caveat text, it just isn't there.
-  // water hidden per owner 8/15 (engine pond recall unreliable) — restore when water detection is fixed.
-  const hasLandCompositionData =
-    tillableAcres != null || pastureAcres != null || timberAcres != null ||
-    !!dominantLandcover ||
-    pctTillable != null || pctTimber != null
-  const hasLandComposition = hasLandCompositionData && backfillStatus !== 'partial_pending'
-  // Soil Rating row is intentionally NOT gated by SOIL_FILTER_ENABLED (that
-  // flag only hides the old SSURGO section below) and not gated by the
-  // LAND COMPOSITION backfill check above — it renders on its own whenever
-  // both halves of the combined "PI 128"-style value are present.
-  const hasSoilRatingRow = soilRating != null && soilRatingType != null
-  const hasLastSale = !!(fmtDate(saledate) || saleType || lastTransferDate || previousOwner)
-  const hasProperty = !!(deeded || usedesc || zoning)
-  const hasAssessed = !!(fmtMoney(parval) || fmtMoney(landval) || fmtMoney(improvval))
-  const hasBuildings = !!(buildings || bldgSqft || yearbuilt)
-
-  // Mailing address — owner 2026-08-13: clicking a parcel on the website
-  // explore map showed no address at all. `street` above is the SITUS address
-  // and is routinely blank on farmland (a bare field has no street number);
-  // the mailing address is where the owner actually gets post, which is what
-  // he's after. Regrid field names verified against a live Records API
-  // response: mailadd / mail_city / mail_state2 / mail_zip. Same fields, same
-  // two-line shape as the phone/iPad parcel sheet.
-  const mailStreet = (record?.mailadd ?? '').toString().trim()
-  const mailCityLine = [
-    (record?.mail_city ?? '').toString().trim(),
-    [(record?.mail_state2 ?? record?.mail_state ?? '').toString().trim(),
-     (record?.mail_zip ?? '').toString().trim()].filter(Boolean).join(' '),
-  ].filter(Boolean).join(', ')
-  const hasMailing = !!(mailStreet || mailCityLine)
 
   const activeOverlay = clickData?.activeOverlay ?? null
 
@@ -689,7 +478,8 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
     validSalePrice
   )
   const hasAnyDataSection =
-    visibleHasSoilData || hasCropData || hasLandComposition || hasSoilRatingRow || hasLastSale || hasProperty || hasAssessed || hasBuildings || hasMailing
+    visibleHasSoilData || hasCropData || derived.hasLandComposition || derived.hasSoilRatingRow ||
+    derived.hasLastSale || derived.hasProperty || derived.hasAssessed || derived.hasBuildings || derived.hasMailing
   const isEmptyResult = !hasMeaningfulRecord && !hasAnyDataSection
   // ROUND-2 AUDITOR BLOCKER FIX: gating on `!loading` alone raced the fetch.
   // On the render right after a NEW click, `loading` can still hold its
@@ -792,28 +582,9 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
             <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 1, lineHeight: 1.3 }}>{township} Township</div>
           )}
 
-          {/* Land-type badges (Illinois parcels) — one pink pill per type,
-              mirrors PortalTractDetail.tsx's badge row styling. flexWrap so
-              3+ types (e.g. a farm-and-recreational-and-pasture parcel)
-              don't overflow the 380px panel. */}
-          {landTypes && landTypes.length > 0 && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
-              {landTypes.map(lt => (
-                <span key={lt} style={{
-                  display: 'inline-flex',
-                  padding: '3px 10px',
-                  borderRadius: 999,
-                  fontSize: 10,
-                  fontWeight: 700,
-                  background: 'rgba(245,140,222,0.15)',
-                  color: '#F58CDE',
-                  border: '1px solid rgba(245,140,222,0.3)',
-                }}>
-                  {lt}
-                </span>
-              ))}
-            </div>
-          )}
+          {/* Land-type badges (Illinois parcels) — shared with CompInlinePopup
+              (parcelDetailFields.tsx) so the pill styling can't drift. */}
+          <LandTypeBadges landTypes={landTypes} />
 
           {/* Close button */}
           <button
@@ -981,109 +752,11 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
             </div>
           )}
 
-          {/* ── C: Land Composition (Illinois parcels) ────────────────
-              Hide-when-null throughout: each row is gated on `!= null`
-              (not truthy), so a real 0.4-acre pond or 0% timber still
-              renders instead of vanishing. Whole section is absent when
-              backfill_status is 'partial_pending' or no land-composition
-              field is present at all — see hasLandComposition above. */}
-          {hasLandComposition && (
-            <Section title="Land Composition">
-              {(tillableAcres != null || pctTillable != null) && (
-                <DetailRow
-                  label="Tillable"
-                  value={
-                    tillableAcres != null
-                      ? `${fmtAcres1(Number(tillableAcres))} ac${pctTillable != null ? ` (${Number(pctTillable).toFixed(0)}%)` : ''}`
-                      : `${Number(pctTillable).toFixed(0)}%`
-                  }
-                />
-              )}
-              {pastureAcres != null && (
-                <DetailRow
-                  label="Pasture"
-                  value={`${fmtAcres1(Number(pastureAcres))} ac`}
-                />
-              )}
-              {(timberAcres != null || pctTimber != null) && (
-                <DetailRow
-                  label="Timber"
-                  value={
-                    timberAcres != null
-                      ? `${fmtAcres1(Number(timberAcres))} ac${pctTimber != null ? ` (${Math.round(Number(pctTimber))}%)` : ''}`
-                      : `${Math.round(Number(pctTimber))}%`
-                  }
-                />
-              )}
-              {/* water hidden per owner 8/15 (engine pond recall unreliable) — restore when water detection is fixed. */}
-              {dominantLandcover && (
-                <DetailRow
-                  label="Dominant Cover"
-                  value={String(dominantLandcover).replace(/(^|[\s-])\S/g, m => m.toUpperCase())}
-                />
-              )}
-            </Section>
-          )}
-
-          {/* ── C2: Soil Rating (Illinois parcels) — un-gated: independent
-              of SOIL_FILTER_ENABLED (which only hides the old SSURGO
-              section below) and independent of the LAND COMPOSITION
-              backfill_status gate above. Renders whenever both halves of
-              the combined "PI 128"-style value are present. */}
-          {hasSoilRatingRow && (
-            <Section title="Soil Rating">
-              <DetailRow label="Rating" value={`${soilRatingType} ${fmtRating1(soilRating)}`} />
-            </Section>
-          )}
-
-          {/* ── D: Last Sale ─────────────────────────────────────── */}
-          {hasLastSale && (
-            <Section title="Last Sale">
-              {fmtDate(saledate) && <DetailRow label="Sale Date" value={fmtDate(saledate)!} />}
-              {saleType && <DetailRow label="Sale Type" value={saleType} />}
-              {fmtDate(lastTransferDate) && fmtDate(lastTransferDate) !== fmtDate(saledate) && (
-                <DetailRow label="Last Transfer" value={fmtDate(lastTransferDate)!} />
-              )}
-              {previousOwner && <DetailRow label="Previous Owner" value={previousOwner} />}
-            </Section>
-          )}
-
-          {/* ── E: Property ─────────────────────────────────────── */}
-          {hasProperty && (
-            <Section title="Property">
-              {deeded && deeded !== gisacre && fmtAcres(deeded) && (
-                <DetailRow label="Deeded Acres" value={fmtAcres(deeded)!} />
-              )}
-              {usedesc && <DetailRow label="Use" value={usedesc} />}
-              {zoning && <DetailRow label="Zoning" value={zoning} />}
-            </Section>
-          )}
-
-          {/* ── F: Assessed Value ───────────────────────────────── */}
-          {hasAssessed && (
-            <Section title="Assessed Value">
-              {fmtMoney(parval) && <DetailRow label="Total" value={fmtMoney(parval)!} />}
-              {fmtMoney(landval) && <DetailRow label="Land" value={fmtMoney(landval)!} />}
-              {fmtMoney(improvval) && <DetailRow label="Improvements" value={fmtMoney(improvval)!} />}
-            </Section>
-          )}
-
-          {/* ── G: Buildings ─────────────────────────────────────── */}
-          {hasBuildings && (
-            <Section title="Buildings">
-              {buildings && <DetailRow label="Count" value={String(buildings)} />}
-              {bldgSqft && <DetailRow label="Footprint" value={`${Math.round(bldgSqft).toLocaleString()} sq ft`} />}
-              {yearbuilt && <DetailRow label="Year Built" value={String(yearbuilt)} />}
-            </Section>
-          )}
-
-          {/* ── H: Mailing Address ───────────────────────────────── */}
-          {hasMailing && (
-            <Section title="Mailing Address">
-              {mailStreet && <DetailRow label="Street" value={mailStreet} />}
-              {mailCityLine && <DetailRow label="City / State / Zip" value={mailCityLine} />}
-            </Section>
-          )}
+          {/* ── C through H: Land Composition, Soil Rating, Last Sale,
+              Property, Assessed Value, Buildings, Mailing Address — shared
+              with CompInlinePopup (parcelDetailFields.tsx) so the two
+              modals' data/order/formatting can't drift apart. */}
+          <ParcelDetailSections d={derived} />
 
           {/* No-data state — shown only when skeleton props are also empty.
               Task #26 defect 2: only for overlay-originated clicks (soil/CSB,
@@ -1102,9 +775,10 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
 
           {/* ── Disclaimer — owner-requested (2026-08-14), always renders
               as the last item in the scroll area regardless of which
-              sections above are present. Verbatim text, do not edit. */}
+              sections above are present. Verbatim text (shared constant,
+              parcelDetailFields.tsx), do not edit. */}
           <div style={{ padding: '18px 16px 4px', color: 'rgba(0,0,0,0.4)', fontSize: 11.5, lineHeight: 1.5 }}>
-            All parcel, land composition, and soil data are estimates provided for informational purposes only and should not be relied upon when making financial decisions.
+            {PARCEL_DISCLAIMER_TEXT}
           </div>
         </div>
 
