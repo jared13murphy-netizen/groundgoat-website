@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Search, UserCheck, UserX, Shield, Loader2, ChevronDown, Edit2, X, Check, DollarSign, RefreshCw } from 'lucide-react'
+import { ArrowLeft, ArrowUp, ArrowDown, Search, UserCheck, UserX, Shield, Loader2, ChevronDown, Edit2, X, Check, DollarSign, RefreshCw } from 'lucide-react'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -83,6 +83,81 @@ interface User {
   } | null
 }
 
+// Sorting — owner's exact five: first name A-Z, last name A-Z, highest
+// usage, most recent usage, date signed up. Each getter returns null for
+// "no data" so compareUsers() can push those rows to the end regardless of
+// direction, instead of interleaving them or (for dates) sorting them as
+// epoch-0 "oldest ever" entries.
+type SortField = 'first_name' | 'last_name' | 'usage' | 'last_active' | 'signup'
+type SortDir = 'asc' | 'desc'
+
+const SORT_FIELD_GETTERS: Record<SortField, (u: User) => number | string | null> = {
+  // Case-insensitive, whitespace-trimmed; empty/missing name -> null (sorts last).
+  first_name: (u) => {
+    const v = (u.first_name || '').trim().toLowerCase()
+    return v || null
+  },
+  // Uses the last_name column directly, so single-word names (empty
+  // last_name) just fall out as "missing" -> sort last, never throw.
+  last_name: (u) => {
+    const v = (u.last_name || '').trim().toLowerCase()
+    return v || null
+  },
+  // "Highest usage" = requests in the last 30 days, the same figure shown
+  // in the Activity (30d) column. usage === null means never measured
+  // (collection began 2026-06-07) -> null, not 0, so it sorts last rather
+  // than tying with genuinely-idle-but-measured users.
+  usage: (u) => (u.usage ? u.usage.requests_30 : null),
+  last_active: (u) => {
+    if (!u.usage?.last_active_at) return null
+    const t = new Date(u.usage.last_active_at).getTime()
+    return Number.isNaN(t) ? null : t
+  },
+  signup: (u) => {
+    if (!u.created_at) return null
+    const t = new Date(u.created_at).getTime()
+    return Number.isNaN(t) ? null : t
+  },
+}
+
+// Default direction per field = what the owner would obviously expect:
+// names A-Z, usage highest-first, most-recent-usage newest-first,
+// signed-up newest-first (matches the backend's default created_at DESC).
+const SORT_FIELD_DEFAULT_DIR: Record<SortField, SortDir> = {
+  first_name: 'asc',
+  last_name: 'asc',
+  usage: 'desc',
+  last_active: 'desc',
+  signup: 'desc',
+}
+
+const SORT_FIELD_LABELS: Record<SortField, { asc: string; desc: string }> = {
+  first_name: { asc: 'First name (A-Z)', desc: 'First name (Z-A)' },
+  last_name: { asc: 'Last name (A-Z)', desc: 'Last name (Z-A)' },
+  usage: { desc: 'Highest usage', asc: 'Lowest usage' },
+  last_active: { desc: 'Most recent usage', asc: 'Least recent usage' },
+  signup: { desc: 'Date signed up (newest)', asc: 'Date signed up (oldest)' },
+}
+
+// Order here drives the dropdown's item order, so it matches the order the
+// owner listed the five sorts in.
+const SORT_FIELDS: SortField[] = ['first_name', 'last_name', 'usage', 'last_active', 'signup']
+
+function compareUsers(a: User, b: User, field: SortField, dir: SortDir): number {
+  const va = SORT_FIELD_GETTERS[field](a)
+  const vb = SORT_FIELD_GETTERS[field](b)
+  const aMissing = va === null || va === undefined
+  const bMissing = vb === null || vb === undefined
+  if (aMissing && bMissing) return 0
+  if (aMissing) return 1 // missing always sinks to the end, regardless of direction
+  if (bMissing) return -1
+  const cmp =
+    typeof va === 'string' && typeof vb === 'string'
+      ? va.localeCompare(vb, undefined, { sensitivity: 'base' })
+      : (va as number) - (vb as number)
+  return dir === 'asc' ? cmp : -cmp
+}
+
 export default function AdminUsersPage() {
   const router = useRouter()
   const [currentUser, setCurrentUser] = useState<any>(null)
@@ -92,6 +167,12 @@ export default function AdminUsersPage() {
   const [searchTerm, setSearchTerm] = useState('')
   const [filterType, setFilterType] = useState('all')
   const [showFilterDropdown, setShowFilterDropdown] = useState(false)
+  // null = no sort applied yet -> table stays in whatever order fetchUsers()
+  // delivered (backend's created_at DESC), matching the page's current
+  // behavior until the owner actually picks a sort.
+  const [sortField, setSortField] = useState<SortField | null>(null)
+  const [sortDir, setSortDir] = useState<SortDir>('asc')
+  const [showSortDropdown, setShowSortDropdown] = useState(false)
   const [editingUser, setEditingUser] = useState<string | null>(null)
   const [editForm, setEditForm] = useState<{ account_type: string; is_active: boolean; sales_rep_id: string | null }>({ account_type: '', is_active: true, sales_rep_id: null })
   const [saving, setSaving] = useState(false)
@@ -247,6 +328,12 @@ export default function AdminUsersPage() {
     return matchesSearch && matchesFilter
   })
 
+  // Sorts the already-filtered set, so search + Type filter + sort all
+  // compose: changing one never resets another (each is its own state).
+  const sortedUsers = sortField
+    ? [...filteredUsers].sort((a, b) => compareUsers(a, b, sortField, sortDir))
+    : filteredUsers
+
   const getAccountTypeBadge = (type: string) => {
     const badges: Record<string, { label: string, class: string }> = {
       'groundgoat_admin': { label: 'GG Admin', class: 'bg-red-500/20 text-red-400' },
@@ -391,6 +478,45 @@ export default function AdminUsersPage() {
               </div>
             )}
           </div>
+          <div className="relative">
+            <button
+              onClick={() => setShowSortDropdown(!showSortDropdown)}
+              className="flex items-center gap-2 bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white"
+            >
+              <span>Sort{sortField ? `: ${SORT_FIELD_LABELS[sortField][sortDir]}` : ''}</span>
+              <ChevronDown size={16} />
+            </button>
+            {showSortDropdown && (
+              <div className="absolute right-0 top-full mt-1 bg-gg-gray-800 border border-gg-gray-700 rounded-lg shadow-xl z-10 min-w-[200px]">
+                {sortField && (
+                  <button
+                    onClick={() => { setSortField(null); setShowSortDropdown(false) }}
+                    className="block w-full px-4 py-2 text-left text-gg-gray-400 hover:bg-gg-gray-700 hover:text-white border-b border-gg-gray-700"
+                  >
+                    Clear sort
+                  </button>
+                )}
+                {SORT_FIELDS.map(field => (
+                  <button
+                    key={field}
+                    onClick={() => { setSortField(field); setSortDir(SORT_FIELD_DEFAULT_DIR[field]); setShowSortDropdown(false) }}
+                    className={`block w-full px-4 py-2 text-left hover:bg-gg-gray-700 hover:text-white ${sortField === field ? 'text-gg-pink' : 'text-gg-gray-300'}`}
+                  >
+                    {SORT_FIELD_LABELS[field][SORT_FIELD_DEFAULT_DIR[field]]}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          {sortField && (
+            <button
+              onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}
+              title="Reverse sort direction"
+              className="flex items-center justify-center bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-3 py-3 text-white hover:bg-gg-gray-800"
+            >
+              {sortDir === 'asc' ? <ArrowUp size={16} /> : <ArrowDown size={16} />}
+            </button>
+          )}
         </div>
 
         {/* Users Table */}
@@ -414,14 +540,14 @@ export default function AdminUsersPage() {
                 </tr>
               </thead>
               <tbody>
-                {filteredUsers.length === 0 ? (
+                {sortedUsers.length === 0 ? (
                   <tr>
                     <td colSpan={canEdit ? 12 : 11} className="text-center py-8 text-gg-gray-400">
                       No users found
                     </td>
                   </tr>
                 ) : (
-                  filteredUsers.map(user => (
+                  sortedUsers.map(user => (
                     <>
                       <tr key={user.id} className="border-b border-gg-gray-800 hover:bg-gg-gray-800/50">
                         <td className="py-2 px-2">
