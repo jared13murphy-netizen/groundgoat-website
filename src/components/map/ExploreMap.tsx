@@ -900,6 +900,17 @@ interface FilterState {
   hasBuildings: boolean | null
   hasPolygon: boolean | null
   keyword: string
+  // Backend-authoritative sold-parcel-dots policy (2026-08-16). The
+  // Goat Search resolver knows the full picture — sold-predicate framing,
+  // the exactly-one-state soil_rating rule, every filter dimension a raw
+  // parcel can/can't express — better than this client's local heuristic
+  // (shouldHideParcelDotsForFilters, src/lib/parcelDotsFilterGate.ts) can
+  // replicate. true/false = backend has ruled explicitly for THIS chat
+  // response; null = unset (no chat response has set it yet — cold load,
+  // or the Filter Panel, which never goes through chat and so never sets
+  // this) and the client falls back to the local heuristic. Chat-only, no
+  // UI control — same category as listingType/tillableAcresMin above.
+  includeParcelDots: boolean | null
 }
 
 // The UNTOUCHED value of the date filter, deliberately NOT 'all'.
@@ -950,6 +961,11 @@ const INITIAL_FILTERS: FilterState = {
   hasBuildings: null,
   hasPolygon: null,
   keyword: '',
+  // Unset — see the FilterState field's doc comment. Every reset site
+  // (Reset filters, chat clear_unspecified, state-change seed) spreads
+  // this whole object back in, so includeParcelDots reliably returns to
+  // "no backend ruling yet, use the local heuristic" every time.
+  includeParcelDots: null,
 }
 
 // States and counties are now built dynamically from loaded tract data
@@ -2580,6 +2596,34 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       ...(incoming.landTypes === undefined ? { landTypes: [] } : {}),
     } : {}
     const nextFilters = { ...base, ...registryGatedReset, ...incoming }
+    // GAP FIX (2026-08-16, live-verified): on an ADDITIVE turn
+    // (clearUnspecified=false), the backend's includeParcelDots reflects
+    // ONLY this turn's own delta tool_args — /api/map/chat-filter is
+    // deliberately stateless (current_filters is always sent as {} above,
+    // "every new search is FRESH") — so it can't see a still-active
+    // non-expressible filter (e.g. companyName) that an EARLIER turn set
+    // and this turn doesn't repeat (the model legitimately omits fields
+    // unchanged from the prior turn). Reproduced live: "land sold by
+    // Sullivan Auctioneers" -> includeParcelDots=false, then "and also
+    // over 100 acres" -> includeParcelDots=true (that turn's own tool_args
+    // never mentioned company_name) flipped sold-parcel dots back ON even
+    // though companyName="Sullivan Auctioneers" was still active in the
+    // merged FilterState (confirmed: the /api/map/tracts request still
+    // carried company_name=Sullivan+Auctioneers) — showing every sold
+    // parcel nationwide as if it were part of "Sullivan's" results.
+    // Backend "false" is always safe to trust outright (hiding is never
+    // wrong); backend "true" gets double-checked here against the FULLY
+    // MERGED state via the same local heuristic used as the cold-load
+    // fallback below, so a still-active non-expressible field from an
+    // earlier turn can still force dots hidden even though this turn's
+    // own delta never mentioned it.
+    if (!clearUnspecified && nextFilters.includeParcelDots === true) {
+      const stillUnrepresentable = shouldHideParcelDotsForFilters({
+        ...nextFilters,
+        parcelDataScope: resolveParcelDataScope(nextFilters.stateFilter, regridConfig?.parcel_data_states),
+      })
+      if (stillUnrepresentable) nextFilters.includeParcelDots = false
+    }
     setFilters(nextFilters)
     filtersRef.current = nextFilters
     // Chat commits instantly (out of scope for Apply-atomic — see task
@@ -3067,9 +3111,24 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const applyFilters = () => {
     clearOwnerParcels()
 
+    // GAP FIX (2026-08-16): a manual Filter Panel Apply must always
+    // supersede any backend-authoritative includeParcelDots ruling left
+    // over from an earlier Goat Search chat turn — the panel has no
+    // control for this flag, so without this a stale true/false from a
+    // prior chat search (e.g. "land sold by Sullivan" -> false) would
+    // keep dots hidden/shown forever even after the user removes that
+    // filter through the panel. null falls back to the local heuristic
+    // (shouldHideParcelDotsForFilters), exactly like a cold load or a
+    // filter state that never went through chat. Applied to the draft
+    // AND filtersRef so the effect-based gate and the pan-path gate
+    // (which read appliedFilters/filtersRef respectively) can never
+    // disagree right after a manual Apply.
+    const committed = { ...filters, includeParcelDots: null }
+
     // a. Commit: draft becomes the applied snapshot every indicator reads.
-    filtersRef.current = filters
-    setAppliedFilters(filters)
+    filtersRef.current = committed
+    setFilters(committed)
+    setAppliedFilters(committed)
 
     // b. CLEAR everything off the map — tract layer, durable parcel-sale
     // dots, and today's green dots — before firing any refetch, so there
@@ -5813,10 +5872,22 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // 2026-08-15) so the gate's soil/tillable/land-type carve-out only
   // fires when the backend actually understands those params for the
   // applied state.
-  const hideParcelDotsForFilters = shouldHideParcelDotsForFilters({
-    ...appliedFilters,
-    parcelDataScope: resolveParcelDataScope(appliedFilters.stateFilter, regridConfig?.parcel_data_states),
-  }) || ownerSearchActive
+  // Backend-authoritative override (2026-08-16): when the current Goat
+  // Search response has ruled explicitly (includeParcelDots is a real
+  // boolean, not null/undefined), that ruling wins outright — the
+  // backend resolver knows edge cases (sold-predicate framing, the
+  // exactly-one-state soil_rating rule) this client heuristic can't
+  // perfectly replicate. null/undefined means no chat response has set
+  // it (cold load, or a Filter-Panel-only search, which never goes
+  // through chat) — fall back to the local heuristic exactly as before.
+  const hideParcelDotsForFilters = (
+    appliedFilters.includeParcelDots != null
+      ? !appliedFilters.includeParcelDots
+      : shouldHideParcelDotsForFilters({
+          ...appliedFilters,
+          parcelDataScope: resolveParcelDataScope(appliedFilters.stateFilter, regridConfig?.parcel_data_states),
+        })
+  ) || ownerSearchActive
 
   useEffect(() => {
     const map = mapRef.current
@@ -5856,6 +5927,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     appliedFilters.cornersMin, appliedFilters.cornersMax,
     appliedFilters.companyName, appliedFilters.buyer, appliedFilters.seller,
     appliedFilters.hasHouse, appliedFilters.hasBuildings, appliedFilters.hasPolygon, appliedFilters.keyword,
+    appliedFilters.includeParcelDots,
   ])
 
   // LIVE-VERIFIED FINDING (production, 8/8 durable-dot uuids): the async
@@ -6176,10 +6248,20 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // Panning during an owner search must never resurrect these dots.
       // regridConfigRef (not the regridConfig state) for the same
       // stable-deps reason — see its declaration.
-      const hideForFilters = shouldHideParcelDotsForFilters({
-        ...filtersRef.current,
-        parcelDataScope: resolveParcelDataScope(filtersRef.current.stateFilter, regridConfigRef.current?.parcel_data_states),
-      }) || ownerSearchActiveRef.current
+      // Same backend-authoritative override as the filter-reactive effect
+      // above — filtersRef.current mirrors appliedFilters (only moves at
+      // Apply/Reset/chat-commit, see the "Apply-atomic model" note on the
+      // moveend effect below), so reading includeParcelDots off it here
+      // is equivalent, just via the stable ref this stable-deps callback
+      // requires.
+      const hideForFilters = (
+        filtersRef.current.includeParcelDots != null
+          ? !filtersRef.current.includeParcelDots
+          : shouldHideParcelDotsForFilters({
+              ...filtersRef.current,
+              parcelDataScope: resolveParcelDataScope(filtersRef.current.stateFilter, regridConfigRef.current?.parcel_data_states),
+            })
+      ) || ownerSearchActiveRef.current
       const inComp = !!subjectTractIdRef.current
       // Same one helper the filter-reactive effect uses — the pan path
       // must never compute this differently from the effect, which is
@@ -6485,6 +6567,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     appliedFilters.cornersMin, appliedFilters.cornersMax,
     appliedFilters.companyName, appliedFilters.buyer, appliedFilters.seller,
     appliedFilters.hasHouse, appliedFilters.hasBuildings, appliedFilters.keyword,
+    appliedFilters.includeParcelDots,
     fetchDurableDotsForBounds,
   ])
 
