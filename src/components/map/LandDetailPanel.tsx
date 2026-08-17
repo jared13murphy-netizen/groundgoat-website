@@ -167,11 +167,23 @@ interface LandDetailPanelProps {
     geometry: GeoJSON.Polygon | GeoJSON.MultiPolygon | null,
     forClickData: LandDetailClickData,
   ) => void
+  /** "+ Report" (2026-08-17): same shared-report mechanism ExploreMap
+      already threads into PortalTractDetail's TractDetailActionBar and
+      CompInlinePopup's "Add to Report" — reused here, not reimplemented.
+      `tract` is loosely typed (not ExploreMap's `SaleDetail`) to avoid a
+      circular import (ExploreMap already imports this file). Untyped to
+      `any` mirrors the existing `tract as unknown as TractSaleData` cast
+      ExploreMap itself uses when wiring a comp popup's sale into the same
+      callback. */
+  onToggleReport?: (tract: any) => void
+  /** Same `reportIds` Set ExploreMap already owns and passes to
+      CompInlinePopup — membership test only, never mutated here. */
+  reportIds?: Set<string> | null
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export default function LandDetailPanel({ clickData, onClose, onGeometryResolved }: LandDetailPanelProps) {
+export default function LandDetailPanel({ clickData, onClose, onGeometryResolved, onToggleReport, reportIds }: LandDetailPanelProps) {
   const [regridData, setRegridData] = useState<any>(null)
   const [enrichData, setEnrichData] = useState<any>(null)
   const [loading, setLoading] = useState(false)
@@ -332,6 +344,46 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
     } finally {
       setDownloading(false)
     }
+  }
+
+  // "+ Report" (2026-08-17) — same shared multi-tract comparables report
+  // ExploreMap's `reportIds`/`onToggleReport` already drive for
+  // PortalTractDetail's TractDetailActionBar and CompInlinePopup's "Add to
+  // Report". No new report state here: this panel just needs a stable id
+  // to key off, matching ExploreMap's own buildParcelSale synthetic-id
+  // format (`parcel:lng,lat`, 6dp) so a parcel added from here dedupes
+  // correctly against the same parcel later touched via the comp map.
+  // Works with NO subject tract — reportTracts (access/page.tsx) is a
+  // plain array/Set keyed by id, never gated on a subject existing.
+  const reportId = llUuid
+    || (reportPoint ? `parcel:${reportPoint.lng.toFixed(6)},${reportPoint.lat.toFixed(6)}` : null)
+  const isInReport = !!(reportId && reportIds?.has(reportId))
+
+  const handleToggleReport = () => {
+    if (!onToggleReport || !reportId) return
+    onToggleReport({
+      id: reportId,
+      listingId: null,
+      tractId: null,
+      auctionDate: typeof derived.saledate === 'string' ? derived.saledate.slice(0, 10) : null,
+      totalAcres: gisacre,
+      tillableAcres: derived.tillableAcres,
+      soilRating: derived.soilRating,
+      pctTillable: derived.pctTillable,
+      // Bug parity with buildParcelSale: a parcel has no listing company,
+      // only a Regrid owner — never stuff owner into companyName (that
+      // renders under a "Company" label in emailed/report views).
+      companyName: null,
+      owner: owner !== 'Unknown' ? owner : null,
+      latitude: reportPoint?.lat ?? null,
+      longitude: reportPoint?.lng ?? null,
+      salePrice: validSalePrice ? saleprice : null,
+      pricePerAcre: ppa,
+      county,
+      state,
+      township: township || null,
+      saleStatus: 'sold',
+    })
   }
 
   const isOpen = clickData !== null
@@ -800,6 +852,38 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
         {(llUuid || reportPoint) && (
           <div style={{ flexShrink: 0, borderTop: '1px solid rgba(0,0,0,0.06)', padding: '16px', background: '#fff' }}>
             <div style={{ display: 'flex', gap: 8 }}>
+              {/* + Report — to the LEFT of Download/Email (owner
+                  2026-08-17). Same toggle look as TractDetailActionBar's
+                  "+ Report"/"− Report" (PortalTractDetail.tsx): pink
+                  outline when already added, reimplemented in this
+                  panel's inline-style idiom since it doesn't use
+                  Tailwind. Hidden entirely when the parent didn't wire
+                  onToggleReport (e.g. the public listings-page map). */}
+              {onToggleReport && (
+                <button
+                  onClick={handleToggleReport}
+                  disabled={!reportId}
+                  title={isInReport ? 'Remove from report' : 'Add to report'}
+                  style={{
+                    flex: 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 6,
+                    padding: '11px 10px',
+                    borderRadius: 12,
+                    fontSize: 12,
+                    fontWeight: 700,
+                    border: isInReport ? '1px solid rgba(233,30,140,0.3)' : '1px solid rgba(0,0,0,0.12)',
+                    background: isInReport ? 'rgba(233,30,140,0.08)' : '#fff',
+                    color: isInReport ? '#E91E8C' : '#1a1a1a',
+                    cursor: reportId ? 'pointer' : 'default',
+                    opacity: reportId ? 1 : 0.5,
+                  }}
+                >
+                  {isInReport ? '− Report' : '+ Report'}
+                </button>
+              )}
               <button
                 onClick={handleDownloadReport}
                 disabled={downloading}
@@ -822,7 +906,7 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
                 {downloading ? (
                   <><Loader2 size={14} className="animate-spin" /> Building PDF...</>
                 ) : (
-                  <><Download size={14} /> Download report</>
+                  <><Download size={14} /> Download Parcel</>
                 )}
               </button>
               <button
@@ -850,7 +934,7 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
                 ) : emailStatus === 'sending' ? (
                   <><Loader2 size={14} className="animate-spin" /> Sending...</>
                 ) : (
-                  <><Mail size={14} /> Email me this report</>
+                  <><Mail size={14} /> Email Parcel</>
                 )}
               </button>
             </div>

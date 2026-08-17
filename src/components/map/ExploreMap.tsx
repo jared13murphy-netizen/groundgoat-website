@@ -9439,6 +9439,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         clickData={landDetail}
         onClose={() => setLandDetail(null)}
         onGeometryResolved={handleParcelGeometryResolved}
+        onToggleReport={onToggleReport}
+        reportIds={reportIds}
       />
 
       {/* Goat Search animation overlay — renders while a chat-driven
