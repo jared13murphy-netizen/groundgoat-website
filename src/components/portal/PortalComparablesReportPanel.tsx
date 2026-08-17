@@ -381,11 +381,17 @@ export default function PortalComparablesReportPanel({ subjectInfo, reportTracts
                       )}
                     </div>
                   )}
-                  {(onView3DTerrain || (onViewListing && t.listingId && t.companyName)) && (
+                  {((onView3DTerrain && t.tractId) || (onViewListing && t.listingId && t.companyName)) && (
                     <div className="flex gap-2 px-4 pb-3 pt-2 border-t border-white/5">
-                      {onView3DTerrain && (t.tractId || t.id) && (
+                      {/* 3D Map only works for tracts (owner 2026-08-17: "it
+                          doesn't work on parcels"). A parcel row has
+                          tractId null (see `source: t.tractId ? 'tract' :
+                          'parcel'` above) — gate on tractId itself, not the
+                          `t.tractId || t.id` fallback this used to use,
+                          which showed the button for parcel rows too. */}
+                      {onView3DTerrain && t.tractId && (
                         <button
-                          onClick={() => onView3DTerrain((t.tractId || t.id)!, `${t.county}, ${t.state}`)}
+                          onClick={() => onView3DTerrain(t.tractId!, `${t.county}, ${t.state}`)}
                           className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-[11px] font-medium text-white/80 bg-white/5 hover:bg-white/10 hover:text-white rounded-md border border-white/10 transition"
                         >
                           <Mountain size={12} />

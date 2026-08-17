@@ -362,12 +362,37 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
   // ExploreMap's `reportIds`/`onToggleReport` already drive for
   // PortalTractDetail's TractDetailActionBar and CompInlinePopup's "Add to
   // Report". No new report state here: this panel just needs a stable id
-  // to key off, matching ExploreMap's own buildParcelSale synthetic-id
-  // format (`parcel:lng,lat`, 6dp) so a parcel added from here dedupes
-  // correctly against the same parcel later touched via the comp map.
-  // Works with NO subject tract — reportTracts (access/page.tsx) is a
-  // plain array/Set keyed by id, never gated on a subject existing.
-  const reportId = llUuid
+  // to key off, matching ExploreMap's own buildParcelSale priority order
+  // EXACTLY (`ll_uuid || props.path || parcel:lng,lat`, 6dp) — see
+  // ExploreMap.tsx's onPinClick / buildParcelSale.
+  //
+  // Bug fix 2026-08-17 (owner: dot never turns green after "+ Report" from
+  // this panel). Root cause was using `llUuid` (= clickData.ll_uuid ??
+  // fetchedLlUuid) for the report id. fetchedLlUuid is the ENRICHED
+  // /api/regrid/parcel record's ll_uuid — a real, resolvable Regrid uuid,
+  // fine for the Email/Download handlers above (which call the
+  // /api/parcels/{ll_uuid}/report/* endpoints), but it is NOT a property
+  // any map tile feature carries, so it can never equal what the dot
+  // layers match on:
+  //   - PARCEL_SALE_PLUS_LAYER (z>=REGRID_MIN_ZOOM, the layer active at
+  //     the owner's zoom) keys its green/pink icon off `['get','path']`
+  //     (ExploreMap.tsx buildParcelSaleDotIconExpr) — 'path' is the one
+  //     field every feature of the shared 'regrid-parcels' source
+  //     reliably carries (promoteId), since custom Regrid tiles never
+  //     populate `ll_uuid` on the feature itself.
+  //   - DURABLE_DOT_LAYER (z9-REGRID_MIN_ZOOM) keys off `['get','id']`,
+  //     which for a durable-dot click IS already correctly threaded
+  //     through as `clickData.ll_uuid` (see the DURABLE_DOT_LAYER click
+  //     handler: `ll_uuid: props.id`) — never the enriched fetch.
+  // So `clickData.ll_uuid` alone (never fetchedLlUuid) already carries
+  // the right key for whichever layer was actually clicked — null for a
+  // tile click (path is the fallback below), or the durable feature's own
+  // id for a durable-dot click. Using `llUuid` here silently overwrote a
+  // correct null with an incompatible enriched uuid once the async fetch
+  // resolved, which is exactly why the dot never matched in the normal
+  // (record-resolved) case.
+  const reportId = clickData?.ll_uuid
+    || (clickData?.parcelProps?.path as string | undefined)
     || (reportPoint ? `parcel:${reportPoint.lng.toFixed(6)},${reportPoint.lat.toFixed(6)}` : null)
   const isInReport = !!(reportId && reportIds?.has(reportId))
 
