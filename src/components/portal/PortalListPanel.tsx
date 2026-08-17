@@ -368,7 +368,7 @@ export default function PortalListPanel({ listings, loading, activeTab, onClose,
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search by county, state..."
+              placeholder="Search by county, state, or company..."
               aria-label="Search listings"
               className="w-full bg-white/5 border border-white/10 rounded-lg pl-9 pr-9 py-2 text-sm text-white placeholder:text-gg-gray-500 focus:outline-none focus:border-gg-pink/50 transition"
             />
