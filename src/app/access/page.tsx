@@ -734,6 +734,7 @@ function AccessPortalPageInner() {
           onFilterOpenChange={setFilterOpen}
           onViewListing={handleViewListingFromMap}
           onTractSelected={handleTractSelected}
+          externalTractSelection={selectedTract}
           onLandDetailOpen={() => setSelectedTract(null)}
           onToggleReport={(tract) => handleToggleReport(tract as unknown as TractSaleData)}
           onView3DTerrain={handleView3DTerrain}

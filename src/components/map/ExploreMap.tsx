@@ -219,15 +219,25 @@ function veilPrefersReducedMotion(): boolean {
     && window.matchMedia('(prefers-reduced-motion: reduce)').matches
 }
 
+// Generalized 2026-08-17 (Tract Spotlight, extending the shipped Parcel
+// Spotlight to tract selection on the explore map): the veil/select layers,
+// showOrMoveVeil, hideVeil, and the centering helpers below all key off
+// this union instead of the parcel-only LandDetailClickData. Both selection
+// paths hand a fresh, referentially-stable object per click (LandDetailPanel
+// clicks via setLandDetail, tract clicks via setSelectedSale) so plain `===`
+// identity — the same check the parcel-only veil always used — keeps
+// working unchanged for "is this still the same selection".
+type VeilSelectionKey = LandDetailClickData | SaleDetail
+
 // ─── Parcel-center-on-select camera move (owner-approved addition,
 // 2026-08-15, on top of the shipped Parcel Spotlight veil) ─────────────────
 const PARCEL_CENTER_DURATION_MS = 600
-// Below this container width the fixed-380px right-docked LandDetailPanel
-// would swallow most of the map — shifting the camera to dodge it stops
-// being meaningful (LandDetailPanel never becomes a bottom sheet at narrow
-// widths; it's an unconditional right overlay at every viewport size, so
-// this is a "is there enough room to matter" guard, not a layout-mode one).
-const PARCEL_CENTER_MIN_CONTAINER_WIDTH = LAND_DETAIL_PANEL_WIDTH * 2
+// portalMode's Tract Detail slide-out (access/page.tsx) is a fixed
+// LEFT-docked `w-[480px]` panel — kept as a plain constant (not exported
+// from that page, which isn't a shared module) since it's a hardcoded
+// Tailwind width there, same as LAND_DETAIL_PANEL_WIDTH is for the
+// right-docked LandDetailPanel.
+const PORTAL_TRACT_PANEL_WIDTH = 480
 
 /** Bounding-box center of a Polygon/MultiPolygon's outer ring(s). A true
  *  area centroid isn't needed here — bbox-center is what every other
@@ -260,24 +270,42 @@ function geometryBboxCenter(
 }
 
 /** Ease (or, under reduced motion, jump) the camera so `geometry`'s bbox
- *  center lands in the middle of the map area actually VISIBLE next to the
- *  right-docked LandDetailPanel — not the whole canvas, which would leave
- *  an off-center parcel sitting half-hidden behind the panel. Keeps the
- *  CURRENT zoom (never zooms in/out from a selection — spec 2026-08-15).
+ *  center lands in the middle of the map area actually VISIBLE beside
+ *  whatever detail UI this selection opens — not the whole canvas, which
+ *  would leave an off-center selection sitting half-hidden behind that UI.
+ *  Keeps the CURRENT zoom (never zooms in/out from a selection — spec
+ *  2026-08-15).
  *
- *  Deliberately does NOT use MapLibre's `padding` CameraOptions: padding
- *  lives on the map's transform and persists across calls that don't
- *  re-specify it, so setting `{right: LAND_DETAIL_PANEL_WIDTH}` here would
- *  silently offset every OTHER easeTo/flyTo/fitBounds elsewhere in this
- *  file for as long as the panel stayed open (many of them omit padding
- *  entirely, expecting a true center). Instead this projects the parcel to
- *  a screen point, shifts it right by half the panel width, and unprojects
- *  that back to a lnglat to use as the new map center — a one-shot,
- *  self-contained move with nothing to reset later. (Panning is a uniform
- *  screen-space translation, so aiming the new center at the point
- *  panelWidth/2 to the parcel's right drags the parcel itself left by that
- *  same amount, landing it in the visible-area center — see the inline
- *  comment below for the full derivation.)
+ *  `panelWidthShift` is the signed width (px) of a fixed-position docked
+ *  panel to dodge — POSITIVE for a RIGHT-docked panel (pass
+ *  `LAND_DETAIL_PANEL_WIDTH` for the parcel path), NEGATIVE for a
+ *  LEFT-docked one (pass `-PORTAL_TRACT_PANEL_WIDTH` for the portal Tract
+ *  Detail slide-out, generalized here 2026-08-17 — same idea, mirrored:
+ *  the visible area sits to the RIGHT of a left-docked panel, so the
+ *  target has to be the point panelWidth/2 to the selection's LEFT
+ *  instead of its right). Pass 0 for a selection whose detail UI is a
+ *  screen-centered overlay instead (the non-portal explore map's tract
+ *  "Sale Detail Modal"): there's no single vacant strip to shift toward
+ *  when the panel itself sits over the map's true center, so that path
+ *  centers on the plain bbox center and lets the veil's dim show
+ *  symmetrically in the modal's margins. Below ~2x the shift width (by
+ *  magnitude), dodging stops being meaningful (there isn't enough room
+ *  left to matter) and this falls back to plain centering same as
+ *  panelWidthShift=0.
+ *
+ *  Deliberately does NOT use MapLibre's `padding` CameraOptions for the
+ *  shifted case: padding lives on the map's transform and persists across
+ *  calls that don't re-specify it, so setting `{right: panelWidthShift}`
+ *  here would silently offset every OTHER easeTo/flyTo/fitBounds elsewhere
+ *  in this file for as long as the panel stayed open (many of them omit
+ *  padding entirely, expecting a true center). Instead this projects the
+ *  selection to a screen point, shifts it right by half the panel width,
+ *  and unprojects that back to a lnglat to use as the new map center — a
+ *  one-shot, self-contained move with nothing to reset later. (Panning is
+ *  a uniform screen-space translation, so aiming the new center at the
+ *  point panelWidth/2 to the selection's right drags the selection itself
+ *  left by that same amount, landing it in the visible-area center — see
+ *  the inline comment below for the full derivation.)
  *
  *  No-ops (does nothing, camera stays put) if: there's no usable geometry,
  *  or the map is already mid-animation (`isEasing()`) — MapLibre's own
@@ -286,12 +314,13 @@ function geometryBboxCenter(
  *  fly, a Find Comparables fitBounds, the explore-mode sale-dot zoom-in
  *  fired at click time, a filter-apply fitBounds, etc.). Returns which of
  *  the two no-op reasons applied (if either) so callers that DO want a
- *  second chance — see centerOnParcelSelectionWithRetry below — can tell
+ *  second chance — see centerOnSelectionWithRetry below — can tell
  *  "nothing to center" apart from "something else is animating, try once
  *  more after it settles". */
-function centerOnParcelSelection(
+function centerOnSelection(
   map: maplibregl.Map,
   geometry: GeoJSON.Polygon | GeoJSON.MultiPolygon,
+  panelWidthShift: number,
 ): 'moved' | 'skipped-easing' | 'no-geometry' {
   const center = geometryBboxCenter(geometry)
   if (!center) return 'no-geometry'
@@ -299,21 +328,24 @@ function centerOnParcelSelection(
 
   let target: [number, number] = center
   const containerWidth = map.getContainer().clientWidth
-  if (containerWidth >= PARCEL_CENTER_MIN_CONTAINER_WIDTH) {
+  if (panelWidthShift !== 0 && containerWidth >= Math.abs(panelWidthShift) * 2) {
     // Panning is a uniform screen-space translation: after easeTo, whatever
     // lnglat we pick as the new `center` lands at the canvas's true
     // geometric center (containerWidth/2), not at the visible-area center
-    // we actually want (containerWidth/2 - panelWidth/2, i.e. shifted left
-    // to clear the right-docked panel). So the TARGET has to be the lnglat
-    // that currently sits panelWidth/2 to the RIGHT of the parcel on
-    // screen — moving the camera there drags that point back to true
-    // center and, by the same translation, drags the parcel left by
-    // exactly panelWidth/2, landing it in the visible-area center. (Get
-    // the sign wrong here and the parcel eases in BEHIND the panel instead
-    // of clear of it — caught by live-clicking a parcel and re-projecting
-    // its bbox center after the move, 2026-08-15.)
+    // we actually want (shifted AWAY from the docked panel). So the TARGET
+    // has to be the lnglat that currently sits panelWidth/2 on the PANEL'S
+    // side of the selection on screen — moving the camera there drags that
+    // point back to true center and, by the same translation, drags the
+    // selection to the opposite side by exactly panelWidth/2, landing it in
+    // the visible-area center. A positive shift dodges a right-docked
+    // panel (add to screenPoint.x, dragging the selection left); a
+    // negative shift dodges a left-docked one (subtract, dragging the
+    // selection right) — same formula, the sign does the mirroring. (Get
+    // the sign wrong here and the selection eases in BEHIND the panel
+    // instead of clear of it — caught by live-clicking a parcel and
+    // re-projecting its bbox center after the move, 2026-08-15.)
     const screenPoint = map.project(center)
-    screenPoint.x += LAND_DETAIL_PANEL_WIDTH / 2
+    screenPoint.x += panelWidthShift / 2
     const unprojected = map.unproject(screenPoint)
     target = [unprojected.lng, unprojected.lat]
   }
@@ -326,7 +358,7 @@ function centerOnParcelSelection(
   return 'moved'
 }
 
-/** Wraps centerOnParcelSelection with a single-shot retry for the one case
+/** Wraps centerOnSelection with a single-shot retry for the one case
  *  it deliberately no-ops on that deserves a second try: the explore-mode
  *  sale-dot click path starts its own `map.easeTo(...)` zoom-in (900ms,
  *  see the DURABLE_DOT_LAYER click handler) synchronously, BEFORE the
@@ -356,11 +388,12 @@ function centerOnParcelSelection(
  *  is torn down (via centerRetryCleanupRef) before a new one is armed, and
  *  hideVeil clears it too so closing the panel mid-animation can't fire a
  *  centering move after the veil is gone. */
-function centerOnParcelSelectionWithRetry(
+function centerOnSelectionWithRetry(
   map: maplibregl.Map,
   geometry: GeoJSON.Polygon | GeoJSON.MultiPolygon,
-  key: LandDetailClickData,
-  veilKeyRef: MutableRefObject<LandDetailClickData | null>,
+  key: VeilSelectionKey,
+  panelWidthShift: number,
+  veilKeyRef: MutableRefObject<VeilSelectionKey | null>,
   centerRetryCleanupRef: MutableRefObject<(() => void) | null>,
 ): void {
   // At most one pending retry ever — a new selection (or a call that's
@@ -370,14 +403,14 @@ function centerOnParcelSelectionWithRetry(
     centerRetryCleanupRef.current = null
   }
 
-  const result = centerOnParcelSelection(map, geometry)
+  const result = centerOnSelection(map, geometry, panelWidthShift)
   if (result !== 'skipped-easing') return
 
   const onMoveEnd = () => {
     centerRetryCleanupRef.current = null
     if (veilKeyRef.current !== key) return // selection changed since scheduling
     if (map.isEasing()) return // something else is animating — bail, don't chain another retry
-    centerOnParcelSelection(map, geometry)
+    centerOnSelection(map, geometry, panelWidthShift)
   }
   map.once('moveend', onMoveEnd)
   centerRetryCleanupRef.current = () => map.off('moveend', onMoveEnd)
@@ -1375,6 +1408,18 @@ interface ExploreMapProps {
       (selectedTract, driven by onTractSelected) — this map has no way to
       close that panel itself, so the parent must be told to close it. */
   onLandDetailOpen?: () => void
+  /** Tract Spotlight veil, portalMode (generalized 2026-08-17): in
+      portalMode the Tract Detail slide-out is NOT this component's own
+      state — onTractSelected hands the click off to the PARENT page's
+      `selectedTract`, which renders its own LEFT-docked panel entirely
+      outside this tree (see access/page.tsx). The veil/centering logic
+      lives here and needs to know "is a tract currently selected, and
+      which one" to drive itself — this prop is that read-only mirror.
+      Pass the parent's own `selectedTract` state straight through; pass
+      null/undefined when nothing is selected or outside portalMode. Not
+      used to control the panel itself (onTractSelected/onLandDetailOpen
+      still own that) — purely the veil's read model. */
+  externalTractSelection?: SaleDetail | null
   onToggleReport?: (tract: SaleDetail) => void
   onView3DTerrain?: (tractId: string, tractName: string) => void
   isInReport?: (tractId: string) => boolean
@@ -1626,7 +1671,7 @@ function OverlayButton({
   )
 }
 
-export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onLandDetailOpen, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, chatSearchEndSignal, onChatSearchError, ownerParcelsResult, comparableVisibleIds, neighborParcels, neighborsLoading }: ExploreMapProps) {
+export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onLandDetailOpen, externalTractSelection, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, chatSearchEndSignal, onChatSearchError, ownerParcelsResult, comparableVisibleIds, neighborParcels, neighborsLoading }: ExploreMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const stateMarkersRef = useRef<maplibregl.Marker[]>([])
@@ -2117,17 +2162,19 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // (handleParcelGeometryResolved) that can't close over the latest state
   // directly.
   const landDetailRef = useRef<LandDetailClickData | null>(null)
-  // Identity (by clickData object reference — a fresh object per click,
-  // same pattern LandDetailPanel's own settledForRef uses) of the parcel
-  // selection the veil sources CURRENTLY render. null = veil hidden.
-  const veilKeyRef = useRef<LandDetailClickData | null>(null)
+  // Identity (by object reference — a fresh object per click, same pattern
+  // LandDetailPanel's own settledForRef uses) of the selection the veil
+  // sources CURRENTLY render — a parcel's LandDetailClickData OR a tract's
+  // SaleDetail (generalized 2026-08-17, see VeilSelectionKey). null = veil
+  // hidden.
+  const veilKeyRef = useRef<VeilSelectionKey | null>(null)
   // In-flight setTimeout for the fade-out-then-clear / dip sequences, so a
   // rapid selection change can cancel a still-pending step instead of
   // racing it.
   const veilTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  // Cleanup for a pending single-shot centerOnParcelSelection retry (armed
+  // Cleanup for a pending single-shot centerOnSelection retry (armed
   // when the sale-dot click's own 900ms zoom-in was still easing at
-  // selection time — see centerOnParcelSelectionWithRetry below). Removes
+  // selection time — see centerOnSelectionWithRetry below). Removes
   // the still-attached 'moveend' listener; null when no retry is pending.
   const centerRetryCleanupRef = useRef<(() => void) | null>(null)
   // Regrid parcel-fill hover highlight (task #24) must be suppressed while
@@ -8964,7 +9011,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // to LandDetailPanel as a prop without retriggering its fetch effect.
   const showOrMoveVeil = useCallback((
     geometry: GeoJSON.Polygon | GeoJSON.MultiPolygon,
-    key: LandDetailClickData,
+    key: VeilSelectionKey,
+    panelWidthShift: number,
     opts: { silent?: boolean } = {},
   ) => {
     const map = mapRef.current
@@ -8988,14 +9036,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // opts.silent branch above — the authoritative-geometry swap for the
     // SAME selection — already returned, so reaching here with an
     // unchanged key only happens on a harmless re-fire of this same
-    // selection, e.g. the landDetail effect re-running because
-    // regridConfig changed underneath it). See centerOnParcelSelection's
-    // own doc comment for the padding/isEasing reasoning, and
-    // centerOnParcelSelectionWithRetry's for why a retry is armed when the
-    // initial attempt is skipped for still-easing (the sale-dot click
-    // path's own zoom-in racing this).
+    // selection, e.g. the selection effect re-running because regridConfig
+    // changed underneath it). See centerOnSelection's own doc comment for
+    // the padding/isEasing reasoning, and centerOnSelectionWithRetry's for
+    // why a retry is armed when the initial attempt is skipped for
+    // still-easing (the sale-dot click path's own zoom-in racing this).
     if (veilKeyRef.current !== key) {
-      centerOnParcelSelectionWithRetry(map, geometry, key, veilKeyRef, centerRetryCleanupRef)
+      centerOnSelectionWithRetry(map, geometry, key, panelWidthShift, veilKeyRef, centerRetryCleanupRef)
     }
 
     const reduced = veilPrefersReducedMotion()
@@ -9046,41 +9093,83 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     else veilTimerRef.current = setTimeout(clearData, VEIL_FADE_OUT_MS)
   }, [])
 
-  // Reactive: mirrors `landDetail` into landDetailRef (race-guard for
-  // handleParcelGeometryResolved below) and drives the veil's fast-
-  // feedback path — open/move using the click's own tile-clipped geometry
-  // when the click site had one, close whenever the panel isn't showing a
-  // parcel (closed entirely, or an overlay-only soil/CSB click). Sale-dot
-  // 'parcel' clicks carry no tileGeometry (their tile feature is a Point,
-  // not the parcel polygon) — those leave the veil exactly as it was
-  // until handleParcelGeometryResolved's authoritative geometry lands.
+  // Reactive: THE single source of truth for "what should the veil show
+  // right now", combining THREE mutually-exclusive selection states —
+  // `landDetail` (parcel path, both modes), `selectedSale` (tract path on
+  // the non-portal explore map, generalized 2026-08-17 — see the
+  // tract-pin-circles/tract-polygon-fill click handler below, the only
+  // place selectedSale is ever set to a real value), and
+  // `externalTractSelection` (tract path in portalMode — the click handler
+  // hands the tract off to the PARENT's `selectedTract` instead of setting
+  // selectedSale; the parent mirrors it back down through this prop so the
+  // veil still has something to key off of even though it doesn't own
+  // that panel). Every call site that sets one of these always nulls/skips
+  // the others for the same click, so at most one is ever non-null here.
+  // This MUST stay one effect rather than split one-per-state: a
+  // parcel→tract (or tract→parcel) handoff has to read as a single
+  // showOrMoveVeil call with the OLD key still in veilKeyRef so it takes
+  // the dip-transition branch — independent effects would have the losing
+  // one call hideVeil() first (clearing veilKeyRef to null) and the
+  // winning one then see "veil hidden" and fade in from scratch instead of
+  // dipping.
+  //
+  // Also mirrors `landDetail` into landDetailRef (race-guard for
+  // handleParcelGeometryResolved below).
   useEffect(() => {
     landDetailRef.current = landDetail
     parcelSelectionActiveRef.current = !!(landDetail && landDetail.source === 'parcel')
 
-    if (!landDetail || landDetail.source !== 'parcel') {
-      if (veilKeyRef.current !== null) hideVeil()
+    if (landDetail && landDetail.source === 'parcel') {
+      // Suppress any stuck Regrid hover highlight the instant a selection
+      // opens (spec point 2) — the pink selection layers own this parcel's
+      // emphasis now.
+      const map = mapRef.current
+      if (map && hoveredParcelPathRef.current) {
+        try {
+          map.setFeatureState(
+            { source: 'regrid-parcels', sourceLayer: regridConfig?.source_layer || 'parcels', id: hoveredParcelPathRef.current },
+            { hover: false },
+          )
+        } catch {/* source/layer not ready */}
+        hoveredParcelPathRef.current = null
+      }
+      // Sale-dot 'parcel' clicks carry no tileGeometry (their tile feature
+      // is a Point, not the parcel polygon) — those leave the veil exactly
+      // as it was until handleParcelGeometryResolved's authoritative
+      // geometry lands.
+      if (landDetail.tileGeometry) {
+        showOrMoveVeil(landDetail.tileGeometry, landDetail, LAND_DETAIL_PANEL_WIDTH)
+      }
       return
     }
 
-    // Suppress any stuck Regrid hover highlight the instant a selection
-    // opens (spec point 2) — the pink selection layers own this parcel's
-    // emphasis now.
-    const map = mapRef.current
-    if (map && hoveredParcelPathRef.current) {
-      try {
-        map.setFeatureState(
-          { source: 'regrid-parcels', sourceLayer: regridConfig?.source_layer || 'parcels', id: hoveredParcelPathRef.current },
-          { hover: false },
-        )
-      } catch {/* source/layer not ready */}
-      hoveredParcelPathRef.current = null
+    // Tract selection, either surface. polygonCoordinates is ALREADY the
+    // authoritative boundary (the same data tract-polygon-fill itself
+    // renders from), so unlike parcels there's no tile-clipped/
+    // authoritative-geometry two-step — one call is the whole story.
+    const tractSelection = selectedSale || externalTractSelection || null
+    if (tractSelection) {
+      // panelWidthShift: 0 on the non-portal explore map (the tract detail
+      // there is a screen-centered modal — no single side to shift toward,
+      // see centerOnSelection's doc comment); negative (dodge LEFT) in
+      // portalMode, where externalTractSelection is the only one of the
+      // two that can be set.
+      const panelWidthShift = externalTractSelection ? -PORTAL_TRACT_PANEL_WIDTH : 0
+      const geometry = ringsToGeometry(tractSelection.polygonCoordinates)
+      if (geometry) {
+        showOrMoveVeil(geometry, tractSelection, panelWidthShift)
+      } else if (veilKeyRef.current !== null) {
+        // No usable boundary for this tract — spec: no veil at all rather
+        // than a full-screen dim.
+        hideVeil()
+      }
+      return
     }
 
-    if (landDetail.tileGeometry) {
-      showOrMoveVeil(landDetail.tileGeometry, landDetail)
-    }
-  }, [landDetail, regridConfig, showOrMoveVeil, hideVeil])
+    // Nothing selected (closed entirely, or an overlay-only soil/CSB
+    // click, which sets landDetail.source to 'overlay').
+    if (veilKeyRef.current !== null) hideVeil()
+  }, [landDetail, selectedSale, externalTractSelection, regridConfig, showOrMoveVeil, hideVeil])
 
   // Fired by LandDetailPanel once ITS OWN /api/regrid/parcel fetch settles
   // with the authoritative `_geometry` (or null). Stable identity (useCallback)
@@ -9107,7 +9196,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // the sale-dot-click path, which had no immediate geometry) → a normal
     // open/move transition.
     const silent = veilKeyRef.current === forClickData
-    showOrMoveVeil(geometry, forClickData, { silent })
+    showOrMoveVeil(geometry, forClickData, LAND_DETAIL_PANEL_WIDTH, { silent })
   }, [showOrMoveVeil, hideVeil])
 
   const getStatusLabel = (status: string | null | undefined) => {
