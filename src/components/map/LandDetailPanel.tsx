@@ -179,7 +179,9 @@ interface LandDetailPanelProps {
   /** Same `reportIds` Set ExploreMap already owns and passes to
       CompInlinePopup — membership test only, never mutated here. */
   reportIds?: Set<string> | null
-  /** Gates Download Parcel / Email Parcel only — NOT "+ Report" (that
+  /** Gates all three report actions — "+ Report", Download Parcel and
+      Email Parcel (owner ruling 2026-08-17: basic_state must not see
+      "+ Report" either). Previously "+ Report" was exempt (that
       button calls the ungated multi-tract comparables endpoint and stays
       visible for everyone regardless of this prop). Backend truth:
       main._require_report_access (staff / firm_admin / firm_user /
@@ -869,7 +871,7 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
                   panel's inline-style idiom since it doesn't use
                   Tailwind. Hidden entirely when the parent didn't wire
                   onToggleReport (e.g. the public listings-page map). */}
-              {onToggleReport && (
+              {onToggleReport && canUseReports && (
                 <button
                   onClick={handleToggleReport}
                   disabled={!reportId}

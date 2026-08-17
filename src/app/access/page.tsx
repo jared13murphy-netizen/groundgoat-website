@@ -17,6 +17,7 @@ import PortalListPanel from '@/components/portal/PortalListPanel'
 import PortalAnalyticsPanel from '@/components/portal/PortalAnalyticsPanel'
 import PortalListingDetail from '@/components/portal/PortalListingDetail'
 import PortalTractDetail, { TractDetailActionBar } from '@/components/portal/PortalTractDetail'
+import { canUseReportsFor } from '@/lib/reportAccess'
 import PortalComparablesReportPanel from '@/components/portal/PortalComparablesReportPanel'
 import PortalReportPanel from '@/components/portal/PortalReportPanel'
 import MapChatPanel from '@/components/portal/MapChatPanel'
@@ -914,7 +915,10 @@ function AccessPortalPageInner() {
                   setMapListingId(listingId)
                 }}
                 onView3DTerrain={handleView3DTerrain}
-                onToggleReport={(tract) => {
+                /* Report actions are premium (owner 2026-08-17): passing undefined
+                   hides "+ Report" entirely, matching the parcel panel and the
+                   mobile tract sheet, which already gate on premium access. */
+                onToggleReport={!canUseReportsFor(user) ? undefined : (tract) => {
                   handleToggleReport(tract)
                   // Close tract detail panel after adding/removing from report
                   setSelectedTract(null)
@@ -931,7 +935,10 @@ function AccessPortalPageInner() {
             <TractDetailActionBar
               tract={selectedTract}
               onView3DTerrain={handleView3DTerrain}
-              onToggleReport={(tract) => {
+              /* Report actions are premium (owner 2026-08-17): passing undefined
+                 hides "+ Report" entirely, matching the parcel panel and the
+                 mobile tract sheet, which already gate on premium access. */
+              onToggleReport={!canUseReportsFor(user) ? undefined : (tract) => {
                 handleToggleReport(tract)
                 setSelectedTract(null)
               }}
