@@ -19,7 +19,6 @@ import {
   TILE_URL,
   TILE_ATTRIBUTION,
   GLYPH_URL,
-  LABEL_TILE_URL,
   STATUS_COLORS,
   derivePinStatus,
 } from './mapConstants'
@@ -3728,11 +3727,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             tileSize: 256,
             attribution: TILE_ATTRIBUTION,
           },
-          'city-labels': {
-            type: 'raster',
-            tiles: [LABEL_TILE_URL],
-            tileSize: 256,
-          },
         },
         layers: [
           {
@@ -3740,21 +3734,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             type: 'raster',
             source: 'osm',
             minzoom: 0,
-            maxzoom: 19,
-          },
-          {
-            id: 'city-label-tiles',
-            type: 'raster',
-            source: 'city-labels',
-            // minzoom raised 0 -> 14 (phase 2, 2026-08-17): the new vector
-            // 'town-labels' layer below now owns town names at every zoom
-            // this raster used to cover them at, and being a blurry raster
-            // image it would double up on top of (or under) the crisp
-            // vector pill. Left rendering at z14+ only for its ROAD names
-            // (confirmed phase 1) — owner is deciding whether to keep the
-            // raster at all for that. One-line flip to remove entirely:
-            // delete this layer + the 'city-labels' source above once ruled.
-            minzoom: 14,
             maxzoom: 19,
           },
         ],
