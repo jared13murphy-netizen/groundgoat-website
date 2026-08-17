@@ -52,6 +52,17 @@ const EMPTY_FC: GeoJSON.FeatureCollection = { type: 'FeatureCollection', feature
 // elsewhere, so pins/labels always render ABOVE the polygon fills.
 const MARKER_LAYERS_BOTTOM_TO_TOP = [
   'county-labels',
+  // Town vector labels (phase 2, 2026-08-17) — listed right after
+  // county-labels so they're lifted early, landing at the BOTTOM of the
+  // marker group: above the basemap/overlays/veil (same as county-labels),
+  // but below every pin/count-bubble/tract layer listed after it, so a
+  // town pill can never paint over a pin. NOTE: this only protects town
+  // labels from PINS — the veil/select highlight (parcel-select-*) is
+  // repositioned by a separate effect (correctVeilPosition) to sit just
+  // below 'regrid-parcels-line', which is itself below this whole lifted
+  // marker group, same pre-existing trade-off tract-pin-circles already
+  // has (see that effect's comment). Not re-litigated here.
+  'town-labels',
   'county-count-circles',
   'county-count-labels',
   // Regrid sale "+"/dot markers sit BELOW the tract pins (task #26 z-order
@@ -530,14 +541,19 @@ function buildPinColorMatchExpression(): any {
 }
 
 // ───────────────────────────────────────────────────────────────
-// Dark rounded-pill sprite used behind county/state names. MapLibre
+// Rounded-pill sprite used behind county/town names. MapLibre
 // symbol layers have no native text-background, so we register a
 // 9-slice stretchable image and draw it with icon-image +
 // icon-text-fit:'both'. The `content` + `stretchX/Y` describe the
 // non-corner regions so corners stay crisp while the middle stretches.
-// Matches the dark .aem-county-square look (dark fill, pink border).
+// Default (no `fill`) matches the dark .aem-county-square look (dark
+// fill, pink border) used for county badges. Town labels (phase 2,
+// 2026-08-17) pass `fill:'#ffffff'` for a white pill with the SAME
+// pink border — deliberately distinct from the county badge (owner
+// ruling: white bg + black text + pink outline, vs. county's dark
+// bg + white text) so the two are never mistaken for each other.
 // ───────────────────────────────────────────────────────────────
-function makePillSprite(opts: { border: string }): {
+function makePillSprite(opts: { border: string; fill?: string }): {
   image: { width: number; height: number; data: Uint8Array }
   options: any
 } {
@@ -560,7 +576,7 @@ function makePillSprite(opts: { border: string }): {
   ctx.arcTo(x, y + h, x, y, r)
   ctx.arcTo(x, y, x + w, y, r)
   ctx.closePath()
-  ctx.fillStyle = 'rgba(15,15,18,0.86)'
+  ctx.fillStyle = opts.fill ?? 'rgba(15,15,18,0.86)'
   ctx.fill()
   ctx.lineWidth = 1.5
   ctx.strokeStyle = opts.border
@@ -635,6 +651,40 @@ const STATE_TIER_MAX = 6
 const COUNTY_TIER_MIN = 6
 const COUNTY_TIER_MAX = 9
 const TRACT_TIER_MIN = 9
+
+// Town vector labels (phase 2, 2026-08-17). Layer minzoom — below this the
+// 'town-labels' filter (see below) always evaluates false anyway, but
+// setting it here too skips the layer's tile/placement work entirely below
+// z6, matching the county-labels pattern.
+const TOWN_LABEL_MIN_ZOOM = 6
+// Population floor per zoom, used as the 'step' expression driving the
+// layer's `filter` (one layer, not many — owner spec). Verified against
+// real data, NOT accepted as-proposed: phase 1's original tiers (z6-7
+// >=100k; z8 >=20k; z9-10 >=5k; z11 >=2k; z12+ >=500) were tried against
+// the owner's own reference view — z9-10 over west-central Illinois,
+// centered on Quincy — and >=5k at z9-10 excluded Carthage (2,441),
+// Rushville (2,923), Havana (2,827), Mount Sterling (2,016), Pittsfield
+// (4,072), and Winchester (1,494), every one of which the owner named as a
+// town he expects to see there. Lowering the z9-10 floor to >=1,000
+// includes all of them (checked against public/data/town-centroids.json:
+// a realistic ~1.6°x1.2° viewport around Quincy renders ~26 labels at
+// >=1,000, a readable count) while keeping the ladder monotonically
+// decreasing as you zoom in — which forced z11/z12 down too (2,000/500
+// were no longer BELOW the new z9-10 floor of 1,000, which would have
+// made zooming in show FEWER towns, backwards). Final ladder: z6-7
+// >=100k, z8 >=20k, z9-10 >=1,000, z11 >=500, z12 >=200, z13+ everything
+// (pop=0 rows — 8 of them, degenerate Census rows — are excluded at every
+// zoom by the leading `['>', ['get','pop'], 0]` filter clause).
+const TOWN_LABEL_ZOOM_STEP_FILTER: any = [
+  'step', ['zoom'],
+  false,
+  6, ['>=', ['get', 'pop'], 100000],
+  8, ['>=', ['get', 'pop'], 20000],
+  9, ['>=', ['get', 'pop'], 1000],
+  11, ['>=', ['get', 'pop'], 500],
+  12, ['>=', ['get', 'pop'], 200],
+  13, true,
+]
 
 type ZoomTier = 'state' | 'county' | 'tract'
 function currentZoomTier(z: number): ZoomTier {
@@ -3696,7 +3746,15 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             id: 'city-label-tiles',
             type: 'raster',
             source: 'city-labels',
-            minzoom: 0,
+            // minzoom raised 0 -> 14 (phase 2, 2026-08-17): the new vector
+            // 'town-labels' layer below now owns town names at every zoom
+            // this raster used to cover them at, and being a blurry raster
+            // image it would double up on top of (or under) the crisp
+            // vector pill. Left rendering at z14+ only for its ROAD names
+            // (confirmed phase 1) — owner is deciding whether to keep the
+            // raster at all for that. One-line flip to remove entirely:
+            // delete this layer + the 'city-labels' source above once ruled.
+            minzoom: 14,
             maxzoom: 19,
           },
         ],
@@ -3833,6 +3891,87 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           'text-halo-width': 0.6,
         },
       })
+
+      // ── Town vector labels (phase 2, 2026-08-17) ──────────────────────
+      // Replaces the blurry CartoDB raster 'city-label-tiles' for TOWN
+      // names (that raster is now capped to z14+, kept only for its road
+      // names — see minzoom comment on that layer above). Data is
+      // public/data/town-centroids.json — 19,484 US Census Gazetteer
+      // place centroids + population, phase 1, public domain. It's a flat
+      // {state,name,lng,lat,pop} record array, not GeoJSON, so it can't
+      // use the `data: <url>` shorthand the county/state sources above
+      // do (MapLibre requires the fetched body to already be GeoJSON) —
+      // fetch once and convert to a Point FeatureCollection instead.
+      //
+      // OWNER STYLING RULING: pill-shaped, WHITE background, BLACK text,
+      // PINK outline — deliberately the inverse of the county badge (dark
+      // bg, white text) so the two read as two different kinds of thing
+      // at a glance. Pink is the same #f58cde the county pill's border
+      // and the app's gg-pink token both already use (tailwind.config.js).
+      fetch('/data/town-centroids.json')
+        .then(r => (r.ok ? r.json() : []))
+        .then((rows: any[]) => {
+          if (!Array.isArray(rows) || !map.getStyle()) return
+          const fc: GeoJSON.FeatureCollection = {
+            type: 'FeatureCollection',
+            features: rows
+              .filter(r => typeof r?.lng === 'number' && typeof r?.lat === 'number')
+              .map(r => ({
+                type: 'Feature',
+                properties: { name: r.name, pop: r.pop ?? 0 },
+                geometry: { type: 'Point', coordinates: [r.lng, r.lat] },
+              })),
+          }
+          if (map.getSource('towns')) {
+            (map.getSource('towns') as maplibregl.GeoJSONSource).setData(fc)
+            return
+          }
+          map.addSource('towns', { type: 'geojson', data: fc })
+          try {
+            if (!map.hasImage('aem-pill-town')) {
+              const tp = makePillSprite({ border: '#f58cde', fill: '#ffffff' })
+              map.addImage('aem-pill-town', tp.image as any, tp.options)
+            }
+          } catch {/* image already added by a racing call */}
+          // Inserted directly below 'county-labels' so it starts life
+          // right where it belongs in the stack; liftMarkerLayers (called
+          // right after) re-lifts the whole marker group on top of the
+          // basemap/overlays/veil, landing town-labels just above
+          // county-labels — see the TOWN_LABEL layer-order comment on
+          // MARKER_LAYERS_BOTTOM_TO_TOP above for the full z-order
+          // reasoning and its one documented trade-off.
+          map.addLayer({
+            id: 'town-labels',
+            type: 'symbol',
+            source: 'towns',
+            minzoom: TOWN_LABEL_MIN_ZOOM,
+            // Exclude the 8 pop=0 Census rows at every zoom, then gate the
+            // rest by the population/zoom ladder above.
+            filter: ['all', ['>', ['get', 'pop'], 0], TOWN_LABEL_ZOOM_STEP_FILTER],
+            layout: {
+              'text-field': ['get', 'name'],
+              'text-font': ['Open Sans Bold'],
+              'text-size': ['interpolate', ['linear'], ['zoom'], 6, 9, 14, 13],
+              'text-anchor': 'center',
+              'text-max-width': 8,
+              // MapLibre's built-in symbol collision (shared across every
+              // symbol layer in the style) is what keeps towns from
+              // overlapping each other, county badges, and tract labels —
+              // no manual declutter logic needed.
+              'text-allow-overlap': false,
+              'icon-image': 'aem-pill-town',
+              'icon-text-fit': 'both',
+              'icon-text-fit-padding': [3, 7, 3, 7],
+              'icon-allow-overlap': false,
+              'icon-optional': false,
+            },
+            paint: {
+              'text-color': '#000000',
+            },
+          }, 'county-labels')
+          liftMarkerLayers(map)
+        })
+        .catch(() => {/* town labels are a visual enhancement, never block the map */})
 
       // County COUNT bubbles (filter-active): pink circle + number.
       // Visibility toggled by setLayoutProperty(hasActiveFilters).
