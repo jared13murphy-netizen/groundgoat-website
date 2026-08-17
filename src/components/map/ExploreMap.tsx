@@ -2555,6 +2555,26 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // this frontend can ship before the backend starts sending the field.
   const [canUseLayers, setCanUseLayers] = useState(false)
   const layersEnabled = canUseLayers || isAdmin
+  // Download/Email Parcel report-button entitlement (owner 2026-08-17:
+  // "allow for premium_state and hide for basic_state" — see
+  // main._require_report_access). NOT the same rule as canUseLayers
+  // above (no firm-level 'firm' subscription bypass, no
+  // groundgoat_sales_manager, no @groundgoat.com email bypass) — this is
+  // deliberately narrower, so it gets its own state and its own
+  // ALLOWED_ROLES-style fallback rather than reusing canUseLayers.
+  //
+  // Three-value default (null = "not yet resolved") so the buttons never
+  // flash visible then disappear: LandDetailPanel only shows them once
+  // this resolves to true, and starts hidden while null. Deploy-order
+  // safety: REPORT_ALLOWED_ROLES is the same 4 account_types the backend
+  // has ALWAYS permitted for reports (works even against the OLD backend,
+  // before it starts sending can_use_reports), OR'd with the new
+  // can_use_reports field once the backend sends it (covers
+  // premium_state). A failed /api/auth/me call resolves to `true`
+  // (fail open) rather than staying null forever — an entitled user must
+  // never be permanently stranded behind a network hiccup.
+  const REPORT_ALLOWED_ROLES = ['groundgoat_admin', 'groundgoat_sales', 'firm_admin', 'firm_user']
+  const [canUseReports, setCanUseReports] = useState<boolean | null>(null)
   // Pilot-owner gate for the parcel-enrichment overlay (Hancock IL
   // tillable + PI). STAYS admin-only — this is R&D scratch (the Hancock
   // tillable pilot and the /api/tiles/parcels endpoint, which 404s for
@@ -2595,12 +2615,23 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     ;(async () => {
       try {
         const res = await fetchWithAuth(`${API_URL}/api/auth/me`)
-        if (!res.ok) return
+        if (!res.ok) {
+          // Don't strand an entitled user behind a transient /me failure —
+          // fail open on the report-button gate specifically (isAdmin/
+          // canUseLayers intentionally stay at their false defaults here;
+          // canUseReports has the stricter "never hide permanently on a
+          // failed lookup" requirement, see its declaration above).
+          if (!cancelled) setCanUseReports(true)
+          return
+        }
         const me = await res.json()
         if (cancelled) return
         const admin = me?.account_type === 'groundgoat_admin'
         setIsAdmin(admin)
         setCanUseLayers(Boolean(me?.can_use_layers))
+        setCanUseReports(
+          REPORT_ALLOWED_ROLES.includes(me?.account_type) || Boolean(me?.can_use_reports)
+        )
         // The tile-server discovery fetch that used to live here has
         // been removed. It populated `adminParcelStates`, which fed
         // the "Show Parcels" admin toggle — but that toggle has been
@@ -2615,6 +2646,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         // this block AND fix CORS on the tile server.
       } catch {
         /* not fatal */
+        if (!cancelled) setCanUseReports(true) // fail open — see above
       }
     })()
     return () => { cancelled = true }
@@ -9559,6 +9591,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         onGeometryResolved={handleParcelGeometryResolved}
         onToggleReport={onToggleReport}
         reportIds={reportIds}
+        canUseReports={Boolean(canUseReports)}
       />
 
       {/* Goat Search animation overlay — renders while a chat-driven

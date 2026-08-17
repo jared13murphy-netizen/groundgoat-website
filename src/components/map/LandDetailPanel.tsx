@@ -179,11 +179,21 @@ interface LandDetailPanelProps {
   /** Same `reportIds` Set ExploreMap already owns and passes to
       CompInlinePopup — membership test only, never mutated here. */
   reportIds?: Set<string> | null
+  /** Gates Download Parcel / Email Parcel only — NOT "+ Report" (that
+      button calls the ungated multi-tract comparables endpoint and stays
+      visible for everyone regardless of this prop). Backend truth:
+      main._require_report_access (staff / firm_admin / firm_user /
+      premium_state; basic_state denied — owner ruling 2026-08-17).
+      Defaults to `true` (fail open) so any caller that doesn't wire this
+      prop keeps today's always-visible behavior instead of silently
+      hiding the buttons. ExploreMap is the one caller that actively
+      computes and passes a real value; see its `canUseReports` state. */
+  canUseReports?: boolean
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export default function LandDetailPanel({ clickData, onClose, onGeometryResolved, onToggleReport, reportIds }: LandDetailPanelProps) {
+export default function LandDetailPanel({ clickData, onClose, onGeometryResolved, onToggleReport, reportIds, canUseReports = true }: LandDetailPanelProps) {
   const [regridData, setRegridData] = useState<any>(null)
   const [enrichData, setEnrichData] = useState<any>(null)
   const [loading, setLoading] = useState(false)
@@ -884,59 +894,65 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
                   {isInReport ? '− Report' : '+ Report'}
                 </button>
               )}
-              <button
-                onClick={handleDownloadReport}
-                disabled={downloading}
-                style={{
-                  flex: 1,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 6,
-                  padding: '11px 10px',
-                  borderRadius: 12,
-                  fontSize: 12,
-                  fontWeight: 600,
-                  border: '1px solid rgba(0,0,0,0.12)',
-                  background: downloading ? 'rgba(0,0,0,0.03)' : '#fff',
-                  color: downloading ? 'rgba(0,0,0,0.4)' : '#1a1a1a',
-                  cursor: downloading ? 'wait' : 'pointer',
-                }}
-              >
-                {downloading ? (
-                  <><Loader2 size={14} className="animate-spin" /> Building PDF...</>
-                ) : (
-                  <><Download size={14} /> Download Parcel</>
-                )}
-              </button>
-              <button
-                onClick={handleEmailReport}
-                disabled={emailStatus === 'sending' || emailStatus === 'sent'}
-                style={{
-                  flex: 1,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 6,
-                  padding: '11px 10px',
-                  borderRadius: 12,
-                  fontSize: 12,
-                  fontWeight: 700,
-                  border: 'none',
-                  background: emailStatus === 'sent' ? 'rgba(52,199,89,0.15)' : '#E91E8C',
-                  color: emailStatus === 'sent' ? '#1a9146' : '#fff',
-                  cursor: (emailStatus === 'sending' || emailStatus === 'sent') ? 'default' : 'pointer',
-                  opacity: emailStatus === 'sending' ? 0.7 : 1,
-                }}
-              >
-                {emailStatus === 'sent' ? (
-                  <><Check size={14} /> Sent!</>
-                ) : emailStatus === 'sending' ? (
-                  <><Loader2 size={14} className="animate-spin" /> Sending...</>
-                ) : (
-                  <><Mail size={14} /> Email Parcel</>
-                )}
-              </button>
+              {/* Download/Email Parcel — gated on canUseReports (see prop
+                  doc above). "+ Report" above is NOT part of this gate. */}
+              {canUseReports && (
+                <>
+                  <button
+                    onClick={handleDownloadReport}
+                    disabled={downloading}
+                    style={{
+                      flex: 1,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 6,
+                      padding: '11px 10px',
+                      borderRadius: 12,
+                      fontSize: 12,
+                      fontWeight: 600,
+                      border: '1px solid rgba(0,0,0,0.12)',
+                      background: downloading ? 'rgba(0,0,0,0.03)' : '#fff',
+                      color: downloading ? 'rgba(0,0,0,0.4)' : '#1a1a1a',
+                      cursor: downloading ? 'wait' : 'pointer',
+                    }}
+                  >
+                    {downloading ? (
+                      <><Loader2 size={14} className="animate-spin" /> Building PDF...</>
+                    ) : (
+                      <><Download size={14} /> Download Parcel</>
+                    )}
+                  </button>
+                  <button
+                    onClick={handleEmailReport}
+                    disabled={emailStatus === 'sending' || emailStatus === 'sent'}
+                    style={{
+                      flex: 1,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 6,
+                      padding: '11px 10px',
+                      borderRadius: 12,
+                      fontSize: 12,
+                      fontWeight: 700,
+                      border: 'none',
+                      background: emailStatus === 'sent' ? 'rgba(52,199,89,0.15)' : '#E91E8C',
+                      color: emailStatus === 'sent' ? '#1a9146' : '#fff',
+                      cursor: (emailStatus === 'sending' || emailStatus === 'sent') ? 'default' : 'pointer',
+                      opacity: emailStatus === 'sending' ? 0.7 : 1,
+                    }}
+                  >
+                    {emailStatus === 'sent' ? (
+                      <><Check size={14} /> Sent!</>
+                    ) : emailStatus === 'sending' ? (
+                      <><Loader2 size={14} className="animate-spin" /> Sending...</>
+                    ) : (
+                      <><Mail size={14} /> Email Parcel</>
+                    )}
+                  </button>
+                </>
+              )}
             </div>
             {(emailStatus === 'sent' || emailStatus === 'error' || downloadError) && (
               <div style={{ marginTop: 8 }}>
