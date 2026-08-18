@@ -191,11 +191,26 @@ interface LandDetailPanelProps {
       hiding the buttons. ExploreMap is the one caller that actively
       computes and passes a real value; see its `canUseReports` state. */
   canUseReports?: boolean
+  /** Comparables mode (2026-08-17). While the user is building a
+      comparables report, this panel has exactly ONE job — add or remove
+      this parcel — so the action row collapses to a single "Add to
+      Report" button and "+ Report" / "Download Parcel" / "Email Parcel"
+      are hidden.
+
+      Owner: "the main difference is it will only have the Add to Report
+      button when in comp mode."
+
+      This gates BOTH ways a parcel can be opened in comp mode: the "+"
+      glyph on a sale dot, and a plain click on the parcel fill. The
+      fill-click path was never comp-aware, so before this it opened the
+      full Download/Email action row while the user was mid-report —
+      reachable by tapping a few pixels off the "+". */
+  compMode?: boolean
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export default function LandDetailPanel({ clickData, onClose, onGeometryResolved, onToggleReport, reportIds, canUseReports = true }: LandDetailPanelProps) {
+export default function LandDetailPanel({ clickData, onClose, onGeometryResolved, onToggleReport, reportIds, canUseReports = true, compMode = false }: LandDetailPanelProps) {
   const [regridData, setRegridData] = useState<any>(null)
   const [enrichData, setEnrichData] = useState<any>(null)
   const [loading, setLoading] = useState(false)
@@ -896,7 +911,14 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
                   panel's inline-style idiom since it doesn't use
                   Tailwind. Hidden entirely when the parent didn't wire
                   onToggleReport (e.g. the public listings-page map). */}
-              {onToggleReport && canUseReports && (
+              {/* `|| compMode`: CompInlinePopup's "Add to Report" was never
+                  behind canUseReports, and this replaces it. Gating it
+                  here would silently take the add-a-comparable action
+                  away from anyone who can reach comp mode without that
+                  flag — a regression, not a fix. Comp mode is itself
+                  entered from report-gated UI, so this is belt-and-braces
+                  rather than a hole. */}
+              {onToggleReport && (canUseReports || compMode) && (
                 <button
                   onClick={handleToggleReport}
                   disabled={!reportId}
@@ -911,19 +933,32 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
                     borderRadius: 12,
                     fontSize: 12,
                     fontWeight: 700,
-                    border: isInReport ? '1px solid rgba(233,30,140,0.3)' : '1px solid rgba(0,0,0,0.12)',
-                    background: isInReport ? 'rgba(233,30,140,0.08)' : '#fff',
-                    color: isInReport ? '#E91E8C' : '#1a1a1a',
+                    // In comp mode this is the panel's only button and its
+                    // whole purpose, so it reads as the primary action
+                    // (filled pink) rather than a neutral outline — the
+                    // same weight CompInlinePopup's "Add to Report" had.
+                    border: isInReport
+                      ? '1px solid rgba(233,30,140,0.3)'
+                      : compMode ? 'none' : '1px solid rgba(0,0,0,0.12)',
+                    background: isInReport
+                      ? 'rgba(233,30,140,0.08)'
+                      : compMode ? '#E91E8C' : '#fff',
+                    color: isInReport ? '#E91E8C' : compMode ? '#fff' : '#1a1a1a',
                     cursor: reportId ? 'pointer' : 'default',
                     opacity: reportId ? 1 : 0.5,
                   }}
                 >
-                  {isInReport ? '− Report' : '+ Report'}
+                  {compMode
+                    ? (isInReport ? '✓ Added' : '+ Add to Report')
+                    : (isInReport ? '− Report' : '+ Report')}
                 </button>
               )}
               {/* Download/Email Parcel — gated on canUseReports (see prop
-                  doc above). "+ Report" above is NOT part of this gate. */}
-              {canUseReports && (
+                  doc above). "+ Report" above is NOT part of this gate.
+                  Both are hidden entirely in comp mode: while building a
+                  comparables report the only meaningful action on a
+                  parcel is adding it (owner ruling 2026-08-17). */}
+              {canUseReports && !compMode && (
                 <>
                   <button
                     onClick={handleDownloadReport}

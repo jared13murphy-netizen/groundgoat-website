@@ -475,17 +475,28 @@ function AccessPortalPageInner() {
 
   const handleToggleReport = (tract: TractSaleData) => {
     const isAdding = !reportIds.has(tract.id)
+    // Both updaters are PURE and independent. They used to be nested —
+    // setReportTracts was called from inside the setReportIds updater —
+    // which is a side effect in a place React is allowed to run twice.
+    // Under StrictMode it does exactly that, so one click appended the
+    // tract to the array twice while the Set (idempotent) took it once:
+    // the report showed "2 SALES" for a single parcel, both rows
+    // identical. Verified 2026-08-17 in the browser on the comp-mode
+    // add path. Do not nest these again.
     setReportIds(prev => {
       const next = new Set(prev)
-      if (next.has(tract.id)) {
-        next.delete(tract.id)
-        setReportTracts(prev => prev.filter(t => t.id !== tract.id))
-      } else {
-        next.add(tract.id)
-        setReportTracts(prev => [...prev, tract])
-      }
+      if (isAdding) next.add(tract.id)
+      else next.delete(tract.id)
       return next
     })
+    setReportTracts(prev => (
+      isAdding
+        // Guarded rather than a bare append: makes the add idempotent so
+        // a double-invoke can never duplicate a row again, whatever the
+        // caller does.
+        ? (prev.some(t => t.id === tract.id) ? prev : [...prev, tract])
+        : prev.filter(t => t.id !== tract.id)
+    ))
     // Auto-open report panel when adding from main map (not comparables mode)
     if (isAdding && !showComparablesReportPanel) {
       setShowMainReportPanel(true)
@@ -938,7 +949,7 @@ function AccessPortalPageInner() {
               /* Report actions are premium (owner 2026-08-17): passing undefined
                  hides "+ Report" entirely, matching the parcel panel and the
                  mobile tract sheet, which already gate on premium access. */
-              onToggleReport={!canUseReportsFor(user) ? undefined : (tract) => {
+              onToggleReport={(!canUseReportsFor(user) && !subjectTractId) ? undefined : (tract) => {
                 handleToggleReport(tract)
                 setSelectedTract(null)
               }}
@@ -948,6 +959,16 @@ function AccessPortalPageInner() {
                 setMapListingId(listingId)
               }}
               onFindComparables={handleFindComparables}
+              /* Comp mode (2026-08-17): a tract "+" now opens THIS
+                 slide-out instead of the old inline popup, narrowed to
+                 the popup's three actions. `subjectTractId` is the same
+                 signal ExploreMap uses to turn dots into "+" pickers, so
+                 map and panel can't disagree about the mode.
+                 Note the `&& !subjectTractId` above: the popup's Add to
+                 Report was never premium-gated, so gating it here would
+                 remove the only way to add a comparable for anyone who
+                 reached comp mode without the flag. */
+              compMode={Boolean(subjectTractId)}
             />
           </motion.div>
         )}

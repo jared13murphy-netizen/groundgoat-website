@@ -5491,93 +5491,24 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       const lng = e.lngLat.lng
       const lat = e.lngLat.lat
 
-      // COMP MODE: the "+" is a comparable-picker, so open the same inline
-      // CompInlinePopup the HTML tract "+" uses — it has the "Add to Report"
-      // button (the raw parcel-detail maplibre popup has no such button).
-      // EXPLORE MODE (no subject tract): fall through to the rich parcel
-      // detail popup below.
-      if (subjectTractIdRef.current) {
-        if (activePopup) { try { activePopup.remove() } catch {/* gone */} activePopup = null }
+      // COMP MODE and EXPLORE MODE now take the SAME path: open the
+      // unified LandDetailPanel. Comp mode used to branch here into a
+      // small anchored CompInlinePopup, which showed less parcel data
+      // than the panel and was a second, parallel detail UI to keep in
+      // sync. Owner ruling 2026-08-17: "I like the slide-out panel, so
+      // let's change the comp mode explore map so it shows the slide-out
+      // panel instead of the pop up." The panel collapses its action row
+      // to a single Add to Report button via its `compMode` prop, which
+      // is exactly what the popup offered for a parcel (its 3D and
+      // Details buttons were already conditional on tractId/listingId and
+      // so never rendered for a parcel).
+      //
+      // The popup's add-to-report payload is not lost: LandDetailPanel's
+      // handleToggleReport builds the same SaleDetail shape buildParcelSale
+      // did, off the same authoritative /api/regrid/parcel record, and
+      // keys it with the same reportId the dot layers match on.
+      if (activePopup) { try { activePopup.remove() } catch {/* gone */} activePopup = null }
 
-        // Build the report-ready SaleDetail the SAME way the mobile app
-        // does (ComparablesMapView.buildParcelSale): start from the tile
-        // pin's lightweight props, then fetch the authoritative Premium
-        // Schema record from /api/regrid/parcel and merge in the richer
-        // fields (tillable acres, soil rating, exact acreage/price). The
-        // website report panels read camelCase fields, so we populate
-        // those; they derive the snake_case email payload themselves.
-        const parcelId = ll_uuid || props.path || `parcel:${lng.toFixed(6)},${lat.toFixed(6)}`
-        const toNum = (v: any): number | null => {
-          if (v == null || v === '') return null
-          const n = Number(v)
-          return Number.isFinite(n) ? n : null
-        }
-        const buildParcelSale = (rec: any | null): SaleDetail => {
-          const acres = (rec ? (toNum(rec.ll_gisacre) ?? toNum(rec.gisacre)) : null)
-            ?? toNum(props.ll_gisacre) ?? toNum(props.gisacre)
-          const salePrice = (rec ? toNum(rec.saleprice) : null) ?? toNum(props.saleprice)
-          const saleDateRaw = (rec && rec.saledate) || props.saledate || null
-          const ppa = (salePrice != null && acres != null && acres > 0)
-            ? salePrice / acres : null
-          const tillable = rec ? toNum(rec.tillable_acres) : null
-          const soil = rec ? toNum(rec.soil_rating) : null
-          const pctTillable = (tillable != null && acres != null && acres > 0)
-            ? (tillable / acres) * 100 : null
-          const owner = (rec && rec.owner) || props.owner || null
-          return {
-            // ll_uuid is the stable Regrid parcel id; report toggle/dedupe
-            // keys off sale.id. Fall back to coords if the tile lacks a uuid.
-            id: parcelId,
-            listingId: null,
-            tractId: null,
-            auctionDate: typeof saleDateRaw === 'string' ? saleDateRaw.slice(0, 10) : null,
-            totalAcres: acres,
-            tillableAcres: tillable,
-            soilRating: soil,
-            pctTillable,
-            // Bug fix: this used to be stuffed into companyName, which
-            // renders under a "Company" label in emailed reports — a
-            // parcel has no listing company, only a Regrid owner.
-            companyName: null,
-            owner,
-            latitude: lat,
-            longitude: lng,
-            salePrice,
-            pricePerAcre: ppa,
-            county: (rec ? rec.county : null) || props.county || props.county_name || '',
-            state: (rec ? (rec.state2 || rec.state) : null) || props.state || props.state_abbr || '',
-            township: null,
-            saleStatus: 'sold',
-          }
-        }
-
-        // Show the popup immediately with pin-derived values (responsive),
-        // then upgrade it once the authoritative record resolves.
-        const point = map.project(e.lngLat)
-        // One click, one panel (task #26): comp popup replaces any open
-        // tract modal / land-detail panel from a previous click.
-        setSelectedSale(null)
-        setLandDetail(null)
-        setCompPopup({ sale: buildParcelSale(null), pos: { x: point.x, y: point.y }, lngLat: [lng, lat] })
-
-        ;(async () => {
-          try {
-            const qs = new URLSearchParams()
-            if (ll_uuid) qs.set('ll_uuid', ll_uuid)
-            else { qs.set('lat', String(lat)); qs.set('lng', String(lng)) }
-            const res = await fetchWithAuth(`${API_URL}/api/regrid/parcel?${qs.toString()}`)
-            if (!res.ok) return
-            const data = await res.json()
-            const rec = data?.parcel
-            if (!rec) return
-            const enriched = buildParcelSale(rec)
-            // Only patch if the user is still looking at THIS parcel's popup.
-            setCompPopup(prev => (prev && prev.sale.id === parcelId)
-              ? { ...prev, sale: enriched, record: rec } : prev)
-          } catch {/* keep the pin-derived popup */}
-        })()
-        return
-      }
 
       // Explore mode: open the unified LandDetailPanel (no competing Popup).
       // One click, one panel (task #26): clear any open tract modal / comp
@@ -5908,82 +5839,18 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         const props: any = f.properties || {}
         const ll_uuid = props.id as string | undefined
 
-        if (subjectTractIdRef.current) {
-          // OWNER RULING 2026-07-25 ("zoom to it + open"): the dot now
-          // shows as low as z9 in comp mode (see the mount effect above),
-          // but the Regrid parcel-boundary tile it should sit on still
-          // only renders at REGRID_MIN_ZOOM (11). Tapping a dot below that
-          // zoom first eases the camera to REGRID_MIN_ZOOM on that dot,
-          // then falls straight through to the same popup logic that runs
-          // unchanged at z>=11 today — no separate code path, just an
-          // extra camera move ahead of it.
-          if (map.getZoom() < REGRID_MIN_ZOOM) {
-            map.easeTo({ center: [lng, lat], zoom: REGRID_MIN_ZOOM, duration: 900 })
-          }
-          // COMP MODE: same inline CompInlinePopup + buildParcelSale shape
-          // PARCEL_SALE_PLUS_LAYER's onPinClick builds (see that handler
-          // above) — parity is required now that this layer is the sole
-          // comp-mode dot display at every zoom, not just z9-11.
-          if (activePopup) { try { activePopup.remove() } catch {/* gone */} activePopup = null }
-          const parcelId = ll_uuid || `parcel:${lng.toFixed(6)},${lat.toFixed(6)}`
-          const toNum = (v: any): number | null => {
-            if (v == null || v === '') return null
-            const n = Number(v)
-            return Number.isFinite(n) ? n : null
-          }
-          const buildDurableSale = (rec: any | null): SaleDetail => {
-            const acres = (rec ? (toNum(rec.ll_gisacre) ?? toNum(rec.gisacre)) : null) ?? toNum(props.acres)
-            const salePrice = (rec ? toNum(rec.saleprice) : null) ?? toNum(props.saleprice)
-            const saleDateRaw = (rec && rec.saledate) || props.saledate || null
-            const ppa = (salePrice != null && acres != null && acres > 0) ? salePrice / acres : null
-            const tillable = rec ? toNum(rec.tillable_acres) : null
-            const soil = rec ? toNum(rec.soil_rating) : null
-            const pctTillable = (tillable != null && acres != null && acres > 0)
-              ? (tillable / acres) * 100 : null
-            const owner = (rec && rec.owner) || null
-            return {
-              id: parcelId,
-              listingId: null,
-              tractId: null,
-              auctionDate: typeof saleDateRaw === 'string' ? saleDateRaw.slice(0, 10) : null,
-              totalAcres: acres,
-              tillableAcres: tillable,
-              soilRating: soil,
-              pctTillable,
-              // Same fix as buildParcelSale above — owner is not a company.
-              companyName: null,
-              owner,
-              latitude: lat,
-              longitude: lng,
-              salePrice,
-              pricePerAcre: ppa,
-              county: (rec ? rec.county : null) || '',
-              state: (rec ? (rec.state2 || rec.state) : null) || '',
-              township: null,
-              saleStatus: 'sold',
-            }
-          }
-          const point = map.project(e.lngLat)
-          setSelectedSale(null)
-          setLandDetail(null)
-          setCompPopup({ sale: buildDurableSale(null), pos: { x: point.x, y: point.y }, lngLat: [lng, lat] })
-          ;(async () => {
-            try {
-              const qs = new URLSearchParams()
-              if (ll_uuid) qs.set('ll_uuid', ll_uuid)
-              else { qs.set('lat', String(lat)); qs.set('lng', String(lng)) }
-              const res = await fetchWithAuth(`${API_URL}/api/regrid/parcel?${qs.toString()}`)
-              if (!res.ok) return
-              const data = await res.json()
-              const rec = data?.parcel
-              if (!rec) return
-              const enriched = buildDurableSale(rec)
-              setCompPopup(prev => (prev && prev.sale.id === parcelId)
-                ? { ...prev, sale: enriched, record: rec } : prev)
-            } catch {/* keep the pin-derived popup */}
-          })()
-          return
+        // Comp mode keeps the zoom-in-then-open behaviour but no longer
+        // branches to a separate popup — both modes open LandDetailPanel
+        // (see the matching note in PARCEL_SALE_PLUS_LAYER's onPinClick).
+        if (subjectTractIdRef.current && map.getZoom() < REGRID_MIN_ZOOM) {
+          // OWNER RULING 2026-07-25 ("zoom to it + open"): the dot shows
+          // as low as z9 in comp mode, but the Regrid parcel-boundary tile
+          // it sits on only renders at REGRID_MIN_ZOOM (11), so ease the
+          // camera in first and then fall through to the same open path.
+          map.easeTo({ center: [lng, lat], zoom: REGRID_MIN_ZOOM, duration: 900 })
         }
+        if (activePopup) { try { activePopup.remove() } catch {/* gone */} activePopup = null }
+
 
         // EXPLORE MODE: open the unified LandDetailPanel (unchanged). The
         // durable payload's `id` IS the ll_uuid — /api/regrid/parcel
@@ -8403,17 +8270,20 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // over any sale-dot or parcel/overlay panel already open from a
       // previous click.
       setLandDetail(null)
-      if (subjectTractIdRef.current) {
-        // Comp mode — inline popup anchored at the clicked feature's
-        // projected pixel position. e.originalEvent already prevented the
-        // map 'click' that would close the popup (layer click fires first;
-        // we stash the lngLat so onMove keeps it anchored).
-        const point = e.point
-        setCompPopup({
-          sale: saleData,
-          pos: { x: point.x, y: point.y },
-          lngLat: [e.lngLat.lng, e.lngLat.lat],
-        })
+      if (subjectTractIdRef.current && portalMode && onTractSelected) {
+        // Comp mode now opens the SAME left slide-out a tract opens in
+        // explore mode, instead of an inline anchored popup (owner ruling
+        // 2026-08-17 — the popup showed less than the slide-out and was a
+        // second detail UI to keep in sync). The parent narrows the action
+        // bar to the popup's three buttons via its own comp-mode flag; see
+        // TractDetailActionBar's `compMode`.
+        //
+        // subjectTractId is only ever set from /access, which also passes
+        // portalMode, so this branch is what actually runs in comp mode —
+        // but it is guarded on both rather than assuming, and falls
+        // through to the standalone modal below if that ever stops holding.
+        lastPortalSaleRef.current = saleData
+        onTractSelected(saleData)
       } else if (portalMode && onTractSelected) {
         lastPortalSaleRef.current = saleData
         onTractSelected(saleData)
@@ -9548,9 +9418,19 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         </div>
       )}
 
-      {/* Comparables-mode inline popup — click a + marker → opens here.
-          Sits absolutely positioned over the map. Closes on map click
-          (handled in the marker-loop effect), Esc, or the X button. */}
+      {/* DEAD AS OF 2026-08-17 — retained, not reachable.
+          Comp mode used to open this inline popup from a "+" click. All
+          three open sites (parcel "+", durable dot, tract) now open the
+          slide-out panels instead, per the owner's ruling, so no code
+          path assigns a non-null `compPopup` any more — every remaining
+          setCompPopup call is either `null` or a `prev =>` mutator that
+          can only act on an already-open popup. It therefore never
+          renders.
+          Left in place deliberately rather than deleted in the same
+          change that rerouted the click handlers: removing ~350 lines
+          and the surrounding state/effects is a separate, verifiable
+          commit, and doing both at once is how a "simple" UI reroute
+          turns into a regression hunt. Delete it on its own. */}
       {compPopup && (
         <CompInlinePopup
           sale={compPopup.sale}
@@ -9592,6 +9472,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         onToggleReport={onToggleReport}
         reportIds={reportIds}
         canUseReports={Boolean(canUseReports)}
+        /* Comp mode collapses the action row to a single Add to Report
+           button. Driven off subjectTractId (the same signal that turns
+           the dots into "+" pickers) rather than a separate flag, so the
+           panel can never disagree with the map about which mode the
+           user is in. This covers BOTH parcel entry points — the "+" and
+           a plain click on the parcel fill — since they now share this
+           one panel. */
+        compMode={Boolean(subjectTractId)}
       />
 
       {/* Goat Search animation overlay — renders while a chat-driven

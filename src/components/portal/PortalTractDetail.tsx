@@ -19,6 +19,13 @@ export interface TractSaleData {
   totalAcres?: number | null
   tillableAcres?: number | null
   companyName?: string | null
+  /** External listing URL. ExploreMap's tract click handler has always
+      populated this (`sourceUrl: tract.source_url`) and CompInlinePopup
+      used it as the fallback target for its "Details" button; it was
+      simply never declared here. Declared 2026-08-17 so the comp-mode
+      action bar can offer the same fallback for a tract that has a
+      source URL but no in-app listing. */
+  sourceUrl?: string | null
   // Parcel owner (Regrid) — distinct from companyName (a tract's listing
   // company). See ExploreMap.tsx's SaleDetail.owner / buildParcelSale.
   owner?: string | null
@@ -534,6 +541,16 @@ export interface TractDetailActionBarProps {
   isInReport?: boolean
   onViewListing?: (listingId: string) => void
   onFindComparables?: (tractId: string, county: string, state: string) => void
+  /** Comparables mode (2026-08-17). Comp mode used to show a tract in a
+      small inline popup with exactly three actions — 3D, Details, Add to
+      Report. That popup was replaced by this slide-out, and the owner
+      chose to keep those same three actions rather than inherit the full
+      bar ("Match the popup"). So in comp mode: Find Comps, Download
+      report and Email me this report are hidden, the report toggle reads
+      "Add to Report"/"Added", and the listing button matches the popup's
+      looser gate (listingId OR sourceUrl, not listingId AND companyName)
+      so it doesn't silently vanish on tracts where the popup showed it. */
+  compMode?: boolean
 }
 
 export function TractDetailActionBar({
@@ -543,6 +560,7 @@ export function TractDetailActionBar({
   isInReport,
   onViewListing,
   onFindComparables,
+  compMode = false,
 }: TractDetailActionBarProps) {
   const hasBoundaries = !!(tract.polygonCoordinates && tract.polygonCoordinates.length > 0)
 
@@ -664,14 +682,26 @@ export function TractDetailActionBar({
                 : 'bg-white/5 text-white border-white/10 hover:bg-white/10'
             }`}
           >
-            {isInReport ? '− Report' : '+ Report'}
+            {compMode
+              ? (isInReport ? '✓ Added' : '+ Add to Report')
+              : (isInReport ? '− Report' : '+ Report')}
           </button>
         )}
 
-        {/* View Listing (only if has listing company) */}
-        {tract.listingId && tract.companyName && onViewListing && (
+        {/* View Listing. Normally requires a listing company; in comp
+            mode it matches the popup this replaced, which opened on
+            listingId OR sourceUrl — so a tract that showed a Details
+            button before still shows one now. */}
+        {onViewListing && (
+          compMode
+            ? Boolean(tract.listingId || tract.sourceUrl)
+            : Boolean(tract.listingId && tract.companyName)
+        ) && (
           <button
-            onClick={() => onViewListing(tract.listingId!)}
+            onClick={() => {
+              if (tract.listingId) onViewListing(tract.listingId)
+              else if (tract.sourceUrl) window.open(tract.sourceUrl, '_blank', 'noopener,noreferrer')
+            }}
             className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-white/5 border border-white/10 text-white font-medium rounded-xl hover:bg-white/10 transition text-xs"
           >
             View Listing
@@ -680,8 +710,10 @@ export function TractDetailActionBar({
 
         {/* Find Comparables — same callback the listing detail panel
             uses; here it lets the user pick THIS tract as the subject
-            for a comparables search. */}
-        {onFindComparables && (
+            for a comparables search. Hidden in comp mode: the user is
+            already inside a comparables search, and the popular this
+            replaced had no equivalent. */}
+        {onFindComparables && !compMode && (
           <button
             onClick={() => onFindComparables(tract.id, tract.county, tract.state)}
             className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-gg-pink/10 text-gg-pink border border-gg-pink/30 rounded-xl hover:bg-gg-pink/20 transition text-xs font-medium"
@@ -694,7 +726,11 @@ export function TractDetailActionBar({
 
       {/* Single-tract PDF report — separate row from the buttons above
           (which can already run to 4-wide at 480px; a 2nd row keeps
-          these legible instead of cramming 6 into one). */}
+          these legible instead of cramming 6 into one).
+          Hidden entirely in comp mode: the popup this replaced offered
+          no single-tract PDF, and while assembling a comparables report
+          a per-tract download/email is a different job. */}
+      {!compMode && (
       <div className="flex gap-2 px-5 pb-4">
         <button
           onClick={handleDownloadReport}
@@ -731,6 +767,7 @@ export function TractDetailActionBar({
           )}
         </button>
       </div>
+      )}
 
       {/* Inline status — success shows the backend's "Sent to you@email.com"
           message; failures show the parsed error (403/400/other). */}
