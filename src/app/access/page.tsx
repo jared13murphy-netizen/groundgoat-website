@@ -269,6 +269,11 @@ function AccessPortalPageInner() {
       const orp = body?.owner_parcels_response
       if (orp?.dots?.length) {
         handleOwnerParcels(orp as OwnerParcelsResponse, body?.reply || `Land owned by ${ownerName}`)
+        // The active-search bubble is the ONLY way out of owner-search
+        // mode (its X calls clearActiveSearch). The chat path sets it via
+        // onSearchQueryStart; this button path must too, or the user is
+        // stuck with owner dots and no way back (owner 2026-08-18).
+        setActiveSearchQuery(`Land owned by ${ownerName}`)
       }
     } catch {/* button is best-effort; map stays as-is on failure */}
   }
