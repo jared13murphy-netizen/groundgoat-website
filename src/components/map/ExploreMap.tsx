@@ -840,7 +840,7 @@ export interface SaleDetail {
   // Parcel owner (Regrid). Distinct from companyName (a TRACT's listing
   // company) — never conflate the two, or an emailed report renders a
   // parcel's owner name under a "Company" label. See buildParcelSale /
-  // buildDurableSale below and CompInlinePopup's ownerLine.
+  // buildDurableSale below and LandDetailPanel's owner row.
   owner?: string | null
   // Click point coordinates, so the backend can resolve a durable
   // parcel's polygon/owner/soil-rating by point-in-polygon when this
@@ -1899,8 +1899,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // sale-dot's centroid falls inside a comp tract's own polygon, the
   // dot + its floating Regrid owner/$/date label are hidden and the
   // underlying parcel deed(s) are folded into that tract's click panel
-  // instead (CompInlinePopup / PortalTractDetail "Recorded Deeds"
-  // section below). MOBILE PARITY: ComparablesMapView.js should mirror
+  // instead (PortalTractDetail's "Recorded Deeds" section below). MOBILE PARITY: ComparablesMapView.js should mirror
   // this exact algorithm — point-in-polygon of each parcel-sale-dot's
   // (lat,lng) against every loaded tract's polygon_coordinates rings,
   // via the same pointInBoundary ray-cast (no turf dep on either
@@ -1909,8 +1908,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // endpoint, which 404s for every durable-dot ll_uuid in production).
   // ─────────────────────────────────────────────────────────────────
   // tractId -> the deed(s) folded into that tract. React state (not a
-  // ref) because it feeds the CompInlinePopup/PortalTractDetail panel
-  // directly; the set is small (bounded by dots that actually coincide
+  // ref) because it feeds the PortalTractDetail panel directly; the set is small (bounded by dots that actually coincide
   // with a tract) so re-render cost is negligible.
   const [tractDeeds, setTractDeeds] = useState<Map<string, RecordedDeed[]>>(new Map())
   // Mirror of tractDeeds for the tract-click handler below, which is
@@ -1954,9 +1952,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // value directly without risking a stale read.
   const regridConfigRef = useRef<{ source_layer?: string; parcel_data_states?: string[] } | null>(null)
   // Last SaleDetail handed to the parent via onTractSelected (portalMode
-  // — PortalTractDetail). Unlike CompInlinePopup (a piece of THIS
-  // component's own state, so a useEffect can patch it directly),
-  // PortalTractDetail's data lives in the PARENT's state (/access
+  // — PortalTractDetail). Its data lives in the PARENT's state (/access
   // page.tsx `selectedTract`) — the only way to refresh it is to call
   // onTractSelected AGAIN with updated deeds. This ref remembers what we
   // last sent so the live-refresh effect below can do that.
@@ -2145,42 +2141,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
   }, [])
   const [selectedSale, setSelectedSale] = useState<SaleDetail | null>(null)
-  // Inline popup ON THE MAP (comparables mode only). Click a tract pin
-  // in comp mode opens this; click outside (anywhere else on the map) or
-  // the X / Esc closes it. Distinct from `selectedSale` (the sidebar/modal
-  // flow used outside comp mode). Wired in the tract-pin click effect.
-  const [compPopup, setCompPopup] = useState<{
-    sale: SaleDetail
-    pos: { x: number; y: number }
-    // For Regrid "+" parcels (no tract marker to re-project from on pan),
-    // we stash the click lng/lat so onMove can keep the popup anchored.
-    lngLat?: [number, number]
-    // Raw /api/regrid/parcel record (owner 2026-08-16: comp map parcel
-    // popup must show the same Land Composition / Soil Rating / Last Sale
-    // / Property / Assessed Value / Buildings / Mailing Address data as
-    // LandDetailPanel — see ParcelDetailSections in parcelDetailFields.tsx).
-    // null for a tract-pin popup (no Regrid record involved) and for a
-    // parcel/durable-dot popup until its fetch resolves.
-    record?: any | null
-  } | null>(null)
-  // Keep an OPEN CompInlinePopup's deeds live as owner resolution lands.
-  // saleData.deeds (built at click time in the tract-pin/-polygon handler
-  // below) is a snapshot read off tractDeedsRef — without this effect, a
-  // popup opened before the Regrid tile finishes loading (owner read
-  // synchronously off queryRenderedFeatures — see recomputeCoincidentDeeds)
-  // would show the "Owner unknown"/skeleton state forever, even after the
-  // tile loads, since compPopup.sale is otherwise never touched again
-  // after the click. Re-syncs from tractDeeds (state, so this effect
-  // re-runs on every recompute) whenever the popup's own tract has an
-  // entry.
-  useEffect(() => {
-    setCompPopup(prev => {
-      if (!prev || !prev.sale.tractId) return prev
-      const deeds = tractDeeds.get(prev.sale.tractId)
-      if (deeds === prev.sale.deeds) return prev
-      return { ...prev, sale: { ...prev.sale, deeds } }
-    })
-  }, [tractDeeds])
+  // The PortalTractDetail deed refresh below replaced a matching one for
+  // the comp-mode inline popup, which is gone (2026-08-18): comp mode now
+  // opens the same slide-out panels explore mode does, so there is no
+  // second detail UI holding a stale snapshot of a tract's deeds.
   // Mirror of the effect above, for PortalTractDetail (AUDIT FIX,
   // MEDIUM: this was missing entirely — a PortalTractDetail opened
   // before the tile resolved never updated). PortalTractDetail's data
@@ -2256,51 +2220,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subjectTractId])
 
-  // Comp-mode popup lifecycle effects: map-click closes (clicks on a
-  // + marker DOM don't bubble to the canvas, so this only fires for
-  // empty-map clicks). Pan/zoom re-projects the lat/lng so the popup
-  // tracks its anchor pin. Both are gated on compPopup being open so
-  // they're a no-op outside comp mode.
-  useEffect(() => {
-    const map = mapRef.current
-    if (!map || !compPopup) return
-    const onMapClick = (e: maplibregl.MapMouseEvent) => {
-      // Don't close if the click landed on a popup-opening layer — that
-      // layer's own handler is opening (or switching to) a popup. Without
-      // these guards, clicking a tract pin / Regrid "+" while a popup is
-      // open would both open the new one and immediately close it.
-      //   - parcel-sale-pin-plus: Regrid sale "+" markers
-      //   - tract-pin-circles: native tract pins (replaces the old DOM
-      //     marker's stopPropagation, which native layers can't do)
-      const guardLayers = [...SALE_DOT_LAYERS, 'tract-pin-circles']
-        .filter(id => map.getLayer(id))
-      if (guardLayers.length) {
-        try {
-          if (map.queryRenderedFeatures(e.point, { layers: guardLayers }).length) return
-        } catch {/* layer gone */}
-      }
-      setCompPopup(null)
-    }
-    const onMove = () => {
-      setCompPopup(prev => {
-        if (!prev) return prev
-        // Every comp-popup (native tract pin click AND Regrid "+" parcel)
-        // now stashes the click lng/lat, so we re-project straight from it
-        // to keep the popup anchored on pan/zoom — no marker lookup needed.
-        if (prev.lngLat) {
-          const p = map.project(prev.lngLat)
-          return { ...prev, pos: { x: p.x, y: p.y } }
-        }
-        return prev
-      })
-    }
-    map.on('click', onMapClick)
-    map.on('move', onMove)
-    return () => {
-      map.off('click', onMapClick)
-      map.off('move', onMove)
-    }
-  }, [compPopup])
   const [soilData, setSoilData] = useState<{ map_units: any[]; avg_slope?: number } | null>(null)
   const [elevationData, setElevationData] = useState<{ min_ft: number; max_ft: number; relief_ft: number; avg_slope_pct: number } | null>(null)
   const [soilLoading, setSoilLoading] = useState(false)
@@ -5197,7 +5116,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // must close any tract or comp popup left open from a previous click,
       // AND (portalMode) tell the parent to close its Tract Detail slide-out.
       setSelectedSale(null)
-      setCompPopup(null)
       onLandDetailOpen?.()
       setLandDetail({
         parcelProps,
@@ -5515,7 +5433,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // popup left over from a previous click, AND (portalMode) tell the
       // parent to close its Tract Detail slide-out.
       setSelectedSale(null)
-      setCompPopup(null)
       onLandDetailOpen?.()
       // Parcel Spotlight veil: this "+" pin's OWN tile feature is a Point
       // (no polygon to punch a hole with), but the pin sits on top of the
@@ -5661,9 +5578,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // the owner directive has no comp-mode exception, so this layer is now
   // uncapped and click-correct in BOTH modes, not just explore):
   //   EXPLORE: opens the unified LandDetailPanel (unchanged).
-  //   COMP: opens the SAME inline CompInlinePopup that PARCEL_SALE_PLUS_LAYER's
-  //   onPinClick opens (buildParcelSale/setCompPopup), so a click here has
-  //   IDENTICAL behavior to clicking the "+" pin used to have at z>=11 —
+  //   COMP: opens the SAME LandDetailPanel, narrowed to a single
+  //   "Add to Report" button by its compMode prop — identical to what
+  //   clicking the "+" pin does, which is the point —
   //   the durable payload's `id` IS the ll_uuid, so /api/regrid/parcel
   //   resolves the full record the same way.
   // ─────────────────────────────────────────────────────────────────
@@ -5859,7 +5776,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         // One click, one panel: clear any open tract modal / comp popup,
         // AND (portalMode) tell the parent to close its Tract Detail slide-out.
         setSelectedSale(null)
-        setCompPopup(null)
         onLandDetailOpen?.()
         // Parcel Spotlight veil: same fix as PARCEL_SALE_PLUS_LAYER above —
         // this dot's own tile feature is a Point, but the Regrid parcel
@@ -6184,9 +6100,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const pathsChanged = !setsEqual(newSuppressedPaths, suppressedPathsRef.current)
 
     // Reference-stability pass: reuse the PREVIOUS array for any tract
-    // whose deed list is unchanged BY VALUE, so the CompInlinePopup/
-    // PortalTractDetail live-refresh effects' `deeds === prev.sale.deeds`
-    // guards correctly see "no change" and don't re-invoke
+    // whose deed list is unchanged BY VALUE, so PortalTractDetail's
+    // live-refresh effect's `deeds === prevSale.deeds` guard
+    // correctly sees "no change" and doesn't re-invoke
     // setCompPopup/onTractSelected on every tick (AUDIT FIX, HIGH — part
     // of the same infinite-loop report: a fresh array reference every
     // pass, even with identical content, churned those two effects too).
@@ -7433,7 +7349,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // One click, one panel: clear any open tract modal / comp popup,
       // AND (portalMode) tell the parent to close its Tract Detail slide-out.
       setSelectedSale(null)
-      setCompPopup(null)
       onLandDetailOpen?.()
       setLandDetail({
         parcelProps: null,
@@ -7565,7 +7480,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // One click, one panel: clear any open tract modal / comp popup,
       // AND (portalMode) tell the parent to close its Tract Detail slide-out.
       setSelectedSale(null)
-      setCompPopup(null)
       onLandDetailOpen?.()
       setLandDetail({
         parcelProps: null,
@@ -8209,7 +8123,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // Wired ONCE per mapLoaded. Reads the full SaleDetail from
   // tractMapRef.current (keyed by tractId) so the GeoJSON feature stays
   // lean. Mirrors the old DOM onClick downstream logic exactly:
-  //   comp mode  → setCompPopup
+  //   comp mode  → onTractSelected (narrowed action bar)
   //   portalMode → onTractSelected
   //   otherwise  → setSelectedSale
   useEffect(() => {
@@ -8288,7 +8202,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         lastPortalSaleRef.current = saleData
         onTractSelected(saleData)
       } else {
-        setCompPopup(null)
         setSelectedSale(saleData)
       }
     }
@@ -8387,7 +8300,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // the portal Tract Detail panel must close the parcel/land panel
       // and any comp popup left over from a previous click.
       setLandDetail(null)
-      setCompPopup(null)
       setSelectedSale(null)
       const todaySaleData: SaleDetail = {
         id: tract.id,
@@ -9416,50 +9328,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           }} />
           {`Loading ${overlayLoading}…`}
         </div>
-      )}
-
-      {/* DEAD AS OF 2026-08-17 — retained, not reachable.
-          Comp mode used to open this inline popup from a "+" click. All
-          three open sites (parcel "+", durable dot, tract) now open the
-          slide-out panels instead, per the owner's ruling, so no code
-          path assigns a non-null `compPopup` any more — every remaining
-          setCompPopup call is either `null` or a `prev =>` mutator that
-          can only act on an already-open popup. It therefore never
-          renders.
-          Left in place deliberately rather than deleted in the same
-          change that rerouted the click handlers: removing ~350 lines
-          and the surrounding state/effects is a separate, verifiable
-          commit, and doing both at once is how a "simple" UI reroute
-          turns into a regression hunt. Delete it on its own. */}
-      {compPopup && (
-        <CompInlinePopup
-          sale={compPopup.sale}
-          record={compPopup.record ?? null}
-          pos={compPopup.pos}
-          isSelected={!!(reportIds && reportIds.has(compPopup.sale.id))}
-          onClose={() => setCompPopup(null)}
-          onView3D={() => {
-            if (onView3DTerrain && compPopup.sale.tractId) {
-              const tractName = `${compPopup.sale.county || ''}${compPopup.sale.state ? ', ' + compPopup.sale.state : ''}`.trim() || 'Tract'
-              onView3DTerrain(compPopup.sale.tractId, tractName)
-            }
-          }}
-          onViewDetails={() => {
-            // Open the slide-out pane on the left (same UX as the normal
-            // /access tract-pin → View Listing flow). Parent /access page
-            // wires onViewListing to its PortalTractDetail sidebar.
-            if (onViewListing && compPopup.sale.listingId) {
-              onViewListing(compPopup.sale.listingId)
-              setCompPopup(null)
-            } else if (compPopup.sale.sourceUrl) {
-              window.open(compPopup.sale.sourceUrl, '_blank', 'noopener,noreferrer')
-            }
-          }}
-          onAddToReport={() => {
-            if (onToggleReport) onToggleReport(compPopup.sale as any)
-            setCompPopup(null)
-          }}
-        />
       )}
 
       {/* Unified land-detail slide-out panel. Replaces the old anchored
@@ -11263,444 +11131,4 @@ function _regridPopupHTML(record: any): string {
     _section('Buildings', buildingRows) +
     bottomPad,
   )
-}
-
-
-// =====================================================================
-// CompInlinePopup — Click-driven popup that opens when admin taps a "+"
-// marker in comparables mode. Anchored at pixel-position of the marker
-// (caller projects lat/lng → pixels). Three horizontal action buttons.
-// X closes; Esc closes; 3D/Details stay open; Add to Report closes.
-// =====================================================================
-
-const FMT_USD_COMP = (n: number | null | undefined) =>
-  n == null ? '—' : n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
-const FMT_NUM_COMP = (n: number | null | undefined, digits = 1) =>
-  n == null ? '—' : n.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits })
-const FMT_DATE_COMP = (iso: string | null | undefined) => {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  return isNaN(d.getTime()) ? '—' : d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
-}
-// Recorded-deed sale dates render as plain MM/DD/YYYY (per spec) — a
-// county-recorder date, not the "Jul 13, 2026" style FMT_DATE_COMP uses
-// for the tract's own auction date. Parsed as a plain YYYY-MM-DD string
-// (no `new Date()`/timezone conversion — these are date-only Regrid
-// values, not timestamps).
-const FMT_DEED_DATE_COMP = (iso: string | null | undefined) => {
-  if (!iso) return null
-  const m = iso.slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/)
-  if (!m) return null
-  const [, y, mo, d] = m
-  return `${mo}/${d}/${y}`
-}
-
-function CompInlinePopup({
-  sale, record, pos, isSelected,
-  onClose, onView3D, onViewDetails, onAddToReport,
-}: {
-  sale: SaleDetail
-  // Raw /api/regrid/parcel record — null for a tract-pin popup, or until a
-  // parcel/durable-dot popup's own fetch resolves. See ParcelDetailSections
-  // (parcelDetailFields.tsx): owner 2026-08-16, this modal must show the
-  // same Land Composition / Soil Rating / Last Sale / Property / Assessed
-  // Value / Buildings / Mailing Address data as LandDetailPanel does on the
-  // explore map, not just the summarized SaleDetail report row.
-  record: any | null
-  pos: { x: number; y: number }
-  isSelected: boolean
-  onClose: () => void
-  onView3D: () => void
-  onViewDetails: () => void
-  onAddToReport: () => void
-}) {
-  // Esc closes the popup
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
-
-  // Anchor above the pin unless near the top of the viewport, then
-  // anchor below. Clamp horizontally too.
-  const POPUP_WIDTH = 300
-  const ABOVE_HEIGHT = 340
-  const showBelow = pos.y < ABOVE_HEIGHT
-  const clampedX = typeof window !== 'undefined' ? Math.max(
-    POPUP_WIDTH / 2 + 8,
-    Math.min(pos.x, window.innerWidth - POPUP_WIDTH / 2 - 8),
-  ) : pos.x
-
-  const ppa = sale.pricePerAcre
-
-  // Land Composition / Soil Rating / Last Sale / Property / Assessed Value /
-  // Buildings / Mailing Address fields — shared with LandDetailPanel (see
-  // parcelDetailFields.tsx) so this popup's data can't drift from the
-  // explore map's. `record` is null until this popup's own /api/regrid/
-  // parcel fetch resolves (or for a tract-pin popup, which has none), so
-  // these sections simply aren't present yet — same progressive-render
-  // behavior LandDetailPanel already has (its own "Loading parcel
-  // details…" state before regridData resolves).
-  const derived = deriveParcelDetail(record, null, null)
-
-  // Headline = the property location/owner. Subhead = sale date.
-  const locationLine = [sale.county, sale.state].filter(Boolean).join(', ') || 'Tract sale'
-  // Parcel popups carry a real `owner`; tract popups (this same component
-  // is shared, see setCompPopup at the tract-pin handler above) have no
-  // owner field, so this falls back to companyName for them — unchanged
-  // behavior there.
-  const ownerLine = sale.owner || sale.companyName || null
-
-  // Hero stats — only include cells that have a real value. The hero
-  // row collapses gracefully (1/2/3 columns) so a tract missing one
-  // figure (e.g. private sale w/ no salePrice) doesn't show a dash.
-  const heroStats: { label: string; value: string; emphasize?: boolean }[] = []
-  if (sale.totalAcres != null) {
-    heroStats.push({ label: 'Acres', value: FMT_NUM_COMP(sale.totalAcres) })
-  }
-  if (ppa != null) {
-    heroStats.push({ label: '$ / Acre', value: `$${FMT_NUM_COMP(ppa, 0)}`, emphasize: true })
-  }
-  if (sale.salePrice != null) {
-    const priceLabel = sale.salePrice >= 1_000_000
-      ? `$${(sale.salePrice / 1_000_000).toFixed(2)}M`
-      : `$${(sale.salePrice / 1000).toFixed(0)}K`
-    heroStats.push({ label: 'Sale price', value: priceLabel })
-  }
-
-  return (
-    <div
-      style={{
-        position: 'absolute',
-        left: clampedX,
-        top: pos.y,
-        transform: showBelow
-          ? 'translate(-50%, 22px)'
-          : 'translate(-50%, calc(-100% - 22px))',
-        background: '#fff',
-        color: '#111',
-        borderRadius: 14,
-        boxShadow: '0 18px 48px rgba(0,0,0,0.32), 0 2px 6px rgba(0,0,0,0.08)',
-        width: POPUP_WIDTH,
-        zIndex: 1000,
-        overflow: 'hidden',
-        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-      }}
-      // Stop clicks inside the popup from bubbling to the map and
-      // triggering the close-on-map-click handler.
-      onMouseDown={(e) => e.stopPropagation()}
-    >
-      {/* Header — gradient band with location + close button. The
-          pink/charcoal palette mirrors the rest of the site. */}
-      <div style={{
-        padding: '14px 16px 12px',
-        background: 'linear-gradient(135deg, #1f1f23 0%, #2a2a30 100%)',
-        color: '#fff',
-        position: 'relative',
-      }}>
-        <div style={{
-          display: 'flex', alignItems: 'flex-start',
-          justifyContent: 'space-between', gap: 12,
-        }}>
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{
-              fontSize: 10, fontWeight: 700, letterSpacing: 1.2,
-              textTransform: 'uppercase', color: '#F58CDE',
-              marginBottom: 4,
-            }}>
-              Comparable sale
-            </div>
-            <div style={{
-              fontSize: 16, fontWeight: 700, lineHeight: 1.25,
-              color: '#fff',
-              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-            }}>
-              {locationLine}
-            </div>
-            {sale.township && (
-              <div style={{
-                fontSize: 12, color: 'rgba(255,255,255,0.65)',
-                marginTop: 2,
-                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-              }}>
-                {sale.township}
-              </div>
-            )}
-            {/* Land-type badges (Illinois parcels) — shared with
-                LandDetailPanel via parcelDetailFields.tsx. */}
-            <LandTypeBadges landTypes={derived.landTypes} />
-          </div>
-          <button
-            onClick={onClose}
-            aria-label="Close"
-            style={{
-              // Flex centering + an explicit text-align fixes the
-              // visually-off "×" glyph (the character has a baseline
-              // offset so plain text-centering leaves it slightly
-              // low and right of true center).
-              background: 'rgba(255,255,255,0.08)', border: 'none', cursor: 'pointer',
-              fontSize: 18, lineHeight: 1, color: 'rgba(255,255,255,0.85)',
-              padding: 0, width: 26, height: 26, borderRadius: 13,
-              flexShrink: 0,
-              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-              textAlign: 'center',
-            }}
-          >×</button>
-        </div>
-      </div>
-
-      {/* Hero stat — price / acre dominates when present. Empty cells
-          are skipped entirely so we never show a "—" placeholder. */}
-      {heroStats.length > 0 && (
-        <div style={{
-          display: 'flex',
-          padding: '14px 16px 12px',
-          borderBottom: '1px solid rgba(0,0,0,0.06)',
-          background: '#fafbfc',
-        }}>
-          {heroStats.map((stat, i) => {
-            const isFirst = i === 0
-            const isLast = i === heroStats.length - 1
-            return (
-              <div
-                key={stat.label}
-                style={{
-                  flex: stat.emphasize ? 1.4 : 1,
-                  textAlign: isFirst && !stat.emphasize ? 'left'
-                    : isLast && !stat.emphasize ? 'right'
-                    : 'center',
-                  borderLeft: isFirst ? 'none' : '1px solid rgba(0,0,0,0.06)',
-                  paddingLeft: isFirst ? 0 : 8,
-                  paddingRight: isLast ? 0 : 8,
-                }}
-              >
-                <div style={{
-                  fontSize: 9.5, fontWeight: 700, letterSpacing: 0.8,
-                  textTransform: 'uppercase',
-                  color: stat.emphasize ? '#E91E8C' : '#888',
-                }}>{stat.label}</div>
-                <div style={{
-                  fontSize: stat.emphasize ? 19 : 15,
-                  fontWeight: stat.emphasize ? 800 : 700,
-                  color: '#1a1a1a',
-                  marginTop: 2,
-                  letterSpacing: stat.emphasize ? -0.3 : 0,
-                }}>{stat.value}</div>
-              </div>
-            )
-          })}
-        </div>
-      )}
-
-      {/* Owner — pin-derived, available immediately (unlike the sections
-          below, which wait on this popup's own /api/regrid/parcel fetch). */}
-      {ownerLine && (
-        <div style={{ padding: '12px 16px 0' }}>
-          <CompPopupRow label="Owner" value={ownerLine} truncate />
-        </div>
-      )}
-
-      {/* Land Composition / Soil Rating / Last Sale / Property / Assessed
-          Value / Buildings / Mailing Address — owner 2026-08-16: "I would
-          like the data to be the same in the modal between the two maps".
-          Shared with LandDetailPanel via parcelDetailFields.tsx so the two
-          modals' data/order/formatting can't drift apart. */}
-      <ParcelDetailSections d={derived} />
-
-      {/* Disclaimer — owner-requested (2026-08-14), verbatim text (shared
-          constant, parcelDetailFields.tsx), do not edit. */}
-      <div style={{ padding: '10px 16px 4px', color: 'rgba(0,0,0,0.4)', fontSize: 11, lineHeight: 1.45 }}>
-        {PARCEL_DISCLAIMER_TEXT}
-      </div>
-
-      {/* Recorded Deeds — comp-map coincident-dot collapse (see
-          recomputeCoincidentDeeds above). A Regrid parcel sale-dot whose
-          centroid sits inside THIS tract's polygon is hidden from the
-          map and its deed folded in here instead — a tract can have
-          multiple underlying deeds, so every one renders as its own row.
-          Amber "County Record" styling (never pink) keeps this
-          county-recorder $/acre from ever being read as the tract's own
-          auction sold price/acre in the hero stats above. acres/$-acre/
-          date render instantly from the durable-dot payload; only OWNER
-          waits on the Regrid tile at the dot's point being loaded
-          (skeleton pulse until recomputeCoincidentDeeds finds it —
-          never blocks the rest of the row). */}
-      {sale.deeds && sale.deeds.length > 0 && (
-        <div style={{
-          padding: '0 16px 14px',
-          maxHeight: 150,
-          overflowY: 'auto',
-        }}>
-          <div style={{
-            fontSize: 9.5, fontWeight: 700, letterSpacing: 0.8,
-            textTransform: 'uppercase', color: '#B45309',
-            marginBottom: 6,
-          }}>
-            Recorded deed{sale.deeds.length > 1 ? 's' : ''} on this parcel
-          </div>
-          {sale.deeds.map((deed) => {
-            const ppa = deed.saleprice && deed.acres ? Math.round(deed.saleprice / deed.acres) : null
-            const dateStr = FMT_DEED_DATE_COMP(deed.saledate)
-            return (
-              <div
-                key={deed.ll_uuid}
-                style={{
-                  background: '#FFFBEB',
-                  border: '1px solid #FDE68A',
-                  borderRadius: 8,
-                  padding: '7px 9px',
-                  marginBottom: 6,
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                  {deed.owner ? (
-                    <span style={{
-                      fontSize: 12, fontWeight: 700, color: '#1a1a1a',
-                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                    }}>{deed.owner}</span>
-                  ) : deed.ownerLoading ? (
-                    <span style={{
-                      display: 'inline-block', width: 90, height: 11, borderRadius: 4,
-                      background: '#FDE68A', opacity: 0.7,
-                    }} />
-                  ) : (
-                    <span style={{ fontSize: 12, fontWeight: 600, color: '#999' }}>Owner unknown</span>
-                  )}
-                  <span style={{
-                    flexShrink: 0, fontSize: 8, fontWeight: 700, letterSpacing: 0.6,
-                    textTransform: 'uppercase', color: '#B45309',
-                    border: '1px solid #FCD34D', borderRadius: 999, padding: '2px 6px',
-                  }}>
-                    County record
-                  </span>
-                </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 3, fontSize: 11, color: '#78716C' }}>
-                  {deed.acres != null && <span>{FMT_NUM_COMP(deed.acres)} ac</span>}
-                  {ppa != null && <span style={{ color: '#B45309', fontWeight: 600 }}>{FMT_USD_COMP(ppa)}/ac <span style={{ color: '#a8a29e', fontWeight: 400 }}>(recorded)</span></span>}
-                  {dateStr && <span>{dateStr}</span>}
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      )}
-
-      {/* Action row — Add to Report is the primary CTA (filled pink).
-          3D and Details are subtle secondary buttons, each shown ONLY
-          when it has something to open (owner report 2026-07-28: on a
-          parcel they rendered but did nothing).
-
-          A comparable is either one of OUR TRACTS (from a listing) or a
-          raw Regrid PARCEL. buildParcelSale / buildDurableSale both set
-          `tractId: null` and `listingId: null`, so on a parcel:
-            - onView3D early-returns (it needs sale.tractId)
-            - onViewDetails has no listingId and, for a parcel, no
-              sourceUrl either — so it early-returns too
-          Gating on the exact fields each handler requires means the
-          buttons can never again appear without working. Add to Report
-          stays visible for both kinds — a parcel IS a valid comparable. */}
-      <div style={{
-        display: 'flex',
-        gap: 8,
-        padding: '10px 12px 12px',
-        borderTop: '1px solid rgba(0,0,0,0.06)',
-        background: '#fff',
-      }}>
-        {sale.tractId ? (
-          <button
-            onClick={onView3D}
-            style={compPopupSecondaryBtn}
-            title="View 3D terrain map"
-            onMouseEnter={(e) => { e.currentTarget.style.background = '#f5f5f7'; e.currentTarget.style.borderColor = 'rgba(0,0,0,0.18)' }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = '#fff'; e.currentTarget.style.borderColor = 'rgba(0,0,0,0.12)' }}
-          >
-            <span style={{ fontSize: 14 }}>🏔</span>
-            <span>3D</span>
-          </button>
-        ) : null}
-        {(sale.listingId || sale.sourceUrl) ? (
-          <button
-            onClick={onViewDetails}
-            style={compPopupSecondaryBtn}
-            title="View full listing details"
-            onMouseEnter={(e) => { e.currentTarget.style.background = '#f5f5f7'; e.currentTarget.style.borderColor = 'rgba(0,0,0,0.18)' }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = '#fff'; e.currentTarget.style.borderColor = 'rgba(0,0,0,0.12)' }}
-          >
-            <span style={{ fontSize: 14 }}>🔎</span>
-            <span>Details</span>
-          </button>
-        ) : null}
-        <button
-          onClick={onAddToReport}
-          title={isSelected ? 'Remove from report' : 'Add to report'}
-          style={{
-            ...compPopupPrimaryBtn,
-            background: isSelected
-              ? 'linear-gradient(135deg, #4caf50 0%, #2e7d32 100%)'
-              : 'linear-gradient(135deg, #F58CDE 0%, #E91E8C 100%)',
-            boxShadow: isSelected
-              ? '0 4px 14px rgba(46, 125, 50, 0.35)'
-              : '0 4px 14px rgba(233, 30, 140, 0.4)',
-          }}
-          onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.filter = 'brightness(1.05)' }}
-          onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.filter = 'brightness(1)' }}
-        >
-          <span style={{ fontSize: 14 }}>{isSelected ? '✓' : '＋'}</span>
-          <span>{isSelected ? 'Added' : 'Add to Report'}</span>
-        </button>
-      </div>
-    </div>
-  )
-}
-
-// One label/value row inside the popup body. Kept as a sub-component so
-// the popup JSX above stays scannable.
-function CompPopupRow({ label, value, truncate }: { label: string; value: string; truncate?: boolean }) {
-  return (
-    <div style={{
-      display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
-      gap: 12, padding: '5px 0', fontSize: 12.5,
-      borderBottom: '1px solid rgba(0,0,0,0.04)',
-    }}>
-      <span style={{ color: '#888', fontWeight: 500 }}>{label}</span>
-      <span style={{
-        color: '#1a1a1a', fontWeight: 600, textAlign: 'right',
-        ...(truncate ? { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 180 } : {}),
-      }}>{value}</span>
-    </div>
-  )
-}
-
-const compPopupSecondaryBtn: React.CSSProperties = {
-  flex: '0 0 auto',
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  gap: 5,
-  padding: '8px 10px',
-  border: '1px solid rgba(0,0,0,0.12)',
-  borderRadius: 8,
-  background: '#fff',
-  color: '#1a1a1a',
-  fontSize: 12.5,
-  fontWeight: 600,
-  cursor: 'pointer',
-  transition: 'background 0.15s, border-color 0.15s',
-}
-
-const compPopupPrimaryBtn: React.CSSProperties = {
-  flex: 1,
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  gap: 6,
-  padding: '8px 12px',
-  border: 'none',
-  borderRadius: 8,
-  color: '#fff',
-  fontSize: 13,
-  fontWeight: 700,
-  cursor: 'pointer',
-  transition: 'transform 0.15s, filter 0.15s, box-shadow 0.15s',
-  letterSpacing: 0.2,
 }
