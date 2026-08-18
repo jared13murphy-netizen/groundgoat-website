@@ -254,6 +254,24 @@ function AccessPortalPageInner() {
   const handleOwnerParcels = (data: OwnerParcelsResponse, reply: string) => {
     setOwnerParcelsResult({ data, reply, nonce: Date.now() })
   }
+  // "Show Owned Ground" (owner spec 2026-08-18) — the parcel panel's
+  // button. Deterministic REST call (no LLM), then the result flows into
+  // the exact same owner-dots pipeline a Goat Search owner lookup uses.
+  // Zero-match never touches the map (same rule as the chat path).
+  const handleShowOwnedGround = async (ownerName: string, state?: string | null, county?: string | null) => {
+    try {
+      const qs = new URLSearchParams({ owner_name: ownerName })
+      if (state) qs.set('state_abbr', state)
+      if (county) qs.set('county_name', county)
+      const res = await fetchWithAuth(`${API_URL}/api/parcels/owned-by?${qs.toString()}`)
+      if (!res.ok) return
+      const body = await res.json()
+      const orp = body?.owner_parcels_response
+      if (orp?.dots?.length) {
+        handleOwnerParcels(orp as OwnerParcelsResponse, body?.reply || `Land owned by ${ownerName}`)
+      }
+    } catch {/* button is best-effort; map stays as-is on failure */}
+  }
   // Active Goat Search bubble (designer spec 2026-07-24) — replaces the
   // old owner chip (ExploreMap.tsx) and MapChatPanel's own "Clear search"
   // pill with one unified bubble. Set ONLY from MapChatPanel's
@@ -764,6 +782,7 @@ function AccessPortalPageInner() {
           chatSearchEndSignal={chatSearchEndSignal}
           onChatSearchError={handleChatSearchError}
           ownerParcelsResult={ownerParcelsResult}
+          onShowOwnedGround={handleShowOwnedGround}
           comparableVisibleIds={null}
           neighborParcels={neighborParcels}
           neighborsLoading={neighborsLoading}

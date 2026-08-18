@@ -1516,6 +1516,11 @@ interface ExploreMapProps {
       dismissible chip built from `reply`. `nonce` retriggers the
       fitBounds even if the same owner is searched twice in a row. */
   ownerParcelsResult?: { data: OwnerParcelsResponse; reply: string; nonce: number } | null
+  /** "Show Owned Ground" (2026-08-18): LandDetailPanel's button bubbles up
+      here; the parent fetches /api/parcels/owned-by and feeds the result
+      back down via ownerParcelsResult — the same pipeline a Goat Search
+      owner lookup uses, so the dots/chip/fitBounds behavior is identical. */
+  onShowOwnedGround?: (ownerName: string, state?: string | null, county?: string | null) => void
   comparableVisibleIds?: Set<string> | null
   neighborParcels?: {
     geometry: [number, number][]
@@ -1720,7 +1725,7 @@ function OverlayButton({
   )
 }
 
-export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onLandDetailOpen, externalTractSelection, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, chatSearchEndSignal, onChatSearchError, ownerParcelsResult, comparableVisibleIds, neighborParcels, neighborsLoading }: ExploreMapProps) {
+export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onLandDetailOpen, externalTractSelection, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, chatSearchEndSignal, onChatSearchError, ownerParcelsResult, onShowOwnedGround, comparableVisibleIds, neighborParcels, neighborsLoading }: ExploreMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const stateMarkersRef = useRef<maplibregl.Marker[]>([])
@@ -9348,6 +9353,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
            a plain click on the parcel fill — since they now share this
            one panel. */
         compMode={Boolean(subjectTractId)}
+        onShowOwnedGround={onShowOwnedGround}
       />
 
       {/* Goat Search animation overlay — renders while a chat-driven

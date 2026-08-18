@@ -206,11 +206,18 @@ interface LandDetailPanelProps {
       full Download/Email action row while the user was mid-report —
       reachable by tapping a few pixels off the "+". */
   compMode?: boolean
+  /** "Show Owned Ground" (owner spec 2026-08-18): tapping the button next
+      to the owner's name drops a dot on every parcel this owner holds and
+      fits the map — same rendering pipeline as a Goat Search owner lookup,
+      but deterministic (no LLM). Absent callback or unknown owner = no
+      button. county/state give the backend a scope hint so the lookup is
+      instant instead of scanning a 48M-row national table. */
+  onShowOwnedGround?: (ownerName: string, state?: string | null, county?: string | null) => void
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export default function LandDetailPanel({ clickData, onClose, onGeometryResolved, onToggleReport, reportIds, canUseReports = true, compMode = false }: LandDetailPanelProps) {
+export default function LandDetailPanel({ clickData, onClose, onGeometryResolved, onToggleReport, reportIds, canUseReports = true, compMode = false, onShowOwnedGround }: LandDetailPanelProps) {
   const [regridData, setRegridData] = useState<any>(null)
   const [enrichData, setEnrichData] = useState<any>(null)
   const [loading, setLoading] = useState(false)
@@ -676,6 +683,26 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
           <div style={{ fontSize: 14, fontWeight: 700, lineHeight: 1.3, color: '#fff', wordBreak: 'break-word' }}>
             {owner}
           </div>
+          {/* Show Owned Ground — hidden when the owner is unknown (owner
+              spec 2026-08-18: "If the parcel owner is unknown, then hide
+              the button"). `owner` falls back to the literal 'Unknown'
+              upstream, so that string is the sentinel to check. */}
+          {onShowOwnedGround && owner && owner !== 'Unknown' && (
+            <button
+              onClick={() => onShowOwnedGround(owner, derived.state || null, derived.county || null)}
+              style={{
+                marginTop: 8,
+                display: 'inline-flex', alignItems: 'center', gap: 5,
+                padding: '5px 10px', borderRadius: 999,
+                border: '1px solid rgba(245,140,222,0.45)',
+                background: 'rgba(245,140,222,0.12)',
+                color: '#F58CDE', fontSize: 11, fontWeight: 700,
+                cursor: 'pointer', letterSpacing: 0.2,
+              }}
+            >
+              ⌖ Show Owned Ground
+            </button>
+          )}
           {street && (
             <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.65)', marginTop: 4, lineHeight: 1.3 }}>{street}</div>
           )}
