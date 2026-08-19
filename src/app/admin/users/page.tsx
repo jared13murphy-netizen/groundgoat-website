@@ -8,6 +8,17 @@ import { ArrowLeft, ArrowUp, ArrowDown, Search, UserCheck, UserX, Shield, Loader
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
+// Admin access override (2026-08-18): grant a user MORE access than they pay
+// for. Never changes billing — no Stripe/Apple call, user_subscriptions is
+// not written. Empty value = no override (falls back to their real plan).
+const OVERRIDE_OPTIONS = [
+  { value: '', label: 'No override' },
+  { value: 'premium_state', label: 'Premium (their states)' },
+  { value: 'firm_user', label: 'Firm user (all states)' },
+  { value: 'firm_admin', label: 'Firm admin (all states)' },
+]
+const FIRM_OVERRIDES = ['firm_user', 'firm_admin']
+
 const ACCOUNT_TYPES = [
   { value: 'individual', label: 'Individual' },
   { value: 'firm_admin', label: 'Firm Admin' },
@@ -60,6 +71,14 @@ interface User {
   last_name: string
   phone: string | null
   account_type: string
+  // Admin access override (2026-08-18). access_override is what was granted;
+  // access_override_active is false once an expiry has passed — an expired
+  // override behaves like none, so the row must distinguish them.
+  access_override?: string | null
+  access_override_active?: boolean
+  access_override_firm_id?: string | null
+  access_override_reason?: string | null
+  access_override_expires_at?: string | null
   is_active: boolean
   is_verified: boolean
   created_at: string
@@ -164,6 +183,8 @@ export default function AdminUsersPage() {
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [users, setUsers] = useState<User[]>([])
   const [salesReps, setSalesReps] = useState<User[]>([])
+  // Management firms, for the access-override firm picker.
+  const [firms, setFirms] = useState<{ id: string; name: string; subscription_status: string }[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [filterType, setFilterType] = useState('all')
@@ -175,7 +196,23 @@ export default function AdminUsersPage() {
   const [sortDir, setSortDir] = useState<SortDir>('asc')
   const [showSortDropdown, setShowSortDropdown] = useState(false)
   const [editingUser, setEditingUser] = useState<string | null>(null)
-  const [editForm, setEditForm] = useState<{ account_type: string; is_active: boolean; sales_rep_id: string | null }>({ account_type: '', is_active: true, sales_rep_id: null })
+  const [editForm, setEditForm] = useState<{
+    account_type: string
+    is_active: boolean
+    sales_rep_id: string | null
+    // Access override (2026-08-18) — edited inline alongside account type,
+    // but saved through its own admin-only, audited endpoint.
+    access_override: string
+    access_override_firm_id: string
+    access_override_reason: string
+  }>({
+    account_type: '',
+    is_active: true,
+    sales_rep_id: null,
+    access_override: '',
+    access_override_firm_id: '',
+    access_override_reason: '',
+  })
   const [saving, setSaving] = useState(false)
   const [expandedUser, setExpandedUser] = useState<string | null>(null)
   const [paymentHistory, setPaymentHistory] = useState<Record<string, PaymentHistory>>({})
@@ -237,6 +274,19 @@ export default function AdminUsersPage() {
           )
         setSalesReps(reps)
       }
+
+      // Management firms for the access-override picker. Best-effort: the
+      // page must still work if this fails — only the firm dropdown depends
+      // on it, and a premium override needs no firm at all.
+      try {
+        const firmRes = await fetchWithAuth(`${API_URL}/api/admin/management-firms`)
+        if (firmRes.ok) {
+          const firmData = await firmRes.json()
+          setFirms(firmData.firms || [])
+        }
+      } catch {
+        /* leave firms empty */
+      }
     } catch (err) {
       console.error('Failed to fetch users:', err)
     } finally {
@@ -250,6 +300,9 @@ export default function AdminUsersPage() {
       account_type: user.account_type,
       is_active: user.is_active,
       sales_rep_id: user.sales_rep_id,
+      access_override: user.access_override || '',
+      access_override_firm_id: user.access_override_firm_id || '',
+      access_override_reason: user.access_override_reason || '',
     })
   }
 
@@ -267,6 +320,37 @@ export default function AdminUsersPage() {
         body: JSON.stringify(editForm),
       })
 
+      // Access override (2026-08-18) is a SEPARATE endpoint from the user
+      // PATCH on purpose: it is admin-only, audited, and must never ride
+      // along with ordinary profile edits. Empty selection = remove.
+      const prevOverride = users.find(u => u.id === userId)?.access_override || ''
+      const nextOverride = editForm.access_override || ''
+      if (nextOverride !== prevOverride
+          || (nextOverride && editForm.access_override_firm_id !== (users.find(u => u.id === userId)?.access_override_firm_id || ''))) {
+        if (nextOverride) {
+          const ovRes = await fetchWithAuth(`${API_URL}/api/admin/users/${userId}/access-override`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              override: nextOverride,
+              firm_id: FIRM_OVERRIDES.includes(nextOverride) ? editForm.access_override_firm_id : undefined,
+              reason: (editForm.access_override_reason || '').trim()
+                || 'Granted from Manage Users',
+            }),
+          })
+          if (!ovRes.ok) {
+            const err = await ovRes.json().catch(() => ({}))
+            alert(`Override not saved: ${err.detail || ovRes.status}`)
+            setSaving(false)
+            return
+          }
+        } else {
+          await fetchWithAuth(`${API_URL}/api/admin/users/${userId}/access-override`, {
+            method: 'DELETE',
+          })
+        }
+      }
+
       if (response.ok) {
         // Update local state
         const assignedRep = salesReps.find(r => r.id === editForm.sales_rep_id)
@@ -277,6 +361,10 @@ export default function AdminUsersPage() {
                 account_type: editForm.account_type, 
                 is_active: editForm.is_active,
                 sales_rep_id: editForm.sales_rep_id,
+                access_override: editForm.access_override || null,
+                access_override_active: Boolean(editForm.access_override),
+                access_override_firm_id: editForm.access_override_firm_id || null,
+                access_override_reason: editForm.access_override_reason || null,
                 sales_rep: assignedRep ? { 
                   id: assignedRep.id, 
                   first_name: assignedRep.first_name, 
@@ -626,17 +714,63 @@ export default function AdminUsersPage() {
                         </td>
                         <td className="py-2 px-2">
                           {editingUser === user.id ? (
-                            <select
-                              value={editForm.account_type}
-                              onChange={(e) => setEditForm(prev => ({ ...prev, account_type: e.target.value }))}
-                              className="bg-gg-gray-800 border border-gg-gray-600 rounded px-2 py-1 text-white text-xs"
-                            >
-                              {ACCOUNT_TYPES.map(type => (
-                                <option key={type.value} value={type.value}>{type.label}</option>
-                              ))}
-                            </select>
+                            <div className="space-y-1">
+                              <select
+                                value={editForm.account_type}
+                                onChange={(e) => setEditForm(prev => ({ ...prev, account_type: e.target.value }))}
+                                className="bg-gg-gray-800 border border-gg-gray-600 rounded px-2 py-1 text-white text-xs w-full"
+                              >
+                                {ACCOUNT_TYPES.map(type => (
+                                  <option key={type.value} value={type.value}>{type.label}</option>
+                                ))}
+                              </select>
+                              {/* Access override — grants MORE access than
+                                  the plan includes. Billing is untouched. */}
+                              <select
+                                value={editForm.access_override || ''}
+                                onChange={(e) => setEditForm(prev => ({ ...prev, access_override: e.target.value }))}
+                                className="bg-gg-gray-800 border border-gg-pink/60 rounded px-2 py-1 text-white text-xs w-full"
+                                title="Grant access above their plan. Does not change billing."
+                              >
+                                {OVERRIDE_OPTIONS.map(o => (
+                                  <option key={o.value} value={o.value}>{o.label}</option>
+                                ))}
+                              </select>
+                              {FIRM_OVERRIDES.includes(editForm.access_override || '') && (
+                                <select
+                                  value={editForm.access_override_firm_id || ''}
+                                  onChange={(e) => setEditForm(prev => ({ ...prev, access_override_firm_id: e.target.value }))}
+                                  className="bg-gg-gray-800 border border-gg-gray-600 rounded px-2 py-1 text-white text-xs w-full"
+                                >
+                                  <option value="">Select firm…</option>
+                                  {firms.map(f => (
+                                    <option key={f.id} value={f.id}>{f.name}</option>
+                                  ))}
+                                </select>
+                              )}
+                              {editForm.access_override && (
+                                <input
+                                  type="text"
+                                  value={editForm.access_override_reason || ''}
+                                  onChange={(e) => setEditForm(prev => ({ ...prev, access_override_reason: e.target.value }))}
+                                  placeholder="Reason"
+                                  className="bg-gg-gray-800 border border-gg-gray-600 rounded px-2 py-1 text-white text-xs w-full"
+                                />
+                              )}
+                            </div>
                           ) : (
-                            getAccountTypeBadge(user.account_type)
+                            <div className="space-y-1">
+                              {getAccountTypeBadge(user.account_type)}
+                              {user.access_override && (
+                                <p
+                                  className={`text-[10px] ${user.access_override_active === false ? 'text-yellow-500' : 'text-gg-pink'}`}
+                                  title={user.access_override_reason || ''}
+                                >
+                                  ⬆ {OVERRIDE_OPTIONS.find(o => o.value === user.access_override)?.label || user.access_override}
+                                  {user.access_override_active === false ? ' (expired)' : ''}
+                                </p>
+                              )}
+                            </div>
                           )}
                         </td>
                         <td className="py-2 px-2">
