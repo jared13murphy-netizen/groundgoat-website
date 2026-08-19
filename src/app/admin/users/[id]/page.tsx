@@ -26,7 +26,32 @@ interface UserInfo {
   first_name: string
   last_name: string
   subscription_count: number
+  account_type?: string
+  // Admin access override (2026-08-18). access_override is what was granted;
+  // access_override_active is false once an expiry has passed — an expired
+  // override behaves exactly like none, so the two must be shown separately
+  // or an admin cannot tell "granted" from "granted but lapsed".
+  access_override?: string | null
+  access_override_active?: boolean
+  access_override_firm_id?: string | null
+  access_override_reason?: string | null
+  access_override_expires_at?: string | null
 }
+
+interface FirmOption {
+  id: string
+  name: string
+  subscription_status: string
+}
+
+const OVERRIDE_OPTIONS = [
+  { value: '', label: 'No override — use their real plan' },
+  { value: 'premium_state', label: 'Premium (keeps their own states)' },
+  { value: 'firm_user', label: 'Management firm user (all states)' },
+  { value: 'firm_admin', label: 'Management firm admin (all states)' },
+]
+
+const FIRM_OVERRIDES = ['firm_user', 'firm_admin']
 
 export default function UserDetailPage() {
   const router = useRouter()
@@ -37,6 +62,15 @@ export default function UserDetailPage() {
   const [error, setError] = useState<string | null>(null)
   const [usage, setUsage] = useState<UsageData | null>(null)
   const [userInfo, setUserInfo] = useState<UserInfo | null>(null)
+
+  // ---- Access override ----------------------------------------------------
+  const [firms, setFirms] = useState<FirmOption[]>([])
+  const [ovValue, setOvValue] = useState('')
+  const [ovFirmId, setOvFirmId] = useState('')
+  const [ovReason, setOvReason] = useState('')
+  const [ovExpires, setOvExpires] = useState('')
+  const [ovSaving, setOvSaving] = useState(false)
+  const [ovMsg, setOvMsg] = useState<string | null>(null)
 
   useEffect(() => {
     const token = localStorage.getItem('auth_token')
@@ -70,6 +104,22 @@ export default function UserDetailPage() {
             const users: UserInfo[] = usersData.users || usersData || []
             const found = users.find((u: UserInfo) => u.id === id) || null
             setUserInfo(found)
+            // Seed the override form from what is already set, so an admin
+            // edits the existing grant rather than silently replacing it.
+            if (found) {
+              setOvValue(found.access_override || '')
+              setOvFirmId(found.access_override_firm_id || '')
+              setOvReason(found.access_override_reason || '')
+              setOvExpires(
+                found.access_override_expires_at
+                  ? String(found.access_override_expires_at).slice(0, 10)
+                  : ''
+              )
+            }
+            fetchWithAuth(`${API_URL}/api/admin/management-firms`)
+              .then(r => (r.ok ? r.json() : { firms: [] }))
+              .then(d => setFirms(d.firms || []))
+              .catch(() => setFirms([]))
             setUsage(usageData)
             setLoading(false)
           })
@@ -82,6 +132,55 @@ export default function UserDetailPage() {
         router.push('/signin')
       })
   }, [id, router])
+
+  const saveOverride = async () => {
+    setOvMsg(null)
+    if (FIRM_OVERRIDES.includes(ovValue) && !ovFirmId) {
+      setOvMsg('Pick a management firm for a firm override.')
+      return
+    }
+    if (ovValue && !ovReason.trim()) {
+      setOvMsg('A reason is required — it is the only record of why this grant exists.')
+      return
+    }
+    setOvSaving(true)
+    try {
+      // Empty selection means "remove the override", which is a DELETE.
+      const res = ovValue
+        ? await fetchWithAuth(`${API_URL}/api/admin/users/${id}/access-override`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              override: ovValue,
+              firm_id: FIRM_OVERRIDES.includes(ovValue) ? ovFirmId : undefined,
+              reason: ovReason.trim(),
+              // date input gives YYYY-MM-DD; send end-of-day UTC so the grant
+              // covers the whole day the admin picked.
+              expires_at: ovExpires ? `${ovExpires}T23:59:59Z` : undefined,
+            }),
+          })
+        : await fetchWithAuth(`${API_URL}/api/admin/users/${id}/access-override`, {
+            method: 'DELETE',
+          })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`)
+      setUserInfo(prev => prev ? {
+        ...prev,
+        access_override: data.access_override ?? null,
+        access_override_active: Boolean(data.access_override),
+        access_override_firm_id: data.access_override_firm_id ?? null,
+        access_override_reason: data.access_override_reason ?? null,
+        access_override_expires_at: data.access_override_expires_at ?? null,
+      } : prev)
+      setOvMsg(ovValue
+        ? 'Saved. Their billing is unchanged — they still pay for their real plan.'
+        : 'Override removed. They fall back to the plan they pay for.')
+    } catch (e: any) {
+      setOvMsg(`Failed: ${e.message || e}`)
+    } finally {
+      setOvSaving(false)
+    }
+  }
 
   if (loading) {
     return (
@@ -122,6 +221,106 @@ export default function UserDetailPage() {
             {userInfo && (
               <p className="text-gg-gray-400 mt-1">{userInfo.email}</p>
             )}
+          </div>
+        </div>
+
+        {/* Access override (2026-08-18). Grants access ABOVE what the user
+            pays for. Never touches billing: no Stripe or Apple call is made
+            and user_subscriptions is not written, so they keep paying
+            exactly what they paid before. */}
+        <div className="card mb-6">
+          <h2 className="text-lg font-semibold text-white mb-1">Access Override</h2>
+          <p className="text-xs text-gg-gray-400 mb-4">
+            Give this user more access than their plan includes. Their billing
+            does not change — they keep paying for their current plan.
+          </p>
+
+          {userInfo?.access_override && (
+            <div className="mb-4 text-sm">
+              <span className="text-gg-gray-400">Currently granted: </span>
+              <span className="text-white font-medium">
+                {OVERRIDE_OPTIONS.find(o => o.value === userInfo.access_override)?.label
+                  || userInfo.access_override}
+              </span>
+              {userInfo.access_override_active === false && (
+                <span className="ml-2 text-yellow-500">(expired — no longer applied)</span>
+              )}
+            </div>
+          )}
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <div>
+              <label className="block text-xs text-gg-gray-400 mb-1">Override</label>
+              <select
+                value={ovValue}
+                onChange={e => setOvValue(e.target.value)}
+                className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded px-3 py-2 text-white text-sm"
+              >
+                {OVERRIDE_OPTIONS.map(o => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </div>
+
+            {FIRM_OVERRIDES.includes(ovValue) && (
+              <div>
+                <label className="block text-xs text-gg-gray-400 mb-1">Management firm</label>
+                <select
+                  value={ovFirmId}
+                  onChange={e => setOvFirmId(e.target.value)}
+                  className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded px-3 py-2 text-white text-sm"
+                >
+                  <option value="">Select a firm…</option>
+                  {firms.map(f => (
+                    <option key={f.id} value={f.id}>
+                      {f.name}
+                      {f.subscription_status !== 'active' && f.subscription_status !== 'trialing'
+                        ? ` (firm ${f.subscription_status})`
+                        : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {ovValue && (
+              <>
+                <div className="md:col-span-2">
+                  <label className="block text-xs text-gg-gray-400 mb-1">
+                    Reason (required)
+                  </label>
+                  <input
+                    type="text"
+                    value={ovReason}
+                    onChange={e => setOvReason(e.target.value)}
+                    placeholder="e.g. comped premium while evaluating the firm plan"
+                    className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded px-3 py-2 text-white text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gg-gray-400 mb-1">
+                    Expires (optional — blank = no expiry)
+                  </label>
+                  <input
+                    type="date"
+                    value={ovExpires}
+                    onChange={e => setOvExpires(e.target.value)}
+                    className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded px-3 py-2 text-white text-sm"
+                  />
+                </div>
+              </>
+            )}
+          </div>
+
+          <div className="flex items-center gap-3 mt-4">
+            <button
+              onClick={saveOverride}
+              disabled={ovSaving}
+              className="btn-primary text-sm px-4 py-2 disabled:opacity-50"
+            >
+              {ovSaving ? 'Saving…' : ovValue ? 'Save override' : 'Remove override'}
+            </button>
+            {ovMsg && <span className="text-sm text-gg-gray-300">{ovMsg}</span>}
           </div>
         </div>
 
