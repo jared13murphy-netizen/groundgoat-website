@@ -26,6 +26,7 @@ export const PRICING = {
     description: 'For data-driven land professionals',
     features: [
       'Everything in Basic State',
+      'Goat Search — AI land search in plain English',
       'Interactive map with soil & elevation data',
       'Comparable sales reports',
       'Advanced land analytics',
@@ -42,6 +43,7 @@ export const PRICING = {
     description: 'For teams and professionals',
     features: [
       'Unlimited states & counties',
+      'Goat Search — AI land search in plain English',
       'Up to 3 team members included',
       'Desktop access with advanced maps',
       'County & township analytics',

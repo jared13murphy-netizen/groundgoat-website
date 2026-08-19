@@ -546,6 +546,10 @@ export default function Home() {
                 </li>
                 <li className="flex items-center gap-2 text-gg-gray-300">
                   <Check className="text-gg-pink" size={18} />
+                  Goat Search — AI land search in plain English
+                </li>
+                <li className="flex items-center gap-2 text-gg-gray-300">
+                  <Check className="text-gg-pink" size={18} />
                   Interactive map with soil & elevation data
                 </li>
                 <li className="flex items-center gap-2 text-gg-gray-300">
@@ -579,6 +583,10 @@ export default function Home() {
                 <li className="flex items-center gap-2 text-gg-gray-300">
                   <Check className="text-gg-pink" size={18} />
                   Unlimited states & counties
+                </li>
+                <li className="flex items-center gap-2 text-gg-gray-300">
+                  <Check className="text-gg-pink" size={18} />
+                  Goat Search — AI land search in plain English
                 </li>
                 <li className="flex items-center gap-2 text-gg-gray-300">
                   <Check className="text-gg-pink" size={18} />
