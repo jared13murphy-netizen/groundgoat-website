@@ -5302,9 +5302,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // a filter applied when the map mounted, the layers come up with
       // the right expression. A separate effect below keeps both
       // layers in sync as the filter changes.
-      const filterExpr: any = parcelDataDotFiltersActive(filtersRef.current)
-        ? ['==', ['literal', 1], ['literal', 0]]  // stand down — durable layer owns all zooms
-        : buildRegridSaleDotFilter(saleDotFilters(filtersRef.current, !!subjectTractIdRef.current), PARCEL_MIN_SALE_ACRES)
+      const filterExpr: any = buildRegridSaleDotFilter(saleDotFilters(filtersRef.current, !!subjectTractIdRef.current), PARCEL_MIN_SALE_ACRES)
 
       // IMPORTANT: this is a SYMBOL layer (icon at the polygon centroid),
       // NOT a circle layer. A maplibre `circle` layer bound to a POLYGON
@@ -5377,10 +5375,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             'text-size': ['interpolate', ['linear'], ['zoom'], 12, 13, 16, 17],
             'text-allow-overlap': true,
             'text-ignore-placement': true,
-            // No 'visibility': 'none' here (AUDIT FIX 2026-07-26, kept from
-            // the reverted change) — DURABLE_DOT_LAYER is now zoom-capped
-            // to REGRID_MIN_ZOOM instead, so the two layers partition by
-            // zoom rather than one of them being permanently hidden.
+            // Initial visibility mirrors the sync effect below: hidden when
+            // the filter gate says hide OR when parcel-data filters are
+            // already active at mount (a Goat Search can land before this
+            // layer mounts — without this the layer would appear visible
+            // until the next filter change re-ran the sync effect).
+            'visibility': (shouldHideParcelDotsForFilters(filtersRef.current as any) || parcelDataDotFiltersActive(filtersRef.current)) ? 'none' : 'visible',
           },
           paint: {
             'text-color': '#ffffff',
@@ -5531,9 +5531,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // this layer's filter only changes on Apply — the twin of the parcel
     // boundary/fill/label filter effect below. (Layer is currently always
     // hidden, but keep it consistent so a future re-enable can't leak.)
-    const saleExpr: any = parcelDataDotFiltersActive(appliedFilters)
-      ? ['==', ['literal', 1], ['literal', 0]]  // stand down — durable layer owns all zooms
-      : buildRegridSaleDotFilter(saleDotFilters(appliedFilters, !!subjectTractIdRef.current), PARCEL_MIN_SALE_ACRES)
+    const saleExpr: any = buildRegridSaleDotFilter(saleDotFilters(appliedFilters, !!subjectTractIdRef.current), PARCEL_MIN_SALE_ACRES)
     // Compose the state-plan gate so sale dots also respect the
     // subscriber's allowed state(s).
     const expr: any = regridStateFilter ? ['all', saleExpr, regridStateFilter] : saleExpr
@@ -5937,7 +5935,29 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // is active (matches mobile's ExploreMapView.js, which already gates
       // its live-tile layer on hideDurableDotsForFilters || ownerSearchActive).
       if (map.getLayer(PARCEL_SALE_PLUS_LAYER)) {
-        map.setLayoutProperty(PARCEL_SALE_PLUS_LAYER, 'visibility', hideParcelDotsForFilters ? 'none' : 'visible')
+        // Hidden when the gate says hide, AND when parcel-data filters
+        // (PI / %-tillable / tillable acres / land types) are active —
+        // the tile features can't express those, so the server-filtered
+        // durable dots own every zoom instead (uncapped above).
+        //
+        // WHY VISIBILITY, NOT setFilter: the first version of this fix
+        // swapped the layer's filter to a constant-false expression using
+        // ['literal', 1] — but MapLibre's `literal` op is only valid for
+        // arrays/objects, so setFilter THREW, the silent catch around it
+        // swallowed the throw, and the old filter stayed: dots kept
+        // rendering and the owner tested a "fixed" build that behaved
+        // identically (2026-08-18). setLayoutProperty('visibility') has
+        // no expression to mis-type.
+        const _dataDotStandDown = parcelDataDotFiltersActive(appliedFilters)
+        // Deploy/runtime beacon (2026-08-18): after two rounds of "is the
+        // fix even live?", this line is the arbiter — it survives
+        // minification, so its presence in the served bundle proves the
+        // deploy, and its console output proves the code path ran.
+        console.info('[dotfix-20260818] tile-dot layer', _dataDotStandDown ? 'stand-down' : 'active')
+        map.setLayoutProperty(
+          PARCEL_SALE_PLUS_LAYER, 'visibility',
+          (hideParcelDotsForFilters || _dataDotStandDown) ? 'none' : 'visible',
+        )
       }
     } catch {/* layer torn down */}
   }, [
