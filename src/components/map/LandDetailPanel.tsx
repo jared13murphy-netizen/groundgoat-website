@@ -640,7 +640,9 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
         style={{
           position: 'absolute',
           inset: 0,
-          zIndex: 19,
+          // 399 = one below the panel itself. Raised from 19 on 2026-08-18
+          // together with the panel — see the panel's zIndex comment.
+          zIndex: 399,
           pointerEvents: 'none',
           display: isOpen ? 'block' : 'none',
         }}
@@ -657,7 +659,22 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
           right: 0,
           bottom: 0,
           width: LAND_DETAIL_PANEL_WIDTH,
-          zIndex: 20,
+          // 400, raised from 20 on 2026-08-18. Owner: the state silhouettes
+          // and their "Filter" badges were painting OVER this panel.
+          //
+          // Those state badges are MapLibre DOM Markers living inside the
+          // map container, so they are not governed by the map's internal
+          // layer order at all — only by DOM stacking. At zIndex 20 this
+          // panel sat in the same band as the small map chips (8/10/20) and
+          // lost to them.
+          //
+          // 400 is the tier this codebase already uses for "a panel that
+          // must clear the map furniture and the fixed logo (z-[390])" —
+          // see ExploreMap.tsx's 400/401 panels. Deliberately BELOW the
+          // higher tiers so nothing that should cover the panel now hides
+          // behind it: access/page.tsx nav + modals (520/530/600) and
+          // ExploreMap's dialogs/toasts (500, 999, 1000, 1001).
+          zIndex: 400,
           background: '#fff',
           boxShadow: '-4px 0 24px rgba(0,0,0,0.18)',
           display: 'flex',

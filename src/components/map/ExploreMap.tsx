@@ -51,17 +51,6 @@ const EMPTY_FC: GeoJSON.FeatureCollection = { type: 'FeatureCollection', feature
 // elsewhere, so pins/labels always render ABOVE the polygon fills.
 const MARKER_LAYERS_BOTTOM_TO_TOP = [
   'county-labels',
-  // Town vector labels (phase 2, 2026-08-17) — listed right after
-  // county-labels so they're lifted early, landing at the BOTTOM of the
-  // marker group: above the basemap/overlays/veil (same as county-labels),
-  // but below every pin/count-bubble/tract layer listed after it, so a
-  // town pill can never paint over a pin. NOTE: this only protects town
-  // labels from PINS — the veil/select highlight (parcel-select-*) is
-  // repositioned by a separate effect (correctVeilPosition) to sit just
-  // below 'regrid-parcels-line', which is itself below this whole lifted
-  // marker group, same pre-existing trade-off tract-pin-circles already
-  // has (see that effect's comment). Not re-litigated here.
-  'town-labels',
   'county-count-circles',
   'county-count-labels',
   // Regrid sale "+"/dot markers sit BELOW the tract pins (task #26 z-order
@@ -79,6 +68,26 @@ const MARKER_LAYERS_BOTTOM_TO_TOP = [
   'parcel-sale-dots-durable-circle',
   'parcel-sale-dots-durable-symbol',
   'parcel-sale-pin-plus',
+  // Town vector labels (phase 2, 2026-08-17). MOVED HERE 2026-08-18 from
+  // immediately after county-labels, where they sat at the BOTTOM of the
+  // marker group. The original placement was chosen so "a town pill can
+  // never paint over a pin" — but it also put towns under the durable
+  // parcel-sale dots, and in a dense county (Des Moines metro) those dots
+  // bury every city name on the screen. Owner 2026-08-18: "the city/town
+  // names are still showing below the pink dots".
+  //
+  // Now ABOVE the three parcel-sale dot layers and still BELOW every
+  // tract-pin / today-pin / owner-dot layer, so the original guarantee is
+  // preserved where it actually matters — a town pill still never covers a
+  // PIN (a listing you can click) — while sale dots no longer bury town
+  // names. Matches the mobile app's chain (ground-goat-mobile
+  // ExploreMapView, same date): dots -> town-labels -> tract pins.
+  //
+  // Unchanged trade-off: the veil/select highlight (parcel-select-*) is
+  // repositioned by correctVeilPosition to sit just below
+  // 'regrid-parcels-line', which is below this whole lifted marker group —
+  // same pre-existing situation tract-pin-circles has. Not re-litigated.
+  'town-labels',
   'tract-pin-circles',
   'tract-pin-labels',
   'tract-pin-plus',
