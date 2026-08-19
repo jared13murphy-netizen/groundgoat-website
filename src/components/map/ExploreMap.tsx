@@ -1262,6 +1262,24 @@ function saleDotFilters(f: FilterState, inCompMode: boolean): FilterState {
   return { ...f, dateRange: 'all' }
 }
 
+// Parcel-DATA filters (PI range, % tillable, tillable acres, land types)
+// are INEXPRESSIBLE on the Regrid tile dots: the tile features carry only
+// price/date/path/acreage, so buildRegridSaleDotFilter cannot evaluate
+// them. The durable dots endpoint DOES apply them server-side (registry
+// states). So when any of these fields is active, the z>=11 tile-dot
+// layer must stand down and the durable layer must own every zoom —
+// otherwise zooming past 11 shows every priced parcel, ignoring the
+// search (owner 2026-08-18: Goat Search "PI 120-130, 70% tillable" was
+// correct zoomed out, all-pink zoomed in).
+function parcelDataDotFiltersActive(f: FilterState): boolean {
+  return Boolean(
+    f.soilRatingMin || f.soilRatingMax
+    || f.pctTillableMin || f.pctTillableMax
+    || f.tillableAcresMin || f.tillableAcresMax
+    || (Array.isArray(f.landTypes) && f.landTypes.length > 0)
+  )
+}
+
 function buildRegridSaleDotFilter(filters: FilterState, minAcres: number): any[] {
   const { from, to, upcomingOnly } = resolveDateWindow(filters)
   // "Upcoming auctions" can't match recorded past sales — return a
@@ -5284,7 +5302,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // a filter applied when the map mounted, the layers come up with
       // the right expression. A separate effect below keeps both
       // layers in sync as the filter changes.
-      const filterExpr: any = buildRegridSaleDotFilter(saleDotFilters(filtersRef.current, !!subjectTractIdRef.current), PARCEL_MIN_SALE_ACRES)
+      const filterExpr: any = parcelDataDotFiltersActive(filtersRef.current)
+        ? ['==', ['literal', 1], ['literal', 0]]  // stand down — durable layer owns all zooms
+        : buildRegridSaleDotFilter(saleDotFilters(filtersRef.current, !!subjectTractIdRef.current), PARCEL_MIN_SALE_ACRES)
 
       // IMPORTANT: this is a SYMBOL layer (icon at the polygon centroid),
       // NOT a circle layer. A maplibre `circle` layer bound to a POLYGON
@@ -5511,7 +5531,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // this layer's filter only changes on Apply — the twin of the parcel
     // boundary/fill/label filter effect below. (Layer is currently always
     // hidden, but keep it consistent so a future re-enable can't leak.)
-    const saleExpr: any = buildRegridSaleDotFilter(saleDotFilters(appliedFilters, !!subjectTractIdRef.current), PARCEL_MIN_SALE_ACRES)
+    const saleExpr: any = parcelDataDotFiltersActive(appliedFilters)
+      ? ['==', ['literal', 1], ['literal', 0]]  // stand down — durable layer owns all zooms
+      : buildRegridSaleDotFilter(saleDotFilters(appliedFilters, !!subjectTractIdRef.current), PARCEL_MIN_SALE_ACRES)
     // Compose the state-plan gate so sale dots also respect the
     // subscriber's allowed state(s).
     const expr: any = regridStateFilter ? ['all', saleExpr, regridStateFilter] : saleExpr
@@ -5900,8 +5922,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         inComp,
         hide: hideParcelDotsForFilters,
         // Tile dots own z>=REGRID_MIN_ZOOM; cap here so one parcel is never
-        // drawn by both layers at the same zoom.
-        maxZoom: REGRID_SALE_PINS_ENABLED ? REGRID_MIN_ZOOM : 24,
+        // drawn by both layers at the same zoom — EXCEPT when parcel-data
+        // filters are active: the tile layer stands down (it can't express
+        // them) and the server-filtered durable dots own every zoom.
+        maxZoom: (REGRID_SALE_PINS_ENABLED && !parcelDataDotFiltersActive(appliedFilters)) ? REGRID_MIN_ZOOM : 24,
       })
       // AUDIT FIX 2026-07-26: PARCEL_SALE_PLUS_LAYER (the live-tile dot
       // layer that owns z>=REGRID_MIN_ZOOM) was never wired to this gate —
@@ -6271,7 +6295,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       syncDurableDotLayers(map, DURABLE_DOT_LAYER, DURABLE_DOT_PLUS_LAYER, DURABLE_DOT_MIN_ZOOM, {
         inComp,
         hide: hideForFilters,
-        maxZoom: REGRID_SALE_PINS_ENABLED ? REGRID_MIN_ZOOM : 24,
+        // Same data-filter exception as the mount effect above — the pan
+        // path must never compute this differently.
+        maxZoom: (REGRID_SALE_PINS_ENABLED && !parcelDataDotFiltersActive(filtersRef.current)) ? REGRID_MIN_ZOOM : 24,
       })
     } catch {/* layer torn down */}
     const { from, to, upcomingOnly } = resolveDateWindow(filtersRef.current)
