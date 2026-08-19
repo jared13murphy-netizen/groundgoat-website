@@ -150,6 +150,8 @@ export interface ParcelDetailFields {
   usedesc: string
   zoning: string
   parval: number | null
+  taxamt: number | null
+  taxyear: string | number | null
   landval: number | null
   improvval: number | null
   buildings: number | null
@@ -232,6 +234,12 @@ export function deriveParcelDetail(
   const zoning = (typeof zoningRaw === 'string' && zoningRaw.trim() && !/^(no zoning|none|n\/a|na)$/i.test(zoningRaw.trim()))
     ? zoningRaw.trim() : ''
   const parval = record?.parval ?? null
+  // Property tax (owner 2026-08-19): Regrid Premium Schema taxamt is the
+  // annual property tax; taxyear its vintage. Counties that don't report
+  // it send 0/blank — fmtMoney treats 0 as unknown (same $0-isn't-data
+  // rule as parval/saleprice), so the row hides rather than showing $0.
+  const taxamt = record?.taxamt ?? null
+  const taxyear = record?.taxyear ?? null
   const landval = record?.landval ?? null
   const improvval = record?.improvval ?? null
   const buildings = record?.ll_bldg_count ?? null
@@ -246,7 +254,7 @@ export function deriveParcelDetail(
   const hasSoilRatingRow = soilRating != null && soilRatingType != null
   const hasLastSale = !!(fmtDate(saledate) || saleType || lastTransferDate || previousOwner)
   const hasProperty = !!(deeded || usedesc || zoning)
-  const hasAssessed = !!(fmtMoney(parval) || fmtMoney(landval) || fmtMoney(improvval))
+  const hasAssessed = !!(fmtMoney(parval) || fmtMoney(landval) || fmtMoney(improvval) || fmtMoney(taxamt))
   const hasBuildings = !!(buildings || bldgSqft || yearbuilt)
 
   const mailStreet = (record?.mailadd ?? '').toString().trim()
@@ -263,7 +271,7 @@ export function deriveParcelDetail(
     ratingLabel, soilRating, soilRatingType, tillableAcres, pctTillable,
     pastureAcres, timberAcres, pctTimber, dominantLandcover, backfillStatus,
     saledate, saleType, previousOwner, lastTransferDate, deeded, usedesc, zoning,
-    parval, landval, improvval, buildings, bldgSqft, yearbuilt,
+    parval, landval, improvval, taxamt, taxyear, buildings, bldgSqft, yearbuilt,
     mailStreet, mailCityLine,
     hasLandComposition, hasSoilRatingRow, hasLastSale, hasProperty, hasAssessed, hasBuildings, hasMailing,
   }
@@ -429,6 +437,12 @@ export function ParcelDetailSections({ d }: { d: ParcelDetailFields }) {
           {fmtMoney(d.parval) && <DetailRow label="Total" value={fmtMoney(d.parval)!} />}
           {fmtMoney(d.landval) && <DetailRow label="Land" value={fmtMoney(d.landval)!} />}
           {fmtMoney(d.improvval) && <DetailRow label="Improvements" value={fmtMoney(d.improvval)!} />}
+          {fmtMoney(d.taxamt) && (
+            <DetailRow
+              label={d.taxyear ? `Property Tax (${d.taxyear})` : 'Property Tax'}
+              value={fmtMoney(d.taxamt)!}
+            />
+          )}
         </Section>
       )}
 
