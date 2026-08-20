@@ -213,12 +213,18 @@ interface LandDetailPanelProps {
       but deterministic (no LLM). Absent callback or unknown owner = no
       button. county/state give the backend a scope hint so the lookup is
       instant instead of scanning a 48M-row national table. */
-  onShowOwnedGround?: (ownerName: string, state?: string | null, county?: string | null) => void
+  // Returns a promise so the button can show a spinner until the dots
+  // actually land. `void` is still accepted for callers that don't.
+  onShowOwnedGround?: (ownerName: string, state?: string | null, county?: string | null) => void | Promise<void>
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function LandDetailPanel({ clickData, onClose, onGeometryResolved, onToggleReport, reportIds, canUseReports = true, compMode = false, onShowOwnedGround }: LandDetailPanelProps) {
+  // Show Owned Ground fetch is async and can take a moment on a large
+  // owner; without a spinner the button looks dead and gets double-clicked
+  // (owner 2026-08-20). Mobile already had one — this brings web to parity.
+  const [loadingOwnedGround, setLoadingOwnedGround] = useState(false)
   const [regridData, setRegridData] = useState<any>(null)
   const [enrichData, setEnrichData] = useState<any>(null)
   const [loading, setLoading] = useState(false)
@@ -648,6 +654,7 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
       />
 
       {/* Panel */}
+      <style>{`@keyframes ggSpin { to { transform: rotate(360deg); } }`}</style>
       <div
         role="dialog"
         aria-label="Land detail"
@@ -704,18 +711,49 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
               upstream, so that string is the sentinel to check. */}
           {onShowOwnedGround && owner && owner !== 'Unknown' && (
             <button
-              onClick={() => onShowOwnedGround(owner, derived.state || null, derived.county || null)}
+              onClick={async () => {
+                if (loadingOwnedGround) return   // guard the double-click
+                setLoadingOwnedGround(true)
+                try {
+                  await onShowOwnedGround(owner, derived.state || null, derived.county || null)
+                } finally {
+                  // finally, not after the await: the handler swallows its
+                  // own errors today, but a future throw must not strand
+                  // the button in a permanent spinner.
+                  setLoadingOwnedGround(false)
+                }
+              }}
+              disabled={loadingOwnedGround}
+              aria-busy={loadingOwnedGround}
               style={{
                 marginTop: 8,
-                display: 'inline-flex', alignItems: 'center', gap: 5,
+                display: 'inline-flex', alignItems: 'center', gap: 6,
                 padding: '5px 10px', borderRadius: 999,
-                border: '1px solid rgba(245,140,222,0.45)',
-                background: 'rgba(245,140,222,0.12)',
-                color: '#F58CDE', fontSize: 11, fontWeight: 700,
-                cursor: 'pointer', letterSpacing: 0.2,
+                border: '1px solid #000',
+                background: '#E91E8C',
+                color: '#fff', fontSize: 11, fontWeight: 700,
+                cursor: loadingOwnedGround ? 'default' : 'pointer',
+                letterSpacing: 0.2,
+                opacity: loadingOwnedGround ? 0.85 : 1,
               }}
             >
-              ⌖ Show Owned Ground
+              {loadingOwnedGround ? (
+                <>
+                  <span
+                    aria-hidden="true"
+                    style={{
+                      width: 10, height: 10, borderRadius: '50%',
+                      border: '2px solid rgba(255,255,255,0.35)',
+                      borderTopColor: '#fff',
+                      display: 'inline-block',
+                      animation: 'ggSpin 0.7s linear infinite',
+                    }}
+                  />
+                  Loading…
+                </>
+              ) : (
+                <>⌖ Show Owned Ground</>
+              )}
             </button>
           )}
           {street && (
