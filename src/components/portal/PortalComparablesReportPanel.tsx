@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react'
 import { motion } from 'framer-motion'
 import { X, Mail, Loader2, Trash2, Check, Mountain, ExternalLink, Download } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
+import reportJobFetch from '@/lib/reportJobs'
 import { formatAcres, toNum } from '@/lib/format'
 import { computeCompAverages } from '@/lib/compAverages'
 import type { TractSaleData } from './PortalTractDetail'
@@ -164,11 +165,7 @@ export default function PortalComparablesReportPanel({ subjectInfo, reportTracts
   const handleEmail = async () => {
     setSending(true)
     try {
-      const res = await fetchWithAuth(`${API_URL}/api/comparables/email`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(buildReportBody()),
-      })
+      const res = await reportJobFetch('comparables', 'email', buildReportBody())
       if (!res.ok) {
         alert('Failed to send email')
       } else {
@@ -184,11 +181,7 @@ export default function PortalComparablesReportPanel({ subjectInfo, reportTracts
   const handleDownload = async () => {
     setDownloading(true)
     try {
-      const res = await fetchWithAuth(`${API_URL}/api/comparables/report/pdf`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(buildReportBody()),
-      })
+      const res = await reportJobFetch('comparables', 'download', buildReportBody())
       if (!res.ok) {
         alert('Failed to generate PDF')
         return

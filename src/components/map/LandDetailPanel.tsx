@@ -19,6 +19,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { Mail, Download, Check, Loader2 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
+import reportJobFetch from '@/lib/reportJobs'
 import { formatAcres } from '@/lib/format'
 import { SOIL_FILTER_ENABLED } from '@/lib/featureFlags'
 import {
@@ -296,6 +297,15 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
   const parseReportError = async (res: Response): Promise<string> => {
     if (res.status === 403) return 'Not available for your account'
     if (res.status === 404) return 'No parcel found at that location'
+    if (res.status === 429) {
+      // Report-queue per-user cap — the server's text says what to do.
+      try {
+        const body = await res.json()
+        return body?.detail || 'Too many reports in progress — wait for one to finish'
+      } catch {
+        return 'Too many reports in progress — wait for one to finish'
+      }
+    }
     if (res.status === 400) {
       try {
         const body = await res.json()
@@ -319,14 +329,8 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
     setEmailMessage(null)
     try {
       const res = llUuid
-        ? await fetchWithAuth(`${API_URL}/api/parcels/${llUuid}/report/email`, {
-            method: 'POST',
-          })
-        : await fetchWithAuth(`${API_URL}/api/parcels/report/by-point/email`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(reportPoint),
-          })
+        ? await reportJobFetch('parcel', 'email', { ll_uuid: llUuid })
+        : await reportJobFetch('parcel_by_point', 'email', reportPoint!)
       if (!res.ok) {
         setEmailStatus('error')
         setEmailMessage(await parseReportError(res))
@@ -348,14 +352,8 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
     setDownloadError(null)
     try {
       const res = llUuid
-        ? await fetchWithAuth(`${API_URL}/api/parcels/${llUuid}/report/pdf`, {
-            method: 'POST',
-          })
-        : await fetchWithAuth(`${API_URL}/api/parcels/report/by-point/pdf`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(reportPoint),
-          })
+        ? await reportJobFetch('parcel', 'download', { ll_uuid: llUuid })
+        : await reportJobFetch('parcel_by_point', 'download', reportPoint!)
       if (!res.ok) {
         setDownloadError(await parseReportError(res))
         return

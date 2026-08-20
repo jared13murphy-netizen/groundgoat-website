@@ -23,6 +23,7 @@ import {
   derivePinStatus,
 } from './mapConstants'
 import fetchWithAuth from '@/lib/fetchWithAuth'
+import reportJobFetch from '@/lib/reportJobs'
 import { formatAcres } from '@/lib/format'
 import { SOIL_FILTER_ENABLED, TILLABLE_FILTER_ENABLED } from '@/lib/featureFlags'
 import { shouldHideParcelDotsForFilters } from '@/lib/parcelDotsFilterGate'
@@ -3171,11 +3172,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         auction_datetime: t.auctionDate || null,
         company_name: t.companyName || null,
       }))
-      const resp = await fetchWithAuth(`${API_URL}/api/comparables/email`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ comparables }),
-      })
+      const resp = await reportJobFetch('comparables', 'email', { comparables })
       if (resp.ok) {
         setEmailSent(true)
         setTimeout(() => setEmailSent(false), 3000)

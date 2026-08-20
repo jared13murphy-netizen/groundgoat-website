@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { ArrowLeft, Mail } from 'lucide-react'
 import { fetchWithAuth } from '@/lib/fetchWithAuth'
+import reportJobFetch from '@/lib/reportJobs'
 import { formatAcres, toNum } from '@/lib/format'
 import { computeCompAverages } from '@/lib/compAverages'
 
@@ -72,10 +73,7 @@ export default function ExploreReportPage() {
   const handleEmail = async () => {
     setSending(true)
     try {
-      const res = await fetchWithAuth(`${API_URL}/api/comparables/email`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      const res = await reportJobFetch('comparables', 'email', {
           comparables: comparables.map(c => ({
             county: c.county || '',
             state: c.state || '',
@@ -91,8 +89,7 @@ export default function ExploreReportPage() {
             auction_date: c.auction_date,
             company_name: c.company_name,
           })),
-        }),
-      })
+        })
       if (!res.ok) {
         alert('Failed to send email')
       } else {

@@ -4,6 +4,7 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { ArrowLeft, Mail, Download, Loader2 } from 'lucide-react'
 import { fetchWithAuth } from '@/lib/fetchWithAuth'
+import reportJobFetch from '@/lib/reportJobs'
 import { formatAcres, toNum } from '@/lib/format'
 import { computeCompAverages } from '@/lib/compAverages'
 
@@ -133,11 +134,7 @@ export default function ComparablesReportPage({ params }: { params: { id: string
   const handleEmail = async () => {
     setSending(true)
     try {
-      const res = await fetchWithAuth(`${API_URL}/api/comparables/email`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(buildReportBody()),
-      })
+      const res = await reportJobFetch('comparables', 'email', buildReportBody())
       if (!res.ok) {
         const errText = await res.text()
         console.error('Email API error:', res.status, errText)
@@ -155,11 +152,7 @@ export default function ComparablesReportPage({ params }: { params: { id: string
   const handleDownload = async () => {
     setDownloading(true)
     try {
-      const res = await fetchWithAuth(`${API_URL}/api/comparables/report/pdf`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(buildReportBody()),
-      })
+      const res = await reportJobFetch('comparables', 'download', buildReportBody())
       if (!res.ok) {
         alert(`Failed to generate PDF: ${res.status}`)
         return

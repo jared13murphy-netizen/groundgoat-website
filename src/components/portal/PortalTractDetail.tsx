@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { Loader2, Mountain, BarChart3, FileText, Mail, Download, Check } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
+import reportJobFetch from '@/lib/reportJobs'
 import { formatAcres } from '@/lib/format'
 import { formatAuctionDate } from '@/lib/auctionTime'
 import GroundTruthPanel from './GroundTruthPanel'
@@ -588,6 +589,15 @@ export function TractDetailActionBar({
 
   const parseErrorMessage = async (res: Response): Promise<string> => {
     if (res.status === 403) return 'Not available for your account'
+    if (res.status === 429) {
+      // Report-queue per-user cap — the server's text says what to do.
+      try {
+        const body = await res.json()
+        return body?.detail || 'Too many reports in progress — wait for one to finish'
+      } catch {
+        return 'Too many reports in progress — wait for one to finish'
+      }
+    }
     if (res.status === 400) {
       try {
         const body = await res.json()
@@ -603,9 +613,7 @@ export function TractDetailActionBar({
     setEmailStatus('sending')
     setEmailMessage(null)
     try {
-      const res = await fetchWithAuth(`${API_URL}/api/tracts/${reportTractId}/report/email`, {
-        method: 'POST',
-      })
+      const res = await reportJobFetch('tract', 'email', { tract_id: reportTractId })
       if (!res.ok) {
         setEmailStatus('error')
         setEmailMessage(await parseErrorMessage(res))
@@ -625,9 +633,7 @@ export function TractDetailActionBar({
     setDownloading(true)
     setDownloadError(null)
     try {
-      const res = await fetchWithAuth(`${API_URL}/api/tracts/${reportTractId}/report/pdf`, {
-        method: 'POST',
-      })
+      const res = await reportJobFetch('tract', 'download', { tract_id: reportTractId })
       if (!res.ok) {
         setDownloadError(await parseErrorMessage(res))
         return
