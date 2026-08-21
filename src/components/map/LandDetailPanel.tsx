@@ -999,12 +999,15 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
                          }) : undefined}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <span style={{ fontSize: 12, fontWeight: 700, color: '#5B6B4A', width: 34, fontVariantNumeric: 'tabular-nums' }}>{y.year}</span>
+                        {/* Full-width rotation strip (owner 8/21): segments are the
+                            year's crop MIX, normalized to the crops themselves — the
+                            bar is never a parcel-coverage claim, so it can't be read
+                            against the tillable %. */}
                         <div style={{ flex: 1, display: 'flex', height: 12, borderRadius: 6, overflow: 'hidden', background: '#E7EADF', boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.06)' }}>
                           {crops.map((c: any) => (
                             <div key={c.code} title={c.name}
-                                 style={{ width: `${c.pct}%`, background: CDL_PALETTE[c.code]?.color || '#B0B0B0' }} />
+                                 style={{ width: `${covered > 0 ? (c.pct / covered) * 100 : 0}%`, background: CDL_PALETTE[c.code]?.color || '#B0B0B0' }} />
                           ))}
-                          {covered < 99.5 && <div style={{ width: `${100 - covered}%`, background: '#DDE0D6' }} />}
                         </div>
                       </div>
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 12px', margin: '4px 0 0 42px' }}>
