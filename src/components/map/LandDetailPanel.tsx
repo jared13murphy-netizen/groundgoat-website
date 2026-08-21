@@ -963,55 +963,71 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
               Property, Assessed Value, Buildings, Mailing Address — shared
               with CompInlinePopup (parcelDetailFields.tsx) so the two
               modals' data/order/formatting can't drift apart. */}
-          <ParcelDetailSections d={derived} />
-
-          {/* ── CROPS PLANTED — the panel's one block of color (owner design
-              8/20): a slim stacked bar per year in the same CDL palette as
-              the Tillable Ground overlay; gray tail = non-crop ground. Tap a
-              year to expand the full crop list with acres. */}
-          {cropHistory?.available && (
-            <Section title="Crops Planted">
-              {cropHistory.years.filter((y: any) => Array.isArray(y.crops) && y.crops.length > 0).map((y: any) => {
-                const crops = [...y.crops].sort((a: any, b: any) => b.pct - a.pct)
-                const covered = crops.reduce((s: number, c: any) => s + c.pct, 0)
-                const expanded = expandedCropYears.has(y.year)
-                const expandable = crops.length > 2
-                return (
-                  <div key={y.year} style={{ marginBottom: 10, cursor: expandable ? 'pointer' : 'default' }}
-                       onClick={expandable ? () => setExpandedCropYears(prev => {
-                         const next = new Set(prev)
-                         if (next.has(y.year)) next.delete(y.year); else next.add(y.year)
-                         return next
-                       }) : undefined}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: '#666', width: 34 }}>{y.year}</span>
-                      <div style={{ flex: 1, display: 'flex', height: 10, borderRadius: 5, overflow: 'hidden', background: '#E5E5E5' }}>
-                        {crops.map((c: any) => (
-                          <div key={c.code} title={`${c.name} ${c.pct}%`}
-                               style={{ width: `${c.pct}%`, background: CDL_PALETTE[c.code]?.color || '#B0B0B0' }} />
+          <ParcelDetailSections d={derived} afterSoilRating={
+            cropHistory?.available ? (
+              /* ── CROPS PLANTED — the panel's one designed object (owner
+                 8/20: "different look... be creative"). A field-card: soft
+                 harvest-cream ground, hairline sage border, crop-green
+                 smallcaps title with the year range set opposite. Bars are
+                 the same CDL palette as the Tillable Ground overlay. */
+              <div style={{
+                margin: '10px 16px 4px',
+                padding: '12px 14px 8px',
+                background: 'linear-gradient(180deg, #FAFBF6 0%, #F3F6EC 100%)',
+                border: '1px solid #E2E9D5',
+                borderRadius: 12,
+              }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10 }}>
+                  <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '1.2px', color: '#3E7A1F', textTransform: 'uppercase' }}>
+                    Crops Planted
+                  </span>
+                  <span style={{ fontSize: 10, fontWeight: 600, color: '#9AA88A' }}>
+                    {(() => { const ys = cropHistory.years.filter((y: any) => y.crops?.length); return ys.length ? `${Math.min(...ys.map((y: any) => y.year))}–${Math.max(...ys.map((y: any) => y.year))}` : '' })()}
+                  </span>
+                </div>
+                {cropHistory.years.filter((y: any) => Array.isArray(y.crops) && y.crops.length > 0).map((y: any) => {
+                  const crops = [...y.crops].sort((a: any, b: any) => b.pct - a.pct)
+                  const covered = crops.reduce((s: number, c: any) => s + c.pct, 0)
+                  const expanded = expandedCropYears.has(y.year)
+                  const expandable = crops.length > 2
+                  return (
+                    <div key={y.year} style={{ marginBottom: 9, cursor: expandable ? 'pointer' : 'default' }}
+                         onClick={expandable ? () => setExpandedCropYears(prev => {
+                           const next = new Set(prev)
+                           if (next.has(y.year)) next.delete(y.year); else next.add(y.year)
+                           return next
+                         }) : undefined}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: '#5B6B4A', width: 34, fontVariantNumeric: 'tabular-nums' }}>{y.year}</span>
+                        <div style={{ flex: 1, display: 'flex', height: 12, borderRadius: 6, overflow: 'hidden', background: '#E7EADF', boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.06)' }}>
+                          {crops.map((c: any) => (
+                            <div key={c.code} title={`${c.name} ${c.pct}%`}
+                                 style={{ width: `${c.pct}%`, background: CDL_PALETTE[c.code]?.color || '#B0B0B0' }} />
+                          ))}
+                          {covered < 99.5 && <div style={{ width: `${100 - covered}%`, background: '#DDE0D6' }} />}
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 12px', margin: '4px 0 0 42px' }}>
+                        {(expanded ? crops : crops.slice(0, 2)).map((c: any) => (
+                          <span key={c.code} style={{ fontSize: 11, color: '#5B6B4A', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                            <span style={{ width: 8, height: 8, borderRadius: 4, background: CDL_PALETTE[c.code]?.color || '#B0B0B0', display: 'inline-block' }} />
+                            {c.name} {c.pct}%{expanded ? ` · ${Number(c.acres).toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} ac` : ''}
+                          </span>
                         ))}
-                        {covered < 99.5 && <div style={{ width: `${100 - covered}%`, background: '#D9D9D9' }} />}
+                        {!expanded && expandable && (
+                          <span style={{ fontSize: 11, color: '#3E7A1F', fontWeight: 700 }}>+{crops.length - 2} more ▾</span>
+                        )}
+                        {expanded && expandable && (
+                          <span style={{ fontSize: 11, color: '#3E7A1F', fontWeight: 700 }}>less ▴</span>
+                        )}
                       </div>
                     </div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 12px', margin: '4px 0 0 42px' }}>
-                      {(expanded ? crops : crops.slice(0, 2)).map((c: any) => (
-                        <span key={c.code} style={{ fontSize: 11, color: '#555', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                          <span style={{ width: 8, height: 8, borderRadius: 4, background: CDL_PALETTE[c.code]?.color || '#B0B0B0', display: 'inline-block' }} />
-                          {c.name} {c.pct}%{expanded ? ` · ${Number(c.acres).toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} ac` : ''}
-                        </span>
-                      ))}
-                      {!expanded && expandable && (
-                        <span style={{ fontSize: 11, color: '#E91E8C', fontWeight: 600 }}>+{crops.length - 2} more ▾</span>
-                      )}
-                      {expanded && expandable && (
-                        <span style={{ fontSize: 11, color: '#E91E8C', fontWeight: 600 }}>less ▴</span>
-                      )}
-                    </div>
-                  </div>
-                )
-              })}
-            </Section>
-          )}
+                  )
+                })}
+                <div style={{ fontSize: 9, color: '#A8B39A', marginTop: 2 }}>USDA Cropland Data</div>
+              </div>
+            ) : null
+          } />
 
           {/* No-data state — shown only when skeleton props are also empty.
               Task #26 defect 2: only for overlay-originated clicks (soil/CSB,

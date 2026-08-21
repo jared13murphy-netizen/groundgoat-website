@@ -351,7 +351,7 @@ export function LandTypeBadges({ landTypes }: { landTypes: string[] | null }) {
  * disclaimer — exactly LandDetailPanel's original JSX, order preserved.
  * Both modals render this same block so they can't drift apart again.
  */
-export function ParcelDetailSections({ d }: { d: ParcelDetailFields }) {
+export function ParcelDetailSections({ d, afterSoilRating }: { d: ParcelDetailFields; afterSoilRating?: React.ReactNode }) {
   return (
     <>
       {/* ── C: Land Composition (Illinois parcels) ────────────────
@@ -407,6 +407,11 @@ export function ParcelDetailSections({ d }: { d: ParcelDetailFields }) {
           <DetailRow label="Rating" value={`${d.soilRatingType} ${fmtRating1(d.soilRating)}`} />
         </Section>
       )}
+
+      {/* Slot for the Crops Planted card (LandDetailPanel) — placed here by
+          owner direction 8/20: crop history belongs with the land data, not
+          buried under mailing address. Comp popup passes nothing. */}
+      {afterSoilRating}
 
       {/* ── D: Last Sale ─────────────────────────────────────── */}
       {d.hasLastSale && (
