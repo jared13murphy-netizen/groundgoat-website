@@ -226,6 +226,12 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
   // (owner 2026-08-20). Mobile already had one — this brings web to parity.
   const [loadingOwnedGround, setLoadingOwnedGround] = useState(false)
   const [regridData, setRegridData] = useState<any>(null)
+  const [cropHistory, setCropHistory] = useState<any>(null)
+  const [expandedCropYears, setExpandedCropYears] = useState<Set<number>>(new Set())
+  // Monotonic click sequence — a slow crop-history response from a PREVIOUS
+  // click must never paint under the current parcel (audit 8/20: cross-
+  // parcel data leak).
+  const cropFetchSeqRef = useRef(0)
   const [enrichData, setEnrichData] = useState<any>(null)
   const [loading, setLoading] = useState(false)
   // Fallback report id (bug fix 2026-07-15): custom Regrid tiles don't
@@ -464,6 +470,8 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
     setRegridData(null)
     setEnrichData(null)
     setFetchedLlUuid(null)
+    setCropHistory(null)
+    setExpandedCropYears(new Set())
     setLoading(true)
 
     const { ll_uuid, parcelProps, clickLat, clickLng } = data
@@ -478,6 +486,21 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
     const qs = new URLSearchParams()
     if (ll_uuid) qs.set('ll_uuid', ll_uuid)
     else if (lat != null && lng != null) { qs.set('lat', String(lat)); qs.set('lng', String(lng)) }
+
+    // Crops planted by year — non-blocking; the section simply appears when
+    // it resolves. 'by-point' is a deliberate never-matching path id: the
+    // backend falls through to the lat/lng spatial lookup.
+    const cropSeq = ++cropFetchSeqRef.current
+    if (ll_uuid || (lat != null && lng != null)) {
+      const cropQs = lat != null && lng != null ? `?lat=${lat}&lng=${lng}` : ''
+      fetchWithAuth(`${API_URL}/api/parcels/${encodeURIComponent(ll_uuid || 'by-point')}/crop-history${cropQs}`)
+        .then(r => (r.ok ? r.json() : null))
+        .then(j => {
+          if (cropSeq !== cropFetchSeqRef.current) return  // stale click
+          if (j?.available && Array.isArray(j.years)) setCropHistory(j)
+        })
+        .catch(() => {})
+    }
 
     const enrichPromise: Promise<any> = ll_uuid
       ? fetchWithAuth(`${API_URL}/api/parcel-enrichment/by-uuid?ll_uuid=${encodeURIComponent(ll_uuid)}`)
@@ -941,6 +964,54 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
               with CompInlinePopup (parcelDetailFields.tsx) so the two
               modals' data/order/formatting can't drift apart. */}
           <ParcelDetailSections d={derived} />
+
+          {/* ── CROPS PLANTED — the panel's one block of color (owner design
+              8/20): a slim stacked bar per year in the same CDL palette as
+              the Tillable Ground overlay; gray tail = non-crop ground. Tap a
+              year to expand the full crop list with acres. */}
+          {cropHistory?.available && (
+            <Section title="Crops Planted">
+              {cropHistory.years.filter((y: any) => Array.isArray(y.crops) && y.crops.length > 0).map((y: any) => {
+                const crops = [...y.crops].sort((a: any, b: any) => b.pct - a.pct)
+                const covered = crops.reduce((s: number, c: any) => s + c.pct, 0)
+                const expanded = expandedCropYears.has(y.year)
+                const expandable = crops.length > 2
+                return (
+                  <div key={y.year} style={{ marginBottom: 10, cursor: expandable ? 'pointer' : 'default' }}
+                       onClick={expandable ? () => setExpandedCropYears(prev => {
+                         const next = new Set(prev)
+                         if (next.has(y.year)) next.delete(y.year); else next.add(y.year)
+                         return next
+                       }) : undefined}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: '#666', width: 34 }}>{y.year}</span>
+                      <div style={{ flex: 1, display: 'flex', height: 10, borderRadius: 5, overflow: 'hidden', background: '#E5E5E5' }}>
+                        {crops.map((c: any) => (
+                          <div key={c.code} title={`${c.name} ${c.pct}%`}
+                               style={{ width: `${c.pct}%`, background: CDL_PALETTE[c.code]?.color || '#B0B0B0' }} />
+                        ))}
+                        {covered < 99.5 && <div style={{ width: `${100 - covered}%`, background: '#D9D9D9' }} />}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 12px', margin: '4px 0 0 42px' }}>
+                      {(expanded ? crops : crops.slice(0, 2)).map((c: any) => (
+                        <span key={c.code} style={{ fontSize: 11, color: '#555', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                          <span style={{ width: 8, height: 8, borderRadius: 4, background: CDL_PALETTE[c.code]?.color || '#B0B0B0', display: 'inline-block' }} />
+                          {c.name} {c.pct}%{expanded ? ` · ${Number(c.acres).toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} ac` : ''}
+                        </span>
+                      ))}
+                      {!expanded && expandable && (
+                        <span style={{ fontSize: 11, color: '#E91E8C', fontWeight: 600 }}>+{crops.length - 2} more ▾</span>
+                      )}
+                      {expanded && expandable && (
+                        <span style={{ fontSize: 11, color: '#E91E8C', fontWeight: 600 }}>less ▴</span>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </Section>
+          )}
 
           {/* No-data state — shown only when skeleton props are also empty.
               Task #26 defect 2: only for overlay-originated clicks (soil/CSB,
