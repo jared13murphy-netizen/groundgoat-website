@@ -978,7 +978,7 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
                 borderRadius: 12,
               }}>
                 <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10 }}>
-                  <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '1.2px', color: '#3E7A1F', textTransform: 'uppercase' }}>
+                  <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '1.2px', color: '#111111', textTransform: 'uppercase' }}>
                     Crops Planted
                   </span>
                   <span style={{ fontSize: 10, fontWeight: 600, color: '#9AA88A' }}>
@@ -1001,7 +1001,7 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
                         <span style={{ fontSize: 12, fontWeight: 700, color: '#5B6B4A', width: 34, fontVariantNumeric: 'tabular-nums' }}>{y.year}</span>
                         <div style={{ flex: 1, display: 'flex', height: 12, borderRadius: 6, overflow: 'hidden', background: '#E7EADF', boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.06)' }}>
                           {crops.map((c: any) => (
-                            <div key={c.code} title={`${c.name} ${c.pct}%`}
+                            <div key={c.code} title={c.name}
                                  style={{ width: `${c.pct}%`, background: CDL_PALETTE[c.code]?.color || '#B0B0B0' }} />
                           ))}
                           {covered < 99.5 && <div style={{ width: `${100 - covered}%`, background: '#DDE0D6' }} />}
@@ -1011,7 +1011,7 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
                         {(expanded ? crops : crops.slice(0, 2)).map((c: any) => (
                           <span key={c.code} style={{ fontSize: 11, color: '#5B6B4A', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                             <span style={{ width: 8, height: 8, borderRadius: 4, background: CDL_PALETTE[c.code]?.color || '#B0B0B0', display: 'inline-block' }} />
-                            {c.name} {c.pct}%{expanded ? ` · ${Number(c.acres).toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} ac` : ''}
+                            {c.name}{expanded ? ` · ${Number(c.acres).toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} ac` : ''}
                           </span>
                         ))}
                         {!expanded && expandable && (
