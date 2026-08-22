@@ -25,7 +25,7 @@ import { SOIL_FILTER_ENABLED } from '@/lib/featureFlags'
 import {
   fmtMoney, fmtAcres,
   PARCEL_DISCLAIMER_TEXT, deriveParcelDetail,
-  DetailRow, Section, LandTypeBadges, ParcelDetailSections,
+  DetailRow, Section, ParcelDetailSections,
 } from './parcelDetailFields'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
@@ -589,7 +589,7 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
   // component used inline before (see that file's deriveParcelDetail doc
   // comment).
   const derived = deriveParcelDetail(regridData, parcelProps, enrichData)
-  const { owner, county, state, countyState, street, cityLine, township, landTypes,
+  const { owner, county, state, countyState, street, cityLine, township,
     gisacre, saleprice, ppa, ratingLabel, soilRating, soilRatingType,
     tillableAcres, dominantLandcover,
     rawSalePrice, deedParcels, deedAcres, isDeedShare, perTillable, perRating } = derived
@@ -754,6 +754,21 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
           <div style={{ fontSize: 18.5, fontWeight: 700, lineHeight: '24px', color: '#1a1a1a', wordBreak: 'break-word' }}>
             {owner}
           </div>
+          {street && (
+            <div style={{ fontSize: 13.5, fontWeight: 600, color: 'rgba(0,0,0,0.78)', marginTop: 10, lineHeight: 1.3 }}>{street}</div>
+          )}
+          {cityLine && (
+            <div style={{ fontSize: 12.5, color: 'rgba(0,0,0,0.55)', marginTop: 1, lineHeight: 1.3 }}>{cityLine}</div>
+          )}
+          {township && (
+            <div style={{ fontSize: 12, color: 'rgba(0,0,0,0.42)', marginTop: 2, lineHeight: 1.3 }}>{township} Township</div>
+          )}
+          <div style={{ display: 'flex', alignItems: 'baseline', flexWrap: 'wrap', gap: 9, marginTop: 9 }}>
+            {gisacre != null && (
+              <span style={{ fontSize: 22, fontWeight: 800, letterSpacing: '-0.4px', color: '#111214' }}>{fmtAcres(gisacre)}</span>
+            )}
+            {countyState && <span style={{ fontSize: 13, color: 'rgba(0,0,0,0.45)' }}>{countyState}</span>}
+          </div>
           {/* Show Owned Ground — hidden when the owner is unknown (owner
               spec 2026-08-18: "If the parcel owner is unknown, then hide
               the button"). `owner` falls back to the literal 'Unknown'
@@ -806,27 +821,8 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
               )}
             </button>
           )}
-          {street && (
-            <div style={{ fontSize: 13.5, fontWeight: 600, color: 'rgba(0,0,0,0.78)', marginTop: 10, lineHeight: 1.3 }}>{street}</div>
-          )}
-          {cityLine && (
-            <div style={{ fontSize: 12.5, color: 'rgba(0,0,0,0.55)', marginTop: 1, lineHeight: 1.3 }}>{cityLine}</div>
-          )}
-          {township && (
-            <div style={{ fontSize: 12, color: 'rgba(0,0,0,0.42)', marginTop: 2, lineHeight: 1.3 }}>{township} Township</div>
-          )}
-          <div style={{ display: 'flex', alignItems: 'baseline', flexWrap: 'wrap', gap: 9, marginTop: 9 }}>
-            {gisacre != null && (
-              <span style={{ fontSize: 22, fontWeight: 800, letterSpacing: '-0.4px', color: '#111214' }}>{fmtAcres(gisacre)}</span>
-            )}
-            {countyState && <span style={{ fontSize: 13, color: 'rgba(0,0,0,0.45)' }}>{countyState}</span>}
-          </div>
 
-          {/* Land-type badges (Illinois parcels) — shared with CompInlinePopup
-              (parcelDetailFields.tsx) so the pill styling can't drift. */}
-          <LandTypeBadges landTypes={landTypes} />
-
-          {/* Close button */}
+{/* Close button */}
           <button
             onClick={onClose}
             aria-label="Close panel"
