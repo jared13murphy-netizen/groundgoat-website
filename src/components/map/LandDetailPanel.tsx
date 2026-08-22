@@ -25,7 +25,7 @@ import { SOIL_FILTER_ENABLED } from '@/lib/featureFlags'
 import {
   fmtMoney, fmtAcres,
   PARCEL_DISCLAIMER_TEXT, deriveParcelDetail,
-  DetailRow, Section, ParcelDetailSections,
+  DetailRow, Section, ParcelDetailSections, ParcelLastSaleSection,
 } from './parcelDetailFields'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
@@ -854,6 +854,11 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
 
         {/* ── Scrollable body ─────────────────────────────────────── */}
         <div style={{ flex: 1, overflowY: 'auto', paddingBottom: 24 }}>
+          {/* LAST SALE sits ABOVE the cards, matching the app's sheet —
+              owner 2026-08-22. Rendered here rather than in the section list
+              below, which is why that list is passed hideLastSale. */}
+          <ParcelLastSaleSection d={derived} />
+
           {/* ── Stat grid ───────────────────────────────────────────
               Replaces the Acres / $/Acre / Sale Price strip. This is the data
               only Ground Goat has, so it carries the visual weight; acres and
@@ -963,7 +968,7 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
               Property, Assessed Value, Buildings, Mailing Address — shared
               with CompInlinePopup (parcelDetailFields.tsx) so the two
               modals' data/order/formatting can't drift apart. */}
-          <ParcelDetailSections d={derived} hideComposition afterSoilRating={
+          <ParcelDetailSections d={derived} hideComposition hideLastSale afterSoilRating={
             cropHistory?.available ? (
               /* ── CROPS PLANTED — the panel's one designed object (owner
                  8/20: "different look... be creative"). A field-card: soft

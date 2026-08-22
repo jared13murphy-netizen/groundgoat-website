@@ -314,7 +314,11 @@ export function deriveParcelDetail(
   const perTillable = (validSalePrice && typeof tillableAcres === 'number' && tillableAcres > 0
                        && tillableShare != null && tillableShare >= TILLABLE_MIN_SHARE)
     ? (saleprice as number) / tillableAcres : null
-  const perRating = (ppa != null && typeof soilRating === 'number' && soilRating > 0)
+  // Same 25% floor as $/tillable acre. A soil rating describes CROP
+  // productivity, so dollars-per-rating-point is exactly as meaningless on
+  // 97%-timber ground — owner 2026-08-22 asked for the rule to cover both.
+  const perRating = (ppa != null && typeof soilRating === 'number' && soilRating > 0
+                     && tillableShare != null && tillableShare >= TILLABLE_MIN_SHARE)
     ? ppa / soilRating : null
 
   return {
@@ -404,9 +408,13 @@ export function LandTypeBadges({ landTypes }: { landTypes: string[] | null }) {
  * disclaimer — exactly LandDetailPanel's original JSX, order preserved.
  * Both modals render this same block so they can't drift apart again.
  */
-export function ParcelDetailSections({ d, afterSoilRating, hideComposition = false }: {
+export function ParcelDetailSections({ d, afterSoilRating, hideComposition = false, hideLastSale = false }: {
   d: ParcelDetailFields
   afterSoilRating?: React.ReactNode
+  /** Suppress LAST SALE — the slide-out panel renders it ABOVE the stat
+   *  grid to match the app's sheet, so leaving it in the section list would
+   *  print it twice, in the wrong order. */
+  hideLastSale?: boolean
   /** Suppress Land Composition + Soil Rating. The slide-out panel renders
    *  those as the 2x2 stat grid at the top (matching the app's sheet), so
    *  leaving them here too printed tillable acres and the soil rating
@@ -475,6 +483,8 @@ export function ParcelDetailSections({ d, afterSoilRating, hideComposition = fal
           buried under mailing address. Comp popup passes nothing. */}
       {afterSoilRating}
 
+      {!hideLastSale && (
+        <>
       {/* ── D: Last Sale ─────────────────────────────────────── */}
       {d.hasLastSale && (
         <Section title="Last Sale">
@@ -507,6 +517,9 @@ export function ParcelDetailSections({ d, afterSoilRating, hideComposition = fal
           )}
           {d.previousOwner && <DetailRow label="Previous Owner" value={d.previousOwner} />}
         </Section>
+      )}
+
+        </>
       )}
 
       {/* ── E: Property ─────────────────────────────────────── */}
@@ -551,6 +564,52 @@ export function ParcelDetailSections({ d, afterSoilRating, hideComposition = fal
           {d.mailCityLine && <DetailRow label="City / State / Zip" value={d.mailCityLine} />}
         </Section>
       )}
+    </>
+  )
+}
+
+
+/** LAST SALE on its own, so the slide-out panel can place it above the stat
+ *  grid exactly as the app's sheet does. Same markup as the section inside
+ *  ParcelDetailSections — pass hideLastSale there when using this. */
+export function ParcelLastSaleSection({ d }: { d: ParcelDetailFields }) {
+  if (!d.hasLastSale) return null
+  return (
+    <>
+      {/* ── D: Last Sale ─────────────────────────────────────── */}
+      {true && (
+        <Section title="Last Sale">
+          {d.saleprice != null && d.saleprice > 0 && (
+            <DetailRow label="Price" value={fmtMoney(d.saleprice)!} />
+          )}
+          {fmtDate(d.saledate) && <DetailRow label="Sale Date" value={fmtDate(d.saledate)!} />}
+          {d.ppa != null && (
+            <DetailRow label="$/Acre" value={'$' + Math.round(d.ppa).toLocaleString('en-US')} />
+          )}
+          {d.perTillable != null && (
+            <DetailRow label="$/Tillable Acre" value={'$' + Math.round(d.perTillable).toLocaleString('en-US')} />
+          )}
+          {d.perRating != null && (
+            <DetailRow label={`$/${d.ratingLabel}`} value={'$' + d.perRating.toFixed(2)} />
+          )}
+          {/* Never present an allocated share as the recorded price. $257,931
+              is our arithmetic; $1,400,820 is what the deed says, and a
+              lender will check. */}
+          {d.isDeedShare && (
+            <div style={{ fontSize: 11, color: 'rgba(0,0,0,0.45)', lineHeight: 1.45, padding: '6px 0 2px' }}>
+              This parcel&apos;s share of a {d.deedParcels}-parcel sale
+              {d.deedAcres != null ? ` covering ${fmtAcres(d.deedAcres)}` : ''}
+              {d.rawSalePrice != null ? ` for ${fmtMoney(d.rawSalePrice)}` : ''}, allocated by acreage.
+            </div>
+          )}
+          {d.saleType && <DetailRow label="Sale Type" value={d.saleType} />}
+          {fmtDate(d.lastTransferDate) && fmtDate(d.lastTransferDate) !== fmtDate(d.saledate) && (
+            <DetailRow label="Last Transfer" value={fmtDate(d.lastTransferDate)!} />
+          )}
+          {d.previousOwner && <DetailRow label="Previous Owner" value={d.previousOwner} />}
+        </Section>
+      )}
+
     </>
   )
 }
