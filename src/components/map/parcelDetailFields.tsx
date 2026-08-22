@@ -298,7 +298,21 @@ export function deriveParcelDetail(
   ].filter(Boolean).join(', ')
   const hasMailing = !!(mailStreet || mailCityLine)
 
-  const perTillable = (validSalePrice && typeof tillableAcres === 'number' && tillableAcres > 0)
+  // $/tillable acre is only meaningful on ground that is actually farmed.
+  // Owner rule 2026-08-22: hide it below 25% tillable. A `> 0` guard is not
+  // enough — a 38.9 ac Fulton County parcel that is 97% TIMBER carries a
+  // sliver of tillable, and $190,000 divided by that sliver rendered
+  // "$1,765,863,665 / tillable acre" in front of the owner.
+  //
+  // Ratio computed from acres rather than pct_tillable on purpose:
+  // pct_tillable is 0-100 in backfilled states but a 0-1 fraction
+  // elsewhere, so keying the threshold off it would silently hide the row
+  // for every state outside IL/IA.
+  const TILLABLE_MIN_SHARE = 0.25
+  const tillableShare = (typeof tillableAcres === 'number' && typeof gisacre === 'number' && gisacre > 0)
+    ? tillableAcres / gisacre : null
+  const perTillable = (validSalePrice && typeof tillableAcres === 'number' && tillableAcres > 0
+                       && tillableShare != null && tillableShare >= TILLABLE_MIN_SHARE)
     ? (saleprice as number) / tillableAcres : null
   const perRating = (ppa != null && typeof soilRating === 'number' && soilRating > 0)
     ? ppa / soilRating : null
