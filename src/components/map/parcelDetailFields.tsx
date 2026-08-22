@@ -127,11 +127,20 @@ export interface ParcelDetailFields {
   state: string
   countyState: string
   street: string
+  cityLine: string
   township: string
   landTypes: string[] | null
   gisacre: number | null
   saleprice: number | null
   ppa: number | null
+  /** Regrid's raw whole-deed figure, kept so a caller can show what the deed
+   *  actually says alongside this parcel's allocated share. */
+  rawSalePrice: number | null
+  deedParcels: number | null
+  deedAcres: number | null
+  isDeedShare: boolean
+  perTillable: number | null
+  perRating: number | null
   ratingLabel: string
   soilRating: number | null
   soilRatingType: string | null
@@ -191,15 +200,39 @@ export function deriveParcelDetail(
   const countyState = county
     ? `${county} County${state ? ', ' + state : ''}`
     : state || ''
-  const street = typeof record?.address === 'string' && record.address.trim()
-    ? record.address.trim()
-    : (typeof parcelProps?.address === 'string' ? parcelProps.address.trim() : '')
+  // Regrid signals "no situs address" with a literal placeholder STRING, not
+  // null, so a naive `|| ''` renders "NOT AVAILABLE" as the address — the
+  // owner hit exactly that in the app 2026-08-21. Matched on the WHOLE
+  // trimmed value so a real "Available Drive" or a town named "None"
+  // survives.
+  const PLACEHOLDER = /^(n\/?a|not\s*available|not\s*provided|not\s*applicable|unavailable|unknown|none|null|nil|-+|\.+)$/i
+  const clean = (v: unknown) => {
+    const str = (v == null ? '' : String(v)).trim()
+    return (!str || PLACEHOLDER.test(str)) ? '' : str
+  }
+  const street = clean(record?.address) || clean(parcelProps?.address)
+  // City / state / zip of the SITUS address, shown under the street line.
+  const cityLine = [
+    titleCase(clean(record?.scity) || clean(record?.city)),
+    [clean(record?.state2) || clean(record?.state),
+     clean(record?.szip5) || clean(record?.szip)].filter(Boolean).join(' '),
+  ].filter(Boolean).join(', ')
   const township = extractTownship(record)
 
   const gisacre: number | null = record?.ll_gisacre ?? record?.gisacre ?? parcelProps?.ll_gisacre ?? parcelProps?.gisacre ?? null
-  const saleprice = record?.saleprice ?? null
+  // Regrid stamps the WHOLE deed price onto every parcel of a multi-parcel
+  // sale — nine Henry County IA parcels each claiming $1,400,820, rendering
+  // as $24k-$4.6M/ac. Prefer our allocated share; `?? raw` because the
+  // column is NULL wherever we have not backfilled, so the fallback is
+  // load-bearing rather than defensive.
+  const rawSalePrice = record?.saleprice ?? null
+  const allocated = record?.parcel_sale_price ?? null
+  const deedParcels = record?.deed_parcel_count ?? null
+  const deedAcres = record?.deed_total_acres ?? null
+  const saleprice = allocated ?? rawSalePrice
   const validSalePrice = typeof saleprice === 'number' && saleprice > 0
   const ppa = (validSalePrice && typeof gisacre === 'number' && gisacre > 0) ? saleprice / gisacre : null
+  const isDeedShare = allocated != null && typeof deedParcels === 'number' && deedParcels > 1
 
   const ratingLabel = deriveRatingLabel(enrichData?.soil_rating_type, state)
   const soilRating = enrichData?.soil_rating ?? regridData?.soil_rating ?? null
@@ -265,9 +298,15 @@ export function deriveParcelDetail(
   ].filter(Boolean).join(', ')
   const hasMailing = !!(mailStreet || mailCityLine)
 
+  const perTillable = (validSalePrice && typeof tillableAcres === 'number' && tillableAcres > 0)
+    ? (saleprice as number) / tillableAcres : null
+  const perRating = (ppa != null && typeof soilRating === 'number' && soilRating > 0)
+    ? ppa / soilRating : null
+
   return {
-    owner, county, state, countyState, street, township, landTypes,
+    owner, county, state, countyState, street, cityLine, township, landTypes,
     gisacre, saleprice, ppa,
+    rawSalePrice, deedParcels, deedAcres, isDeedShare, perTillable, perRating,
     ratingLabel, soilRating, soilRatingType, tillableAcres, pctTillable,
     pastureAcres, timberAcres, pctTimber, dominantLandcover, backfillStatus,
     saledate, saleType, previousOwner, lastTransferDate, deeded, usedesc, zoning,
@@ -416,7 +455,29 @@ export function ParcelDetailSections({ d, afterSoilRating }: { d: ParcelDetailFi
       {/* ── D: Last Sale ─────────────────────────────────────── */}
       {d.hasLastSale && (
         <Section title="Last Sale">
+          {d.saleprice != null && d.saleprice > 0 && (
+            <DetailRow label="Price" value={fmtMoney(d.saleprice)!} />
+          )}
           {fmtDate(d.saledate) && <DetailRow label="Sale Date" value={fmtDate(d.saledate)!} />}
+          {d.ppa != null && (
+            <DetailRow label="$/Acre" value={'$' + Math.round(d.ppa).toLocaleString('en-US')} />
+          )}
+          {d.perTillable != null && (
+            <DetailRow label="$/Tillable Acre" value={'$' + Math.round(d.perTillable).toLocaleString('en-US')} />
+          )}
+          {d.perRating != null && (
+            <DetailRow label={`$/${d.ratingLabel}`} value={'$' + d.perRating.toFixed(2)} />
+          )}
+          {/* Never present an allocated share as the recorded price. $257,931
+              is our arithmetic; $1,400,820 is what the deed says, and a
+              lender will check. */}
+          {d.isDeedShare && (
+            <div style={{ fontSize: 11, color: 'rgba(0,0,0,0.45)', lineHeight: 1.45, padding: '6px 0 2px' }}>
+              This parcel&apos;s share of a {d.deedParcels}-parcel sale
+              {d.deedAcres != null ? ` covering ${fmtAcres(d.deedAcres)}` : ''}
+              {d.rawSalePrice != null ? ` for ${fmtMoney(d.rawSalePrice)}` : ''}, allocated by acreage.
+            </div>
+          )}
           {d.saleType && <DetailRow label="Sale Type" value={d.saleType} />}
           {fmtDate(d.lastTransferDate) && fmtDate(d.lastTransferDate) !== fmtDate(d.saledate) && (
             <DetailRow label="Last Transfer" value={fmtDate(d.lastTransferDate)!} />

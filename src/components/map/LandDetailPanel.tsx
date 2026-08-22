@@ -115,6 +115,22 @@ const CDL_PALETTE: Record<number, { name: string; color: string }> = {
 /** Fixed right-docked panel width (see the `width: 380` style below). Exported
  *  so ExploreMap can pad camera moves (easeTo/fitBounds) by the same amount
  *  when this panel is open, instead of re-guessing the value. */
+/** One centred stat tile. Mirrors the app's RegridParcelSheet exactly — same
+ *  #FBF7FB fill, #D6D3DC outline and 24px pink numeral — so the two surfaces
+ *  read as one product rather than two designs. */
+function StatCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
+  return (
+    <div style={{
+      flex: '1 1 47%', textAlign: 'center', padding: '14px 10px',
+      borderRadius: 14, border: '1px solid #D6D3DC', background: '#FBF7FB',
+    }}>
+      <div style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: '0.8px', textTransform: 'uppercase', color: 'rgba(0,0,0,0.45)' }}>{label}</div>
+      <div style={{ fontSize: 24, fontWeight: 800, color: '#E91E8C', marginTop: 4 }}>{value}</div>
+      {sub ? <div style={{ fontSize: 11.5, fontWeight: 700, color: 'rgba(0,0,0,0.45)', marginTop: 3 }}>{sub}</div> : null}
+    </div>
+  )
+}
+
 export const LAND_DETAIL_PANEL_WIDTH = 380
 
 export interface LandDetailClickData {
@@ -573,9 +589,17 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
   // component used inline before (see that file's deriveParcelDetail doc
   // comment).
   const derived = deriveParcelDetail(regridData, parcelProps, enrichData)
-  const { owner, county, state, countyState, street, township, landTypes,
+  const { owner, county, state, countyState, street, cityLine, township, landTypes,
     gisacre, saleprice, ppa, ratingLabel, soilRating, soilRatingType,
-    tillableAcres, dominantLandcover } = derived
+    tillableAcres, dominantLandcover,
+    rawSalePrice, deedParcels, deedAcres, isDeedShare, perTillable, perRating } = derived
+  // Land-composition acreages for the stat grid — same record the app reads.
+  const pctTillable = enrichData?.pct_tillable ?? regridData?.pct_tillable ?? null
+  const timberAcres = regridData?.timber_acres ?? null
+  const pastureAcres = regridData?.pasture_acres ?? null
+  const pctOf = (v: unknown) =>
+    (typeof v === 'number' && typeof gisacre === 'number' && gisacre > 0)
+      ? `${Math.round((v / gisacre) * 100)}% of parcel` : undefined
   const validSalePrice = typeof saleprice === 'number' && saleprice > 0
   const soilBreakdown: Array<{ mukey?: string; soil?: string; acres?: number; pi?: number }> =
     Array.isArray(enrichData?.soils) ? enrichData.soils : []
@@ -703,7 +727,10 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
           // behind it: access/page.tsx nav + modals (520/530/600) and
           // ExploreMap's dialogs/toasts (500, 999, 1000, 1001).
           zIndex: 400,
-          background: '#fff',
+          // Owner-approved 2026-08-22: white falling to a light gray, the
+          // same ramp as the app's parcel sheet so the two surfaces match.
+          // Flat white let the stat cards dissolve into the panel.
+          background: 'linear-gradient(180deg,#FFFFFF 0%,#F7F7FA 45%,#E8E8EF 100%)',
           boxShadow: '-4px 0 24px rgba(0,0,0,0.18)',
           display: 'flex',
           flexDirection: 'column',
@@ -714,18 +741,17 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
         }}
         onClick={e => e.stopPropagation()}
       >
-        {/* ── Dark header ─────────────────────────────────────────── */}
+        {/* ── Header ──────────────────────────────────────────────
+            Restyled 2026-08-22 to match the app's parcel sheet: the dark bar
+            is gone and identity reads top-to-bottom on the panel surface —
+            owner, street, city/state/zip, township, then acres beside the
+            county. */}
         <div style={{
           flexShrink: 0,
-          background: 'linear-gradient(135deg,#1f1f23 0%,#2a2a30 100%)',
-          color: '#fff',
-          padding: '14px 44px 12px 16px',
+          padding: '16px 44px 4px 18px',
           position: 'relative',
         }}>
-          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '1.2px', textTransform: 'uppercase', color: '#F58CDE', marginBottom: 4 }}>
-            Parcel
-          </div>
-          <div style={{ fontSize: 14, fontWeight: 700, lineHeight: 1.3, color: '#fff', wordBreak: 'break-word' }}>
+          <div style={{ fontSize: 18.5, fontWeight: 700, lineHeight: '24px', color: '#1a1a1a', wordBreak: 'break-word' }}>
             {owner}
           </div>
           {/* Show Owned Ground — hidden when the owner is unknown (owner
@@ -749,12 +775,13 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
               disabled={loadingOwnedGround}
               aria-busy={loadingOwnedGround}
               style={{
-                marginTop: 8,
-                display: 'inline-flex', alignItems: 'center', gap: 6,
-                padding: '5px 10px', borderRadius: 999,
-                border: '1px solid #000',
+                marginTop: 12,
+                width: '100%',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+                padding: '12px 14px', borderRadius: 999,
+                border: '1.5px solid #000',
                 background: '#E91E8C',
-                color: '#fff', fontSize: 11, fontWeight: 700,
+                color: '#fff', fontSize: 14, fontWeight: 700,
                 cursor: loadingOwnedGround ? 'default' : 'pointer',
                 letterSpacing: 0.2,
                 opacity: loadingOwnedGround ? 0.85 : 1,
@@ -780,14 +807,20 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
             </button>
           )}
           {street && (
-            <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.65)', marginTop: 4, lineHeight: 1.3 }}>{street}</div>
+            <div style={{ fontSize: 13.5, fontWeight: 600, color: 'rgba(0,0,0,0.78)', marginTop: 10, lineHeight: 1.3 }}>{street}</div>
           )}
-          {countyState && (
-            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', marginTop: 2, lineHeight: 1.3 }}>{countyState}</div>
+          {cityLine && (
+            <div style={{ fontSize: 12.5, color: 'rgba(0,0,0,0.55)', marginTop: 1, lineHeight: 1.3 }}>{cityLine}</div>
           )}
           {township && (
-            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 1, lineHeight: 1.3 }}>{township} Township</div>
+            <div style={{ fontSize: 12, color: 'rgba(0,0,0,0.42)', marginTop: 2, lineHeight: 1.3 }}>{township} Township</div>
           )}
+          <div style={{ display: 'flex', alignItems: 'baseline', flexWrap: 'wrap', gap: 9, marginTop: 9 }}>
+            {gisacre != null && (
+              <span style={{ fontSize: 22, fontWeight: 800, letterSpacing: '-0.4px', color: '#111214' }}>{fmtAcres(gisacre)}</span>
+            )}
+            {countyState && <span style={{ fontSize: 13, color: 'rgba(0,0,0,0.45)' }}>{countyState}</span>}
+          </div>
 
           {/* Land-type badges (Illinois parcels) — shared with CompInlinePopup
               (parcelDetailFields.tsx) so the pill styling can't drift. */}
@@ -805,8 +838,8 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
               height: 28,
               borderRadius: '50%',
               border: 'none',
-              background: 'rgba(255,255,255,0.12)',
-              color: 'rgba(255,255,255,0.8)',
+              background: 'rgba(0,0,0,0.06)',
+              color: '#444',
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
@@ -816,60 +849,31 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
               padding: 0,
               transition: 'background 150ms',
             }}
-            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.22)')}
-            onMouseLeave={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.12)')}
+            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(0,0,0,0.12)')}
+            onMouseLeave={e => (e.currentTarget.style.background = 'rgba(0,0,0,0.06)')}
           >
             ✕
           </button>
         </div>
 
-        {/* ── Hero strip ──────────────────────────────────────────── */}
-        {(gisacre != null || ppa != null || saleprice != null) && (
-          <div style={{
-            flexShrink: 0,
-            display: 'flex',
-            padding: '12px 16px',
-            borderBottom: '1px solid rgba(0,0,0,0.06)',
-            background: '#fafbfc',
-          }}>
-            {[
-              gisacre != null ? { label: 'Acres', value: fmtAcres(gisacre)!, emphasize: false } : null,
-              ppa != null ? { label: '$ / Acre', value: '$' + Math.round(ppa).toLocaleString('en-US'), emphasize: true } : null,
-              fmtMoney(saleprice) != null ? { label: 'Sale Price', value: fmtMoney(saleprice)!, emphasize: false } : null,
-            ].filter(Boolean).map((cell, i, arr) => {
-              const c = cell!
-              const isFirst = i === 0
-              const isLast = i === arr.length - 1
-              const align = isFirst ? 'left' : isLast ? 'right' : 'center'
-              return (
-                <div key={c.label} style={{
-                  flex: c.emphasize ? 1.4 : 1,
-                  textAlign: align,
-                  borderLeft: isFirst ? 'none' : '1px solid rgba(0,0,0,0.06)',
-                  paddingLeft: isFirst ? 0 : 8,
-                  paddingRight: isLast ? 0 : 8,
-                }}>
-                  <div style={{
-                    fontSize: 9.5,
-                    fontWeight: 700,
-                    letterSpacing: '0.8px',
-                    textTransform: 'uppercase',
-                    color: c.emphasize ? '#E91E8C' : '#888',
-                  }}>
-                    {c.label}
-                  </div>
-                  <div style={{
-                    fontSize: c.emphasize ? 19 : 15,
-                    fontWeight: c.emphasize ? 800 : 700,
-                    color: '#1a1a1a',
-                    marginTop: 2,
-                    letterSpacing: c.emphasize ? -0.3 : 0,
-                  }}>
-                    {c.value}
-                  </div>
-                </div>
-              )
-            })}
+        {/* ── Stat grid ───────────────────────────────────────────
+            Replaces the Acres / $/Acre / Sale Price strip. This is the data
+            only Ground Goat has, so it carries the visual weight; acres and
+            $/acre already read in the header and LAST SALE. */}
+        {(tillableAcres != null || soilRating != null || timberAcres != null || pastureAcres != null) && (
+          <div style={{ flexShrink: 0, display: 'flex', flexWrap: 'wrap', gap: 8, padding: '14px 18px 4px' }}>
+            <StatCard label="Tillable"
+                      value={tillableAcres != null ? fmtAcres(Number(tillableAcres))! : '—'}
+                      sub={pctTillable != null ? `${Math.round(Number(pctTillable))}% of parcel` : undefined} />
+            <StatCard label="Soil Rating"
+                      value={soilRating != null ? String(soilRating) : '—'}
+                      sub={soilRating != null ? `${ratingLabel}${state ? ' · ' + state : ''}` : undefined} />
+            <StatCard label="Timber"
+                      value={timberAcres != null ? fmtAcres(Number(timberAcres))! : '—'}
+                      sub={pctOf(timberAcres)} />
+            <StatCard label="Pasture"
+                      value={pastureAcres != null ? fmtAcres(Number(pastureAcres))! : '—'}
+                      sub={pctOf(pastureAcres)} />
           </div>
         )}
 
