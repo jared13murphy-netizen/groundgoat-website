@@ -20,6 +20,38 @@ function getStatusBadgeStyle(status: string): string {
   return `background: ${colors.fill}22; color: ${colors.fill}; border: 1px solid ${colors.fill}44;`
 }
 
+/** The two rate rows, shared by both popup builders.
+ *
+ *  $/tillable acre and $/rating describe CROP value, so both are hidden
+ *  below 25% tillable — the same floor the parcel sheet and the slide-out
+ *  panel use. Unguarded, a mostly-timber tract renders absurd figures: a
+ *  97%-timber parcel produced $1,765,863,665 per tillable acre.
+ *
+ *  Share is computed from acres, never from pct_tillable, which is 0-100 in
+ *  backfilled states and a 0-1 fraction elsewhere — keying the threshold off
+ *  it would silently blank these rows outside IL/IA.
+ */
+function buildRateRows(props: Record<string, unknown>): string {
+  const totalAcres = (props.totalAcres as number) || 0
+  const tillableAcres = (props.tillableAcres as number) || 0
+  const perTillable = (props.pricePerTillableAcre as number) || 0
+  const perRating = (props.pricePerSoilRating as number) || 0
+  const ratingType = props.soilRatingType as string
+  const share = (totalAcres > 0 && tillableAcres > 0) ? tillableAcres / totalAcres : 0
+  if (share < 0.25) return ''
+  return `
+    ${perTillable > 0 ? `
+    <div class="tract-popup-row">
+      <span class="tract-popup-label">Price/Tillable Acre</span>
+      <span class="tract-popup-value">${formatCurrency(perTillable)}</span>
+    </div>` : ''}
+    ${perRating > 0 && ratingType ? `
+    <div class="tract-popup-row">
+      <span class="tract-popup-label">Price/${ratingType}</span>
+      <span class="tract-popup-value">${formatCurrency(perRating)}</span>
+    </div>` : ''}`
+}
+
 export function buildTractPopupHTML(props: Record<string, unknown>): string {
   const tractNumber = props.tractNumber as number
   const totalAcres = props.totalAcres as number
@@ -29,12 +61,18 @@ export function buildTractPopupHTML(props: Record<string, unknown>): string {
   const status = props.status as string
   const pricePerAcre = props.pricePerAcre as number
   const salePrice = props.salePrice as number
+  const tillableAcres = props.tillableAcres as number
+  const pricePerTillableAcre = props.pricePerTillableAcre as number
+  const pricePerSoilRating = props.pricePerSoilRating as number
+  const soilRatingType = props.soilRatingType as string
   const county = props.county as string
   const state = props.state as string
   const listingId = props.listingId as string
   const dataResolution = props.dataResolution as string
 
   const displayStatus = (status || 'listed').replace('_', ' ')
+
+  const rateRows = buildRateRows(props)
   const precisionNote = dataResolution === 'centroid'
     ? '<div style="color:#6b7280;font-size:11px;margin-top:6px;font-style:italic;">Location approximate (county centroid)</div>'
     : ''
@@ -64,6 +102,7 @@ export function buildTractPopupHTML(props: Record<string, unknown>): string {
       <span class="tract-popup-label">Sale Price</span>
       <span class="tract-popup-value">${formatCurrency(salePrice)}</span>
     </div>` : ''}
+    ${rateRows}
     <div class="tract-popup-row">
       <span class="tract-popup-label">Auction</span>
       <span class="tract-popup-value">${formatDate(auctionDate)}</span>
@@ -92,6 +131,7 @@ export function buildExplorePopupHTML(props: Record<string, unknown>): string {
   const soilRating = props.soilRating as number
   const pctTillable = props.pctTillable as number
 
+  const rateRows = buildRateRows(props)
   const displayStatus = (status || 'listed').replace('_', ' ')
 
   return `
@@ -124,6 +164,7 @@ export function buildExplorePopupHTML(props: Record<string, unknown>): string {
       <span class="tract-popup-label">Sale Price</span>
       <span class="tract-popup-value">${formatCurrency(salePrice)}</span>
     </div>` : ''}
+    ${rateRows}
     ${soilRating ? `
     <div class="tract-popup-row">
       <span class="tract-popup-label">Soil Rating</span>

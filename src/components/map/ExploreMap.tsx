@@ -865,6 +865,9 @@ export interface SaleDetail {
   state: string
   township?: string | null
   soilRating?: number | null
+  /** Names the rating (PI / CSR2 / NCCPI / ...) so the popup can label
+   *  the $/rating row per state. */
+  soilRatingType?: string | null
   polygonCoordinates?: [number, number][] | [number, number][][] | null
   saleStatus?: string | null
   listingType?: string | null
@@ -8220,6 +8223,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         state: tract.state,
         township: tract.township,
         soilRating: tract.soil_rating,
+        // Rate metrics for the popup. soilRatingType names the rating so the
+        // row can read "Price/PI" in IL and "Price/CSR2" in IA — sent by the
+        // API rather than mapped client-side, so the app and the website
+        // cannot disagree about what a state's rating is called.
+        soilRatingType: tract.soil_rating_type,
         polygonCoordinates: tract.polygon_coordinates,
         saleStatus: tract.sale_status,
         listingType: tract.listing_type,
@@ -8373,6 +8381,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         state: tract.state,
         township: tract.township,
         soilRating: tract.soil_rating,
+        // Rate metrics for the popup. soilRatingType names the rating so the
+        // row can read "Price/PI" in IL and "Price/CSR2" in IA — sent by the
+        // API rather than mapped client-side, so the app and the website
+        // cannot disagree about what a state's rating is called.
+        soilRatingType: tract.soil_rating_type,
         polygonCoordinates: tract.polygon_coordinates,
         saleStatus: tract.sale_status,
         listingType: tract.listing_type,

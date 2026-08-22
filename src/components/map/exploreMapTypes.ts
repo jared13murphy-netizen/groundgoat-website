@@ -9,6 +9,10 @@ export interface ApiMapTract {
   price_per_soil_rating: number | null
   sale_price: number | null
   soil_rating: number | null
+  /** Which rating soil_rating IS (PI / CSR2 / NCCPI / WAPI / CPI).
+   *  Sent by the API so clients label $/<rating> without keeping
+   *  their own copy of the state->label map. */
+  soil_rating_type: string | null
   sale_status: string | null
   listing_id: string | null
   listing_type: string | null
