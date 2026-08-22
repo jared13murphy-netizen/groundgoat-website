@@ -856,29 +856,29 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
           </button>
         </div>
 
-        {/* ── Stat grid ───────────────────────────────────────────
-            Replaces the Acres / $/Acre / Sale Price strip. This is the data
-            only Ground Goat has, so it carries the visual weight; acres and
-            $/acre already read in the header and LAST SALE. */}
-        {(tillableAcres != null || soilRating != null || timberAcres != null || pastureAcres != null) && (
-          <div style={{ flexShrink: 0, display: 'flex', flexWrap: 'wrap', gap: 8, padding: '14px 18px 4px' }}>
-            <StatCard label="Tillable"
-                      value={tillableAcres != null ? fmtAcres(Number(tillableAcres))! : '—'}
-                      sub={pctTillable != null ? `${Math.round(Number(pctTillable))}% of parcel` : undefined} />
-            <StatCard label="Soil Rating"
-                      value={soilRating != null ? String(soilRating) : '—'}
-                      sub={soilRating != null ? `${ratingLabel}${state ? ' · ' + state : ''}` : undefined} />
-            <StatCard label="Timber"
-                      value={timberAcres != null ? fmtAcres(Number(timberAcres))! : '—'}
-                      sub={pctOf(timberAcres)} />
-            <StatCard label="Pasture"
-                      value={pastureAcres != null ? fmtAcres(Number(pastureAcres))! : '—'}
-                      sub={pctOf(pastureAcres)} />
-          </div>
-        )}
-
         {/* ── Scrollable body ─────────────────────────────────────── */}
         <div style={{ flex: 1, overflowY: 'auto', paddingBottom: 24 }}>
+          {/* ── Stat grid ───────────────────────────────────────────
+              Replaces the Acres / $/Acre / Sale Price strip. This is the data
+              only Ground Goat has, so it carries the visual weight; acres and
+              $/acre already read in the header and LAST SALE. */}
+          {(tillableAcres != null || soilRating != null || timberAcres != null || pastureAcres != null) && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, padding: '14px 18px 4px' }}>
+              <StatCard label="Tillable"
+                        value={tillableAcres != null ? fmtAcres(Number(tillableAcres))! : '—'}
+                        sub={pctTillable != null ? `${Math.round(Number(pctTillable))}% of parcel` : undefined} />
+              <StatCard label="Soil Rating"
+                        value={soilRating != null ? String(soilRating) : '—'}
+                        sub={soilRating != null ? `${ratingLabel}${state ? ' · ' + state : ''}` : undefined} />
+              <StatCard label="Timber"
+                        value={timberAcres != null ? fmtAcres(Number(timberAcres))! : '—'}
+                        sub={pctOf(timberAcres)} />
+              <StatCard label="Pasture"
+                        value={pastureAcres != null ? fmtAcres(Number(pastureAcres))! : '—'}
+                        sub={pctOf(pastureAcres)} />
+            </div>
+          )}
+
 
           {/* Loading state */}
           {loading && (
@@ -967,7 +967,7 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
               Property, Assessed Value, Buildings, Mailing Address — shared
               with CompInlinePopup (parcelDetailFields.tsx) so the two
               modals' data/order/formatting can't drift apart. */}
-          <ParcelDetailSections d={derived} afterSoilRating={
+          <ParcelDetailSections d={derived} hideComposition afterSoilRating={
             cropHistory?.available ? (
               /* ── CROPS PLANTED — the panel's one designed object (owner
                  8/20: "different look... be creative"). A field-card: soft
@@ -977,15 +977,15 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
               <div style={{
                 margin: '10px 16px 4px',
                 padding: '12px 14px 8px',
-                background: 'linear-gradient(180deg, #FAFBF6 0%, #F3F6EC 100%)',
-                border: '1px solid #E2E9D5',
-                borderRadius: 12,
+                background: '#121216',
+                border: '1px solid #26262f',
+                borderRadius: 14,
               }}>
                 <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10 }}>
-                  <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '1.2px', color: '#111111', textTransform: 'uppercase' }}>
+                  <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '1.2px', color: '#FFFFFF', textTransform: 'uppercase' }}>
                     Crops Planted
                   </span>
-                  <span style={{ fontSize: 10, fontWeight: 600, color: '#9AA88A' }}>
+                  <span style={{ fontSize: 10, fontWeight: 600, color: 'rgba(255,255,255,0.5)' }}>
                     {(() => { const ys = cropHistory.years.filter((y: any) => y.crops?.length); return ys.length ? `${Math.min(...ys.map((y: any) => y.year))}–${Math.max(...ys.map((y: any) => y.year))}` : '' })()}
                   </span>
                 </div>
@@ -1002,12 +1002,12 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
                            return next
                          }) : undefined}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: '#5B6B4A', width: 34, fontVariantNumeric: 'tabular-nums' }}>{y.year}</span>
+                        <span style={{ fontSize: 12, fontWeight: 800, color: '#FFFFFF', width: 34, fontVariantNumeric: 'tabular-nums' }}>{y.year}</span>
                         {/* Full-width rotation strip (owner 8/21): segments are the
                             year's crop MIX, normalized to the crops themselves — the
                             bar is never a parcel-coverage claim, so it can't be read
                             against the tillable %. */}
-                        <div style={{ flex: 1, display: 'flex', height: 12, borderRadius: 6, overflow: 'hidden', background: '#E7EADF', boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.06)' }}>
+                        <div style={{ flex: 1, display: 'flex', height: 12, borderRadius: 6, overflow: 'hidden', background: 'rgba(255,255,255,0.14)' }}>
                           {crops.map((c: any) => (
                             <div key={c.code} title={c.name}
                                  style={{ width: `${covered > 0 ? (c.pct / covered) * 100 : 0}%`, background: CDL_PALETTE[c.code]?.color || '#B0B0B0' }} />
@@ -1016,22 +1016,22 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
                       </div>
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 12px', margin: '4px 0 0 42px' }}>
                         {(expanded ? crops : crops.slice(0, 2)).map((c: any) => (
-                          <span key={c.code} style={{ fontSize: 11, color: '#5B6B4A', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                          <span key={c.code} style={{ fontSize: 11, color: 'rgba(255,255,255,0.72)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                             <span style={{ width: 8, height: 8, borderRadius: 4, background: CDL_PALETTE[c.code]?.color || '#B0B0B0', display: 'inline-block' }} />
                             {c.name}{expanded ? ` · ${Number(c.acres).toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} ac` : ''}
                           </span>
                         ))}
                         {!expanded && expandable && (
-                          <span style={{ fontSize: 11, color: '#3E7A1F', fontWeight: 700 }}>+{crops.length - 2} more ▾</span>
+                          <span style={{ fontSize: 11, color: '#F58CDE', fontWeight: 700 }}>+{crops.length - 2} more ▾</span>
                         )}
                         {expanded && expandable && (
-                          <span style={{ fontSize: 11, color: '#3E7A1F', fontWeight: 700 }}>less ▴</span>
+                          <span style={{ fontSize: 11, color: '#F58CDE', fontWeight: 700 }}>less ▴</span>
                         )}
                       </div>
                     </div>
                   )
                 })}
-                <div style={{ fontSize: 9, color: '#A8B39A', marginTop: 2 }}>USDA Cropland Data</div>
+                <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', marginTop: 2 }}>USDA Cropland Data</div>
               </div>
             ) : null
           } />

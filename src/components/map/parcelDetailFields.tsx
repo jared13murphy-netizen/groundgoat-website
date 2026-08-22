@@ -390,7 +390,16 @@ export function LandTypeBadges({ landTypes }: { landTypes: string[] | null }) {
  * disclaimer — exactly LandDetailPanel's original JSX, order preserved.
  * Both modals render this same block so they can't drift apart again.
  */
-export function ParcelDetailSections({ d, afterSoilRating }: { d: ParcelDetailFields; afterSoilRating?: React.ReactNode }) {
+export function ParcelDetailSections({ d, afterSoilRating, hideComposition = false }: {
+  d: ParcelDetailFields
+  afterSoilRating?: React.ReactNode
+  /** Suppress Land Composition + Soil Rating. The slide-out panel renders
+   *  those as the 2x2 stat grid at the top (matching the app's sheet), so
+   *  leaving them here too printed tillable acres and the soil rating
+   *  twice — owner 2026-08-22: "you have data duplicated". The comp popup
+   *  has no stat grid, so it keeps them. */
+  hideComposition?: boolean
+}) {
   return (
     <>
       {/* ── C: Land Composition (Illinois parcels) ────────────────
@@ -399,7 +408,7 @@ export function ParcelDetailSections({ d, afterSoilRating }: { d: ParcelDetailFi
           renders instead of vanishing. Whole section is absent when
           backfill_status is 'partial_pending' or no land-composition
           field is present at all. */}
-      {d.hasLandComposition && (
+      {!hideComposition && d.hasLandComposition && (
         <Section title="Land Composition">
           {(d.tillableAcres != null || d.pctTillable != null) && (
             <DetailRow
@@ -441,7 +450,7 @@ export function ParcelDetailSections({ d, afterSoilRating }: { d: ParcelDetailFi
           of the LAND COMPOSITION backfill_status gate above. Renders
           whenever both halves of the combined "PI 128.0"-style value
           are present. */}
-      {d.hasSoilRatingRow && (
+      {!hideComposition && d.hasSoilRatingRow && (
         <Section title="Soil Rating">
           <DetailRow label="Rating" value={`${d.soilRatingType} ${fmtRating1(d.soilRating)}`} />
         </Section>
