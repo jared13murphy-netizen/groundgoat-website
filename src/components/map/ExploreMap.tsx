@@ -661,6 +661,13 @@ const COUNTY_TIER_MIN = 6
 const COUNTY_TIER_MAX = 9
 const TRACT_TIER_MIN = 9
 
+// Zoom at which the durable-dot $/Acre label renders, and therefore the zoom
+// at or above which the dot fetch bothers asking for parcel_sale_price. Module
+// scope on purpose: the layer definition and the fetch that feeds it live in
+// different scopes, and they MUST agree — a fetch gated higher than the layer
+// renders an empty label, gated lower it pays for a join nobody sees.
+const PARCEL_PPA_LABEL_MIN_ZOOM = 14
+
 // Town vector labels (phase 2, 2026-08-17). Layer minzoom — below this the
 // 'town-labels' filter (see below) always evaluates false anyway, but
 // setting it here too skips the layer's tile/placement work entirely below
@@ -4885,36 +4892,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             ],
           ],
           { 'font-scale': 1.0 },
-          // Price per acre — saleprice / acres when both > 0. Guard
-          // against divide-by-zero on the denominator.
-          ['case',
-            ['all',
-              ['has', 'saleprice'],
-              ['>', ['to-number', ['get', 'saleprice']], 0],
-              ['any', ['has', 'll_gisacre'], ['has', 'gisacre']],
-              ['>', ['to-number', ['coalesce', ['get', 'll_gisacre'], ['get', 'gisacre']]], 0],
-            ],
-            ['concat', '\n$/Acre: $',
-              ['number-format',
-                // Round the divide before formatting so we never
-                // surface decimals like "$370,692.152". max-fraction-
-                // digits=0 was already in place, but in practice some
-                // upstream values produce a sub-cent residue that
-                // number-format rounds inconsistently — round() ahead
-                // of time makes the integer floor explicit.
-                ['round', ['/',
-                  ['to-number', ['get', 'saleprice']],
-                  ['to-number', ['coalesce', ['get', 'll_gisacre'], ['get', 'gisacre']]],
-                ]],
-                {
-                  'locale': 'en-US',
-                  'min-fraction-digits': 0,
-                  'max-fraction-digits': 0,
-                },
-              ],
-            ],
-            '',
-          ],
+          // NO $/Acre here any more. This label is built from REGRID'S tile,
+          // whose `saleprice` is the whole-deed figure stamped on every parcel
+          // of a multi-parcel sale — an 81.51 ac De Witt County IL parcel in a
+          // 2-parcel, 221.6 ac, $4,077,000 deed rendered $50,019/ac against a
+          // true $18,397 (owner, 2026-08-22). No column we add can reach
+          // inside their tile, so $/Acre now draws from our own durable-dot
+          // layer, which carries the allocated price. See
+          // DURABLE_DOT_PPA_LAYER.
           { 'font-scale': 1.0 },
           // Sale date — custom tile returns ISO datetime; first 10
           // chars are YYYY-MM-DD either way. length >= 10 guard
@@ -5630,6 +5615,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // point, so that layer's existing onClick (below) already fires for
   // clicks on the glyph.
   const DURABLE_DOT_PLUS_LAYER = 'parcel-sale-dots-durable-symbol'
+  const DURABLE_DOT_PPA_LAYER = 'parcel-sale-dots-durable-ppa'
   const DURABLE_DOT_MIN_ZOOM = 9
   const DURABLE_DOT_MIN_ACRES = 10 // owner rule: never show parcel dots under 10 acres
 
@@ -5773,6 +5759,61 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         },
         paint: {
           'text-color': '#ffffff',
+        },
+      })
+    }
+    // $/Acre label, drawn from OUR dots and OUR allocated deed price.
+    //
+    // It used to be computed inside the Regrid parcel tile's own label from
+    // their `saleprice` — the whole-deed figure stamped on EVERY parcel of a
+    // multi-parcel sale. Owner 2026-08-22, De Witt County IL: an 81.51 ac
+    // parcel in a 2-parcel, 221.6 ac deed for $4,077,000 rendered $50,019/ac
+    // when the true figure is $18,397. Nothing we add to our database can
+    // reach inside Regrid's tile, so the label had to move to a source we
+    // own. The mobile app's two maps were corrected the same way.
+    //
+    // coalesce(parcel_sale_price, saleprice) is load-bearing: the allocated
+    // column is NULL outside the backfilled states and for deed groups
+    // deliberately left alone, so a bare get() would blank the label
+    // everywhere except IL and IA.
+    //
+    // Consequence worth knowing: the dot source only holds parcels >= 10 ac,
+    // so sub-10-acre parcels no longer carry a $/Acre label. That is a net
+    // win — those produced the worst numbers under the old label (a 0.30 ac
+    // parcel in this same dataset rendered $4,608,719/ac).
+    if (!map.getLayer(DURABLE_DOT_PPA_LAYER)) {
+      map.addLayer({
+        id: DURABLE_DOT_PPA_LAYER,
+        type: 'symbol',
+        source: DURABLE_DOT_SOURCE,
+        minzoom: PARCEL_PPA_LABEL_MIN_ZOOM,
+        filter: ['all',
+          ['>', ['to-number', ['coalesce', ['get', 'parcel_sale_price'], ['get', 'saleprice'], 0]], 0],
+          ['>', ['to-number', ['coalesce', ['get', 'acres'], 0]], 0],
+        ],
+        layout: {
+          'text-field': ['concat', '$/Acre: $',
+            ['number-format',
+              ['round', ['/',
+                ['to-number', ['coalesce', ['get', 'parcel_sale_price'], ['get', 'saleprice']]],
+                ['to-number', ['get', 'acres']],
+              ]],
+              { 'locale': 'en-US', 'min-fraction-digits': 0, 'max-fraction-digits': 0 },
+            ],
+          ],
+          'text-font': ['Open Sans Regular'],
+          'text-size': ['interpolate', ['linear'], ['zoom'], 14, 11, 16, 12, 18, 13],
+          'text-anchor': 'top',
+          // Continues the Regrid parcel label's block as a further line
+          // rather than fighting it for the space directly under the dot.
+          'text-offset': [0, 1.6],
+          'text-allow-overlap': true,
+          'text-ignore-placement': false,
+        },
+        paint: {
+          'text-color': '#ffffff',
+          'text-halo-color': 'rgba(0,0,0,0.85)',
+          'text-halo-width': 1.4,
         },
       })
     }
@@ -6136,7 +6177,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         const list = newDeeds.get(t.id) || []
         list.push({
           ll_uuid: uuid,
-          saleprice: props.saleprice ?? null,
+          // ALLOCATED share first. `saleprice` off the dot is Regrid's
+          // whole-deed figure, repeated on every parcel of a multi-parcel
+          // sale — the portal's deed table divides this by the parcel's own
+          // acres, so the raw value produced the same inflated $/ac the map
+          // label used to show. Coalesced because parcel_sale_price is NULL
+          // outside the backfilled states and absent below the label zoom.
+          saleprice: props.parcel_sale_price ?? props.saleprice ?? null,
           saledate: props.saledate ?? null,
           acres: props.acres ?? null,
           owner,
@@ -6391,6 +6438,15 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       durableDotsInflightRef.current += 1
       counted = true
       setDotsLoading(true)
+      // The $/Acre label is drawn from THESE dots (see the durable-dot
+      // symbol layer), so they must carry each parcel's ALLOCATED share of
+      // its deed. Opt-in and zoom-gated: it costs a PK join to a 48M-row
+      // table server-side, and a z9 viewport can return 140,000 dots — at
+      // that zoom the label is not rendered, so it would be paid for and
+      // never seen. z >= PARCEL_PPA_LABEL_MIN_ZOOM matches the layer.
+      if ((map.getZoom?.() ?? 0) >= PARCEL_PPA_LABEL_MIN_ZOOM) {
+        qs.set('include_price_detail', 'true')
+      }
       const res = await fetchWithAuth(`${API_URL}/api/map/parcel-sale-dots?${qs.toString()}`)
       if (!res.ok) return
       const data = await res.json()
@@ -6425,7 +6481,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         durableDotsByIdRef.current.set(d.id, {
           type: 'Feature',
           geometry: { type: 'Point', coordinates: [d.lng, d.lat] },
-          properties: { id: d.id, saleprice: d.saleprice, saledate: d.saledate, acres: d.acres },
+          properties: {
+            id: d.id, saleprice: d.saleprice, saledate: d.saledate, acres: d.acres,
+            // This parcel's share of a multi-parcel deed. NULL outside the
+            // backfilled states and for deed groups left alone, and absent
+            // below the label zoom, so every read of it coalesces to
+            // saleprice.
+            parcel_sale_price: d.parcel_sale_price ?? null,
+          },
         })
       }
       // recomputeCoincidentDeeds owns pushing the (possibly suppressed)
