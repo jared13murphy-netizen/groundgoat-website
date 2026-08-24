@@ -4931,11 +4931,20 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           16, 12,
           18, 14,
         ],
-        // Label sits AT the parcel's geometric centroid — the point
-        // feature we emit per-uuid is already the area-weighted
-        // centroid of all the parcel's clipped pieces, so anchor at
-        // center with no offset.
-        'text-anchor': 'center',
+        // Anchored 'top' just BELOW the parcel's centroid, not centred on it.
+        //
+        // Centred was the original behaviour and it put the middle line of
+        // this block exactly on top of the sale dot, which is drawn at that
+        // same centroid — owner, 2026-08-24: "the dot is also still right in
+        // the center of the tile label text." Hanging the block downward
+        // leaves the anchor point itself clear for the dot.
+        //
+        // It also makes the block's geometry predictable: it now only grows
+        // DOWNWARD, so anything placed above the anchor is unaffected by how
+        // many lines this label happens to have (owner names wrap to two
+        // lines often enough that the height is not fixed).
+        'text-anchor': 'top',
+        'text-offset': [0, 0.85],
         'text-justify': 'center',
         'text-max-width': 9,
         'text-line-height': 1.15,
@@ -5803,11 +5812,25 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // centroid. Confirmed on a live screen 2026-08-24 — the pink dot renders
     // directly on top of the tile label's middle line.
     //
-    // Matching the block therefore means matching its typography exactly:
-    // the SAME text-size ramp, font, colour and halo as LABEL_LAYER, anchored
-    // 'top' and pushed down past its three centred lines. Three lines at
-    // line-height 1.15 span ±1.7 em from the centre, so 1.9 em puts this
-    // immediately under "Sale Date" with no gap and no overlap.
+    // POSITION: directly ABOVE the dot, with LABEL_LAYER's block hanging
+    // below it. Reading top to bottom the group is
+    //
+    //        $/Acre: $4,113
+    //              *              <- the sale dot, on the centroid
+    //        CROSS FAMILY LLC
+    //        121.04 ac
+    //        Sale Date: 06/10/2021
+    //
+    // Below the block would be the conventional order, and it was tried
+    // first. It cannot be positioned reliably: LABEL_LAYER's height depends
+    // on how many lines the OWNER NAME wraps to (two is common at
+    // text-max-width 9), so any fixed downward offset either leaves a gap or
+    // lands on the sale date depending on the parcel. Above the anchor is the
+    // one place whose distance does not vary.
+    //
+    // Typography matches LABEL_LAYER exactly — same size ramp, font, colour,
+    // halo, justify, max-width — so it reads as one group and stays aligned
+    // at every zoom.
     //
     // text-allow-overlap MUST BE TRUE. Setting it false to "match
     // LABEL_LAYER" meant this line lost the collision against the very label
@@ -5845,8 +5868,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           // Identical ramp to LABEL_LAYER — a different one and the line
           // stops lining up as the zoom changes.
           'text-size': ['interpolate', ['linear'], ['zoom'], 14, 10, 16, 12, 18, 14],
-          'text-anchor': 'top',
-          'text-offset': [0, 1.9],
+          'text-anchor': 'bottom',
+          'text-offset': [0, -0.85],
           'text-justify': 'center',
           'text-max-width': 9,
           'text-line-height': 1.15,
