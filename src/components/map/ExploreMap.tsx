@@ -4954,10 +4954,18 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         // far too wide (owner, 2026-08-24), so max-width is back to 9 and the
         // block is pinned from the bottom instead.
         //
-        // -1.9 em keeps the whole block clear of the sale dot, which is drawn
-        // at the anchor point itself.
+        // POSITIVE offset: the block sits BELOW the dot, as it always has.
+        // The previous value was negative, which pinned the bottom correctly
+        // but flipped the whole block ABOVE the sale dot — owner, 2026-08-24:
+        // "the tile text is now above the dot."
+        //
+        // 4.6 em is the block's BOTTOM edge, 4.6 em below the dot. It grows
+        // upward from there as the name wraps, so a short name leaves a
+        // slightly larger gap under the dot and a long one closes it. The gap
+        // moves; the bottom does not — and the bottom is what $/Acre has to
+        // attach to.
         'text-anchor': 'bottom',
-        'text-offset': [0, -1.9],
+        'text-offset': [0, 4.6],
         'text-justify': 'center',
         'text-max-width': 9,
         'text-line-height': 1.15,
@@ -5834,10 +5842,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     //        $/Acre: $9,865         <- this layer
     //
     // It works for ANY number of lines, which is the whole point. LABEL_LAYER
-    // is anchored 'bottom' at -1.9 em, so its bottom edge is pinned there and
-    // it grows upward as the owner name wraps. This layer anchors 'top' at
-    // that same -1.9 em, so its top edge starts exactly where the block ends —
-    // immediately under the last line, whatever that line happens to be.
+    // is anchored 'bottom' at +4.6 em, so its bottom edge is pinned 4.6 em
+    // BELOW the dot and it grows upward as the owner name wraps. This layer
+    // anchors 'top' at that same +4.6 em, so its top edge starts exactly where
+    // the block ends — immediately under the last line, whatever that line is,
+    // and still below the dot.
     //
     // Every earlier attempt tied this to the block's TOP and assumed a height:
     // 1.9 em, then 4.30 em with wrapping disabled. Both are guesses about how
@@ -5884,7 +5893,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           // stops lining up as the zoom changes.
           'text-size': ['interpolate', ['linear'], ['zoom'], 14, 10, 16, 12, 18, 14],
           'text-anchor': 'top',
-          'text-offset': [0, -1.9],
+          'text-offset': [0, 4.6],
           'text-justify': 'center',
           'text-max-width': 9,
           'text-line-height': 1.15,
