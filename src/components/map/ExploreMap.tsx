@@ -5621,6 +5621,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // point, so that layer's existing onClick (below) already fires for
   // clicks on the glyph.
   const DURABLE_DOT_PLUS_LAYER = 'parcel-sale-dots-durable-symbol'
+  const DURABLE_DOT_PPA_LAYER = 'parcel-sale-dots-durable-ppa'
   const DURABLE_DOT_MIN_ZOOM = 9
   const DURABLE_DOT_MIN_ACRES = 10 // owner rule: never show parcel dots under 10 acres
 
@@ -5786,29 +5787,74 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // so sub-10-acre parcels no longer carry a $/Acre label. That is a net
     // win — those produced the worst numbers under the old label (a 0.30 ac
     // parcel in this same dataset rendered $4,608,719/ac).
-    // $/Acre IS NOT DRAWN ON THE MAP. Deliberately, after trying it.
+    // $/Acre — the FOURTH LINE of the Regrid parcel label block.
     //
-    // The price itself was wrong until 2026-08-22 — it came from Regrid's
-    // tile, whose `saleprice` is the whole-deed figure repeated on every
-    // parcel of a multi-parcel sale. Fixing that meant sourcing it from our
-    // own durable-dot layer, which carries each parcel's allocated share.
+    // It cannot live in that label itself: that text is built from Regrid's
+    // vector tile, whose `saleprice` is the WHOLE-DEED figure repeated on
+    // every parcel of a multi-parcel sale (an 81.51 ac De Witt parcel in a
+    // 2-parcel, $4,077,000 deed rendered $50,019/ac against a true $18,397).
+    // Nothing we add to our database can reach inside their tile. So the line
+    // is drawn from our own durable-dot source, which carries each parcel's
+    // ALLOCATED share — and is positioned to land as the next line of that
+    // block rather than as a label of its own.
     //
-    // But the two layers do not share an anchor. Regrid places the
-    // owner/acres/sale-date block at ITS label point; our dots sit at the
-    // parcel centroid. On a real screen (owner, 2026-08-24) the result was a
-    // "$/Acre: $9,865" floating over one field while the name and acreage it
-    // appeared to belong to labelled the field NEXT DOOR. A right number
-    // attached to the wrong parcel is worse than no number.
+    // Both anchor on the same point: LABEL_LAYER centres on the parcel's
+    // area-weighted centroid, and our dot for that parcel is that same
+    // centroid. Confirmed on a live screen 2026-08-24 — the pink dot renders
+    // directly on top of the tile label's middle line.
     //
-    // The corrected $/acre is still shown where it is unambiguous: the parcel
-    // detail panel, which reads deriveParcelDetail and is anchored to the
-    // parcel the user actually clicked.
+    // Matching the block therefore means matching its typography exactly:
+    // the SAME text-size ramp, font, colour and halo as LABEL_LAYER, anchored
+    // 'top' and pushed down past its three centred lines. Three lines at
+    // line-height 1.15 span ±1.7 em from the centre, so 1.9 em puts this
+    // immediately under "Sale Date" with no gap and no overlap.
     //
-    // To put it back on the map, the WHOLE block — owner, acres, sale date,
-    // $/acre — has to come from one source so it shares one anchor. That
-    // means serving owner/acres/saledate from our own data alongside the
-    // price, not mixing Regrid's tile with ours. Worth doing; not a
-    // one-line change.
+    // text-allow-overlap stays FALSE to match LABEL_LAYER: when Regrid's
+    // label is dropped for collision, this must drop with it, or the price
+    // is left floating alone over a field with no name attached to it. That
+    // is exactly how it looked when this was first shipped as an independent
+    // label (owner: "the $/ac is in a weird place").
+    if (!map.getLayer(DURABLE_DOT_PPA_LAYER)) {
+      map.addLayer({
+        id: DURABLE_DOT_PPA_LAYER,
+        type: 'symbol',
+        source: DURABLE_DOT_SOURCE,
+        minzoom: PARCEL_PPA_LABEL_MIN_ZOOM,
+        filter: ['all',
+          ['>', ['to-number', ['coalesce', ['get', 'parcel_sale_price'], ['get', 'saleprice'], 0]], 0],
+          ['>', ['to-number', ['coalesce', ['get', 'acres'], 0]], 0],
+        ],
+        layout: {
+          'text-field': ['concat', '$/Acre: $',
+            ['number-format',
+              ['round', ['/',
+                ['to-number', ['coalesce', ['get', 'parcel_sale_price'], ['get', 'saleprice']]],
+                ['to-number', ['get', 'acres']],
+              ]],
+              { 'locale': 'en-US', 'min-fraction-digits': 0, 'max-fraction-digits': 0 },
+            ],
+          ],
+          'text-font': ['Open Sans Regular'],
+          // Identical ramp to LABEL_LAYER — a different one and the line
+          // stops lining up as the zoom changes.
+          'text-size': ['interpolate', ['linear'], ['zoom'], 14, 10, 16, 12, 18, 14],
+          'text-anchor': 'top',
+          'text-offset': [0, 1.9],
+          'text-justify': 'center',
+          'text-max-width': 9,
+          'text-line-height': 1.15,
+          'text-allow-overlap': false,
+          'text-ignore-placement': false,
+          'text-padding': 4,
+        },
+        paint: {
+          'text-color': '#ffffff',
+          'text-halo-color': 'rgba(0,0,0,0.85)',
+          'text-halo-width': 1.4,
+          'text-halo-blur': 0.4,
+        },
+      })
+    }
     if (isFirstMount) {
       let activePopup: maplibregl.Popup | null = null
       const onClick = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
