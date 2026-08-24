@@ -2017,9 +2017,16 @@ export default function AdminStagingPage() {
                             exceeds 5%. */}
                         {(() => {
                           const polySumAc = (info.tracts || []).reduce((sum: number, t: any) => {
-                            const p = t?.polygon_coordinates
-                            return Array.isArray(p) && p.length >= 3
-                              ? sum + polygonAcres(p)
+                            // Ring-aware. `p.length >= 3` counted PIECES, not
+                            // points, on a multi-piece tract — a tract drawn as
+                            // two separate fields has length 2 and was silently
+                            // dropped from this total, making the listing look
+                            // short on acreage. toRings normalises single- and
+                            // multi-piece the same way the "Polygon" badge
+                            // below already does.
+                            const rings = toRings(t?.polygon_coordinates)
+                            return rings.some((r: any) => r.length >= 3)
+                              ? sum + polygonAcres(t.polygon_coordinates)
                               : sum
                           }, 0)
                           const scrapedAc = typeof info.acres === 'number'
