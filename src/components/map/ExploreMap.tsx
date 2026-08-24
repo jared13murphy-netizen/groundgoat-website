@@ -4891,15 +4891,20 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               '',
             ],
           ],
-          { 'font-scale': 1.0 },
-          // NO $/Acre here any more. This label is built from REGRID'S tile,
-          // whose `saleprice` is the whole-deed figure stamped on every parcel
-          // of a multi-parcel sale — an 81.51 ac De Witt County IL parcel in a
-          // 2-parcel, 221.6 ac, $4,077,000 deed rendered $50,019/ac against a
-          // true $18,397 (owner, 2026-08-22). No column we add can reach
-          // inside their tile, so $/Acre now draws from our own durable-dot
-          // layer, which carries the allocated price. See
-          // DURABLE_DOT_PPA_LAYER.
+          // ONE font-scale here, not two. A `format` expression takes strictly
+          // ALTERNATING arguments — input, options, input, options — so every
+          // options object must have an input immediately before it.
+          //
+          // Removing the $/Acre section on 2026-08-22 deleted its INPUT but
+          // left BOTH surrounding options objects, putting two back to back.
+          // MapLibre rejects the whole expression, the layer fails to build,
+          // and every Regrid parcel vanishes from the Explore map — not just
+          // the label. Owner reported it live 2026-08-24. If you ever delete
+          // another section from this list, delete its font-scale with it.
+          //
+          // ($/Acre itself now draws from our own durable-dot layer, which
+          // carries the allocated deed price rather than Regrid's whole-deed
+          // saleprice — see DURABLE_DOT_PPA_LAYER.)
           { 'font-scale': 1.0 },
           // Sale date — custom tile returns ISO datetime; first 10
           // chars are YYYY-MM-DD either way. length >= 10 guard
