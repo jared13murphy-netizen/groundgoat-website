@@ -4946,7 +4946,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         'text-anchor': 'top',
         'text-offset': [0, 0.85],
         'text-justify': 'center',
-        'text-max-width': 9,
+        // 24, not 9. The owner name used to wrap to two or three lines, which
+        // made this block's HEIGHT vary parcel by parcel — and that is exactly
+        // what stopped $/Acre from sitting reliably at the bottom of it. With no
+        // wrap, a parcel that has a sale is ALWAYS three lines (owner / acres /
+        // sale date), so the line below lands in the same place every time. Long
+        // names render wider now instead of taller.
+        'text-max-width': 24,
         'text-line-height': 1.15,
         // Regrid labels MUST NOT overlap each other — at low zoom
         // the map otherwise turns into a wall of white text. With
@@ -5812,21 +5818,25 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // centroid. Confirmed on a live screen 2026-08-24 — the pink dot renders
     // directly on top of the tile label's middle line.
     //
-    // POSITION: directly ABOVE the dot, with LABEL_LAYER's block hanging
-    // below it. Reading top to bottom the group is
+    // POSITION: the BOTTOM LINE of the parcel label block.
     //
-    //        $/Acre: $4,113
-    //              *              <- the sale dot, on the centroid
-    //        CROSS FAMILY LLC
-    //        121.04 ac
-    //        Sale Date: 06/10/2021
+    //        *                      <- the sale dot, on the centroid
+    //        FAUSTINA FARM LLLP
+    //        131.37 ac
+    //        Sale Date: 07/12/2021
+    //        $/Acre: $9,865         <- this layer
     //
-    // Below the block would be the conventional order, and it was tried
-    // first. It cannot be positioned reliably: LABEL_LAYER's height depends
-    // on how many lines the OWNER NAME wraps to (two is common at
-    // text-max-width 9), so any fixed downward offset either leaves a gap or
-    // lands on the sale date depending on the parcel. Above the anchor is the
-    // one place whose distance does not vary.
+    // The arithmetic: LABEL_LAYER anchors 'top' at 0.85 em and runs three
+    // lines at line-height 1.15, so it ends at 0.85 + 3 x 1.15 = 4.30 em.
+    // Anchoring here at exactly 4.30 continues it with no gap and no overlap.
+    //
+    // That depends on the block being exactly three lines, which is why
+    // LABEL_LAYER's text-max-width went from 9 to 24 in the same change. At 9
+    // the owner name wrapped on plenty of parcels, the block's height varied,
+    // and NO fixed offset could be the bottom line — earlier attempts landed
+    // in a gap on some parcels and on the sale date on others. Three lines is
+    // guaranteed rather than assumed: this layer only draws when there is a
+    // sale price, and a sale price always carries the sale date.
     //
     // Typography matches LABEL_LAYER exactly — same size ramp, font, colour,
     // halo, justify, max-width — so it reads as one group and stays aligned
@@ -5868,10 +5878,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           // Identical ramp to LABEL_LAYER — a different one and the line
           // stops lining up as the zoom changes.
           'text-size': ['interpolate', ['linear'], ['zoom'], 14, 10, 16, 12, 18, 14],
-          'text-anchor': 'bottom',
-          'text-offset': [0, -0.85],
+          'text-anchor': 'top',
+          'text-offset': [0, 4.30],
           'text-justify': 'center',
-          'text-max-width': 9,
+          'text-max-width': 24,
           'text-line-height': 1.15,
           'text-allow-overlap': true,
           'text-ignore-placement': false,
