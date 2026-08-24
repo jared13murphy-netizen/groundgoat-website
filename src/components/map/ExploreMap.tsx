@@ -4317,7 +4317,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         ],
         'text-anchor': 'center',
         'text-justify': 'center',
-        'text-max-width': 9,
+        // 16 fits "Sold: 10/16/2012" on ONE line. It used to read
+        // "Sale Date: 10/16/2012" at max-width 9, which wrapped mid-date to
+        // "10/" + "16/2012" (owner, 2026-08-24). Widening to 24 fixed the wrap
+        // but made owner names far too wide, so the LABEL was shortened instead
+        // and the width raised only as far as the shorter string needs.
+        // "Sold:" also matches what both mobile maps already say.
+        'text-max-width': 16,
         'text-line-height': 1.15,
         'text-allow-overlap': false,
         'text-ignore-placement': false,
@@ -4924,7 +4930,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               ['has', 'saledate'],
               ['>=', ['length', ['get', 'saledate']], 10],
             ],
-            ['concat', '\nSale Date: ',
+            ['concat', '\nSold: ',
               ['slice', ['get', 'saledate'], 5, 7], '/',
               ['slice', ['get', 'saledate'], 8, 10], '/',
               ['slice', ['get', 'saledate'], 0, 4],
