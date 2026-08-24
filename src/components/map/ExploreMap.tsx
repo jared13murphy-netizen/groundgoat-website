@@ -4943,16 +4943,23 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         // DOWNWARD, so anything placed above the anchor is unaffected by how
         // many lines this label happens to have (owner names wrap to two
         // lines often enough that the height is not fixed).
-        'text-anchor': 'top',
-        'text-offset': [0, 0.85],
+        // Anchored 'bottom', so the block's BOTTOM EDGE is pinned and it grows
+        // UPWARD as the owner name wraps.
+        //
+        // This is what lets $/Acre be the last line every time. Top-anchoring
+        // pins the top and lets the bottom float with the line count, so no
+        // fixed offset below it can be "the bottom line" — it landed in a gap
+        // on short names and on top of the sale date on wrapped ones. Forcing
+        // one line with text-max-width 24 fixed the height but made long names
+        // far too wide (owner, 2026-08-24), so max-width is back to 9 and the
+        // block is pinned from the bottom instead.
+        //
+        // -1.9 em keeps the whole block clear of the sale dot, which is drawn
+        // at the anchor point itself.
+        'text-anchor': 'bottom',
+        'text-offset': [0, -1.9],
         'text-justify': 'center',
-        // 24, not 9. The owner name used to wrap to two or three lines, which
-        // made this block's HEIGHT vary parcel by parcel — and that is exactly
-        // what stopped $/Acre from sitting reliably at the bottom of it. With no
-        // wrap, a parcel that has a sale is ALWAYS three lines (owner / acres /
-        // sale date), so the line below lands in the same place every time. Long
-        // names render wider now instead of taller.
-        'text-max-width': 24,
+        'text-max-width': 9,
         'text-line-height': 1.15,
         // Regrid labels MUST NOT overlap each other — at low zoom
         // the map otherwise turns into a wall of white text. With
@@ -5826,17 +5833,15 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     //        Sale Date: 07/12/2021
     //        $/Acre: $9,865         <- this layer
     //
-    // The arithmetic: LABEL_LAYER anchors 'top' at 0.85 em and runs three
-    // lines at line-height 1.15, so it ends at 0.85 + 3 x 1.15 = 4.30 em.
-    // Anchoring here at exactly 4.30 continues it with no gap and no overlap.
+    // It works for ANY number of lines, which is the whole point. LABEL_LAYER
+    // is anchored 'bottom' at -1.9 em, so its bottom edge is pinned there and
+    // it grows upward as the owner name wraps. This layer anchors 'top' at
+    // that same -1.9 em, so its top edge starts exactly where the block ends —
+    // immediately under the last line, whatever that line happens to be.
     //
-    // That depends on the block being exactly three lines, which is why
-    // LABEL_LAYER's text-max-width went from 9 to 24 in the same change. At 9
-    // the owner name wrapped on plenty of parcels, the block's height varied,
-    // and NO fixed offset could be the bottom line — earlier attempts landed
-    // in a gap on some parcels and on the sale date on others. Three lines is
-    // guaranteed rather than assumed: this layer only draws when there is a
-    // sale price, and a sale price always carries the sale date.
+    // Every earlier attempt tied this to the block's TOP and assumed a height:
+    // 1.9 em, then 4.30 em with wrapping disabled. Both are guesses about how
+    // long an owner's name is. Pinning the bottom removes the guess.
     //
     // Typography matches LABEL_LAYER exactly — same size ramp, font, colour,
     // halo, justify, max-width — so it reads as one group and stays aligned
@@ -5879,9 +5884,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           // stops lining up as the zoom changes.
           'text-size': ['interpolate', ['linear'], ['zoom'], 14, 10, 16, 12, 18, 14],
           'text-anchor': 'top',
-          'text-offset': [0, 4.30],
+          'text-offset': [0, -1.9],
           'text-justify': 'center',
-          'text-max-width': 24,
+          'text-max-width': 9,
           'text-line-height': 1.15,
           'text-allow-overlap': true,
           'text-ignore-placement': false,
