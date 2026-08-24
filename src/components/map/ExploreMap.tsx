@@ -4904,7 +4904,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           //
           // ($/Acre itself now draws from our own durable-dot layer, which
           // carries the allocated deed price rather than Regrid's whole-deed
-          // saleprice — see DURABLE_DOT_PPA_LAYER.)
+          // saleprice. It is not drawn on the map at all — see the note where
+          // the durable-dot layers are added for why.)
           { 'font-scale': 1.0 },
           // Sale date — custom tile returns ISO datetime; first 10
           // chars are YYYY-MM-DD either way. length >= 10 guard
@@ -5620,7 +5621,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // point, so that layer's existing onClick (below) already fires for
   // clicks on the glyph.
   const DURABLE_DOT_PLUS_LAYER = 'parcel-sale-dots-durable-symbol'
-  const DURABLE_DOT_PPA_LAYER = 'parcel-sale-dots-durable-ppa'
   const DURABLE_DOT_MIN_ZOOM = 9
   const DURABLE_DOT_MIN_ACRES = 10 // owner rule: never show parcel dots under 10 acres
 
@@ -5786,42 +5786,29 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // so sub-10-acre parcels no longer carry a $/Acre label. That is a net
     // win — those produced the worst numbers under the old label (a 0.30 ac
     // parcel in this same dataset rendered $4,608,719/ac).
-    if (!map.getLayer(DURABLE_DOT_PPA_LAYER)) {
-      map.addLayer({
-        id: DURABLE_DOT_PPA_LAYER,
-        type: 'symbol',
-        source: DURABLE_DOT_SOURCE,
-        minzoom: PARCEL_PPA_LABEL_MIN_ZOOM,
-        filter: ['all',
-          ['>', ['to-number', ['coalesce', ['get', 'parcel_sale_price'], ['get', 'saleprice'], 0]], 0],
-          ['>', ['to-number', ['coalesce', ['get', 'acres'], 0]], 0],
-        ],
-        layout: {
-          'text-field': ['concat', '$/Acre: $',
-            ['number-format',
-              ['round', ['/',
-                ['to-number', ['coalesce', ['get', 'parcel_sale_price'], ['get', 'saleprice']]],
-                ['to-number', ['get', 'acres']],
-              ]],
-              { 'locale': 'en-US', 'min-fraction-digits': 0, 'max-fraction-digits': 0 },
-            ],
-          ],
-          'text-font': ['Open Sans Regular'],
-          'text-size': ['interpolate', ['linear'], ['zoom'], 14, 11, 16, 12, 18, 13],
-          'text-anchor': 'top',
-          // Continues the Regrid parcel label's block as a further line
-          // rather than fighting it for the space directly under the dot.
-          'text-offset': [0, 1.6],
-          'text-allow-overlap': true,
-          'text-ignore-placement': false,
-        },
-        paint: {
-          'text-color': '#ffffff',
-          'text-halo-color': 'rgba(0,0,0,0.85)',
-          'text-halo-width': 1.4,
-        },
-      })
-    }
+    // $/Acre IS NOT DRAWN ON THE MAP. Deliberately, after trying it.
+    //
+    // The price itself was wrong until 2026-08-22 — it came from Regrid's
+    // tile, whose `saleprice` is the whole-deed figure repeated on every
+    // parcel of a multi-parcel sale. Fixing that meant sourcing it from our
+    // own durable-dot layer, which carries each parcel's allocated share.
+    //
+    // But the two layers do not share an anchor. Regrid places the
+    // owner/acres/sale-date block at ITS label point; our dots sit at the
+    // parcel centroid. On a real screen (owner, 2026-08-24) the result was a
+    // "$/Acre: $9,865" floating over one field while the name and acreage it
+    // appeared to belong to labelled the field NEXT DOOR. A right number
+    // attached to the wrong parcel is worse than no number.
+    //
+    // The corrected $/acre is still shown where it is unambiguous: the parcel
+    // detail panel, which reads deriveParcelDetail and is anchored to the
+    // parcel the user actually clicked.
+    //
+    // To put it back on the map, the WHOLE block — owner, acres, sale date,
+    // $/acre — has to come from one source so it shares one anchor. That
+    // means serving owner/acres/saledate from our own data alongside the
+    // price, not mixing Regrid's tile with ours. Worth doing; not a
+    // one-line change.
     if (isFirstMount) {
       let activePopup: maplibregl.Popup | null = null
       const onClick = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
