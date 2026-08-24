@@ -5809,11 +5809,18 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // line-height 1.15 span ±1.7 em from the centre, so 1.9 em puts this
     // immediately under "Sale Date" with no gap and no overlap.
     //
-    // text-allow-overlap stays FALSE to match LABEL_LAYER: when Regrid's
-    // label is dropped for collision, this must drop with it, or the price
-    // is left floating alone over a field with no name attached to it. That
-    // is exactly how it looked when this was first shipped as an independent
-    // label (owner: "the $/ac is in a weird place").
+    // text-allow-overlap MUST BE TRUE. Setting it false to "match
+    // LABEL_LAYER" meant this line lost the collision against the very label
+    // it is meant to join — LABEL_LAYER reserves its own footprint with
+    // text-ignore-placement:false, and a 4th line placed 1.9 em into that
+    // footprint is dropped every single time. Verified on the live map: the
+    // price never appeared once.
+    //
+    // Overlap is safe here precisely BECAUSE this is positioned as part of
+    // that block: it occupies the gap directly under "Sale Date" that the
+    // parent already owns, so there is nothing else for it to collide with.
+    // text-ignore-placement stays false so OTHER labels still route around
+    // it.
     if (!map.getLayer(DURABLE_DOT_PPA_LAYER)) {
       map.addLayer({
         id: DURABLE_DOT_PPA_LAYER,
@@ -5843,7 +5850,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           'text-justify': 'center',
           'text-max-width': 9,
           'text-line-height': 1.15,
-          'text-allow-overlap': false,
+          'text-allow-overlap': true,
           'text-ignore-placement': false,
           'text-padding': 4,
         },
