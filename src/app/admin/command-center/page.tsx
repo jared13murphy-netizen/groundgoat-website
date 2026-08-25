@@ -225,17 +225,17 @@ function People({ d }: { d: any }) {
           Signed up, never subscribed &nbsp;·&nbsp; {num(d.never_subscribed_new_30d)} of them in the last 30 days
         </div>
       </div>
-      <div className="rows">
-        {recent.slice(0, 5).map((u: any) => (
+      <div className="rows" style={{ flex: '1 1 auto', overflow: 'hidden' }}>
+        {recent.slice(0, 3).map((u: any) => (
           <div className="row" key={u.email}>
             <span className="l">{u.name || u.email}</span>
             <span className="r" style={{ color: 'var(--muted)' }}>{u.state || '—'} · {ago(u.signed_up)}</span>
           </div>
         ))}
-        <More total={recent.length} shown={5} />
+        <More total={recent.length} shown={3} />
       </div>
       {/* Says out loud what this number is not, so it can't be over-read. */}
-      <div className="note" style={{ marginTop: 'auto' }}>{d.funnel_caveat}</div>
+      <div className="note" style={{ flex: 'none' }}>{d.funnel_caveat}</div>
     </>
   )
 }
@@ -243,24 +243,39 @@ function People({ d }: { d: any }) {
 function Regrid({ d }: { d: any }) {
   const pc = d.records_used_pct || 0
   const tone: Tone = pc >= 90 ? 'red' : pc >= 75 ? 'amber' : 'green'
+  // A cache rate of null means "nothing measured yet", which is different
+  // from 0% and must never be shown as 0%.
+  const rate = (v: number | null | undefined) =>
+    v === null || v === undefined ? <span className="dim">not yet</span> : `${num(v, 1)}%`
   return (
     <>
-      <Kpi v={`${num(pc, 1)}%`} k="Of this year's parcel allowance" tone={tone === 'green' ? '' : tone} />
+      <Kpi v={`${num(pc, 1)}%`} k={`Of this year's parcel allowance · per ${d.records_source}`}
+        tone={tone === 'green' ? '' : tone} />
       <div className="bar"><i className={tone} style={{ width: `${Math.min(100, pc)}%` }} /></div>
       <div className="rows">
         <Row label="Used" value={num(d.records_this_year)} />
         <Row label="Allowed" value={num(d.records_allowance)} />
         <Row label="Days into the year" value={num(d.days_into_year)} />
-        <Row label="Saved by our cache" value={`${num(d.cache_hit_pct, 1)}%`} />
-        <Row label="Map tiles today" value={num(d.tiles_24h)} />
       </div>
-      <div className="note" style={{ marginTop: 'auto' }}>Contract year started {d.contract_year_start}.</div>
+      <div className="rows" style={{ borderTop: '1px solid var(--line)', paddingTop: 7 }}>
+        <Row label="Parcel lookups today" value={num(d.parcel_lookups_24h)} />
+        <Row label="Saved by our cache" value={rate(d.parcel_cache_pct)} />
+        <Row label="Map tiles today" value={num(d.tiles_24h)} />
+        <Row label="Tiles saved by our cache" value={rate(d.tile_cache_pct)} />
+      </div>
+      <div className="note" style={{ marginTop: 'auto' }}>
+        Contract year started {d.contract_year_start}.
+        {d.our_records_this_year !== d.records_this_year && (
+          <> We counted {num(d.our_records_this_year)} ourselves.</>
+        )}
+        {' '}Cache counting started {d.counting_since}.
+      </div>
     </>
   )
 }
 
 function Erroring({ d }: { d: any[] }) {
-  if (!d.length) return <div className="dead" style={{ color: 'var(--green)' }}>Nothing is erroring</div>
+  if (!d.length) return <div className="allgood">Nothing is erroring</div>
   return (
     <>
       <table>
@@ -342,24 +357,42 @@ function Jobs({ d }: { d: any }) {
 }
 
 function Crashes({ d }: { d: any }) {
+  const affected: any[] = d.affected || []
   return (
     <>
       <div className="kpis" style={{ gridTemplateColumns: 'repeat(3,1fr)' }}>
-        <Kpi v={num(d.last_hour)} k="Last hour" tone={d.last_hour >= 10 ? 'red' : d.last_hour >= 3 ? 'amber' : ''} />
+        <Kpi v={num(d.last_hour)} k="Last hour" tone={d.last_hour ? 'red' : ''} />
         <Kpi small v={num(d.last_24h)} k="Today" />
-        <Kpi small v={num(d.users_affected_24h)} k="People hit" />
+        <Kpi small v={num(d.users_affected_24h)} k="People hit today"
+          tone={d.users_affected_24h ? 'red' : ''} />
       </div>
-      {(d.worst || []).length > 0 && (
-        <div className="rows" style={{ borderTop: '1px solid var(--line)', paddingTop: 7 }}>
-          {(d.worst || []).slice(0, 3).map((w: any, i: number) => (
-            <div className="row" key={i}>
-              <span className="l">{w.message || w.signature}</span>
-              <span className="r" style={w.hits >= 5 ? { color: 'var(--red)' } : undefined}>{num(w.hits)}</span>
-            </div>
-          ))}
-        </div>
-      )}
-      <div className="note" style={{ marginTop: 'auto' }}>Crashes reported by the phone app in the last day.</div>
+      {affected.length === 0
+        ? <div className="allgood">Nobody has hit a crash today</div>
+        : (
+          <div className="rows" style={{ borderTop: '1px solid var(--line)', paddingTop: 7,
+                                         flex: '1 1 auto', overflow: 'hidden' }}>
+            {affected.slice(0, 7).map((a, i) => (
+              <div key={a.user_id || `anon-${i}`} style={{ display: 'grid', gap: 1 }}>
+                <div className="row">
+                  <span className="l" style={{ fontWeight: 600 }}>
+                    {a.name || a.email || 'Signed-out user'}
+                  </span>
+                  <span className="r" style={a.fatal ? { color: 'var(--red)' } : undefined}>
+                    {num(a.crashes)}× · {ago(a.last_seen)} ago
+                  </span>
+                </div>
+                <div className="note" style={{
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                }}>
+                  {[a.email && a.name ? a.email : null, a.screen, a.platform,
+                    a.app_version && `v${a.app_version}`, a.error]
+                    .filter(Boolean).join(' · ')}
+                </div>
+              </div>
+            ))}
+            <More total={affected.length} shown={7} />
+          </div>
+        )}
     </>
   )
 }
@@ -367,7 +400,8 @@ function Crashes({ d }: { d: any }) {
 function Storage({ d, trend }: { d: any; trend: any }) {
   return (
     <>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minHeight: 0 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6,
+                    minHeight: 0, flex: '1 1 auto', overflow: 'hidden' }}>
         {(d.stores || []).map((s: any) => {
           const pc = s.pct_of_cap
           const capped = pc !== null && pc !== undefined
@@ -390,7 +424,7 @@ function Storage({ d, trend }: { d: any; trend: any }) {
         })}
       </div>
       {trend && (
-        <div style={{ borderTop: '1px solid var(--line)', paddingTop: 8, marginTop: 'auto' }}>
+        <div style={{ borderTop: '1px solid var(--line)', paddingTop: 8, flex: 'none' }}>
           <Row label="Main database is growing" value={`${num(trend.growth_gb_per_day, 2)} GB a day`} />
           {trend.days_to_cap !== null && trend.days_to_cap !== undefined && (
             <Row label="Full in" value={`about ${num(trend.days_to_cap)} days`}
@@ -682,10 +716,10 @@ export default function CommandCenterPage() {
           </div>
           <a className="back" href="/admin/dashboard">&larr; Admin</a>
           <div className="rail-spacer" />
-          <div className="stat">
-            <span className={`dot ${connected ? 'live' : 'off'}`} />
+          <span className={`pill ${connected ? '' : 'off'}`}>
+            <span className="dot" />
             {connected ? 'Live' : 'Reconnecting'}
-          </div>
+          </span>
           <div className="stat">
             Numbers from <b>{snap.generated_at ? ago(snap.generated_at) : '—'}</b> ago
           </div>
@@ -705,8 +739,9 @@ export default function CommandCenterPage() {
             {moneyD ? <Money d={moneyD} /> : <Unavailable why={whyMissing('money')} />}
           </Panel>
 
-          <Panel span={3} title="People" pip={peopleD ? 'green' : undefined}>
-            {peopleD ? <People d={peopleD} /> : <Unavailable why={whyMissing('people')} />}
+          <Panel span={3} title="App crashes"
+            pip={!crashD ? undefined : crashD.last_hour ? 'red' : crashD.last_24h ? 'amber' : 'green'}>
+            {crashD ? <Crashes d={crashD} /> : <Unavailable why={whyMissing('crashes')} />}
           </Panel>
 
           <Panel span={2} title="Regrid budget"
@@ -728,9 +763,8 @@ export default function CommandCenterPage() {
             {jobsD ? <Jobs d={jobsD} /> : <Unavailable why={whyMissing('jobs')} />}
           </Panel>
 
-          <Panel span={3} title="App crashes"
-            pip={!crashD ? undefined : crashD.last_hour >= 10 ? 'red' : crashD.last_hour >= 3 ? 'amber' : 'green'}>
-            {crashD ? <Crashes d={crashD} /> : <Unavailable why={whyMissing('crashes')} />}
+          <Panel span={3} title="People" pip={peopleD ? 'green' : undefined}>
+            {peopleD ? <People d={peopleD} /> : <Unavailable why={whyMissing('people')} />}
           </Panel>
 
           <Panel span={4} title="Storage" tag="share of the ceiling"
@@ -786,7 +820,8 @@ const CSS = `
      lifting here and the border is only a hairline. */
   --page:linear-gradient(180deg,#FFFFFF 0%,#FBFBFC 20%,#EFEFF3 60%,#DDDDE4 100%);
   --card:#FFFFFF;
-  --card-2:#FDF4FA;         /* panel title bars, tinted with the brand pink */
+  --card-2:#F58CDE;         /* panel title bars — the brand pink itself */
+  --track:#EAEAEE;          /* unfilled part of a progress bar */
   --ink:#0A0A0A;            /* gg-black */
   --ink-2:#2A2A2A;          /* gg-gray-700 */
   --muted:#555555;          /* gg-gray-500 */
@@ -801,6 +836,8 @@ const CSS = `
   /* The highlight. Deliberately used twice on the whole screen — the
      traffic line and the live dot — so it stays a highlight. */
   --blue:#2E6BE6;
+  --blue-pill:#DCE9FF; --blue-pill-hi:#B4D0FF; --blue-pill-line:#A9C6F5;
+  --blue-ink:#12459E;
 
   /* State colours, kept apart from the brand on purpose: if something on
      this screen is red, something is actually wrong. */
@@ -834,11 +871,11 @@ body:has(.shell){overflow:hidden;}
 .booting{display:flex;align-items:center;justify-content:center;height:100dvh;
   color:var(--muted);font-family:var(--label);letter-spacing:.06em;text-transform:uppercase;}
 .dot.off{background:var(--amber);}
-.stat.stale{color:var(--red);font-weight:600;}
+.stat.stale{color:#5E0A16;font-weight:700;}
 .back{font-family:var(--label);font-size:11px;letter-spacing:.07em;text-transform:uppercase;
-  color:var(--muted);text-decoration:none;border:1px solid var(--line-2);border-radius:var(--r);
-  padding:3px 9px;background:var(--card);}
-.back:hover{color:var(--ink);border-color:var(--faint);}
+  color:var(--ink);text-decoration:none;border:1px solid rgba(10,10,10,.18);border-radius:var(--r);
+  padding:3px 9px;background:rgba(255,255,255,.72);}
+.back:hover{background:#fff;border-color:rgba(10,10,10,.34);}
 .back:focus-visible{outline:2px solid var(--pink);outline-offset:2px;}
 .num{font-family:var(--mono);font-variant-numeric:tabular-nums;font-feature-settings:"tnum";}
 
@@ -849,28 +886,52 @@ body:has(.shell){overflow:hidden;}
      cost it the two things it was asked for, the full width and the
      absence of scrolling. The Admin link in the rail is the way back. */
   position:fixed;inset:0;z-index:60;
-  display:grid;grid-template-rows:auto auto minmax(0,1fr);gap:9px;padding:9px;
+  display:grid;grid-template-rows:auto auto minmax(0,1fr);gap:9px;padding:0;
 }
 
 /* ── Header rail ── */
-.rail{display:flex;align-items:center;gap:14px;padding:0 4px 7px;
-  border-bottom:2px solid var(--pink-bright);}
+.rail{display:flex;align-items:center;gap:14px;
+  /* Runs edge to edge: no radius, no margin, and the shell below carries
+     the page inset instead of wrapping this bar in it. */
+  padding:9px 16px;border-radius:0;
+  background:var(--pink-bright);box-shadow:var(--lift);
+  position:relative;z-index:2;}
 .mark{display:flex;align-items:baseline;gap:9px;}
 .mark h1{
   font-family:var(--sans);font-weight:700;font-size:18px;letter-spacing:.055em;
   margin:0;text-transform:uppercase;color:var(--ink);
 }
-.mark h1 em{font-style:normal;font-weight:500;color:var(--pink);}
-.mark .sub{font-family:var(--label);font-size:12px;color:var(--pink);font-weight:600;
-  letter-spacing:.08em;text-transform:uppercase;}
+.mark h1 em{font-style:normal;font-weight:500;color:rgba(10,10,10,.62);}
+.mark .sub{font-family:var(--label);font-size:11px;color:rgba(10,10,10,.55);font-weight:600;
+  letter-spacing:.09em;text-transform:uppercase;}
 .rail-spacer{flex:1;}
-.stat{display:flex;align-items:center;gap:6px;font-family:var(--label);font-size:12px;
-      letter-spacing:.05em;text-transform:uppercase;color:var(--muted);}
-.stat b{font-family:var(--mono);font-weight:500;color:var(--ink-2);letter-spacing:0;text-transform:none;}
-.dot{width:7px;height:7px;border-radius:50%;background:var(--blue);flex:none;}
-.dot.live{animation:beat 2.4s ease-in-out infinite;}
-@keyframes beat{0%,100%{opacity:1;}50%{opacity:.32;}}
-.clock{font-family:var(--mono);font-size:15px;font-weight:500;letter-spacing:-.01em;}
+.stat{display:flex;align-items:center;gap:6px;font-family:var(--label);font-size:11.5px;
+      letter-spacing:.05em;text-transform:uppercase;color:rgba(10,10,10,.66);}
+.stat b{font-family:var(--mono);font-weight:600;color:var(--ink);letter-spacing:0;text-transform:none;}
+/* The live indicator. A pill rather than a dot so it reads at a glance
+   from across the room, and the background pulses so a frozen page is
+   obvious: if this stops moving, the numbers have stopped too. */
+.pill{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:3px 11px;border-radius:999px;
+  font-family:var(--label);font-size:11px;font-weight:700;
+  letter-spacing:.12em;text-transform:uppercase;
+  background:var(--blue-pill);color:var(--blue-ink);
+  border:1px solid var(--blue-pill-line);
+  animation:livepulse 2.2s ease-in-out infinite;
+}
+.pill .dot{width:6px;height:6px;border-radius:50%;background:var(--blue-ink);flex:none;}
+.pill.off{
+  background:var(--amber-bg);color:var(--amber);border-color:var(--amber-line);
+  animation:none;
+}
+.pill.off .dot{background:var(--amber);}
+@keyframes livepulse{
+  0%,100%{background:var(--blue-pill);}
+  50%    {background:var(--blue-pill-hi);}
+}
+@media (prefers-reduced-motion:reduce){.pill{animation:none;}}
+.clock{font-family:var(--mono);font-size:15px;font-weight:600;letter-spacing:-.01em;color:var(--ink);}
 .seg{display:flex;border:1px solid var(--line-2);border-radius:var(--r);overflow:hidden;}
 .seg button{
   font-family:var(--label);font-size:11px;letter-spacing:.06em;text-transform:uppercase;
@@ -883,6 +944,7 @@ body:has(.shell){overflow:hidden;}
 /* ── Alert strip: the one thing that must be impossible to miss ── */
 .alerts{
   display:grid;grid-template-columns:auto minmax(0,1fr);gap:9px;align-items:stretch;
+  padding:0 9px;
 }
 .verdict{
   display:flex;flex-direction:column;justify-content:center;gap:1px;
@@ -924,7 +986,7 @@ body:has(.shell){overflow:hidden;}
   box-shadow:var(--lift-hi);}
 
 /* ── Panel field ── */
-.field{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));
+.field{display:grid;padding:0 9px 9px;grid-template-columns:repeat(12,minmax(0,1fr));
   grid-template-rows:minmax(0,1.12fr) minmax(0,.64fr) minmax(0,1.24fr);gap:9px;min-height:0;}
 .panel{
   min-height:0;display:flex;flex-direction:column;overflow:hidden;
@@ -933,16 +995,22 @@ body:has(.shell){overflow:hidden;}
 }
 .panel > h2{
   flex:none;margin:0;display:flex;align-items:center;gap:7px;
-  padding:6px 11px;border-bottom:1px solid var(--line);background:var(--card-2);
+  padding:6px 11px;border-bottom:1px solid rgba(10,10,10,.10);background:var(--card-2);
   font-family:var(--label);font-weight:700;font-size:11px;
-  letter-spacing:.085em;text-transform:uppercase;color:var(--ink-2);
+  letter-spacing:.085em;text-transform:uppercase;color:var(--ink);
 }
-.panel > h2 .tag{margin-left:auto;font-size:10px;letter-spacing:.06em;color:var(--faint);font-weight:500;}
-.panel > h2 .pip{width:6px;height:6px;border-radius:50%;background:var(--pink-bright);flex:none;}
+.panel > h2 .tag{margin-left:auto;font-size:10px;letter-spacing:.06em;
+  color:rgba(10,10,10,.58);font-weight:600;}
+.panel > h2 .pip{width:7px;height:7px;border-radius:50%;background:rgba(10,10,10,.3);
+  flex:none;box-shadow:0 0 0 1.5px rgba(255,255,255,.8);}
 .panel > h2 .pip.red{background:var(--red);} .panel > h2 .pip.amber{background:var(--amber);}
 .panel > h2 .pip.green{background:var(--green);}
 .body{min-height:0;flex:1;overflow:hidden;padding:9px 11px;display:flex;flex-direction:column;gap:8px;}
 .dead{display:flex;align-items:center;justify-content:center;height:100%;color:var(--faint);
+  font-family:var(--label);letter-spacing:.06em;text-transform:uppercase;font-size:11.5px;text-align:center;}
+/* "Nothing is wrong" is not "this panel is broken". Separate class so the
+   two can never be mistaken for each other. */
+.allgood{display:flex;align-items:center;justify-content:center;height:100%;color:var(--green);
   font-family:var(--label);letter-spacing:.06em;text-transform:uppercase;font-size:11.5px;text-align:center;}
 
 /* ── Shared bits ── */
@@ -971,7 +1039,7 @@ td.red,.red-t{color:var(--red);} td.amber{color:var(--amber);} td.dim{color:var(
 .row .r{margin-left:auto;font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap;}
 .more{font-family:var(--label);font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--faint);}
 
-.bar{height:7px;border-radius:3px;background:var(--card-2);overflow:hidden;border:1px solid var(--line);}
+.bar{height:7px;border-radius:3px;background:var(--track);overflow:hidden;border:1px solid var(--line);}
 .bar i{display:block;height:100%;background:var(--blue);}
 .bar i.red{background:var(--red);} .bar i.amber{background:var(--amber);} .bar i.green{background:var(--green);}
 .store{display:grid;gap:2px;}
