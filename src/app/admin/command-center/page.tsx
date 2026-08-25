@@ -225,13 +225,62 @@ function Money({ d }: { d: any }) {
             ))}
         </tbody>
       </table>
-      <div className="rows" style={{ marginTop: 'auto' }}>
+      <div className="rows">
         <Row label="Firms paying" value={`${num(d.paying_firms)} · ${num(d.firm_seats)} seats`} />
         <Row label="Renewing in 30 days" value={`${num(d.renewing_30d)} · ${money(d.renewing_30d_value)}`} />
-        <Row label="On a free trial" value={num(d.trialing + (d.firms_trialing || 0))} />
         <Row label="Payment failed" value={num(d.past_due_people)} tone={d.past_due_people ? 'red' : ''} />
+      </div>
+
+      {/* Trials are money that has not arrived yet. While a subscription is
+          trialing, its period end IS the trial end, so "ending" means "about
+          to charge". */}
+      {d.trials && (
+        <div className="rows" style={{ borderTop: '1px solid var(--line)', paddingTop: 7 }}>
+          <div className="more" style={{ marginBottom: 2 }}>Trials becoming paid</div>
+          <Row label="On a free trial"
+            value={`${num(d.trials.total)} · ${money(d.trials.value_all)} if all convert`} />
+          <Row label="Charging within 7 days" value={num(d.trials.ending_7d)}
+            tone={d.trials.ending_7d ? 'green' : ''} />
+          <Row label="Charging within 30 days"
+            value={`${num(d.trials.ending_30d)} · ${money(d.trials.value_30d)}`} />
+          {(d.trials.soon || []).slice(0, 3).map((t: any) => (
+            <div className="row" key={t.email}>
+              <span className="l clamp1" style={{ color: 'var(--muted)' }}>{t.name}</span>
+              <span className="r dim" style={{ color: 'var(--muted)' }}>
+                {t.ends ? new Date(t.ends).toLocaleDateString('en-US',
+                  { month: 'short', day: 'numeric' }) : '—'} · {money(t.worth)}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {d.churn && (
+        <div className="rows" style={{ borderTop: '1px solid var(--line)', paddingTop: 7 }}>
+          <div className="more" style={{ marginBottom: 2 }}>Cancellations</div>
+          <Row label="Cancelled in 30 days" value={num(d.churn.cancelled_30d)}
+            tone={d.churn.cancelled_30d ? 'red' : ''} />
+          <Row label="Cancelled in 90 days"
+            value={`${num(d.churn.cancelled_90d)} · ${money(d.churn.lost_90d)} lost`}
+            tone={d.churn.cancelled_90d ? 'amber' : ''} />
+          <Row label="Trials that went on to pay"
+            value={`${num(d.churn.conversion_pct, 0)}% · ${num(d.churn.converted)} of ${num(d.churn.converted + d.churn.lapsed)}`}
+            tone={d.churn.conversion_pct < 50 ? 'red' : ''} />
+          {(d.churn.who || []).slice(0, 3).map((w: any, i: number) => (
+            <div className="row" key={`${w.email}-${i}`}>
+              <span className="l clamp1" style={{ color: 'var(--muted)' }}>{w.name}</span>
+              <span className="r dim" style={{ color: 'var(--muted)' }}>
+                {w.tier?.replace(/_/g, ' ')} · {ago(w.when)} ago
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="rows" style={{ borderTop: '1px solid var(--line)', paddingTop: 7 }}>
         <Row label="Started minus cancelled, 30 days"
-          value={`${d.net_30d >= 0 ? '+' : ''}${num(d.net_30d)}`} />
+          value={`${d.net_30d >= 0 ? '+' : ''}${num(d.net_30d)}`}
+          tone={d.net_30d < 0 ? 'red' : ''} />
       </div>
       <div className="note">{d.revenue_caveat}</div>
     </>
@@ -639,9 +688,9 @@ const CARD_INFO: Record<string, CardInfo> = {
     caveat: '"People on now" is a true rolling five minutes, from a Redis set the request middleware keeps — not an hourly bucket. If Redis is unavailable it falls back to the clock hour and the label says so. Failed requests exclude 401 and 403 — an expired token is not a fault.',
   },
   money: {
-    covers: 'Annual value of every live subscription. A firm counts once, at its admin\u2019s row.',
+    covers: 'Annual value of every live subscription, plus trials about to charge and who has cancelled. A firm counts once, at its admin\u2019s row.',
     source: 'user_subscriptions. When billing_cycle is annual, monthly_price already holds the annual figure — for Stripe plans, Apple IAP, and firms alike.',
-    caveat: 'Trials are shown separately and are not in the total. Past-due subscriptions are still counted: the money is in dunning, not lost.',
+    caveat: 'Trials are shown separately and are not in the total — while a subscription is trialing its period end IS the trial end, so "charging within 7 days" means it is about to bill. Past-due subscriptions are still counted: that money is in dunning, not lost. Cancellations are ones that have already happened; there is no cancel-at-renewal flag stored, so a subscription set to lapse at its next renewal still looks live until it does.',
   },
   people: {
     covers: 'Accounts, who actually used the product, and who never subscribed.',
