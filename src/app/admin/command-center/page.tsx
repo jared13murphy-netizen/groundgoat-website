@@ -56,6 +56,8 @@ type Snapshot = {
   message?: string
 }
 
+const CHART_TITLES: Record<string, string> = {"pulse": "Right now", "money": "Money", "crashes": "App crashes", "regrid": "Regrid budget", "failing_endpoints": "What is erroring", "people": "People", "storage": "Storage", "pipeline": "Scraper & staging"}
+
 const EMPTY: Snapshot = { ready: false, generated_at: null, revision: 0, alerts: [], panels: {} }
 
 /* ── Formatting. Every number on this screen goes through one of these ── */
@@ -82,8 +84,9 @@ function ago(iso: string | null | undefined): string {
 
 type Tone = 'red' | 'amber' | 'green' | ''
 
-function Panel({ span, title, tag, pip, children }: {
-  span: number; title: string; tag?: string; pip?: Tone; children: React.ReactNode
+function Panel({ span, title, tag, pip, onChart, children }: {
+  span: number; title: string; tag?: string; pip?: Tone
+  onChart?: () => void; children: React.ReactNode
 }) {
   return (
     <section className="panel" style={{ gridColumn: `span ${span}` }}>
@@ -91,6 +94,14 @@ function Panel({ span, title, tag, pip, children }: {
         {pip ? <span className={`pip ${pip}`} /> : null}
         {title}
         {tag ? <span className="tag">{tag}</span> : null}
+        {/* Only shown where a trend actually exists, so the icon never
+            promises history a card does not have. */}
+        {onChart && (
+          <button type="button" className="chartbtn" onClick={onChart}
+            title={`${title} over time`} aria-label={`${title} over time`}>
+            <ChartIcon />
+          </button>
+        )}
       </h2>
       <div className="body">{children}</div>
     </section>
@@ -232,14 +243,14 @@ function People({ d }: { d: any }) {
           Signed up, never subscribed &nbsp;·&nbsp; {num(d.never_subscribed_new_30d)} of them in the last 30 days
         </div>
       </div>
-      <div className="rows" style={{ flex: '1 1 auto', overflow: 'hidden' }}>
-        {recent.slice(0, 3).map((u: any) => (
+      <div className="rows" style={{ flex: '1 1 auto', overflow: 'hidden', minHeight: 0 }}>
+        {recent.slice(0, 2).map((u: any) => (
           <div className="row" key={u.email}>
             <span className="l">{u.name || u.email}</span>
             <span className="r" style={{ color: 'var(--muted)' }}>{u.state || '—'} · {ago(u.signed_up)}</span>
           </div>
         ))}
-        <More total={recent.length} shown={3} />
+        <More total={recent.length} shown={2} />
       </div>
       {/* Says out loud what this number is not, so it can't be over-read. */}
       <div className="note" style={{ flex: 'none' }}>{d.funnel_caveat}</div>
@@ -377,36 +388,43 @@ function Crashes({ d }: { d: any }) {
           of it. The 7-day and all-time figures sit beside it so a drop can
           always be told apart from data going missing. */}
       <div className="rows">
-        <Row label="People hit in 24 hours" value={num(d.users_affected_24h)}
+        <Row label="Signed-in people hit, 24 hours" value={num(d.users_affected_24h)}
           tone={d.users_affected_24h ? 'red' : ''} />
+        <Row label="Crashes with nobody signed in, 24 hours" value={num(d.signed_out_24h)}
+          tone={d.signed_out_24h ? 'amber' : ''} />
         <Row label="Ever recorded"
           value={`${num(d.all_time)} · newest ${d.newest_report ? ago(d.newest_report) + ' ago' : 'none'}`} />
       </div>
+      {/* The list below spans 7 days, not the 24 hours above it — labelled,
+          because mixing the two silently is how a 59-crash row ended up
+          under a headline of 12. */}
+      <div className="more" style={{ marginTop: 2 }}>Who it hit · last 7 days</div>
       {affected.length === 0
         ? <div className="allgood">No crashes in the last 7 days</div>
         : (
           <div className="rows" style={{ borderTop: '1px solid var(--line)', paddingTop: 7,
                                          flex: '1 1 auto', overflow: 'hidden' }}>
-            {affected.slice(0, 7).map((a, i) => (
+            {affected.slice(0, 5).map((a, i) => (
               <div key={a.user_id || `anon-${i}`} style={{ display: 'grid', gap: 1 }}>
                 <div className="row">
-                  <span className="l" style={{ fontWeight: 600 }}>
-                    {a.name || a.email || 'Signed-out user'}
+                  <span className="l clamp1" style={{ fontWeight: 600 }}>
+                    {/* "Nobody signed in" is the honest label: the report
+                        arrived without a user attached. It does NOT mean the
+                        crash signed anyone out. */}
+                    {a.signed_in ? (a.name || a.email) : 'Nobody signed in'}
                   </span>
                   <span className="r" style={a.fatal ? { color: 'var(--red)' } : undefined}>
-                    {num(a.crashes)}× · {ago(a.last_seen)} ago
+                    {num(a.crashes)} crash{a.crashes === 1 ? '' : 'es'} · {ago(a.last_seen)} ago
                   </span>
                 </div>
-                <div className="note" style={{
-                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                }}>
-                  {[a.email && a.name ? a.email : null, a.screen, a.platform,
+                <div className="note clamp2">
+                  {[a.signed_in && a.name ? a.email : null, a.screen, a.platform,
                     a.app_version && `v${a.app_version}`, a.error]
                     .filter(Boolean).join(' · ')}
                 </div>
               </div>
             ))}
-            <More total={affected.length} shown={7} />
+            <More total={affected.length} shown={5} />
           </div>
         )}
     </>
@@ -537,6 +555,7 @@ function Quality({ d }: { d: any }) {
 }
 
 function Reach({ notif, email }: { notif: any; email: any }) {
+  const failing = (notif?.failed_24h || 0) > 0
   return (
     <>
       <div className="kpis" style={{ gridTemplateColumns: '1fr 1fr' }}>
@@ -544,17 +563,237 @@ function Reach({ notif, email }: { notif: any; email: any }) {
         <Kpi small v={num(email?.sent_24h)} k="Emails sent today" />
       </div>
       <div className="rows" style={{ borderTop: '1px solid var(--line)', paddingTop: 7 }}>
-        <Row label="Pushes running late" value={num(notif?.overdue)} tone={notif?.overdue ? 'red' : ''} />
+        <Row label="Pushes in the last hour" value={num(notif?.pushed_1h)} />
+        {/* Every send writes a row; pushed_at is only set when it worked. If
+            these two diverge, sending is broken, and one "sent" number would
+            have hidden that. */}
+        <Row label="Tried but did not send" value={num(notif?.failed_24h)}
+          tone={failing ? 'red' : ''} />
+        <Row label="Last push"
+          value={notif?.last_push ? `${ago(notif.last_push)} ago` : <span className="dim">none yet</span>} />
+        <Row label="Pushes running late" value={num(notif?.overdue)}
+          tone={notif?.overdue ? 'red' : ''} />
         <Row label="Waiting in the queue" value={num(notif?.queued)} />
-        <Row label="Payment-failed emails" value={num(email?.dunning_24h)} tone={email?.dunning_24h ? 'amber' : ''} />
+        <Row label="Payment-failed emails" value={num(email?.dunning_24h)}
+          tone={email?.dunning_24h ? 'amber' : ''} />
       </div>
       {(email?.by_category || []).length > 0 && (
         <div className="rows" style={{ borderTop: '1px solid var(--line)', paddingTop: 7 }}>
-          {(email.by_category || []).slice(0, 4).map((c: any) => (
+          {(email.by_category || []).slice(0, 3).map((c: any) => (
             <Row key={c.category} label={c.category} value={num(c.sent)} />
           ))}
         </div>
       )}
+      <div className="note" style={{ marginTop: 'auto' }}>Refreshes every 15 seconds.</div>
+    </>
+  )
+}
+
+/* ── Trends drawer ─────────────────────────────────────────────────────
+   Opened from the chart button on a card. Shows that card's series over
+   the last fortnight — the shape of the thing, not just today's value. */
+
+const ChartIcon = () => (
+  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6"
+    strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M2 13V3M2 13h12" /><path d="M4.5 10.5l3-3.5 2.5 2 3.5-4.5" />
+  </svg>
+)
+
+/** Line chart with a faint grid and an emphasised last point. */
+function TrendChart({ points, unit }: { points: any[]; unit?: string }) {
+  if (!points || points.length < 2) {
+    return <div className="note" style={{ padding: '18px 0' }}>Not enough history yet.</div>
+  }
+  const W = 600, H = 120, PAD = 4
+  const vals = points.map(p => p.v)
+  const max = Math.max(...vals, 1), min = Math.min(...vals, 0)
+  const span = max - min || 1
+  const x = (i: number) => (i / (points.length - 1)) * W
+  const y = (v: number) => H - PAD - ((v - min) / span) * (H - PAD * 2)
+  const line = points.map((p, i) => `${x(i).toFixed(1)},${y(p.v).toFixed(1)}`).join(' ')
+  const last = points[points.length - 1]
+  return (
+    <svg className="plot" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none"
+      role="img" aria-label={`${points.length} points, latest ${last.v}${unit || ''}`}
+      style={{ width: '100%' }}>
+      {[0.25, 0.5, 0.75].map(f => (
+        <line key={f} x1="0" x2={W} y1={H * f} y2={H * f} stroke="var(--line)" strokeWidth="1"
+          vectorEffect="non-scaling-stroke" />
+      ))}
+      <polyline points={`0,${H} ${line} ${W},${H}`} fill="var(--pink-bright)" opacity=".16" stroke="none" />
+      <polyline points={line} fill="none" stroke="var(--pink)" strokeWidth="2"
+        vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
+      <circle cx={x(points.length - 1)} cy={y(last.v)} r="3" fill="var(--pink)"
+        vectorEffect="non-scaling-stroke" />
+    </svg>
+  )
+}
+
+function TrendsDrawer({ openFor, title, series, onClose }:
+  { openFor: string | null; title: string; series: any[]; onClose: () => void }) {
+  const open = openFor !== null
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open, onClose])
+
+  const day = (iso: string) =>
+    new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+
+  return (
+    <>
+      <div className={`scrim ${open ? 'open' : ''}`} onClick={onClose} aria-hidden="true" />
+      <aside className={`drawer ${open ? 'open' : ''}`} aria-hidden={!open}
+        style={{ width: 'min(760px,74vw)', gridTemplateRows: 'auto minmax(0,1fr)' }}
+        aria-label={`${title} over time`}>
+        <div className="drawer-head">
+          <h2>{title}</h2>
+          <span className="sub">last 14 days</span>
+          <button type="button" className="drawer-close" onClick={onClose}>Close ·  Esc</button>
+        </div>
+        <div className="charts">
+          {(series || []).length === 0
+            ? <div className="note">No history for this card yet.</div>
+            : series.map((sr: any, i: number) => {
+              const pts = sr.points || []
+              const cur = pts.length ? pts[pts.length - 1].v : null
+              // Compare the last three days with the three before them —
+              // steadier than yesterday-versus-today on low-volume series.
+              const tail = pts.slice(-3), prev = pts.slice(-6, -3)
+              const avg = (a: any[]) => a.length ? a.reduce((s, p) => s + p.v, 0) / a.length : null
+              const now = avg(tail), was = avg(prev)
+              const pct = (now !== null && was) ? ((now - was) / was) * 100 : null
+              return (
+                <div className="chartcard" key={i}>
+                  <h4>{sr.label}</h4>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+                    <span className="cur">{cur === null ? '—' : num(cur, sr.unit === 'GB' ? 1 : 0)}</span>
+                    {sr.unit && <span className="note">{sr.unit}</span>}
+                    {pct !== null && Math.abs(pct) >= 1 && (
+                      <span className={`delta ${pct > 0 ? 'up' : 'down'}`}>
+                        {pct > 0 ? '▲' : '▼'} {num(Math.abs(pct), 0)}% vs the three days before
+                      </span>
+                    )}
+                  </div>
+                  <TrendChart points={pts} unit={sr.unit} />
+                  <div className="axis">
+                    <span>{pts.length ? day(pts[0].t) : ''}</span>
+                    <span>{pts.length ? day(pts[pts.length - 1].t) : ''}</span>
+                  </div>
+                </div>
+              )
+            })}
+        </div>
+      </aside>
+    </>
+  )
+}
+
+/* ── DEVELOPERS drawer ─────────────────────────────────────────────────
+   The agent cards and detail pane from mission-control.html, fed by
+   scripts/agent_reporter.py running on the machine where the agents run.
+   Claude Code exposes no API a deployed page can poll, so the reporter
+   pushes; without it this panel says so rather than looking broken. */
+
+function AgentDrawer({ open, onClose, data }: { open: boolean; onClose: () => void; data: any }) {
+  const agents: any[] = data?.agents || []
+  const [picked, setPicked] = useState<string | null>(null)
+
+  // Default to the most recently active agent, and follow it as reports
+  // arrive — but never yank the pane away from one being read.
+  const current = agents.find(a => a.session_id === picked) || agents[0] || null
+
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open, onClose])
+
+  const busy = (a: any) => ['working', 'running', 'active'].includes((a.status || '').toLowerCase())
+
+  return (
+    <>
+      <div className={`scrim ${open ? 'open' : ''}`} onClick={onClose} aria-hidden="true" />
+      <aside className={`drawer ${open ? 'open' : ''}`} aria-hidden={!open}
+        aria-label="Developers — live agent activity">
+        <div className="drawer-head">
+          <h2>Developers</h2>
+          <span className="sub">
+            {data?.available === false ? 'unavailable'
+              : `${num(data?.working)} working of ${num(data?.total)}`}
+          </span>
+          <button type="button" className="drawer-close" onClick={onClose}>Close ·  Esc</button>
+        </div>
+        <div className="drawer-body">
+          <div className="agent-list">
+            {agents.length === 0 ? (
+              <div className="drawer-empty">
+                {data?.note || 'No agent has reported recently.'}
+              </div>
+            ) : agents.map(a => {
+              const last = (a.messages || [])[(a.messages || []).length - 1]
+              return (
+                <button type="button" key={a.session_id}
+                  className={`agent-card ${busy(a) ? 'busy' : ''} ${current?.session_id === a.session_id ? 'on' : ''}`}
+                  onClick={() => setPicked(a.session_id)}>
+                  <div className="top">
+                    <span className="nm">{a.name}</span>
+                    <Chip tone={busy(a) ? 'green' : ''}>{busy(a) ? 'working' : (a.status || 'idle')}</Chip>
+                    <span className="r num" style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--faint)' }}>
+                      {a.tokens ? `${num(a.tokens)} tok` : ''}
+                    </span>
+                  </div>
+                  <div className="meta">
+                    {[a.repo, a.branch, a.model, a.last_active && `${ago(a.last_active)} ago`]
+                      .filter(Boolean).join(' · ')}
+                  </div>
+                  {last?.text && <div className="say">{last.text}</div>}
+                </button>
+              )
+            })}
+          </div>
+
+          <div className="agent-detail">
+            {!current ? (
+              <div className="note">Pick an agent to see what it is doing.</div>
+            ) : (
+              <>
+                <dl>
+                  <dt>Status</dt><dd>{current.status}</dd>
+                  <dt>Model</dt><dd>{current.model || '—'}</dd>
+                  <dt>Repo</dt><dd>{[current.repo, current.branch].filter(Boolean).join(' · ') || '—'}</dd>
+                  <dt>Session</dt><dd>{current.session_id}</dd>
+                  <dt>Started</dt><dd>{current.started_at ? `${ago(current.started_at)} ago` : '—'}</dd>
+                  <dt>Last active</dt><dd>{current.last_active ? `${ago(current.last_active)} ago` : '—'}</dd>
+                  <dt>Tokens</dt><dd>{current.tokens ? num(current.tokens) : '—'}</dd>
+                  <dt>Log file</dt><dd>{current.log_file || '—'}</dd>
+                </dl>
+                {current.assignment && (
+                  <>
+                    <h3>Assignment</h3>
+                    <div className="assign">{current.assignment}</div>
+                  </>
+                )}
+                <h3>Agent messages</h3>
+                <div className="feed">
+                  {(current.messages || []).length === 0
+                    ? <div className="note">Nothing captured yet.</div>
+                    : [...(current.messages || [])].reverse().map((m: any, i: number) => (
+                      <div className="msg" key={i}>
+                        <time>{m.at ? `${ago(m.at)} ago` : ''}</time>
+                        {m.text}
+                      </div>
+                    ))}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </aside>
     </>
   )
 }
@@ -622,6 +861,8 @@ export default function CommandCenterPage() {
      ran. A ref is always current. */
   const connectedRef = useRef(false)
   const [clock, setClock] = useState('')
+  const [devOpen, setDevOpen] = useState(false)
+  const [chartFor, setChartFor] = useState<string | null>(null)
 
   /* Same admin gate as every other /admin page. The backend enforces it
      again on both endpoints — this only avoids showing an empty shell to
@@ -736,6 +977,11 @@ export default function CommandCenterPage() {
   const erroringD = P('failing_endpoints'), slowD = P('slow_endpoints'), jobsD = P('jobs'), crashD = P('crashes')
   const storageD = P('storage'), pipelineD = P('pipeline'), qualityD = P('data_quality')
   const notifD = P('notifications'), emailD = P('email')
+  const agentsD = P('agents')
+  const trendsD = P('trends') || {}
+  /* A chart button appears only where the backend returned a series. */
+  const chart = (key: string) =>
+    (trendsD[key] || []).length ? () => setChartFor(key) : undefined
 
   return (
     <>
@@ -746,6 +992,10 @@ export default function CommandCenterPage() {
             <h1>Ground Goat <em>Command Center</em></h1>
             <span className="sub">Admins only</span>
           </div>
+          <button type="button" className="devbtn" onClick={() => setDevOpen(true)}
+            aria-expanded={devOpen}>
+            Developers{agentsD?.working ? <> · <span className="count">{num(agentsD.working)}</span></> : null}
+          </button>
           <a className="back" href="/admin/dashboard">&larr; Admin</a>
           <div className="rail-spacer" />
           <span className={`pill ${connected ? '' : 'off'}`}>
@@ -762,26 +1012,26 @@ export default function CommandCenterPage() {
         <AlertStrip alerts={snap.alerts || []} />
 
         <main className="field">
-          <Panel span={4} title="Right now" tag="last 24 hours below"
+          <Panel span={4} title="Right now" tag="last 24 hours below" onChart={chart('pulse')}
             pip={!pulse ? undefined : pulse.error_rate_hour_pct >= 5 ? 'red' : pulse.error_rate_hour_pct >= 2 ? 'amber' : 'green'}>
             {pulse ? <RightNow d={pulse} series={P('traffic_series')} /> : <Unavailable why={whyMissing('pulse')} />}
           </Panel>
 
-          <Panel span={3} title="Money" tag="per year" pip={!moneyD ? undefined : moneyD.past_due_people ? 'amber' : 'green'}>
+          <Panel span={3} title="Money" tag="per year" onChart={chart('money')} pip={!moneyD ? undefined : moneyD.past_due_people ? 'amber' : 'green'}>
             {moneyD ? <Money d={moneyD} /> : <Unavailable why={whyMissing('money')} />}
           </Panel>
 
-          <Panel span={3} title="App crashes"
+          <Panel span={3} title="App crashes" onChart={chart('crashes')}
             pip={!crashD ? undefined : crashD.last_hour ? 'red' : crashD.last_24h ? 'amber' : 'green'}>
             {crashD ? <Crashes d={crashD} /> : <Unavailable why={whyMissing('crashes')} />}
           </Panel>
 
-          <Panel span={2} title="Regrid budget"
+          <Panel span={2} title="Regrid budget" onChart={chart('regrid')}
             pip={!regridD ? undefined : regridD.records_used_pct >= 90 ? 'red' : regridD.records_used_pct >= 75 ? 'amber' : 'green'}>
             {regridD ? <Regrid d={regridD} /> : <Unavailable why={whyMissing('regrid')} />}
           </Panel>
 
-          <Panel span={3} title="What is erroring" pip={!erroringD ? undefined : erroringD.length ? 'red' : 'green'}>
+          <Panel span={3} title="What is erroring" onChart={chart('failing_endpoints')} pip={!erroringD ? undefined : erroringD.length ? 'red' : 'green'}>
             {erroringD ? <Erroring d={erroringD} /> : <Unavailable why={whyMissing('failing_endpoints')} />}
           </Panel>
 
@@ -795,16 +1045,16 @@ export default function CommandCenterPage() {
             {jobsD ? <Jobs d={jobsD} /> : <Unavailable why={whyMissing('jobs')} />}
           </Panel>
 
-          <Panel span={3} title="People" pip={peopleD ? 'green' : undefined}>
+          <Panel span={3} title="People" onChart={chart('people')} pip={peopleD ? 'green' : undefined}>
             {peopleD ? <People d={peopleD} /> : <Unavailable why={whyMissing('people')} />}
           </Panel>
 
-          <Panel span={4} title="Storage" tag="share of the ceiling"
+          <Panel span={4} title="Storage" tag="share of the ceiling" onChart={chart('storage')}
             pip={!storageD ? undefined : (storageD.stores || []).some((s: any) => (s.pct_of_cap || 0) >= 90) ? 'red' : 'amber'}>
             {storageD ? <Storage d={storageD} trend={P('storage_trend')} /> : <Unavailable why={whyMissing('storage')} />}
           </Panel>
 
-          <Panel span={3} title="Scraper & staging"
+          <Panel span={3} title="Scraper & staging" onChart={chart('pipeline')}
             pip={!pipelineD ? undefined
               : pipelineD.run_failures ? 'red'
               : pipelineD.listings_missing_main_image || pipelineD.tracts_boundary_missing_image ? 'amber' : 'green'}>
@@ -822,6 +1072,10 @@ export default function CommandCenterPage() {
           </Panel>
         </main>
       </div>
+      <AgentDrawer open={devOpen} onClose={() => setDevOpen(false)} data={agentsD} />
+      <TrendsDrawer openFor={chartFor} onClose={() => setChartFor(null)}
+        title={chartFor ? (CHART_TITLES[chartFor] || 'Trend') : ''}
+        series={chartFor ? (trendsD[chartFor] || []) : []} />
     </>
   )
 }
@@ -847,19 +1101,22 @@ const CSS = `
   /* Ground Goat: pink, black and white, with blue as the one highlight.
      The pink and black are the site's own brand values; pink only shifts
      darker where it has to carry text on white. */
-  --paper:#F4F4F7;          /* flat fallback for --page */
+  --paper:#F7F7F8;          /* flat fallback for --page */
   /* White at the top falling to grey at the bottom. The cards nearest the
      top separate on their shadow alone, which is why the shadow does the
      lifting here and the border is only a hairline. */
-  --page:linear-gradient(180deg,#FFFFFF 0%,#FBFBFC 20%,#EFEFF3 60%,#DDDDE4 100%);
+  /* Mission Control sits on a flat near-white, not a gradient — the
+     cards do the separating. */
+  --page:linear-gradient(180deg,#FAFAFB 0%,#F4F4F6 100%);
   --card:#FFFFFF;
-  --card-2:#F58CDE;         /* panel title bars — the brand pink itself */
+  --card-2:#FFFFFF;         /* card headers: white, like Mission Control */
+  --head-line:#ECECEF;      /* the hairline under a card header */
   --track:#EAEAEE;          /* unfilled part of a progress bar */
   --ink:#0A0A0A;            /* gg-black */
   --ink-2:#2A2A2A;          /* gg-gray-700 */
   --muted:#555555;          /* gg-gray-500 */
   --faint:#888888;          /* gg-gray-400 */
-  --line:#E4E4E8; --line-2:#CFCFD5;
+  --line:#E6E6EA; --line-2:#D8D8DE;
 
   /* Brand pink. #f58cde is the site's value and is too light to carry
      text on white, so type and strokes use the dark tone and fills use
@@ -867,7 +1124,8 @@ const CSS = `
   --pink:#B84C97; --pink-bright:#F58CDE; --pink-tint:#F8DAF1;
   /* The top bar. Black, with everything on it in white — the one place
      on this page that inverts, so the panels below read as the content. */
-  --bar:#0A0A0A; --on-bar:#FFFFFF; --on-bar-dim:rgba(255,255,255,.66);
+  --bar:#FFFFFF; --on-bar:#101014; --on-bar-dim:#6B6B74;
+  --bar-line:#E6E6EA; --pill:#F4F4F6; --pill-line:#DDDDE3;
 
   /* The highlight. Deliberately used twice on the whole screen — the
      traffic line and the live dot — so it stays a highlight. */
@@ -881,8 +1139,8 @@ const CSS = `
   --amber:#9A6400; --amber-bg:#FDF4E5; --amber-line:#EBD7A8;
   --green:#2E7D46; --green-bg:#EFF6F1;
   --r:7px;
-  --lift:0 1px 2px rgba(10,10,10,.08), 0 5px 16px rgba(10,10,10,.13);
-  --lift-hi:0 2px 4px rgba(10,10,10,.10), 0 9px 26px rgba(10,10,10,.17);
+  --lift:0 1px 1px rgba(16,16,20,.04), 0 2px 6px rgba(16,16,20,.07);
+  --lift-hi:0 1px 2px rgba(16,16,20,.06), 0 5px 14px rgba(16,16,20,.11);
   /* DM Sans is the website's own body face (globals.css), so the dashboard
      reads as part of Ground Goat rather than as a separate tool. It carries
      the wordmark, every label and all running text.
@@ -907,11 +1165,11 @@ body:has(.shell){overflow:hidden;}
 .booting{display:flex;align-items:center;justify-content:center;height:100dvh;
   color:var(--muted);font-family:var(--label);letter-spacing:.06em;text-transform:uppercase;}
 .dot.off{background:var(--amber);}
-.stat.stale{color:#FF8A8A;font-weight:700;}
+.stat.stale{color:var(--red);font-weight:700;}
 .back{font-family:var(--label);font-size:11px;letter-spacing:.07em;text-transform:uppercase;
-  color:var(--on-bar);text-decoration:none;border:1px solid rgba(255,255,255,.30);border-radius:var(--r);
-  padding:3px 9px;background:rgba(255,255,255,.10);}
-.back:hover{background:rgba(255,255,255,.20);border-color:rgba(255,255,255,.55);}
+  color:var(--on-bar);text-decoration:none;border:1px solid var(--pill-line);border-radius:999px;
+  padding:4px 12px;background:var(--pill);}
+.back:hover{background:#fff;border-color:var(--faint);}
 .back:focus-visible{outline:2px solid var(--pink);outline-offset:2px;}
 .num{font-family:var(--mono);font-variant-numeric:tabular-nums;font-feature-settings:"tnum";}
 
@@ -930,14 +1188,14 @@ body:has(.shell){overflow:hidden;}
   /* Runs edge to edge: no radius, no margin, and the shell below carries
      the page inset instead of wrapping this bar in it. */
   padding:9px 16px;border-radius:0;
-  background:var(--bar);box-shadow:var(--lift);
+  background:var(--bar);border-bottom:1px solid var(--bar-line);
   position:relative;z-index:2;}
 .mark{display:flex;align-items:baseline;gap:9px;}
 .mark h1{
   font-family:var(--sans);font-weight:700;font-size:18px;letter-spacing:.055em;
   margin:0;text-transform:uppercase;color:var(--on-bar);
 }
-.mark h1 em{font-style:normal;font-weight:500;color:rgba(255,255,255,.72);}
+.mark h1 em{font-style:normal;font-weight:500;color:var(--pink);}
 .mark .sub{font-family:var(--label);font-size:11px;color:var(--on-bar-dim);font-weight:600;
   letter-spacing:.09em;text-transform:uppercase;}
 .rail-spacer{flex:1;}
@@ -1031,14 +1289,13 @@ body:has(.shell){overflow:hidden;}
 }
 .panel > h2{
   flex:none;margin:0;display:flex;align-items:center;gap:7px;
-  padding:6px 11px;border-bottom:1px solid rgba(10,10,10,.10);background:var(--card-2);
+  padding:7px 11px;border-bottom:1px solid var(--head-line);background:var(--card-2);
   font-family:var(--label);font-weight:700;font-size:11px;
   letter-spacing:.085em;text-transform:uppercase;color:var(--ink);
 }
 .panel > h2 .tag{margin-left:auto;font-size:10px;letter-spacing:.06em;
-  color:rgba(10,10,10,.58);font-weight:600;}
-.panel > h2 .pip{width:7px;height:7px;border-radius:50%;background:rgba(10,10,10,.3);
-  flex:none;box-shadow:0 0 0 1.5px rgba(255,255,255,.8);}
+  color:var(--faint);font-weight:600;}
+.panel > h2 .pip{width:7px;height:7px;border-radius:50%;background:var(--pink-bright);flex:none;}
 .panel > h2 .pip.red{background:var(--red);} .panel > h2 .pip.amber{background:var(--amber);}
 .panel > h2 .pip.green{background:var(--green);}
 .body{min-height:0;flex:1;overflow:hidden;padding:9px 11px;display:flex;flex-direction:column;gap:8px;}
@@ -1081,7 +1338,8 @@ td.red,.red-t{color:var(--red);} td.amber{color:var(--amber);} td.dim{color:var(
 .store{display:grid;gap:2px;}
 .store .top{display:flex;align-items:baseline;gap:8px;font-size:12px;}
 .store .top .pc{margin-left:auto;font-family:var(--mono);font-variant-numeric:tabular-nums;font-weight:600;}
-.store .note{font-size:10.5px;color:var(--faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.store .note{font-size:10.5px;color:var(--faint);overflow:hidden;
+  display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow-wrap:anywhere;}
 
 .chip{display:inline-block;padding:1px 6px;border-radius:20px;font-family:var(--label);
   font-size:9.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;border:1px solid var(--line-2);color:var(--muted);}
@@ -1092,6 +1350,130 @@ td.red,.red-t{color:var(--red);} td.amber{color:var(--amber);} td.dim{color:var(
 svg.spark{display:block;width:100%;height:100%;}
 
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;}}
+
+/* ── DEVELOPERS slide-out ───────────────────────────────────────────
+   Modelled on the owner's mission-control.html: a list of agent cards on
+   the left, the selected agent's assignment and message feed on the right.
+   It overlays rather than reflows, so opening it never disturbs the
+   one-screen layout underneath. */
+.devbtn{
+  font-family:var(--label);font-size:11px;font-weight:700;letter-spacing:.12em;
+  text-transform:uppercase;padding:3px 11px;border-radius:999px;cursor:pointer;
+  color:var(--on-bar);background:var(--pill);
+  border:1px solid var(--pill-line);
+}
+.devbtn:hover{background:#fff;border-color:var(--faint);}
+.devbtn:focus-visible{outline:2px solid var(--pink-bright);outline-offset:2px;}
+.devbtn .count{color:var(--pink);font-weight:700;font-variant-numeric:tabular-nums;}
+
+.scrim{position:fixed;inset:0;z-index:80;background:rgba(10,10,10,.42);
+  opacity:0;pointer-events:none;transition:opacity .18s ease;}
+.scrim.open{opacity:1;pointer-events:auto;}
+
+.drawer{
+  position:fixed;top:0;right:0;bottom:0;z-index:81;
+  width:min(1180px,88vw);display:grid;grid-template-rows:auto minmax(0,1fr);
+  background:var(--paper);border-left:1px solid var(--line-2);
+  box-shadow:-18px 0 48px rgba(10,10,10,.22);
+  transform:translateX(100%);transition:transform .22s cubic-bezier(.4,0,.2,1);
+}
+.drawer.open{transform:translateX(0);}
+@media (prefers-reduced-motion:reduce){
+  .drawer{transition:none;} .scrim{transition:none;}
+}
+.drawer-head{
+  display:flex;align-items:center;gap:12px;padding:10px 16px;
+  background:var(--bar);color:var(--on-bar);border-bottom:1px solid var(--bar-line);
+}
+.drawer-head h2{font-family:var(--sans);font-size:15px;font-weight:700;margin:0;
+  letter-spacing:.06em;text-transform:uppercase;}
+.drawer-head .sub{font-family:var(--label);font-size:11px;color:var(--on-bar-dim);
+  letter-spacing:.06em;text-transform:uppercase;}
+.drawer-close{margin-left:auto;background:var(--pill);color:var(--on-bar);
+  border:1px solid var(--pill-line);border-radius:999px;cursor:pointer;
+  font-family:var(--label);font-size:11px;letter-spacing:.08em;text-transform:uppercase;
+  padding:4px 10px;}
+.drawer-close:hover{background:#fff;border-color:var(--faint);}
+.drawer-body{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,420px);
+  min-height:0;gap:1px;background:var(--line);}
+.agent-list{overflow-y:auto;background:var(--paper);padding:10px;display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:9px;align-content:start;}
+.agent-card{
+  background:var(--card);border:1px solid var(--line);border-left:3px solid var(--line-2);
+  border-radius:var(--r);padding:8px 10px;cursor:pointer;text-align:left;
+  box-shadow:var(--lift);min-width:0;font:inherit;
+}
+.agent-card:hover{border-color:var(--pink);}
+.agent-card.on{border-color:var(--pink);border-left-color:var(--pink-bright);
+  box-shadow:var(--lift-hi);}
+.agent-card.busy{border-left-color:var(--green);}
+.agent-card:focus-visible{outline:2px solid var(--pink);outline-offset:1px;}
+.agent-card .top{display:flex;align-items:center;gap:6px;margin-bottom:3px;}
+.agent-card .nm{font-weight:700;font-size:12.5px;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap;}
+.agent-card .meta{font-size:10.5px;color:var(--faint);overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap;margin-bottom:5px;}
+.agent-card .say{font-size:11.5px;color:var(--ink-2);line-height:1.35;
+  display:-webkit-box;-webkit-line-clamp:5;-webkit-box-orient:vertical;overflow:hidden;
+  background:var(--pink-tint);border-radius:4px;padding:5px 7px;white-space:pre-wrap;}
+.agent-detail{overflow-y:auto;background:var(--card);padding:12px 14px;}
+.agent-detail dl{display:grid;grid-template-columns:auto minmax(0,1fr);
+  gap:2px 12px;margin:0 0 12px;font-size:11.5px;}
+.agent-detail dt{font-family:var(--label);font-size:10px;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--faint);}
+.agent-detail dd{margin:0;font-family:var(--mono);font-size:11px;
+  overflow-wrap:anywhere;}
+.agent-detail h3{font-family:var(--label);font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--pink);margin:0 0 5px;}
+.agent-detail .assign{font-size:11.5px;line-height:1.4;white-space:pre-wrap;
+  background:var(--card-2);border-radius:var(--r);padding:8px 10px;margin-bottom:12px;
+  color:var(--ink);}
+.feed{display:flex;flex-direction:column;gap:8px;}
+.feed .msg{font-size:11.5px;line-height:1.4;white-space:pre-wrap;
+  border-left:2px solid var(--line-2);padding-left:8px;overflow-wrap:anywhere;}
+.feed .msg time{display:block;font-family:var(--mono);font-size:9.5px;
+  color:var(--faint);margin-bottom:2px;}
+.drawer-empty{grid-column:1/-1;display:flex;align-items:center;justify-content:center;
+  padding:40px 20px;text-align:center;color:var(--muted);font-size:12.5px;line-height:1.5;}
+
+/* ── Chart button + trends drawer ───────────────────────────────────
+   A card that has history gets a small chart button in its header. It only
+   appears on cards a trend exists for, so the icon always means something. */
+.chartbtn{
+  flex:none;width:20px;height:20px;padding:0;margin-left:6px;cursor:pointer;
+  border:1px solid var(--pill-line);border-radius:5px;background:var(--pill);
+  color:var(--muted);display:inline-flex;align-items:center;justify-content:center;
+}
+.chartbtn:hover{background:#fff;border-color:var(--pink);color:var(--pink);}
+.chartbtn:focus-visible{outline:2px solid var(--pink);outline-offset:1px;}
+.chartbtn svg{width:12px;height:12px;display:block;}
+.panel > h2 .tag + .chartbtn{margin-left:6px;}
+.panel > h2 .chartbtn:first-of-type{margin-left:auto;}
+
+.charts{display:grid;gap:14px;padding:14px 16px;overflow-y:auto;align-content:start;}
+.chartcard{background:var(--card);border:1px solid var(--line);border-radius:var(--r);
+  box-shadow:var(--lift);padding:10px 12px;}
+.chartcard h4{margin:0 0 2px;font-family:var(--label);font-size:11px;font-weight:700;
+  letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2);}
+.chartcard .cur{font-family:var(--mono);font-variant-numeric:tabular-nums;
+  font-size:22px;font-weight:600;line-height:1.1;letter-spacing:-.02em;}
+.chartcard .delta{font-family:var(--label);font-size:11px;letter-spacing:.04em;}
+.chartcard .delta.up{color:var(--green);} .chartcard .delta.down{color:var(--red);}
+.chartcard .plot{height:120px;margin-top:6px;}
+.chartcard .axis{display:flex;justify-content:space-between;font-family:var(--mono);
+  font-size:9.5px;color:var(--faint);margin-top:3px;}
+
+/* A detail line that is too long wraps to two lines and ends in a real
+   ellipsis. The single-line version cut mid-word with nothing to show for
+   it, which read as a rendering fault rather than as truncation. */
+.clamp2{
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
+  overflow:hidden;white-space:normal;overflow-wrap:anywhere;
+}
+.clamp1{
+  display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;
+  overflow:hidden;white-space:normal;overflow-wrap:anywhere;
+}
 
 /* Below a widescreen there is not enough height to hold everything at a
    readable size, so the grid narrows and the page is allowed to scroll.
