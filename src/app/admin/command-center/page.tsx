@@ -178,8 +178,10 @@ function RightNow({ d, series }: { d: any; series: any[] | null }) {
   return (
     <>
       <div className="kpis" style={{ gridTemplateColumns: 'repeat(4,1fr)' }}>
-        <Kpi v={num(d.people_this_hour)}
-          k={`People this hour · ${num(d.minutes_into_hour)} min in`} />
+        {d.presence_available
+          ? <Kpi v={num(d.people_now)} k="People on now · last 5 min" />
+          : <Kpi v={num(d.people_this_hour)}
+              k={`People this hour · ${num(d.minutes_into_hour)} min in`} />}
         <Kpi v={num(d.requests_this_hour)} k="Requests this hour" />
         <Kpi v={`${num(rate, 1)}%`} k="Failing" tone={tone} />
         <Kpi v={<>{num(d.avg_ms_this_hour)}<span style={{ fontSize: 14 }}> ms</span></>}
@@ -189,7 +191,8 @@ function RightNow({ d, series }: { d: any; series: any[] | null }) {
         <Spark values={(series || []).map(p => p.requests)} color="#2E6BE6" />
       </div>
       <div className="kpis" style={{ gridTemplateColumns: 'repeat(4,1fr)' }}>
-        <Kpi small v={num(d.people_24h)} k="People today" />
+        <Kpi small v={d.presence_available ? num(d.people_15_min) : num(d.people_24h)}
+          k={d.presence_available ? 'Last 15 minutes' : 'People today'} />
         <Kpi small v={num(d.requests_24h)} k="Requests today" />
         <Kpi small v={num(d.server_errors_24h)} k="Our bugs today" tone={d.server_errors_24h > 100 ? 'red' : ''} />
         <Kpi small v={num(signups)} k="Signups today" />
@@ -612,7 +615,7 @@ const CARD_INFO: Record<string, CardInfo> = {
   pulse: {
     covers: 'Traffic and errors for the clock hour in progress, with the last full day underneath.',
     source: 'hourly_endpoint_metrics and hourly_user_activity, written by the request middleware and flushed about every 10 seconds.',
-    caveat: '"People this hour" resets at the top of every hour, so early in an hour it is a small window, not a quiet product. There is no finer bucket than an hour. Failed requests exclude 401 and 403 — an expired token is not a fault.',
+    caveat: '"People on now" is a true rolling five minutes, from a Redis set the request middleware keeps — not an hourly bucket. If Redis is unavailable it falls back to the clock hour and the label says so. Failed requests exclude 401 and 403 — an expired token is not a fault.',
   },
   money: {
     covers: 'Annual value of every live subscription. A firm counts once, at its admin\u2019s row.',
@@ -647,7 +650,7 @@ const CARD_INFO: Record<string, CardInfo> = {
   jobs: {
     covers: 'Every scheduled job, when it last ran and whether it worked.',
     source: 'system_job_runs, written automatically by the scheduler wrapper.',
-    caveat: 'Only jobs that run through the scheduler. Anything triggered by hand or from another service does not appear. "Stuck" means it claimed to be running for over an hour.',
+    caveat: 'Only jobs that run through the scheduler, plus anything that posts to the report endpoint (backups do). Something triggered by hand does not appear. "Stuck" means it claimed to be running for over an hour.',
   },
   storage: {
     covers: 'Every place data is kept, as a share of its ceiling.',
@@ -795,6 +798,88 @@ function TrendsDrawer({ openFor, title, series, onClose }:
   )
 }
 
+
+/** The Run button.
+
+    A web page cannot execute anything on a laptop — nothing can, and any
+    button claiming otherwise would be lying. What it can do is hand over a
+    file that runs itself: macOS opens a .command in Terminal on
+    double-click. The backend fills in this server's URL and the signed-in
+    admin's email before sending it, so there is no path to get right and no
+    token to find; it asks for the password on launch and stores nothing.
+
+    Copy is kept alongside for anyone who would rather paste a line. */
+function RunReporter({ compact = false }: { compact?: boolean }) {
+  const [state, setState] = useState<'idle' | 'working' | 'ready' | 'failed'>('idle')
+  const [copied, setCopied] = useState(false)
+
+  const download = async () => {
+    setState('working')
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/admin/agents/reporter-script`)
+      if (!res.ok) throw new Error(String(res.status))
+      const blob = new Blob([await res.text()], { type: 'application/octet-stream' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'groundgoat-agents.command'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      // Revoke on the next tick — revoking synchronously can cancel the
+      // download in some browsers before it has started reading the blob.
+      setTimeout(() => URL.revokeObjectURL(url), 30_000)
+      setState('ready')
+    } catch {
+      setState('failed')
+    }
+  }
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(
+        'python3 scripts/agent_reporter.py --login you@groundgoat.com')
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2500)
+    } catch { /* clipboard blocked — the button simply does not confirm */ }
+  }
+
+  if (compact) {
+    return (
+      <button type="button" className="runbtn" onClick={download}
+        disabled={state === 'working'} style={{ marginLeft: 'auto', padding: '5px 13px', fontSize: 11 }}
+        title="Download a file you can double-click to start reporting">
+        {state === 'working' ? 'Preparing…' : state === 'ready' ? 'Downloaded ✓' : 'Run on my laptop'}
+      </button>
+    )
+  }
+  return (
+    <>
+      <div className="runrow">
+        <button type="button" className="runbtn" onClick={download}
+          disabled={state === 'working'}>
+          {state === 'working' ? 'Preparing…' : 'Run on my laptop'}
+        </button>
+        <button type="button" className="runbtn ghost" onClick={copy}>
+          {copied ? 'Copied' : 'Copy command'}
+        </button>
+      </div>
+      {state === 'ready' && (
+        <p className="runnote" style={{ margin: '0 0 10px' }}>
+          Downloaded <b>groundgoat-agents.command</b>. Double-click it — macOS
+          may ask you to confirm the first time (right-click &rarr; Open). It
+          will ask for your Ground Goat password, then start reporting.
+        </p>
+      )}
+      {state === 'failed' && (
+        <p className="runnote" style={{ margin: '0 0 10px', color: 'var(--red)' }}>
+          Could not build the file. Use the copied command instead.
+        </p>
+      )}
+    </>
+  )
+}
+
 /* ── DEVELOPERS drawer ─────────────────────────────────────────────────
    The agent cards and detail pane from mission-control.html, fed by
    scripts/agent_reporter.py running on the machine where the agents run.
@@ -829,6 +914,7 @@ function AgentDrawer({ open, onClose, data }: { open: boolean; onClose: () => vo
             {data?.available === false ? 'unavailable'
               : `${num(data?.working)} working of ${num(data?.total)}`}
           </span>
+          <RunReporter compact />
           <button type="button" className="drawer-close" onClick={onClose}>Close ·  Esc</button>
         </div>
         <div className="drawer-body">
@@ -843,12 +929,7 @@ function AgentDrawer({ open, onClose, data }: { open: boolean; onClose: () => vo
                   offers no API a website can read. So the machine has to push. On
                   your Mac, in the backend repo:
                 </p>
-                <pre style={{
-                  margin: '0 0 10px', padding: '10px 12px', background: 'var(--card-2)',
-                  border: '1px solid var(--line)', borderRadius: 'var(--r)',
-                  fontFamily: 'var(--mono)', fontSize: 11, lineHeight: 1.5,
-                  whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', color: 'var(--ink)',
-                }}>{'python3 scripts/agent_reporter.py --login you@groundgoat.com'}</pre>
+                <RunReporter />
                 <p style={{ margin: 0, fontSize: 11, color: 'var(--faint)' }}>
                   Leave it running. Every Claude Code session on that Mac appears
                   here within about ten seconds. Sessions running in Anthropic&rsquo;s
@@ -1510,7 +1591,7 @@ svg.spark{display:block;width:100%;height:100%;}
   letter-spacing:.06em;text-transform:uppercase;}
 .drawer-head .sub{font-family:var(--label);font-size:11px;color:var(--on-bar-dim);
   letter-spacing:.06em;text-transform:uppercase;}
-.drawer-close{margin-left:auto;background:var(--pill);color:var(--on-bar);
+.drawer-close{margin-left:8px;background:var(--pill);color:var(--on-bar);
   border:1px solid var(--pill-line);border-radius:999px;cursor:pointer;
   font-family:var(--label);font-size:11px;letter-spacing:.08em;text-transform:uppercase;
   padding:4px 10px;}
@@ -1627,6 +1708,18 @@ svg.spark{display:block;width:100%;height:100%;}
 .pop .close{position:absolute;top:6px;right:8px;border:0;background:none;cursor:pointer;
   color:var(--faint);font-size:14px;line-height:1;padding:2px 4px;}
 .pop .close:hover{color:var(--ink);}
+
+.runrow{display:flex;gap:8px;align-items:center;margin:0 0 10px;flex-wrap:wrap;}
+.runbtn{
+  font-family:var(--label);font-size:12px;font-weight:700;letter-spacing:.06em;
+  text-transform:uppercase;padding:7px 15px;border-radius:999px;cursor:pointer;
+  color:#fff;background:var(--pink);border:1px solid var(--pink);
+}
+.runbtn:hover{background:#a3427f;border-color:#a3427f;}
+.runbtn:focus-visible{outline:2px solid var(--ink);outline-offset:2px;}
+.runbtn.ghost{background:var(--pill);color:var(--ink);border-color:var(--pill-line);}
+.runbtn.ghost:hover{background:#fff;border-color:var(--faint);}
+.runnote{font-size:11px;color:var(--faint);}
 
 /* Below a widescreen there is not enough height to hold everything at a
    readable size, so the grid narrows and the page is allowed to scroll.
