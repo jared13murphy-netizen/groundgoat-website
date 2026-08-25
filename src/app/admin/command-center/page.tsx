@@ -158,7 +158,8 @@ function RightNow({ d, series }: { d: any; series: any[] | null }) {
   return (
     <>
       <div className="kpis" style={{ gridTemplateColumns: 'repeat(4,1fr)' }}>
-        <Kpi v={num(d.people_now)} k="People on now" />
+        <Kpi v={num(d.people_this_hour)}
+          k={`People this hour · ${num(d.minutes_into_hour)} min in`} />
         <Kpi v={num(d.requests_this_hour)} k="Requests this hour" />
         <Kpi v={`${num(rate, 1)}%`} k="Failing" tone={tone} />
         <Kpi v={<>{num(d.avg_ms_this_hour)}<span style={{ fontSize: 14 }}> ms</span></>}
@@ -181,31 +182,37 @@ function Money({ d }: { d: any }) {
   return (
     <>
       <div className="kpis" style={{ gridTemplateColumns: '1fr 1fr' }}>
-        <Kpi v={money(d.annual_revenue)} k="Signed up for a year" />
+        <Kpi v={money(d.annual_revenue)} k="Individual plans, per year" />
         <Kpi small v={num(d.paying_people)} k="Paying customers" />
       </div>
       <table>
-        <thead><tr><th>Plan</th><th className="n">People</th><th className="n">Per year</th></tr></thead>
+        <thead><tr><th>Plan</th><th className="n">Paying</th><th className="n">Per year</th></tr></thead>
         <tbody>
           {(d.by_tier || []).length === 0
             ? <tr><td className="dim">No active plans</td></tr>
             : (d.by_tier || []).map((t: any) => (
               <tr key={t.tier}>
                 <td className="t">{(t.tier || '').replace(/_/g, ' ')}</td>
-                <td className="n dim">{num(t.people)}</td>
-                <td className="n">{money(t.annual_revenue)}</td>
+                <td className="n dim">{num(t.rows)}</td>
+                {/* Firm rows carry no price in this database, so a zero here
+                    would read as "this firm pays nothing" rather than "we do
+                    not hold the number". */}
+                <td className="n">{t.priced ? money(t.annual_revenue) : <span className="dim">in Stripe</span>}</td>
               </tr>
             ))}
         </tbody>
       </table>
       <div className="rows" style={{ marginTop: 'auto' }}>
+        <Row label="Firms paying" value={`${num(d.paying_firms)} · ${num(d.firm_seats)} seats`} />
         <Row label="Renewing in 30 days" value={`${num(d.renewing_30d)} · ${money(d.renewing_30d_value)}`} />
-        <Row label="On a free trial" value={num(d.trialing)} />
+        <Row label="On a free trial" value={num(d.trialing + (d.firms_trialing || 0))} />
         <Row label="Payment failed" value={num(d.past_due_people)} tone={d.past_due_people ? 'red' : ''} />
-        <Row label="Started minus cancelled, 30 days" value={`${d.net_30d >= 0 ? '+' : ''}${num(d.net_30d)}`} />
+        <Row label="Started minus cancelled, 30 days"
+          value={`${d.net_30d >= 0 ? '+' : ''}${num(d.net_30d)}`} />
       </div>
-      {/* The 12x trap, stated on screen so nobody has to remember it. */}
-      <div className="note">Every plan is billed once a year. A firm shows as several rows, one total.</div>
+      <div className="note">
+        Every plan is billed once a year. {d.revenue_caveat}
+      </div>
     </>
   )
 }
@@ -241,20 +248,22 @@ function People({ d }: { d: any }) {
 }
 
 function Regrid({ d }: { d: any }) {
-  const pc = d.records_used_pct || 0
+  const pc = d.combined_pct || 0
   const tone: Tone = pc >= 90 ? 'red' : pc >= 75 ? 'amber' : 'green'
-  // A cache rate of null means "nothing measured yet", which is different
-  // from 0% and must never be shown as 0%.
   const rate = (v: number | null | undefined) =>
     v === null || v === undefined ? <span className="dim">not yet</span> : `${num(v, 1)}%`
   return (
     <>
-      <Kpi v={`${num(pc, 1)}%`} k={`Of this year's parcel allowance · per ${d.records_source}`}
+      {/* Regrid bills the combined fraction of records AND parcel tiles, so
+          that is the headline. Either half alone understates the bill. */}
+      <Kpi v={`${num(pc, 1)}%`} k={`Of the year's Regrid contract · per ${d.source}`}
         tone={tone === 'green' ? '' : tone} />
       <div className="bar"><i className={tone} style={{ width: `${Math.min(100, pc)}%` }} /></div>
       <div className="rows">
-        <Row label="Used" value={num(d.records_this_year)} />
-        <Row label="Allowed" value={num(d.records_allowance)} />
+        <Row label={`Parcel records · ${num(d.records_pct, 1)}%`}
+          value={`${num(d.records)} of ${num(d.records_cap)}`} />
+        <Row label={`Map tiles · ${num(d.tiles_pct, 1)}%`}
+          value={`${num(d.tiles)} of ${num(d.tiles_cap)}`} />
         <Row label="Days into the year" value={num(d.days_into_year)} />
       </div>
       <div className="rows" style={{ borderTop: '1px solid var(--line)', paddingTop: 7 }}>
@@ -264,11 +273,10 @@ function Regrid({ d }: { d: any }) {
         <Row label="Tiles saved by our cache" value={rate(d.tile_cache_pct)} />
       </div>
       <div className="note" style={{ marginTop: 'auto' }}>
-        Contract year started {d.contract_year_start}.
-        {d.our_records_this_year !== d.records_this_year && (
-          <> We counted {num(d.our_records_this_year)} ourselves.</>
-        )}
-        {' '}Cache counting started {d.counting_since}.
+        {d.cycle_note
+          ? <span style={{ color: 'var(--amber)' }}>{d.cycle_note} </span>
+          : `Contract year started ${d.contract_year_start}. `}
+        Cache counting started {d.counting_since}.
       </div>
     </>
   )
@@ -362,12 +370,20 @@ function Crashes({ d }: { d: any }) {
     <>
       <div className="kpis" style={{ gridTemplateColumns: 'repeat(3,1fr)' }}>
         <Kpi v={num(d.last_hour)} k="Last hour" tone={d.last_hour ? 'red' : ''} />
-        <Kpi small v={num(d.last_24h)} k="Today" />
-        <Kpi small v={num(d.users_affected_24h)} k="People hit today"
+        <Kpi small v={num(d.last_24h)} k="Last 24 hours" />
+        <Kpi small v={num(d.last_7d)} k="Last 7 days" tone={d.last_7d ? 'amber' : ''} />
+      </div>
+      {/* "Last 24 hours" is a rolling window, so it falls as crashes age out
+          of it. The 7-day and all-time figures sit beside it so a drop can
+          always be told apart from data going missing. */}
+      <div className="rows">
+        <Row label="People hit in 24 hours" value={num(d.users_affected_24h)}
           tone={d.users_affected_24h ? 'red' : ''} />
+        <Row label="Ever recorded"
+          value={`${num(d.all_time)} · newest ${d.newest_report ? ago(d.newest_report) + ' ago' : 'none'}`} />
       </div>
       {affected.length === 0
-        ? <div className="allgood">Nobody has hit a crash today</div>
+        ? <div className="allgood">No crashes in the last 7 days</div>
         : (
           <div className="rows" style={{ borderTop: '1px solid var(--line)', paddingTop: 7,
                                          flex: '1 1 auto', overflow: 'hidden' }}>
@@ -410,6 +426,7 @@ function Storage({ d, trend }: { d: any; trend: any }) {
             <div className="store" key={s.key}>
               <div className="top">
                 <span>{s.label}</span>
+                {s.provider ? <Chip>{s.provider}</Chip> : null}
                 {s.live ? null : <Chip>measured {s.measured_at}</Chip>}
                 <span className="pc" style={tone === 'red' ? { color: 'var(--red)' } : undefined}>
                   {capped ? `${num(pc, 1)}%` : `${num(s.used_gb)} GB`}
@@ -448,25 +465,40 @@ function Storage({ d, trend }: { d: any; trend: any }) {
 }
 
 function Pipeline({ d }: { d: any }) {
+  const poly = d.polygon_pct
   return (
     <>
       <div className="kpis" style={{ gridTemplateColumns: 'repeat(3,1fr)' }}>
-        <Kpi small v={num(d.listings_added_24h)} k="Added today" />
-        <Kpi small v={num(d.listings_live)} k="Live now" />
-        <Kpi small v={num(d.auctions_next_24h)} k="Selling tomorrow" tone={d.auctions_next_24h ? 'amber' : ''} />
+        <Kpi v={num(d.found)} k="Found last night"
+          tone={d.run_anchored_to_job && d.found === 0 ? 'amber' : ''} />
+        <Kpi small v={num(d.waiting)} k="Waiting for you" />
+        <Kpi small v={num(d.verified_today)} k="Verified today" />
       </div>
       <div className="rows" style={{ borderTop: '1px solid var(--line)', paddingTop: 7 }}>
-        <Row label="Waiting for you to review" value={num(d.staging_waiting)} />
-        <Row label="Live but not verified" value={num(d.listings_unverified)} />
+        <Row label="Auctions / private treaty"
+          value={`${num(d.found_auctions)} / ${num(d.found_private_treaty)}`} />
+        <Row label="Published from that run" value={num(d.published_from_run)} />
+        <Row label="Tracts that got a boundary"
+          value={poly === null || poly === undefined
+            ? <span className="dim">none yet</span>
+            : `${num(d.tracts_with_polygon)} of ${num(d.tracts_from_run)} · ${num(poly, 0)}%`}
+          tone={poly !== null && poly !== undefined && poly < 60 ? 'amber' : ''} />
+        <Row label="Still marked incomplete" value={num(d.waiting_incomplete)} />
         <Row label="No main photo" value={num(d.listings_missing_main_image)}
           tone={d.listings_missing_main_image ? 'red' : ''} />
-        <Row label="Tract has a boundary but no map image" value={num(d.tracts_boundary_missing_image)}
+        <Row label="Boundary but no map image" value={num(d.tracts_boundary_missing_image)}
           tone={d.tracts_boundary_missing_image ? 'red' : ''} />
-        <Row label="Tracts with no boundary at all" value={num(d.tracts_no_boundary)} />
-        <Row label="Marked incomplete" value={num(d.listings_incomplete)} />
+        <Row label="Selling in the next 24 hours" value={num(d.auctions_next_24h)}
+          tone={d.auctions_next_24h ? 'amber' : ''} />
       </div>
       <div className="note" style={{ marginTop: 'auto' }}>
-        Oldest thing waiting for review: {d.staging_oldest ? `${ago(d.staging_oldest)} ago` : 'nothing waiting'}.
+        {d.run_started
+          ? <>Last scrape {ago(d.run_started)} ago
+              {d.run_minutes ? `, took ${num(d.run_minutes, 0)} min` : ''}
+              {d.run_status ? ` · ${d.run_status}` : ''}.
+              {!d.run_anchored_to_job && ' No job record, so this counts from midnight.'}</>
+          : 'No scrape recorded yet.'}
+        {d.oldest_waiting && <> Oldest waiting: {ago(d.oldest_waiting)}.</>}
       </div>
     </>
   )
@@ -721,9 +753,9 @@ export default function CommandCenterPage() {
             {connected ? 'Live' : 'Reconnecting'}
           </span>
           <div className="stat">
-            Numbers from <b>{snap.generated_at ? ago(snap.generated_at) : '—'}</b> ago
+            Last updated <b>{snap.generated_at ? ago(snap.generated_at) : '—'}</b> ago
           </div>
-          {snap.stale && <div className="stat stale">Numbers have stopped updating</div>}
+          {snap.stale && <div className="stat stale">Updates have stopped</div>}
           <div className="clock">{clock}</div>
         </header>
 
@@ -772,8 +804,9 @@ export default function CommandCenterPage() {
             {storageD ? <Storage d={storageD} trend={P('storage_trend')} /> : <Unavailable why={whyMissing('storage')} />}
           </Panel>
 
-          <Panel span={3} title="Listings pipeline"
+          <Panel span={3} title="Scraper & staging"
             pip={!pipelineD ? undefined
+              : pipelineD.run_failures ? 'red'
               : pipelineD.listings_missing_main_image || pipelineD.tracts_boundary_missing_image ? 'amber' : 'green'}>
             {pipelineD ? <Pipeline d={pipelineD} /> : <Unavailable why={whyMissing('pipeline')} />}
           </Panel>
@@ -832,6 +865,9 @@ const CSS = `
      text on white, so type and strokes use the dark tone and fills use
      the bright one. */
   --pink:#B84C97; --pink-bright:#F58CDE; --pink-tint:#F8DAF1;
+  /* The top bar. Black, with everything on it in white — the one place
+     on this page that inverts, so the panels below read as the content. */
+  --bar:#0A0A0A; --on-bar:#FFFFFF; --on-bar-dim:rgba(255,255,255,.66);
 
   /* The highlight. Deliberately used twice on the whole screen — the
      traffic line and the live dot — so it stays a highlight. */
@@ -871,11 +907,11 @@ body:has(.shell){overflow:hidden;}
 .booting{display:flex;align-items:center;justify-content:center;height:100dvh;
   color:var(--muted);font-family:var(--label);letter-spacing:.06em;text-transform:uppercase;}
 .dot.off{background:var(--amber);}
-.stat.stale{color:#5E0A16;font-weight:700;}
+.stat.stale{color:#FF8A8A;font-weight:700;}
 .back{font-family:var(--label);font-size:11px;letter-spacing:.07em;text-transform:uppercase;
-  color:var(--ink);text-decoration:none;border:1px solid rgba(10,10,10,.18);border-radius:var(--r);
-  padding:3px 9px;background:rgba(255,255,255,.72);}
-.back:hover{background:#fff;border-color:rgba(10,10,10,.34);}
+  color:var(--on-bar);text-decoration:none;border:1px solid rgba(255,255,255,.30);border-radius:var(--r);
+  padding:3px 9px;background:rgba(255,255,255,.10);}
+.back:hover{background:rgba(255,255,255,.20);border-color:rgba(255,255,255,.55);}
 .back:focus-visible{outline:2px solid var(--pink);outline-offset:2px;}
 .num{font-family:var(--mono);font-variant-numeric:tabular-nums;font-feature-settings:"tnum";}
 
@@ -894,20 +930,20 @@ body:has(.shell){overflow:hidden;}
   /* Runs edge to edge: no radius, no margin, and the shell below carries
      the page inset instead of wrapping this bar in it. */
   padding:9px 16px;border-radius:0;
-  background:var(--pink-bright);box-shadow:var(--lift);
+  background:var(--bar);box-shadow:var(--lift);
   position:relative;z-index:2;}
 .mark{display:flex;align-items:baseline;gap:9px;}
 .mark h1{
   font-family:var(--sans);font-weight:700;font-size:18px;letter-spacing:.055em;
-  margin:0;text-transform:uppercase;color:var(--ink);
+  margin:0;text-transform:uppercase;color:var(--on-bar);
 }
-.mark h1 em{font-style:normal;font-weight:500;color:rgba(10,10,10,.62);}
-.mark .sub{font-family:var(--label);font-size:11px;color:rgba(10,10,10,.55);font-weight:600;
+.mark h1 em{font-style:normal;font-weight:500;color:rgba(255,255,255,.72);}
+.mark .sub{font-family:var(--label);font-size:11px;color:var(--on-bar-dim);font-weight:600;
   letter-spacing:.09em;text-transform:uppercase;}
 .rail-spacer{flex:1;}
 .stat{display:flex;align-items:center;gap:6px;font-family:var(--label);font-size:11.5px;
-      letter-spacing:.05em;text-transform:uppercase;color:rgba(10,10,10,.66);}
-.stat b{font-family:var(--mono);font-weight:600;color:var(--ink);letter-spacing:0;text-transform:none;}
+      letter-spacing:.05em;text-transform:uppercase;color:var(--on-bar-dim);}
+.stat b{font-family:var(--mono);font-weight:600;color:var(--on-bar);letter-spacing:0;text-transform:none;}
 /* The live indicator. A pill rather than a dot so it reads at a glance
    from across the room, and the background pulses so a frozen page is
    obvious: if this stops moving, the numbers have stopped too. */
@@ -931,14 +967,14 @@ body:has(.shell){overflow:hidden;}
   50%    {background:var(--blue-pill-hi);}
 }
 @media (prefers-reduced-motion:reduce){.pill{animation:none;}}
-.clock{font-family:var(--mono);font-size:15px;font-weight:600;letter-spacing:-.01em;color:var(--ink);}
-.seg{display:flex;border:1px solid var(--line-2);border-radius:var(--r);overflow:hidden;}
+.clock{font-family:var(--mono);font-size:15px;font-weight:600;letter-spacing:-.01em;color:var(--on-bar);}
+.seg{display:flex;border:1px solid rgba(255,255,255,.28);border-radius:var(--r);overflow:hidden;}
 .seg button{
   font-family:var(--label);font-size:11px;letter-spacing:.06em;text-transform:uppercase;
-  padding:4px 9px;border:0;background:var(--card);color:var(--muted);cursor:pointer;
+  padding:4px 9px;border:0;background:rgba(255,255,255,.10);color:var(--on-bar-dim);cursor:pointer;
 }
-.seg button+button{border-left:1px solid var(--line-2);}
-.seg button[aria-pressed="true"]{background:var(--ink);color:#fff;}
+.seg button+button{border-left:1px solid rgba(255,255,255,.28);}
+.seg button[aria-pressed="true"]{background:#fff;color:var(--ink);}
 .seg button:focus-visible{outline:2px solid var(--pink);outline-offset:-2px;}
 
 /* ── Alert strip: the one thing that must be impossible to miss ── */
