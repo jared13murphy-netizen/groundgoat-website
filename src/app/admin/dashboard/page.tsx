@@ -21,6 +21,7 @@ import {
   Activity,
   ShieldCheck,
   BarChart2,
+  Gauge,
 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import type { ApiListing } from '@/components/map/mapTypes'
@@ -306,6 +307,12 @@ export default function AdminDashboard() {
           {/* Admin-only actions */}
           {user?.account_type === 'groundgoat_admin' && (
             <>
+              <QuickActionCard
+                title="Command Center"
+                description="Everything at a glance on one screen — problems first"
+                href="/admin/command-center"
+                icon={<Gauge />}
+              />
               <QuickActionCard
                 title="Health Monitor"
                 description="Usage, performance, Regrid cost, and database storage"
