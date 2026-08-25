@@ -731,8 +731,26 @@ function AgentDrawer({ open, onClose, data }: { open: boolean; onClose: () => vo
         <div className="drawer-body">
           <div className="agent-list">
             {agents.length === 0 ? (
-              <div className="drawer-empty">
-                {data?.note || 'No agent has reported recently.'}
+              <div className="drawer-empty" style={{ display: 'block', textAlign: 'left' }}>
+                <p style={{ margin: '0 0 10px' }}>
+                  Nothing has reported in the last 15 minutes.
+                </p>
+                <p style={{ margin: '0 0 10px' }}>
+                  Claude Code keeps its transcripts on the machine it runs on, and
+                  offers no API a website can read. So the machine has to push. On
+                  your Mac, in the backend repo:
+                </p>
+                <pre style={{
+                  margin: '0 0 10px', padding: '10px 12px', background: 'var(--card-2)',
+                  border: '1px solid var(--line)', borderRadius: 'var(--r)',
+                  fontFamily: 'var(--mono)', fontSize: 11, lineHeight: 1.5,
+                  whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', color: 'var(--ink)',
+                }}>{'python3 scripts/agent_reporter.py --login you@groundgoat.com'}</pre>
+                <p style={{ margin: 0, fontSize: 11, color: 'var(--faint)' }}>
+                  Leave it running. Every Claude Code session on that Mac appears
+                  here within about ten seconds. Sessions running in Anthropic&rsquo;s
+                  cloud cannot reach your backend, so they will not appear.
+                </p>
               </div>
             ) : agents.map(a => {
               const last = (a.messages || [])[(a.messages || []).length - 1]
@@ -1124,8 +1142,8 @@ const CSS = `
   --pink:#B84C97; --pink-bright:#F58CDE; --pink-tint:#F8DAF1;
   /* The top bar. Black, with everything on it in white — the one place
      on this page that inverts, so the panels below read as the content. */
-  --bar:#FFFFFF; --on-bar:#101014; --on-bar-dim:#6B6B74;
-  --bar-line:#E6E6EA; --pill:#F4F4F6; --pill-line:#DDDDE3;
+  --bar:#0A0A0A; --on-bar:#FFFFFF; --on-bar-dim:rgba(255,255,255,.68);
+  --bar-line:#0A0A0A; --pill:rgba(255,255,255,.10); --pill-line:rgba(255,255,255,.28);
 
   /* The highlight. Deliberately used twice on the whole screen — the
      traffic line and the live dot — so it stays a highlight. */
@@ -1165,11 +1183,11 @@ body:has(.shell){overflow:hidden;}
 .booting{display:flex;align-items:center;justify-content:center;height:100dvh;
   color:var(--muted);font-family:var(--label);letter-spacing:.06em;text-transform:uppercase;}
 .dot.off{background:var(--amber);}
-.stat.stale{color:var(--red);font-weight:700;}
+.stat.stale{color:#FF8A8A;font-weight:700;}
 .back{font-family:var(--label);font-size:11px;letter-spacing:.07em;text-transform:uppercase;
   color:var(--on-bar);text-decoration:none;border:1px solid var(--pill-line);border-radius:999px;
   padding:4px 12px;background:var(--pill);}
-.back:hover{background:#fff;border-color:var(--faint);}
+.back:hover{background:rgba(255,255,255,.22);border-color:rgba(255,255,255,.6);}
 .back:focus-visible{outline:2px solid var(--pink);outline-offset:2px;}
 .num{font-family:var(--mono);font-variant-numeric:tabular-nums;font-feature-settings:"tnum";}
 
@@ -1195,7 +1213,7 @@ body:has(.shell){overflow:hidden;}
   font-family:var(--sans);font-weight:700;font-size:18px;letter-spacing:.055em;
   margin:0;text-transform:uppercase;color:var(--on-bar);
 }
-.mark h1 em{font-style:normal;font-weight:500;color:var(--pink);}
+.mark h1 em{font-style:normal;font-weight:500;color:var(--pink-bright);}
 .mark .sub{font-family:var(--label);font-size:11px;color:var(--on-bar-dim);font-weight:600;
   letter-spacing:.09em;text-transform:uppercase;}
 .rail-spacer{flex:1;}
@@ -1362,9 +1380,9 @@ svg.spark{display:block;width:100%;height:100%;}
   color:var(--on-bar);background:var(--pill);
   border:1px solid var(--pill-line);
 }
-.devbtn:hover{background:#fff;border-color:var(--faint);}
+.devbtn:hover{background:rgba(255,255,255,.22);border-color:rgba(255,255,255,.6);}
 .devbtn:focus-visible{outline:2px solid var(--pink-bright);outline-offset:2px;}
-.devbtn .count{color:var(--pink);font-weight:700;font-variant-numeric:tabular-nums;}
+.devbtn .count{color:var(--pink-bright);font-weight:700;font-variant-numeric:tabular-nums;}
 
 .scrim{position:fixed;inset:0;z-index:80;background:rgba(10,10,10,.42);
   opacity:0;pointer-events:none;transition:opacity .18s ease;}
@@ -1393,7 +1411,7 @@ svg.spark{display:block;width:100%;height:100%;}
   border:1px solid var(--pill-line);border-radius:999px;cursor:pointer;
   font-family:var(--label);font-size:11px;letter-spacing:.08em;text-transform:uppercase;
   padding:4px 10px;}
-.drawer-close:hover{background:#fff;border-color:var(--faint);}
+.drawer-close:hover{background:rgba(255,255,255,.22);border-color:rgba(255,255,255,.6);}
 .drawer-body{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,420px);
   min-height:0;gap:1px;background:var(--line);}
 .agent-list{overflow-y:auto;background:var(--paper);padding:10px;display:grid;
