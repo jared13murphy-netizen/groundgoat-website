@@ -2268,7 +2268,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   //   Toggling one off turns the others off.
   // terrain3DOn: independent 3D pitch toggle.
   const [layerPanelOpen, setLayerPanelOpen] = useState(false)
-  const [baseOverlay, setBaseOverlay] = useState<'crops' | 'csb' | 'ssurgo' | 'nccpi' | 'fsa' | null>(null)
+  const [baseOverlay, setBaseOverlay] = useState<'crops' | 'csb' | 'ssurgo' | 'nccpi' | 'fsa' | 'engine' | null>(null)
   const [selectedCropYear, setSelectedCropYear] = useState<number>(2024)
   const [terrain3DOn, setTerrain3DOn] = useState(false)
   const [terrainExaggeration, setTerrainExaggeration] = useState(1.3)
@@ -2347,7 +2347,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
   // Mutable ref so the unified map-click handler always reads the
   // current overlay without being torn down/re-created on every change.
-  const baseOverlayRef = useRef<'crops' | 'csb' | 'ssurgo' | 'nccpi' | 'fsa' | null>(null)
+  const baseOverlayRef = useRef<'crops' | 'csb' | 'ssurgo' | 'nccpi' | 'fsa' | 'engine' | null>(null)
   // Keep baseOverlayRef in sync with baseOverlay state.
   useEffect(() => { baseOverlayRef.current = baseOverlay }, [baseOverlay])
 
@@ -2501,6 +2501,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     'NM','NV','NY','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VA',
     'VT','WA','WI','WV','WY',
   ]
+
+  // Engine tillable-map overlay (owner 8/25): per-state PMTiles of the
+  // classification engine's polygons (layer 'classes', cls property).
+  // Kansas first — add states here as their archives land on the tiles
+  // service (built from the S3 engine export, never from postgis-soils).
+  const ENGINE_PMTILES_STATES = ['ks_state']
   const [isAdmin, setIsAdmin] = useState(false)
   // Layers-panel entitlement, from /api/auth/me's can_use_layers —
   // firm_admin / firm_user / premium_state / staff, NOT basic_state
@@ -6787,6 +6793,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         case 'crops': return ['csb-fields']
         case 'nccpi': return SOIL_PMTILES_STATES.map(st => `explore-nccpi-${st}`)
         case 'fsa': return FSA_PMTILES_STATES.map(st => `explore-fsa-${st}`)
+        case 'engine': return ENGINE_PMTILES_STATES.map(st => `explore-engine-${st}`)
         default: return []
       }
     })()
@@ -7186,6 +7193,41 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       }
       fsaPmLayerIds.push(fsaLineId)
       // TODO: grey no-data fill for AL, FL, AK — not in the 2008 CLU release
+    }
+
+    // ── Per-state PMTiles sources for the engine tillable-map overlay ──
+    for (const st of ENGINE_PMTILES_STATES) {
+      const engSrcId = `explore-engine-${st}`
+      const engFillId = `explore-engine-fill-${st}`
+      if (!map.getSource(engSrcId)) {
+        map.addSource(engSrcId, {
+          type: 'vector',
+          url: `pmtiles://${TILES_BASE_URL}/tiles/${st}.pmtiles`,
+        } as any)
+      }
+      if (!map.getLayer(engFillId)) {
+        map.addLayer({
+          id: engFillId,
+          type: 'fill',
+          source: engSrcId,
+          'source-layer': 'classes',
+          minzoom: 8,
+          layout: { visibility: 'none' },
+          paint: {
+            'fill-color': ['match', ['get', 'cls'],
+              'tillable', '#3caa28',
+              'pasture', '#eb9620',
+              'timber', '#e12d23',
+              'waterway', '#d73cc8',
+              'water', '#3c6edc',
+              '#999999'],
+            'fill-opacity': ['match', ['get', 'cls'],
+              'tillable', 0.4,
+              'pasture', 0.45,
+              0.55],
+          },
+        })
+      }
     }
 
     // Tillable polygons — solid green so the eye reads "this portion
@@ -7677,6 +7719,17 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
     if (fsaOn && map.getZoom() < 6) {
       showZoomToast('Zoom in to view FSA field boundaries')
+    }
+    const engOn = baseOverlay === 'engine'
+    const engVis = engOn ? 'visible' : 'none'
+    for (const st of ENGINE_PMTILES_STATES) {
+      const fillId = `explore-engine-fill-${st}`
+      try {
+        if (map.getLayer(fillId)) map.setLayoutProperty(fillId, 'visibility', engVis)
+      } catch {/* layer not ready */}
+    }
+    if (engOn && map.getZoom() < 8) {
+      showZoomToast('Zoom in to view the tillable map')
     }
   }, [baseOverlay, mapLoaded, showZoomToast])
 
@@ -9711,7 +9764,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                 label: 'FSA',
                 swatchColor: '#22d3ee',
               },
-            ] as Array<{ key: 'crops' | 'ssurgo' | 'csb' | 'nccpi' | 'fsa'; label: string; swatchGradient?: string; swatchColor?: string }>).map(({ key, label, swatchGradient, swatchColor }) => {
+              {
+                key: 'engine' as const,
+                label: 'Tillable Map',
+                swatchGradient: 'linear-gradient(to right,#3caa28,#eb9620,#e12d23,#d73cc8,#3c6edc)',
+              },
+            ] as Array<{ key: 'crops' | 'ssurgo' | 'csb' | 'nccpi' | 'fsa' | 'engine'; label: string; swatchGradient?: string; swatchColor?: string }>).map(({ key, label, swatchGradient, swatchColor }) => {
               const active = baseOverlay === key
               return (
                 <OverlayButton

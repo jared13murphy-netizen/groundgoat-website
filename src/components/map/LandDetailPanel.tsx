@@ -151,7 +151,7 @@ export interface LandDetailClickData {
   clickLng: number | null
   clickLat: number | null
   /** Which overlay was active when the user clicked (drives which section leads) */
-  activeOverlay: 'ssurgo' | 'nccpi' | 'crops' | 'csb' | 'fsa' | null
+  activeOverlay: 'ssurgo' | 'nccpi' | 'crops' | 'csb' | 'fsa' | 'engine' | null
   /** Task #26: distinguishes a direct parcel/dot click (auto-dismiss if the
       fetch resolves nothing — an empty shell is worse than no panel) from an
       informational overlay click (soil/CSB — the "no additional data"
