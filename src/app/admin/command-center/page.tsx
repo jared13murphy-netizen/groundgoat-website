@@ -84,10 +84,11 @@ function ago(iso: string | null | undefined): string {
 
 type Tone = 'red' | 'amber' | 'green' | ''
 
-function Panel({ span, title, tag, pip, onChart, children }: {
+function Panel({ span, title, tag, pip, onChart, infoId, children }: {
   span: number; title: string; tag?: string; pip?: Tone
-  onChart?: () => void; children: React.ReactNode
+  onChart?: () => void; infoId?: string; children: React.ReactNode
 }) {
+  const [showInfo, setShowInfo] = useState(false)
   return (
     <section className="panel" style={{ gridColumn: `span ${span}` }}>
       <h2>
@@ -96,6 +97,11 @@ function Panel({ span, title, tag, pip, onChart, children }: {
         {tag ? <span className="tag">{tag}</span> : null}
         {/* Only shown where a trend actually exists, so the icon never
             promises history a card does not have. */}
+        {infoId && CARD_INFO[infoId] && (
+          <button type="button" className="infobtn" onClick={() => setShowInfo(v => !v)}
+            title={`What ${title} means`} aria-label={`What ${title} means`}
+            aria-expanded={showInfo}>i</button>
+        )}
         {onChart && (
           <button type="button" className="chartbtn" onClick={onChart}
             title={`${title} over time`} aria-label={`${title} over time`}>
@@ -103,6 +109,9 @@ function Panel({ span, title, tag, pip, onChart, children }: {
           </button>
         )}
       </h2>
+      {showInfo && infoId && (
+        <InfoPop id={infoId} title={title} onClose={() => setShowInfo(false)} />
+      )}
       <div className="body">{children}</div>
     </section>
   )
@@ -589,6 +598,100 @@ function Reach({ notif, email }: { notif: any; email: any }) {
   )
 }
 
+
+/* ── What each card means ──────────────────────────────────────────────
+   Written out per card because the audit that produced these notes is the
+   thing that makes the numbers trustworthy. `covers` is what the figure
+   includes, `source` is the table or service behind it, and `caveat` is
+   what it deliberately does NOT tell you. A caveat is not an apology —
+   a number whose limits are stated can be relied on; one without them
+   cannot. */
+type CardInfo = { covers: string; source: string; caveat?: string }
+
+const CARD_INFO: Record<string, CardInfo> = {
+  pulse: {
+    covers: 'Traffic and errors for the clock hour in progress, with the last full day underneath.',
+    source: 'hourly_endpoint_metrics and hourly_user_activity, written by the request middleware and flushed about every 10 seconds.',
+    caveat: '"People this hour" resets at the top of every hour, so early in an hour it is a small window, not a quiet product. There is no finer bucket than an hour. Failed requests exclude 401 and 403 — an expired token is not a fault.',
+  },
+  money: {
+    covers: 'Annual value of every live subscription. A firm counts once, at its admin\u2019s row.',
+    source: 'user_subscriptions. When billing_cycle is annual, monthly_price already holds the annual figure — for Stripe plans, Apple IAP, and firms alike.',
+    caveat: 'Trials are shown separately and are not in the total. Past-due subscriptions are still counted: the money is in dunning, not lost.',
+  },
+  people: {
+    covers: 'Accounts, who actually used the product, and who never subscribed.',
+    source: 'users for the counts; hourly_user_activity for "used it", which is real requests.',
+    caveat: 'Not last_login — that column is only written by the password sign-in handler, so anyone on the phone app never touches it. "Never subscribed" is not a drop-off rate: checkout starts are not logged yet.',
+  },
+  crashes: {
+    covers: 'Crashes reported by the phone app, and who they happened to.',
+    source: 'mobile_crash_reports, posted by the app\u2019s global error handler.',
+    caveat: '"Last 24 hours" is a rolling window, so crashes age out of it and the number falls — the 7-day and all-time figures beside it are there so that can never look like data going missing. The list of people covers 7 days. Crashes with nobody signed in are counted separately, since they carry no user to attribute.',
+  },
+  regrid: {
+    covers: 'How much of the annual Regrid contract is used: parcel records and map tiles, combined the way Regrid bills.',
+    source: 'Regrid\u2019s own /api/v2/usage endpoint where reachable, our own counters otherwise. The card says which.',
+    caveat: 'Records alone understate it — tiles are usually the larger half. Cache percentages only count from 25 Aug 2026, when the counters were added; before that nothing was recorded.',
+  },
+  failing_endpoints: {
+    covers: 'Endpoints that returned errors in the last three hours.',
+    source: 'hourly_endpoint_metrics.',
+    caveat: 'Excludes 401 and 403, which are usually expired tokens rather than faults. Red marks a 5xx — our bug, not a bad request.',
+  },
+  slow_endpoints: {
+    covers: 'The slowest endpoints over the last day, by how long an unlucky request takes.',
+    source: 'The latency histogram in hourly_endpoint_metrics.',
+    caveat: '"Slowest 5%" is read off histogram bucket edges, so it is the top of the bucket rather than an exact figure. Endpoints under 20 requests are left out as too noisy to rank.',
+  },
+  jobs: {
+    covers: 'Every scheduled job, when it last ran and whether it worked.',
+    source: 'system_job_runs, written automatically by the scheduler wrapper.',
+    caveat: 'Only jobs that run through the scheduler. Anything triggered by hand or from another service does not appear. "Stuck" means it claimed to be running for over an hour.',
+  },
+  storage: {
+    covers: 'Every place data is kept, as a share of its ceiling.',
+    source: 'pg_database_size for databases the backend connects to; the rest were measured by hand on the date shown.',
+    caveat: 'A Railway Postgres disk cannot exceed 1,000 GB, so percentage matters more than gigabytes. Rows marked with a date are not live readings.',
+  },
+  pipeline: {
+    covers: 'What the overnight scrape found, what published, and what is waiting for review.',
+    source: 'listing_staging and listings, with the window anchored to the nightly job\u2019s own recorded start.',
+    caveat: 'If the job never recorded a run, the window falls back to midnight Central and the card says so. A tract without a boundary cannot be published, which is why boundary coverage is shown rather than a raw count.',
+  },
+  data_quality: {
+    covers: 'Records that contradict themselves — the sort of thing a subscriber notices first.',
+    source: 'listings and tracts.',
+    caveat: 'Duplicates are matched on identical title, county and state; source URLs are unique, so a genuine duplicate only gets in through differently-encoded URLs for one page.',
+  },
+  reach: {
+    covers: 'Push notifications and email sent in the last day.',
+    source: 'notifications, email_send_log and dunning_email_log.',
+    caveat: 'Every send writes a row, but pushed_at is only set when the push actually succeeded — so "tried but did not send" climbing while "sent" stays flat means sending is broken. Refreshes every 15 seconds.',
+  },
+}
+
+function InfoPop({ id, title, onClose }: { id: string; title: string; onClose: () => void }) {
+  const info = CARD_INFO[id]
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+  if (!info) return null
+  return (
+    <div className="pop" role="dialog" aria-label={`About ${title}`}>
+      <button type="button" className="close" onClick={onClose} aria-label="Close">×</button>
+      <h5>{title}</h5>
+      <p>{info.covers}</p>
+      <dl>
+        <dt>From</dt><dd>{info.source}</dd>
+        {info.caveat && <><dt>Careful</dt><dd className="warn">{info.caveat}</dd></>}
+      </dl>
+    </div>
+  )
+}
+
 /* ── Trends drawer ─────────────────────────────────────────────────────
    Opened from the chart button on a card. Shows that card's series over
    the last fortnight — the shape of the thing, not just today's value. */
@@ -1030,62 +1133,62 @@ export default function CommandCenterPage() {
         <AlertStrip alerts={snap.alerts || []} />
 
         <main className="field">
-          <Panel span={4} title="Right now" tag="last 24 hours below" onChart={chart('pulse')}
+          <Panel span={4} title="Right now" tag="last 24 hours below" infoId="pulse" onChart={chart('pulse')}
             pip={!pulse ? undefined : pulse.error_rate_hour_pct >= 5 ? 'red' : pulse.error_rate_hour_pct >= 2 ? 'amber' : 'green'}>
             {pulse ? <RightNow d={pulse} series={P('traffic_series')} /> : <Unavailable why={whyMissing('pulse')} />}
           </Panel>
 
-          <Panel span={3} title="Money" tag="per year" onChart={chart('money')} pip={!moneyD ? undefined : moneyD.past_due_people ? 'amber' : 'green'}>
+          <Panel span={3} title="Money" tag="per year" infoId="money" onChart={chart('money')} pip={!moneyD ? undefined : moneyD.past_due_people ? 'amber' : 'green'}>
             {moneyD ? <Money d={moneyD} /> : <Unavailable why={whyMissing('money')} />}
           </Panel>
 
-          <Panel span={3} title="App crashes" onChart={chart('crashes')}
+          <Panel span={3} title="App crashes" infoId="crashes" onChart={chart('crashes')}
             pip={!crashD ? undefined : crashD.last_hour ? 'red' : crashD.last_24h ? 'amber' : 'green'}>
             {crashD ? <Crashes d={crashD} /> : <Unavailable why={whyMissing('crashes')} />}
           </Panel>
 
-          <Panel span={2} title="Regrid budget" onChart={chart('regrid')}
+          <Panel span={2} title="Regrid budget" infoId="regrid" onChart={chart('regrid')}
             pip={!regridD ? undefined : regridD.records_used_pct >= 90 ? 'red' : regridD.records_used_pct >= 75 ? 'amber' : 'green'}>
             {regridD ? <Regrid d={regridD} /> : <Unavailable why={whyMissing('regrid')} />}
           </Panel>
 
-          <Panel span={3} title="What is erroring" onChart={chart('failing_endpoints')} pip={!erroringD ? undefined : erroringD.length ? 'red' : 'green'}>
+          <Panel span={3} title="What is erroring" infoId="failing_endpoints" onChart={chart('failing_endpoints')} pip={!erroringD ? undefined : erroringD.length ? 'red' : 'green'}>
             {erroringD ? <Erroring d={erroringD} /> : <Unavailable why={whyMissing('failing_endpoints')} />}
           </Panel>
 
-          <Panel span={3} title="Slowest things"
+          <Panel span={3} title="Slowest things" infoId="slow_endpoints"
             pip={!slowD ? undefined : slowD.some((e: any) => e.p95_ms >= 5000) ? 'amber' : 'green'}>
             {slowD ? <Slowest d={slowD} /> : <Unavailable why={whyMissing('slow_endpoints')} />}
           </Panel>
 
-          <Panel span={3} title="Background jobs"
+          <Panel span={3} title="Background jobs" infoId="jobs"
             pip={!jobsD ? undefined : (jobsD.failing || []).length ? 'red' : (jobsD.stuck || []).length ? 'amber' : 'green'}>
             {jobsD ? <Jobs d={jobsD} /> : <Unavailable why={whyMissing('jobs')} />}
           </Panel>
 
-          <Panel span={3} title="People" onChart={chart('people')} pip={peopleD ? 'green' : undefined}>
+          <Panel span={3} title="People" infoId="people" onChart={chart('people')} pip={peopleD ? 'green' : undefined}>
             {peopleD ? <People d={peopleD} /> : <Unavailable why={whyMissing('people')} />}
           </Panel>
 
-          <Panel span={4} title="Storage" tag="share of the ceiling" onChart={chart('storage')}
+          <Panel span={4} title="Storage" tag="share of the ceiling" infoId="storage" onChart={chart('storage')}
             pip={!storageD ? undefined : (storageD.stores || []).some((s: any) => (s.pct_of_cap || 0) >= 90) ? 'red' : 'amber'}>
             {storageD ? <Storage d={storageD} trend={P('storage_trend')} /> : <Unavailable why={whyMissing('storage')} />}
           </Panel>
 
-          <Panel span={3} title="Scraper & staging" onChart={chart('pipeline')}
+          <Panel span={3} title="Scraper & staging" infoId="pipeline" onChart={chart('pipeline')}
             pip={!pipelineD ? undefined
               : pipelineD.run_failures ? 'red'
               : pipelineD.listings_missing_main_image || pipelineD.tracts_boundary_missing_image ? 'amber' : 'green'}>
             {pipelineD ? <Pipeline d={pipelineD} /> : <Unavailable why={whyMissing('pipeline')} />}
           </Panel>
 
-          <Panel span={3} title="Data quality"
+          <Panel span={3} title="Data quality" infoId="data_quality"
             pip={!qualityD ? undefined
               : qualityD.valid_but_no_boundary || qualityD.past_auctions_no_price ? 'amber' : 'green'}>
             {qualityD ? <Quality d={qualityD} /> : <Unavailable why={whyMissing('data_quality')} />}
           </Panel>
 
-          <Panel span={2} title="Notifications &amp; email" pip={notifD?.overdue ? 'amber' : 'green'}>
+          <Panel span={2} title="Notifications &amp; email" infoId="reach" pip={notifD?.overdue ? 'amber' : 'green'}>
             {notifD || emailD ? <Reach notif={notifD} email={emailD} /> : <Unavailable why={whyMissing('notifications')} />}
           </Panel>
         </main>
@@ -1492,6 +1595,38 @@ svg.spark{display:block;width:100%;height:100%;}
   display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;
   overflow:hidden;white-space:normal;overflow-wrap:anywhere;
 }
+
+/* ── Info popover ───────────────────────────────────────────────────
+   Every card can say what it means, where the number comes from, and what
+   it does NOT cover. The caveats are the useful half: a figure whose
+   limits are written down can be trusted; one without them cannot. */
+.infobtn{
+  flex:none;width:20px;height:20px;padding:0;margin-left:5px;cursor:pointer;
+  border:1px solid var(--pill-line);border-radius:5px;background:var(--pill);
+  color:var(--muted);display:inline-flex;align-items:center;justify-content:center;
+  font-family:var(--sans);font-size:11px;font-weight:700;line-height:1;
+}
+.infobtn:hover{background:#fff;border-color:var(--pink);color:var(--pink);}
+.infobtn:focus-visible{outline:2px solid var(--pink);outline-offset:1px;}
+.panel > h2 .infobtn:first-of-type{margin-left:auto;}
+.panel{position:relative;}
+.pop{
+  position:absolute;top:32px;right:8px;z-index:40;width:min(430px,calc(100% - 16px));
+  background:var(--card);border:1px solid var(--line-2);border-radius:var(--r);
+  box-shadow:var(--lift-hi);padding:11px 13px;text-align:left;
+  max-height:calc(100% - 42px);overflow-y:auto;
+}
+.pop h5{margin:0 0 5px;font-family:var(--label);font-size:10px;font-weight:700;
+  letter-spacing:.1em;text-transform:uppercase;color:var(--pink);}
+.pop p{margin:0 0 8px;font-size:11.5px;line-height:1.45;color:var(--ink-2);}
+.pop dl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:2px 10px;margin:0 0 8px;}
+.pop dt{font-family:var(--label);font-size:9.5px;letter-spacing:.07em;
+  text-transform:uppercase;color:var(--faint);}
+.pop dd{margin:0;font-size:11px;line-height:1.4;}
+.pop .warn{color:var(--amber);}
+.pop .close{position:absolute;top:6px;right:8px;border:0;background:none;cursor:pointer;
+  color:var(--faint);font-size:14px;line-height:1;padding:2px 4px;}
+.pop .close:hover{color:var(--ink);}
 
 /* Below a widescreen there is not enough height to hold everything at a
    readable size, so the grid narrows and the page is allowed to scroll.
