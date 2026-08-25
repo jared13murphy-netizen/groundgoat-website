@@ -233,9 +233,7 @@ function Money({ d }: { d: any }) {
         <Row label="Started minus cancelled, 30 days"
           value={`${d.net_30d >= 0 ? '+' : ''}${num(d.net_30d)}`} />
       </div>
-      <div className="note">
-        Every plan is billed once a year. {d.revenue_caveat}
-      </div>
+      <div className="note">{d.revenue_caveat}</div>
     </>
   )
 }
@@ -255,7 +253,7 @@ function People({ d }: { d: any }) {
           Signed up, never subscribed &nbsp;·&nbsp; {num(d.never_subscribed_new_30d)} of them in the last 30 days
         </div>
       </div>
-      <div className="rows" style={{ flex: '1 1 auto', overflow: 'hidden', minHeight: 0 }}>
+      <div className="rows" style={{ flex: '1 1 auto', minHeight: 0 }}>
         {recent.slice(0, 2).map((u: any) => (
           <div className="row" key={u.email}>
             <span className="l">{u.name || u.email}</span>
@@ -411,11 +409,34 @@ function Crashes({ d }: { d: any }) {
           because mixing the two silently is how a 59-crash row ended up
           under a headline of 12. */}
       <div className="more" style={{ marginTop: 2 }}>Who it hit · last 7 days</div>
+      {/* What the crashes have in common. The app's black box records the
+          map state before every death; without this the card could only say
+          how many, which is a statistic rather than a lead. */}
+      {d.diagnosis?.reports_with_evidence > 0 && (
+        <div className="rows" style={{ borderTop: '1px solid var(--line)', paddingTop: 7 }}>
+          <div className="more" style={{ marginBottom: 2 }}>What they had on screen</div>
+          {d.diagnosis.every_parcel_pct !== null && (
+            <Row label="Every parcel being drawn"
+              value={`${num(d.diagnosis.every_parcel_pct, 0)}% of them`}
+              tone={d.diagnosis.every_parcel_pct >= 60 ? 'red' : ''} />
+          )}
+          <Row label="Zoom when it died"
+            value={`avg ${num(d.diagnosis.avg_zoom, 1)}, up to ${num(d.diagnosis.max_zoom, 1)}`} />
+          <Row label="Most sale dots loaded" value={num(d.diagnosis.max_dots)}
+            tone={(d.diagnosis.max_dots || 0) > 5000 ? 'red' : ''} />
+          <Row label="Phone memory"
+            value={`${num(d.diagnosis.smallest_device_gb, 1)}–${num(d.diagnosis.largest_device_gb, 1)} GB`} />
+          {(d.diagnosis.overlays || []).length > 0 && (
+            <Row label="Overlay"
+              value={(d.diagnosis.overlays || []).map((o: any) => `${o.overlay} ${o.count}`).join(' · ')} />
+          )}
+        </div>
+      )}
       {affected.length === 0
         ? <div className="allgood">No crashes in the last 7 days</div>
         : (
           <div className="rows" style={{ borderTop: '1px solid var(--line)', paddingTop: 7,
-                                         flex: '1 1 auto', overflow: 'hidden' }}>
+                                         flex: '1 1 auto' }}>
             {affected.slice(0, 5).map((a, i) => (
               <div key={a.user_id || `anon-${i}`} style={{ display: 'grid', gap: 1 }}>
                 <div className="row">
@@ -447,7 +468,7 @@ function Storage({ d, trend }: { d: any; trend: any }) {
   return (
     <>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6,
-                    minHeight: 0, flex: '1 1 auto', overflow: 'hidden' }}>
+                    minHeight: 0, flex: '1 1 auto' }}>
         {(d.stores || []).map((s: any) => {
           const pc = s.pct_of_cap
           const capped = pc !== null && pc !== undefined
@@ -630,7 +651,7 @@ const CARD_INFO: Record<string, CardInfo> = {
   crashes: {
     covers: 'Crashes reported by the phone app, and who they happened to.',
     source: 'mobile_crash_reports, posted by the app\u2019s global error handler.',
-    caveat: '"Last 24 hours" is a rolling window, so crashes age out of it and the number falls — the 7-day and all-time figures beside it are there so that can never look like data going missing. The list of people covers 7 days. Crashes with nobody signed in are counted separately, since they carry no user to attribute.',
+    caveat: '"Last 24 hours" is a rolling window, so crashes age out of it and the number falls — the 7-day and all-time figures beside it exist so that can never look like data going missing. "What they had on screen" comes from the app\u2019s own black box, which records the map state before each death; an iOS memory kill runs no JavaScript, so that snapshot is the only evidence such a crash ever leaves. Crashes with nobody signed in are counted separately, since they carry no user to attribute.',
   },
   regrid: {
     covers: 'How much of the annual Regrid contract is used: parcel records and map tiles, combined the way Regrid bills.',
@@ -1500,7 +1521,12 @@ body:has(.shell){overflow:hidden;}
 .panel > h2 .pip{width:7px;height:7px;border-radius:50%;background:var(--pink-bright);flex:none;}
 .panel > h2 .pip.red{background:var(--red);} .panel > h2 .pip.amber{background:var(--amber);}
 .panel > h2 .pip.green{background:var(--green);}
-.body{min-height:0;flex:1;overflow:hidden;padding:9px 11px;display:flex;flex-direction:column;gap:8px;}
+.body{min-height:0;flex:1;overflow-y:auto;overflow-x:hidden;padding:9px 11px;
+  display:flex;flex-direction:column;gap:8px;scrollbar-width:thin;
+  scrollbar-color:var(--line-2) transparent;}
+.body::-webkit-scrollbar{width:7px;}
+.body::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:4px;}
+.body::-webkit-scrollbar-track{background:transparent;}
 .dead{display:flex;align-items:center;justify-content:center;height:100%;color:var(--faint);
   font-family:var(--label);letter-spacing:.06em;text-transform:uppercase;font-size:11.5px;text-align:center;}
 /* "Nothing is wrong" is not "this panel is broken". Separate class so the
@@ -1528,7 +1554,7 @@ th.n{font-family:var(--label);}
 td.t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:0;width:100%;}
 td.red,.red-t{color:var(--red);} td.amber{color:var(--amber);} td.dim{color:var(--muted);}
 
-.rows{display:flex;flex-direction:column;gap:5px;min-height:0;overflow:hidden;}
+.rows{display:flex;flex-direction:column;gap:5px;min-height:0;}
 .row{display:flex;align-items:baseline;gap:8px;font-size:12px;}
 .row .l{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .row .r{margin-left:auto;font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap;}
