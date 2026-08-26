@@ -360,6 +360,18 @@ function Regrid({ d }: { d: any }) {
           {d.records_basis}, tiles from {d.tiles_basis}.
         </div>
       )}
+      {/* Regrid's own figure, when the window it reports is shorter than the
+          contract year. Useful, but not an answer to "how much of the year
+          have I used" — so it sits here rather than in the headline. */}
+      {d.regrid_cycle_days != null && d.regrid_cycle_days < 350 && (
+        <div className="rows" style={{ borderTop: '1px solid var(--line)', paddingTop: 7 }}>
+          <div className="more" style={{ marginBottom: 2 }}>
+            Regrid&rsquo;s own {num(d.regrid_cycle_days)}-day cycle
+          </div>
+          <Row label="Records they counted" value={num(d.regrid_cycle_records)} />
+          <Row label="Tiles they counted" value={num(d.regrid_cycle_tiles)} />
+        </div>
+      )}
       <div className="rows" style={{ borderTop: '1px solid var(--line)', paddingTop: 7 }}>
         <Row label="Parcel lookups today" value={num(d.parcel_lookups_24h)} />
         <Row label="Saved by our cache" value={rate(d.parcel_cache_pct)} />
@@ -740,7 +752,7 @@ const CARD_INFO: Record<string, CardInfo> = {
   regrid: {
     covers: 'How much of the annual Regrid contract is used: parcel records and map tiles, combined the way Regrid bills.',
     source: 'Regrid\u2019s own /api/v2/usage endpoint where reachable, our own counters otherwise. The card says which.',
-    caveat: 'Records alone understate it — tiles are usually the larger half of the bill. If neither Regrid nor our own counters have anything, this reads "unknown" rather than 0%, because 0% of an annual contract looks like plenty left. Cache percentages only count from 25 Aug 2026, when the counters were added.',
+    caveat: 'Records alone understate it — tiles are usually the larger half of the bill. Regrid\u2019s own endpoint reports whatever billing cycle they are running, which may be far shorter than the contract year; when it is, the year is counted from our own caches instead and their figure is shown separately. Cache counts are a minimum: a parcel bought twice in the year is stored once, so it is counted once.',
   },
   failing_endpoints: {
     covers: 'Endpoints that returned errors in the last three hours.',
