@@ -108,10 +108,43 @@ export interface SaveBody {
   boundary: any
   polygons: { cls: LandClass; geometry: any }[]
   source_ll_uuids: string[]
+  /** Omit to have a project created automatically — a single-parcel user
+   *  never has to think about projects. */
+  project_id?: string | null
+  project_name?: string | null
+}
+
+export interface ProjectSummary {
+  parcels: number
+  acres: number
+  tillable_acres: number
+}
+
+export interface Project {
+  id: string
+  name: string
+  state: string | null
+  county: string | null
+  summary: ProjectSummary
+  thumb_key: string | null
+  archived_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface SavedParcelRow {
+  id: string
+  name: string
+  state: string | null
+  county: string | null
+  stats: Record<string, any>
+  source_ll_uuids: string[]
+  updated_at: string
 }
 
 export function saveParcel(body: SaveBody) {
-  return j<{ id: string; name: string; stats: any }>('/api/mapping/parcels', {
+  return j<{ id: string; project_id: string; name: string; stats: any
+             project_summary: ProjectSummary }>('/api/mapping/parcels', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -119,13 +152,80 @@ export function saveParcel(body: SaveBody) {
 }
 
 export function updateParcel(id: string, body: SaveBody) {
-  return j<{ id: string; name: string; stats: any }>(`/api/mapping/parcels/${id}`, {
+  return j<{ id: string; name: string; stats: any
+             project_summary: ProjectSummary }>(`/api/mapping/parcels/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
 }
 
-export function listParcels() {
-  return j<{ parcels: any[] }>('/api/mapping/parcels')
+export function listParcels(projectId?: string) {
+  const qs = projectId ? `?project_id=${encodeURIComponent(projectId)}` : ''
+  return j<{ parcels: SavedParcelRow[] }>(`/api/mapping/parcels${qs}`)
+}
+
+// ── Projects / Map Portfolio ────────────────────────────────────────
+
+export function listProjects(includeArchived = false) {
+  return j<{ projects: Project[] }>(
+    `/api/mapping/projects${includeArchived ? '?include_archived=true' : ''}`)
+}
+
+export function createProject(name: string) {
+  return j<{ id: string; name: string }>('/api/mapping/projects', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+}
+
+export function getProject(id: string) {
+  return j<{ project: Project; parcels: SavedParcelRow[] }>(`/api/mapping/projects/${id}`)
+}
+
+export function updateProject(id: string, patch: { name?: string; archived?: boolean }) {
+  return j<{ ok: true }>(`/api/mapping/projects/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  })
+}
+
+export function duplicateProject(id: string) {
+  return j<{ id: string; name: string; parcels: number }>(
+    `/api/mapping/projects/${id}/duplicate`, { method: 'POST' })
+}
+
+export function archiveParcel(id: string) {
+  return j<{ ok: true }>(`/api/mapping/parcels/${id}`, { method: 'DELETE' })
+}
+
+export function getSavedParcel(id: string) {
+  return j<{
+    id: string; project_id: string; name: string; boundary: any
+    polygons: { cls: LandClass; acres: number; geometry: any }[]
+    stats: Record<string, any>; source_ll_uuids: string[]
+  }>(`/api/mapping/parcels/${id}`)
+}
+
+// ── Geometry ops, done server-side in PostGIS ───────────────────────
+// Combining parcels and splitting a boundary with a drawn line are the
+// 20-tract auction workflow. PostGIS already has a polygon clipper;
+// re-implementing one in the browser would be a source of quiet errors.
+
+export function combineGeometry(geometries: any[]) {
+  return j<{ geometry: any; acres: number }>('/api/mapping/geometry/combine', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ geometries }),
+  })
+}
+
+export function splitGeometry(geometry: any, line: any) {
+  return j<{ pieces: { geometry: any; acres: number }[] }>('/api/mapping/geometry/split', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ geometry, line }),
+  })
 }

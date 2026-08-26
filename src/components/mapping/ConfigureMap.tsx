@@ -26,10 +26,13 @@ import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import {
   Loader2, Plus, Trash2, RotateCcw, RotateCw, Save, Search, X, Layers,
+  Scissors, Combine,
 } from 'lucide-react'
 import {
   CLASS_LABEL, CLASS_TINT, LAND_CLASSES, PARCEL_LINE, POLY_LINE, SEARCH_DOT,
-  fetchParcel, saveParcel, searchMap,
+  archiveParcel, combineGeometry, fetchParcel, getSavedParcel, saveParcel, searchMap,
+  splitGeometry,
+  updateParcel,
   type LandClass, type ParcelDetail, type ParcelSummary,
 } from '@/lib/configurableMapping'
 import { addRegridLayer, buildRegridStateFilter, fetchRegridConfig } from '@/components/map/regridLayer'
@@ -126,9 +129,21 @@ export default function ConfigureMap() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [drawClass, setDrawClass] = useState<LandClass>('tillable')
   const [drawing, setDrawing] = useState(false)
+  // 'draw' adds a classified polygon; 'split' draws the cut line;
+  // 'combine' adds the next clicked parcel to this boundary.
+  const [tool, setTool] = useState<'draw' | 'split' | 'combine' | null>(null)
   const [draft, setDraft] = useState<Pt[]>([])
 
   const [name, setName] = useState('')
+  // Project context. A single-parcel user never sees this: leaving it
+  // blank makes the server create a project named after the parcel.
+  const [projectId, setProjectId] = useState<string | null>(null)
+  const [projectName, setProjectName] = useState('')
+  const [editingId, setEditingId] = useState<string | null>(null)
+  // Every Regrid parcel folded into this subject, for provenance.
+  const [sources, setSources] = useState<string[]>([])
+  // Split results waiting to be named and saved as separate tracts.
+  const [pieces, setPieces] = useState<{ geometry: any; acres: number }[]>([])
   const [query, setQuery] = useState('')
   const [searchState, setSearchState] = useState('')
   const [hits, setHits] = useState<ParcelSummary[]>([])
@@ -142,6 +157,8 @@ export default function ConfigureMap() {
   const shapesRef = useRef(shapes); shapesRef.current = shapes
   const selectedRef = useRef(selectedId); selectedRef.current = selectedId
   const drawingRef = useRef(drawing); drawingRef.current = drawing
+  const toolRef = useRef(tool); toolRef.current = tool
+  const detailRef = useRef(detail); detailRef.current = detail
   const draftRef = useRef(draft); draftRef.current = draft
   const drawClassRef = useRef(drawClass); drawClassRef.current = drawClass
 
@@ -189,9 +206,61 @@ export default function ConfigureMap() {
   }, [])
   const loadParcelRef = useRef(loadParcel); loadParcelRef.current = loadParcel
 
+  // ── open from the Map Portfolio (?parcel= / ?project=) ────────────
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const proj = params.get('project')
+    const saved = params.get('parcel')
+    if (proj) setProjectId(proj)
+    if (!saved) return
+    let cancelled = false
+    ;(async () => {
+      setBusy('Opening saved parcel…')
+      try {
+        const rec = await getSavedParcel(saved)
+        if (cancelled) return
+        setEditingId(rec.id)
+        setProjectId(rec.project_id)
+        setName(rec.name)
+        setSources(rec.source_ll_uuids || [])
+        setDetail({
+          // A saved parcel's stats use `buildings`; the live-parcel path
+          // uses Regrid's `ll_bldg_count`. Map it across so a reopened
+          // parcel doesn't report zero buildings.
+          parcel: {
+            ...rec.stats,
+            acres: rec.stats?.acres ?? 0,
+            ll_bldg_count: rec.stats?.buildings ?? 0,
+            county: rec.stats?.county ?? null,
+            state: rec.stats?.state ?? null,
+            ll_uuid: null,
+          },
+          boundary: rec.boundary,
+          polygons: rec.polygons as any,
+          source: 'engine',
+          unclassified_acres: rec.stats?.unclassified_acres ?? 0,
+        })
+        setShapes(rec.polygons.map((pp) => ({
+          id: nextId(), cls: pp.cls, polys: geometryToPolys(pp.geometry),
+        })).filter((x) => x.polys.length > 0))
+        const bb = bboxOf(rec.boundary?.coordinates)
+        if (bb && mapRef.current) mapRef.current.fitBounds(bb, { padding: 90, duration: 700 })
+      } catch (e: any) {
+        setError(e?.message || 'Could not open that saved parcel.')
+      } finally { setBusy(null) }
+    })()
+    return () => { cancelled = true }
+  }, [ready])
+
   // ── map ───────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!containerRef.current || mapRef.current) return
+    if (!containerRef.current) return
+    // No `if (mapRef.current) return` guard here. React mounts effects
+    // twice in development, and that guard let the second mount skip
+    // creating a map while the first mount's cleanup destroyed the one
+    // the component was still pointing at — sources and layers silently
+    // missing, on a map that still drew its base tiles. Each mount now
+    // owns exactly one map and tears down exactly that one.
     const map = new maplibregl.Map({
       container: containerRef.current,
       style: {
@@ -327,6 +396,13 @@ export default function ConfigureMap() {
           setDraft((d) => [...d, [e.lngLat.lng, e.lngLat.lat] as Pt])
           return
         }
+        // Combine: the next parcel clicked is merged into this boundary.
+        if (toolRef.current === 'combine') {
+          const hit = map.queryRenderedFeatures(e.point, { layers: ['regrid-parcels-fill'] })
+          const uu = hit[0]?.properties?.ll_uuid || hit[0]?.properties?.ll_uuid_text
+          if (uu) { void combineWithRef.current(String(uu)) }
+          return
+        }
         const onShape = map.queryRenderedFeatures(e.point, { layers: [LYR_FILL] })
         if (onShape.length) {
           const id = onShape[0].properties?.id
@@ -354,10 +430,16 @@ export default function ConfigureMap() {
         finishDraft()
       })
 
-      setReady(true)
+      if (mapRef.current === map) setReady(true)
     })
 
-    return () => { ro.disconnect(); map.remove(); mapRef.current = null }
+    return () => {
+      ro.disconnect()
+      map.remove()
+      // Only clear the ref if it still points at THIS map, so a
+      // late cleanup cannot orphan a newer instance.
+      if (mapRef.current === map) { mapRef.current = null; setReady(false) }
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -382,6 +464,11 @@ export default function ConfigureMap() {
 
   const finishDraft = useCallback(() => {
     const d = draftRef.current
+    if (toolRef.current === 'split') {
+      if (d.length >= 2) void runSplitRef.current(d)
+      setDraft([]); setDrawing(false); setTool(null)
+      return
+    }
     if (d.length >= 3) {
       const ring = simplifyRing(d, 0.000004)
       const id = nextId()
@@ -403,6 +490,95 @@ export default function ConfigureMap() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [finishDraft, undo, redo])
+
+  // ── combine / split / open-saved ──────────────────────────────────
+  /** Merge another clicked parcel into the current subject boundary.
+   *  A real auction tract is often two or three Regrid parcels. */
+  const combineWith = useCallback(async (llUuid: string) => {
+    const cur = detailRef.current
+    if (!cur) { await loadParcelRef.current(llUuid); return }
+    setBusy('Combining…'); setError(null)
+    try {
+      const other = await fetchParcel(llUuid)
+      const merged = await combineGeometry([cur.boundary, other.boundary])
+      setDetail({
+        ...cur,
+        boundary: merged.geometry,
+        parcel: {
+          ...cur.parcel,
+          acres: merged.acres,
+          ll_bldg_count: (cur.parcel?.ll_bldg_count || 0) + (other.parcel?.ll_bldg_count || 0),
+          ll_uuid: cur.parcel?.ll_uuid,
+        },
+        polygons: cur.polygons,
+      })
+      // The other parcel's engine polygons come along with it.
+      mutate((prev) => [...prev, ...other.polygons.map((pp) => ({
+        id: nextId(), cls: pp.cls, polys: geometryToPolys(pp.geometry),
+      })).filter((x) => x.polys.length > 0)])
+      setSources((prev) => Array.from(new Set([...prev, llUuid])))
+      setTool(null)
+    } catch (e: any) {
+      setError(e?.message || 'Those parcels could not be combined.')
+    } finally { setBusy(null) }
+  }, [mutate])
+  const combineWithRef = useRef(combineWith); combineWithRef.current = combineWith
+
+  /** Cut the boundary with the drawn line. Pieces come back largest
+   *  first so they can be named Tract 1, Tract 2, … sensibly. */
+  const runSplit = useCallback(async (line: Pt[]) => {
+    const cur = detailRef.current
+    if (!cur) return
+    setBusy('Splitting…'); setError(null); setPieces([])
+    try {
+      const res = await splitGeometry(cur.boundary, {
+        type: 'LineString', coordinates: line,
+      })
+      setPieces(res.pieces)
+    } catch (e: any) {
+      setError(e?.message || 'That line did not cut the boundary.')
+    } finally { setBusy(null) }
+  }, [])
+  const runSplitRef = useRef(runSplit); runSplitRef.current = runSplit
+
+  /** Save every split piece as its own named tract in one project —
+   *  the 20-tract auction workflow in a single click. */
+  const savePieces = useCallback(async () => {
+    if (!pieces.length || !detail) return
+    setBusy('Saving tracts…'); setError(null)
+    try {
+      let pid = projectId
+      for (let i = 0; i < pieces.length; i++) {
+        const res = await saveParcel({
+          name: `Tract ${i + 1}`,
+          boundary: pieces[i].geometry,
+          // Each tract keeps only the classified ground that falls inside
+          // it; the server clips every polygon to the boundary on save.
+          polygons: shapes
+            .map((sh) => ({ cls: sh.cls, geometry: polysToGeometry(sh.polys) }))
+            .filter((x) => x.geometry) as any,
+          source_ll_uuids: sources,
+          project_id: pid,
+          project_name: projectName || name || 'Untitled auction',
+        })
+        pid = res.project_id
+      }
+      // The whole parcel has been replaced by its pieces. Leaving it in
+      // the project makes the totals count the same ground twice — an
+      // 81-acre farm reading as 163 acres.
+      if (editingId) {
+        await archiveParcel(editingId)
+        setEditingId(null)
+      }
+      setProjectId(pid)
+      setSavedMsg(
+        `Saved ${pieces.length} tracts` +
+        (editingId ? ' and archived the undivided parcel.' : '.'))
+      setPieces([])
+    } catch (e: any) {
+      setError(e?.message || 'Could not save the tracts.')
+    } finally { setBusy(null) }
+  }, [pieces, detail, projectId, projectName, name, shapes, sources, editingId])
 
   // ── paint shapes / vertices / boundary / dots / draft ──────────────
   useEffect(() => {
@@ -522,20 +698,31 @@ export default function ConfigureMap() {
     if (!name.trim()) { setError('Give this parcel a name before saving.'); return }
     setBusy('Saving…'); setError(null); setSavedMsg(null)
     try {
-      const res = await saveParcel({
+      const payload = {
         name: name.trim(),
         boundary: detail.boundary,
         polygons: shapes
           .map((s) => ({ cls: s.cls, geometry: polysToGeometry(s.polys) }))
           .filter((p) => p.geometry) as any,
-        source_ll_uuids: [String(detail.parcel?.ll_uuid)].filter(Boolean),
-      })
+        source_ll_uuids: sources.length
+          ? sources
+          : [String(detail.parcel?.ll_uuid)].filter((x) => x && x !== 'null'),
+        project_id: projectId,
+        project_name: projectName || null,
+      }
+      const res = editingId
+        ? await updateParcel(editingId, payload)
+        : await saveParcel(payload)
+      if (!editingId && 'project_id' in res) {
+        setProjectId((res as any).project_id)
+        setEditingId(res.id)
+      }
       const st = res.stats || {}
       setSavedMsg(`Saved "${res.name}" — ${st.acres ?? '?'} ac total, ${st.tillable_acres ?? 0} ac tillable.`)
     } catch (e: any) {
       setError(e?.message || 'Save failed.')
     } finally { setBusy(null) }
-  }, [detail, name, shapes])
+  }, [detail, name, shapes, sources, projectId, projectName, editingId])
 
   // Live totals by class for the panel.
   const totals = useMemo(() => {
@@ -653,9 +840,16 @@ export default function ConfigureMap() {
 
             {/* Tools */}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              <button onClick={() => { setDrawing((d) => !d); setDraft([]) }}
-                      style={{ ...btn, borderColor: drawing ? POLY_LINE : undefined }}>
-                <Plus size={13} /> {drawing ? 'Finish (Enter)' : 'Add polygon'}
+              <button
+                onClick={() => {
+                  // If a shape is already in progress, this button closes
+                  // it. Enter does the same, but a toolbar button must
+                  // never be the only way to finish what you started.
+                  if (drawing && tool !== 'split') { finishDraft(); return }
+                  setTool('draw'); setDrawing(true); setDraft([])
+                }}
+                style={{ ...btn, borderColor: drawing && tool !== 'split' ? POLY_LINE : undefined }}>
+                <Plus size={13} /> {drawing && tool !== 'split' ? 'Finish shape' : 'Add polygon'}
               </button>
               <button onClick={undo} disabled={!undoRef.current.length} style={btn}>
                 <RotateCcw size={13} /> Undo
@@ -672,7 +866,47 @@ export default function ConfigureMap() {
               <button onClick={clearAll} disabled={!shapes.length} style={{ ...btn, color: '#fca5a5' }}>
                 <X size={13} /> Clear all
               </button>
+              <button
+                onClick={() => {
+                  // Armed with a line already drawn → make the cut.
+                  if (tool === 'split' && draft.length >= 2) { finishDraft(); return }
+                  const on = tool !== 'split'
+                  setTool(on ? 'split' : null); setDrawing(on); setDraft([]); setPieces([])
+                }}
+                style={{ ...btn, borderColor: tool === 'split' ? POLY_LINE : undefined }}>
+                <Scissors size={13} />
+                {tool !== 'split' ? 'Split' : draft.length >= 2 ? 'Make the cut' : 'Click two points'}
+              </button>
+              <button
+                onClick={() => setTool(tool === 'combine' ? null : 'combine')}
+                style={{ ...btn, borderColor: tool === 'combine' ? POLY_LINE : undefined }}>
+                <Combine size={13} /> {tool === 'combine' ? 'Pick a parcel…' : 'Combine'}
+              </button>
             </div>
+            {tool === 'split' && (
+              <div style={hint}>Click once on each side of the boundary to lay the cut line, then Enter.</div>
+            )}
+            {tool === 'combine' && (
+              <div style={hint}>Click another parcel to fold it into this one.</div>
+            )}
+
+            {pieces.length > 0 && (
+              <div style={card}>
+                <div style={sectionLabel}>Split into {pieces.length} tracts</div>
+                {pieces.map((pc, i) => (
+                  <div key={i} style={statRow}>
+                    <span>Tract {i + 1}</span><span>{pc.acres.toFixed(1)} ac</span>
+                  </div>
+                ))}
+                <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                  <button onClick={() => void savePieces()} disabled={!!busy}
+                          style={{ ...btn, borderColor: '#22c55e', color: '#86efac' }}>
+                    <Save size={13} /> Save all as tracts
+                  </button>
+                  <button onClick={() => setPieces([])} style={btn}>Discard</button>
+                </div>
+              </div>
+            )}
             {drawing && (
               <div style={hint}>Click to place corners. Enter or double-click closes the shape; Esc cancels.</div>
             )}
@@ -702,12 +936,17 @@ export default function ConfigureMap() {
 
             {/* Name + save */}
             <div>
-              <div style={sectionLabel}>Name</div>
+              <div style={sectionLabel}>Project</div>
+              <input value={projectName} onChange={(e) => setProjectName(e.target.value)}
+                     placeholder={projectId ? 'Saving into the open project' : 'e.g. Smith Estate Auction (optional)'}
+                     disabled={!!projectId}
+                     style={{ ...inputStyle, opacity: projectId ? 0.55 : 1, marginBottom: 10 }} />
+              <div style={sectionLabel}>Parcel name</div>
               <input value={name} onChange={(e) => setName(e.target.value)}
                      placeholder="e.g. Tract 1 — Home Place" style={inputStyle} />
               <button onClick={() => void doSave()} disabled={!!busy || !name.trim()}
                       style={{ ...btn, width: '100%', marginTop: 8, borderColor: '#22c55e', color: '#86efac' }}>
-                <Save size={13} /> Save parcel
+                <Save size={13} /> {editingId ? 'Update parcel' : 'Save parcel'}
               </button>
             </div>
           </>
