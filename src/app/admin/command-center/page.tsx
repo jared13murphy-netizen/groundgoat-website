@@ -838,14 +838,20 @@ function Pipeline({ d }: { d: any }) {
       <div className="rows" style={{ borderTop: '1px solid var(--line)', paddingTop: 7 }}>
         <Row label="Auctions / private treaty"
           value={`${num(d.reported?.auctions ?? d.found_auctions)} / ${num(d.reported?.private_treaty ?? d.found_private_treaty)}`} />
-        {d.reported_found != null
-          ? <Row label="— new to us (the rest we had already seen)" value={num(d.found)} />
-          : <div className="fixnote">
-              Showing listings NEW to us. The scraper does not report how many it
-              worked through, so the true found count is not in this database —
-              one line at the end of the scrape posting to
-              /api/admin/scraper/report would fill this in.
-            </div>}
+        {d.reported_found != null && (
+          <Row label="— new to us (the rest we had already seen)" value={num(d.found)} />
+        )}
+        {/* Seven nights, so "is 3 normal?" answers itself. A run of similar
+            numbers means this is what new-to-us looks like; one small number
+            after a run of large ones means last night broke. */}
+        {(d.new_by_night || []).length > 1 && (
+          <div className="row">
+            <span className="l" style={{ color: 'var(--muted)' }}>New each night · last 7</span>
+            <span className="r dim" style={{ fontFamily: 'ui-monospace, Menlo, monospace' }}>
+              {(d.new_by_night || []).map((b: any) => num(b.n)).join(' · ')}
+            </span>
+          </div>
+        )}
         <Row label="Published from that run" value={num(d.published_from_run)} />
         <Row label="Tracts that got a boundary"
           value={poly === null || poly === undefined
