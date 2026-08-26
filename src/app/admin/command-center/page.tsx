@@ -307,7 +307,7 @@ function People({ d }: { d: any }) {
           Signed up, never subscribed &nbsp;·&nbsp; {num(d.never_subscribed_new_30d)} of them in the last 30 days
         </div>
       </div>
-      <div className="rows" style={{ flex: '1 1 auto', minHeight: 0 }}>
+      <div className="rows">
         {recent.slice(0, 2).map((u: any) => (
           <div className="row" key={u.email}>
             <span className="l">{u.name || u.email}</span>
@@ -345,11 +345,21 @@ function Regrid({ d }: { d: any }) {
       )}
       <div className="rows">
         <Row label={`Parcel records · ${num(d.records_pct, 1)}%`}
-          value={`${num(d.records)} of ${num(d.records_cap)}`} />
+          value={`${d.is_floor ? '≥ ' : ''}${num(d.records)} of ${num(d.records_cap)}`} />
         <Row label={`Map tiles · ${num(d.tiles_pct, 1)}%`}
-          value={`${num(d.tiles)} of ${num(d.tiles_cap)}`} />
+          value={`${d.is_floor ? '≥ ' : ''}${num(d.tiles)} of ${num(d.tiles_cap)}`} />
         <Row label="Days into the year" value={num(d.days_into_year)} />
       </div>
+      {/* Counted from our own caches when Regrid does not answer. It is a
+          floor: both caches are keyed on what they cache and a re-fetch
+          updates the timestamp, so a parcel bought twice is counted once. */}
+      {d.is_floor && (
+        <div className="note" style={{ color: 'var(--amber)' }}>
+          Counted from our own cache, so these are a minimum — a parcel or
+          tile bought twice this year is counted once. Records from{' '}
+          {d.records_basis}, tiles from {d.tiles_basis}.
+        </div>
+      )}
       <div className="rows" style={{ borderTop: '1px solid var(--line)', paddingTop: 7 }}>
         <Row label="Parcel lookups today" value={num(d.parcel_lookups_24h)} />
         <Row label="Saved by our cache" value={rate(d.parcel_cache_pct)} />
@@ -511,8 +521,7 @@ function Crashes({ d }: { d: any }) {
       {affected.length === 0
         ? <div className="allgood">No crashes in the last 7 days</div>
         : (
-          <div className="rows" style={{ borderTop: '1px solid var(--line)', paddingTop: 7,
-                                         flex: '1 1 auto' }}>
+          <div className="rows" style={{ borderTop: '1px solid var(--line)', paddingTop: 7 }}>
             {affected.slice(0, 5).map((a, i) => (
               <div key={a.user_id || `anon-${i}`} style={{ display: 'grid', gap: 1 }}>
                 <div className="row">
@@ -543,8 +552,7 @@ function Crashes({ d }: { d: any }) {
 function Storage({ d, trend }: { d: any; trend: any }) {
   return (
     <>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6,
-                    minHeight: 0, flex: '1 1 auto' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         {(d.stores || []).map((s: any) => {
           const pc = s.pct_of_cap
           const capped = pc !== null && pc !== undefined
@@ -1463,8 +1471,8 @@ const CSS = `
   --amber:#9A6400; --amber-bg:#FDF4E5; --amber-line:#EBD7A8;
   --green:#2E7D46; --green-bg:#EFF6F1;
   --r:7px;
-  --lift:0 1px 1px rgba(16,16,20,.04), 0 2px 6px rgba(16,16,20,.07);
-  --lift-hi:0 1px 2px rgba(16,16,20,.06), 0 5px 14px rgba(16,16,20,.11);
+  --lift:0 1px 2px rgba(16,16,20,.10), 0 4px 12px rgba(16,16,20,.16);
+  --lift-hi:0 2px 4px rgba(16,16,20,.14), 0 8px 22px rgba(16,16,20,.22);
   /* DM Sans is the website's own body face (globals.css), so the dashboard
      reads as part of Ground Goat rather than as a separate tool. It carries
      the wordmark, every label and all running text.
@@ -1613,9 +1621,12 @@ body:has(.shell){overflow:hidden;}
 }
 .panel > h2{
   flex:none;margin:0;display:flex;align-items:center;gap:7px;
-  padding:7px 11px;border-bottom:1px solid var(--head-line);background:var(--card-2);
+  padding:7px 11px;border-bottom:1px solid var(--line-2);
+  background:linear-gradient(180deg,#FFFFFF 0%,#F4F4F7 55%,#E9E9EE 100%);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.9), 0 1px 0 rgba(16,16,20,.04);
   font-family:var(--label);font-weight:700;font-size:11px;
   letter-spacing:.085em;text-transform:uppercase;color:var(--ink);
+  text-shadow:0 1px 0 rgba(255,255,255,.75);
 }
 .panel > h2 .tag{margin-left:auto;font-size:10px;letter-spacing:.06em;
   color:var(--faint);font-weight:600;}
