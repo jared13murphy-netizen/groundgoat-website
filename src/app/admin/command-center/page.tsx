@@ -46,7 +46,7 @@ type PanelState = {
   ok: boolean; data?: any; error?: string; label?: string; at?: string
   stale_data?: any; refresh_seconds?: number
 }
-type Alert = { level: 'red' | 'amber'; key: string; title: string; detail?: string; where?: string }
+type Alert = { level: 'red' | 'amber' | 'info'; key: string; title: string; detail?: string; where?: string }
 type Snapshot = {
   ready: boolean
   generated_at: string | null
@@ -369,7 +369,25 @@ function Regrid({ d }: { d: any }) {
                   <span className="dim"> · {d.tiles_basis}</span>)}
               </>} />
         <Row label="Days into the year" value={num(d.days_into_year)} />
+        {/* What we can answer without Regrid. The year-to-date total is not
+            recoverable — the meter only starts on 25 Aug — but the rate is
+            measured exactly, and "at this rate, do I blow the contract?" is
+            the question that actually matters. Labelled a pace, never a
+            total, with the unmeasured days stated beside it. */}
+        {d.pace && (
+          <Row label="On pace for"
+            tone={d.pace.combined_pct >= 90 ? 'red' : d.pace.combined_pct >= 75 ? 'amber' : ''}
+            value={`${num(d.pace.combined_pct, 1)}% of the year`} />
+        )}
       </div>
+      {d.pace && (
+        <div className="note">
+          {num(d.pace.records_per_day, 1)} records and {num(d.pace.tiles_per_day, 1)} tiles a day,
+          measured over {num(d.pace.measured_days, 1)} day{d.pace.measured_days === 1 ? '' : 's'}
+          {d.pace.unmeasured_days > 0 && <> · the {num(d.pace.unmeasured_days)} days before
+            that were never counted, so this is a rate, not a year-to-date total</>}.
+        </div>
+      )}
       {/* Counted from our own caches when Regrid does not answer. It is a
           floor: both caches are keyed on what they cache and a re-fetch
           updates the timestamp, so a parcel bought twice is counted once. */}
@@ -1371,11 +1389,14 @@ function FixButton({ issue, fixes, compact }:
    it. Reds sort first; the verdict block on the left carries the totals
    so nothing is hidden by the strip scrolling sideways. */
 
-function AlertStrip({ alerts, fixes }: { alerts: Alert[]; fixes?: any }) {
+function AlertStrip({ alerts, fixes, onOpenFindings }:
+  { alerts: Alert[]; fixes?: any; onOpenFindings?: () => void }) {
   const rowRef = useRef<HTMLDivElement>(null)
   const [fits, setFits] = useState(true)
   const reds = alerts.filter(a => a.level === 'red').length
-  const ambers = alerts.length - reds
+  // A finished diagnosis rides in this strip so it cannot be lost, but it is
+  // an answer, not a problem — counting it would inflate "things to look at".
+  const ambers = alerts.filter(a => a.level === 'amber').length
 
   useEffect(() => {
     const el = rowRef.current
@@ -1406,8 +1427,12 @@ function AlertStrip({ alerts, fixes }: { alerts: Alert[]; fixes?: any }) {
               <div className="where">{a.where}</div>
               <div className="title">{a.title}</div>
               <div className="detail">{a.detail}</div>
-              <FixButton compact issue={{ key: a.key, title: a.title, detail: a.detail,
-                where: a.where }} fixes={fixes} />
+              {a.level === 'info'
+                ? <button type="button" className="fixbtn" onClick={onOpenFindings}>
+                    Read it
+                  </button>
+                : <FixButton compact issue={{ key: a.key, title: a.title, detail: a.detail,
+                    where: a.where }} fixes={fixes} />}
             </article>
           ))}
       </div>
@@ -1588,7 +1613,8 @@ export default function CommandCenterPage() {
           <div className="clock">{clock}</div>
         </header>
 
-        <AlertStrip alerts={snap.alerts || []} fixes={fixesD} />
+        <AlertStrip alerts={snap.alerts || []} fixes={fixesD}
+          onOpenFindings={() => setFixOpen(true)} />
 
         <main className="field">
           <Panel span={4} title="Right now" tag="last 24 hours below" infoId="pulse" panelState={st('pulse')} onChart={chart('pulse')}
@@ -1820,7 +1846,11 @@ body:has(.shell){overflow:hidden;}
 /* ── Alert strip: the one thing that must be impossible to miss ── */
 .alerts{
   display:grid;grid-template-columns:auto minmax(0,1fr);gap:9px;align-items:stretch;
-  padding:0 9px;
+  /* Room below for the cards' shadows, pulled back with a negative margin so
+     the strip still occupies the same height. Without it the shadow was
+     sliced flat against the row underneath. */
+  padding:0 9px 16px;
+  margin-bottom:-16px;
 }
 .verdict{
   display:flex;flex-direction:column;justify-content:center;gap:1px;
@@ -1837,9 +1867,15 @@ body:has(.shell){overflow:hidden;}
 .verdict.warn{border-color:var(--amber-line);background:var(--amber-bg);}
 .verdict.warn .big{color:var(--amber);}
 
-.alert-row{display:flex;gap:7px;overflow-x:auto;overflow-y:hidden;padding-bottom:2px;
+.alert-row{display:flex;gap:7px;overflow-x:auto;overflow-y:hidden;
   scrollbar-width:thin;position:relative;
-  padding:3px 0 8px;
+  /* overflow-x:auto forces overflow-y to compute as auto, so anything drawn
+     past this box is clipped — a shadow included. The bottom padding is the
+     shadow's room to exist inside the scroller; the negative margin keeps
+     the strip its original height, letting the shadow fall behind the cards
+     on the row below rather than being cut off against them. */
+  padding:3px 2px 22px;
+  margin-bottom:-18px;
   -webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 52px),transparent 100%);
   mask-image:linear-gradient(90deg,#000 calc(100% - 52px),transparent 100%);}
 .alert-row.fits{-webkit-mask-image:none;mask-image:none;}
@@ -1851,10 +1887,12 @@ body:has(.shell){overflow:hidden;}
 }
 .alert.red{border-left-color:var(--red);background:var(--red-bg);border-color:var(--red-line);}
 .alert.amber{border-left-color:var(--amber);background:var(--amber-bg);border-color:var(--amber-line);}
+.alert.info{border-left-color:var(--royal);background:#EEF2FF;border-color:#C7D2FE;}
 .alert .where{font-family:var(--label);font-size:9.5px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);}
 .alert .title{font-weight:600;font-size:13px;margin:1px 0 2px;line-height:1.2;text-wrap:balance;}
 .alert.red .title{color:var(--red);}
 .alert.amber .title{color:var(--amber);}
+.alert.info .title{color:var(--royal);}
 .alert .detail{font-size:11.5px;color:var(--ink-2);line-height:1.3;
   display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
 .all-clear{display:flex;align-items:center;padding:0 14px;border:1px solid #C6DECF;
