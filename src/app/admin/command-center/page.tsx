@@ -96,7 +96,9 @@ function Panel({ span, title, tag, pip, onChart, infoId, panelState, children }:
   return (
     <section className="panel" style={{ gridColumn: `span ${span}` }}>
       <h2>
-        {pip ? <span className={`pip ${pip}`} /> : null}
+        {/* The status dot beside each title is gone — the owner does not
+            want it, and the cards already carry their state in the numbers
+            and the alert strip. The prop stays so call sites need no edit. */}
         {title}
         {tag ? <span className="tag">{tag}</span> : null}
         {/* Only shown where a trend actually exists, so the icon never
@@ -824,14 +826,26 @@ function Pipeline({ d }: { d: any }) {
   return (
     <>
       <div className="kpis" style={{ gridTemplateColumns: 'repeat(3,1fr)' }}>
-        <Kpi v={num(d.found)} k="Found last night"
-          tone={d.run_anchored_to_job && d.found === 0 ? 'amber' : ''} />
+        {/* listing_staging keys on a unique source_url_hash, so a listing
+            the scraper has seen before creates no row — this count can only
+            ever be NEW urls, not everything the scrape worked through. When
+            the scraper reports its own total we show that instead. */}
+        <Kpi v={num(d.reported_found ?? d.found)} k="Last scrape results"
+          tone={d.run_anchored_to_job && !d.reported_found && !d.found ? 'amber' : ''} />
         <Kpi small v={num(d.waiting)} k="Waiting for you" />
         <Kpi small v={num(d.verified_today)} k="Verified today" />
       </div>
       <div className="rows" style={{ borderTop: '1px solid var(--line)', paddingTop: 7 }}>
         <Row label="Auctions / private treaty"
-          value={`${num(d.found_auctions)} / ${num(d.found_private_treaty)}`} />
+          value={`${num(d.reported?.auctions ?? d.found_auctions)} / ${num(d.reported?.private_treaty ?? d.found_private_treaty)}`} />
+        {d.reported_found != null
+          ? <Row label="— new to us (the rest we had already seen)" value={num(d.found)} />
+          : <div className="fixnote">
+              Showing listings NEW to us. The scraper does not report how many it
+              worked through, so the true found count is not in this database —
+              one line at the end of the scrape posting to
+              /api/admin/scraper/report would fill this in.
+            </div>}
         <Row label="Published from that run" value={num(d.published_from_run)} />
         <Row label="Tracts that got a boundary"
           value={poly === null || poly === undefined
@@ -2527,10 +2541,10 @@ svg.spark{display:block;width:100%;height:100%;}
 .axis{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:9px;fill:#7A7A88;letter-spacing:0;}
 .chartbtn{
   flex:none;width:20px;height:20px;padding:0;margin-left:6px;cursor:pointer;
-  border:1px solid #B45309;border-radius:5px;background:#F59E0B;
+  border:1px solid #D9D9E0;border-radius:5px;background:#F59E0B;
   color:#0B0B0F;display:inline-flex;align-items:center;justify-content:center;
 }
-.chartbtn:hover{background:#FBAF24;border-color:#92400E;}
+.chartbtn:hover{background:#FBAF24;border-color:#EDEDF2;}
 .chartbtn:focus-visible{outline:2px solid var(--pink);outline-offset:1px;}
 .chartbtn svg{width:12px;height:12px;display:block;}
 .panel > h2 .tag + .chartbtn{margin-left:6px;}
@@ -2568,11 +2582,11 @@ svg.spark{display:block;width:100%;height:100%;}
    limits are written down can be trusted; one without them cannot. */
 .infobtn{
   flex:none;width:20px;height:20px;padding:0;margin-left:5px;cursor:pointer;
-  border:1px solid var(--royal-line);border-radius:50%;background:var(--royal);
+  border:1px solid #D9D9E0;border-radius:50%;background:var(--royal);
   color:#fff;display:inline-flex;align-items:center;justify-content:center;
   font-family:var(--sans);font-size:11px;font-weight:700;line-height:1;
 }
-.infobtn:hover{background:var(--royal-hi);border-color:#122a7d;}
+.infobtn:hover{background:var(--royal-hi);border-color:#EDEDF2;}
 .infobtn:focus-visible{outline:2px solid var(--pink);outline-offset:1px;}
 .panel > h2 .infobtn:first-of-type{margin-left:auto;}
 .panel{position:relative;}
