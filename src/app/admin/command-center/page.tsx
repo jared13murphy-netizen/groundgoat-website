@@ -232,6 +232,13 @@ function Money({ d }: { d: any }) {
       </table>
       <div className="rows">
         <Row label="Firms paying" value={`${num(d.paying_firms)} · ${num(d.firm_seats)} seats`} />
+        {d.firms_trialing > 0 && (
+          /* These used to be counted as paying, so this row and the plan
+             table above disagreed about how many firms there are. */
+          <Row label="Firms on trial, not yet paying"
+            value={`${num(d.firms_trialing)}${d.firm_trial_seats ? ` · ${num(d.firm_trial_seats)} seats` : ''}`}
+            tone="amber" />
+        )}
         <Row label="Renewing in 30 days" value={`${num(d.renewing_30d)} · ${money(d.renewing_30d_value)}`} />
         <Row label="Payment failed" value={num(d.past_due_people)} tone={d.past_due_people ? 'red' : ''} />
       </div>
@@ -243,11 +250,32 @@ function Money({ d }: { d: any }) {
         <div className="rows" style={{ borderTop: '1px solid var(--line)', paddingTop: 7 }}>
           <div className="more" style={{ marginBottom: 2 }}>Trials becoming paid</div>
           <Row label="On a free trial"
-            value={`${num(d.trials.total)} · ${money(d.trials.value_all)} if all convert`} />
+            value={`${num(d.trials.total)} · ${money(d.trials.charge_all)} if all convert`} />
+          {/* A single total here is unreadable: a couple of firm trials at a
+              few thousand each dominate it, and there was no way to see that
+              from the card. Broken out, the number can be checked by adding
+              it up. */}
+          {(d.trials.by_tier || []).map((t: any) => (
+            <div className="row" key={t.tier}>
+              <span className="l clamp1" style={{ color: 'var(--muted)', paddingLeft: 8 }}>
+                — {(t.tier || '').replace(/_/g, ' ')} × {num(t.people)}
+              </span>
+              <span className="r dim" style={{ color: 'var(--muted)' }}>{money(t.charge)}</span>
+            </div>
+          ))}
+          {d.trials.unpriced > 0 && (
+            <Row label="— trials with no price set" value={num(d.trials.unpriced)} tone="amber" />
+          )}
+          {d.trials.monthly_cycle > 0 && (
+            /* Every plan is sold annually, so a monthly-cycle row is a data
+               fault, not a plan. Worth saying rather than quietly averaging in. */
+            <Row label="— not on an annual cycle (should be none)"
+              value={num(d.trials.monthly_cycle)} tone="red" />
+          )}
           <Row label="Charging within 7 days" value={num(d.trials.ending_7d)}
             tone={d.trials.ending_7d ? 'green' : ''} />
           <Row label="Charging within 30 days"
-            value={`${num(d.trials.ending_30d)} · ${money(d.trials.value_30d)}`} />
+            value={`${num(d.trials.ending_30d)} · ${money(d.trials.charge_30d)}`} />
           {(d.trials.soon || []).slice(0, 3).map((t: any) => (
             <div className="row" key={t.email}>
               <span className="l clamp1" style={{ color: 'var(--muted)' }}>{t.name}</span>
@@ -755,19 +783,52 @@ function Reach({ notif, email, fixes }: { notif: any; email: any; fixes?: any })
         <Row label="Pushes in the last hour" value={num(notif?.pushed_1h)} />
         <Row label="Last push"
           value={notif?.last_push ? `${ago(notif.last_push)} ago` : <span className="dim">none yet</span>} />
-        <div className="row">
-          <span className="l" style={failing ? { color: 'var(--red)' } : undefined}>
-            Failed to send
-          </span>
-          <span className="r" style={failing ? { color: 'var(--red)' } : undefined}>
-            {num(notif?.really_failed_24h)}
-          </span>
-          {failing && <FixButton compact fixes={fixes}
-            issue={{ key: 'push:failed', title: 'Push notifications are failing to send',
-              where: 'Notifications',
-              detail: `${num(notif.really_failed_24h)} notifications in the last day went to users with a live device, notifications on and a valid token, and still did not send.`,
-              evidence: notif }} />}
-        </div>
+        {/* A bare failure count is alarming and unactionable at the same
+            time. Expo says exactly why each one failed, so the row opens to
+            show the reasons and real examples. */}
+        <details className="row" style={{ display: 'block' }}>
+          <summary style={{ cursor: 'pointer', listStyle: 'none', display: 'flex' }}>
+            <span className="l" style={failing ? { color: 'var(--red)' } : undefined}>
+              Failed to send{' '}
+              <span className="dim" style={{ fontSize: 10 }}>· click for why</span>
+            </span>
+            <span className="r" style={failing ? { color: 'var(--red)' } : undefined}>
+              {num(notif?.really_failed_24h)}
+            </span>
+          </summary>
+          <div style={{ padding: '4px 0 2px' }}>
+            {(notif?.failure_reasons?.reasons || []).length === 0 ? (
+              <div className="fixnote">
+                {notif?.failure_reasons?.available === false
+                  ? 'Reasons are not being recorded — Redis is unavailable.'
+                  : notif?.failure_reasons?.counting_note ||
+                    'No reason recorded for these yet.'}
+              </div>
+            ) : (
+              <>
+                {(notif.failure_reasons.reasons || []).map((r: any) => (
+                  <div className="row" key={r.reason}>
+                    <span className="l clamp1" style={{ color: 'var(--muted)', paddingLeft: 8 }}>
+                      — {r.reason}
+                    </span>
+                    <span className="r dim">{num(r.count)}</span>
+                  </div>
+                ))}
+                {(notif.failure_reasons.recent || []).slice(0, 3).map((x: any, i: number) => (
+                  <div className="fixnote" key={i} style={{ paddingLeft: 8 }}>
+                    {x.at ? `${ago(x.at)} ago` : ''} · {x.reason}
+                    {x.detail ? ` · ${String(x.detail).slice(0, 90)}` : ''}
+                  </div>
+                ))}
+              </>
+            )}
+            {failing && <FixButton compact fixes={fixes}
+              issue={{ key: 'push:failed', title: 'Push notifications are failing to send',
+                where: 'Notifications',
+                detail: `${num(notif.really_failed_24h)} notifications in the last day went to users with a live device, notifications on and a valid token, and still did not send.`,
+                evidence: notif }} />}
+          </div>
+        </details>
       </div>
       {/* Not faults — who we could not reach, and why. */}
       <div className="rows" style={{ borderTop: '1px solid var(--line)', paddingTop: 7 }}>
