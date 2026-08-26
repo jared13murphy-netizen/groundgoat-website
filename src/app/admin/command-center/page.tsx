@@ -42,7 +42,10 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-p
 
 /* ── Types ────────────────────────────────────────────────────────── */
 
-type PanelState = { ok: boolean; data?: any; error?: string; label?: string; at?: string; stale_data?: any }
+type PanelState = {
+  ok: boolean; data?: any; error?: string; label?: string; at?: string
+  stale_data?: any; refresh_seconds?: number
+}
 type Alert = { level: 'red' | 'amber'; key: string; title: string; detail?: string; where?: string }
 type Snapshot = {
   ready: boolean
@@ -84,9 +87,10 @@ function ago(iso: string | null | undefined): string {
 
 type Tone = 'red' | 'amber' | 'green' | ''
 
-function Panel({ span, title, tag, pip, onChart, infoId, children }: {
+function Panel({ span, title, tag, pip, onChart, infoId, panelState, children }: {
   span: number; title: string; tag?: string; pip?: Tone
-  onChart?: () => void; infoId?: string; children: React.ReactNode
+  onChart?: () => void; infoId?: string; panelState?: PanelState
+  children: React.ReactNode
 }) {
   const [showInfo, setShowInfo] = useState(false)
   return (
@@ -110,7 +114,8 @@ function Panel({ span, title, tag, pip, onChart, infoId, children }: {
         )}
       </h2>
       {showInfo && infoId && (
-        <InfoPop id={infoId} title={title} onClose={() => setShowInfo(false)} />
+        <InfoPop id={infoId} title={title} panel={panelState}
+          onClose={() => setShowInfo(false)} />
       )}
       <div className="body">{children}</div>
     </section>
@@ -312,23 +317,33 @@ function People({ d }: { d: any }) {
         <More total={recent.length} shown={2} />
       </div>
       {/* Says out loud what this number is not, so it can't be over-read. */}
-      <div className="note" style={{ flex: 'none' }}>{d.funnel_caveat}</div>
+      <div className="note">{d.funnel_caveat}</div>
     </>
   )
 }
 
 function Regrid({ d }: { d: any }) {
+  const known = d.known !== false
   const pc = d.combined_pct || 0
-  const tone: Tone = pc >= 90 ? 'red' : pc >= 75 ? 'amber' : 'green'
+  const tone: Tone = !known ? '' : pc >= 90 ? 'red' : pc >= 75 ? 'amber' : 'green'
   const rate = (v: number | null | undefined) =>
     v === null || v === undefined ? <span className="dim">not yet</span> : `${num(v, 1)}%`
   return (
     <>
       {/* Regrid bills the combined fraction of records AND parcel tiles, so
           that is the headline. Either half alone understates the bill. */}
-      <Kpi v={`${num(pc, 1)}%`} k={`Of the year's Regrid contract · per ${d.source}`}
+      <Kpi v={known ? `${num(pc, 1)}%` : 'unknown'}
+        k={`Of the year's Regrid contract · ${d.source}`}
         tone={tone === 'green' ? '' : tone} />
-      <div className="bar"><i className={tone} style={{ width: `${Math.min(100, pc)}%` }} /></div>
+      {known && <div className="bar"><i className={tone} style={{ width: `${Math.min(100, pc)}%` }} /></div>}
+      {!known && (
+        <div className="note" style={{ color: 'var(--amber)' }}>
+          Regrid&rsquo;s usage endpoint has not answered and our own counters
+          started on {d.counting_since}. Showing 0% here would read as
+          &ldquo;plenty left&rdquo;, which is the worst thing this card could
+          get wrong.
+        </div>
+      )}
       <div className="rows">
         <Row label={`Parcel records · ${num(d.records_pct, 1)}%`}
           value={`${num(d.records)} of ${num(d.records_cap)}`} />
@@ -342,7 +357,7 @@ function Regrid({ d }: { d: any }) {
         <Row label="Map tiles today" value={num(d.tiles_24h)} />
         <Row label="Tiles saved by our cache" value={rate(d.tile_cache_pct)} />
       </div>
-      <div className="note" style={{ marginTop: 'auto' }}>
+      <div className="note">
         {d.cycle_note
           ? <span style={{ color: 'var(--amber)' }}>{d.cycle_note} </span>
           : `Contract year started ${d.contract_year_start}. `}
@@ -371,7 +386,7 @@ function Erroring({ d }: { d: any[] }) {
           ))}
         </tbody>
       </table>
-      <div className="note" style={{ marginTop: 'auto' }}>
+      <div className="note">
         Last three hours. Red means the failure is ours, not a bad request.
       </div>
     </>
@@ -395,7 +410,7 @@ function Slowest({ d }: { d: any[] }) {
           ))}
         </tbody>
       </table>
-      <div className="note" style={{ marginTop: 'auto' }}>
+      <div className="note">
         Over the last day. &ldquo;Slowest 5%&rdquo; is what an unlucky customer waits.
       </div>
     </>
@@ -541,7 +556,7 @@ function Storage({ d, trend }: { d: any; trend: any }) {
         })}
       </div>
       {trend && (
-        <div style={{ borderTop: '1px solid var(--line)', paddingTop: 8, flex: 'none' }}>
+        <div style={{ borderTop: '1px solid var(--line)', paddingTop: 8 }}>
           <Row label="Main database is growing" value={`${num(trend.growth_gb_per_day, 2)} GB a day`} />
           {trend.days_to_cap !== null && trend.days_to_cap !== undefined && (
             <Row label="Full in" value={`about ${num(trend.days_to_cap)} days`}
@@ -591,7 +606,7 @@ function Pipeline({ d }: { d: any }) {
         <Row label="Selling in the next 24 hours" value={num(d.auctions_next_24h)}
           tone={d.auctions_next_24h ? 'amber' : ''} />
       </div>
-      <div className="note" style={{ marginTop: 'auto' }}>
+      <div className="note">
         {d.run_started
           ? <>Last scrape {ago(d.run_started)} ago
               {d.run_minutes ? `, took ${num(d.run_minutes, 0)} min` : ''}
@@ -631,7 +646,7 @@ function Quality({ d }: { d: any }) {
           </div>
         </div>
       )}
-      <div className="note" style={{ marginTop: 'auto' }}>Things a subscriber would notice before we do.</div>
+      <div className="note">Things a subscriber would notice before we do.</div>
     </>
   )
 }
@@ -666,7 +681,7 @@ function Reach({ notif, email }: { notif: any; email: any }) {
           ))}
         </div>
       )}
-      <div className="note" style={{ marginTop: 'auto' }}>Refreshes every 15 seconds.</div>
+      <div className="note">Refreshes every 15 seconds.</div>
     </>
   )
 }
@@ -705,7 +720,7 @@ const CARD_INFO: Record<string, CardInfo> = {
   regrid: {
     covers: 'How much of the annual Regrid contract is used: parcel records and map tiles, combined the way Regrid bills.',
     source: 'Regrid\u2019s own /api/v2/usage endpoint where reachable, our own counters otherwise. The card says which.',
-    caveat: 'Records alone understate it — tiles are usually the larger half. Cache percentages only count from 25 Aug 2026, when the counters were added; before that nothing was recorded.',
+    caveat: 'Records alone understate it — tiles are usually the larger half of the bill. If neither Regrid nor our own counters have anything, this reads "unknown" rather than 0%, because 0% of an annual contract looks like plenty left. Cache percentages only count from 25 Aug 2026, when the counters were added.',
   },
   failing_endpoints: {
     covers: 'Endpoints that returned errors in the last three hours.',
@@ -744,7 +759,8 @@ const CARD_INFO: Record<string, CardInfo> = {
   },
 }
 
-function InfoPop({ id, title, onClose }: { id: string; title: string; onClose: () => void }) {
+function InfoPop({ id, title, onClose, panel }:
+  { id: string; title: string; onClose: () => void; panel?: PanelState }) {
   const info = CARD_INFO[id]
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
@@ -759,6 +775,17 @@ function InfoPop({ id, title, onClose }: { id: string; title: string; onClose: (
       <p>{info.covers}</p>
       <dl>
         <dt>From</dt><dd>{info.source}</dd>
+        {panel?.refresh_seconds && (
+          <>
+            <dt>Updates</dt>
+            <dd>
+              every {panel.refresh_seconds < 60
+                ? `${panel.refresh_seconds} seconds`
+                : `${Math.round(panel.refresh_seconds / 60)} minutes`}
+              {panel.at && ` · last ${ago(panel.at)} ago`}
+            </dd>
+          </>
+        )}
         {info.caveat && <><dt>Careful</dt><dd className="warn">{info.caveat}</dd></>}
       </dl>
     </div>
@@ -879,6 +906,13 @@ function TrendsDrawer({ openFor, title, series, onClose }:
     token to find; it asks for the password on launch and stores nothing.
 
     Copy is kept alongside for anyone who would rather paste a line. */
+/* Pairs with the Run button: a downloaded file arrives without the execute
+   bit, so double-clicking it in Finder does not run it. This makes it
+   executable and starts it, and works from any directory — the old copy
+   command was a relative path that only worked inside the repo. */
+const DOWNLOAD_CMD =
+  'chmod +x ~/Downloads/groundgoat-agents.command && ~/Downloads/groundgoat-agents.command'
+
 function RunReporter({ compact = false }: { compact?: boolean }) {
   const [state, setState] = useState<'idle' | 'working' | 'ready' | 'failed'>('idle')
   const [copied, setCopied] = useState(false)
@@ -907,8 +941,7 @@ function RunReporter({ compact = false }: { compact?: boolean }) {
 
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(
-        'python3 scripts/agent_reporter.py --login you@groundgoat.com')
+      await navigator.clipboard.writeText(DOWNLOAD_CMD)
       setCopied(true)
       setTimeout(() => setCopied(false), 2500)
     } catch { /* clipboard blocked — the button simply does not confirm */ }
@@ -934,11 +967,17 @@ function RunReporter({ compact = false }: { compact?: boolean }) {
           {copied ? 'Copied' : 'Copy command'}
         </button>
       </div>
+      <p className="runnote" style={{ margin: '-4px 0 10px' }}>
+        Download first, then paste this in Terminal — a downloaded file has no
+        permission to run until you give it one:
+        <br />
+        <code style={{ fontFamily: 'var(--mono)', fontSize: 10.5 }}>{DOWNLOAD_CMD}</code>
+      </p>
       {state === 'ready' && (
         <p className="runnote" style={{ margin: '0 0 10px' }}>
-          Downloaded <b>groundgoat-agents.command</b>. Double-click it — macOS
-          may ask you to confirm the first time (right-click &rarr; Open). It
-          will ask for your Ground Goat password, then start reporting.
+          Downloaded <b>groundgoat-agents.command</b>. Paste the command above
+          into Terminal to make it runnable and start it — it will ask for your
+          Ground Goat password, then report every ten seconds.
         </p>
       )}
       {state === 'failed' && (
@@ -1240,6 +1279,7 @@ export default function CommandCenterPage() {
     return p && p.ok ? p.data : null
   }
   const whyMissing = (key: string) => snap.panels?.[key]?.error || 'no reading yet'
+  const st = (key: string) => snap.panels?.[key]
 
   if (!authorised) {
     return <><style dangerouslySetInnerHTML={{ __html: CSS }} /><div className="booting">Checking your access…</div></>
@@ -1284,62 +1324,62 @@ export default function CommandCenterPage() {
         <AlertStrip alerts={snap.alerts || []} />
 
         <main className="field">
-          <Panel span={4} title="Right now" tag="last 24 hours below" infoId="pulse" onChart={chart('pulse')}
+          <Panel span={4} title="Right now" tag="last 24 hours below" infoId="pulse" panelState={st('pulse')} onChart={chart('pulse')}
             pip={!pulse ? undefined : pulse.error_rate_hour_pct >= 5 ? 'red' : pulse.error_rate_hour_pct >= 2 ? 'amber' : 'green'}>
             {pulse ? <RightNow d={pulse} series={P('traffic_series')} /> : <Unavailable why={whyMissing('pulse')} />}
           </Panel>
 
-          <Panel span={3} title="Money" tag="per year" infoId="money" onChart={chart('money')} pip={!moneyD ? undefined : moneyD.past_due_people ? 'amber' : 'green'}>
+          <Panel span={3} title="Money" tag="per year" infoId="money" panelState={st('money')} onChart={chart('money')} pip={!moneyD ? undefined : moneyD.past_due_people ? 'amber' : 'green'}>
             {moneyD ? <Money d={moneyD} /> : <Unavailable why={whyMissing('money')} />}
           </Panel>
 
-          <Panel span={3} title="App crashes" infoId="crashes" onChart={chart('crashes')}
+          <Panel span={3} title="App crashes" infoId="crashes" panelState={st('crashes')} onChart={chart('crashes')}
             pip={!crashD ? undefined : crashD.last_hour ? 'red' : crashD.last_24h ? 'amber' : 'green'}>
             {crashD ? <Crashes d={crashD} /> : <Unavailable why={whyMissing('crashes')} />}
           </Panel>
 
-          <Panel span={2} title="Regrid budget" infoId="regrid" onChart={chart('regrid')}
+          <Panel span={2} title="Regrid budget" infoId="regrid" panelState={st('regrid')} onChart={chart('regrid')}
             pip={!regridD ? undefined : regridD.records_used_pct >= 90 ? 'red' : regridD.records_used_pct >= 75 ? 'amber' : 'green'}>
             {regridD ? <Regrid d={regridD} /> : <Unavailable why={whyMissing('regrid')} />}
           </Panel>
 
-          <Panel span={3} title="What is erroring" infoId="failing_endpoints" onChart={chart('failing_endpoints')} pip={!erroringD ? undefined : erroringD.length ? 'red' : 'green'}>
+          <Panel span={3} title="What is erroring" infoId="failing_endpoints" panelState={st('failing_endpoints')} onChart={chart('failing_endpoints')} pip={!erroringD ? undefined : erroringD.length ? 'red' : 'green'}>
             {erroringD ? <Erroring d={erroringD} /> : <Unavailable why={whyMissing('failing_endpoints')} />}
           </Panel>
 
-          <Panel span={3} title="Slowest things" infoId="slow_endpoints"
+          <Panel span={3} title="Slowest things" infoId="slow_endpoints" panelState={st('slow_endpoints')}
             pip={!slowD ? undefined : slowD.some((e: any) => e.p95_ms >= 5000) ? 'amber' : 'green'}>
             {slowD ? <Slowest d={slowD} /> : <Unavailable why={whyMissing('slow_endpoints')} />}
           </Panel>
 
-          <Panel span={3} title="Background jobs" infoId="jobs"
+          <Panel span={3} title="Background jobs" infoId="jobs" panelState={st('jobs')}
             pip={!jobsD ? undefined : (jobsD.failing || []).length ? 'red' : (jobsD.stuck || []).length ? 'amber' : 'green'}>
             {jobsD ? <Jobs d={jobsD} /> : <Unavailable why={whyMissing('jobs')} />}
           </Panel>
 
-          <Panel span={3} title="People" infoId="people" onChart={chart('people')} pip={peopleD ? 'green' : undefined}>
+          <Panel span={3} title="People" infoId="people" panelState={st('people')} onChart={chart('people')} pip={peopleD ? 'green' : undefined}>
             {peopleD ? <People d={peopleD} /> : <Unavailable why={whyMissing('people')} />}
           </Panel>
 
-          <Panel span={4} title="Storage" tag="share of the ceiling" infoId="storage" onChart={chart('storage')}
+          <Panel span={4} title="Storage" tag="share of the ceiling" infoId="storage" panelState={st('storage')} onChart={chart('storage')}
             pip={!storageD ? undefined : (storageD.stores || []).some((s: any) => (s.pct_of_cap || 0) >= 90) ? 'red' : 'amber'}>
             {storageD ? <Storage d={storageD} trend={P('storage_trend')} /> : <Unavailable why={whyMissing('storage')} />}
           </Panel>
 
-          <Panel span={3} title="Scraper & staging" infoId="pipeline" onChart={chart('pipeline')}
+          <Panel span={3} title="Scraper & staging" infoId="pipeline" panelState={st('pipeline')} onChart={chart('pipeline')}
             pip={!pipelineD ? undefined
               : pipelineD.run_failures ? 'red'
               : pipelineD.listings_missing_main_image || pipelineD.tracts_boundary_missing_image ? 'amber' : 'green'}>
             {pipelineD ? <Pipeline d={pipelineD} /> : <Unavailable why={whyMissing('pipeline')} />}
           </Panel>
 
-          <Panel span={3} title="Data quality" infoId="data_quality"
+          <Panel span={3} title="Data quality" infoId="data_quality" panelState={st('data_quality')}
             pip={!qualityD ? undefined
               : qualityD.valid_but_no_boundary || qualityD.past_auctions_no_price ? 'amber' : 'green'}>
             {qualityD ? <Quality d={qualityD} /> : <Unavailable why={whyMissing('data_quality')} />}
           </Panel>
 
-          <Panel span={2} title="Notifications &amp; email" infoId="reach" pip={notifD?.overdue ? 'amber' : 'green'}>
+          <Panel span={2} title="Notifications &amp; email" infoId="reach" panelState={st('notifications')} pip={notifD?.overdue ? 'amber' : 'green'}>
             {notifD || emailD ? <Reach notif={notifD} email={emailD} /> : <Unavailable why={whyMissing('notifications')} />}
           </Panel>
         </main>
@@ -1573,6 +1613,10 @@ body:has(.shell){overflow:hidden;}
 .body{min-height:0;flex:1;overflow-y:auto;overflow-x:hidden;padding:9px 11px;
   display:flex;flex-direction:column;gap:8px;scrollbar-width:thin;
   scrollbar-color:var(--line-2) transparent;}
+.body > *{flex:0 0 auto;min-height:0;}
+/* A trailing note must sit after the content, never be pushed onto it.
+   margin-top:auto inside a scrolling column is what let them collide. */
+.body > .note:last-child{margin-top:6px;}
 .body::-webkit-scrollbar{width:7px;}
 .body::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:4px;}
 .body::-webkit-scrollbar-track{background:transparent;}
@@ -1758,11 +1802,11 @@ svg.spark{display:block;width:100%;height:100%;}
    limits are written down can be trusted; one without them cannot. */
 .infobtn{
   flex:none;width:20px;height:20px;padding:0;margin-left:5px;cursor:pointer;
-  border:1px solid var(--pill-line);border-radius:5px;background:var(--pill);
-  color:var(--muted);display:inline-flex;align-items:center;justify-content:center;
+  border:1px solid var(--blue-pill-line);border-radius:50%;background:var(--blue-pill);
+  color:var(--blue-ink);display:inline-flex;align-items:center;justify-content:center;
   font-family:var(--sans);font-size:11px;font-weight:700;line-height:1;
 }
-.infobtn:hover{background:#fff;border-color:var(--pink);color:var(--pink);}
+.infobtn:hover{background:var(--blue-pill-hi);border-color:var(--blue-ink);}
 .infobtn:focus-visible{outline:2px solid var(--pink);outline-offset:1px;}
 .panel > h2 .infobtn:first-of-type{margin-left:auto;}
 .panel{position:relative;}
