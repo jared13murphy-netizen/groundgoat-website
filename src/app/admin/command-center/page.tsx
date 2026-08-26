@@ -265,6 +265,50 @@ function Spark({ values, color, hours, unit }:
   )
 }
 
+function Outside({ d, fixes }: { d: any; fixes?: any }) {
+  const services: any[] = d.services || []
+  if (!d.instrumented) {
+    return <div className="drawer-empty">Nothing has called an outside service in 24 hours.</div>
+  }
+  return (
+    <div className="rows">
+      {services.map(x => {
+        const bad = (x.error_rate_pct ?? 0) >= 10
+        const some = (x.errors_24h || 0) > 0
+        return (
+          <div key={x.api}>
+            <Row label={x.api.charAt(0).toUpperCase() + x.api.slice(1)}
+              tone={bad ? 'red' : some ? 'amber' : ''}
+              value={`${num(x.calls_24h)} calls · ${num(x.errors_24h)} failed${
+                x.error_rate_pct == null ? '' : ` · ${num(x.error_rate_pct, 1)}%`}`} />
+            {/* The message is the whole point: "146 failed" is a number,
+                "the domain is not verified" is something to go and fix. */}
+            {x.last_message && (
+              <div className="fixnote" style={{ color: bad ? 'var(--red)' : 'var(--faint)' }}>
+                {x.last_message}
+              </div>
+            )}
+            {some && <FixButton compact fixes={fixes}
+              issue={{ key: `outside:${x.api}`, title: `${x.api} is failing`,
+                where: 'Outside services',
+                detail: x.last_message || `${x.errors_24h} of ${x.calls_24h} calls failed in 24 hours`,
+                evidence: x }} />}
+          </div>
+        )
+      })}
+      {(d.by_operation || []).length > 0 && (
+        <>
+          <div className="more" style={{ marginTop: 4 }}>Which call is failing</div>
+          {(d.by_operation || []).slice(0, 4).map((o: any) => (
+            <Row key={`${o.api}.${o.operation}`} label={`${o.api} · ${o.operation}`}
+              tone="amber" value={`${num(o.errors)} of ${num(o.calls)}`} />
+          ))}
+        </>
+      )}
+    </div>
+  )
+}
+
 /* ── The panels ───────────────────────────────────────────────────── */
 
 function RightNow({ d, series }: { d: any; series: any[] | null }) {
@@ -1203,6 +1247,20 @@ const CARD_INFO: Record<string, CardInfo> = {
     source: 'pg_database_size for databases the backend connects to; the rest were measured by hand on the date shown.',
     caveat: 'A Railway Postgres disk cannot exceed 1,000 GB, so percentage matters more than gigabytes. Rows marked with a date are not live readings.',
   },
+  outside: {
+    covers: 'Every outside service we depend on — Stripe, Resend and Anthropic — with how many calls failed and WHY.',
+    source: 'hourly_external_api_calls, written by the wrappers around each service. Regrid is not here: it has its own meter and its own card.',
+    lines: [
+      { l: 'Calls · failed · rate',
+        d: 'How many times we called that service in the last 24 hours, how many came back an error, and the share. A service nobody called shows no rate rather than 0%.' },
+      { l: 'The message underneath',
+        d: 'The last error the service actually returned. That is the point of the card: "146 failed" is a number, "the domain is not verified" is something you can go and fix.' },
+      { l: 'Which call is failing',
+        d: 'Narrows it to the specific operation — creating a checkout, sending an email — so a failing service does not send you hunting through everything it does.' },
+      { l: 'Why it matters',
+        d: 'Stripe failing means someone is not being billed. Resend failing means someone is not being told. Both were invisible on this dashboard until now.' },
+    ],
+  },
   pipeline: {
     lines: [
       { l: 'Last run',
@@ -2037,6 +2095,7 @@ export default function CommandCenterPage() {
   const erroringD = P('failing_endpoints'), slowD = P('slow_endpoints'), jobsD = P('jobs'), crashD = P('crashes')
   const storageD = P('storage'), pipelineD = P('pipeline'), qualityD = P('data_quality')
   const notifD = P('notifications'), emailD = P('email')
+  const outsideD = P('outside')
   const agentsD = P('agents')
   const trendsD = P('trends') || {}
   const fixesD = P('fixes')
@@ -2126,6 +2185,13 @@ export default function CommandCenterPage() {
             {storageD ? <Storage d={storageD} trend={P('storage_trend')} /> : <Unavailable why={whyMissing('storage')} />}
           </Panel>
 
+          {/* Stripe, Resend and Anthropic. This table has been filling up all
+              along — calls, errors and the last error MESSAGE — and nothing
+              on this dashboard read it, so an outside service failing was
+              invisible here. */}
+          <Panel span={3} title="Outside services" infoId="outside" panelState={st('outside')}>
+            {outsideD ? <Outside d={outsideD} fixes={fixesD} /> : <Unavailable why={whyMissing('outside')} />}
+          </Panel>
           <Panel span={3} title="Scraper & staging" infoId="pipeline" panelState={st('pipeline')} onChart={chart('pipeline')}
             pip={!pipelineD ? undefined
               : pipelineD.run_failures ? 'red'
