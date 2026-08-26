@@ -1189,6 +1189,94 @@ function AgentDrawer({ open, onClose, data }: { open: boolean; onClose: () => vo
    When the backend is not configured for it, the button says what is
    missing rather than failing when pressed. */
 
+/* ── Findings drawer ──────────────────────────────────────────────────
+   Where the Diagnose button's answers actually land. Without this the
+   agent would investigate into a void — the run would finish and nobody
+   would ever read it. */
+
+function FixDrawer({ open, onClose, data }: { open: boolean; onClose: () => void; data: any }) {
+  const runs: any[] = data?.runs || []
+  const [picked, setPicked] = useState<string | null>(null)
+  const current = runs.find(r => r.id === picked) || runs[0] || null
+
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open, onClose])
+
+  const tone = (r: any) => r.status === 'done' ? 'var(--green)'
+    : r.status === 'working' ? 'var(--amber)' : 'var(--red)'
+
+  return (
+    <>
+      <div className={`scrim ${open ? 'open' : ''}`} onClick={onClose} aria-hidden="true" />
+      <aside className={`drawer ${open ? 'open' : ''}`} aria-hidden={!open}
+        aria-label="Findings — what the agent worked out">
+        <div className="drawer-head">
+          <h2>Findings</h2>
+          <span className="sub">
+            {data?.ready === false ? 'not configured'
+              : `${num(data?.working)} working of ${runs.length}`}
+          </span>
+          <button type="button" className="drawer-close" onClick={onClose}>Close ·  Esc</button>
+        </div>
+        <div className="drawer-body">
+          {runs.length === 0 ? (
+            <div className="drawer-empty" style={{ display: 'block', textAlign: 'left', color: 'var(--ink)' }}>
+              <p style={{ margin: '0 0 10px' }}>Nothing has been looked at yet.</p>
+              <p style={{ margin: 0, fontSize: 12, color: 'var(--faint)' }}>
+                Press Diagnose on any problem. Opus 5 reads the code and reports
+                what is wrong and the change it would make. It cannot edit or deploy.
+              </p>
+            </div>
+          ) : (
+            <div className="agent-list" style={{ color: 'var(--ink)' }}>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+                {runs.map(r => (
+                  <button key={r.id} type="button" onClick={() => setPicked(r.id)}
+                    className="fixbtn"
+                    style={{
+                      background: current?.id === r.id ? tone(r) : 'transparent',
+                      borderColor: tone(r),
+                      color: current?.id === r.id ? '#fff' : 'var(--ink)',
+                    }}>
+                    {(r.issue?.title || 'untitled').slice(0, 34)}
+                  </button>
+                ))}
+              </div>
+
+              {current && (
+                <div style={{ color: 'var(--ink)' }}>
+                  <div style={{ fontWeight: 700, marginBottom: 2 }}>{current.issue?.title}</div>
+                  <div style={{ fontSize: 11, color: 'var(--faint)', marginBottom: 10 }}>
+                    {current.status}
+                    {current.stage ? ` · ${current.stage}` : ''}
+                    {current.model ? ` · ${current.model}` : ''}
+                    {current.started_by ? ` · started by ${current.started_by}` : ''}
+                  </div>
+                  {current.error && (
+                    <div style={{ color: 'var(--red)', marginBottom: 10 }}>{current.error}</div>
+                  )}
+                  <pre style={{
+                    whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0,
+                    fontSize: 12, lineHeight: 1.5, color: 'var(--ink)',
+                    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                  }}>
+                    {(current.output || []).join('\n\n') ||
+                      (current.status === 'working' ? 'Reading the code…' : '(nothing reported)')}
+                  </pre>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </aside>
+    </>
+  )
+}
+
 function FixButton({ issue, fixes, compact }:
   { issue: any; fixes?: any; compact?: boolean }) {
   const [state, setState] = useState<'idle' | 'starting' | 'started' | 'failed'>('idle')
@@ -1233,9 +1321,9 @@ function FixButton({ issue, fixes, compact }:
       <button type="button" className="fixbtn" onClick={start}
         disabled={state === 'starting' || !ready}
         title={ready
-          ? 'Start a Claude Code agent (Opus 5) on this. It will not deploy.'
+          ? 'Opus 5 reads the code and reports what is wrong and the exact change to make. It cannot edit or deploy.'
           : (fixes?.missing || []).join('; ')}>
-        {state === 'starting' ? 'Starting…' : 'Fix'}
+        {state === 'starting' ? 'Starting…' : 'Diagnose'}
       </button>
       {state === 'failed' && !compact && (
         <div className="fixnote" style={{ color: 'var(--red)' }}>{why}</div>
@@ -1313,6 +1401,7 @@ export default function CommandCenterPage() {
   const connectedRef = useRef(false)
   const [clock, setClock] = useState('')
   const [devOpen, setDevOpen] = useState(false)
+  const [fixOpen, setFixOpen] = useState(false)
   const [chartFor, setChartFor] = useState<string | null>(null)
 
   /* Same admin gate as every other /admin page. The backend enforces it
@@ -1449,6 +1538,10 @@ export default function CommandCenterPage() {
             aria-expanded={devOpen}>
             Developers{agentsD?.working ? <> · <span className="count">{num(agentsD.working)}</span></> : null}
           </button>
+          <button type="button" className="devbtn" onClick={() => setFixOpen(true)}
+            aria-expanded={fixOpen}>
+            Findings{fixesD?.working ? <> · <span className="count">{num(fixesD.working)}</span></> : null}
+          </button>
           <a className="back" href="/admin/dashboard">&larr; Admin</a>
           <div className="rail-spacer" />
           <span className={`pill ${connected ? '' : 'off'}`}>
@@ -1526,6 +1619,7 @@ export default function CommandCenterPage() {
         </main>
       </div>
       <AgentDrawer open={devOpen} onClose={() => setDevOpen(false)} data={agentsD} />
+      <FixDrawer open={fixOpen} onClose={() => setFixOpen(false)} data={fixesD} />
       <TrendsDrawer openFor={chartFor} onClose={() => setChartFor(null)}
         title={chartFor ? (CHART_TITLES[chartFor] || 'Trend') : ''}
         series={chartFor ? (trendsD[chartFor] || []) : []} />
