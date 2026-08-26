@@ -512,22 +512,32 @@ function Crashes({ d }: { d: any }) {
   const affected: any[] = d.affected || []
   return (
     <>
+      {/* A CRASH IS THE APP SHUTTING DOWN. Nothing else on this card is a
+          crash. The app's reporter sends every JS error its global handler
+          sees — unhandled promise rejections included — and counting those
+          together produced "40 app crashes today" for a day on which the app
+          died twice. The headline is fatal only; the rest is below it,
+          labelled as what it is. */}
       <div className="kpis" style={{ gridTemplateColumns: 'repeat(3,1fr)' }}>
-        <Kpi v={num(d.last_hour)} k="Last hour" tone={d.last_hour ? 'red' : ''} />
-        <Kpi small v={num(d.last_24h)} k="Last 24 hours" />
-        <Kpi small v={num(d.last_7d)} k="Last 7 days" tone={d.last_7d ? 'amber' : ''} />
+        <Kpi v={num(d.fatal_24h_only)} k="App shut down · 24h"
+          tone={d.fatal_24h_only ? 'red' : 'green'} />
+        <Kpi small v={num(d.users_fatal_24h)} k="People it hit"
+          tone={d.users_fatal_24h ? 'red' : ''} />
+        <Kpi small v={num(d.fatal_7d)} k="Shut down · 7 days"
+          tone={d.fatal_7d ? 'amber' : ''} />
       </div>
-      {/* "Last 24 hours" is a rolling window, so it falls as crashes age out
-          of it. The 7-day and all-time figures sit beside it so a drop can
-          always be told apart from data going missing. */}
       <div className="rows">
-        <Row label="Signed-in people hit, 24 hours" value={num(d.users_affected_24h)}
-          tone={d.users_affected_24h ? 'red' : ''} />
+        <Row label="Errors the app survived, 24 hours"
+          value={num((d.rejections_24h || 0) + (d.nonfatal_24h || 0))}
+          tone={(d.rejections_24h || 0) + (d.nonfatal_24h || 0) ? 'amber' : ''} />
+        <Row label="— of those, unhandled promise rejections"
+          value={num(d.rejections_24h)} />
         <Row label="Crashes with nobody signed in, 24 hours" value={num(d.signed_out_24h)}
           tone={d.signed_out_24h ? 'amber' : ''} />
-        <Row label="Ever recorded"
-          value={`${num(d.all_time)} · newest ${d.newest_report ? ago(d.newest_report) + ' ago' : 'none'}`} />
+        <Row label="Ever recorded, crashes and errors"
+          value={`${num(d.all_time)} · ${num(d.fatal_all)} were crashes · newest ${d.newest_report ? ago(d.newest_report) + ' ago' : 'none'}`} />
       </div>
+      {d.what_counts && <div className="note">{d.what_counts}</div>}
       {/* The list below spans 7 days, not the 24 hours above it — labelled,
           because mixing the two silently is how a 59-crash row ended up
           under a headline of 12. */}
