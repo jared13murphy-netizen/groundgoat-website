@@ -347,14 +347,27 @@ function Regrid({ d }: { d: any }) {
         </div>
       )}
       <div className="rows">
-        <Row label={`Parcel records · ${d.records == null ? '—' : num(d.records_pct, 1) + '%'}`}
+        {/* The percentage is only printed when the backend says the figure
+            actually covers the contract year. One day of counting shown as
+            "0.1%" of an annual cap reads as "barely touched it", which is
+            the worst thing this card can get wrong — so when the share is
+            unknown the row carries the basis instead of a number. */}
+        <Row label={`Parcel records${d.records_pct == null ? '' : ` · ${num(d.records_pct, 1)}%`}`}
           value={d.records == null
             ? <span className="dim">{d.records_basis}</span>
-            : `${d.is_floor ? '≥ ' : ''}${num(d.records)} of ${num(d.records_cap)}`} />
-        <Row label={`Map tiles · ${d.tiles == null ? '—' : num(d.tiles_pct, 1) + '%'}`}
+            : <>
+                {`${d.is_floor ? '≥ ' : ''}${num(d.records)} of ${num(d.records_cap)}`}
+                {d.records_pct == null && (
+                  <span className="dim"> · {d.records_basis}</span>)}
+              </>} />
+        <Row label={`Map tiles${d.tiles_pct == null ? '' : ` · ${num(d.tiles_pct, 1)}%`}`}
           value={d.tiles == null
             ? <span className="dim">{d.tiles_basis}</span>
-            : `${d.is_floor ? '≥ ' : ''}${num(d.tiles)} of ${num(d.tiles_cap)}`} />
+            : <>
+                {`${d.is_floor ? '≥ ' : ''}${num(d.tiles)} of ${num(d.tiles_cap)}`}
+                {d.tiles_pct == null && (
+                  <span className="dim"> · {d.tiles_basis}</span>)}
+              </>} />
         <Row label="Days into the year" value={num(d.days_into_year)} />
       </div>
       {/* Counted from our own caches when Regrid does not answer. It is a
@@ -1067,8 +1080,26 @@ function RunReporter({ compact = false }: { compact?: boolean }) {
    Claude Code exposes no API a deployed page can poll, so the reporter
    pushes; without it this panel says so rather than looking broken. */
 
-function AgentDrawer({ open, onClose, data }: { open: boolean; onClose: () => void; data: any }) {
-  const agents: any[] = data?.agents || []
+function AgentDrawer({ open, onClose, data, fixes }:
+  { open: boolean; onClose: () => void; data: any; fixes?: any }) {
+  /* Diagnose runs are agents too, and this is where you look for "what is
+     running". They come from the backend rather than the reporter on the
+     Mac, so they are reshaped to match and shown in the same list — the
+     alternative was pressing Diagnose and finding an empty panel. */
+  const fixAgents: any[] = (fixes?.runs || []).map((r: any) => ({
+    session_id: r.id,
+    status: r.status === 'done' ? 'idle' : r.status,
+    model: r.model,
+    repo: 'ground-goat-backend',
+    branch: r.issue?.where || 'Command Center',
+    started_at: r.started_at,
+    last_active: r.updated_at || r.finished_at,
+    log_file: 'Command Center · Diagnose',
+    assignment: [r.issue?.title, r.issue?.detail].filter(Boolean).join(' — '),
+    messages: (r.output || []).map((t: string) => ({ at: r.updated_at, text: t })),
+    _diagnose: true,
+  }))
+  const agents: any[] = [...fixAgents, ...(data?.agents || [])]
   const [picked, setPicked] = useState<string | null>(null)
 
   // Default to the most recently active agent, and follow it as reports
@@ -1092,8 +1123,8 @@ function AgentDrawer({ open, onClose, data }: { open: boolean; onClose: () => vo
         <div className="drawer-head">
           <h2>Developers</h2>
           <span className="sub">
-            {data?.available === false ? 'unavailable'
-              : `${num(data?.working)} working of ${num(data?.total)}`}
+            {data?.available === false && !fixAgents.length ? 'unavailable'
+              : `${num((data?.working || 0) + (fixes?.working || 0))} working of ${num(agents.length)}`}
           </span>
           <RunReporter compact />
           <button type="button" className="drawer-close" onClick={onClose}>Close ·  Esc</button>
@@ -1536,7 +1567,9 @@ export default function CommandCenterPage() {
           </div>
           <button type="button" className="devbtn" onClick={() => setDevOpen(true)}
             aria-expanded={devOpen}>
-            Developers{agentsD?.working ? <> · <span className="count">{num(agentsD.working)}</span></> : null}
+            Developers{(agentsD?.working || 0) + (fixesD?.working || 0)
+              ? <> · <span className="count">{num((agentsD?.working || 0) + (fixesD?.working || 0))}</span></>
+              : null}
           </button>
           <button type="button" className="devbtn" onClick={() => setFixOpen(true)}
             aria-expanded={fixOpen}>
@@ -1618,7 +1651,7 @@ export default function CommandCenterPage() {
           </Panel>
         </main>
       </div>
-      <AgentDrawer open={devOpen} onClose={() => setDevOpen(false)} data={agentsD} />
+      <AgentDrawer open={devOpen} onClose={() => setDevOpen(false)} data={agentsD} fixes={fixesD} />
       <FixDrawer open={fixOpen} onClose={() => setFixOpen(false)} data={fixesD} />
       <TrendsDrawer openFor={chartFor} onClose={() => setChartFor(null)}
         title={chartFor ? (CHART_TITLES[chartFor] || 'Trend') : ''}
