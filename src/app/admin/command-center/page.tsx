@@ -338,16 +338,23 @@ function Regrid({ d }: { d: any }) {
       {known && <div className="bar"><i className={tone} style={{ width: `${Math.min(100, pc)}%` }} /></div>}
       {!known && (
         <div className="note" style={{ color: 'var(--amber)' }}>
-          {d.cycle_note || `Regrid has not answered and our own counters started on ${d.counting_since}.`}
+          {/* A count that FAILED is not a small number. Say which. */}
+          {d.floor_error
+            ? `Could not count the year from our own data — ${d.floor_error}.`
+            : (d.cycle_note || `Regrid has not answered and our own counters started on ${d.counting_since}.`)}
           {' '}Showing 0% here would read as &ldquo;plenty left&rdquo;, which is the
           worst thing this card could get wrong.
         </div>
       )}
       <div className="rows">
-        <Row label={`Parcel records · ${num(d.records_pct, 1)}%`}
-          value={`${d.is_floor ? '≥ ' : ''}${num(d.records)} of ${num(d.records_cap)}`} />
-        <Row label={`Map tiles · ${num(d.tiles_pct, 1)}%`}
-          value={`${d.is_floor ? '≥ ' : ''}${num(d.tiles)} of ${num(d.tiles_cap)}`} />
+        <Row label={`Parcel records · ${d.records == null ? '—' : num(d.records_pct, 1) + '%'}`}
+          value={d.records == null
+            ? <span className="dim">{d.records_basis}</span>
+            : `${d.is_floor ? '≥ ' : ''}${num(d.records)} of ${num(d.records_cap)}`} />
+        <Row label={`Map tiles · ${d.tiles == null ? '—' : num(d.tiles_pct, 1) + '%'}`}
+          value={d.tiles == null
+            ? <span className="dim">{d.tiles_basis}</span>
+            : `${d.is_floor ? '≥ ' : ''}${num(d.tiles)} of ${num(d.tiles_cap)}`} />
         <Row label="Days into the year" value={num(d.days_into_year)} />
       </div>
       {/* Counted from our own caches when Regrid does not answer. It is a
