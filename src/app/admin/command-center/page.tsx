@@ -1718,6 +1718,10 @@ svg.spark{display:block;width:100%;height:100%;}
   position:fixed;top:0;right:0;bottom:0;z-index:81;
   width:min(1180px,88vw);display:grid;grid-template-rows:auto minmax(0,1fr);
   background:var(--paper);border-left:1px solid var(--line-2);
+  /* Explicit, because this sits outside .shell and would otherwise inherit
+     the site's dark-theme white text. */
+  color:var(--ink);
+  font-family:var(--sans);font-size:13px;line-height:1.35;
   box-shadow:-18px 0 48px rgba(10,10,10,.22);
   transform:translateX(100%);transition:transform .22s cubic-bezier(.4,0,.2,1);
 }
@@ -1740,7 +1744,7 @@ svg.spark{display:block;width:100%;height:100%;}
 .drawer-close:hover{background:rgba(255,255,255,.22);border-color:rgba(255,255,255,.6);}
 .drawer-body{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,420px);
   min-height:0;gap:1px;background:var(--line);}
-.agent-list{overflow-y:auto;background:var(--paper);padding:10px;display:grid;
+.agent-list{overflow-y:auto;background:var(--paper);color:var(--ink);padding:10px;display:grid;
   grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:9px;align-content:start;}
 .agent-card{
   background:var(--card);border:1px solid var(--line);border-left:3px solid var(--line-2);
@@ -1754,19 +1758,19 @@ svg.spark{display:block;width:100%;height:100%;}
 .agent-card:focus-visible{outline:2px solid var(--pink);outline-offset:1px;}
 .agent-card .top{display:flex;align-items:center;gap:6px;margin-bottom:3px;}
 .agent-card .nm{font-weight:700;font-size:12.5px;overflow:hidden;
-  text-overflow:ellipsis;white-space:nowrap;}
+  text-overflow:ellipsis;white-space:nowrap;color:var(--ink);}
 .agent-card .meta{font-size:10.5px;color:var(--faint);overflow:hidden;
   text-overflow:ellipsis;white-space:nowrap;margin-bottom:5px;}
-.agent-card .say{font-size:11.5px;color:var(--ink-2);line-height:1.35;
+.agent-card .say{font-size:11.5px;color:var(--ink);line-height:1.35;
   display:-webkit-box;-webkit-line-clamp:5;-webkit-box-orient:vertical;overflow:hidden;
   background:var(--pink-tint);border-radius:4px;padding:5px 7px;white-space:pre-wrap;}
-.agent-detail{overflow-y:auto;background:var(--card);padding:12px 14px;}
+.agent-detail{overflow-y:auto;background:var(--card);color:var(--ink);padding:12px 14px;}
 .agent-detail dl{display:grid;grid-template-columns:auto minmax(0,1fr);
   gap:2px 12px;margin:0 0 12px;font-size:11.5px;}
 .agent-detail dt{font-family:var(--label);font-size:10px;letter-spacing:.08em;
   text-transform:uppercase;color:var(--faint);}
 .agent-detail dd{margin:0;font-family:var(--mono);font-size:11px;
-  overflow-wrap:anywhere;}
+  overflow-wrap:anywhere;color:var(--ink);}
 .agent-detail h3{font-family:var(--label);font-size:10px;letter-spacing:.1em;
   text-transform:uppercase;color:var(--pink);margin:0 0 5px;}
 .agent-detail .assign{font-size:11.5px;line-height:1.4;white-space:pre-wrap;
@@ -1774,7 +1778,8 @@ svg.spark{display:block;width:100%;height:100%;}
   color:var(--ink);}
 .feed{display:flex;flex-direction:column;gap:8px;}
 .feed .msg{font-size:11.5px;line-height:1.4;white-space:pre-wrap;
-  border-left:2px solid var(--line-2);padding-left:8px;overflow-wrap:anywhere;}
+  border-left:2px solid var(--line-2);padding-left:8px;overflow-wrap:anywhere;
+  color:var(--ink);}
 .feed .msg time{display:block;font-family:var(--mono);font-size:9.5px;
   color:var(--faint);margin-bottom:2px;}
 .drawer-empty{grid-column:1/-1;display:flex;align-items:center;justify-content:center;
@@ -1794,7 +1799,8 @@ svg.spark{display:block;width:100%;height:100%;}
 .panel > h2 .tag + .chartbtn{margin-left:6px;}
 .panel > h2 .chartbtn:first-of-type{margin-left:auto;}
 
-.charts{display:grid;gap:14px;padding:14px 16px;overflow-y:auto;align-content:start;}
+.charts{display:grid;gap:14px;padding:14px 16px;overflow-y:auto;align-content:start;
+  color:var(--ink);}
 .chartcard{background:var(--card);border:1px solid var(--line);border-radius:var(--r);
   box-shadow:var(--lift);padding:10px 12px;}
 .chartcard h4{margin:0 0 2px;font-family:var(--label);font-size:11px;font-weight:700;
@@ -1835,7 +1841,7 @@ svg.spark{display:block;width:100%;height:100%;}
 .panel{position:relative;}
 .pop{
   position:absolute;top:32px;right:8px;z-index:40;width:min(430px,calc(100% - 16px));
-  background:var(--card);border:1px solid var(--line-2);border-radius:var(--r);
+  background:var(--card);color:var(--ink);border:1px solid var(--line-2);border-radius:var(--r);
   box-shadow:var(--lift-hi);padding:11px 13px;text-align:left;
   max-height:calc(100% - 42px);overflow-y:auto;
 }
