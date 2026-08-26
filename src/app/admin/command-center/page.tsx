@@ -1432,36 +1432,6 @@ function FixButton({ issue, fixes, compact }:
    it. Reds sort first; the verdict block on the left carries the totals
    so nothing is hidden by the strip scrolling sideways. */
 
-/* Marking a crash handled is the ONLY thing that clears a crash alert.
-   They never age out: a crash that hit real subscribers must not scroll off
-   the screen because an hour passed. If the same signature crashes again
-   after this, the alert comes back on its own. */
-function CrashHandled({ signature }: { signature: string }) {
-  const [state, setState] = useState<'idle' | 'saving' | 'done' | 'failed'>('idle')
-  const mark = async () => {
-    setState('saving')
-    try {
-      const res = await fetchWithAuth(`${API_URL}/api/admin/crashes/ack`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ signature }),
-      })
-      setState(res.ok ? 'done' : 'failed')
-    } catch { setState('failed') }
-  }
-  if (state === 'done') {
-    return <span className="fixnote">Handled · it will come back if it crashes again</span>
-  }
-  return (
-    <button type="button" className="fixbtn" onClick={mark}
-      disabled={state === 'saving'}
-      style={{ background: 'transparent', color: 'var(--ink-2)', borderColor: 'var(--line)' }}
-      title="Clears this crash. It reopens by itself if the same crash happens again.">
-      {state === 'saving' ? 'Saving…' : state === 'failed' ? 'Failed — retry' : 'Mark handled'}
-    </button>
-  )
-}
-
 function AlertStrip({ alerts, fixes, onOpenFindings }:
   { alerts: Alert[]; fixes?: any; onOpenFindings?: () => void }) {
   const rowRef = useRef<HTMLDivElement>(null)
@@ -1507,8 +1477,6 @@ function AlertStrip({ alerts, fixes, onOpenFindings }:
                 : <div className="alert-actions">
                     <FixButton compact issue={{ key: a.key, title: a.title, detail: a.detail,
                       where: a.where }} fixes={fixes} />
-                    {a.key.startsWith('crash:') && (
-                      <CrashHandled signature={a.key.slice('crash:'.length)} />)}
                   </div>}
             </article>
           ))}
