@@ -338,10 +338,9 @@ function Regrid({ d }: { d: any }) {
       {known && <div className="bar"><i className={tone} style={{ width: `${Math.min(100, pc)}%` }} /></div>}
       {!known && (
         <div className="note" style={{ color: 'var(--amber)' }}>
-          Regrid&rsquo;s usage endpoint has not answered and our own counters
-          started on {d.counting_since}. Showing 0% here would read as
-          &ldquo;plenty left&rdquo;, which is the worst thing this card could
-          get wrong.
+          {d.cycle_note || `Regrid has not answered and our own counters started on ${d.counting_since}.`}
+          {' '}Showing 0% here would read as &ldquo;plenty left&rdquo;, which is the
+          worst thing this card could get wrong.
         </div>
       )}
       <div className="rows">
@@ -490,6 +489,19 @@ function Crashes({ d }: { d: any }) {
             tone={(d.diagnosis.max_dots || 0) > 5000 ? 'red' : ''} />
           <Row label="Phone memory"
             value={`${num(d.diagnosis.smallest_device_gb, 1)}–${num(d.diagnosis.largest_device_gb, 1)} GB`} />
+          {/* A "phone" with 16 GB or more is a Mac running the simulator —
+              your own testing, not a customer. Worth separating before
+              treating a burst as a fleet-wide problem. */}
+          {d.diagnosis.simulator_like > 0 && (
+            <Row label="On the simulator, not a phone"
+              value={`${num(d.diagnosis.simulator_like)} · ${num(d.diagnosis.simulator_pct, 0)}%`}
+              tone="amber" />
+          )}
+          {(d.diagnosis.devices || []).length > 0 && (
+            <Row label="Devices"
+              value={(d.diagnosis.devices || []).slice(0, 2)
+                .map((x: any) => `${x.model} ${x.count}`).join(' · ')} />
+          )}
           {(d.diagnosis.overlays || []).length > 0 && (
             <Row label="Overlay"
               value={(d.diagnosis.overlays || []).map((o: any) => `${o.overlay} ${o.count}`).join(' · ')} />
