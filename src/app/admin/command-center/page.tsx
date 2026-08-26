@@ -658,9 +658,17 @@ function Pipeline({ d }: { d: any }) {
   )
 }
 
-function Quality({ d }: { d: any }) {
+function Quality({ d, fixes }: { d: any; fixes?: any }) {
+  // Each row is a distinct, fixable defect, so each gets its own button
+  // rather than one button for "data quality" in general.
   const line = (label: string, v: number) => (
-    <Row key={label} label={label} value={num(v)} tone={v ? 'amber' : ''} />
+    <div className="row" key={label}>
+      <span className="l" style={v ? { color: 'var(--amber)' } : undefined}>{label}</span>
+      <span className="r" style={v ? { color: 'var(--amber)' } : undefined}>{num(v)}</span>
+      {v > 0 && <FixButton compact fixes={fixes}
+        issue={{ key: `quality:${label}`, title: label, where: 'Data quality',
+          detail: `${num(v)} records affected.`, evidence: d }} />}
+    </div>
   )
   return (
     <>
@@ -690,8 +698,12 @@ function Quality({ d }: { d: any }) {
   )
 }
 
-function Reach({ notif, email }: { notif: any; email: any }) {
-  const failing = (notif?.failed_24h || 0) > 0
+function Reach({ notif, email, fixes }: { notif: any; email: any; fixes?: any }) {
+  // Only really_failed_24h is a fault. The other three reasons are facts
+  // about the audience — no device, notifications off, malformed token — and
+  // lumping them together as "tried but did not send" is what produced a
+  // wildly wrong 182.
+  const failing = (notif?.really_failed_24h || 0) > 0
   return (
     <>
       <div className="kpis" style={{ gridTemplateColumns: '1fr 1fr' }}>
@@ -700,31 +712,49 @@ function Reach({ notif, email }: { notif: any; email: any }) {
       </div>
       <div className="rows" style={{ borderTop: '1px solid var(--line)', paddingTop: 7 }}>
         <Row label="Pushes in the last hour" value={num(notif?.pushed_1h)} />
-        {/* Every send writes a row; pushed_at is only set when it worked. If
-            these two diverge, sending is broken, and one "sent" number would
-            have hidden that. */}
-        <Row label="Tried but did not send" value={num(notif?.failed_24h)}
-          tone={failing ? 'red' : ''} />
         <Row label="Last push"
           value={notif?.last_push ? `${ago(notif.last_push)} ago` : <span className="dim">none yet</span>} />
+        <div className="row">
+          <span className="l" style={failing ? { color: 'var(--red)' } : undefined}>
+            Failed to send
+          </span>
+          <span className="r" style={failing ? { color: 'var(--red)' } : undefined}>
+            {num(notif?.really_failed_24h)}
+          </span>
+          {failing && <FixButton compact fixes={fixes}
+            issue={{ key: 'push:failed', title: 'Push notifications are failing to send',
+              where: 'Notifications',
+              detail: `${num(notif.really_failed_24h)} notifications in the last day went to users with a live device, notifications on and a valid token, and still did not send.`,
+              evidence: notif }} />}
+        </div>
+      </div>
+      {/* Not faults — who we could not reach, and why. */}
+      <div className="rows" style={{ borderTop: '1px solid var(--line)', paddingTop: 7 }}>
+        <div className="more" style={{ marginBottom: 2 }}>Not sent, and why</div>
+        <Row label="No device registered" value={num(notif?.no_device_24h)} />
+        <Row label="Notifications turned off" value={num(notif?.opted_out_24h)} />
+        <Row label="Device token is invalid" value={num(notif?.bad_token_24h)}
+          tone={notif?.bad_token_24h ? 'amber' : ''} />
+      </div>
+      <div className="rows" style={{ borderTop: '1px solid var(--line)', paddingTop: 7 }}>
         <Row label="Pushes running late" value={num(notif?.overdue)}
           tone={notif?.overdue ? 'red' : ''} />
         <Row label="Waiting in the queue" value={num(notif?.queued)} />
         <Row label="Payment-failed emails" value={num(email?.dunning_24h)}
           tone={email?.dunning_24h ? 'amber' : ''} />
       </div>
-      {(email?.by_category || []).length > 0 && (
-        <div className="rows" style={{ borderTop: '1px solid var(--line)', paddingTop: 7 }}>
-          {(email.by_category || []).slice(0, 3).map((c: any) => (
-            <Row key={c.category} label={c.category} value={num(c.sent)} />
-          ))}
-        </div>
-      )}
-      <div className="note">Refreshes every 15 seconds.</div>
+      <div className="note">
+        {notif?.reasons_reconcile === false
+          ? <span style={{ color: 'var(--amber)' }}>
+              These reasons do not add up to the {num(notif?.created_24h)} notifications
+              created today — something is being counted twice or missed.
+            </span>
+          : <>All {num(notif?.created_24h)} notifications created today are accounted
+             for exactly once. Refreshes every 15 seconds.</>}
+      </div>
     </>
   )
 }
-
 
 /* ── What each card means ──────────────────────────────────────────────
    Written out per card because the audit that produced these notes is the
@@ -794,7 +824,7 @@ const CARD_INFO: Record<string, CardInfo> = {
   reach: {
     covers: 'Push notifications and email sent in the last day.',
     source: 'notifications, email_send_log and dunning_email_log.',
-    caveat: 'Every send writes a row, but pushed_at is only set when the push actually succeeded — so "tried but did not send" climbing while "sent" stays flat means sending is broken. Refreshes every 15 seconds.',
+    caveat: 'A push not sending is usually not a fault: send_push_notification returns false when the user has no device, has notifications off, or has a malformed token, as well as when a send genuinely fails. Those four are counted separately and only the last is treated as a problem. The reasons are mutually exclusive and are checked against the day\u2019s total, so a miscount shows on the card rather than hiding.',
   },
 }
 
@@ -808,7 +838,9 @@ function InfoPop({ id, title, onClose, panel }:
   }, [onClose])
   if (!info) return null
   return (
-    <div className="pop" role="dialog" aria-label={`About ${title}`}>
+    <div className="popwrap" onClick={onClose}>
+      <div className="pop" role="dialog" aria-modal="true" aria-label={`About ${title}`}
+        onClick={e => e.stopPropagation()}>
       <button type="button" className="close" onClick={onClose} aria-label="Close">×</button>
       <h5>{title}</h5>
       <p>{info.covers}</p>
@@ -827,6 +859,7 @@ function InfoPop({ id, title, onClose, panel }:
         )}
         {info.caveat && <><dt>Careful</dt><dd className="warn">{info.caveat}</dd></>}
       </dl>
+      </div>
     </div>
   )
 }
@@ -1148,12 +1181,78 @@ function AgentDrawer({ open, onClose, data }: { open: boolean; onClose: () => vo
   )
 }
 
+/* ── Fix button ────────────────────────────────────────────────────────
+   Hands one problem to a Claude Code agent running on Opus 5, through the
+   backend. The agent reads, diagnoses and patches — it never deploys, never
+   pushes and never merges, because every deploy is the owner's call.
+
+   When the backend is not configured for it, the button says what is
+   missing rather than failing when pressed. */
+
+function FixButton({ issue, fixes, compact }:
+  { issue: any; fixes?: any; compact?: boolean }) {
+  const [state, setState] = useState<'idle' | 'starting' | 'started' | 'failed'>('idle')
+  const [why, setWhy] = useState<string>('')
+  const ready = fixes?.ready !== false
+
+  // Already working on this exact issue? Then say so instead of offering
+  // to start a second agent on it.
+  const running = (fixes?.runs || []).find(
+    (r: any) => r.status === 'working' && r.issue?.title === issue.title)
+
+  const start = async () => {
+    setState('starting')
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/admin/fix/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(issue),
+      })
+      if (res.ok) { setState('started'); return }
+      const body = await res.json().catch(() => ({}))
+      setWhy(body?.detail || `HTTP ${res.status}`)
+      setState('failed')
+    } catch (e) {
+      setWhy('could not reach the backend')
+      setState('failed')
+    }
+  }
+
+  if (running) {
+    return <span className="fixbtn" style={{ background: 'var(--amber)', borderColor: 'var(--amber)' }}>
+      Agent working
+    </span>
+  }
+  if (state === 'started') {
+    return <span className="fixbtn" style={{ background: 'var(--green)', borderColor: 'var(--green)' }}>
+      Agent started
+    </span>
+  }
+  return (
+    <>
+      <button type="button" className="fixbtn" onClick={start}
+        disabled={state === 'starting' || !ready}
+        title={ready
+          ? 'Start a Claude Code agent (Opus 5) on this. It will not deploy.'
+          : (fixes?.missing || []).join('; ')}>
+        {state === 'starting' ? 'Starting…' : 'Fix'}
+      </button>
+      {state === 'failed' && !compact && (
+        <div className="fixnote" style={{ color: 'var(--red)' }}>{why}</div>
+      )}
+      {!ready && !compact && (
+        <div className="fixnote">{(fixes?.missing || []).join('; ')}</div>
+      )}
+    </>
+  )
+}
+
 /* ── Alert strip ──────────────────────────────────────────────────────
    The only part of this page that has to work when nobody is looking at
    it. Reds sort first; the verdict block on the left carries the totals
    so nothing is hidden by the strip scrolling sideways. */
 
-function AlertStrip({ alerts }: { alerts: Alert[] }) {
+function AlertStrip({ alerts, fixes }: { alerts: Alert[]; fixes?: any }) {
   const rowRef = useRef<HTMLDivElement>(null)
   const [fits, setFits] = useState(true)
   const reds = alerts.filter(a => a.level === 'red').length
@@ -1188,6 +1287,8 @@ function AlertStrip({ alerts }: { alerts: Alert[] }) {
               <div className="where">{a.where}</div>
               <div className="title">{a.title}</div>
               <div className="detail">{a.detail}</div>
+              <FixButton compact issue={{ key: a.key, title: a.title, detail: a.detail,
+                where: a.where }} fixes={fixes} />
             </article>
           ))}
       </div>
@@ -1330,6 +1431,7 @@ export default function CommandCenterPage() {
   const notifD = P('notifications'), emailD = P('email')
   const agentsD = P('agents')
   const trendsD = P('trends') || {}
+  const fixesD = P('fixes')
   /* A chart button appears only where the backend returned a series. */
   const chart = (key: string) =>
     (trendsD[key] || []).length ? () => setChartFor(key) : undefined
@@ -1360,7 +1462,7 @@ export default function CommandCenterPage() {
           <div className="clock">{clock}</div>
         </header>
 
-        <AlertStrip alerts={snap.alerts || []} />
+        <AlertStrip alerts={snap.alerts || []} fixes={fixesD} />
 
         <main className="field">
           <Panel span={4} title="Right now" tag="last 24 hours below" infoId="pulse" panelState={st('pulse')} onChart={chart('pulse')}
@@ -1415,11 +1517,11 @@ export default function CommandCenterPage() {
           <Panel span={3} title="Data quality" infoId="data_quality" panelState={st('data_quality')}
             pip={!qualityD ? undefined
               : qualityD.valid_but_no_boundary || qualityD.past_auctions_no_price ? 'amber' : 'green'}>
-            {qualityD ? <Quality d={qualityD} /> : <Unavailable why={whyMissing('data_quality')} />}
+            {qualityD ? <Quality d={qualityD} fixes={fixesD} /> : <Unavailable why={whyMissing('data_quality')} />}
           </Panel>
 
           <Panel span={2} title="Notifications &amp; email" infoId="reach" panelState={st('notifications')} pip={notifD?.overdue ? 'amber' : 'green'}>
-            {notifD || emailD ? <Reach notif={notifD} email={emailD} /> : <Unavailable why={whyMissing('notifications')} />}
+            {notifD || emailD ? <Reach notif={notifD} email={emailD} fixes={fixesD} /> : <Unavailable why={whyMissing('notifications')} />}
           </Panel>
         </main>
       </div>
@@ -1483,6 +1585,8 @@ const CSS = `
   --blue:#2E6BE6;
   --blue-pill:#DCE9FF; --blue-pill-hi:#B4D0FF; --blue-pill-line:#A9C6F5;
   --blue-ink:#12459E;
+  /* Royal blue, for the info and chart buttons. */
+  --royal:#2B4FCB; --royal-hi:#1E3BA6; --royal-line:#1B379B;
 
   /* State colours, kept apart from the brand on purpose: if something on
      this screen is red, something is actually wrong. */
@@ -1809,10 +1913,10 @@ svg.spark{display:block;width:100%;height:100%;}
    appears on cards a trend exists for, so the icon always means something. */
 .chartbtn{
   flex:none;width:20px;height:20px;padding:0;margin-left:6px;cursor:pointer;
-  border:1px solid var(--pill-line);border-radius:5px;background:var(--pill);
-  color:var(--muted);display:inline-flex;align-items:center;justify-content:center;
+  border:1px solid var(--royal-line);border-radius:5px;background:var(--royal);
+  color:#fff;display:inline-flex;align-items:center;justify-content:center;
 }
-.chartbtn:hover{background:#fff;border-color:var(--pink);color:var(--pink);}
+.chartbtn:hover{background:var(--royal-hi);border-color:#122a7d;}
 .chartbtn:focus-visible{outline:2px solid var(--pink);outline-offset:1px;}
 .chartbtn svg{width:12px;height:12px;display:block;}
 .panel > h2 .tag + .chartbtn{margin-left:6px;}
@@ -1850,20 +1954,28 @@ svg.spark{display:block;width:100%;height:100%;}
    limits are written down can be trusted; one without them cannot. */
 .infobtn{
   flex:none;width:20px;height:20px;padding:0;margin-left:5px;cursor:pointer;
-  border:1px solid var(--blue-pill-line);border-radius:50%;background:var(--blue-pill);
-  color:var(--blue-ink);display:inline-flex;align-items:center;justify-content:center;
+  border:1px solid var(--royal-line);border-radius:50%;background:var(--royal);
+  color:#fff;display:inline-flex;align-items:center;justify-content:center;
   font-family:var(--sans);font-size:11px;font-weight:700;line-height:1;
 }
-.infobtn:hover{background:var(--blue-pill-hi);border-color:var(--blue-ink);}
+.infobtn:hover{background:var(--royal-hi);border-color:#122a7d;}
 .infobtn:focus-visible{outline:2px solid var(--pink);outline-offset:1px;}
 .panel > h2 .infobtn:first-of-type{margin-left:auto;}
 .panel{position:relative;}
-.pop{
-  position:absolute;top:32px;right:8px;z-index:40;width:min(430px,calc(100% - 16px));
-  background:var(--card);color:var(--ink);border:1px solid var(--line-2);border-radius:var(--r);
-  box-shadow:var(--lift-hi);padding:11px 13px;text-align:left;
-  max-height:calc(100% - 42px);overflow-y:auto;
+.popwrap{
+  position:fixed;inset:0;z-index:90;display:flex;align-items:center;justify-content:center;
+  background:rgba(10,10,10,.45);padding:24px;
 }
+.pop{
+  position:relative;width:min(620px,100%);max-height:min(74vh,640px);overflow-y:auto;
+  background:var(--card);color:var(--ink);border:1px solid var(--line-2);
+  border-radius:10px;box-shadow:0 24px 64px rgba(10,10,10,.34);
+  padding:20px 22px;text-align:left;
+}
+.pop h5{font-size:12px;}
+.pop p{font-size:13px;}
+.pop dd{font-size:12.5px;}
+.pop dt{font-size:10.5px;}
 .pop h5{margin:0 0 5px;font-family:var(--label);font-size:10px;font-weight:700;
   letter-spacing:.1em;text-transform:uppercase;color:var(--pink);}
 .pop p{margin:0 0 8px;font-size:11.5px;line-height:1.45;color:var(--ink-2);}
@@ -1872,8 +1984,8 @@ svg.spark{display:block;width:100%;height:100%;}
   text-transform:uppercase;color:var(--faint);}
 .pop dd{margin:0;font-size:11px;line-height:1.4;}
 .pop .warn{color:var(--amber);}
-.pop .close{position:absolute;top:6px;right:8px;border:0;background:none;cursor:pointer;
-  color:var(--faint);font-size:14px;line-height:1;padding:2px 4px;}
+.pop .close{position:absolute;top:10px;right:12px;border:0;background:none;cursor:pointer;
+  color:var(--faint);font-size:20px;line-height:1;padding:2px 6px;}
 .pop .close:hover{color:var(--ink);}
 
 .runrow{display:flex;gap:8px;align-items:center;margin:0 0 10px;flex-wrap:wrap;}
@@ -1887,6 +1999,24 @@ svg.spark{display:block;width:100%;height:100%;}
 .runbtn.ghost{background:var(--pill);color:var(--ink);border-color:var(--pill-line);}
 .runbtn.ghost:hover{background:#fff;border-color:var(--faint);}
 .runnote{font-size:11px;color:var(--faint);}
+
+/* ── Fix button ─────────────────────────────────────────────────────
+   Starts a Claude Code agent on the problem beside it. Deliberately not
+   the loudest thing on the card: it is an action with a cost, offered
+   where a problem is already visible, not a call to action. */
+.fixbtn{
+  flex:none;margin-left:8px;padding:2px 9px;border-radius:999px;cursor:pointer;
+  font-family:var(--label);font-size:9.5px;font-weight:700;letter-spacing:.09em;
+  text-transform:uppercase;white-space:nowrap;
+  background:var(--royal);color:#fff;border:1px solid var(--royal-line);
+}
+.fixbtn:hover{background:var(--royal-hi);}
+.fixbtn:disabled{background:var(--pill);color:var(--faint);
+  border-color:var(--pill-line);cursor:default;}
+.fixbtn:focus-visible{outline:2px solid var(--ink);outline-offset:2px;}
+.alert .fixbtn{margin:5px 0 0;align-self:flex-start;}
+.alert{display:flex;flex-direction:column;}
+.fixnote{font-size:10px;color:var(--faint);margin-top:3px;}
 
 /* Below a widescreen there is not enough height to hold everything at a
    readable size, so the grid narrows and the page is allowed to scroll.
