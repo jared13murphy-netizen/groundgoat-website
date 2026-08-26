@@ -1306,6 +1306,14 @@ function FixDrawer({ open, onClose, data }: { open: boolean; onClose: () => void
           <span className="sub">
             {data?.ready === false ? 'not configured'
               : `${num(data?.working)} working of ${runs.length}`}
+            {/* Whether the agent can read the app and website code, not just
+                the backend. A crash diagnosed without the crashing code is a
+                guess, so this needs to be visible rather than assumed. */}
+            {data?.ready !== false && (
+              data?.reads_mobile_and_website
+                ? <span style={{ color: 'var(--green)' }}> · reads backend, app and website</span>
+                : <span style={{ color: 'var(--amber)' }}> · backend code only — app crashes will be guesswork</span>
+            )}
           </span>
           <button type="button" className="drawer-close" onClick={onClose}>Close ·  Esc</button>
         </div>
