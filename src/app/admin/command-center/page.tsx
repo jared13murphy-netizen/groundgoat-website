@@ -34,7 +34,7 @@
  * Redis read and is a perfectly good second-best.
  */
 
-import { useEffect, useRef, useState, useCallback } from 'react'
+import React, { useEffect, useRef, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 
@@ -156,20 +156,50 @@ const Chip = ({ tone = '', children }: { tone?: Tone; children: React.ReactNode 
   <span className={`chip ${tone}`}>{children}</span>
 )
 
-/** Area sparkline with an emphasised endpoint. */
-function Spark({ values, color }: { values: number[]; color: string }) {
+/** Hourly traffic, with axes — a line with no scale on it is a shape, not a
+    chart. Labelled on both so a peak reads as a number and a time. */
+function Spark({ values, color, hours }:
+  { values: number[]; color: string; hours?: string[] }) {
   if (!values || values.length < 2) return null
-  const W = 100, H = 100
+  const W = 100, H = 100, PAD_L = 11, PAD_B = 9, PAD_T = 3
   const max = Math.max(...values, 1)
-  const pts = values.map((v, i) => [(i / (values.length - 1)) * W, H - (v / max) * (H - 6) - 3])
-  const line = pts.map(p => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ')
-  const last = pts[pts.length - 1]
+  const plotW = W - PAD_L, plotH = H - PAD_B - PAD_T
+  const x = (i: number) => PAD_L + (i / (values.length - 1)) * plotW
+  const y = (v: number) => PAD_T + plotH - (v / max) * plotH
+  const line = values.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ')
+  const lastI = values.length - 1
+  const label = (n: number) =>
+    n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : String(Math.round(n))
+  const ticks = hours && hours.length === values.length
+    ? [0, Math.floor(lastI / 2), lastI] : []
+  const hhmm = (iso: string) => {
+    try {
+      return new Date(iso).toLocaleTimeString('en-US',
+        { hour: 'numeric', hour12: true }).replace(' ', '')
+    } catch { return '' }
+  }
   return (
-    <svg className="spark" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden="true">
-      <polyline points={`0,${H} ${line} ${W},${H}`} fill={color} opacity=".12" stroke="none" />
+    <svg className="spark" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none"
+      role="img" aria-label={`Requests an hour, peak ${label(max)}`}>
+      {[0, 0.5, 1].map(f => (
+        <line key={f} x1={PAD_L} x2={W} y1={y(max * f)} y2={y(max * f)}
+          stroke="#D8D8E0" strokeWidth=".4" vectorEffect="non-scaling-stroke" />
+      ))}
+      <polyline points={`${PAD_L},${y(0)} ${line} ${x(lastI)},${y(0)}`}
+        fill={color} opacity=".12" stroke="none" />
       <polyline points={line} fill="none" stroke={color} strokeWidth="1.6"
         vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
-      <circle cx={last[0].toFixed(1)} cy={last[1].toFixed(1)} r="2.4" fill={color} vectorEffect="non-scaling-stroke" />
+      <circle cx={x(lastI).toFixed(1)} cy={y(values[lastI]).toFixed(1)} r="2.4"
+        fill={color} vectorEffect="non-scaling-stroke" />
+      <text x="0" y={y(max) + 2} className="axis">{label(max)}</text>
+      <text x="0" y={y(max / 2) + 2} className="axis">{label(max / 2)}</text>
+      <text x="0" y={y(0) + 2} className="axis">0</text>
+      {ticks.map((i, n) => (
+        <text key={i} x={x(i)} y={H - 2} className="axis"
+          textAnchor={n === 0 ? 'start' : n === ticks.length - 1 ? 'end' : 'middle'}>
+          {hhmm(hours![i])}
+        </text>
+      ))}
     </svg>
   )
 }
@@ -183,8 +213,15 @@ function RightNow({ d, series }: { d: any; series: any[] | null }) {
   return (
     <>
       <div className="kpis" style={{ gridTemplateColumns: 'repeat(4,1fr)' }}>
+        {/* Staff are counted here on purpose. This is the operations view —
+            is anyone using it this second — and excluding staff made the
+            owner invisible to his own dashboard when he opened the app.
+            The People card is where staff come out. */}
         {d.presence_available
-          ? <Kpi v={num(d.people_now)} k="People on now · last 5 min" />
+          ? <Kpi v={num(d.people_now)}
+              k={d.staff_now
+                ? `People on now · last 5 min · ${num(d.staff_now)} of them us`
+                : 'People on now · last 5 min'} />
           : <Kpi v={num(d.people_this_hour)}
               k={`People this hour · ${num(d.minutes_into_hour)} min in`} />}
         <Kpi v={num(d.requests_this_hour)} k="Requests this hour" />
@@ -193,7 +230,8 @@ function RightNow({ d, series }: { d: any; series: any[] | null }) {
           k="Average wait" tone={d.avg_ms_this_hour > 1000 ? 'amber' : ''} />
       </div>
       <div style={{ flex: 1, minHeight: 36 }}>
-        <Spark values={(series || []).map(p => p.requests)} color="#2E6BE6" />
+        <Spark values={(series || []).map(p => p.requests)} color="#2E6BE6"
+          hours={(series || []).map(p => p.hour)} />
       </div>
       <div className="kpis" style={{ gridTemplateColumns: 'repeat(4,1fr)' }}>
         <Kpi small v={d.presence_available ? num(d.people_15_min) : num(d.people_24h)}
@@ -429,15 +467,41 @@ function Regrid({ d }: { d: any }) {
       {/* Regrid's own figure, when the window it reports is shorter than the
           contract year. Useful, but not an answer to "how much of the year
           have I used" — so it sits here rather than in the headline. */}
-      {d.regrid_cycle_days != null && d.regrid_cycle_days < 350 && (
-        <div className="rows" style={{ borderTop: '1px solid var(--line)', paddingTop: 7 }}>
-          <div className="more" style={{ marginBottom: 2 }}>
-            Regrid&rsquo;s own {num(d.regrid_cycle_days)}-day cycle
+      {/* EVERYTHING REGRID ACTUALLY RETURNS, verbatim. The card used to show
+          only the two fields we happened to use, so there was no way to tell
+          whether Regrid was answering with a month, a year or nothing at
+          all — or to see any other field they send. This prints the whole
+          reply, whatever shape it is. */}
+      <details className="rows" style={{ borderTop: '1px solid var(--line)', paddingTop: 7 }}>
+        <summary style={{ cursor: 'pointer', listStyle: 'none' }}>
+          <span className="more">
+            What Regrid&rsquo;s API says {d.cycle ? '· click to open' : '· no answer'}
+          </span>
+        </summary>
+        {d.cycle ? (
+          <>
+            {Object.entries(d.cycle)
+              .filter(([k]) => !k.startsWith('_'))
+              .map(([k, v]) => (
+                <Row key={k} label={k.replace(/_/g, ' ')}
+                  value={typeof v === 'number' ? num(v as number)
+                    : v == null ? '—' : String(v).slice(0, 80)} />
+              ))}
+            {d.regrid_cycle_days != null && (
+              <div className="note">
+                {d.regrid_cycle_days < 350
+                  ? `This is a ${num(d.regrid_cycle_days)}-day billing cycle, not your contract year — so it cannot answer "how much of the year have I used".`
+                  : `This covers ${num(d.regrid_cycle_days)} days, so it is being used as the contract-year figure above.`}
+              </div>
+            )}
+            {d.source_url && <div className="fixnote">Answered by {d.source_url}</div>}
+          </>
+        ) : (
+          <div className="note" style={{ color: 'var(--amber)' }}>
+            {d.cycle_note || 'Regrid returned no usage body. Every host we know of was tried.'}
           </div>
-          <Row label="Records they counted" value={num(d.regrid_cycle_records)} />
-          <Row label="Tiles they counted" value={num(d.regrid_cycle_tiles)} />
-        </div>
-      )}
+        )}
+      </details>
       <div className="rows" style={{ borderTop: '1px solid var(--line)', paddingTop: 7 }}>
         <Row label="Parcel lookups today" value={num(d.parcel_lookups_24h)} />
         <Row label="Saved by our cache" value={rate(d.parcel_cache_pct)} />
@@ -549,8 +613,15 @@ function Crashes({ d }: { d: any }) {
       <div className="kpis" style={{ gridTemplateColumns: 'repeat(3,1fr)' }}>
         <Kpi v={num(d.fatal_24h_only)} k="App shut down · 24h"
           tone={d.fatal_24h_only ? 'red' : 'green'} />
-        <Kpi small v={num(d.users_fatal_24h)} k="People it hit"
-          tone={d.users_fatal_24h ? 'red' : ''} />
+        {/* COUNT(DISTINCT user_id) skips NULLs, so crashes on a phone with
+            nobody signed in made this read 0 while the app was dying in
+            somebody's hand. A zero here must never be readable as "nobody
+            was affected" — when we cannot name them, it says so. */}
+        <Kpi small
+          v={d.users_fatal_24h ? num(d.users_fatal_24h)
+            : d.fatal_anon_24h ? 'not signed in' : '0'}
+          k={d.users_fatal_24h || !d.fatal_anon_24h ? 'People it hit' : 'People it hit · unidentified'}
+          tone={d.users_fatal_24h ? 'red' : d.fatal_anon_24h ? 'amber' : ''} />
         <Kpi small v={num(d.fatal_7d)} k="Shut down · 7 days"
           tone={d.fatal_7d ? 'amber' : ''} />
       </div>
@@ -865,7 +936,15 @@ function Reach({ notif, email, fixes }: { notif: any; email: any; fixes?: any })
    what it deliberately does NOT tell you. A caveat is not an apology —
    a number whose limits are stated can be relied on; one without them
    cannot. */
-type CardInfo = { covers: string; source: string; caveat?: string }
+type CardInfo = {
+  covers: string
+  source: string
+  caveat?: string
+  /* What every line on the card actually means. Without this the reader is
+     guessing at labels like "every parcel being drawn", which is a real
+     lead when you are chasing a crash and gibberish otherwise. */
+  lines?: { l: string; d: string }[]
+}
 
 const CARD_INFO: Record<string, CardInfo> = {
   pulse: {
@@ -874,6 +953,24 @@ const CARD_INFO: Record<string, CardInfo> = {
     caveat: '"People on now" is a true rolling five minutes, from a Redis set the request middleware keeps — not an hourly bucket. If Redis is unavailable it falls back to the clock hour and the label says so. Failed requests exclude 401 and 403 — an expired token is not a fault.',
   },
   money: {
+    lines: [
+      { l: 'Individual plans, per year',
+        d: 'What every live subscription is worth over a year. Every plan is sold annually, so this is the actual yearly total, not a projection.' },
+      { l: 'Paying customers',
+        d: 'People with a live subscription. A firm counts once — at its admin, who pays — not once per seat.' },
+      { l: 'The plan table',
+        d: 'The same money split by plan, so the total can be checked by adding it up.' },
+      { l: 'Firms paying',
+        d: 'Firms that have actually paid — active or past due — and how many seats they cover. Firms still on trial are on their own line, because they have paid nothing yet.' },
+      { l: 'Renewing in 30 days',
+        d: 'Subscriptions whose period ends within a month, and what they are worth. This is money that has to be re-earned.' },
+      { l: 'Payment failed',
+        d: 'People whose card was declined and who are now past due. They still have access, and they will lose it if this is not resolved.' },
+      { l: 'On a free trial · if all convert',
+        d: 'What Stripe will actually charge when the trials end — not an annualised projection. Broken out by plan underneath, because one firm trial can be worth more than every individual trial put together.' },
+      { l: 'Charging within 7 / 30 days',
+        d: 'Trials about to become real money. While a subscription is trialing, its period end IS the trial end.' },
+    ],
     covers: 'Annual value of every live subscription, plus trials about to charge and who has cancelled. A firm counts once, at its admin\u2019s row.',
     source: 'user_subscriptions. When billing_cycle is annual, monthly_price already holds the annual figure — for Stripe plans, Apple IAP, and firms alike.',
     caveat: 'Trials are shown separately and are not in the total — while a subscription is trialing its period end IS the trial end, so "charging within 7 days" means it is about to bill. Past-due subscriptions are still counted: that money is in dunning, not lost. Cancellations are ones that have already happened; there is no cancel-at-renewal flag stored, so a subscription set to lapse at its next renewal still looks live until it does.',
@@ -884,11 +981,53 @@ const CARD_INFO: Record<string, CardInfo> = {
     caveat: 'Not last_login — that column is only written by the password sign-in handler, so anyone on the phone app never touches it. "Never subscribed" is not a drop-off rate: checkout starts are not logged yet.',
   },
   crashes: {
+    lines: [
+      { l: 'App shut down · 24h',
+        d: 'Times the app actually died and closed itself in the last 24 hours. This is the only number here that is a crash. It should always be zero.' },
+      { l: 'People it hit',
+        d: 'How many named subscribers those crashes happened to. If a crash happened while nobody was signed in we cannot identify the person, so it says "not signed in" rather than 0 — somebody was still holding the phone.' },
+      { l: 'Shut down · 7 days',
+        d: 'The same count over a week, so you can tell a one-off from something that keeps happening.' },
+      { l: 'Errors the app survived',
+        d: 'The app reports every JavaScript error it sees, not just fatal ones. These are the ones it recovered from. Worth fixing, but the app did not close.' },
+      { l: '— of those, unhandled promise rejections',
+        d: 'A background task failed and nothing caught it — usually a network call. The user may have seen a blank area or a stuck spinner rather than a crash.' },
+      { l: 'Crashes with nobody signed in',
+        d: 'Crashes we cannot attribute to a person. Often the app dying before sign-in finished, which is worse than it sounds because the user never got in.' },
+      { l: 'Ever recorded',
+        d: 'Everything the crash table holds, and how many of those were real crashes. Here so a falling 24-hour number can be told apart from data going missing.' },
+      { l: 'What they had on screen',
+        d: 'Not a health metric — evidence. When the app dies it records what the map was doing, so these lines answer "what were they all doing when it died". A crash needs fixing whatever these say; they are here to tell you WHERE to look.' },
+      { l: '— every parcel being drawn',
+        d: 'The share of crashes where the map was drawing every parcel rather than a filtered set. A high number points at the map being asked to draw too much.' },
+      { l: '— zoom when it died',
+        d: 'How far in the map was zoomed. Deep zoom loads far more detail, so a cluster at high zoom points at load rather than a code fault.' },
+      { l: '— most sale dots loaded',
+        d: 'The largest number of sale dots held in memory when a crash happened. This one is the strongest lead: the dots accumulate deliberately and never unload, so a very large number here suggests the app ran out of memory.' },
+      { l: '— phone memory',
+        d: 'The range of device memory across the crashes. A crash only on small-memory phones is a memory problem; one across all sizes is a code fault.' },
+      { l: '— on the simulator, not a phone',
+        d: 'Reports from a Mac running the simulator, which is development rather than a customer. Split out so test crashes cannot read as a fleet-wide outage.' },
+    ],
     covers: 'Crashes reported by the phone app, and who they happened to.',
     source: 'mobile_crash_reports, posted by the app\u2019s global error handler.',
     caveat: '"Last 24 hours" is a rolling window, so crashes age out of it and the number falls — the 7-day and all-time figures beside it exist so that can never look like data going missing. "What they had on screen" comes from the app\u2019s own black box, which records the map state before each death; an iOS memory kill runs no JavaScript, so that snapshot is the only evidence such a crash ever leaves. Crashes with nobody signed in are counted separately, since they carry no user to attribute.',
   },
   regrid: {
+    lines: [
+      { l: 'Parcel records',
+        d: 'Billable Records bought from Regrid this contract year, against the annual cap. A percentage only appears when the figure underneath genuinely covers the year.' },
+      { l: 'Map tiles',
+        d: 'Billable map tiles fetched this contract year, against their own cap. Regrid bills on both, combined.' },
+      { l: 'Days into the year',
+        d: 'How far through the contract year you are. Compare against the percentage used: halfway through the year and well under half the cap is healthy.' },
+      { l: 'On pace for',
+        d: 'What the measured daily rate projects across a full year. This is the number to watch, because the year-to-date total cannot be reconstructed from before our meter started.' },
+      { l: 'Parcel lookups today',
+        d: 'Every parcel the app asked for today, whether we bought it or served it from cache.' },
+      { l: 'Saved by our cache',
+        d: 'The share of those lookups served from our own cache instead of being bought. Higher is cheaper. "Not measured yet" is shown rather than 0% when nothing has been counted.' },
+    ],
     covers: 'How much of the annual Regrid contract is used: parcel records and map tiles, combined the way Regrid bills.',
     source: 'Regrid\u2019s own /api/v2/usage endpoint where reachable, our own counters otherwise. The card says which.',
     caveat: 'Records alone understate it — tiles are usually the larger half of the bill. Regrid\u2019s own endpoint reports whatever billing cycle they are running, which may be far shorter than the contract year; when it is, the year is counted from our own caches instead and their figure is shown separately. Cache counts are a minimum: a parcel bought twice in the year is stored once, so it is counted once.',
@@ -924,6 +1063,20 @@ const CARD_INFO: Record<string, CardInfo> = {
     caveat: 'Duplicates are matched on identical title, county and state; source URLs are unique, so a genuine duplicate only gets in through differently-encoded URLs for one page.',
   },
   reach: {
+    lines: [
+      { l: 'Created',
+        d: 'Notifications the system decided to send in the last day. Everything below adds up to exactly this.' },
+      { l: 'Sent',
+        d: 'Reached the person\u2019s phone.' },
+      { l: 'No device',
+        d: 'They have never opened the app on a phone, so there is nothing to send to. Not a fault.' },
+      { l: 'Notifications off',
+        d: 'They turned notifications off. Not a fault — a choice.' },
+      { l: 'Bad token',
+        d: 'The stored push token is malformed, so it can never be delivered. This one is worth clearing.' },
+      { l: 'Failed to send',
+        d: 'The only genuine fault: a live device, notifications on, a valid token, and it still did not go. Click the row to see the reason Expo gave for each one.' },
+    ],
     covers: 'Push notifications and email sent in the last day.',
     source: 'notifications, email_send_log and dunning_email_log.',
     caveat: 'A push not sending is usually not a fault: send_push_notification returns false when the user has no device, has notifications off, or has a malformed token, as well as when a send genuinely fails. Those four are counted separately and only the last is treated as a problem. The reasons are mutually exclusive and are checked against the day\u2019s total, so a miscount shows on the card rather than hiding.',
@@ -946,6 +1099,15 @@ function InfoPop({ id, title, onClose, panel }:
       <button type="button" className="close" onClick={onClose} aria-label="Close">×</button>
       <h5>{title}</h5>
       <p>{info.covers}</p>
+      {info.lines && (
+        <dl>
+          {info.lines.map(x => (
+            <React.Fragment key={x.l}>
+              <dt>{x.l}</dt><dd>{x.d}</dd>
+            </React.Fragment>
+          ))}
+        </dl>
+      )}
       <dl>
         <dt>From</dt><dd>{info.source}</dd>
         {panel?.refresh_seconds && (
@@ -2038,15 +2200,15 @@ body:has(.shell){overflow:hidden;}
 }
 .panel > h2{
   flex:none;margin:0;display:flex;align-items:center;gap:7px;
-  padding:7px 11px;border-bottom:1px solid var(--line-2);
-  background:linear-gradient(180deg,#FFFFFF 0%,#F4F4F7 55%,#E9E9EE 100%);
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.9), 0 1px 0 rgba(16,16,20,.04);
+  padding:7px 11px;border-bottom:1px solid #0B0B0F;
+  background:linear-gradient(180deg,#3A3A44 0%,#26262E 55%,#1A1A20 100%);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.10), 0 1px 0 rgba(16,16,20,.30);
   font-family:var(--label);font-weight:700;font-size:11px;
-  letter-spacing:.085em;text-transform:uppercase;color:var(--ink);
-  text-shadow:0 1px 0 rgba(255,255,255,.75);
+  letter-spacing:.085em;text-transform:uppercase;color:#F2F2F5;
+  text-shadow:0 1px 0 rgba(0,0,0,.5);
 }
 .panel > h2 .tag{margin-left:auto;font-size:10px;letter-spacing:.06em;
-  color:var(--faint);font-weight:600;}
+  color:#A9A9B6;font-weight:600;}
 .panel > h2 .pip{width:7px;height:7px;border-radius:50%;background:var(--pink-bright);flex:none;}
 .panel > h2 .pip.red{background:var(--red);} .panel > h2 .pip.amber{background:var(--amber);}
 .panel > h2 .pip.green{background:var(--green);}
@@ -2205,12 +2367,13 @@ svg.spark{display:block;width:100%;height:100%;}
 /* ── Chart button + trends drawer ───────────────────────────────────
    A card that has history gets a small chart button in its header. It only
    appears on cards a trend exists for, so the icon always means something. */
+.spark .axis{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:5px;fill:#8A8A97;}
 .chartbtn{
   flex:none;width:20px;height:20px;padding:0;margin-left:6px;cursor:pointer;
-  border:1px solid var(--royal-line);border-radius:5px;background:var(--royal);
-  color:#fff;display:inline-flex;align-items:center;justify-content:center;
+  border:1px solid #B45309;border-radius:5px;background:#F59E0B;
+  color:#0B0B0F;display:inline-flex;align-items:center;justify-content:center;
 }
-.chartbtn:hover{background:var(--royal-hi);border-color:#122a7d;}
+.chartbtn:hover{background:#FBAF24;border-color:#92400E;}
 .chartbtn:focus-visible{outline:2px solid var(--pink);outline-offset:1px;}
 .chartbtn svg{width:12px;height:12px;display:block;}
 .panel > h2 .tag + .chartbtn{margin-left:6px;}
@@ -2302,9 +2465,9 @@ svg.spark{display:block;width:100%;height:100%;}
   flex:none;margin-left:8px;padding:2px 9px;border-radius:999px;cursor:pointer;
   font-family:var(--label);font-size:9.5px;font-weight:700;letter-spacing:.09em;
   text-transform:uppercase;white-space:nowrap;
-  background:var(--royal);color:#fff;border:1px solid var(--royal-line);
+  background:#C0201F;color:#fff;border:1px solid #8E1615;
 }
-.fixbtn:hover{background:var(--royal-hi);}
+.fixbtn:hover{background:#D62A28;}
 .fixbtn:disabled{background:var(--pill);color:var(--faint);
   border-color:var(--pill-line);cursor:default;}
 .fixbtn:focus-visible{outline:2px solid var(--ink);outline-offset:2px;}
