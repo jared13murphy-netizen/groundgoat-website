@@ -356,6 +356,11 @@ function Money({ d }: { d: any }) {
     <>
       <div className="kpis" style={{ gridTemplateColumns: '1fr 1fr' }}>
         <Kpi v={money(d.annual_revenue)} k="Individual plans, per year" />
+        {/* PAYING MEANS PAYING. This counted anyone with a live entitlement,
+            trials included, so on 2026-08-26 it read 26 when 18 people had
+            paid anything — the other eight are listed a few rows down under
+            "Trials becoming paid". The panel now publishes the two
+            separately; `live_people` is the old number if it is ever wanted. */}
         <Kpi small v={num(d.paying_people)} k="Paying customers" />
       </div>
       <table>
@@ -384,6 +389,11 @@ function Money({ d }: { d: any }) {
             value={`${num(d.firms_trialing)}${d.firm_trial_seats ? ` · ${num(d.firm_trial_seats)} seats` : ''}`}
             tone="amber" />
         )}
+        {/* A trial charging for the first time is not a renewal. While a
+            subscription trials, current_period_end IS the trial end, so every
+            trial fell inside 30 days by construction and this read 22 ·
+            $18,804.80 when 13 subscriptions worth $10,370.05 were up for
+            renewal — the other nine being the trials listed just below. */}
         <Row label="Renewing in 30 days" value={`${num(d.renewing_30d)} · ${money(d.renewing_30d_value)}`} />
         <Row label="Payment failed" value={num(d.past_due_people)} tone={d.past_due_people ? 'red' : ''} />
       </div>
@@ -394,16 +404,23 @@ function Money({ d }: { d: any }) {
       {d.trials && (
         <div className="rows" style={{ borderTop: '1px solid var(--line)', paddingTop: 7 }}>
           <div className="more" style={{ marginBottom: 2 }}>Trials becoming paid</div>
+          {/* PEOPLE, not rows. Somebody trialing two states holds two
+              subscription rows, so this read 9 when eight people were on a
+              trial and one of them appeared twice in the list below. The
+              money stays per row, because he is charged for both states. */}
           <Row label="On a free trial"
-            value={`${num(d.trials.total)} · ${money(d.trials.charge_all)} if all convert`} />
+            value={`${num(d.trials.people ?? d.trials.total)} · ${money(d.trials.charge_all)} if all convert`} />
           {/* A single total here is unreadable: a couple of firm trials at a
               few thousand each dominate it, and there was no way to see that
               from the card. Broken out, the number can be checked by adding
               it up. */}
           {(d.trials.by_tier || []).map((t: any) => (
             <div className="row" key={t.tier}>
+              {/* ROWS here, not people: the figure beside it is the sum of
+                  those rows' prices, so counting people would make the line
+                  fail to add up against its own money. */}
               <span className="l clamp1" style={{ color: 'var(--muted)', paddingLeft: 8 }}>
-                — {(t.tier || '').replace(/_/g, ' ')} × {num(t.people)}
+                — {(t.tier || '').replace(/_/g, ' ')} × {num(t.rows ?? t.people)}
               </span>
               <span className="r dim" style={{ color: 'var(--muted)' }}>{money(t.charge)}</span>
             </div>
@@ -417,13 +434,22 @@ function Money({ d }: { d: any }) {
             <Row label="— not on an annual cycle (should be none)"
               value={num(d.trials.monthly_cycle)} tone="red" />
           )}
+          {/* Both "charging" lines count CHARGES, not people, because the
+              money beside them is per subscription. The headline above
+              counts people, which is a different question and says so. */}
           <Row label="Charging within 7 days" value={num(d.trials.ending_7d)}
             tone={d.trials.ending_7d ? 'green' : ''} />
           <Row label="Charging within 30 days"
             value={`${num(d.trials.ending_30d)} · ${money(d.trials.charge_30d)}`} />
-          {(d.trials.soon || []).slice(0, 3).map((t: any) => (
-            <div className="row" key={t.email}>
-              <span className="l clamp1" style={{ color: 'var(--muted)' }}>{t.name}</span>
+          {/* Keyed on email + state: somebody trialing two states appears
+              twice here, and React silently drops the second row when both
+              carry the same key. The state is shown for the same reason —
+              the same name twice with two dates is not readable. */}
+          {(d.trials.soon || []).slice(0, 3).map((t: any, i: number) => (
+            <div className="row" key={`${t.email}:${t.state ?? i}`}>
+              <span className="l clamp1" style={{ color: 'var(--muted)' }}>
+                {t.name}{t.state && t.state !== 'ALL' ? ` · ${t.state}` : ''}
+              </span>
               <span className="r dim" style={{ color: 'var(--muted)' }}>
                 {t.ends ? new Date(t.ends).toLocaleDateString('en-US',
                   { month: 'short', day: 'numeric' }) : '—'} · {money(t.worth)}
@@ -514,22 +540,39 @@ function Regrid({ d }: { d: any }) {
           {/* A count that FAILED is not a small number. Say which. */}
           {d.floor_error
             ? `Could not count the year from our own data — ${d.floor_error}.`
-            : (d.cycle_note || `Regrid has not answered and our own counters started on ${d.counting_since}.`)}
+            : (d.cycle_note || (d.counting_since
+                ? `Regrid has not answered, and our own counter has nothing recorded since the contract year began (it goes back to ${String(d.counting_since).slice(0, 10)}).`
+                : 'Regrid has not answered and our own counter has recorded nothing yet.'))}
           {' '}Showing 0% here would read as &ldquo;plenty left&rdquo;, which is the
           worst thing this card could get wrong.
         </div>
+      )}
+      {/* WHEN THE TWO METERS CANNOT BOTH BE RIGHT.
+          Regrid's reported window and Regrid's reported counters are two
+          different claims, and this card used to treat them as one: on
+          2026-08-26 their API returned a full 365-day contract year
+          alongside counts of 134 records and 254 tiles, while our own caches
+          held 3,029 parcels and 3,056 tiles bought inside that same window.
+          The headline read 0.1%. The gap is now the first thing on the card
+          rather than something you could only find by opening the details. */}
+      {d.meter_disagreement && (
+        <div className="note" style={{ color: 'var(--amber)' }}>{d.meter_disagreement}</div>
       )}
       <div className="rows">
         {/* The percentage is only printed when the backend says the figure
             actually covers the contract year. One day of counting shown as
             "0.1%" of an annual cap reads as "barely touched it", which is
             the worst thing this card can get wrong — so when the share is
-            unknown the row carries the basis instead of a number. */}
+            unknown the row carries the basis instead of a number.
+
+            The ≥ is per half: records can come from Regrid while tiles come
+            from our own cache, and one flag for both mislabelled whichever
+            one it did not describe. */}
         <Row label={`Parcel records${d.records_pct == null ? '' : ` · ${num(d.records_pct, 1)}%`}`}
           value={d.records == null
             ? <span className="dim">{d.records_basis}</span>
             : <>
-                {`${d.is_floor ? '≥ ' : ''}${num(d.records)} of ${num(d.records_cap)}`}
+                {`${(d.records_is_floor ?? d.is_floor) ? '≥ ' : ''}${num(d.records)} of ${num(d.records_cap)}`}
                 {d.records_pct == null && (
                   <span className="dim"> · {d.records_basis}</span>)}
               </>} />
@@ -537,16 +580,18 @@ function Regrid({ d }: { d: any }) {
           value={d.tiles == null
             ? <span className="dim">{d.tiles_basis}</span>
             : <>
-                {`${d.is_floor ? '≥ ' : ''}${num(d.tiles)} of ${num(d.tiles_cap)}`}
+                {`${(d.tiles_is_floor ?? d.is_floor) ? '≥ ' : ''}${num(d.tiles)} of ${num(d.tiles_cap)}`}
                 {d.tiles_pct == null && (
                   <span className="dim"> · {d.tiles_basis}</span>)}
               </>} />
         <Row label="Days into the year" value={num(d.days_into_year)} />
-        {/* What we can answer without Regrid. The year-to-date total is not
-            recoverable — the meter only starts on 25 Aug — but the rate is
-            measured exactly, and "at this rate, do I blow the contract?" is
-            the question that actually matters. Labelled a pace, never a
-            total, with the unmeasured days stated beside it. */}
+        {/* What we can answer without Regrid. The rate is measured exactly
+            over whatever window the meter holds, and "at this rate, do I
+            blow the contract?" is the question that actually matters.
+            Labelled a pace, never a total, with the unmeasured days stated
+            beside it. (This note used to assert the meter began on 25 Aug;
+            it did not — production's oldest row is 3 May, which the pace
+            line beside it was already saying.) */}
         {d.pace && (
           <Row label="On pace for"
             tone={d.pace.combined_pct >= 90 ? 'red' : d.pace.combined_pct >= 75 ? 'amber' : ''}
@@ -566,9 +611,11 @@ function Regrid({ d }: { d: any }) {
           updates the timestamp, so a parcel bought twice is counted once. */}
       {d.is_floor && (
         <div className="note" style={{ color: 'var(--amber)' }}>
+          {/* The bases already read "our cache, at least", so naming them
+              again after "Records from" produced "Records from our cache, at
+              least, tiles from our cache, at least." */}
           Counted from our own cache, so these are a minimum — a parcel or
-          tile bought twice this year is counted once. Records from{' '}
-          {d.records_basis}, tiles from {d.tiles_basis}.
+          tile bought twice this year is counted once.
         </div>
       )}
       {/* Regrid's own figure, when the window it reports is shorter than the
@@ -598,9 +645,18 @@ function Regrid({ d }: { d: any }) {
               <div className="note">
                 {d.regrid_cycle_days < 350
                   ? `This is a ${num(d.regrid_cycle_days)}-day billing cycle, not your contract year — so it cannot answer "how much of the year have I used".`
-                  : `This covers ${num(d.regrid_cycle_days)} days, so it is being used as the contract-year figure above.`}
+                  : (d.records_is_floor || d.tiles_is_floor)
+                    /* Their dates say a year and their counters do not agree
+                       with that, so the figure above is ours, not theirs.
+                       Saying "it is being used as the contract-year figure"
+                       here while the card shows a different number would be
+                       the same mistake in prose. */
+                    ? `This covers ${num(d.regrid_cycle_days)} days, but their counts are lower than what we can account for buying inside that window, so the figure above is counted from our own records instead.`
+                    : `This covers ${num(d.regrid_cycle_days)} days, so it is being used as the contract-year figure above.`}
               </div>
             )}
+            <Row label="bought, from our own records"
+              value={`${num(d.floor_records)} records · ${num(d.floor_tiles)} tiles`} />
             {d.source_url && <div className="fixnote">Answered by {d.source_url}</div>}
           </>
         ) : (
@@ -619,7 +675,12 @@ function Regrid({ d }: { d: any }) {
         {d.cycle_note
           ? <span style={{ color: 'var(--amber)' }}>{d.cycle_note} </span>
           : `Contract year started ${d.contract_year_start}. `}
-        Cache counting started {d.counting_since}.
+        {/* Read off the meter's oldest row. This was a hardcoded date that
+            was already wrong when it was written, and contradicted the pace
+            line further up the same card. */}
+        {d.counting_since
+          ? `Our own counting goes back to ${String(d.counting_since).slice(0, 10)}.`
+          : 'Our own counter has recorded nothing yet.'}
       </div>
     </>
   )
@@ -874,16 +935,27 @@ function Pipeline({ d }: { d: any }) {
             the scraper has seen before creates no row — this count can only
             ever be NEW urls, not everything the scrape worked through. When
             the scraper reports its own total we show that instead. */}
-        <Kpi v={num(d.reported_found ?? d.found)} k="Last scrape results"
-          tone={d.run_anchored_to_job && !d.reported_found && !d.found ? 'amber' : ''} />
+        {/* The label now follows the number. Until the scraper reports its
+            own total this is new urls, and calling that "last scrape
+            results" is what made a working 2h52m run read as a failure —
+            worse, the count was a rolling 24 hours spanning two nights,
+            because the job lookup never matched `scraper:nightly_scrape_
+            and_stage` and the panel silently fell back. */}
+        <Kpi v={num(d.found)}
+          k={d.found_is_new_only === false ? 'Last scrape results' : 'New to us last night'}
+          tone={d.run_anchored_to_job && !d.found ? 'amber' : ''} />
         <Kpi small v={num(d.waiting)} k="Waiting for you" />
         <Kpi small v={num(d.verified_today)} k="Verified today" />
       </div>
       <div className="rows" style={{ borderTop: '1px solid var(--line)', paddingTop: 7 }}>
         <Row label="Auctions / private treaty"
           value={`${num(d.reported?.auctions ?? d.found_auctions)} / ${num(d.reported?.private_treaty ?? d.found_private_treaty)}`} />
+        {/* `new_to_us` is always the staging count; `found` is the headline
+            and becomes the scraper's own total once it reports one. Reading
+            `found` here would have shown the same number twice. */}
         {d.reported_found != null && (
-          <Row label="— new to us (the rest we had already seen)" value={num(d.found)} />
+          <Row label="— new to us (the rest we had already seen)"
+            value={num(d.new_to_us ?? d.found)} />
         )}
         {/* Seven nights, so "is 3 normal?" answers itself. A run of similar
             numbers means this is what new-to-us looks like; one small number
@@ -915,7 +987,11 @@ function Pipeline({ d }: { d: any }) {
           ? <>Last scrape {ago(d.run_started)} ago
               {d.run_minutes ? `, took ${num(d.run_minutes, 0)} min` : ''}
               {d.run_status ? ` · ${d.run_status}` : ''}.
-              {!d.run_anchored_to_job && ' No job record, so this counts from midnight.'}</>
+              {/* This said "counts from midnight", which was wrong twice:
+                  the fallback is a rolling 24 hours, and it was in force
+                  every single night because the job lookup never matched. */}
+              {!d.run_anchored_to_job
+                && ' No scraper run on record, so this counts a rolling 24 hours and may span two nights.'}</>
           : 'No scrape recorded yet.'}
         {d.oldest_waiting && <> Oldest waiting: {ago(d.oldest_waiting)}.</>}
       </div>
@@ -941,10 +1017,24 @@ function Quality({ d, fixes }: { d: any; fixes?: any }) {
         {line('Says the boundary is good, but has none', d.valid_but_no_boundary)}
         {line('Boundary flagged as wrong', d.boundary_flagged_bad)}
         {line('Auction already happened, no price', d.past_auctions_no_price)}
-        {line('Tillable acres bigger than total acres', d.tillable_over_total)}
+        {/* "Tillable acres bigger than total acres" was here, 519 of them,
+            in amber with a Fix button. It is not a defect: the owner ruled on
+            2026-07-01 that it is legitimate and common ("I know it seems off,
+            but this is common even though it doesn't make sense") and the
+            rule was deleted — see the first line of docs/DATA_RULEBOOK.md in
+            the backend repo. Do not add it back. */}
         {line('Acres recorded as zero or less', d.bad_acres)}
-        {line('Listing with no location on the map', d.listings_no_location)}
+        {line('On the market with no location on the map', d.listings_no_location)}
       </div>
+      {/* Deliberately outside the list: these are closed listings from old
+          imports, not something a subscriber is looking at. Counted with the
+          live ones they buried them, 1,413 to 629. */}
+      {d.closed_no_location > 0 && (
+        <div className="note">
+          {num(d.closed_no_location)} sold or withdrawn listings also have no
+          coordinates. Backlog, not a fault on anything currently for sale.
+        </div>
+      )}
       {(d.duplicate_titles || []).length > 0 && (
         <div style={{ borderTop: '1px solid var(--line)', paddingTop: 7 }}>
           <div className="more" style={{ marginBottom: 4 }}>Same listing twice</div>
@@ -1104,17 +1194,17 @@ const CARD_INFO: Record<string, CardInfo> = {
       { l: 'Individual plans, per year',
         d: 'What every live subscription is worth over a year. Every plan is sold annually, so this is the actual yearly total, not a projection.' },
       { l: 'Paying customers',
-        d: 'People with a live subscription. A firm counts once — at its admin, who pays — not once per seat.' },
+        d: 'People who have actually paid — active or past due. Trials are NOT in here; they are counted under "On a free trial", because somebody on a free trial has paid nothing. A firm counts once, at its admin, not once per seat.' },
       { l: 'The plan table',
         d: 'The same money split by plan, so the total can be checked by adding it up.' },
       { l: 'Firms paying',
         d: 'Firms that have actually paid — active or past due — and how many seats they cover. Firms still on trial are on their own line, because they have paid nothing yet.' },
       { l: 'Renewing in 30 days',
-        d: 'Subscriptions whose period ends within a month, and what they are worth. This is money that has to be re-earned.' },
+        d: 'Paid subscriptions whose period ends within a month, and what they are worth — money that has to be re-earned. Trials are excluded: while a subscription is trialing its period end is the TRIAL end, so counting them here listed the same people twice on one card.' },
       { l: 'Payment failed',
         d: 'People whose card was declined and who are now past due. They still have access, and they will lose it if this is not resolved.' },
       { l: 'On a free trial · if all convert',
-        d: 'What Stripe will actually charge when the trials end — not an annualised projection. Broken out by plan underneath, because one firm trial can be worth more than every individual trial put together.' },
+        d: 'How many PEOPLE are on a trial, and what Stripe will actually charge when those trials end — not an annualised projection. The count is people and the money is per subscription, because somebody trialing two states holds two rows and is charged for both. Broken out by plan underneath, because one firm trial can be worth more than every individual trial put together.' },
       { l: 'Charging within 7 / 30 days',
         d: 'Trials about to become real money. While a subscription is trialing, its period end IS the trial end.' },
     ],
@@ -1287,9 +1377,9 @@ const CARD_INFO: Record<string, CardInfo> = {
       { l: 'Past auctions with no sale price',
         d: 'An auction whose date has passed and which still has no result recorded. Subscribers see a stale listing until it is filled in.' },
       { l: 'Bad acres',
-        d: 'Tracts with zero or negative acreage, or with tillable acres greater than total acres. Both are impossible and both are visible.' },
-      { l: 'Listings with no location',
-        d: 'No latitude or longitude, so it cannot be placed on the map. Bulk-import rows are excluded — they were never meant to appear.' },
+        d: 'Tracts with zero or negative acreage. Tillable acres greater than total acres is NOT counted here and is not a defect — the owner ruled on 2026-07-01 that it is legitimate and common.' },
+      { l: 'On the market with no location',
+        d: 'Currently for sale, with no latitude or longitude, so it cannot be placed on the map. Sold and withdrawn listings are counted separately underneath: there are thousands of those from old imports and they swamped the ones that matter. Bulk-import rows are excluded — they were never meant to appear.' },
       { l: 'Duplicate titles',
         d: 'The same auction scraped twice under differently-encoded URLs, so it shows up twice in the app.' },
     ],
