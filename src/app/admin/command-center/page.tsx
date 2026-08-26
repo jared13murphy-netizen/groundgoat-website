@@ -156,51 +156,110 @@ const Chip = ({ tone = '', children }: { tone?: Tone; children: React.ReactNode 
   <span className={`chip ${tone}`}>{children}</span>
 )
 
-/** Hourly traffic, with axes — a line with no scale on it is a shape, not a
-    chart. Labelled on both so a peak reads as a number and a time. */
-function Spark({ values, color, hours }:
-  { values: number[]; color: string; hours?: string[] }) {
-  if (!values || values.length < 2) return null
-  const W = 100, H = 100, PAD_L = 11, PAD_B = 9, PAD_T = 3
-  const max = Math.max(...values, 1)
-  const plotW = W - PAD_L, plotH = H - PAD_B - PAD_T
+/** Hourly traffic with real axes.
+
+    The previous version stretched a 100x100 box across the card with
+    preserveAspectRatio="none", which squashes the TEXT along with the line —
+    that is why the numbers looked smeared. This measures the box and draws
+    at true pixel size, so nothing is scaled and the labels are the shape
+    they were written. */
+function Spark({ values, color, hours, unit }:
+  { values: number[]; color: string; hours?: string[]; unit?: string }) {
+  const wrap = useRef<HTMLDivElement>(null)
+  const [box, setBox] = useState({ w: 720, h: 150 })
+
+  useEffect(() => {
+    const el = wrap.current
+    if (!el) return
+    const read = () => setBox({
+      w: Math.max(240, el.clientWidth),
+      h: Math.max(90, el.clientHeight),
+    })
+    read()
+    const ro = new ResizeObserver(read)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  if (!values || values.length < 2) {
+    return <div ref={wrap} style={{ width: '100%', height: '100%' }} />
+  }
+
+  const { w: W, h: H } = box
+  const PAD_L = 46, PAD_R = 10, PAD_T = 10, PAD_B = 24
+  const plotW = Math.max(10, W - PAD_L - PAD_R)
+  const plotH = Math.max(10, H - PAD_T - PAD_B)
+
+  /* Round tick steps, so the axis reads 0/100/200/... or 0/2/4/... rather
+     than whatever the peak happened to be divided by three. */
+  const rawMax = Math.max(...values, 1)
+  const niceStep = (max: number, target: number) => {
+    // Small numbers get whole-number steps. A peak of 12 labelled 0/5/10/15
+    // tells you nothing you could not already see; 0/2/4/…/12 does.
+    if (max <= 8) return 1
+    if (max <= 20) return 2
+    if (max <= target) return 1
+    const raw = max / target
+    const mag = Math.pow(10, Math.floor(Math.log10(raw)))
+    const n = raw / mag
+    const mult = n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10
+    return Math.max(1, Math.round(mult * mag))
+  }
+  const step = niceStep(rawMax, 5)
+  const axisMax = Math.max(step, Math.ceil(rawMax / step) * step)
+  const ticks: number[] = []
+  for (let v = 0; v <= axisMax + 1e-9; v += step) ticks.push(v)
+
   const x = (i: number) => PAD_L + (i / (values.length - 1)) * plotW
-  const y = (v: number) => PAD_T + plotH - (v / max) * plotH
+  const y = (v: number) => PAD_T + plotH - (v / axisMax) * plotH
   const line = values.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ')
   const lastI = values.length - 1
-  const label = (n: number) =>
-    n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : String(Math.round(n))
-  const ticks = hours && hours.length === values.length
-    ? [0, Math.floor(lastI / 2), lastI] : []
+  const fmt = (n: number) => n >= 1000 ? n.toLocaleString('en-US') : String(n)
+
+  /* A tick for every point, and a LABEL on every point that fits. At a
+     narrow width it thins to every other hour rather than overlapping. */
+  const perLabel = 34
+  const labelEvery = Math.max(1, Math.ceil(values.length / Math.floor(plotW / perLabel)))
   const hhmm = (iso: string) => {
     try {
-      return new Date(iso).toLocaleTimeString('en-US',
-        { hour: 'numeric', hour12: true }).replace(' ', '')
+      return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', hour12: true })
+        .replace(' ', '').replace(':00', '')
     } catch { return '' }
   }
+
   return (
-    <svg className="spark" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none"
-      role="img" aria-label={`Requests an hour, peak ${label(max)}`}>
-      {[0, 0.5, 1].map(f => (
-        <line key={f} x1={PAD_L} x2={W} y1={y(max * f)} y2={y(max * f)}
-          stroke="#D8D8E0" strokeWidth=".4" vectorEffect="non-scaling-stroke" />
-      ))}
-      <polyline points={`${PAD_L},${y(0)} ${line} ${x(lastI)},${y(0)}`}
-        fill={color} opacity=".12" stroke="none" />
-      <polyline points={line} fill="none" stroke={color} strokeWidth="1.6"
-        vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
-      <circle cx={x(lastI).toFixed(1)} cy={y(values[lastI]).toFixed(1)} r="2.4"
-        fill={color} vectorEffect="non-scaling-stroke" />
-      <text x="0" y={y(max) + 2} className="axis">{label(max)}</text>
-      <text x="0" y={y(max / 2) + 2} className="axis">{label(max / 2)}</text>
-      <text x="0" y={y(0) + 2} className="axis">0</text>
-      {ticks.map((i, n) => (
-        <text key={i} x={x(i)} y={H - 2} className="axis"
-          textAnchor={n === 0 ? 'start' : n === ticks.length - 1 ? 'end' : 'middle'}>
-          {hhmm(hours![i])}
-        </text>
-      ))}
-    </svg>
+    <div ref={wrap} style={{ width: '100%', height: '100%' }}>
+      <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`}
+        role="img" aria-label={`Requests an hour over ${values.length} hours, peak ${fmt(rawMax)}`}>
+        {ticks.map(v => (
+          <g key={v}>
+            <line x1={PAD_L} x2={W - PAD_R} y1={y(v)} y2={y(v)}
+              stroke="#E2E2E9" strokeWidth="1" />
+            <text x={PAD_L - 6} y={y(v) + 3.5} className="axis" textAnchor="end">{fmt(v)}</text>
+          </g>
+        ))}
+        <polyline points={`${PAD_L},${y(0)} ${line} ${x(lastI)},${y(0)}`}
+          fill={color} opacity=".12" stroke="none" />
+        <polyline points={line} fill="none" stroke={color} strokeWidth="1.8"
+          strokeLinejoin="round" strokeLinecap="round" />
+        <circle cx={x(lastI)} cy={y(values[lastI])} r="3" fill={color} />
+        <line x1={PAD_L} x2={W - PAD_R} y1={y(0)} y2={y(0)} stroke="#B9B9C4" strokeWidth="1" />
+        {values.map((_, i) => (
+          <line key={i} x1={x(i)} x2={x(i)} y1={y(0)} y2={y(0) + (i % labelEvery === 0 ? 4 : 2)}
+            stroke="#B9B9C4" strokeWidth="1" />
+        ))}
+        {hours && hours.length === values.length && values.map((_, i) => (
+          i % labelEvery === 0 ? (
+            <text key={i} x={x(i)} y={H - 8} className="axis" textAnchor="middle">
+              {hhmm(hours[i])}
+            </text>
+          ) : null
+        ))}
+        {unit && (
+          <text x={PAD_L - 6} y={PAD_T - 2} className="axis" textAnchor="end">{unit}</text>
+        )}
+      </svg>
+    </div>
   )
 }
 
@@ -229,9 +288,11 @@ function RightNow({ d, series }: { d: any; series: any[] | null }) {
         <Kpi v={<>{num(d.avg_ms_this_hour)}<span style={{ fontSize: 14 }}> ms</span></>}
           k="Average wait" tone={d.avg_ms_this_hour > 1000 ? 'amber' : ''} />
       </div>
-      <div style={{ flex: 1, minHeight: 36 }}>
+      {/* The chart needs real height now that it carries axes — 36px was
+          enough for a bare line and nothing else. */}
+      <div style={{ flex: 1, minHeight: 118 }}>
         <Spark values={(series || []).map(p => p.requests)} color="#2E6BE6"
-          hours={(series || []).map(p => p.hour)} />
+          hours={(series || []).map(p => p.hour)} unit="requests" />
       </div>
       <div className="kpis" style={{ gridTemplateColumns: 'repeat(4,1fr)' }}>
         <Kpi small v={d.presence_available ? num(d.people_15_min) : num(d.people_24h)}
@@ -948,6 +1009,28 @@ type CardInfo = {
 
 const CARD_INFO: Record<string, CardInfo> = {
   pulse: {
+    lines: [
+      { l: 'What a "request" is',
+        d: 'One thing the app or website asked the backend for. Opening the map, tapping a parcel, loading map tiles, signing in, pulling a listing — each is one request. A single screen usually makes several. It is not a person and not a page view: it is one question asked of the server.' },
+      { l: 'People on now · last 5 min',
+        d: 'Distinct people who made at least one request in the last five minutes, counted continuously rather than in hourly buckets. Staff are included here and the label says how many are us — this card is asking whether anyone is using it right now, not who the customers are.' },
+      { l: 'Requests this hour',
+        d: 'Requests since the top of the current clock hour. It resets on the hour, so a small number early in the hour is normal — compare it with "requests today".' },
+      { l: 'Failing',
+        d: 'The share of those requests that came back an error. 401 and 403 are left out: an expired login is not a fault. Anything above about 2% is worth looking at.' },
+      { l: 'Average wait',
+        d: 'How long the backend took to answer, averaged across the hour. This is server time only — it does not include the phone\u2019s network or drawing time.' },
+      { l: 'Last 15 minutes',
+        d: 'Distinct people over a longer window, so a quiet five minutes does not read as nobody being there.' },
+      { l: 'Requests today',
+        d: 'The rolling last 24 hours, not since midnight.' },
+      { l: 'Our bugs today',
+        d: 'Requests that failed with a 500-class error — the backend broke, rather than the caller asking for something wrong. These are ours to fix.' },
+      { l: 'Signups today',
+        d: 'New accounts created in the last 24 hours.' },
+      { l: 'The chart',
+        d: 'Requests per hour for the last 24 hours. Every hour is a point; the left axis is requests, the bottom axis is the hour.' },
+    ],
     covers: 'Traffic and errors for the clock hour in progress, with the last full day underneath.',
     source: 'hourly_endpoint_metrics and hourly_user_activity, written by the request middleware and flushed about every 10 seconds.',
     caveat: '"People on now" is a true rolling five minutes, from a Redis set the request middleware keeps — not an hourly bucket. If Redis is unavailable it falls back to the clock hour and the label says so. Failed requests exclude 401 and 403 — an expired token is not a fault.',
@@ -976,6 +1059,16 @@ const CARD_INFO: Record<string, CardInfo> = {
     caveat: 'Trials are shown separately and are not in the total — while a subscription is trialing its period end IS the trial end, so "charging within 7 days" means it is about to bill. Past-due subscriptions are still counted: that money is in dunning, not lost. Cancellations are ones that have already happened; there is no cancel-at-renewal flag stored, so a subscription set to lapse at its next renewal still looks live until it does.',
   },
   people: {
+    lines: [
+      { l: 'Accounts',
+        d: 'Everyone signed up, excluding our own staff accounts and the test accounts the scripts create.' },
+      { l: 'Used it · 24 hours / 7 days / 30 days',
+        d: 'People who actually made a request in that window. This comes from real traffic, not from a last-login column — someone using the app daily with a saved login would never touch that column.' },
+      { l: 'Signed up, never subscribed',
+        d: 'Accounts with no subscription row of any kind, ever. It is not a drop-off rate: someone who signed up this morning is in here too.' },
+      { l: 'Recent signups with no subscription',
+        d: 'The follow-up list — who joined lately and has not subscribed, with when they were last active. A blank means they never came back.' },
+    ],
     covers: 'Accounts, who actually used the product, and who never subscribed.',
     source: 'users for the counts; hourly_user_activity for "used it", which is real requests.',
     caveat: 'Not last_login — that column is only written by the password sign-in handler, so anyone on the phone app never touches it. "Never subscribed" is not a drop-off rate: checkout starts are not logged yet.',
@@ -1033,31 +1126,95 @@ const CARD_INFO: Record<string, CardInfo> = {
     caveat: 'Records alone understate it — tiles are usually the larger half of the bill. Regrid\u2019s own endpoint reports whatever billing cycle they are running, which may be far shorter than the contract year; when it is, the year is counted from our own caches instead and their figure is shown separately. Cache counts are a minimum: a parcel bought twice in the year is stored once, so it is counted once.',
   },
   failing_endpoints: {
+    lines: [
+      { l: 'Endpoint',
+        d: 'The API address that failed — this is what the app was asking for when it broke.' },
+      { l: 'Failed / Total',
+        d: 'How many calls to it failed, out of how many were made in the last three hours.' },
+      { l: 'Rate',
+        d: 'The share failing. A high rate on a low-traffic endpoint can matter more than a low rate on a busy one, so read both.' },
+      { l: 'Empty is the good state',
+        d: 'This card shows only things that are actually failing. Nothing listed means nothing failed, which is why it does not list healthy endpoints.' },
+    ],
     covers: 'Endpoints that returned errors in the last three hours.',
     source: 'hourly_endpoint_metrics.',
     caveat: 'Excludes 401 and 403, which are usually expired tokens rather than faults. Red marks a 5xx — our bug, not a bad request.',
   },
   slow_endpoints: {
+    lines: [
+      { l: 'p95',
+        d: 'The wait that 95 out of 100 calls came in under. It is the number that matches "the app feels slow" far better than an average, because an average hides the bad tail.' },
+      { l: 'Average',
+        d: 'The mean wait. Shown next to p95 so a big gap between them tells you a few calls are much slower than the rest.' },
+      { l: 'Calls',
+        d: 'How many times it was called in the window. A slow endpoint nobody uses matters less than a slightly slow one used constantly.' },
+    ],
     covers: 'The slowest endpoints over the last day, by how long an unlucky request takes.',
     source: 'The latency histogram in hourly_endpoint_metrics.',
     caveat: '"Slowest 5%" is read off histogram bucket edges, so it is the top of the bucket rather than an exact figure. Endpoints under 20 requests are left out as too noisy to rank.',
   },
   jobs: {
+    lines: [
+      { l: 'Job',
+        d: 'A scheduled task that runs in the background — the scraper, backups, cleanups, notification sweeps.' },
+      { l: 'Last finished',
+        d: 'When it last completed. A job that has not finished for far longer than its schedule is stuck.' },
+      { l: 'Failing',
+        d: 'Jobs whose last run failed, and how many times in a row. Consecutive failures are what matter — one blip is usually a transient.' },
+      { l: 'Stuck',
+        d: 'Still claiming to be running an hour after it started. Either it wedged or the process died before recording a finish. Measured from when it STARTED, so a wedged job cannot look merely overdue.' },
+    ],
     covers: 'Every scheduled job, when it last ran and whether it worked.',
     source: 'system_job_runs, written automatically by the scheduler wrapper.',
     caveat: 'Only jobs that run through the scheduler, plus anything that posts to the report endpoint (backups do). Something triggered by hand does not appear. "Stuck" means it claimed to be running for over an hour.',
   },
   storage: {
+    lines: [
+      { l: 'Share of the ceiling',
+        d: 'How full each database is against the largest it can ever be. The percentage is the headline, not the gigabytes: Railway cannot grow a volume past its cap, so 91% is a deadline rather than a number.' },
+      { l: 'Railway / AWS tags',
+        d: 'Which provider holds it, so you know where to go when one fills up.' },
+      { l: 'Measured vs stated',
+        d: 'Anything we hold a live connection to is measured now. Anything we do not carries the date it was last measured by hand, so a stale figure can never pass as a reading.' },
+      { l: 'Days to full',
+        d: 'At the rate it is actually growing. This is the number worth acting on — "71 GB" is trivia, "full in 69 days" is a decision.' },
+    ],
     covers: 'Every place data is kept, as a share of its ceiling.',
     source: 'pg_database_size for databases the backend connects to; the rest were measured by hand on the date shown.',
     caveat: 'A Railway Postgres disk cannot exceed 1,000 GB, so percentage matters more than gigabytes. Rows marked with a date are not live readings.',
   },
   pipeline: {
+    lines: [
+      { l: 'Last run',
+        d: 'When the scraper last ran and how long it took.' },
+      { l: 'Found / staged',
+        d: 'Auction listings the scraper found and put into staging for review.' },
+      { l: 'Waiting',
+        d: 'Rows sitting in staging that nobody has reviewed yet, and how long the oldest has waited.' },
+      { l: 'Published today',
+        d: 'Staged rows that were reviewed and turned into live listings in the last 24 hours.' },
+      { l: 'Listings live',
+        d: 'Listings a subscriber can actually see. Bulk-import comparable-sales rows are excluded, exactly as the app excludes them, so this matches what you see in the product.' },
+      { l: 'Polygons',
+        d: 'Tracts with a drawn boundary. A tract with no boundary shows as a pin rather than a shape, which is the thing subscribers notice.' },
+    ],
     covers: 'What the overnight scrape found, what published, and what is waiting for review.',
     source: 'listing_staging and listings, with the window anchored to the nightly job\u2019s own recorded start.',
     caveat: 'If the job never recorded a run, the window falls back to midnight Central and the card says so. A tract without a boundary cannot be published, which is why boundary coverage is shown rather than a raw count.',
   },
   data_quality: {
+    lines: [
+      { l: 'Valid boundary but no map image',
+        d: 'A tract marked as having a good boundary but with no stored image — it will look broken in the app.' },
+      { l: 'Past auctions with no sale price',
+        d: 'An auction whose date has passed and which still has no result recorded. Subscribers see a stale listing until it is filled in.' },
+      { l: 'Bad acres',
+        d: 'Tracts with zero or negative acreage, or with tillable acres greater than total acres. Both are impossible and both are visible.' },
+      { l: 'Listings with no location',
+        d: 'No latitude or longitude, so it cannot be placed on the map. Bulk-import rows are excluded — they were never meant to appear.' },
+      { l: 'Duplicate titles',
+        d: 'The same auction scraped twice under differently-encoded URLs, so it shows up twice in the app.' },
+    ],
     covers: 'Records that contradict themselves — the sort of thing a subscriber notices first.',
     source: 'listings and tracts.',
     caveat: 'Duplicates are matched on identical title, county and state; source URLs are unique, so a genuine duplicate only gets in through differently-encoded URLs for one page.',
@@ -2367,7 +2524,7 @@ svg.spark{display:block;width:100%;height:100%;}
 /* ── Chart button + trends drawer ───────────────────────────────────
    A card that has history gets a small chart button in its header. It only
    appears on cards a trend exists for, so the icon always means something. */
-.spark .axis{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:5px;fill:#8A8A97;}
+.axis{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:9px;fill:#7A7A88;letter-spacing:0;}
 .chartbtn{
   flex:none;width:20px;height:20px;padding:0;margin-left:6px;cursor:pointer;
   border:1px solid #B45309;border-radius:5px;background:#F59E0B;
