@@ -936,8 +936,8 @@ function TrendChart({ points, unit }: { points: any[]; unit?: string }) {
   )
 }
 
-function TrendsDrawer({ openFor, title, series, onClose }:
-  { openFor: string | null; title: string; series: any[]; onClose: () => void }) {
+function TrendsDrawer({ openFor, title, series, errors, onClose }:
+  { openFor: string | null; title: string; series: any[]; errors?: string[]; onClose: () => void }) {
   const open = openFor !== null
   useEffect(() => {
     if (!open) return
@@ -962,7 +962,13 @@ function TrendsDrawer({ openFor, title, series, onClose }:
         </div>
         <div className="charts">
           {(series || []).length === 0
-            ? <div className="note">No history for this card yet.</div>
+            ? <div className="note">
+                {errors?.length
+                  ? <>These graphs could not be built: {errors.join(', ')}. The rest
+                     of the dashboard is unaffected — each graph is queried on its
+                     own, so this is the only one missing.</>
+                  : 'No history for this card yet.'}
+              </div>
             : series.map((sr: any, i: number) => {
               const pts = sr.points || []
               const cur = pts.length ? pts[pts.length - 1].v : null
@@ -1238,6 +1244,38 @@ function AgentDrawer({ open, onClose, data, fixes }:
    When the backend is not configured for it, the button says what is
    missing rather than failing when pressed. */
 
+function CopyHandoff({ text }: { text: string }) {
+  const [done, setDone] = useState(false)
+  return (
+    <div style={{ margin: '0 0 12px' }}>
+      <button type="button" className="fixbtn"
+        onClick={async () => {
+          try {
+            await navigator.clipboard.writeText(text)
+            setDone(true)
+            setTimeout(() => setDone(false), 4000)
+          } catch { /* clipboard blocked — the text is shown below anyway */ }
+        }}>
+        {done ? 'Copied' : 'Copy for Claude Code'}
+      </button>
+      <div className="fixnote">
+        Paste this into Claude Code on your Mac. It carries the problem, the
+        evidence and the diagnosis, so you can go straight to fixing it.
+      </div>
+      <details style={{ marginTop: 6 }}>
+        <summary style={{ cursor: 'pointer', fontSize: 11, color: 'var(--faint)' }}>
+          Show the brief
+        </summary>
+        <pre style={{
+          whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 11,
+          lineHeight: 1.45, color: 'var(--ink-2)', margin: '6px 0 0',
+          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+        }}>{text}</pre>
+      </details>
+    </div>
+  )
+}
+
 /* ── Findings drawer ──────────────────────────────────────────────────
    Where the Diagnose button's answers actually land. Without this the
    agent would investigate into a void — the run would finish and nobody
@@ -1308,6 +1346,11 @@ function FixDrawer({ open, onClose, data }: { open: boolean; onClose: () => void
                   {current.error && (
                     <div style={{ color: 'var(--red)', marginBottom: 10 }}>{current.error}</div>
                   )}
+                  {/* The agent here can only read and diagnose. The fixing
+                      happens in Claude Code on the Mac, so the diagnosis
+                      leaves as a brief that carries the evidence with it —
+                      nothing has to be re-explained over there. */}
+                  {current.handoff && <CopyHandoff text={current.handoff} />}
                   <pre style={{
                     whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0,
                     fontSize: 12, lineHeight: 1.5, color: 'var(--ink)',
@@ -1389,6 +1432,36 @@ function FixButton({ issue, fixes, compact }:
    it. Reds sort first; the verdict block on the left carries the totals
    so nothing is hidden by the strip scrolling sideways. */
 
+/* Marking a crash handled is the ONLY thing that clears a crash alert.
+   They never age out: a crash that hit real subscribers must not scroll off
+   the screen because an hour passed. If the same signature crashes again
+   after this, the alert comes back on its own. */
+function CrashHandled({ signature }: { signature: string }) {
+  const [state, setState] = useState<'idle' | 'saving' | 'done' | 'failed'>('idle')
+  const mark = async () => {
+    setState('saving')
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/admin/crashes/ack`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ signature }),
+      })
+      setState(res.ok ? 'done' : 'failed')
+    } catch { setState('failed') }
+  }
+  if (state === 'done') {
+    return <span className="fixnote">Handled · it will come back if it crashes again</span>
+  }
+  return (
+    <button type="button" className="fixbtn" onClick={mark}
+      disabled={state === 'saving'}
+      style={{ background: 'transparent', color: 'var(--ink-2)', borderColor: 'var(--line)' }}
+      title="Clears this crash. It reopens by itself if the same crash happens again.">
+      {state === 'saving' ? 'Saving…' : state === 'failed' ? 'Failed — retry' : 'Mark handled'}
+    </button>
+  )
+}
+
 function AlertStrip({ alerts, fixes, onOpenFindings }:
   { alerts: Alert[]; fixes?: any; onOpenFindings?: () => void }) {
   const rowRef = useRef<HTMLDivElement>(null)
@@ -1431,8 +1504,12 @@ function AlertStrip({ alerts, fixes, onOpenFindings }:
                 ? <button type="button" className="fixbtn" onClick={onOpenFindings}>
                     Read it
                   </button>
-                : <FixButton compact issue={{ key: a.key, title: a.title, detail: a.detail,
-                    where: a.where }} fixes={fixes} />}
+                : <div className="alert-actions">
+                    <FixButton compact issue={{ key: a.key, title: a.title, detail: a.detail,
+                      where: a.where }} fixes={fixes} />
+                    {a.key.startsWith('crash:') && (
+                      <CrashHandled signature={a.key.slice('crash:'.length)} />)}
+                  </div>}
             </article>
           ))}
       </div>
@@ -1577,9 +1654,13 @@ export default function CommandCenterPage() {
   const agentsD = P('agents')
   const trendsD = P('trends') || {}
   const fixesD = P('fixes')
-  /* A chart button appears only where the backend returned a series. */
-  const chart = (key: string) =>
-    (trendsD[key] || []).length ? () => setChartFor(key) : undefined
+  /* The chart button is ALWAYS offered. It used to appear only where the
+     backend had returned a series, which meant that when the trends panel
+     failed — as it did, for weeks, because eleven queries shared one budget
+     and any single slow one killed the lot — every chart button silently
+     vanished and the graphs feature looked like it had never been built.
+     A feature must not disappear because its data is late. */
+  const chart = (key: string) => () => setChartFor(key)
 
   return (
     <>
@@ -1681,7 +1762,8 @@ export default function CommandCenterPage() {
       <FixDrawer open={fixOpen} onClose={() => setFixOpen(false)} data={fixesD} />
       <TrendsDrawer openFor={chartFor} onClose={() => setChartFor(null)}
         title={chartFor ? (CHART_TITLES[chartFor] || 'Trend') : ''}
-        series={chartFor ? (trendsD[chartFor] || []) : []} />
+        series={chartFor ? (trendsD[chartFor] || []) : []}
+        errors={trendsD._errors || []} />
     </>
   )
 }
@@ -2182,6 +2264,7 @@ svg.spark{display:block;width:100%;height:100%;}
 .alert .fixbtn{margin:5px 0 0;align-self:flex-start;}
 .alert{display:flex;flex-direction:column;}
 .fixnote{font-size:10px;color:var(--faint);margin-top:3px;}
+.alert-actions{display:flex;gap:5px;align-items:center;flex-wrap:wrap;margin-top:auto;}
 
 /* Below a widescreen there is not enough height to hold everything at a
    readable size, so the grid narrows and the page is allowed to scroll.
