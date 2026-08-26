@@ -49,6 +49,9 @@ import {
   ExternalLink, LandPlot, Search,
 } from 'lucide-react'
 import { polygonAcres, polygonPerimeterFeet, formatPerimeter } from '@/lib/polygonGeometry'
+// Editing mechanics shared with the Configurable Mapping screen so both
+// editors insert vertices, simplify and scale IDENTICALLY.
+import { nearestSegmentIndex, simplifyRing, openRing } from '@/lib/polygonEditing'
 import { formatAcres } from '@/lib/format'
 import { fetchWithAuth, fetchScraperProxy } from '@/lib/fetchWithAuth'
 
@@ -307,30 +310,6 @@ function gisAcres(points: Pt[]): number {
   return polygonAcres(points)
 }
 
-// Pixel distance from screen point p to segment a–b (all {x,y}).
-function _segDistPx(p: {x: number; y: number}, a: {x: number; y: number}, b: {x: number; y: number}): number {
-  const dx = b.x - a.x; const dy = b.y - a.y
-  const len2 = dx * dx + dy * dy || 1e-9
-  let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2
-  t = Math.max(0, Math.min(1, t))
-  const cx = a.x + t * dx; const cy = a.y + t * dy
-  return Math.hypot(p.x - cx, p.y - cy)
-}
-
-// Index of the ring segment (i → i+1) whose screen projection is nearest the
-// clicked screen point — so a new vertex is inserted on the edge the user
-// clicked, not appended to the end of the ring.
-function nearestSegmentIndex(map: maplibregl.Map, ring: Pt[], screenPt: {x: number; y: number}): number {
-  let best = 0; let bestD = Infinity
-  for (let i = 0; i < ring.length; i++) {
-    const a = map.project(ring[i] as [number, number])
-    const b = map.project(ring[(i + 1) % ring.length] as [number, number])
-    const d = _segDistPx(screenPt, a, b)
-    if (d < bestD) { bestD = d; best = i }
-  }
-  return best
-}
-
 // ── Douglas–Peucker simplification (per user 2026-06-01) ──
 // The Surety overview tracer follows the painted boundary contour and
 // emits many vertices on gentle curves, so corners look "rounded".
@@ -338,55 +317,11 @@ function nearestSegmentIndex(map: maplibregl.Map, ring: Pt[], screenPt: {x: numb
 // between their neighbours, straightening those runs into crisp edges
 // while leaving real corners intact. Operates on the OPEN ring `points`
 // uses elsewhere (no closing duplicate).
-function _perpDist(p: Pt, a: Pt, b: Pt): number {
-  const dx = b[0] - a[0]
-  const dy = b[1] - a[1]
-  if (dx === 0 && dy === 0) return Math.hypot(p[0] - a[0], p[1] - a[1])
-  const t = ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / (dx * dx + dy * dy)
-  const cx = a[0] + t * dx
-  const cy = a[1] + t * dy
-  return Math.hypot(p[0] - cx, p[1] - cy)
-}
-function _dp(pts: Pt[], tol: number): Pt[] {
-  if (pts.length < 3) return pts
-  const end = pts.length - 1
-  let maxD = 0
-  let idx = 0
-  for (let i = 1; i < end; i++) {
-    const d = _perpDist(pts[i], pts[0], pts[end])
-    if (d > maxD) { maxD = d; idx = i }
-  }
-  if (maxD > tol) {
-    const left = _dp(pts.slice(0, idx + 1), tol)
-    const right = _dp(pts.slice(idx), tol)
-    return [...left.slice(0, -1), ...right]
-  }
-  return [pts[0], pts[end]]
-}
-function simplifyRing(ring: Pt[], tol: number): Pt[] {
-  if (ring.length < 5) return ring
-  const closed = [...ring, ring[0]] as Pt[]
-  const out = _dp(closed, tol)
-  // _dp keeps first & last (same point) — drop the closing duplicate.
-  const open = out.slice(0, -1) as Pt[]
-  return open.length >= 3 ? open : ring
-}
-
-function normalizeInitialPolygon(poly: Pt[] | null | undefined): Pt[] {
-  if (!Array.isArray(poly) || poly.length < 3) return []
-  const first = poly[0]
-  const last = poly[poly.length - 1]
-  if (first && last && first[0] === last[0] && first[1] === last[1]) {
-    return poly.slice(0, -1) as Pt[]
-  }
-  return [...poly] as Pt[]
-}
-
 /** Split a stored boundary (single ring OR list of rings) into the active,
  *  editable ring (the largest piece) + the remaining pieces. Used to load a
  *  multi-polygon tract into the editor's active-ring + extra-rings model. */
 function splitInitialRings(poly: Pt[] | Pt[][] | null | undefined): { active: Pt[]; extras: Pt[][] } {
-  const rings = toRingsFE(poly).map(normalizeInitialPolygon).filter((r) => r.length >= 3)
+  const rings = toRingsFE(poly).map(openRing).filter((r) => r.length >= 3)
   if (rings.length === 0) return { active: [], extras: [] }
   rings.sort((a, b) => polygonAcres(b) - polygonAcres(a))  // largest first
   return { active: rings[0], extras: rings.slice(1) }
@@ -424,14 +359,14 @@ function buildTillableGeo(tillable: Pt[] | Pt[][] | null | undefined): any {
 }
 
 /** Extract the first ring of a tillablePolygon prop as a flat Pt[] with the
- *  closing duplicate removed — same normalization as normalizeInitialPolygon.
+ *  closing duplicate removed — same normalization as openRing.
  *  Used when displaying existing tillable vertices for inline editing. */
 function normalizeTillableToRing(tillable: Pt[] | Pt[][] | null | undefined): Pt[] {
   if (!tillable || !Array.isArray(tillable) || tillable.length === 0) return []
   const isMultiRing = Array.isArray((tillable as any)[0]?.[0])
   const ring: Pt[] = isMultiRing ? (tillable as Pt[][])[0] : (tillable as Pt[])
   if (!ring || ring.length < 3) return []
-  return normalizeInitialPolygon(ring)
+  return openRing(ring)
 }
 
 // ---------------------------------------------------------------------------
@@ -949,7 +884,7 @@ export default function TractMapEditor({
   // initialPolygon on mount. Intentionally keyed on the nonce only.
   useEffect(() => {
     if (!proposedNonce) return
-    const ring = normalizeInitialPolygon(proposedPolygon ?? null)
+    const ring = openRing(proposedPolygon ?? null)
     if (ring.length >= 3) {
       setPoints(ring)
       setDirty(true)
