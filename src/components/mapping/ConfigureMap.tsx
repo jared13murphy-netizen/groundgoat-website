@@ -31,7 +31,7 @@ import {
 import {
   CLASS_COLOR, CLASS_LABEL, LAND_CLASSES, PARCEL_LINE, SEARCH_DOT, VERTEX_LINE,
   archiveParcel, combineGeometry, fetchParcel, getSavedParcel, saveParcel, searchMap,
-  splitGeometry,
+  splitGeometry, normalizeGeometry,
   updateParcel, queueReport, listReports, downloadReport,
   REPORT_KINDS, REPORT_LABEL, type ReportRow,
   type LandClass, type ParcelDetail, type ParcelSummary,
@@ -111,6 +111,11 @@ export default function ConfigureMap() {
 
   const [detail, setDetail] = useState<ParcelDetail | null>(null)
   const [shapes, setShapes] = useState<Shape[]>([])
+  // Owner's model: outline the parcel FIRST and confirm it, and only then
+  // do the land-type polygons appear inside it.
+  const [step, setStep] = useState<'boundary' | 'landtypes'>('boundary')
+  // The parcel outline while it is still editable. Rings, like a shape.
+  const [boundaryRings, setBoundaryRings] = useState<Pt[][][]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [drawClass, setDrawClass] = useState<LandClass>('tillable')
   const [drawing, setDrawing] = useState(false)
@@ -144,6 +149,8 @@ export default function ConfigureMap() {
   const selectedRef = useRef(selectedId); selectedRef.current = selectedId
   const drawingRef = useRef(drawing); drawingRef.current = drawing
   const toolRef = useRef(tool); toolRef.current = tool
+  const stepRef = useRef(step); stepRef.current = step
+  const boundaryRef = useRef(boundaryRings); boundaryRef.current = boundaryRings
   const detailRef = useRef(detail); detailRef.current = detail
   const draftRef = useRef(draft); draftRef.current = draft
   const drawClassRef = useRef(drawClass); drawClassRef.current = drawClass
@@ -178,16 +185,12 @@ export default function ConfigureMap() {
       const d = await fetchParcel(llUuid)
       setDetail(d)
       undoRef.current = []; redoRef.current = []
-      const loaded = d.polygons.map((p) => ({
-        id: nextId(), cls: p.cls, polys: geometryToPolys(p.geometry),
-      })).filter((s) => s.polys.length > 0)
-      setShapes(loaded)
-      // Pre-select the largest piece so the drag handles are on screen
-      // immediately — otherwise the shapes look un-editable until you
-      // happen to click one.
-      setSelectedId(loaded.length
-        ? loaded.reduce((a, b) => (shapeAcres(b) > shapeAcres(a) ? b : a)).id
-        : null)
+      // Step 1 is the OUTLINE. Interior polygons stay hidden until the
+      // boundary is confirmed, so there is one thing to work on at a time.
+      setStep('boundary')
+      setBoundaryRings(geometryToPolys(d.boundary))
+      setShapes([])
+      setSelectedId(null)
       setName(d.parcel?.parcelnumb ? `Parcel ${d.parcel.parcelnumb}` : '')
       setHits([])
       const bb = bboxOf(d.boundary?.coordinates)
@@ -358,7 +361,7 @@ export default function ConfigureMap() {
         if (!f) return
         e.preventDefault()
         const owner = String(f.properties!.shapeId)
-        if (owner !== selectedRef.current) setSelectedId(owner)
+        if (owner !== '__boundary__' && owner !== selectedRef.current) setSelectedId(owner)
         drag = { id: owner, pi: f.properties!.pi, ri: f.properties!.ri, vi: f.properties!.vi }
         took = false
         map.dragPan.disable()
@@ -366,8 +369,14 @@ export default function ConfigureMap() {
       map.on('mousemove', (e) => {
         if (!drag) return
         // One undo snapshot per drag, not per mousemove.
-        if (!took) { snapshot(shapesRef.current); took = true }
         const { id, pi, ri, vi } = drag
+        if (id === '__boundary__') {
+          setBoundaryRings((prev) => prev.map((rings, p2) => p2 !== pi ? rings
+            : rings.map((r, i) => i !== ri ? r
+              : r.map((pt, v) => v === vi ? [e.lngLat.lng, e.lngLat.lat] as Pt : pt))))
+          return
+        }
+        if (!took) { snapshot(shapesRef.current); took = true }
         setShapes((prev) => prev.map((s) => {
           if (s.id !== id) return s
           const polys = s.polys.map((rings, p) => p !== pi ? rings : rings.map((r, i) =>
@@ -463,7 +472,13 @@ export default function ConfigureMap() {
     if (d.length >= 3) {
       const ring = simplifyRing(d, 0.000004)
       const id = nextId()
-      mutate((prev) => [...prev, { id, cls: drawClassRef.current, polys: [[ring]] }])
+      mutate((prev) => {
+        const next = [...prev, { id, cls: drawClassRef.current, polys: [[ring]] }]
+        // Drawn last, so this one wins any overlap — then the server
+        // trims the others and clips everything to the boundary.
+        void enforceNoOverlapRef.current(next)
+        return next
+      })
       setSelectedId(id)
     }
     setDraft([]); setDrawing(false)
@@ -481,6 +496,50 @@ export default function ConfigureMap() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [finishDraft, undo, redo])
+
+  /** Step 1 -> step 2. The engine's land types are clipped to the
+   *  boundary the user actually confirmed, and forced non-overlapping,
+   *  before they are ever drawn. */
+  const confirmBoundary = useCallback(async () => {
+    if (!detail) return
+    const geom = polysToGeometry(boundaryRings)
+    if (!geom) { setError('Draw a boundary before confirming it.'); return }
+    setBusy('Fitting land types to the boundary…'); setError(null)
+    try {
+      const res = await normalizeGeometry(
+        geom, detail.polygons.map((p) => ({ cls: p.cls, geometry: p.geometry })))
+      setDetail({ ...detail, boundary: geom })
+      const loaded = res.polygons.map((p) => ({
+        id: nextId(), cls: p.cls, polys: geometryToPolys(p.geometry),
+      })).filter((x) => x.polys.length > 0)
+      setShapes(loaded)
+      undoRef.current = []; redoRef.current = []
+      // Select the biggest piece so drag handles are on screen at once.
+      setSelectedId(loaded.length
+        ? loaded.reduce((a, b) => (shapeAcres(b) > shapeAcres(a) ? b : a)).id
+        : null)
+      setStep('landtypes')
+    } catch (e: any) {
+      setError(e?.message || 'Could not fit the land types to that boundary.')
+    } finally { setBusy(null) }
+  }, [detail, boundaryRings])
+
+  /** Enforce the owner's rule after every hand-drawn shape: polygons
+   *  cannot overlap, and cannot leave the parcel. Later drawing wins. */
+  const enforceNoOverlap = useCallback(async (next: Shape[]) => {
+    if (!detail?.boundary) return
+    try {
+      const res = await normalizeGeometry(detail.boundary, next
+        .map((sh) => ({ cls: sh.cls, geometry: polysToGeometry(sh.polys) }))
+        .filter((x) => x.geometry) as any)
+      setShapes(res.polygons.map((p) => ({
+        id: nextId(), cls: p.cls, polys: geometryToPolys(p.geometry),
+      })).filter((x) => x.polys.length > 0))
+      setSelectedId(null)
+    } catch (e: any) {
+      setError(e?.message || 'Could not fit that shape to the others.')
+    }
+  }, [detail])
 
   // ── combine / split / open-saved ──────────────────────────────────
   /** Merge another clicked parcel into the current subject boundary.
@@ -531,6 +590,7 @@ export default function ConfigureMap() {
     } finally { setBusy(null) }
   }, [])
   const runSplitRef = useRef(runSplit); runSplitRef.current = runSplit
+  const enforceNoOverlapRef = useRef(enforceNoOverlap); enforceNoOverlapRef.current = enforceNoOverlap
 
   /** Save every split piece as its own named tract in one project —
    *  the 20-tract auction workflow in a single click. */
@@ -576,7 +636,7 @@ export default function ConfigureMap() {
     const map = mapRef.current
     if (!map || !ready) return
     const feats: any[] = []
-    for (const s of shapes) {
+    for (const s of (step === 'boundary' ? [] : shapes)) {
       const g = polysToGeometry(s.polys)
       if (g) feats.push({
         type: 'Feature', geometry: g,
@@ -589,24 +649,36 @@ export default function ConfigureMap() {
     // Handles on EVERY polygon so it is visible that they can be
     // reshaped — small on the others, full size on the one being edited.
     const verts: any[] = []
-    const sel = shapes.find((sh) => sh.id === selectedId)
-    sel?.polys.forEach((rings, pi) => rings.forEach((ring, ri) =>
-      ring.forEach((pt, vi) => verts.push({
-        type: 'Feature', geometry: { type: 'Point', coordinates: pt },
-        properties: { shapeId: sel.id, pi, ri, vi, active: true },
-      }))))
+    if (step === 'boundary') {
+      // Step 1: the outline itself is what you drag.
+      boundaryRings.forEach((rings, pi) => rings.forEach((ring, ri) =>
+        ring.forEach((pt, vi) => verts.push({
+          type: 'Feature', geometry: { type: 'Point', coordinates: pt },
+          properties: { shapeId: '__boundary__', pi, ri, vi, active: true },
+        }))))
+    } else {
+      const sel = shapes.find((sh) => sh.id === selectedId)
+      sel?.polys.forEach((rings, pi) => rings.forEach((ring, ri) =>
+        ring.forEach((pt, vi) => verts.push({
+          type: 'Feature', geometry: { type: 'Point', coordinates: pt },
+          properties: { shapeId: sel.id, pi, ri, vi, active: true },
+        }))))
+    }
     ;(map.getSource(SRC.verts) as maplibregl.GeoJSONSource)?.setData(
       { type: 'FeatureCollection', features: verts } as any)
-  }, [shapes, selectedId, ready])
+  }, [shapes, selectedId, step, boundaryRings, ready])
 
   useEffect(() => {
     const map = mapRef.current
     if (!map || !ready) return
+    // While the outline is being edited it comes from boundaryRings; once
+    // confirmed it is the saved geometry and is drawn as a locked line.
+    const geom = step === 'boundary' ? polysToGeometry(boundaryRings) : detail?.boundary
     ;(map.getSource(SRC.boundary) as maplibregl.GeoJSONSource)?.setData({
       type: 'FeatureCollection',
-      features: detail?.boundary ? [{ type: 'Feature', geometry: detail.boundary, properties: {} }] : [],
+      features: geom ? [{ type: 'Feature', geometry: geom, properties: {} }] : [],
     } as any)
-  }, [detail, ready])
+  }, [detail, boundaryRings, step, ready])
 
   useEffect(() => {
     const map = mapRef.current
@@ -686,7 +758,7 @@ export default function ConfigureMap() {
     try {
       const payload = {
         name: name.trim(),
-        boundary: detail.boundary,
+        boundary: polysToGeometry(boundaryRings) || detail.boundary,
         polygons: shapes
           .map((s) => ({ cls: s.cls, geometry: polysToGeometry(s.polys) }))
           .filter((p) => p.geometry) as any,
@@ -858,6 +930,28 @@ export default function ConfigureMap() {
               </div>
             </div>
 
+            {step === 'boundary' ? (
+              <>
+                <div style={card}>
+                  <div style={sectionLabel}>Step 1 — the parcel outline</div>
+                  <div style={{ opacity: 0.75, lineHeight: 1.5 }}>
+                    This is the recorded parcel boundary. Drag any dot to adjust it.
+                    Save it and the land types will fill in inside.
+                  </div>
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  <button
+                    onClick={() => setBoundaryRings(geometryToPolys(detail.boundary))}
+                    style={btn}>
+                    <RotateCcw size={13} /> Reset outline
+                  </button>
+                </div>
+                <div style={hint}>
+                  {(boundaryRings[0]?.[0]?.length ?? 0)} points on the outline
+                </div>
+              </>
+            ) : (
+              <>
             {/* Land type chips — pick the type for the NEXT polygon, or
                 retype the selected one. */}
             <div>
@@ -955,7 +1049,11 @@ export default function ConfigureMap() {
               </div>
             )}
 
-            {/* Acreage */}
+              </>
+            )}
+
+            {/* Legend + acreage — shown in both steps so the numbers are
+                always in view. */}
             <div style={card}>
               <div style={sectionLabel}>Legend &amp; acres</div>
               {LAND_CLASSES.map((c) => (
@@ -1030,18 +1128,30 @@ export default function ConfigureMap() {
             borderTop: '1px solid rgba(255,255,255,0.10)', padding: 12,
             background: '#0c111a', display: 'flex', flexDirection: 'column', gap: 8,
           }}>
-            <input value={name} onChange={(e) => setName(e.target.value)}
-                   placeholder="Name this parcel — e.g. Tract 1, Home Place"
-                   style={inputStyle} />
+            {step === 'landtypes' && (
+              <input value={name} onChange={(e) => setName(e.target.value)}
+                     placeholder="Name this parcel — e.g. Tract 1, Home Place"
+                     style={inputStyle} />
+            )}
             <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={() => void doSave()} disabled={!!busy || !name.trim()}
-                      style={{ ...btn, flex: 1, justifyContent: 'center', padding: '9px 10px',
-                               borderColor: '#22c55e', color: '#86efac' }}>
-                <Save size={14} /> {editingId ? 'Update' : 'Save'}
-              </button>
-              <button onClick={() => void cancelEdits()} disabled={!!busy}
-                      style={{ ...btn, flex: 1, justifyContent: 'center', padding: '9px 10px' }}>
-                <X size={14} /> Cancel
+              {step === 'boundary' ? (
+                <button onClick={() => void confirmBoundary()} disabled={!!busy}
+                        style={{ ...btn, flex: 1, justifyContent: 'center', padding: '9px 10px',
+                                 borderColor: '#22c55e', color: '#86efac' }}>
+                  <Save size={14} /> Save outline
+                </button>
+              ) : (
+                <button onClick={() => void doSave()} disabled={!!busy || !name.trim()}
+                        style={{ ...btn, flex: 1, justifyContent: 'center', padding: '9px 10px',
+                                 borderColor: '#22c55e', color: '#86efac' }}>
+                  <Save size={14} /> {editingId ? 'Update' : 'Save'}
+                </button>
+              )}
+              <button
+                onClick={() => { if (step === 'landtypes') setStep('boundary'); else void cancelEdits() }}
+                disabled={!!busy}
+                style={{ ...btn, flex: 1, justifyContent: 'center', padding: '9px 10px' }}>
+                <X size={14} /> {step === 'landtypes' ? 'Edit outline' : 'Cancel'}
               </button>
             </div>
           </div>

@@ -300,3 +300,16 @@ export function setBranding(patch: { name?: string; logo_base64?: string }) {
     body: JSON.stringify(patch),
   })
 }
+
+/** Force drawn polygons to be non-overlapping and inside the boundary.
+ *  Order matters: later shapes win, the way painting over something
+ *  works. Run in PostGIS — boolean polygon algebra done by hand in the
+ *  browser produces slivers you only notice later. */
+export function normalizeGeometry(boundary: any, polygons: { cls: LandClass; geometry: any }[]) {
+  return j<{ polygons: { cls: LandClass; acres: number; geometry: any }[] }>(
+    '/api/mapping/geometry/normalize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ boundary, polygons }),
+    })
+}
