@@ -781,10 +781,17 @@ export default function ConfigureMap() {
 
       <aside style={{
         width: 360, flexShrink: 0, background: '#0f1520', color: '#e5e7eb',
-        borderLeft: '1px solid rgba(255,255,255,0.08)', overflowY: 'auto',
-        display: 'flex', flexDirection: 'column', gap: 14, padding: 16,
-        fontSize: 13,
+        borderLeft: '1px solid rgba(255,255,255,0.08)',
+        display: 'flex', flexDirection: 'column', fontSize: 13,
       }}>
+        {/* Scrolling body. Save / Cancel live in the pinned footer below —
+            the panel is taller than most windows, and burying the two
+            buttons that commit or discard the work at the bottom of a
+            scroll meant people could not find them at all. */}
+        <div style={{
+          flex: 1, minHeight: 0, overflowY: 'auto',
+          display: 'flex', flexDirection: 'column', gap: 14, padding: 16,
+        }}>
         <div style={{ fontWeight: 700, fontSize: 15, letterSpacing: 0.2 }}>Configure Map</div>
 
         {/* Search */}
@@ -1011,23 +1018,33 @@ export default function ConfigureMap() {
               <input value={projectName} onChange={(e) => setProjectName(e.target.value)}
                      placeholder={projectId ? 'Saving into the open project' : 'e.g. Smith Estate Auction (optional)'}
                      disabled={!!projectId}
-                     style={{ ...inputStyle, opacity: projectId ? 0.55 : 1, marginBottom: 10 }} />
-              <div style={sectionLabel}>Parcel name</div>
-              <input value={name} onChange={(e) => setName(e.target.value)}
-                     placeholder="e.g. Tract 1 — Home Place" style={inputStyle} />
-              <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-                <button onClick={() => void doSave()} disabled={!!busy || !name.trim()}
-                        style={{ ...btn, flex: 1, justifyContent: 'center',
-                                 borderColor: '#22c55e', color: '#86efac' }}>
-                  <Save size={13} /> {editingId ? 'Update' : 'Save'}
-                </button>
-                <button onClick={() => void cancelEdits()} disabled={!!busy}
-                        style={{ ...btn, flex: 1, justifyContent: 'center' }}>
-                  <X size={13} /> Cancel
-                </button>
-              </div>
+                     style={{ ...inputStyle, opacity: projectId ? 0.55 : 1 }} />
             </div>
           </>
+        )}
+        </div>
+
+        {/* Pinned footer — always on screen. */}
+        {detail && (
+          <div style={{
+            borderTop: '1px solid rgba(255,255,255,0.10)', padding: 12,
+            background: '#0c111a', display: 'flex', flexDirection: 'column', gap: 8,
+          }}>
+            <input value={name} onChange={(e) => setName(e.target.value)}
+                   placeholder="Name this parcel — e.g. Tract 1, Home Place"
+                   style={inputStyle} />
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => void doSave()} disabled={!!busy || !name.trim()}
+                      style={{ ...btn, flex: 1, justifyContent: 'center', padding: '9px 10px',
+                               borderColor: '#22c55e', color: '#86efac' }}>
+                <Save size={14} /> {editingId ? 'Update' : 'Save'}
+              </button>
+              <button onClick={() => void cancelEdits()} disabled={!!busy}
+                      style={{ ...btn, flex: 1, justifyContent: 'center', padding: '9px 10px' }}>
+                <X size={14} /> Cancel
+              </button>
+            </div>
+          </div>
         )}
       </aside>
     </div>
