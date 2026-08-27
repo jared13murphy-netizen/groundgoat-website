@@ -3,7 +3,7 @@
 import { useState, useEffect, Suspense, useRef } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Check, ArrowLeft, ArrowRight, Eye, EyeOff, MapPin, ChevronDown, X, Loader2, Building2, Users, Plus, Mail } from 'lucide-react'
+import { Check, ArrowLeft, ArrowRight, Eye, EyeOff, MapPin, ChevronDown, X, Loader2, Building2, Users, Plus, Mail, Map as MapIcon } from 'lucide-react'
 import { US_STATES, getCountiesForState, getStateAbbreviation } from '@/data/counties'
 import { parseApiError } from '@/lib/parseApiError'
 import { PRICING, displayPriceLabel, formatPrice } from '@/config/pricing'
@@ -1503,6 +1503,33 @@ function SignUpContent() {
           {/* Step 4: Team Setup (for firm plans) */}
           {step === 4 && selectedPlan === 'firm' && (
             <div className="space-y-6">
+              {/* Configurable Mapping is priced per user, and at this point
+                  the users do not exist yet — so this tells them it is
+                  available and what it costs, rather than offering a second
+                  checkout that could double-charge against the seat toggle
+                  on the team page. */}
+              <div className="card border border-gg-pink/30">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-gg-pink/20 flex items-center justify-center shrink-0">
+                    <MapIcon className="text-gg-pink" size={20} />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-white">
+                      Configurable Mapping — optional add-on
+                    </h3>
+                    <p className="text-gg-gray-400 text-sm mt-1">
+                      Draw your own boundaries on any parcel, classify the ground,
+                      and build reports from it. ${PRICING.firm.configurableMappingAnnualPerUser} per user
+                      per year, added to this subscription.
+                    </p>
+                    <p className="text-gg-gray-500 text-sm mt-2">
+                      You&apos;ll switch it on for whichever users need it from your
+                      team page after signup — nothing extra is charged today.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
               <div className="card">
                 <div className="flex items-center gap-3 mb-6">
                   <div className="w-12 h-12 rounded-full bg-gg-pink/20 flex items-center justify-center">
