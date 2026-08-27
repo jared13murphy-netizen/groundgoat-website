@@ -811,18 +811,24 @@ function Crashes({ d }: { d: any }) {
       <div className="kpis" style={{ gridTemplateColumns: 'repeat(3,1fr)' }}>
         <Kpi v={num(d.fatal_24h_only)} k="App shut down · 24h"
           tone={d.fatal_24h_only ? 'red' : 'green'} />
-        {/* A NUMBER, NEVER PROSE. This printed the words "not signed in"
-            where a figure belongs, because COUNT(DISTINCT user_id) skips
-            NULLs and every crash report is a NULL — the mobile reporter has
-            never attached who was signed in, 0 of 184 reports since the
-            first one in August. So the honest reading is "we identified
-            nobody", which is a zero with an explanation, not a sentence
-            sitting in a number's place. */}
-        <Kpi small v={num(d.users_fatal_24h)}
+        {/* A NUMBER, AND A TRUE ONE. This printed the words "not signed
+            in", then briefly printed 0 — which the owner rightly called
+            impossible: the app cannot shut down unless somebody is holding
+            it. Both were wrong in the same way, reporting what the table
+            said rather than what could be true.
+
+            There is no device or install identifier anywhere in the crash
+            data, so the number of PEOPLE is genuinely unknowable. The
+            number of PHONES has a floor: two crashes on an iPhone 14 and an
+            iPhone 17 Pro cannot be the same handset. Distinct model + OS +
+            app version is that floor, it is at least 1 whenever a crash
+            exists, and the label says "at least" so it is never read as a
+            count. */}
+        <Kpi small v={num(d.phones_24h_at_least)}
           k={d.identity_ever_recorded === false
-               ? 'People it hit · the app never says'
-               : 'People it hit'}
-          tone={d.users_fatal_24h ? 'red' : ''} />
+               ? 'Phones it hit · at least · nobody was signed in'
+               : 'Phones it hit · at least'}
+          tone={d.phones_24h_at_least ? 'red' : ''} />
         <Kpi small v={num(d.fatal_7d)} k="Shut down · 7 days"
           tone={d.fatal_7d ? 'amber' : ''} />
       </div>
@@ -1314,8 +1320,8 @@ const CARD_INFO: Record<string, CardInfo> = {
     lines: [
       { l: 'App shut down · 24h',
         d: 'Times the app actually died and closed itself in the last 24 hours. This is the only number here that is a crash. It should always be zero.' },
-      { l: 'People it hit',
-        d: 'How many named subscribers those crashes happened to. If a crash happened while nobody was signed in we cannot identify the person, so it says "not signed in" rather than 0 — somebody was still holding the phone.' },
+      { l: 'Phones it hit · at least',
+        d: 'A FLOOR, not a count. The crash reports carry no device or install id and have never carried a signed-in user — 0 of 184 since the first one in August — so how many PEOPLE were affected is genuinely unknowable. What is provable is that crashes on different phone models cannot be the same handset, so distinct model + OS + app version is the smallest number of phones this could be. It is at least 1 whenever a crash exists, which is why it can no longer say 0 for a day the app died.' },
       { l: 'Shut down · 7 days',
         d: 'The same count over a week, so you can tell a one-off from something that keeps happening.' },
       { l: 'Errors the app survived',
