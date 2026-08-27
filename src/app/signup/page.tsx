@@ -54,6 +54,8 @@ interface TeamMember {
   email: string
   firstName: string
   lastName: string
+  /** Configurable Mapping seat, bought with the subscription. */
+  configurableMapping: boolean
 }
 
 interface ReferrerInfo {
@@ -121,7 +123,10 @@ function SignUpContent() {
     email: '',
     firstName: '',
     lastName: '',
+    configurableMapping: false,
   })
+  // The admin is a user too, so they can buy themselves a seat here.
+  const [adminConfigurableMapping, setAdminConfigurableMapping] = useState(false)
   const [additionalSeats, setAdditionalSeats] = useState(0)
   const [showAddMember, setShowAddMember] = useState(false)
   const [promoCode, setPromoCode] = useState('')
@@ -320,7 +325,7 @@ function SignUpContent() {
     }
     
     setTeamMembers([...teamMembers, newMember])
-    setNewMember({ email: '', firstName: '', lastName: '' })
+    setNewMember({ email: '', firstName: '', lastName: '', configurableMapping: false })
     setShowAddMember(false)
     setError('')
   }
@@ -329,6 +334,12 @@ function SignUpContent() {
     setTeamMembers(teamMembers.filter((_, i) => i !== index))
   }
 
+  // Seats bought at signup: the admin plus any member switched on.
+  const cmSeatCount =
+    (adminConfigurableMapping ? 1 : 0) +
+    teamMembers.filter(m => m.configurableMapping).length
+  const cmSeatTotal = cmSeatCount * PRICING.firm.configurableMappingAnnualPerUser
+
   const calculatePrice = () => {
     // Prices are annual. Billing is always annual; "monthly" is display-only.
     let annual = 0
@@ -336,6 +347,7 @@ function SignUpContent() {
     if (selectedPlan === 'firm') {
       const firm = PLANS.firm
       annual = firm.basePrice + additionalSeats * firm.additionalUserPrice
+      annual += cmSeatCount * PRICING.firm.configurableMappingAnnualPerUser
     } else {
       const plan = PLANS[selectedPlan as 'basic_state' | 'premium_state']
       annual = Math.max(selectedAreas.length, 1) * plan.pricePerState
@@ -584,7 +596,9 @@ function SignUpContent() {
             email: m.email,
             first_name: m.firstName,
             last_name: m.lastName,
+            configurable_mapping: m.configurableMapping,
           })),
+          admin_configurable_mapping: adminConfigurableMapping,
           home_state: getStateAbbreviation(formData.homeState),
           home_county: formData.homeCounty,
           billing_cycle: 'annual', // toggle is display-only; billing is always annual
@@ -1538,9 +1552,29 @@ function SignUpContent() {
                       per year, added to this subscription.
                     </p>
                     <p className="text-gg-gray-500 text-sm mt-2">
-                      You&apos;ll switch it on for whichever users need it from your
-                      team page after signup — nothing extra is charged today.
+                      Switch it on for whoever needs it — here, or from your team
+                      page later. It renews with the rest of your subscription.
                     </p>
+
+                    <label className="mt-4 flex items-center justify-between gap-4 rounded-lg bg-gg-gray-900 p-3 cursor-pointer">
+                      <span className="text-sm text-white">
+                        Add it to my own account ({formData.firstName || 'admin'})
+                      </span>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={adminConfigurableMapping}
+                        aria-label="Configurable Mapping for my account"
+                        onClick={() => setAdminConfigurableMapping(!adminConfigurableMapping)}
+                        className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${
+                          adminConfigurableMapping ? 'bg-gg-pink' : 'bg-gg-gray-700'
+                        }`}
+                      >
+                        <span className={`absolute left-0 top-0.5 w-5 h-5 rounded-full bg-white transition-transform ${
+                          adminConfigurableMapping ? 'translate-x-5' : 'translate-x-0.5'
+                        }`} />
+                      </button>
+                    </label>
                   </div>
                 </div>
               </div>
@@ -1580,16 +1614,39 @@ function SignUpContent() {
                         key={index}
                         className="flex items-center justify-between bg-gg-gray-900 rounded-lg px-4 py-3"
                       >
-                        <div>
-                          <p className="text-white">{member.firstName} {member.lastName}</p>
-                          <p className="text-gg-gray-400 text-sm">{member.email}</p>
+                        <div className="min-w-0">
+                          <p className="text-white truncate">{member.firstName} {member.lastName}</p>
+                          <p className="text-gg-gray-400 text-sm truncate">{member.email}</p>
                         </div>
-                        <button
-                          onClick={() => removeTeamMember(index)}
-                          className="text-gg-gray-500 hover:text-red-400 transition-colors"
-                        >
-                          <X size={18} />
-                        </button>
+                        <div className="flex items-center gap-4 shrink-0">
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <span className="text-xs text-gg-gray-400 hidden sm:inline">
+                              Mapping
+                            </span>
+                            <button
+                              type="button"
+                              role="switch"
+                              aria-checked={member.configurableMapping}
+                              aria-label={`Configurable Mapping for ${member.firstName} ${member.lastName}`}
+                              onClick={() => setTeamMembers(teamMembers.map((m, i) =>
+                                i === index ? { ...m, configurableMapping: !m.configurableMapping } : m
+                              ))}
+                              className={`relative w-11 h-6 rounded-full transition-colors ${
+                                member.configurableMapping ? 'bg-gg-pink' : 'bg-gg-gray-700'
+                              }`}
+                            >
+                              <span className={`absolute left-0 top-0.5 w-5 h-5 rounded-full bg-white transition-transform ${
+                                member.configurableMapping ? 'translate-x-5' : 'translate-x-0.5'
+                              }`} />
+                            </button>
+                          </label>
+                          <button
+                            onClick={() => removeTeamMember(index)}
+                            className="text-gg-gray-500 hover:text-red-400 transition-colors"
+                          >
+                            <X size={18} />
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -1633,11 +1690,40 @@ function SignUpContent() {
                       />
                       <p className="text-gg-gray-500 text-xs mt-1">They&apos;ll receive an email invitation to set up their own password</p>
                     </div>
+
+                    <label className="flex items-center justify-between gap-4 rounded-lg border border-gg-gray-700 p-3 cursor-pointer">
+                      <span>
+                        <span className="block text-sm text-white">Configurable Mapping</span>
+                        <span className="block text-xs text-gg-gray-400">
+                          ${PRICING.firm.configurableMappingAnnualPerUser}/year — added to your total
+                        </span>
+                      </span>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={newMember.configurableMapping}
+                        aria-label="Configurable Mapping for this member"
+                        onClick={() => setNewMember({
+                          ...newMember,
+                          configurableMapping: !newMember.configurableMapping,
+                        })}
+                        className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${
+                          newMember.configurableMapping ? 'bg-gg-pink' : 'bg-gg-gray-700'
+                        }`}
+                      >
+                        <span className={`absolute left-0 top-0.5 w-5 h-5 rounded-full bg-white transition-transform ${
+                          newMember.configurableMapping ? 'translate-x-5' : 'translate-x-0.5'
+                        }`} />
+                      </button>
+                    </label>
+
+                    <div>
+                    </div>
                     <div className="flex gap-2">
                       <button
                         onClick={() => {
                           setShowAddMember(false)
-                          setNewMember({ email: '', firstName: '', lastName: '' })
+                          setNewMember({ email: '', firstName: '', lastName: '', configurableMapping: false })
                           setError('')
                         }}
                         className="btn-secondary flex-1"
@@ -1701,6 +1787,14 @@ function SignUpContent() {
                     <div className="flex justify-between">
                       <span className="text-gg-gray-400">{additionalSeats} Additional User(s)</span>
                       <span className="text-white">${displayPriceLabel(additionalSeats * PLANS.firm.additionalUserPrice, billingCycle)}/{billingCycle === 'annual' ? 'yr' : 'mo'}</span>
+                    </div>
+                  )}
+                  {cmSeatCount > 0 && (
+                    <div className="flex justify-between">
+                      <span className="text-gg-gray-400">
+                        Configurable Mapping ({cmSeatCount} {cmSeatCount === 1 ? 'user' : 'users'})
+                      </span>
+                      <span className="text-white">${formatPrice(cmSeatTotal)}/yr</span>
                     </div>
                   )}
                   <div className="pt-2 border-t border-gg-gray-700 flex justify-between">
