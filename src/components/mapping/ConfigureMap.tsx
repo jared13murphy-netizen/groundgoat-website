@@ -1440,9 +1440,12 @@ export default function ConfigureMap() {
   )
 }
 
+// Fields in this panel are white on a dark surface (owner, 2026-08-27).
+// The text colour has to move with the background — dark-on-dark text
+// left over from the old style would be invisible on white.
 const inputStyle: React.CSSProperties = {
-  flex: 1, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)',
-  borderRadius: 7, padding: '7px 9px', color: '#e5e7eb', fontSize: 13, outline: 'none',
+  flex: 1, background: '#ffffff', border: '1px solid #d1d5db',
+  borderRadius: 7, padding: '7px 9px', color: '#1a1a1a', fontSize: 13, outline: 'none',
 }
 const btn: React.CSSProperties = {
   display: 'inline-flex', alignItems: 'center', gap: 5, background: 'rgba(255,255,255,0.05)',

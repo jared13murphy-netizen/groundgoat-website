@@ -194,7 +194,7 @@ function SignInContent() {
                   name="email"
                   value={formData.email}
                   onChange={handleInputChange}
-                  className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500"
+                  className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-[#1a1a1a] placeholder-gray-400"
                   placeholder="john@example.com"
                   required
                 />
@@ -217,14 +217,14 @@ function SignInContent() {
                     name="password"
                     value={formData.password}
                     onChange={handleInputChange}
-                    className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 pr-12"
+                    className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-[#1a1a1a] placeholder-gray-400 pr-12"
                     placeholder="••••••••"
                     required
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-gg-gray-500 hover:text-gg-gray-300"
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
                   >
                     {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                   </button>
@@ -263,7 +263,7 @@ function SignInContent() {
                   name="email"
                   value={formData.email}
                   onChange={handleInputChange}
-                  className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500"
+                  className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-[#1a1a1a] placeholder-gray-400"
                   placeholder="john@example.com"
                   required
                 />
