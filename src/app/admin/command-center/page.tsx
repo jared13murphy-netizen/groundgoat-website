@@ -931,30 +931,50 @@ function Pipeline({ d }: { d: any }) {
   return (
     <>
       <div className="kpis" style={{ gridTemplateColumns: 'repeat(3,1fr)' }}>
-        {/* listing_staging keys on a unique source_url_hash, so a listing
-            the scraper has seen before creates no row — this count can only
-            ever be NEW urls, not everything the scrape worked through. When
-            the scraper reports its own total we show that instead. */}
-        {/* The label now follows the number. Until the scraper reports its
-            own total this is new urls, and calling that "last scrape
-            results" is what made a working 2h52m run read as a failure —
-            worse, the count was a rolling 24 hours spanning two nights,
-            because the job lookup never matched `scraper:nightly_scrape_
-            and_stage` and the panel silently fell back. */}
+        {/* THE NUMBER IS NOW WHAT THE RUN WORKED THROUGH.
+            listing_staging keys on a unique source_url_hash, so it only ever
+            holds listings we had never seen — which is how this card came to
+            say 3 on a night the scraper worked through 3,850 auctions across
+            356 companies. scraper_run_log has the real funnel, written by the
+            scraper itself, one row per company per phase. The label follows
+            whichever source the number came from. */}
         <Kpi v={num(d.found)}
-          k={d.found_is_new_only === false ? 'Last scrape results' : 'New to us last night'}
+          k={d.found_is_new_only ? 'New to us last night' : 'Auctions scraped last night'}
           tone={d.run_anchored_to_job && !d.found ? 'amber' : ''} />
         <Kpi small v={num(d.waiting)} k="Waiting for you" />
         <Kpi small v={num(d.verified_today)} k="Verified today" />
       </div>
+
+      {/* THE FUNNEL, START TO FINISH. Every step is a count the scraper
+          wrote down during the run. The drop between what it worked through
+          and what reached review is the thing worth watching, so it is a row
+          on the card rather than something you have to infer from a small
+          headline. */}
+      {d.run_has_funnel && (
+        <div className="rows" style={{ borderTop: '1px solid var(--line)', paddingTop: 7 }}>
+          <div className="more" style={{ marginBottom: 2 }}>
+            What last night&rsquo;s run did · {num(d.run_companies)} companies
+          </div>
+          <Row label="Auction cards seen" value={num(d.run_cards_seen)} />
+          <Row label="Auctions worked through" value={num(d.run_auctions_worked)} />
+          <Row label="New to us" value={num(d.run_new_urls)} />
+          <Row label="Reached review"
+            value={num(d.run_reached_review)}
+            tone={d.run_new_urls > 0 && d.run_reached_review < d.run_new_urls * 0.5 ? 'amber' : ''} />
+          {d.run_failed_companies > 0 && (
+            <Row label="Companies that failed outright"
+              value={num(d.run_failed_companies)} tone="red" />
+          )}
+        </div>
+      )}
+
       <div className="rows" style={{ borderTop: '1px solid var(--line)', paddingTop: 7 }}>
         <Row label="Auctions / private treaty"
           value={`${num(d.reported?.auctions ?? d.found_auctions)} / ${num(d.reported?.private_treaty ?? d.found_private_treaty)}`} />
-        {/* `new_to_us` is always the staging count; `found` is the headline
-            and becomes the scraper's own total once it reports one. Reading
-            `found` here would have shown the same number twice. */}
-        {d.reported_found != null && (
-          <Row label="— new to us (the rest we had already seen)"
+        {/* `new_to_us` is always the staging count; `found` is the headline.
+            Reading `found` here would have shown the same number twice. */}
+        {!d.found_is_new_only && (
+          <Row label="— new rows in staging"
             value={num(d.new_to_us ?? d.found)} />
         )}
         {/* Seven nights, so "is 3 normal?" answers itself. A run of similar
@@ -1504,8 +1524,34 @@ function TrendsDrawer({ openFor, title, series, errors, onClose }:
     return () => window.removeEventListener('keydown', onKey)
   }, [open, onClose])
 
+  // DAY / WEEK / MONTH.
+  // A nightly figure cannot show a trend: every night looks like every other
+  // night until something has been drifting for a month. A series that
+  // carries `points_week` and `points_month` gets the toggle; the rest are
+  // daily-only and render exactly as they always did, with no toggle shown.
+  const [bucket, setBucket] = useState<'day' | 'week' | 'month'>('day')
+  const hasBuckets = (series || []).some((sr: any) => sr.points_week || sr.points_month)
+  // Back to daily whenever a different card's drawer is opened, so the
+  // granularity never carries over to a card that cannot honour it.
+  useEffect(() => { setBucket('day') }, [openFor])
+
+  const pointsFor = (sr: any) =>
+    (bucket === 'week' ? sr.points_week : bucket === 'month' ? sr.points_month : sr.points)
+    || sr.points || []
+
+  // UTC, or the labels slip a bucket. The backend truncates in UTC, so
+  // 2026-02-01T00:00:00Z formatted in America/Chicago is 31 January and the
+  // month axis read "Jan 26 → Jul 26" for data that runs February to August.
+  // The daily axis was off by one for the same reason and nobody noticed.
   const day = (iso: string) =>
-    new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    new Date(iso).toLocaleDateString('en-US',
+      bucket === 'month'
+        ? { month: 'short', year: '2-digit', timeZone: 'UTC' }
+        : { month: 'short', day: 'numeric', timeZone: 'UTC' })
+
+  const span = hasBuckets
+    ? { day: 'last 60 days', week: 'last 26 weeks', month: 'last 12 months' }[bucket]
+    : 'last 14 days'
 
   return (
     <>
@@ -1515,7 +1561,17 @@ function TrendsDrawer({ openFor, title, series, errors, onClose }:
         aria-label={`${title} over time`}>
         <div className="drawer-head">
           <h2>{title}</h2>
-          <span className="sub">last 14 days</span>
+          <span className="sub">{span}</span>
+          {hasBuckets && (
+            <div className="buckets" role="group" aria-label="Group by">
+              {(['day', 'week', 'month'] as const).map(b => (
+                <button key={b} type="button"
+                  className={bucket === b ? 'on' : ''}
+                  aria-pressed={bucket === b}
+                  onClick={() => setBucket(b)}>{b}</button>
+              ))}
+            </div>
+          )}
           <button type="button" className="drawer-close" onClick={onClose}>Close ·  Esc</button>
         </div>
         <div className="charts">
@@ -1528,11 +1584,16 @@ function TrendsDrawer({ openFor, title, series, errors, onClose }:
                   : 'No history for this card yet.'}
               </div>
             : series.map((sr: any, i: number) => {
-              const pts = sr.points || []
+              const pts = pointsFor(sr)
               const cur = pts.length ? pts[pts.length - 1].v : null
-              // Compare the last three days with the three before them —
-              // steadier than yesterday-versus-today on low-volume series.
-              const tail = pts.slice(-3), prev = pts.slice(-6, -3)
+              // A week looked at on a Wednesday holds three days. Drawn
+              // beside finished weeks it is a cliff, and averaged in with
+              // them it reads as a 10% collapse when nothing has happened.
+              // The backend flags it; the number says "so far" and the
+              // comparison is made between COMPLETE buckets only.
+              const partial = pts.length ? pts[pts.length - 1].partial === true : false
+              const done = partial ? pts.slice(0, -1) : pts
+              const tail = done.slice(-3), prev = done.slice(-6, -3)
               const avg = (a: any[]) => a.length ? a.reduce((s, p) => s + p.v, 0) / a.length : null
               const now = avg(tail), was = avg(prev)
               const pct = (now !== null && was) ? ((now - was) / was) * 100 : null
@@ -1542,9 +1603,11 @@ function TrendsDrawer({ openFor, title, series, errors, onClose }:
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
                     <span className="cur">{cur === null ? '—' : num(cur, sr.unit === 'GB' ? 1 : 0)}</span>
                     {sr.unit && <span className="note">{sr.unit}</span>}
+                    {partial && <span className="note">
+                      this {bucket} so far</span>}
                     {pct !== null && Math.abs(pct) >= 1 && (
                       <span className={`delta ${pct > 0 ? 'up' : 'down'}`}>
-                        {pct > 0 ? '▲' : '▼'} {num(Math.abs(pct), 0)}% vs the three days before
+                        {pct > 0 ? '▲' : '▼'} {num(Math.abs(pct), 0)}% vs the three {bucket === 'day' ? 'days' : bucket === 'week' ? 'weeks' : 'months'} before
                       </span>
                     )}
                   </div>
@@ -2649,6 +2712,19 @@ svg.spark{display:block;width:100%;height:100%;}
   letter-spacing:.06em;text-transform:uppercase;}
 .drawer-head .sub{font-family:var(--label);font-size:11px;color:var(--on-bar-dim);
   letter-spacing:.06em;text-transform:uppercase;}
+/* Day / week / month. Pushed to the right of the title so the close button
+   stays where the eye already expects it, and built from the same pill
+   vocabulary as everything else in this bar. */
+.buckets{margin-left:auto;display:flex;gap:4px;}
+.buckets button{
+  background:var(--pill);color:var(--on-bar-dim);
+  border:1px solid var(--pill-line);border-radius:999px;cursor:pointer;
+  font-family:var(--label);font-size:11px;letter-spacing:.08em;text-transform:uppercase;
+  padding:4px 11px;
+}
+.buckets button:hover{background:rgba(255,255,255,.22);color:var(--on-bar);}
+.buckets button.on{background:rgba(255,255,255,.28);color:var(--on-bar);
+  border-color:rgba(255,255,255,.65);font-weight:700;}
 .drawer-close{margin-left:8px;background:var(--pill);color:var(--on-bar);
   border:1px solid var(--pill-line);border-radius:999px;cursor:pointer;
   font-family:var(--label);font-size:11px;letter-spacing:.08em;text-transform:uppercase;
