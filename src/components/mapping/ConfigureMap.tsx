@@ -309,6 +309,16 @@ export default function ConfigureMap() {
     const ro = new ResizeObserver(() => map.resize())
     ro.observe(containerRef.current!)
 
+    // ResizeObserver alone is not enough. If the container measures 0×0
+    // at construction, MapLibre falls back to its 400×300 default, and
+    // any environment that does not deliver the observer's initial
+    // observation leaves the map stuck at that size on a full-screen
+    // container — a broken-looking map that only fixes itself if the
+    // user happens to resize the window. Measuring again on the next
+    // frame and on load costs nothing and does not depend on RO.
+    const raf = requestAnimationFrame(() => map.resize())
+    map.once('load', () => map.resize())
+
     map.on('load', async () => {
       for (const id of Object.values(SRC)) {
         map.addSource(id, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } as any })
@@ -478,6 +488,7 @@ export default function ConfigureMap() {
     })
 
     return () => {
+      cancelAnimationFrame(raf)
       ro.disconnect()
       map.remove()
       // Only clear the ref if it still points at THIS map, so a
