@@ -1074,7 +1074,7 @@ export default function ConfigureMap() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') void runSearch() }}
-              placeholder="Parcel #, owner, town, county, lat/lng"
+              placeholder="Town, township, county, owner, parcel #, or lat/lng"
               style={inputStyle}
             />
             <select value={searchState} onChange={(e) => setSearchState(e.target.value)}
