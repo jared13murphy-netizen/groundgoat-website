@@ -340,6 +340,20 @@ function SignUpContent() {
     teamMembers.filter(m => m.configurableMapping).length
   const cmSeatTotal = cmSeatCount * PRICING.firm.configurableMappingAnnualPerUser
 
+  /** Tidy a phone number for display once the user leaves the field.
+   *  Deliberately NOT applied while typing: forcing a mask as they go
+   *  fights anyone who pastes, or who types the country code first.
+   *  Anything that is not a recognisable US number is left exactly as
+   *  entered rather than mangled. */
+  const formatPhoneOnBlur = (raw: string): string => {
+    const digits = (raw || '').replace(/\D/g, '')
+    const local = digits.length === 11 && digits.startsWith('1')
+      ? digits.slice(1)
+      : digits
+    if (local.length !== 10) return raw
+    return `(${local.slice(0, 3)}) ${local.slice(3, 6)}-${local.slice(6)}`
+  }
+
   const calculatePrice = () => {
     // Prices are annual. Billing is always annual; "monthly" is display-only.
     let annual = 0
@@ -834,7 +848,7 @@ function SignUpContent() {
                       name="firstName"
                       value={formData.firstName}
                       onChange={handleInputChange}
-                      className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none"
+                      className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-[#1a1a1a] placeholder-gray-400 focus:border-gg-pink focus:outline-none"
                       placeholder="John"
                     />
                   </div>
@@ -845,7 +859,7 @@ function SignUpContent() {
                       name="lastName"
                       value={formData.lastName}
                       onChange={handleInputChange}
-                      className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none"
+                      className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-[#1a1a1a] placeholder-gray-400 focus:border-gg-pink focus:outline-none"
                       placeholder="Doe"
                     />
                   </div>
@@ -858,7 +872,7 @@ function SignUpContent() {
                     name="email"
                     value={formData.email}
                     onChange={handleInputChange}
-                    className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none"
+                    className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-[#1a1a1a] placeholder-gray-400 focus:border-gg-pink focus:outline-none"
                     placeholder="john@example.com"
                   />
                 </div>
@@ -871,13 +885,13 @@ function SignUpContent() {
                       name="password"
                       value={formData.password}
                       onChange={handleInputChange}
-                      className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 pr-12 focus:border-gg-pink focus:outline-none"
+                      className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-[#1a1a1a] placeholder-gray-400 pr-12 focus:border-gg-pink focus:outline-none"
                       placeholder="••••••••"
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-4 top-1/2 -translate-y-1/2 text-gg-gray-500 hover:text-gg-gray-300"
+                      className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
                     >
                       {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                     </button>
@@ -891,7 +905,7 @@ function SignUpContent() {
                     name="confirmPassword"
                     value={formData.confirmPassword}
                     onChange={handleInputChange}
-                    className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none"
+                    className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-[#1a1a1a] placeholder-gray-400 focus:border-gg-pink focus:outline-none"
                     placeholder="••••••••"
                   />
                 </div>
@@ -1226,7 +1240,7 @@ function SignUpContent() {
                       name="firmName"
                       value={firmData.firmName}
                       onChange={handleFirmInputChange}
-                      className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none"
+                      className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-[#1a1a1a] placeholder-gray-400 focus:border-gg-pink focus:outline-none"
                       placeholder="Acme Land Management"
                     />
                   </div>
@@ -1238,7 +1252,7 @@ function SignUpContent() {
                       name="firmWebsite"
                       value={firmData.firmWebsite}
                       onChange={handleFirmInputChange}
-                      className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none"
+                      className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-[#1a1a1a] placeholder-gray-400 focus:border-gg-pink focus:outline-none"
                       placeholder="https://example.com"
                     />
                   </div>
@@ -1250,7 +1264,11 @@ function SignUpContent() {
                       name="firmPhone"
                       value={firmData.firmPhone}
                       onChange={handleFirmInputChange}
-                      className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none"
+                      onBlur={(e) => setFirmData({
+                        ...firmData,
+                        firmPhone: formatPhoneOnBlur(e.target.value),
+                      })}
+                      className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-[#1a1a1a] placeholder-gray-400 focus:border-gg-pink focus:outline-none"
                       placeholder="(555) 123-4567"
                     />
                   </div>
@@ -1262,7 +1280,7 @@ function SignUpContent() {
                       name="firmAddress"
                       value={firmData.firmAddress}
                       onChange={handleFirmInputChange}
-                      className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none"
+                      className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-[#1a1a1a] placeholder-gray-400 focus:border-gg-pink focus:outline-none"
                       placeholder="123 Main St"
                     />
                   </div>
@@ -1275,7 +1293,7 @@ function SignUpContent() {
                         name="firmCity"
                         value={firmData.firmCity}
                         onChange={handleFirmInputChange}
-                        className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none"
+                        className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-[#1a1a1a] placeholder-gray-400 focus:border-gg-pink focus:outline-none"
                         placeholder="Springfield"
                       />
                     </div>
@@ -1300,7 +1318,7 @@ function SignUpContent() {
                         name="firmZip"
                         value={firmData.firmZip}
                         onChange={handleFirmInputChange}
-                        className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none"
+                        className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-[#1a1a1a] placeholder-gray-400 focus:border-gg-pink focus:outline-none"
                         placeholder="62704"
                       />
                     </div>
@@ -1316,7 +1334,7 @@ function SignUpContent() {
                     type="text"
                     value={promoCode}
                     onChange={(e) => { setPromoCode(e.target.value.toUpperCase()); setPromoValidation(null) }}
-                    className="flex-1 bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none uppercase"
+                    className="flex-1 bg-white border border-gray-300 rounded-lg px-4 py-3 text-[#1a1a1a] placeholder-gray-400 focus:border-gg-pink focus:outline-none uppercase"
                     placeholder="Enter promo code"
                   />
                   <button
@@ -1477,7 +1495,7 @@ function SignUpContent() {
                     type="text"
                     value={promoCode}
                     onChange={(e) => { setPromoCode(e.target.value.toUpperCase()); setPromoValidation(null) }}
-                    className="flex-1 bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none uppercase"
+                    className="flex-1 bg-white border border-gray-300 rounded-lg px-4 py-3 text-[#1a1a1a] placeholder-gray-400 focus:border-gg-pink focus:outline-none uppercase"
                     placeholder="Enter promo code (optional)"
                   />
                   <button
@@ -1662,7 +1680,7 @@ function SignUpContent() {
                           name="firstName"
                           value={newMember.firstName}
                           onChange={handleNewMemberChange}
-                          className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none"
+                          className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-[#1a1a1a] placeholder-gray-400 focus:border-gg-pink focus:outline-none"
                           placeholder="Jane"
                         />
                       </div>
@@ -1673,7 +1691,7 @@ function SignUpContent() {
                           name="lastName"
                           value={newMember.lastName}
                           onChange={handleNewMemberChange}
-                          className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none"
+                          className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-[#1a1a1a] placeholder-gray-400 focus:border-gg-pink focus:outline-none"
                           placeholder="Smith"
                         />
                       </div>
@@ -1685,7 +1703,7 @@ function SignUpContent() {
                         name="email"
                         value={newMember.email}
                         onChange={handleNewMemberChange}
-                        className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none"
+                        className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-[#1a1a1a] placeholder-gray-400 focus:border-gg-pink focus:outline-none"
                         placeholder="jane@example.com"
                       />
                       <p className="text-gg-gray-500 text-xs mt-1">They&apos;ll receive an email invitation to set up their own password</p>
@@ -1742,7 +1760,7 @@ function SignUpContent() {
                   <button
                     onClick={() => setShowAddMember(true)}
                     disabled={teamMembers.length >= 2 + additionalSeats}
-                    className="btn-secondary w-full flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="btn-primary w-full flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <Plus size={18} />
                     Add Team Member
