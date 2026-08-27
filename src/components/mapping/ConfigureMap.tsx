@@ -33,7 +33,7 @@ import {
   archiveParcel, combineGeometry, fetchParcel, getSavedParcel, saveParcel, searchMap,
   splitGeometry, normalizeGeometry, previewSoil,
   updateParcel, queueReport, listReports, downloadReport,
-  REPORT_KINDS, REPORT_LABEL, type ReportRow,
+  REPORT_KINDS, REPORT_LABEL, USES_ELEVATION, type ReportRow,
   type LandClass, type ParcelDetail, type ParcelSummary,
 } from '@/lib/configurableMapping'
 import { addRegridLayer, buildRegridStateFilter, fetchRegridConfig } from '@/components/map/regridLayer'
@@ -137,6 +137,10 @@ export default function ConfigureMap() {
   // it is a real query against SSURGO, not arithmetic in the browser.
   const [soil, setSoil] = useState<{ rating: number | null; rating_type: string | null } | null>(null)
   const [soilBusy, setSoilBusy] = useState(false)
+  // How dramatic the terrain reads on the 3D and topography maps.
+  // 1 is true scale. Stored with the report so a regenerated PDF
+  // reproduces exactly what was on screen when it was ordered.
+  const [exaggeration, setExaggeration] = useState(2.5)
   // Split results waiting to be named and saved as separate tracts.
   const [pieces, setPieces] = useState<{ geometry: any; acres: number }[]>([])
   const [query, setQuery] = useState('')
@@ -806,12 +810,13 @@ export default function ConfigureMap() {
     if (!editingId) { setError('Save this parcel before building a report.'); return }
     setError(null)
     try {
-      await queueReport(editingId, kind)
+      await queueReport(editingId, kind,
+        USES_ELEVATION.includes(kind) ? { exaggeration } : {})
       await refreshReports(editingId)
     } catch (e: any) {
       setError(e?.message || 'Could not start that report.')
     }
-  }, [editingId, refreshReports])
+  }, [editingId, refreshReports, exaggeration])
 
   /** Discard unsaved edits. Falls back to the engine's own polygons when
    *  this parcel has never been saved, so Cancel always lands somewhere
@@ -1132,13 +1137,29 @@ export default function ConfigureMap() {
                 <div style={hint}>Save this parcel first, then build reports from it.</div>
               )}
               {editingId && (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {REPORT_KINDS.map((k) => (
-                    <button key={k} onClick={() => void makeReport(k)} style={btn}>
-                      <FileText size={13} /> {REPORT_LABEL[k]}
-                    </button>
-                  ))}
-                </div>
+                <>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {REPORT_KINDS.map((k) => (
+                      <button key={k} onClick={() => void makeReport(k)} style={btn}>
+                        <FileText size={13} /> {REPORT_LABEL[k]}
+                      </button>
+                    ))}
+                  </div>
+                  <div style={{ marginTop: 10 }}>
+                    <div style={{ ...statRow, marginBottom: 2 }}>
+                      <span style={{ opacity: 0.65 }}>Elevation on 3D &amp; topography</span>
+                      <span>{exaggeration.toFixed(1)}x</span>
+                    </div>
+                    <input
+                      type="range" min={1} max={4} step={0.5} value={exaggeration}
+                      onChange={(e) => setExaggeration(parseFloat(e.target.value))}
+                      style={{ width: '100%' }} />
+                    <div style={hint}>
+                      1x is true scale. The report always prints the real
+                      elevation change in feet alongside it.
+                    </div>
+                  </div>
+                </>
               )}
               {reports.map((r) => (
                 <div key={r.id} style={statRow}>

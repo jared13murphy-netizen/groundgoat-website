@@ -236,7 +236,8 @@ export function splitGeometry(geometry: any, line: any) {
 // reports itself done, then downloads it through the API — the storage
 // bucket is private, so there is no direct link to hand out.
 
-export const REPORT_KINDS = ['tillable', 'fsa', 'ground_goat'] as const
+export const REPORT_KINDS =
+  ['tillable', 'elevation_3d', 'fsa', 'topography', 'ground_goat'] as const
 export type ReportKind = (typeof REPORT_KINDS)[number]
 
 export const REPORT_LABEL: Record<string, string> = {
@@ -260,11 +261,14 @@ export interface ReportRow {
   updated_at: string
 }
 
-export function queueReport(parcelId: string, kind: ReportKind) {
+/** Reports that read the elevation slider. */
+export const USES_ELEVATION: readonly string[] = ['elevation_3d', 'topography']
+
+export function queueReport(parcelId: string, kind: ReportKind, params: Record<string, any> = {}) {
   return j<{ id: string; kind: string; status: string }>('/api/mapping/reports', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ parcel_id: parcelId, kind }),
+    body: JSON.stringify({ parcel_id: parcelId, kind, params }),
   })
 }
 
