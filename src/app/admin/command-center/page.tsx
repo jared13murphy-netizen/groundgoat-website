@@ -161,6 +161,50 @@ const Chip = ({ tone = '', children }: { tone?: Tone; children: React.ReactNode 
   <span className={`chip ${tone}`}>{children}</span>
 )
 
+/** A number on a card that can be opened to see what it is made of.
+
+    A figure nobody can drill into is a figure nobody can check, and this
+    dashboard has already carried several that were wrong for months. Renders
+    as the value with a dotted underline; click shows the rows behind it. */
+function Detail({ value, title, rows, tone = '' }:
+  { value: React.ReactNode; title: string
+    rows: { l: React.ReactNode; r?: React.ReactNode; note?: React.ReactNode }[]
+    tone?: Tone }) {
+  const [open, setOpen] = useState(false)
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open])
+  if (!rows.length) return <>{value}</>
+  return (
+    <>
+      <button type="button" className="drill" onClick={() => setOpen(true)}
+        style={tone ? { color: `var(--${tone})` } : undefined}
+        aria-label={`${title} — show the ${rows.length} behind it`}>{value}</button>
+      {open && (
+        <div className="popwrap" onClick={() => setOpen(false)}>
+          <div className="pop" role="dialog" aria-modal="true" aria-label={title}
+            onClick={e => e.stopPropagation()}>
+            <button type="button" className="close" onClick={() => setOpen(false)}
+              aria-label="Close">×</button>
+            <h5>{title}</h5>
+            <dl>
+              {rows.map((x, i) => (
+                <React.Fragment key={i}>
+                  <dt>{x.l}</dt>
+                  <dd>{x.r}{x.note ? <div className="more" style={{ marginTop: 2 }}>{x.note}</div> : null}</dd>
+                </React.Fragment>
+              ))}
+            </dl>
+          </div>
+        </div>
+      )}
+    </>
+  )
+}
+
 /** Hourly traffic with real axes.
 
     The previous version stretched a 100x100 box across the card with
@@ -382,10 +426,34 @@ function RightNow({ d, series }: { d: any; series: any[] | null }) {
 }
 
 function Money({ d }: { d: any }) {
+  // CHECKED AGAINST THE PROCESSORS, NOT AGAINST OURSELVES.
+  // Everything on this card used to come from user_subscriptions, which is a
+  // cache of Stripe's and Apple's ledgers and drifts from both. On 2026-08-27
+  // it was understating the year by $3,645.24 of $16,389.17. The headline is
+  // now Stripe's own figure plus the App Store price list; our table's answer
+  // stays on screen underneath so the two can be compared rather than one
+  // quietly replacing the other.
+  const v = d.verified || {}
+  const checked = v.ok && v.annual_revenue !== null && v.annual_revenue !== undefined
+  const gap = checked ? Number(v.gap || 0) : 0
+  const disagreements = (v.disagreements || []) as any[]
+  const chargedNotLive = (v.charged_not_live || []) as any[]
+  const stale = (v.stale_period_ends || []) as any[]
+  const renewRows = (v.renewing_30d_rows || []) as any[]
   return (
     <>
       <div className="kpis" style={{ gridTemplateColumns: '1fr 1fr' }}>
-        <Kpi v={money(d.annual_revenue)} k="Individual plans, per year" />
+        <Kpi v={checked
+          ? <Detail value={money(v.annual_revenue)} title="Where the year's revenue comes from"
+              rows={[
+                { l: 'Stripe subscriptions', r: money(v.stripe_annual) },
+                { l: 'Apple subscriptions', r: money(v.apple_annual) },
+                { l: 'Our own table says', r: money(v.table_annual),
+                  note: gap ? `${gap > 0 ? 'short' : 'over'} by ${money(Math.abs(gap))} — ${v.matched} of ${v.compared} subscriptions match Stripe exactly` : 'agrees exactly' },
+                { l: 'Checked', r: ago(v.as_of) + ' ago' },
+              ]} />
+          : money(d.annual_revenue)}
+          k={checked ? 'Per year · confirmed with Stripe' : 'Per year · our records only'} />
         {/* PAYING MEANS PAYING. This counted anyone with a live entitlement,
             trials included, so on 2026-08-26 it read 26 when 18 people had
             paid anything — the other eight are listed a few rows down under
@@ -423,10 +491,94 @@ function Money({ d }: { d: any }) {
             subscription trials, current_period_end IS the trial end, so every
             trial fell inside 30 days by construction and this read 22 ·
             $18,804.80 when 13 subscriptions worth $10,370.05 were up for
-            renewal — the other nine being the trials listed just below. */}
-        <Row label="Renewing in 30 days" value={`${num(d.renewing_30d)} · ${money(d.renewing_30d_value)}`} />
+            renewal — the other nine being the trials listed just below.
+            Then the 13 turned out to be wrong too: the window had no lower
+            bound, so nine subscriptions whose period had ENDED — the oldest
+            189 days earlier — counted as renewing. And our own period ends
+            are a whole billing cycle behind on half the book, so the figure
+            here is Stripe's dates, not ours. */}
+        <Row label="Renewing in 30 days" value={checked
+          ? <Detail value={`${num(v.renewing_30d)} · ${money(v.renewing_30d_value)}`}
+              title="Renewing in the next 30 days"
+              rows={renewRows.map(r => ({
+                l: r.email || '—',
+                r: money(r.worth),
+                note: `renews ${new Date(r.ends).toLocaleDateString()}${r.cancelling ? ' · set to cancel' : ''}`,
+              }))} />
+          : `${num(d.renewing_30d)} · ${money(d.renewing_30d_value)}`} />
         <Row label="Payment failed" value={num(d.past_due_people)} tone={d.past_due_people ? 'red' : ''} />
       </div>
+
+      {/* WHERE OUR RECORDS AND THE PROCESSOR DISAGREE.
+          Every one of these is money, not a display quirk: a customer being
+          billed for something our database has wrong, or in the worst case
+          billed for something our database says was cancelled. */}
+      {checked && (disagreements.length > 0 || chargedNotLive.length > 0 || stale.length > 0) && (
+        <div className="rows" style={{ borderTop: '1px solid var(--line)', paddingTop: 7 }}>
+          <div className="more" style={{ marginBottom: 2 }}>Our records vs Stripe</div>
+          {chargedNotLive.length > 0 && (
+            <Row label="Being charged, nothing live our side" tone="red"
+              value={<Detail tone="red" title="Stripe is billing these, we show no live subscription"
+                value={`${num(chargedNotLive.length)} · ${money(chargedNotLive.reduce((a, x) => a + Number(x.theirs || 0), 0))}`}
+                rows={chargedNotLive.map(x => ({ l: x.email || x.id, r: money(x.theirs) + '/yr',
+                  note: 'they are paying — check they still have access' }))} />} />
+          )}
+          {disagreements.length > 0 && (
+            <Row label="Priced wrongly in our database" tone="amber"
+              value={<Detail tone="amber" title="Our price is not the price Stripe charges"
+                value={`${num(disagreements.length)} · ${money(disagreements.reduce((a, x) => a + Math.abs(Number(x.gap ?? ((x.theirs || 0) - (x.ours || 0)))), 0))}`}
+                rows={disagreements.map(x => ({
+                  l: x.email,
+                  r: `${money(x.ours)} → ${money(x.theirs)}`,
+                  note: x.reason,
+                }))} />} />
+          )}
+          {stale.length > 0 && (
+            /* The money agrees; only the DATE is behind. Every one checked
+               had in fact renewed and nothing wrote the new date back, which
+               is what made renewed subscriptions look overdue. */
+            <Row label="Renewal date a billing cycle behind"
+              value={<Detail title="Renewed at Stripe, our date never moved"
+                value={`${num(stale.length)} of ${num(v.compared)}`}
+                rows={stale.map(x => ({ l: x.email,
+                  r: `${x.days_behind} days behind`,
+                  note: `ours ${new Date(x.ours).toLocaleDateString()} · Stripe ${new Date(x.theirs).toLocaleDateString()}` }))} />} />
+          )}
+        </div>
+      )}
+
+      {/* APPLE CANNOT BE CHECKED, AND SAYS SO.
+          Verifying an Apple subscription needs the original receipt (we store
+          none) or an App Store Server API key (not configured — only the app
+          id, bundle id and shared secret are). The PRICE is checked against
+          the App Store price list; the STATUS is only as current as the last
+          notification Apple sent us. A green tick here would be a lie. */}
+      {v.apple && (
+        <div className="rows">
+          <Row label="Apple subscriptions"
+            value={`${money(v.apple.paid_annual)}${v.apple.trial_annual ? ` · ${money(v.apple.trial_annual)} trialing` : ''}`} />
+          {v.apple.price_mismatches?.length > 0 && (
+            <Row label="— priced differently to the App Store" tone="red"
+              value={<Detail tone="red" title="Our price is not Apple's price"
+                value={num(v.apple.price_mismatches.length)}
+                rows={v.apple.price_mismatches.map((x: any) => ({
+                  l: x.email, r: `${money(x.ours)} → ${money(x.theirs)}`, note: x.reason }))} />} />
+          )}
+          <Row label="— renewals confirmed with Apple" tone="amber"
+            value={<Detail tone="amber" title="Why Apple cannot be checked"
+              value="not possible"
+              rows={[{ l: 'Reason', r: v.apple.why_not },
+                     { l: 'Prices checked', r: `${num(v.apple.prices_checked)} of ${num(v.apple.rows)}` }]} />} />
+        </div>
+      )}
+
+      {/* A Stripe outage must not read as "no revenue". */}
+      {!checked && (
+        <div className="rows">
+          <Row label="Stripe could not be reached" tone="amber"
+            value={v.error ? String(v.error).slice(0, 60) : 'showing our own records'} />
+        </div>
+      )}
 
       {/* Trials are money that has not arrived yet. While a subscription is
           trialing, its period end IS the trial end, so "ending" means "about
@@ -824,11 +976,33 @@ function Crashes({ d }: { d: any }) {
             app version is that floor, it is at least 1 whenever a crash
             exists, and the label says "at least" so it is never read as a
             count. */}
-        <Kpi small v={num(d.phones_24h_at_least)}
-          k={d.identity_ever_recorded === false
-               ? 'Phones it hit · at least · nobody was signed in'
-               : 'Phones it hit · at least'}
-          tone={d.phones_24h_at_least ? 'red' : ''} />
+        {/* WHO IT HIT, NOT JUST HOW MANY.
+            Until 2026-08-27 the app never told the server who was signed in,
+            so this could only ever count distinct PHONES and the label had to
+            say so. Now that the reporter attaches the id, the number opens
+            into the actual customers and the times it hit them — a figure
+            nobody can drill into is a figure nobody can check. Reports from
+            builds older than the fix still arrive anonymous, so the phone
+            floor stays the headline and the named people sit inside it. */}
+        <Kpi small
+          v={(d.who || []).length > 0
+            ? <Detail tone="red" value={num(d.who.length)}
+                title="Who the app crashed on, and when"
+                rows={(d.who || []).map((w: any) => ({
+                  l: w.name || w.email,
+                  r: `${num(w.crashes)}×`,
+                  note: `${new Date(w.last_hit).toLocaleString()}${
+                    w.crashes > 1 ? ` · first ${new Date(w.first_hit).toLocaleString()}` : ''
+                  }${w.device_model ? ` · ${w.device_model}` : ''}${
+                    w.app_version ? ` · v${w.app_version}` : ''}`,
+                }))} />
+            : num(d.phones_24h_at_least)}
+          k={(d.who || []).length > 0
+               ? 'People it hit · last 7 days'
+               : d.identity_ever_recorded === false
+                 ? 'Phones it hit · at least · nobody was signed in'
+                 : 'Phones it hit · at least'}
+          tone={(d.who || []).length || d.phones_24h_at_least ? 'red' : ''} />
         <Kpi small v={num(d.fatal_7d)} k="Shut down · 7 days"
           tone={d.fatal_7d ? 'amber' : ''} />
       </div>
@@ -2956,6 +3130,14 @@ svg.spark{display:block;width:100%;height:100%;}
 .pop .close{position:absolute;top:10px;right:12px;border:0;background:none;cursor:pointer;
   color:var(--faint);font-size:20px;line-height:1;padding:2px 6px;}
 .pop .close:hover{color:var(--ink);}
+
+/* A figure that can be opened to see what it is made of. Deliberately looks
+   like the number beside it, not like a button — the dotted rule is the only
+   hint, so a card full of these still reads as a card of numbers. */
+.drill{border:0;background:none;padding:0;font:inherit;color:inherit;cursor:pointer;
+  border-bottom:1px dotted var(--faint);}
+.drill:hover{border-bottom-color:currentColor;}
+.drill:focus-visible{outline:2px solid var(--ink);outline-offset:2px;}
 
 .runrow{display:flex;gap:8px;align-items:center;margin:0 0 10px;flex-wrap:wrap;}
 .runbtn{
