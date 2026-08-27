@@ -115,6 +115,8 @@ function SignUpContent() {
     firmZip: '',
   })
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
+  // Only ever set in the sandbox, where email is disabled.
+  const [sandboxNote, setSandboxNote] = useState('')
   const [newMember, setNewMember] = useState<TeamMember>({
     email: '',
     firstName: '',
@@ -390,9 +392,17 @@ function SignUpContent() {
       })
 
       if (response.ok) {
+        // The sandbox cannot send mail, so it returns the code instead.
+        // Fill it in rather than making the tester copy it across.
+        const sent = await response.json().catch(() => ({} as any))
         setCodeSent(true)
         setResendCountdown(60)
-        setVerificationCode(['', '', '', '', '', ''])
+        if (typeof sent.sandbox_code === 'string' && sent.sandbox_code.length === 6) {
+          setVerificationCode(sent.sandbox_code.split(''))
+          setSandboxNote(`Email is disabled here, so your code (${sent.sandbox_code}) is filled in for you.`)
+        } else {
+          setVerificationCode(['', '', '', '', '', ''])
+        }
       } else {
         const data = await response.json()
         throw new Error(parseApiError(data, 'Failed to send verification code'))
@@ -1015,6 +1025,11 @@ function SignUpContent() {
           {/* Step 1b: Verification Code Entry */}
           {step === 1 && codeSent && (
             <div className="card">
+              {sandboxNote && (
+                <div className="mb-6 rounded-lg bg-yellow-500/10 p-3 text-sm text-yellow-300">
+                  {sandboxNote}
+                </div>
+              )}
               <div className="text-center mb-8">
                 <div className="w-16 h-16 bg-gg-pink/20 rounded-full flex items-center justify-center mx-auto mb-4">
                   <Mail className="text-gg-pink" size={32} />
