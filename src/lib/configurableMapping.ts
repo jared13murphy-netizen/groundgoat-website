@@ -416,3 +416,88 @@ export function queueCmaReport(cmaId: string) {
     body: JSON.stringify({ kind: 'cma', cma_id: cmaId }),
   })
 }
+
+// ─────────────────────────────────────────────────────────────────────
+// Seats — the firm admin's per-user toggle
+//
+// Seats are capacity the firm buys for the term. Switching a user on
+// buys one only if none are spare; switching a user off frees it but
+// refunds nothing, so the firm can reassign it. Never call setSeat
+// without showing previewSeat()'s message first — it is the only thing
+// that tells the admin whether this click costs money.
+// ─────────────────────────────────────────────────────────────────────
+export interface SeatPrice {
+  configured: boolean
+  price_id: string | null
+  amount_cents: number | null
+  amount: string | null
+  interval: string
+}
+
+export interface SeatMember {
+  id: string
+  email: string
+  name: string
+  account_type: string
+  enabled: boolean
+}
+
+export interface SeatSummary {
+  firm_id: string
+  firm_name: string
+  subscription_status: string
+  billable: boolean
+  price: SeatPrice
+  /** Users switched on right now. */
+  seats_in_use: number
+  /** Capacity bought for this term. Never shrinks mid-term. */
+  seats_paid: number
+  /** Paid seats nobody is using — free to hand to another user. */
+  seats_spare: number
+  annual_total_cents: number | null
+  annual_total: string | null
+  renewal_total: string | null
+  members: SeatMember[]
+}
+
+export interface SeatPreview {
+  seats_now: number
+  seats_after: number
+  seats_paid: number
+  seats_paid_after: number
+  price: SeatPrice
+  annual_total_after: string | null
+  renewal_total_after: string | null
+  /** True only when the toggle actually buys new capacity. */
+  will_be_charged: boolean
+  message: string
+}
+
+export function fetchSeats(firmId?: string) {
+  const q = firmId ? `?firm_id=${encodeURIComponent(firmId)}` : ''
+  return j<SeatSummary>(`/api/mapping/seats${q}`)
+}
+
+export function previewSeat(enabled: boolean, firmId?: string) {
+  const q = firmId ? `&firm_id=${encodeURIComponent(firmId)}` : ''
+  return j<SeatPreview>(`/api/mapping/seats/preview?enabled=${enabled}${q}`)
+}
+
+export function setSeat(userId: string, enabled: boolean, firmId?: string) {
+  const q = firmId ? `?firm_id=${encodeURIComponent(firmId)}` : ''
+  return j<{
+    user_id: string
+    enabled: boolean
+    seats_in_use: number
+    seats_paid: number
+    charged_now: boolean
+    billed: boolean
+    note: string | null
+    annual_total: string | null
+    renewal_total: string | null
+  }>(`/api/mapping/seats/${encodeURIComponent(userId)}${q}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled }),
+  })
+}

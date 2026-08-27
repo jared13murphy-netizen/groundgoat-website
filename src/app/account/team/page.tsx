@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Loader2, Users, UserPlus, Trash2, Mail, Check, AlertCircle, Crown, Shield } from 'lucide-react'
 import { SALES_CONTACT_EMAIL } from '@/config/pricing'
+import MappingSeats from '@/components/mapping/MappingSeats'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -287,6 +288,12 @@ export default function TeamPage() {
               </span>
             ) : null}
           </div>
+        </div>
+
+        {/* Configurable Mapping add-on — assigning a seat here is a
+            purchase, so the panel quotes the cost before it commits. */}
+        <div className="mb-6">
+          <MappingSeats />
         </div>
 
         {/* Team Members List */}
