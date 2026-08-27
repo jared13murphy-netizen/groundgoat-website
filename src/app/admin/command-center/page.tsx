@@ -315,16 +315,22 @@ function Outside({ d, fixes }: { d: any; fixes?: any }) {
 /* ── The panels ───────────────────────────────────────────────────── */
 
 function RightNow({ d, series }: { d: any; series: any[] | null }) {
-  const rate = d.error_rate_hour_pct || 0
-  const tone: Tone = rate >= 5 ? 'red' : rate >= 2 ? 'amber' : ''
-  const signups = (series || []).reduce((a, p) => a + (p.signups || 0), 0)
+  // NOTHING MEASURED IS NOT ZERO. An hour with no requests used to print
+  // "0 ms" and "0.0% failing", which read as instant and perfect. The panel
+  // sends null now, and null prints an em dash.
+  const rate = d.error_rate_hour_pct
+  const measured = d.requests_this_hour > 0
+  const tone: Tone = !measured ? '' : rate >= 5 ? 'red' : rate >= 2 ? 'amber' : ''
+  const ours = d.requests_this_hour_ours || 0
   return (
     <>
       <div className="kpis" style={{ gridTemplateColumns: 'repeat(4,1fr)' }}>
-        {/* Staff are counted here on purpose. This is the operations view —
-            is anyone using it this second — and excluding staff made the
-            owner invisible to his own dashboard when he opened the app.
-            The People card is where staff come out. */}
+        {/* We are counted here on purpose. This is the operations view — is
+            anyone using it this second — and the People card is where we
+            come out. Until 2026-08-27 the claim in this comment was not
+            true: the middleware dropped every staff request before it was
+            recorded, so the owner using his own product produced a card of
+            zeroes. He is counted now, and said out loud. */}
         {d.presence_available
           ? <Kpi v={num(d.people_now)}
               k={d.staff_now
@@ -332,10 +338,15 @@ function RightNow({ d, series }: { d: any; series: any[] | null }) {
                 : 'People on now · last 5 min'} />
           : <Kpi v={num(d.people_this_hour)}
               k={`People this hour · ${num(d.minutes_into_hour)} min in`} />}
-        <Kpi v={num(d.requests_this_hour)} k="Requests this hour" />
-        <Kpi v={`${num(rate, 1)}%`} k="Failing" tone={tone} />
-        <Kpi v={<>{num(d.avg_ms_this_hour)}<span style={{ fontSize: 14 }}> ms</span></>}
-          k="Average wait" tone={d.avg_ms_this_hour > 1000 ? 'amber' : ''} />
+        <Kpi v={num(d.requests_this_hour)}
+          k={ours ? `Requests this hour · ${num(ours)} ours` : 'Requests this hour'} />
+        <Kpi v={measured ? `${num(rate, 1)}%` : '—'}
+          k={measured ? 'Failing' : 'Failing · nothing yet this hour'} tone={tone} />
+        <Kpi v={measured
+                 ? <>{num(d.avg_ms_this_hour)}<span style={{ fontSize: 14 }}> ms</span></>
+                 : '—'}
+          k={measured ? 'Average wait' : 'Average wait · nothing yet this hour'}
+          tone={measured && d.avg_ms_this_hour > 1000 ? 'amber' : ''} />
       </div>
       {/* The chart needs real height now that it carries axes — 36px was
           enough for a bare line and nothing else. */}
@@ -343,12 +354,21 @@ function RightNow({ d, series }: { d: any; series: any[] | null }) {
         <Spark values={(series || []).map(p => p.requests)} color="#2E6BE6"
           hours={(series || []).map(p => p.hour)} unit="requests" />
       </div>
-      <div className="kpis" style={{ gridTemplateColumns: 'repeat(4,1fr)' }}>
-        <Kpi small v={d.presence_available ? num(d.people_15_min) : num(d.people_24h)}
-          k={d.presence_available ? 'Last 15 minutes' : 'People today'} />
-        <Kpi small v={num(d.requests_24h)} k="Requests today" />
-        <Kpi small v={num(d.server_errors_24h)} k="Our bugs today" tone={d.server_errors_24h > 100 ? 'red' : ''} />
-        <Kpi small v={num(signups)} k="Signups today" />
+      {/* TODAY IS A DAY. Every figure on this row used to be a rolling 24
+          hours wearing the word "today": it said 884 requests on a day that
+          held 10. They are calendar-day figures now, in the timezone the
+          business runs on, which is the one the clock above is showing. */}
+      <div className="kpis" style={{ gridTemplateColumns: 'repeat(5,1fr)' }}>
+        <Kpi small v={d.presence_available ? num(d.people_15_min) : num(d.people_rolling_24h)}
+          k={d.presence_available ? 'People · last 15 min' : 'People · last 24 hours'} />
+        <Kpi small v={num(d.people_today)}
+          k={d.people_today !== d.customers_today
+               ? `Active today · ${num(d.customers_today)} customers`
+               : 'Active today'} />
+        <Kpi small v={num(d.requests_today)} k="Requests today" />
+        <Kpi small v={num(d.server_errors_today)} k="Our bugs today"
+          tone={d.server_errors_today > 100 ? 'red' : ''} />
+        <Kpi small v={num(d.signups_today)} k="Signups today" />
       </div>
     </>
   )
@@ -1220,25 +1240,27 @@ const CARD_INFO: Record<string, CardInfo> = {
       { l: 'People on now · last 5 min',
         d: 'Distinct people who made at least one request in the last five minutes, counted continuously rather than in hourly buckets. Staff are included here and the label says how many are us — this card is asking whether anyone is using it right now, not who the customers are.' },
       { l: 'Requests this hour',
-        d: 'Requests since the top of the current clock hour. It resets on the hour, so a small number early in the hour is normal — compare it with "requests today".' },
+        d: 'Requests since the top of the current clock hour, ours included, with the number that were us shown beside it. It resets on the hour, so a small number early in the hour is normal — compare it with "requests today".' },
       { l: 'Failing',
-        d: 'The share of those requests that came back an error. 401 and 403 are left out: an expired login is not a fault. Anything above about 2% is worth looking at.' },
+        d: 'The share of those requests that came back an error. 401 and 403 are left out: an expired login is not a fault. Anything above about 2% is worth looking at. An em dash means the hour has measured nothing yet — which is not the same as nothing failing.' },
       { l: 'Average wait',
-        d: 'How long the backend took to answer, averaged across the hour. This is server time only — it does not include the phone\u2019s network or drawing time.' },
-      { l: 'Last 15 minutes',
-        d: 'Distinct people over a longer window, so a quiet five minutes does not read as nobody being there.' },
+        d: 'How long the backend took to answer, averaged across the hour. Server time only — it does not include the phone\u2019s network or drawing time. An em dash means nothing has been measured this hour; it used to print "0 ms", which reads as instant.' },
+      { l: 'People · last 15 min',
+        d: 'PEOPLE — distinct human beings, not requests — over a longer window than the five-minute figure, so a quiet few minutes does not read as nobody being there. The label used to say only "last 15 minutes" and left you to guess what it was counting.' },
+      { l: 'Active today',
+        d: 'Distinct people who made at least one request today, us included, with the customer-only count beside it when the two differ. "Today" is a calendar day in the timezone the business runs on — the same day the clock at the top of this screen is showing.' },
       { l: 'Requests today',
-        d: 'The rolling last 24 hours, not since midnight.' },
+        d: 'Requests since midnight, ours included. This used to be a rolling 24 hours wearing the word "today": on 27 August it read 884 on a day that had actually seen 10.' },
       { l: 'Our bugs today',
-        d: 'Requests that failed with a 500-class error — the backend broke, rather than the caller asking for something wrong. These are ours to fix.' },
+        d: 'Requests that failed with a 500-class error since midnight — the backend broke, rather than the caller asking for something wrong. These are ours to fix.' },
       { l: 'Signups today',
-        d: 'New accounts created in the last 24 hours.' },
+        d: 'New accounts created since midnight.' },
       { l: 'The chart',
         d: 'Requests per hour for the last 24 hours. Every hour is a point; the left axis is requests, the bottom axis is the hour.' },
     ],
     covers: 'Traffic and errors for the clock hour in progress, with the last full day underneath.',
     source: 'hourly_endpoint_metrics and hourly_user_activity, written by the request middleware and flushed about every 10 seconds.',
-    caveat: '"People on now" is a true rolling five minutes, from a Redis set the request middleware keeps — not an hourly bucket. If Redis is unavailable it falls back to the clock hour and the label says so. Failed requests exclude 401 and 403 — an expired token is not a fault.',
+    caveat: 'Logged-out visitors are NOT here — this counts signed-in use of the product, and anonymous website traffic belongs to web analytics. Our own usage IS counted, in its own columns, and every figure that includes it says so; before 27 August it was thrown away before being recorded, so the owner using the product produced a card of zeroes. "People on now" is a true rolling five minutes from a Redis set, not an hourly bucket; if Redis is unavailable it falls back to the clock hour and the label says so. Failed requests exclude 401 and 403 — an expired token is not a fault.',
   },
   money: {
     lines: [
@@ -2328,7 +2350,11 @@ export default function CommandCenterPage() {
 
         <main className="field">
           <Panel span={4} title="Right now" tag="last 24 hours below" infoId="pulse" panelState={st('pulse')} onChart={chart('pulse')}
-            pip={!pulse ? undefined : pulse.error_rate_hour_pct >= 5 ? 'red' : pulse.error_rate_hour_pct >= 2 ? 'amber' : 'green'}>
+            pip={/* null when the hour has measured nothing — an
+                    unmeasured hour is not a green one */
+                 !pulse || pulse.error_rate_hour_pct == null ? undefined
+                 : pulse.error_rate_hour_pct >= 5 ? 'red'
+                 : pulse.error_rate_hour_pct >= 2 ? 'amber' : 'green'}>
             {pulse ? <RightNow d={pulse} series={P('traffic_series')} /> : <Unavailable why={whyMissing('pulse')} />}
           </Panel>
 
