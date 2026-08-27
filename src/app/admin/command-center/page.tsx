@@ -968,6 +968,34 @@ function Pipeline({ d }: { d: any }) {
         </div>
       )}
 
+      {/* WHAT THE FILTER THREW AWAY BEFORE ANY OF THAT.
+          The rule is: skip car, equipment, construction and antique auctions;
+          keep every real estate and land auction. A count of what survived
+          cannot tell you whether that is happening, so the filter's own
+          tallies go on the card. "Not land" is the one to watch — it climbing
+          means the filter has started eating real listings.
+
+          The coverage line is not decoration: until every company records its
+          breakdown these totals cover only part of the run, and a partial
+          number presented as a total is exactly the sort of thing this
+          dashboard was wrong about before. */}
+      {d.run_skip_coverage_pct != null && d.run_skip_coverage_pct > 0 && (
+        <div className="rows" style={{ borderTop: '1px solid var(--line)', paddingTop: 7 }}>
+          <div className="more" style={{ marginBottom: 2 }}>Cards the filter skipped</div>
+          <Row label="Not land — cars, equipment, antiques"
+            value={num(d.run_skipped_nonland)} />
+          <Row label="No auction date on the card" value={num(d.run_skipped_no_date)} />
+          <Row label="Navigation and search pages" value={num(d.run_skipped_nav)} />
+          <Row label="Already past" value={num(d.run_skipped_past)} />
+          {d.run_skip_coverage_pct < 100 && (
+            <div className="note">
+              Reasons recorded by {num(d.run_skip_coverage_pct)}% of companies, so
+              these cover part of the run, not all of it.
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="rows" style={{ borderTop: '1px solid var(--line)', paddingTop: 7 }}>
         <Row label="Auctions / private treaty"
           value={`${num(d.reported?.auctions ?? d.found_auctions)} / ${num(d.reported?.private_treaty ?? d.found_private_treaty)}`} />
