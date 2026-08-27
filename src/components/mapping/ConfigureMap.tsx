@@ -26,7 +26,7 @@ import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import {
   Loader2, Plus, Trash2, RotateCcw, RotateCw, Save, Search, X, Layers,
-  Scissors, Combine, FileText, Download,
+  Scissors, Combine, FileText, Download, BarChart3,
 } from 'lucide-react'
 import {
   CLASS_COLOR, CLASS_LABEL, LAND_CLASSES, PARCEL_LINE, SEARCH_DOT, VERTEX_LINE,
@@ -34,6 +34,8 @@ import {
   splitGeometry, normalizeGeometry, previewSoil,
   updateParcel, queueReport, listReports, downloadReport,
   REPORT_KINDS, REPORT_LABEL, USES_ELEVATION, type ReportRow,
+  createCma, getCma, listCmas, cmaCandidates, setCmaComps, queueCmaReport, updateCma,
+  type Cma, type CompCandidate,
   type LandClass, type ParcelDetail, type ParcelSummary,
 } from '@/lib/configurableMapping'
 import { addRegridLayer, buildRegridStateFilter, fetchRegridConfig } from '@/components/map/regridLayer'
@@ -54,7 +56,7 @@ interface Shape { id: string; cls: LandClass; polys: Pt[][][] }
 
 const SRC = {
   boundary: 'cm-boundary', shapes: 'cm-shapes', verts: 'cm-verts',
-  dots: 'cm-dots', draft: 'cm-draft',
+  dots: 'cm-dots', draft: 'cm-draft', comps: 'cm-comps',
 } as const
 const LYR_VERTS = 'cm-verts-circles'
 const LYR_FILL = 'cm-shapes-fill'
@@ -141,6 +143,11 @@ export default function ConfigureMap() {
   // 1 is true scale. Stored with the report so a regenerated PDF
   // reproduces exactly what was on screen when it was ordered.
   const [exaggeration, setExaggeration] = useState(2.5)
+  // Market analysis. `cmaSubject` is the subject whose comparables the
+  // + / - pins on the map are currently choosing.
+  const [cma, setCma] = useState<Cma | null>(null)
+  const [cmaSubject, setCmaSubject] = useState<string | null>(null)
+  const [candidates, setCandidates] = useState<CompCandidate[]>([])
   // Split results waiting to be named and saved as separate tracts.
   const [pieces, setPieces] = useState<{ geometry: any; acres: number }[]>([])
   const [query, setQuery] = useState('')
@@ -353,6 +360,25 @@ export default function ConfigureMap() {
           'circle-stroke-width': ['case', ['boolean', ['get', 'active'], false], 2, 1.2],
         },
       })
+      // Comparable sales: a pin per sale, showing + to add and - to drop,
+      // the same read as the Find Comparables screen.
+      map.addLayer({
+        id: 'cm-comps-circles', type: 'circle', source: SRC.comps,
+        paint: {
+          'circle-radius': 11,
+          'circle-color': ['case', ['boolean', ['get', 'selected'], false], '#22c55e', '#111827'],
+          'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2,
+        },
+      })
+      map.addLayer({
+        id: 'cm-comps-label', type: 'symbol', source: SRC.comps,
+        layout: {
+          'text-field': ['case', ['boolean', ['get', 'selected'], false], '−', '+'],
+          'text-size': 15, 'text-allow-overlap': true,
+          'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'],
+        },
+        paint: { 'text-color': '#ffffff' },
+      })
       map.addLayer({
         id: 'cm-dots-circles', type: 'circle', source: SRC.dots,
         paint: {
@@ -399,7 +425,17 @@ export default function ConfigureMap() {
       map.on('mouseleave', LYR_VERTS, () => { map.getCanvas().style.cursor = '' })
 
       // ── clicks: draw a point, select a shape, or pick a parcel ─────
+      map.on('click', 'cm-comps-circles', (e) => {
+        const f = e.features?.[0]
+        if (!f) return
+        e.preventDefault()
+        toggleCompRef.current(String(f.properties!.id))
+      })
+      map.on('mouseenter', 'cm-comps-circles', () => { map.getCanvas().style.cursor = 'pointer' })
+      map.on('mouseleave', 'cm-comps-circles', () => { map.getCanvas().style.cursor = '' })
+
       map.on('click', (e) => {
+        if (map.queryRenderedFeatures(e.point, { layers: ['cm-comps-circles'] }).length) return
         if (drawingRef.current) {
           setDraft((d) => [...d, [e.lngLat.lng, e.lngLat.lat] as Pt])
           return
@@ -548,6 +584,103 @@ export default function ConfigureMap() {
       setError(e?.message || 'Could not fit that shape to the others.')
     }
   }, [detail])
+
+  // ── market analysis ───────────────────────────────────────────────
+  const loadCandidates = useCallback(async (c: Cma, parcelId: string) => {
+    setBusy('Finding comparable sales…'); setError(null)
+    try {
+      const r = await cmaCandidates(c.id, parcelId)
+      setCandidates(r.comparables)
+      if (!r.comparables.length) {
+        setNote('No comparable sales found near this tract.')
+        return
+      }
+      // Comparable sales are usually miles away, and the map is still
+      // framed on the parcel — without this the pins load off-screen and
+      // there is nothing to click. Frame the subject AND its comps.
+      const pts: any[] = r.comparables
+        .filter((c2) => c2.longitude != null && c2.latitude != null)
+        .map((c2) => [c2.longitude, c2.latitude])
+      if (detailRef.current?.boundary) pts.push(detailRef.current.boundary.coordinates)
+      const bb = bboxOf(pts)
+      if (bb && mapRef.current) {
+        mapRef.current.fitBounds(bb, { padding: 90, maxZoom: 13, duration: 800 })
+      }
+    } catch (e: any) {
+      setError(e?.message || 'Could not load comparable sales.')
+    } finally { setBusy(null) }
+  }, [])
+
+  /** Start (or extend) a market analysis with this parcel as a subject. */
+  const startCma = useCallback(async () => {
+    if (!editingId || !projectId) {
+      setError('Save this parcel first.')
+      return
+    }
+    setBusy('Starting market analysis…'); setError(null)
+    try {
+      // Reuse an existing analysis for this project rather than making a
+      // new one every time the page is reloaded — otherwise the portfolio
+      // fills up with duplicates nobody asked for.
+      let c = cma ? await getCma(cma.id) : null
+      if (!c) {
+        const mine = (await listCmas(projectId)).cmas
+        c = mine.length ? await getCma(mine[0].id) : null
+      }
+      if (!c) {
+        c = await createCma(projectId, `${name || 'Parcel'} — Market Analysis`, [editingId])
+      }
+      // Make sure the parcel being edited is one of its subjects.
+      if (!c.subjects.some((x) => x.parcel_id === editingId)) {
+        await updateCma(c.id, {
+          parcel_ids: [...c.subjects.map((x) => x.parcel_id), editingId],
+        })
+        c = await getCma(c.id)
+      }
+      setCma(c)
+      setCmaSubject(editingId)
+      await loadCandidates(c, editingId)
+    } catch (e: any) {
+      setError(e?.message || 'Could not start the analysis.')
+    } finally { setBusy(null) }
+  }, [editingId, projectId, cma, name, loadCandidates])
+
+  /** A + / - click on a comparable pin. */
+  const toggleComp = useCallback(async (compId: string) => {
+    if (!cma || !cmaSubject) return
+    const next = candidates.map((c) =>
+      String(c.id) === compId ? { ...c, selected: !c.selected } : c)
+    setCandidates(next)
+    const chosen = next.filter((c) => c.selected).map((c) => String(c.id))
+    try {
+      await setCmaComps(cma.id, cmaSubject, chosen)
+      setCma((prev) => prev ? {
+        ...prev,
+        subjects: prev.subjects.map((s) =>
+          s.parcel_id === cmaSubject ? { ...s, comps: chosen } : s),
+      } : prev)
+    } catch (e: any) {
+      setError(e?.message || 'Could not save that selection.')
+      // Put the pin back the way it was rather than leaving the map
+      // showing a choice the server did not accept.
+      setCandidates(candidates)
+    }
+  }, [cma, cmaSubject, candidates])
+  const toggleCompRef = useRef(toggleComp); toggleCompRef.current = toggleComp
+  // Declared later in the file; a ref keeps the ordering irrelevant.
+  const refreshReportsRef = useRef<(id: string) => Promise<void>>(async () => {})
+
+  const buildCmaReport = useCallback(async () => {
+    if (!cma) return
+    setBusy('Queuing the analysis…'); setError(null)
+    try {
+      await queueCmaReport(cma.id)
+      if (editingId) await refreshReportsRef.current(editingId)
+      setSavedMsg('Market analysis queued — it will appear under Reports.')
+    } catch (e: any) {
+      setError(e?.message || 'Could not queue the analysis.')
+    } finally { setBusy(null) }
+  }, [cma, editingId])
 
   // ── combine / split / open-saved ──────────────────────────────────
   /** Merge another clicked parcel into the current subject boundary.
@@ -703,6 +836,21 @@ export default function ConfigureMap() {
   useEffect(() => {
     const map = mapRef.current
     if (!map || !ready) return
+    ;(map.getSource(SRC.comps) as maplibregl.GeoJSONSource)?.setData({
+      type: 'FeatureCollection',
+      features: candidates
+        .filter((c) => c.longitude != null && c.latitude != null)
+        .map((c) => ({
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [c.longitude, c.latitude] },
+          properties: { id: String(c.id), selected: !!c.selected },
+        })),
+    } as any)
+  }, [candidates, ready])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !ready) return
     ;(map.getSource(SRC.draft) as maplibregl.GeoJSONSource)?.setData({
       type: 'FeatureCollection',
       features: draft.length >= 2
@@ -796,6 +944,7 @@ export default function ConfigureMap() {
   const refreshReports = useCallback(async (id: string) => {
     try { setReports((await listReports(id)).reports) } catch { /* non-fatal */ }
   }, [])
+  refreshReportsRef.current = refreshReports
 
   useEffect(() => {
     if (!editingId) { setReports([]); return }
@@ -1131,6 +1280,52 @@ export default function ConfigureMap() {
             </div>
 
             {/* Name + save */}
+            {cma && (
+              <div style={card}>
+                <div style={sectionLabel}>Market analysis</div>
+                <div style={{ fontWeight: 600 }}>{cma.name}</div>
+                {cma.subjects.map((sub) => (
+                  <button
+                    key={sub.parcel_id}
+                    onClick={() => { setCmaSubject(sub.parcel_id); void loadCandidates(cma, sub.parcel_id) }}
+                    style={{
+                      ...btn, width: '100%', justifyContent: 'space-between', marginTop: 5,
+                      borderColor: cmaSubject === sub.parcel_id ? '#22c55e' : undefined,
+                    }}>
+                    <span>{sub.name || 'Tract'}</span>
+                    <span style={{ opacity: 0.7 }}>
+                      {(sub.comps || []).length} comp{(sub.comps || []).length === 1 ? '' : 's'}
+                    </span>
+                  </button>
+                ))}
+                {cmaSubject && (
+                  <div style={hint}>
+                    {candidates.length
+                      ? 'Click a + pin on the map to use that sale, − to drop it.'
+                      : 'No comparable sales found near this tract.'}
+                  </div>
+                )}
+                {editingId && !cma.subjects.some((x) => x.parcel_id === editingId) && (
+                  <button
+                    onClick={() => void (async () => {
+                      try {
+                        await updateCma(cma.id, {
+                          parcel_ids: [...cma.subjects.map((x) => x.parcel_id), editingId],
+                        })
+                        setCma(await getCma(cma.id))
+                      } catch (e: any) { setError(e?.message || 'Could not add this tract.') }
+                    })()}
+                    style={{ ...btn, marginTop: 6 }}>
+                    <Plus size={13} /> Add this tract as a subject
+                  </button>
+                )}
+                <button onClick={() => void buildCmaReport()} disabled={!!busy}
+                        style={{ ...btn, marginTop: 8, borderColor: '#22c55e', color: '#86efac' }}>
+                  <FileText size={13} /> Build the analysis
+                </button>
+              </div>
+            )}
+
             <div style={card}>
               <div style={sectionLabel}>Reports</div>
               {!editingId && (
@@ -1145,6 +1340,9 @@ export default function ConfigureMap() {
                       </button>
                     ))}
                   </div>
+                  <button onClick={() => void startCma()} style={{ ...btn, marginTop: 8 }}>
+                    <BarChart3 size={13} /> {cma ? 'Market analysis' : 'Start market analysis'}
+                  </button>
                   <div style={{ marginTop: 10 }}>
                     <div style={{ ...statRow, marginBottom: 2 }}>
                       <span style={{ opacity: 0.65 }}>Elevation on 3D &amp; topography</span>

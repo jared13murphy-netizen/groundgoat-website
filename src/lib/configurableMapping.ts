@@ -330,3 +330,89 @@ export function previewSoil(tillable: any[], state: string | null, boundary?: an
       body: JSON.stringify({ tillable, state, boundary }),
     })
 }
+
+// ── CMA ─────────────────────────────────────────────────────────────
+// One analysis can carry several subject parcels, each with its own
+// chosen comparables, combined into a single report.
+
+export interface CmaSubject {
+  parcel_id: string
+  name: string | null
+  comps: string[]
+  stats?: Record<string, any>
+  county?: string | null
+  state?: string | null
+}
+
+export interface Cma {
+  id: string
+  project_id: string
+  name: string
+  subjects: CmaSubject[]
+  criteria?: Record<string, any>
+}
+
+export interface CompCandidate {
+  id: string
+  name: string | null
+  total_acres: number | null
+  tillable_acres: number | null
+  soil_rating: number | null
+  price_per_acre: number | null
+  sale_price: number | null
+  county: string | null
+  state: string | null
+  auction_date: string | null
+  company_name: string | null
+  latitude: number | null
+  longitude: number | null
+  selected: boolean
+}
+
+export function createCma(projectId: string, name: string, parcelIds: string[]) {
+  return j<Cma>('/api/mapping/cma', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ project_id: projectId, name, parcel_ids: parcelIds }),
+  })
+}
+
+export function listCmas(projectId?: string) {
+  const qs = projectId ? `?project_id=${encodeURIComponent(projectId)}` : ''
+  return j<{ cmas: Cma[] }>(`/api/mapping/cma${qs}`)
+}
+
+export function getCma(id: string) {
+  return j<Cma>(`/api/mapping/cma/${id}`)
+}
+
+export function cmaCandidates(cmaId: string, parcelId: string, monthsBack = 24) {
+  return j<{ comparables: CompCandidate[]; summary: any; criteria: any }>(
+    `/api/mapping/cma/${cmaId}/candidates?parcel_id=${encodeURIComponent(parcelId)}`
+    + `&months_back=${monthsBack}`)
+}
+
+export function setCmaComps(cmaId: string, parcelId: string, comps: string[]) {
+  return j<{ ok: true; comps: number }>(
+    `/api/mapping/cma/${cmaId}/subjects/${encodeURIComponent(parcelId)}/comps`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ comps }),
+    })
+}
+
+export function updateCma(id: string, patch: { name?: string; archived?: boolean; parcel_ids?: string[] }) {
+  return j<{ ok: true }>(`/api/mapping/cma/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  })
+}
+
+export function queueCmaReport(cmaId: string) {
+  return j<{ id: string; kind: string; status: string }>('/api/mapping/reports', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ kind: 'cma', cma_id: cmaId }),
+  })
+}
