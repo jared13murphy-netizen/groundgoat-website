@@ -3,8 +3,9 @@
 import Link from 'next/link'
 import Image from 'next/image'
 import { useState, useEffect } from 'react'
-import { Menu, X, LogOut, User, List } from 'lucide-react'
+import { Menu, X, LogOut, User, List, PenLine, FolderOpen, Users } from 'lucide-react'
 import { useRouter, usePathname } from 'next/navigation'
+import { fetchMappingAccess } from '@/lib/configurableMapping'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -14,6 +15,10 @@ export default function Navigation() {
   const [isScrolled, setIsScrolled] = useState(false)
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [user, setUser] = useState<any>(null)
+  // This nav renders on every page, including /configure-map — the
+  // richer portal menu is only on /access, so a firm admin who lands
+  // here had no way back to their own tools.
+  const [hasMapping, setHasMapping] = useState(false)
   const [showUserMenu, setShowUserMenu] = useState(false)
 
   useEffect(() => {
@@ -23,6 +28,18 @@ export default function Navigation() {
     window.addEventListener('scroll', handleScroll)
     return () => window.removeEventListener('scroll', handleScroll)
   }, [])
+
+  // Only firm accounts can have the add-on, so this asks at most once
+  // per navigation for the people it could apply to.
+  useEffect(() => {
+    if (!user || !['firm_admin', 'firm_user'].includes(user.account_type)) {
+      setHasMapping(false)
+      return
+    }
+    let cancelled = false
+    fetchMappingAccess().then(ok => { if (!cancelled) setHasMapping(ok) })
+    return () => { cancelled = true }
+  }, [user])
 
   useEffect(() => {
     const checkAuth = () => {
@@ -85,6 +102,7 @@ export default function Navigation() {
   }
 
   const isAdmin = user?.account_type === 'groundgoat_admin' || user?.account_type === 'groundgoat_sales'
+  const isFirmAdmin = user?.account_type === 'firm_admin'
   const canViewListings = user?.account_type === 'groundgoat_admin' ||
     user?.account_type === 'groundgoat_sales' ||
     user?.account_type === 'firm_admin' ||
@@ -161,6 +179,36 @@ export default function Navigation() {
                         <User size={16} />
                         Account
                       </Link>
+                      {hasMapping && (
+                        <>
+                          <Link
+                            href="/configure-map"
+                            className="flex items-center gap-2 px-4 py-2 text-gg-gray-300 hover:bg-gg-gray-700 hover:text-white"
+                            onClick={() => setShowUserMenu(false)}
+                          >
+                            <PenLine size={16} />
+                            Configure Map
+                          </Link>
+                          <Link
+                            href="/map-portfolio"
+                            className="flex items-center gap-2 px-4 py-2 text-gg-gray-300 hover:bg-gg-gray-700 hover:text-white"
+                            onClick={() => setShowUserMenu(false)}
+                          >
+                            <FolderOpen size={16} />
+                            Map Portfolio
+                          </Link>
+                        </>
+                      )}
+                      {isFirmAdmin && (
+                        <Link
+                          href="/account/team"
+                          className="flex items-center gap-2 px-4 py-2 text-gg-gray-300 hover:bg-gg-gray-700 hover:text-white"
+                          onClick={() => setShowUserMenu(false)}
+                        >
+                          <Users size={16} />
+                          Manage Team
+                        </Link>
+                      )}
                       <button
                         onClick={handleLogout}
                         className="flex items-center gap-2 px-4 py-2 text-red-400 hover:bg-gg-gray-700 w-full text-left"

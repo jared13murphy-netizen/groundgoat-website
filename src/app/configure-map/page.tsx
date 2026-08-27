@@ -10,17 +10,34 @@
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
-import { fetchMappingAccess } from '@/lib/configurableMapping'
+import { fetchMappingAccessState } from '@/lib/configurableMapping'
 
 const ConfigureMap = dynamic(() => import('@/components/mapping/ConfigureMap'), { ssr: false })
 
 export default function ConfigureMapPage() {
-  const [allowed, setAllowed] = useState<boolean | null>(null)
+  // undefined = still checking, null = could not check (session lapsed),
+  // false = genuinely not entitled. Collapsing the middle case into
+  // "not entitled" told paying customers the feature was not on their
+  // account when their token had simply expired.
+  const [allowed, setAllowed] = useState<boolean | null | undefined>(undefined)
 
-  useEffect(() => { fetchMappingAccess().then(setAllowed) }, [])
+  useEffect(() => { fetchMappingAccessState().then(setAllowed) }, [])
 
-  if (allowed === null) {
+  if (allowed === undefined) {
     return <Shell><p style={{ opacity: 0.6 }}>Loading…</p></Shell>
+  }
+  if (allowed === null) {
+    return (
+      <Shell>
+        <h1 style={{ fontSize: 20, fontWeight: 600, marginBottom: 8 }}>Please sign in again</h1>
+        <p style={{ opacity: 0.7, maxWidth: 420, lineHeight: 1.6 }}>
+          We couldn&apos;t confirm your access — your session has probably expired.
+        </p>
+        <Link href="/signin" style={{ color: '#93c5fd', marginTop: 16, display: 'inline-block' }}>
+          Sign in
+        </Link>
+      </Shell>
+    )
   }
   if (!allowed) {
     return (

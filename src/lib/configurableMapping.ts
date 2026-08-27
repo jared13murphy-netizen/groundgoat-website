@@ -85,13 +85,29 @@ async function j<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json()
 }
 
-export async function fetchMappingAccess(): Promise<boolean> {
+/** Whether the signed-in user may use Configurable Mapping.
+ *
+ *  Returns null when we could NOT find out — an expired session, a
+ *  network failure. That case used to collapse into `false`, which told
+ *  a paying customer the feature "isn't enabled on your account" when
+ *  the truth was that their token had lapsed. Callers must treat null
+ *  as "ask them to sign in again", not as "not entitled".
+ */
+export async function fetchMappingAccessState(): Promise<boolean | null> {
   try {
     const r = await j<{ enabled: boolean }>('/api/mapping/access')
     return !!r.enabled
-  } catch {
-    return false
+  } catch (e: any) {
+    const msg = String(e?.message || '')
+    if (/\(401\)|\(403\)|Not authenticated|credentials/i.test(msg)) return null
+    return null
   }
+}
+
+/** Convenience for places that only decide whether to render a link —
+ *  there, "could not check" and "not entitled" both mean "hide it". */
+export async function fetchMappingAccess(): Promise<boolean> {
+  return (await fetchMappingAccessState()) === true
 }
 
 export function searchMap(q: string, state?: string | null): Promise<SearchResult> {

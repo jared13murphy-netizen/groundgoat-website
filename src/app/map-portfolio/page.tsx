@@ -16,12 +16,12 @@ import {
   Archive, ArchiveRestore, Copy, Loader2, Map as MapIcon, PenLine, Plus, Search,
 } from 'lucide-react'
 import {
-  archiveParcel, duplicateProject, fetchMappingAccess, getProject, listProjects,
+  archiveParcel, duplicateProject, fetchMappingAccessState, getProject, listProjects,
   updateProject, type Project, type SavedParcelRow,
 } from '@/lib/configurableMapping'
 
 export default function MapPortfolioPage() {
-  const [allowed, setAllowed] = useState<boolean | null>(null)
+  const [allowed, setAllowed] = useState<boolean | null | undefined>(undefined)
   const [projects, setProjects] = useState<Project[]>([])
   const [showArchived, setShowArchived] = useState(false)
   const [openId, setOpenId] = useState<string | null>(null)
@@ -40,7 +40,7 @@ export default function MapPortfolioPage() {
     } finally { setBusy(null) }
   }, [showArchived])
 
-  useEffect(() => { fetchMappingAccess().then(setAllowed) }, [])
+  useEffect(() => { fetchMappingAccessState().then(setAllowed) }, [])
   useEffect(() => { if (allowed) void refresh() }, [allowed, refresh])
 
   const openProject = useCallback(async (id: string) => {
@@ -59,7 +59,18 @@ export default function MapPortfolioPage() {
     finally { setBusy(null) }
   }, [refresh])
 
-  if (allowed === null) return <Shell><p style={{ opacity: 0.6 }}>Loading…</p></Shell>
+  if (allowed === undefined) return <Shell><p style={{ opacity: 0.6 }}>Loading…</p></Shell>
+  // null = could not check (lapsed session), not "not entitled".
+  if (allowed === null) {
+    return (
+      <Shell>
+        <p style={{ opacity: 0.75 }}>
+          We couldn&apos;t confirm your access — your session has probably expired.{' '}
+          <a href="/signin" style={{ color: '#93c5fd' }}>Sign in</a>
+        </p>
+      </Shell>
+    )
+  }
   if (!allowed) {
     return (
       <Shell>
