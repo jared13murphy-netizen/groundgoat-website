@@ -12,10 +12,13 @@
  *   ONE SCREEN.  Designed for a 2560x1440 widescreen opened full width:
  *           `height: 100dvh; overflow: hidden`, a twelve-column grid, and
  *           three rows weighted to what each band of panels actually needs.
- *           Below 1700px there isn't enough height to keep everything
- *           readable, so the grid relaxes and the page is allowed to
- *           scroll — the no-scrolling promise is for the monitor it was
- *           built for, not for a phone.
+ *           That layout needs BOTH the width and the height, so it is asked
+ *           for both: min-width 1700 AND min-height 1200. Anything smaller —
+ *           a laptop, a phone — gets a page that scrolls with every card at
+ *           its natural size. Gating on width alone was the bug: a laptop is
+ *           wide enough to clear 1700 and nowhere near tall enough to hold
+ *           three bands, so the grid squashed and every card silently cut
+ *           off its own contents.
  *
  *   NO DATABASE ON THE PAGE PATH.  This page never causes a Postgres
  *           query. The backend computes every panel on a timer and parks
@@ -265,6 +268,50 @@ function Spark({ values, color, hours, unit }:
   )
 }
 
+function Outside({ d, fixes }: { d: any; fixes?: any }) {
+  const services: any[] = d.services || []
+  if (!d.instrumented) {
+    return <div className="drawer-empty">Nothing has called an outside service in 24 hours.</div>
+  }
+  return (
+    <div className="rows">
+      {services.map(x => {
+        const bad = (x.error_rate_pct ?? 0) >= 10
+        const some = (x.errors_24h || 0) > 0
+        return (
+          <div key={x.api}>
+            <Row label={x.api.charAt(0).toUpperCase() + x.api.slice(1)}
+              tone={bad ? 'red' : some ? 'amber' : ''}
+              value={`${num(x.calls_24h)} calls · ${num(x.errors_24h)} failed${
+                x.error_rate_pct == null ? '' : ` · ${num(x.error_rate_pct, 1)}%`}`} />
+            {/* The message is the whole point: "146 failed" is a number,
+                "the domain is not verified" is something to go and fix. */}
+            {x.last_message && (
+              <div className="fixnote" style={{ color: bad ? 'var(--red)' : 'var(--faint)' }}>
+                {x.last_message}
+              </div>
+            )}
+            {some && <FixButton compact fixes={fixes}
+              issue={{ key: `outside:${x.api}`, title: `${x.api} is failing`,
+                where: 'Outside services',
+                detail: x.last_message || `${x.errors_24h} of ${x.calls_24h} calls failed in 24 hours`,
+                evidence: x }} />}
+          </div>
+        )
+      })}
+      {(d.by_operation || []).length > 0 && (
+        <>
+          <div className="more" style={{ marginTop: 4 }}>Which call is failing</div>
+          {(d.by_operation || []).slice(0, 4).map((o: any) => (
+            <Row key={`${o.api}.${o.operation}`} label={`${o.api} · ${o.operation}`}
+              tone="amber" value={`${num(o.errors)} of ${num(o.calls)}`} />
+          ))}
+        </>
+      )}
+    </div>
+  )
+}
+
 /* ── The panels ───────────────────────────────────────────────────── */
 
 function RightNow({ d, series }: { d: any; series: any[] | null }) {
@@ -312,6 +359,11 @@ function Money({ d }: { d: any }) {
     <>
       <div className="kpis" style={{ gridTemplateColumns: '1fr 1fr' }}>
         <Kpi v={money(d.annual_revenue)} k="Individual plans, per year" />
+        {/* PAYING MEANS PAYING. This counted anyone with a live entitlement,
+            trials included, so on 2026-08-26 it read 26 when 18 people had
+            paid anything — the other eight are listed a few rows down under
+            "Trials becoming paid". The panel now publishes the two
+            separately; `live_people` is the old number if it is ever wanted. */}
         <Kpi small v={num(d.paying_people)} k="Paying customers" />
       </div>
       <table>
@@ -340,6 +392,11 @@ function Money({ d }: { d: any }) {
             value={`${num(d.firms_trialing)}${d.firm_trial_seats ? ` · ${num(d.firm_trial_seats)} seats` : ''}`}
             tone="amber" />
         )}
+        {/* A trial charging for the first time is not a renewal. While a
+            subscription trials, current_period_end IS the trial end, so every
+            trial fell inside 30 days by construction and this read 22 ·
+            $18,804.80 when 13 subscriptions worth $10,370.05 were up for
+            renewal — the other nine being the trials listed just below. */}
         <Row label="Renewing in 30 days" value={`${num(d.renewing_30d)} · ${money(d.renewing_30d_value)}`} />
         <Row label="Payment failed" value={num(d.past_due_people)} tone={d.past_due_people ? 'red' : ''} />
       </div>
@@ -350,16 +407,23 @@ function Money({ d }: { d: any }) {
       {d.trials && (
         <div className="rows" style={{ borderTop: '1px solid var(--line)', paddingTop: 7 }}>
           <div className="more" style={{ marginBottom: 2 }}>Trials becoming paid</div>
+          {/* PEOPLE, not rows. Somebody trialing two states holds two
+              subscription rows, so this read 9 when eight people were on a
+              trial and one of them appeared twice in the list below. The
+              money stays per row, because he is charged for both states. */}
           <Row label="On a free trial"
-            value={`${num(d.trials.total)} · ${money(d.trials.charge_all)} if all convert`} />
+            value={`${num(d.trials.people ?? d.trials.total)} · ${money(d.trials.charge_all)} if all convert`} />
           {/* A single total here is unreadable: a couple of firm trials at a
               few thousand each dominate it, and there was no way to see that
               from the card. Broken out, the number can be checked by adding
               it up. */}
           {(d.trials.by_tier || []).map((t: any) => (
             <div className="row" key={t.tier}>
+              {/* ROWS here, not people: the figure beside it is the sum of
+                  those rows' prices, so counting people would make the line
+                  fail to add up against its own money. */}
               <span className="l clamp1" style={{ color: 'var(--muted)', paddingLeft: 8 }}>
-                — {(t.tier || '').replace(/_/g, ' ')} × {num(t.people)}
+                — {(t.tier || '').replace(/_/g, ' ')} × {num(t.rows ?? t.people)}
               </span>
               <span className="r dim" style={{ color: 'var(--muted)' }}>{money(t.charge)}</span>
             </div>
@@ -373,13 +437,22 @@ function Money({ d }: { d: any }) {
             <Row label="— not on an annual cycle (should be none)"
               value={num(d.trials.monthly_cycle)} tone="red" />
           )}
+          {/* Both "charging" lines count CHARGES, not people, because the
+              money beside them is per subscription. The headline above
+              counts people, which is a different question and says so. */}
           <Row label="Charging within 7 days" value={num(d.trials.ending_7d)}
             tone={d.trials.ending_7d ? 'green' : ''} />
           <Row label="Charging within 30 days"
             value={`${num(d.trials.ending_30d)} · ${money(d.trials.charge_30d)}`} />
-          {(d.trials.soon || []).slice(0, 3).map((t: any) => (
-            <div className="row" key={t.email}>
-              <span className="l clamp1" style={{ color: 'var(--muted)' }}>{t.name}</span>
+          {/* Keyed on email + state: somebody trialing two states appears
+              twice here, and React silently drops the second row when both
+              carry the same key. The state is shown for the same reason —
+              the same name twice with two dates is not readable. */}
+          {(d.trials.soon || []).slice(0, 3).map((t: any, i: number) => (
+            <div className="row" key={`${t.email}:${t.state ?? i}`}>
+              <span className="l clamp1" style={{ color: 'var(--muted)' }}>
+                {t.name}{t.state && t.state !== 'ALL' ? ` · ${t.state}` : ''}
+              </span>
               <span className="r dim" style={{ color: 'var(--muted)' }}>
                 {t.ends ? new Date(t.ends).toLocaleDateString('en-US',
                   { month: 'short', day: 'numeric' }) : '—'} · {money(t.worth)}
@@ -470,22 +543,39 @@ function Regrid({ d }: { d: any }) {
           {/* A count that FAILED is not a small number. Say which. */}
           {d.floor_error
             ? `Could not count the year from our own data — ${d.floor_error}.`
-            : (d.cycle_note || `Regrid has not answered and our own counters started on ${d.counting_since}.`)}
+            : (d.cycle_note || (d.counting_since
+                ? `Regrid has not answered, and our own counter has nothing recorded since the contract year began (it goes back to ${String(d.counting_since).slice(0, 10)}).`
+                : 'Regrid has not answered and our own counter has recorded nothing yet.'))}
           {' '}Showing 0% here would read as &ldquo;plenty left&rdquo;, which is the
           worst thing this card could get wrong.
         </div>
+      )}
+      {/* WHEN THE TWO METERS CANNOT BOTH BE RIGHT.
+          Regrid's reported window and Regrid's reported counters are two
+          different claims, and this card used to treat them as one: on
+          2026-08-26 their API returned a full 365-day contract year
+          alongside counts of 134 records and 254 tiles, while our own caches
+          held 3,029 parcels and 3,056 tiles bought inside that same window.
+          The headline read 0.1%. The gap is now the first thing on the card
+          rather than something you could only find by opening the details. */}
+      {d.meter_disagreement && (
+        <div className="note" style={{ color: 'var(--amber)' }}>{d.meter_disagreement}</div>
       )}
       <div className="rows">
         {/* The percentage is only printed when the backend says the figure
             actually covers the contract year. One day of counting shown as
             "0.1%" of an annual cap reads as "barely touched it", which is
             the worst thing this card can get wrong — so when the share is
-            unknown the row carries the basis instead of a number. */}
+            unknown the row carries the basis instead of a number.
+
+            The ≥ is per half: records can come from Regrid while tiles come
+            from our own cache, and one flag for both mislabelled whichever
+            one it did not describe. */}
         <Row label={`Parcel records${d.records_pct == null ? '' : ` · ${num(d.records_pct, 1)}%`}`}
           value={d.records == null
             ? <span className="dim">{d.records_basis}</span>
             : <>
-                {`${d.is_floor ? '≥ ' : ''}${num(d.records)} of ${num(d.records_cap)}`}
+                {`${(d.records_is_floor ?? d.is_floor) ? '≥ ' : ''}${num(d.records)} of ${num(d.records_cap)}`}
                 {d.records_pct == null && (
                   <span className="dim"> · {d.records_basis}</span>)}
               </>} />
@@ -493,16 +583,18 @@ function Regrid({ d }: { d: any }) {
           value={d.tiles == null
             ? <span className="dim">{d.tiles_basis}</span>
             : <>
-                {`${d.is_floor ? '≥ ' : ''}${num(d.tiles)} of ${num(d.tiles_cap)}`}
+                {`${(d.tiles_is_floor ?? d.is_floor) ? '≥ ' : ''}${num(d.tiles)} of ${num(d.tiles_cap)}`}
                 {d.tiles_pct == null && (
                   <span className="dim"> · {d.tiles_basis}</span>)}
               </>} />
         <Row label="Days into the year" value={num(d.days_into_year)} />
-        {/* What we can answer without Regrid. The year-to-date total is not
-            recoverable — the meter only starts on 25 Aug — but the rate is
-            measured exactly, and "at this rate, do I blow the contract?" is
-            the question that actually matters. Labelled a pace, never a
-            total, with the unmeasured days stated beside it. */}
+        {/* What we can answer without Regrid. The rate is measured exactly
+            over whatever window the meter holds, and "at this rate, do I
+            blow the contract?" is the question that actually matters.
+            Labelled a pace, never a total, with the unmeasured days stated
+            beside it. (This note used to assert the meter began on 25 Aug;
+            it did not — production's oldest row is 3 May, which the pace
+            line beside it was already saying.) */}
         {d.pace && (
           <Row label="On pace for"
             tone={d.pace.combined_pct >= 90 ? 'red' : d.pace.combined_pct >= 75 ? 'amber' : ''}
@@ -522,9 +614,11 @@ function Regrid({ d }: { d: any }) {
           updates the timestamp, so a parcel bought twice is counted once. */}
       {d.is_floor && (
         <div className="note" style={{ color: 'var(--amber)' }}>
+          {/* The bases already read "our cache, at least", so naming them
+              again after "Records from" produced "Records from our cache, at
+              least, tiles from our cache, at least." */}
           Counted from our own cache, so these are a minimum — a parcel or
-          tile bought twice this year is counted once. Records from{' '}
-          {d.records_basis}, tiles from {d.tiles_basis}.
+          tile bought twice this year is counted once.
         </div>
       )}
       {/* Regrid's own figure, when the window it reports is shorter than the
@@ -554,9 +648,18 @@ function Regrid({ d }: { d: any }) {
               <div className="note">
                 {d.regrid_cycle_days < 350
                   ? `This is a ${num(d.regrid_cycle_days)}-day billing cycle, not your contract year — so it cannot answer "how much of the year have I used".`
-                  : `This covers ${num(d.regrid_cycle_days)} days, so it is being used as the contract-year figure above.`}
+                  : (d.records_is_floor || d.tiles_is_floor)
+                    /* Their dates say a year and their counters do not agree
+                       with that, so the figure above is ours, not theirs.
+                       Saying "it is being used as the contract-year figure"
+                       here while the card shows a different number would be
+                       the same mistake in prose. */
+                    ? `This covers ${num(d.regrid_cycle_days)} days, but their counts are lower than what we can account for buying inside that window, so the figure above is counted from our own records instead.`
+                    : `This covers ${num(d.regrid_cycle_days)} days, so it is being used as the contract-year figure above.`}
               </div>
             )}
+            <Row label="bought, from our own records"
+              value={`${num(d.floor_records)} records · ${num(d.floor_tiles)} tiles`} />
             {d.source_url && <div className="fixnote">Answered by {d.source_url}</div>}
           </>
         ) : (
@@ -575,7 +678,12 @@ function Regrid({ d }: { d: any }) {
         {d.cycle_note
           ? <span style={{ color: 'var(--amber)' }}>{d.cycle_note} </span>
           : `Contract year started ${d.contract_year_start}. `}
-        Cache counting started {d.counting_since}.
+        {/* Read off the meter's oldest row. This was a hardcoded date that
+            was already wrong when it was written, and contradicted the pace
+            line further up the same card. */}
+        {d.counting_since
+          ? `Our own counting goes back to ${String(d.counting_since).slice(0, 10)}.`
+          : 'Our own counter has recorded nothing yet.'}
       </div>
     </>
   )
@@ -826,20 +934,79 @@ function Pipeline({ d }: { d: any }) {
   return (
     <>
       <div className="kpis" style={{ gridTemplateColumns: 'repeat(3,1fr)' }}>
-        {/* listing_staging keys on a unique source_url_hash, so a listing
-            the scraper has seen before creates no row — this count can only
-            ever be NEW urls, not everything the scrape worked through. When
-            the scraper reports its own total we show that instead. */}
-        <Kpi v={num(d.reported_found ?? d.found)} k="Last scrape results"
-          tone={d.run_anchored_to_job && !d.reported_found && !d.found ? 'amber' : ''} />
+        {/* THE NUMBER IS NOW WHAT THE RUN WORKED THROUGH.
+            listing_staging keys on a unique source_url_hash, so it only ever
+            holds listings we had never seen — which is how this card came to
+            say 3 on a night the scraper worked through 3,850 auctions across
+            356 companies. scraper_run_log has the real funnel, written by the
+            scraper itself, one row per company per phase. The label follows
+            whichever source the number came from. */}
+        <Kpi v={num(d.found)}
+          k={d.found_is_new_only ? 'New to us last night' : 'Auctions scraped last night'}
+          tone={d.run_anchored_to_job && !d.found ? 'amber' : ''} />
         <Kpi small v={num(d.waiting)} k="Waiting for you" />
         <Kpi small v={num(d.verified_today)} k="Verified today" />
       </div>
+
+      {/* THE FUNNEL, START TO FINISH. Every step is a count the scraper
+          wrote down during the run. The drop between what it worked through
+          and what reached review is the thing worth watching, so it is a row
+          on the card rather than something you have to infer from a small
+          headline. */}
+      {d.run_has_funnel && (
+        <div className="rows" style={{ borderTop: '1px solid var(--line)', paddingTop: 7 }}>
+          <div className="more" style={{ marginBottom: 2 }}>
+            What last night&rsquo;s run did · {num(d.run_companies)} companies
+          </div>
+          <Row label="Auction cards seen" value={num(d.run_cards_seen)} />
+          <Row label="Auctions worked through" value={num(d.run_auctions_worked)} />
+          <Row label="New to us" value={num(d.run_new_urls)} />
+          <Row label="Reached review"
+            value={num(d.run_reached_review)}
+            tone={d.run_new_urls > 0 && d.run_reached_review < d.run_new_urls * 0.5 ? 'amber' : ''} />
+          {d.run_failed_companies > 0 && (
+            <Row label="Companies that failed outright"
+              value={num(d.run_failed_companies)} tone="red" />
+          )}
+        </div>
+      )}
+
+      {/* WHAT THE FILTER THREW AWAY BEFORE ANY OF THAT.
+          The rule is: skip car, equipment, construction and antique auctions;
+          keep every real estate and land auction. A count of what survived
+          cannot tell you whether that is happening, so the filter's own
+          tallies go on the card. "Not land" is the one to watch — it climbing
+          means the filter has started eating real listings.
+
+          The coverage line is not decoration: until every company records its
+          breakdown these totals cover only part of the run, and a partial
+          number presented as a total is exactly the sort of thing this
+          dashboard was wrong about before. */}
+      {d.run_skip_coverage_pct != null && d.run_skip_coverage_pct > 0 && (
+        <div className="rows" style={{ borderTop: '1px solid var(--line)', paddingTop: 7 }}>
+          <div className="more" style={{ marginBottom: 2 }}>Cards the filter skipped</div>
+          <Row label="Not land — cars, equipment, antiques"
+            value={num(d.run_skipped_nonland)} />
+          <Row label="No auction date on the card" value={num(d.run_skipped_no_date)} />
+          <Row label="Navigation and search pages" value={num(d.run_skipped_nav)} />
+          <Row label="Already past" value={num(d.run_skipped_past)} />
+          {d.run_skip_coverage_pct < 100 && (
+            <div className="note">
+              Reasons recorded by {num(d.run_skip_coverage_pct)}% of companies, so
+              these cover part of the run, not all of it.
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="rows" style={{ borderTop: '1px solid var(--line)', paddingTop: 7 }}>
         <Row label="Auctions / private treaty"
           value={`${num(d.reported?.auctions ?? d.found_auctions)} / ${num(d.reported?.private_treaty ?? d.found_private_treaty)}`} />
-        {d.reported_found != null && (
-          <Row label="— new to us (the rest we had already seen)" value={num(d.found)} />
+        {/* `new_to_us` is always the staging count; `found` is the headline.
+            Reading `found` here would have shown the same number twice. */}
+        {!d.found_is_new_only && (
+          <Row label="— new rows in staging"
+            value={num(d.new_to_us ?? d.found)} />
         )}
         {/* Seven nights, so "is 3 normal?" answers itself. A run of similar
             numbers means this is what new-to-us looks like; one small number
@@ -871,7 +1038,11 @@ function Pipeline({ d }: { d: any }) {
           ? <>Last scrape {ago(d.run_started)} ago
               {d.run_minutes ? `, took ${num(d.run_minutes, 0)} min` : ''}
               {d.run_status ? ` · ${d.run_status}` : ''}.
-              {!d.run_anchored_to_job && ' No job record, so this counts from midnight.'}</>
+              {/* This said "counts from midnight", which was wrong twice:
+                  the fallback is a rolling 24 hours, and it was in force
+                  every single night because the job lookup never matched. */}
+              {!d.run_anchored_to_job
+                && ' No scraper run on record, so this counts a rolling 24 hours and may span two nights.'}</>
           : 'No scrape recorded yet.'}
         {d.oldest_waiting && <> Oldest waiting: {ago(d.oldest_waiting)}.</>}
       </div>
@@ -897,10 +1068,24 @@ function Quality({ d, fixes }: { d: any; fixes?: any }) {
         {line('Says the boundary is good, but has none', d.valid_but_no_boundary)}
         {line('Boundary flagged as wrong', d.boundary_flagged_bad)}
         {line('Auction already happened, no price', d.past_auctions_no_price)}
-        {line('Tillable acres bigger than total acres', d.tillable_over_total)}
+        {/* "Tillable acres bigger than total acres" was here, 519 of them,
+            in amber with a Fix button. It is not a defect: the owner ruled on
+            2026-07-01 that it is legitimate and common ("I know it seems off,
+            but this is common even though it doesn't make sense") and the
+            rule was deleted — see the first line of docs/DATA_RULEBOOK.md in
+            the backend repo. Do not add it back. */}
         {line('Acres recorded as zero or less', d.bad_acres)}
-        {line('Listing with no location on the map', d.listings_no_location)}
+        {line('On the market with no location on the map', d.listings_no_location)}
       </div>
+      {/* Deliberately outside the list: these are closed listings from old
+          imports, not something a subscriber is looking at. Counted with the
+          live ones they buried them, 1,413 to 629. */}
+      {d.closed_no_location > 0 && (
+        <div className="note">
+          {num(d.closed_no_location)} sold or withdrawn listings also have no
+          coordinates. Backlog, not a fault on anything currently for sale.
+        </div>
+      )}
       {(d.duplicate_titles || []).length > 0 && (
         <div style={{ borderTop: '1px solid var(--line)', paddingTop: 7 }}>
           <div className="more" style={{ marginBottom: 4 }}>Same listing twice</div>
@@ -1060,17 +1245,17 @@ const CARD_INFO: Record<string, CardInfo> = {
       { l: 'Individual plans, per year',
         d: 'What every live subscription is worth over a year. Every plan is sold annually, so this is the actual yearly total, not a projection.' },
       { l: 'Paying customers',
-        d: 'People with a live subscription. A firm counts once — at its admin, who pays — not once per seat.' },
+        d: 'People who have actually paid — active or past due. Trials are NOT in here; they are counted under "On a free trial", because somebody on a free trial has paid nothing. A firm counts once, at its admin, not once per seat.' },
       { l: 'The plan table',
         d: 'The same money split by plan, so the total can be checked by adding it up.' },
       { l: 'Firms paying',
         d: 'Firms that have actually paid — active or past due — and how many seats they cover. Firms still on trial are on their own line, because they have paid nothing yet.' },
       { l: 'Renewing in 30 days',
-        d: 'Subscriptions whose period ends within a month, and what they are worth. This is money that has to be re-earned.' },
+        d: 'Paid subscriptions whose period ends within a month, and what they are worth — money that has to be re-earned. Trials are excluded: while a subscription is trialing its period end is the TRIAL end, so counting them here listed the same people twice on one card.' },
       { l: 'Payment failed',
         d: 'People whose card was declined and who are now past due. They still have access, and they will lose it if this is not resolved.' },
       { l: 'On a free trial · if all convert',
-        d: 'What Stripe will actually charge when the trials end — not an annualised projection. Broken out by plan underneath, because one firm trial can be worth more than every individual trial put together.' },
+        d: 'How many PEOPLE are on a trial, and what Stripe will actually charge when those trials end — not an annualised projection. The count is people and the money is per subscription, because somebody trialing two states holds two rows and is charged for both. Broken out by plan underneath, because one firm trial can be worth more than every individual trial put together.' },
       { l: 'Charging within 7 / 30 days',
         d: 'Trials about to become real money. While a subscription is trialing, its period end IS the trial end.' },
     ],
@@ -1203,6 +1388,20 @@ const CARD_INFO: Record<string, CardInfo> = {
     source: 'pg_database_size for databases the backend connects to; the rest were measured by hand on the date shown.',
     caveat: 'A Railway Postgres disk cannot exceed 1,000 GB, so percentage matters more than gigabytes. Rows marked with a date are not live readings.',
   },
+  outside: {
+    covers: 'Every outside service we depend on — Stripe, Resend and Anthropic — with how many calls failed and WHY.',
+    source: 'hourly_external_api_calls, written by the wrappers around each service. Regrid is not here: it has its own meter and its own card.',
+    lines: [
+      { l: 'Calls · failed · rate',
+        d: 'How many times we called that service in the last 24 hours, how many came back an error, and the share. A service nobody called shows no rate rather than 0%.' },
+      { l: 'The message underneath',
+        d: 'The last error the service actually returned. That is the point of the card: "146 failed" is a number, "the domain is not verified" is something you can go and fix.' },
+      { l: 'Which call is failing',
+        d: 'Narrows it to the specific operation — creating a checkout, sending an email — so a failing service does not send you hunting through everything it does.' },
+      { l: 'Why it matters',
+        d: 'Stripe failing means someone is not being billed. Resend failing means someone is not being told. Both were invisible on this dashboard until now.' },
+    ],
+  },
   pipeline: {
     lines: [
       { l: 'Last run',
@@ -1229,9 +1428,9 @@ const CARD_INFO: Record<string, CardInfo> = {
       { l: 'Past auctions with no sale price',
         d: 'An auction whose date has passed and which still has no result recorded. Subscribers see a stale listing until it is filled in.' },
       { l: 'Bad acres',
-        d: 'Tracts with zero or negative acreage, or with tillable acres greater than total acres. Both are impossible and both are visible.' },
-      { l: 'Listings with no location',
-        d: 'No latitude or longitude, so it cannot be placed on the map. Bulk-import rows are excluded — they were never meant to appear.' },
+        d: 'Tracts with zero or negative acreage. Tillable acres greater than total acres is NOT counted here and is not a defect — the owner ruled on 2026-07-01 that it is legitimate and common.' },
+      { l: 'On the market with no location',
+        d: 'Currently for sale, with no latitude or longitude, so it cannot be placed on the map. Sold and withdrawn listings are counted separately underneath: there are thousands of those from old imports and they swamped the ones that matter. Bulk-import rows are excluded — they were never meant to appear.' },
       { l: 'Duplicate titles',
         d: 'The same auction scraped twice under differently-encoded URLs, so it shows up twice in the app.' },
     ],
@@ -1356,8 +1555,34 @@ function TrendsDrawer({ openFor, title, series, errors, onClose }:
     return () => window.removeEventListener('keydown', onKey)
   }, [open, onClose])
 
+  // DAY / WEEK / MONTH.
+  // A nightly figure cannot show a trend: every night looks like every other
+  // night until something has been drifting for a month. A series that
+  // carries `points_week` and `points_month` gets the toggle; the rest are
+  // daily-only and render exactly as they always did, with no toggle shown.
+  const [bucket, setBucket] = useState<'day' | 'week' | 'month'>('day')
+  const hasBuckets = (series || []).some((sr: any) => sr.points_week || sr.points_month)
+  // Back to daily whenever a different card's drawer is opened, so the
+  // granularity never carries over to a card that cannot honour it.
+  useEffect(() => { setBucket('day') }, [openFor])
+
+  const pointsFor = (sr: any) =>
+    (bucket === 'week' ? sr.points_week : bucket === 'month' ? sr.points_month : sr.points)
+    || sr.points || []
+
+  // UTC, or the labels slip a bucket. The backend truncates in UTC, so
+  // 2026-02-01T00:00:00Z formatted in America/Chicago is 31 January and the
+  // month axis read "Jan 26 → Jul 26" for data that runs February to August.
+  // The daily axis was off by one for the same reason and nobody noticed.
   const day = (iso: string) =>
-    new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    new Date(iso).toLocaleDateString('en-US',
+      bucket === 'month'
+        ? { month: 'short', year: '2-digit', timeZone: 'UTC' }
+        : { month: 'short', day: 'numeric', timeZone: 'UTC' })
+
+  const span = hasBuckets
+    ? { day: 'last 60 days', week: 'last 26 weeks', month: 'last 12 months' }[bucket]
+    : 'last 14 days'
 
   return (
     <>
@@ -1367,7 +1592,17 @@ function TrendsDrawer({ openFor, title, series, errors, onClose }:
         aria-label={`${title} over time`}>
         <div className="drawer-head">
           <h2>{title}</h2>
-          <span className="sub">last 14 days</span>
+          <span className="sub">{span}</span>
+          {hasBuckets && (
+            <div className="buckets" role="group" aria-label="Group by">
+              {(['day', 'week', 'month'] as const).map(b => (
+                <button key={b} type="button"
+                  className={bucket === b ? 'on' : ''}
+                  aria-pressed={bucket === b}
+                  onClick={() => setBucket(b)}>{b}</button>
+              ))}
+            </div>
+          )}
           <button type="button" className="drawer-close" onClick={onClose}>Close ·  Esc</button>
         </div>
         <div className="charts">
@@ -1380,11 +1615,16 @@ function TrendsDrawer({ openFor, title, series, errors, onClose }:
                   : 'No history for this card yet.'}
               </div>
             : series.map((sr: any, i: number) => {
-              const pts = sr.points || []
+              const pts = pointsFor(sr)
               const cur = pts.length ? pts[pts.length - 1].v : null
-              // Compare the last three days with the three before them —
-              // steadier than yesterday-versus-today on low-volume series.
-              const tail = pts.slice(-3), prev = pts.slice(-6, -3)
+              // A week looked at on a Wednesday holds three days. Drawn
+              // beside finished weeks it is a cliff, and averaged in with
+              // them it reads as a 10% collapse when nothing has happened.
+              // The backend flags it; the number says "so far" and the
+              // comparison is made between COMPLETE buckets only.
+              const partial = pts.length ? pts[pts.length - 1].partial === true : false
+              const done = partial ? pts.slice(0, -1) : pts
+              const tail = done.slice(-3), prev = done.slice(-6, -3)
               const avg = (a: any[]) => a.length ? a.reduce((s, p) => s + p.v, 0) / a.length : null
               const now = avg(tail), was = avg(prev)
               const pct = (now !== null && was) ? ((now - was) / was) * 100 : null
@@ -1394,9 +1634,11 @@ function TrendsDrawer({ openFor, title, series, errors, onClose }:
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
                     <span className="cur">{cur === null ? '—' : num(cur, sr.unit === 'GB' ? 1 : 0)}</span>
                     {sr.unit && <span className="note">{sr.unit}</span>}
+                    {partial && <span className="note">
+                      this {bucket} so far</span>}
                     {pct !== null && Math.abs(pct) >= 1 && (
                       <span className={`delta ${pct > 0 ? 'up' : 'down'}`}>
-                        {pct > 0 ? '▲' : '▼'} {num(Math.abs(pct), 0)}% vs the three days before
+                        {pct > 0 ? '▲' : '▼'} {num(Math.abs(pct), 0)}% vs the three {bucket === 'day' ? 'days' : bucket === 'week' ? 'weeks' : 'months'} before
                       </span>
                     )}
                   </div>
@@ -2037,6 +2279,7 @@ export default function CommandCenterPage() {
   const erroringD = P('failing_endpoints'), slowD = P('slow_endpoints'), jobsD = P('jobs'), crashD = P('crashes')
   const storageD = P('storage'), pipelineD = P('pipeline'), qualityD = P('data_quality')
   const notifD = P('notifications'), emailD = P('email')
+  const outsideD = P('outside')
   const agentsD = P('agents')
   const trendsD = P('trends') || {}
   const fixesD = P('fixes')
@@ -2126,6 +2369,13 @@ export default function CommandCenterPage() {
             {storageD ? <Storage d={storageD} trend={P('storage_trend')} /> : <Unavailable why={whyMissing('storage')} />}
           </Panel>
 
+          {/* Stripe, Resend and Anthropic. This table has been filling up all
+              along — calls, errors and the last error MESSAGE — and nothing
+              on this dashboard read it, so an outside service failing was
+              invisible here. */}
+          <Panel span={3} title="Outside services" infoId="outside" panelState={st('outside')}>
+            {outsideD ? <Outside d={outsideD} fixes={fixesD} /> : <Unavailable why={whyMissing('outside')} />}
+          </Panel>
           <Panel span={3} title="Scraper & staging" infoId="pipeline" panelState={st('pipeline')} onChart={chart('pipeline')}
             pip={!pipelineD ? undefined
               : pipelineD.run_failures ? 'red'
@@ -2229,11 +2479,38 @@ const CSS = `
 /* Scoped to the page's own subtree — this file must not restyle the rest
    of the admin app, which is still on the site's dark shell. */
 .shell,.shell *,.booting{box-sizing:border-box;}
-body:has(.shell){overflow:hidden;}
+/* Scrolls by default. The locked one-screen layout is an enhancement that
+   switches on further down, and only when the screen can actually hold it.
+
+   The site's own chrome is hidden rather than covered. This page is an
+   instrument panel, not a page in the site, and the shell used to sit on
+   top of the nav and footer by being taken out of flow — which is exactly
+   what stopped it scrolling: an out-of-flow element adds no height to its
+   parent, so the document reported 2,370px of content and scrollTop would
+   not move past 2. Hiding the two siblings lets the shell stay in normal
+   flow, where the page grows and scrolls the way a page does. Scoped with
+   :has so it applies only while this page is mounted.
+
+   No overflow declaration here on purpose. Setting it to auto put an
+   explicit value on body, and the viewport takes its scrolling behaviour
+   from body when html is visible — which left the document reporting
+   2,370px of content that would not scroll. Left alone, the page scrolls
+   the way every other page does. Only the locked layout at the bottom
+   turns overflow off. */
+body:has(.shell) > nav,
+body:has(.shell) > footer{display:none;}
 .shell,.booting{
   background:var(--paper);
   background-image:var(--page);
-  background-attachment:fixed;
+  /* Anchored to the top and sized to one viewport rather than pinned with
+     background-attachment:fixed. Fixed attachment was written for a shell
+     that never scrolls; on a 2,371px scrolling page it leaves the area
+     above the fold unpainted, so the site's near-black body colour showed
+     through as a void above the cards. The locked layout below restores
+     the pinned version, where there is no scrolling for it to go wrong. */
+  background-attachment:scroll;
+  background-size:100% 100dvh;
+  background-repeat:no-repeat;
   color:var(--ink);
   font-family:var(--sans); font-size:13px; line-height:1.35;
   -webkit-font-smoothing:antialiased;
@@ -2253,9 +2530,9 @@ body:has(.shell){overflow:hidden;}
 .shell{
   /* Covers the site's fixed navigation and footer. This page is an
      instrument panel, not a page in the site — sharing the chrome would
-     cost it the two things it was asked for, the full width and the
-     absence of scrolling. The Admin link in the rail is the way back. */
-  position:fixed;inset:0;z-index:60;
+     cost it the full width it was asked for. The Admin link in the rail is
+     the way back. */
+  position:relative;z-index:60;width:100%;min-height:100dvh;
   display:grid;grid-template-rows:auto auto minmax(0,1fr);gap:9px;padding:0;
 }
 
@@ -2369,7 +2646,10 @@ body:has(.shell){overflow:hidden;}
 
 /* ── Panel field ── */
 .field{display:grid;padding:0 9px 9px;grid-template-columns:repeat(12,minmax(0,1fr));
-  grid-template-rows:minmax(0,1.12fr) minmax(0,.64fr) minmax(0,1.24fr);gap:9px;min-height:0;}
+  /* Cards size to their own content and the page scrolls. The three weighted
+     bands that fit everything on one screen are applied only on a display
+     tall enough for them — see the bottom of this stylesheet. */
+  grid-auto-rows:minmax(240px,auto);gap:9px;min-height:0;}
 .panel{
   min-height:0;display:flex;flex-direction:column;overflow:hidden;
   background:var(--card);border:1px solid var(--line);border-radius:var(--r);
@@ -2493,6 +2773,19 @@ svg.spark{display:block;width:100%;height:100%;}
   letter-spacing:.06em;text-transform:uppercase;}
 .drawer-head .sub{font-family:var(--label);font-size:11px;color:var(--on-bar-dim);
   letter-spacing:.06em;text-transform:uppercase;}
+/* Day / week / month. Pushed to the right of the title so the close button
+   stays where the eye already expects it, and built from the same pill
+   vocabulary as everything else in this bar. */
+.buckets{margin-left:auto;display:flex;gap:4px;}
+.buckets button{
+  background:var(--pill);color:var(--on-bar-dim);
+  border:1px solid var(--pill-line);border-radius:999px;cursor:pointer;
+  font-family:var(--label);font-size:11px;letter-spacing:.08em;text-transform:uppercase;
+  padding:4px 11px;
+}
+.buckets button:hover{background:rgba(255,255,255,.22);color:var(--on-bar);}
+.buckets button.on{background:rgba(255,255,255,.28);color:var(--on-bar);
+  border-color:rgba(255,255,255,.65);font-weight:700;}
 .drawer-close{margin-left:8px;background:var(--pill);color:var(--on-bar);
   border:1px solid var(--pill-line);border-radius:999px;cursor:pointer;
   font-family:var(--label);font-size:11px;letter-spacing:.08em;text-transform:uppercase;
@@ -2653,13 +2946,26 @@ svg.spark{display:block;width:100%;height:100%;}
 .fixnote{font-size:10px;color:var(--faint);margin-top:3px;}
 .alert-actions{display:flex;gap:5px;align-items:center;flex-wrap:wrap;margin-top:auto;}
 
-/* Below a widescreen there is not enough height to hold everything at a
-   readable size, so the grid narrows and the page is allowed to scroll.
-   The no-scrolling promise is for the 2560-wide monitor it was built for. */
-@media (max-width:1700px){
-  body:has(.shell){overflow:auto;}
-  .shell{position:absolute;inset:auto;width:100%;height:auto;min-height:100dvh;}
-  .field{grid-template-rows:none;grid-auto-rows:minmax(240px,auto);}
+/* ── Everything on one screen, but only when one screen can hold it ──
+   This used to key on WIDTH ALONE (max-width:1700px). A laptop is wide
+   enough to clear that and nowhere near tall enough to hold three bands of
+   panels, so the page stayed locked to 100dvh, the weighted rows squashed,
+   and every card silently clipped its own contents — People showed three
+   numbers with their labels cut off, Slowest things showed a header and no
+   rows. overflow:hidden on .panel meant it lost the content without a
+   scrollbar to hint that anything was missing.
+
+   Fitting everything at once is a question about HEIGHT, so it is asked
+   about height. Both conditions have to hold: twelve columns need the
+   width, three bands of readable cards need roughly 1200px of it. A
+   2560x1440 monitor passes; a 16" laptop at 1117 tall does not, and gets a
+   page that scrolls with every card at its natural size. */
+@media (min-width:1700px) and (min-height:1200px){
+  body:has(.shell){overflow:hidden;}
+  .shell{position:fixed;inset:0;width:auto;min-height:0;
+    background-attachment:fixed;background-size:auto;}
+  .field{grid-auto-rows:auto;
+    grid-template-rows:minmax(0,1.12fr) minmax(0,.64fr) minmax(0,1.24fr);}
 }
 @media (max-width:1100px){
   .field{grid-template-columns:repeat(6,minmax(0,1fr));}
