@@ -12,10 +12,13 @@
  *   ONE SCREEN.  Designed for a 2560x1440 widescreen opened full width:
  *           `height: 100dvh; overflow: hidden`, a twelve-column grid, and
  *           three rows weighted to what each band of panels actually needs.
- *           Below 1700px there isn't enough height to keep everything
- *           readable, so the grid relaxes and the page is allowed to
- *           scroll — the no-scrolling promise is for the monitor it was
- *           built for, not for a phone.
+ *           That layout needs BOTH the width and the height, so it is asked
+ *           for both: min-width 1700 AND min-height 1200. Anything smaller —
+ *           a laptop, a phone — gets a page that scrolls with every card at
+ *           its natural size. Gating on width alone was the bug: a laptop is
+ *           wide enough to clear 1700 and nowhere near tall enough to hold
+ *           three bands, so the grid squashed and every card silently cut
+ *           off its own contents.
  *
  *   NO DATABASE ON THE PAGE PATH.  This page never causes a Postgres
  *           query. The backend computes every panel on a timer and parks
@@ -2476,11 +2479,38 @@ const CSS = `
 /* Scoped to the page's own subtree — this file must not restyle the rest
    of the admin app, which is still on the site's dark shell. */
 .shell,.shell *,.booting{box-sizing:border-box;}
-body:has(.shell){overflow:hidden;}
+/* Scrolls by default. The locked one-screen layout is an enhancement that
+   switches on further down, and only when the screen can actually hold it.
+
+   The site's own chrome is hidden rather than covered. This page is an
+   instrument panel, not a page in the site, and the shell used to sit on
+   top of the nav and footer by being taken out of flow — which is exactly
+   what stopped it scrolling: an out-of-flow element adds no height to its
+   parent, so the document reported 2,370px of content and scrollTop would
+   not move past 2. Hiding the two siblings lets the shell stay in normal
+   flow, where the page grows and scrolls the way a page does. Scoped with
+   :has so it applies only while this page is mounted.
+
+   No overflow declaration here on purpose. Setting it to auto put an
+   explicit value on body, and the viewport takes its scrolling behaviour
+   from body when html is visible — which left the document reporting
+   2,370px of content that would not scroll. Left alone, the page scrolls
+   the way every other page does. Only the locked layout at the bottom
+   turns overflow off. */
+body:has(.shell) > nav,
+body:has(.shell) > footer{display:none;}
 .shell,.booting{
   background:var(--paper);
   background-image:var(--page);
-  background-attachment:fixed;
+  /* Anchored to the top and sized to one viewport rather than pinned with
+     background-attachment:fixed. Fixed attachment was written for a shell
+     that never scrolls; on a 2,371px scrolling page it leaves the area
+     above the fold unpainted, so the site's near-black body colour showed
+     through as a void above the cards. The locked layout below restores
+     the pinned version, where there is no scrolling for it to go wrong. */
+  background-attachment:scroll;
+  background-size:100% 100dvh;
+  background-repeat:no-repeat;
   color:var(--ink);
   font-family:var(--sans); font-size:13px; line-height:1.35;
   -webkit-font-smoothing:antialiased;
@@ -2500,9 +2530,9 @@ body:has(.shell){overflow:hidden;}
 .shell{
   /* Covers the site's fixed navigation and footer. This page is an
      instrument panel, not a page in the site — sharing the chrome would
-     cost it the two things it was asked for, the full width and the
-     absence of scrolling. The Admin link in the rail is the way back. */
-  position:fixed;inset:0;z-index:60;
+     cost it the full width it was asked for. The Admin link in the rail is
+     the way back. */
+  position:relative;z-index:60;width:100%;min-height:100dvh;
   display:grid;grid-template-rows:auto auto minmax(0,1fr);gap:9px;padding:0;
 }
 
@@ -2616,7 +2646,10 @@ body:has(.shell){overflow:hidden;}
 
 /* ── Panel field ── */
 .field{display:grid;padding:0 9px 9px;grid-template-columns:repeat(12,minmax(0,1fr));
-  grid-template-rows:minmax(0,1.12fr) minmax(0,.64fr) minmax(0,1.24fr);gap:9px;min-height:0;}
+  /* Cards size to their own content and the page scrolls. The three weighted
+     bands that fit everything on one screen are applied only on a display
+     tall enough for them — see the bottom of this stylesheet. */
+  grid-auto-rows:minmax(240px,auto);gap:9px;min-height:0;}
 .panel{
   min-height:0;display:flex;flex-direction:column;overflow:hidden;
   background:var(--card);border:1px solid var(--line);border-radius:var(--r);
@@ -2913,13 +2946,26 @@ svg.spark{display:block;width:100%;height:100%;}
 .fixnote{font-size:10px;color:var(--faint);margin-top:3px;}
 .alert-actions{display:flex;gap:5px;align-items:center;flex-wrap:wrap;margin-top:auto;}
 
-/* Below a widescreen there is not enough height to hold everything at a
-   readable size, so the grid narrows and the page is allowed to scroll.
-   The no-scrolling promise is for the 2560-wide monitor it was built for. */
-@media (max-width:1700px){
-  body:has(.shell){overflow:auto;}
-  .shell{position:absolute;inset:auto;width:100%;height:auto;min-height:100dvh;}
-  .field{grid-template-rows:none;grid-auto-rows:minmax(240px,auto);}
+/* ── Everything on one screen, but only when one screen can hold it ──
+   This used to key on WIDTH ALONE (max-width:1700px). A laptop is wide
+   enough to clear that and nowhere near tall enough to hold three bands of
+   panels, so the page stayed locked to 100dvh, the weighted rows squashed,
+   and every card silently clipped its own contents — People showed three
+   numbers with their labels cut off, Slowest things showed a header and no
+   rows. overflow:hidden on .panel meant it lost the content without a
+   scrollbar to hint that anything was missing.
+
+   Fitting everything at once is a question about HEIGHT, so it is asked
+   about height. Both conditions have to hold: twelve columns need the
+   width, three bands of readable cards need roughly 1200px of it. A
+   2560x1440 monitor passes; a 16" laptop at 1117 tall does not, and gets a
+   page that scrolls with every card at its natural size. */
+@media (min-width:1700px) and (min-height:1200px){
+  body:has(.shell){overflow:hidden;}
+  .shell{position:fixed;inset:0;width:auto;min-height:0;
+    background-attachment:fixed;background-size:auto;}
+  .field{grid-auto-rows:auto;
+    grid-template-rows:minmax(0,1.12fr) minmax(0,.64fr) minmax(0,1.24fr);}
 }
 @media (max-width:1100px){
   .field{grid-template-columns:repeat(6,minmax(0,1fr));}
