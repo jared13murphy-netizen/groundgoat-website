@@ -29,7 +29,7 @@ import {
   Scissors, Combine, FileText, Download,
 } from 'lucide-react'
 import {
-  CLASS_LABEL, CLASS_TINT, LAND_CLASSES, PARCEL_LINE, POLY_LINE, SEARCH_DOT,
+  CLASS_COLOR, CLASS_LABEL, LAND_CLASSES, PARCEL_LINE, SEARCH_DOT, VERTEX_LINE,
   archiveParcel, combineGeometry, fetchParcel, getSavedParcel, saveParcel, searchMap,
   splitGeometry,
   updateParcel, queueReport, listReports, downloadReport,
@@ -87,22 +87,6 @@ function shapeAcres(s: Shape): number {
     const holes = rings.slice(1).reduce((h, r) => h + polygonAcres(r), 0)
     return sum + Math.max(polygonAcres(rings[0]) - holes, 0)
   }, 0)
-}
-
-/** Where the land-type label sits: average vertex of the largest ring.
- *  Good enough for field shapes and free. */
-function labelPoint(s: Shape): Pt | null {
-  let best: Pt[] | null = null
-  let bestA = -1
-  for (const rings of s.polys) {
-    if (!rings.length) continue
-    const a = polygonAcres(rings[0])
-    if (a > bestA) { bestA = a; best = rings[0] }
-  }
-  if (!best || best.length < 3) return null
-  const x = best.reduce((t, p) => t + p[0], 0) / best.length
-  const y = best.reduce((t, p) => t + p[1], 0) / best.length
-  return [x, y]
 }
 
 function bboxOf(coords: any): [[number, number], [number, number]] | null {
@@ -194,10 +178,16 @@ export default function ConfigureMap() {
       const d = await fetchParcel(llUuid)
       setDetail(d)
       undoRef.current = []; redoRef.current = []
-      setShapes(d.polygons.map((p) => ({
+      const loaded = d.polygons.map((p) => ({
         id: nextId(), cls: p.cls, polys: geometryToPolys(p.geometry),
-      })).filter((s) => s.polys.length > 0))
-      setSelectedId(null)
+      })).filter((s) => s.polys.length > 0)
+      setShapes(loaded)
+      // Pre-select the largest piece so the drag handles are on screen
+      // immediately — otherwise the shapes look un-editable until you
+      // happen to click one.
+      setSelectedId(loaded.length
+        ? loaded.reduce((a, b) => (shapeAcres(b) > shapeAcres(a) ? b : a)).id
+        : null)
       setName(d.parcel?.parcelnumb ? `Parcel ${d.parcel.parcelnumb}` : '')
       setHits([])
       const bb = bboxOf(d.boundary?.coordinates)
@@ -315,30 +305,22 @@ export default function ConfigureMap() {
         }
       }
 
+      // The polygon IS the land type — its colour carries the meaning and
+      // the panel legend explains it. No text on the map: labels stacked
+      // on top of a field made the map unreadable.
       map.addLayer({
         id: LYR_FILL, type: 'fill', source: SRC.shapes,
-        filter: ['!=', ['geometry-type'], 'Point'],
         paint: {
-          'fill-color': ['get', 'tint'],
-          'fill-opacity': ['case', ['boolean', ['get', 'selected'], false], 0.5, 0.3],
+          'fill-color': ['get', 'color'],
+          'fill-opacity': ['case', ['boolean', ['get', 'selected'], false], 0.42, 0.22],
         },
       })
       map.addLayer({
         id: 'cm-shapes-line', type: 'line', source: SRC.shapes,
-        filter: ['!=', ['geometry-type'], 'Point'],
         paint: {
-          'line-color': POLY_LINE,
-          'line-width': ['case', ['boolean', ['get', 'selected'], false], 3.5, 2],
+          'line-color': ['get', 'color'],
+          'line-width': ['case', ['boolean', ['get', 'selected'], false], 3, 2],
         },
-      })
-      map.addLayer({
-        id: 'cm-shapes-label', type: 'symbol', source: SRC.shapes,
-        filter: ['==', ['geometry-type'], 'Point'],
-        layout: {
-          'text-field': ['get', 'label'], 'text-size': 12,
-          'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'],
-        },
-        paint: { 'text-color': '#fff', 'text-halo-color': '#111827', 'text-halo-width': 1.6 },
       })
       map.addLayer({
         id: 'cm-boundary-line', type: 'line', source: SRC.boundary,
@@ -346,13 +328,18 @@ export default function ConfigureMap() {
       })
       map.addLayer({
         id: 'cm-draft-line', type: 'line', source: SRC.draft,
-        paint: { 'line-color': POLY_LINE, 'line-width': 2, 'line-dasharray': [2, 1.5] },
+        paint: { 'line-color': '#ffffff', 'line-width': 2, 'line-dasharray': [2, 1.5] },
       })
       map.addLayer({
         id: LYR_VERTS, type: 'circle', source: SRC.verts,
         paint: {
-          'circle-radius': 5, 'circle-color': '#fff',
-          'circle-stroke-color': POLY_LINE, 'circle-stroke-width': 2,
+          // Bigger on the selected shape so it is obvious what you are
+          // editing, but present on every polygon — a user should never
+          // have to guess whether a shape can be reshaped.
+          'circle-radius': ['case', ['boolean', ['get', 'active'], false], 5, 3.2],
+          'circle-color': '#ffffff',
+          'circle-stroke-color': VERTEX_LINE,
+          'circle-stroke-width': ['case', ['boolean', ['get', 'active'], false], 2, 1.2],
         },
       })
       map.addLayer({
@@ -364,13 +351,15 @@ export default function ConfigureMap() {
       })
 
       // ── vertex dragging ───────────────────────────────────────────
-      let drag: { pi: number; ri: number; vi: number } | null = null
+      let drag: { id: string; pi: number; ri: number; vi: number } | null = null
       let took = false
       map.on('mousedown', LYR_VERTS, (e) => {
         const f = e.features?.[0]
         if (!f) return
         e.preventDefault()
-        drag = { pi: f.properties!.pi, ri: f.properties!.ri, vi: f.properties!.vi }
+        const owner = String(f.properties!.shapeId)
+        if (owner !== selectedRef.current) setSelectedId(owner)
+        drag = { id: owner, pi: f.properties!.pi, ri: f.properties!.ri, vi: f.properties!.vi }
         took = false
         map.dragPan.disable()
       })
@@ -378,9 +367,9 @@ export default function ConfigureMap() {
         if (!drag) return
         // One undo snapshot per drag, not per mousemove.
         if (!took) { snapshot(shapesRef.current); took = true }
-        const { pi, ri, vi } = drag
+        const { id, pi, ri, vi } = drag
         setShapes((prev) => prev.map((s) => {
-          if (s.id !== selectedRef.current) return s
+          if (s.id !== id) return s
           const polys = s.polys.map((rings, p) => p !== pi ? rings : rings.map((r, i) =>
             i !== ri ? r : r.map((pt, v) => v === vi ? [e.lngLat.lng, e.lngLat.lat] as Pt : pt)))
           return { ...s, polys }
@@ -591,25 +580,20 @@ export default function ConfigureMap() {
       const g = polysToGeometry(s.polys)
       if (g) feats.push({
         type: 'Feature', geometry: g,
-        properties: { id: s.id, tint: CLASS_TINT[s.cls], selected: s.id === selectedId },
-      })
-      const lp = labelPoint(s)
-      if (lp) feats.push({
-        type: 'Feature', geometry: { type: 'Point', coordinates: lp },
-        properties: { id: s.id, label: `${CLASS_LABEL[s.cls]} · ${shapeAcres(s).toFixed(1)} ac` },
+        properties: { id: s.id, color: CLASS_COLOR[s.cls], selected: s.id === selectedId },
       })
     }
     ;(map.getSource(SRC.shapes) as maplibregl.GeoJSONSource)?.setData(
       { type: 'FeatureCollection', features: feats } as any)
 
-    // Handles for the SELECTED shape only — every vertex of every
-    // polygon at once turns a field into confetti.
+    // Handles on EVERY polygon so it is visible that they can be
+    // reshaped — small on the others, full size on the one being edited.
     const verts: any[] = []
-    const sel = shapes.find((s) => s.id === selectedId)
+    const sel = shapes.find((sh) => sh.id === selectedId)
     sel?.polys.forEach((rings, pi) => rings.forEach((ring, ri) =>
       ring.forEach((pt, vi) => verts.push({
         type: 'Feature', geometry: { type: 'Point', coordinates: pt },
-        properties: { shapeId: sel.id, pi, ri, vi },
+        properties: { shapeId: sel.id, pi, ri, vi, active: true },
       }))))
     ;(map.getSource(SRC.verts) as maplibregl.GeoJSONSource)?.setData(
       { type: 'FeatureCollection', features: verts } as any)
@@ -753,6 +737,31 @@ export default function ConfigureMap() {
     }
   }, [editingId, refreshReports])
 
+  /** Discard unsaved edits. Falls back to the engine's own polygons when
+   *  this parcel has never been saved, so Cancel always lands somewhere
+   *  sensible rather than on an empty map. */
+  const cancelEdits = useCallback(async () => {
+    setError(null); setSavedMsg(null); setPieces([]); setTool(null)
+    setDrawing(false); setDraft([]); setSelectedId(null)
+    if (editingId) {
+      setBusy('Reloading saved version…')
+      try {
+        const rec = await getSavedParcel(editingId)
+        setShapes(rec.polygons.map((pp) => ({
+          id: nextId(), cls: pp.cls, polys: geometryToPolys(pp.geometry),
+        })).filter((x) => x.polys.length > 0))
+        setName(rec.name)
+      } catch (e: any) {
+        setError(e?.message || 'Could not reload the saved version.')
+      } finally { setBusy(null) }
+    } else if (detail) {
+      setShapes(detail.polygons.map((pp) => ({
+        id: nextId(), cls: pp.cls, polys: geometryToPolys(pp.geometry),
+      })).filter((x) => x.polys.length > 0))
+    }
+    undoRef.current = []; redoRef.current = []
+  }, [editingId, detail])
+
   // Live totals by class for the panel.
   const totals = useMemo(() => {
     const t: Record<string, number> = {}
@@ -856,62 +865,64 @@ export default function ConfigureMap() {
                     }}
                     style={{
                       ...chip,
-                      borderColor: drawClass === c ? POLY_LINE : 'rgba(255,255,255,0.15)',
-                      background: drawClass === c ? 'rgba(255,79,163,0.15)' : 'transparent',
+                      borderColor: drawClass === c ? CLASS_COLOR[c] : 'rgba(255,255,255,0.15)',
+                      background: drawClass === c ? 'rgba(255,255,255,0.10)' : 'transparent',
                     }}
                   >
-                    <span style={{ width: 9, height: 9, borderRadius: 2, background: CLASS_TINT[c] }} />
+                    <span style={{ width: 9, height: 9, borderRadius: 2, background: CLASS_COLOR[c] }} />
                     {CLASS_LABEL[c]}
                   </button>
                 ))}
               </div>
             </div>
 
-            {/* Tools */}
+            {/* Tools — drawing, then edit state, then commit. */}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               <button
                 onClick={() => {
-                  // If a shape is already in progress, this button closes
-                  // it. Enter does the same, but a toolbar button must
-                  // never be the only way to finish what you started.
                   if (drawing && tool !== 'split') { finishDraft(); return }
                   setTool('draw'); setDrawing(true); setDraft([])
                 }}
-                style={{ ...btn, borderColor: drawing && tool !== 'split' ? POLY_LINE : undefined }}>
+                style={{ ...btn, borderColor: drawing && tool !== 'split' ? CLASS_COLOR[drawClass] : undefined }}>
                 <Plus size={13} /> {drawing && tool !== 'split' ? 'Finish shape' : 'Add polygon'}
-              </button>
-              <button onClick={undo} disabled={!undoRef.current.length} style={btn}>
-                <RotateCcw size={13} /> Undo
-              </button>
-              <button onClick={redo} disabled={!redoRef.current.length} style={btn}>
-                <RotateCw size={13} /> Redo
               </button>
               <button onClick={() => selectedId && deleteShape(selectedId)} disabled={!selectedId} style={btn}>
                 <Trash2 size={13} /> Delete
               </button>
-              <button onClick={resetToEngine} disabled={!detail.polygons.length} style={btn}>
-                <Layers size={13} /> Reset to AI
-              </button>
-              <button onClick={clearAll} disabled={!shapes.length} style={{ ...btn, color: '#fca5a5' }}>
-                <X size={13} /> Clear all
-              </button>
               <button
                 onClick={() => {
-                  // Armed with a line already drawn → make the cut.
                   if (tool === 'split' && draft.length >= 2) { finishDraft(); return }
                   const on = tool !== 'split'
                   setTool(on ? 'split' : null); setDrawing(on); setDraft([]); setPieces([])
                 }}
-                style={{ ...btn, borderColor: tool === 'split' ? POLY_LINE : undefined }}>
+                style={{ ...btn, borderColor: tool === 'split' ? '#ffffff' : undefined }}>
                 <Scissors size={13} />
                 {tool !== 'split' ? 'Split' : draft.length >= 2 ? 'Make the cut' : 'Click two points'}
               </button>
               <button
                 onClick={() => setTool(tool === 'combine' ? null : 'combine')}
-                style={{ ...btn, borderColor: tool === 'combine' ? POLY_LINE : undefined }}>
+                style={{ ...btn, borderColor: tool === 'combine' ? '#ffffff' : undefined }}>
                 <Combine size={13} /> {tool === 'combine' ? 'Pick a parcel…' : 'Combine'}
               </button>
             </div>
+
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              <button onClick={undo} disabled={!undoRef.current.length} style={btn}>
+                <RotateCcw size={13} /> Undo last edit
+              </button>
+              <button onClick={redo} disabled={!redoRef.current.length} style={btn}>
+                <RotateCw size={13} /> Redo
+              </button>
+              <button onClick={clearAll} disabled={!shapes.length} style={btn}>
+                <X size={13} /> Clear polygons
+              </button>
+              <button onClick={resetToEngine} disabled={!detail.polygons.length} style={btn}>
+                <Layers size={13} /> Start over
+              </button>
+            </div>
+            {drawing && tool !== 'split' && (
+              <div style={hint}>Click to place corners. Enter or double-click closes the shape; Esc cancels.</div>
+            )}
             {tool === 'split' && (
               <div style={hint}>Click once on each side of the boundary to lay the cut line, then Enter.</div>
             )}
@@ -936,16 +947,13 @@ export default function ConfigureMap() {
                 </div>
               </div>
             )}
-            {drawing && (
-              <div style={hint}>Click to place corners. Enter or double-click closes the shape; Esc cancels.</div>
-            )}
 
             {/* Acreage */}
             <div style={card}>
-              <div style={sectionLabel}>Acres</div>
+              <div style={sectionLabel}>Legend &amp; acres</div>
               {LAND_CLASSES.map((c) => (
                 <div key={c} style={statRow}>
-                  <span><span style={{ display: 'inline-block', width: 9, height: 9, borderRadius: 2, background: CLASS_TINT[c], marginRight: 6 }} />{CLASS_LABEL[c]}</span>
+                  <span><span style={{ display: 'inline-block', width: 9, height: 9, borderRadius: 2, background: CLASS_COLOR[c], marginRight: 6 }} />{CLASS_LABEL[c]}</span>
                   <span>{totals[c].toFixed(1)}</span>
                 </div>
               ))}
@@ -1007,10 +1015,17 @@ export default function ConfigureMap() {
               <div style={sectionLabel}>Parcel name</div>
               <input value={name} onChange={(e) => setName(e.target.value)}
                      placeholder="e.g. Tract 1 — Home Place" style={inputStyle} />
-              <button onClick={() => void doSave()} disabled={!!busy || !name.trim()}
-                      style={{ ...btn, width: '100%', marginTop: 8, borderColor: '#22c55e', color: '#86efac' }}>
-                <Save size={13} /> {editingId ? 'Update parcel' : 'Save parcel'}
-              </button>
+              <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                <button onClick={() => void doSave()} disabled={!!busy || !name.trim()}
+                        style={{ ...btn, flex: 1, justifyContent: 'center',
+                                 borderColor: '#22c55e', color: '#86efac' }}>
+                  <Save size={13} /> {editingId ? 'Update' : 'Save'}
+                </button>
+                <button onClick={() => void cancelEdits()} disabled={!!busy}
+                        style={{ ...btn, flex: 1, justifyContent: 'center' }}>
+                  <X size={13} /> Cancel
+                </button>
+              </div>
             </div>
           </>
         )}

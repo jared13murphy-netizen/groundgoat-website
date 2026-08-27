@@ -22,18 +22,19 @@ export const CLASS_LABEL: Record<LandClass, string> = {
   other: 'Other',
 }
 
-/** Fill tints only. Every polygon OUTLINE is pink (owner spec) — the
- *  label inside the polygon is what tells the user the land type. */
-export const CLASS_TINT: Record<LandClass, string> = {
+/** Owner-specified 2026-08-26: tillable green, timber red, pasture
+ *  orange, water blue. The polygon IS the colour — no text labels on the
+ *  map — and a legend on the panel says what each colour means. */
+export const CLASS_COLOR: Record<LandClass, string> = {
   tillable: '#22c55e',
-  pasture: '#a3e635',
-  timber: '#15803d',
-  water: '#38bdf8',
-  other: '#e5e7eb',
+  timber: '#ef4444',
+  pasture: '#f97316',
+  water: '#3b82f6',
+  other: '#9ca3af',
 }
 
-export const POLY_LINE = '#ff4fa3'      // pink, per spec
 export const PARCEL_LINE = '#000000'    // black outer boundary, per spec
+export const VERTEX_LINE = '#111827'    // ring around a draggable handle
 export const SEARCH_DOT = '#2563eb'     // blue search dots, per spec
 
 export interface ParcelSummary {
