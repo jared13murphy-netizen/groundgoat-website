@@ -31,7 +31,7 @@ import {
 import {
   CLASS_COLOR, CLASS_LABEL, LAND_CLASSES, PARCEL_LINE, SEARCH_DOT, VERTEX_LINE,
   archiveParcel, combineGeometry, fetchParcel, getSavedParcel, saveParcel, searchMap,
-  splitGeometry, normalizeGeometry,
+  splitGeometry, normalizeGeometry, previewSoil,
   updateParcel, queueReport, listReports, downloadReport,
   REPORT_KINDS, REPORT_LABEL, type ReportRow,
   type LandClass, type ParcelDetail, type ParcelSummary,
@@ -133,6 +133,10 @@ export default function ConfigureMap() {
   // Every Regrid parcel folded into this subject, for provenance.
   const [sources, setSources] = useState<string[]>([])
   const [reports, setReports] = useState<ReportRow[]>([])
+  // Soil rating recomputed as the tillable ground is reshaped. Debounced —
+  // it is a real query against SSURGO, not arithmetic in the browser.
+  const [soil, setSoil] = useState<{ rating: number | null; rating_type: string | null } | null>(null)
+  const [soilBusy, setSoilBusy] = useState(false)
   // Split results waiting to be named and saved as separate tracts.
   const [pieces, setPieces] = useState<{ geometry: any; acres: number }[]>([])
   const [query, setQuery] = useState('')
@@ -834,6 +838,38 @@ export default function ConfigureMap() {
     undoRef.current = []; redoRef.current = []
   }, [editingId, detail])
 
+  // Recompute the soil rating whenever the tillable ground changes.
+  // Debounced by 700 ms so a drag fires one query at the end, not one per
+  // mouse move, and keyed on the actual geometry so an unrelated edit
+  // (renaming, selecting) does not re-query.
+  const tillableKey = useMemo(
+    () => shapes.filter((sh) => sh.cls === 'tillable')
+      .map((sh) => sh.polys.flat().flat().map((pt) => pt.join(',')).join(';')).join('|'),
+    [shapes])
+
+  useEffect(() => {
+    if (step !== 'landtypes' || !detail) { setSoil(null); return }
+    const tillable = shapes.filter((sh) => sh.cls === 'tillable')
+      .map((sh) => polysToGeometry(sh.polys)).filter(Boolean)
+    if (!tillable.length) { setSoil(null); return }
+    const st = detail.parcel?.state || null
+    if (!st) return
+    let cancelled = false
+    setSoilBusy(true)
+    const t = setTimeout(async () => {
+      try {
+        const r = await previewSoil(tillable, st, detail.boundary)
+        if (!cancelled) setSoil({ rating: r.rating, rating_type: r.rating_type })
+      } catch {
+        if (!cancelled) setSoil(null)
+      } finally {
+        if (!cancelled) setSoilBusy(false)
+      }
+    }, 700)
+    return () => { cancelled = true; clearTimeout(t); setSoilBusy(false) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tillableKey, step, detail?.boundary])
+
   // Live totals by class for the panel.
   const totals = useMemo(() => {
     const t: Record<string, number> = {}
@@ -1073,7 +1109,20 @@ export default function ConfigureMap() {
                 <span style={{ opacity: 0.65 }}>Buildings</span>
                 <span>{detail.parcel?.ll_bldg_count ?? 0}</span>
               </div>
-              <div style={hint}>Live estimate — final acres are computed when you save.</div>
+              {step === 'landtypes' && (
+                <div style={{ ...statRow, borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: 6 }}>
+                  <span style={{ opacity: 0.65 }}>
+                    Soil rating{soil?.rating_type ? ` (${soil.rating_type})` : ''}
+                  </span>
+                  <span style={{ opacity: soilBusy ? 0.45 : 1 }}>
+                    {soilBusy ? 'updating…' : (soil?.rating ?? '—')}
+                  </span>
+                </div>
+              )}
+              <div style={hint}>
+                Acres update as you edit; the soil rating follows a moment later.
+                Both are recomputed exactly when you save.
+              </div>
             </div>
 
             {/* Name + save */}

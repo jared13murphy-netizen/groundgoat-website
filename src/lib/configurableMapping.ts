@@ -313,3 +313,16 @@ export function normalizeGeometry(boundary: any, polygons: { cls: LandClass; geo
       body: JSON.stringify({ boundary, polygons }),
     })
 }
+
+/** Weighted soil rating for a tillable selection, for live display while
+ *  polygons are being dragged. Narrow on purpose so the round trip stays
+ *  short enough to run on every edit. */
+export function previewSoil(tillable: any[], state: string | null, boundary?: any) {
+  return j<{ rating: number | null; rating_type: string | null; acres: number
+             breakdown: { name: string; rating: number; acres: number }[] }>(
+    '/api/mapping/geometry/soil', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tillable, state, boundary }),
+    })
+}
