@@ -361,10 +361,17 @@ function RightNow({ d, series }: { d: any; series: any[] | null }) {
       <div className="kpis" style={{ gridTemplateColumns: 'repeat(5,1fr)' }}>
         <Kpi small v={d.presence_available ? num(d.people_15_min) : num(d.people_rolling_24h)}
           k={d.presence_available ? 'People · last 15 min' : 'People · last 24 hours'} />
+        {/* "4" over "Active today · 0 customers" read as a contradiction.
+            It was not one — 4 people used the product today and none were
+            customers — but the label has to say that, not leave you to work
+            it out. Phrased like "People on now · 3 of them us" above. */}
         <Kpi small v={num(d.people_today)}
-          k={d.people_today !== d.customers_today
-               ? `Active today · ${num(d.customers_today)} customers`
-               : 'Active today'} />
+          k={(() => {
+            const ours = (d.people_today ?? 0) - (d.customers_today ?? 0)
+            if (!d.people_today) return 'Active today'
+            if (!d.customers_today) return `Active today · all ${num(ours)} us`
+            return ours ? `Active today · ${num(ours)} of them us` : 'Active today · all customers'
+          })()} />
         <Kpi small v={num(d.requests_today)} k="Requests today" />
         <Kpi small v={num(d.server_errors_today)} k="Our bugs today"
           tone={d.server_errors_today > 100 ? 'red' : ''} />
@@ -804,15 +811,18 @@ function Crashes({ d }: { d: any }) {
       <div className="kpis" style={{ gridTemplateColumns: 'repeat(3,1fr)' }}>
         <Kpi v={num(d.fatal_24h_only)} k="App shut down · 24h"
           tone={d.fatal_24h_only ? 'red' : 'green'} />
-        {/* COUNT(DISTINCT user_id) skips NULLs, so crashes on a phone with
-            nobody signed in made this read 0 while the app was dying in
-            somebody's hand. A zero here must never be readable as "nobody
-            was affected" — when we cannot name them, it says so. */}
-        <Kpi small
-          v={d.users_fatal_24h ? num(d.users_fatal_24h)
-            : d.fatal_anon_24h ? 'not signed in' : '0'}
-          k={d.users_fatal_24h || !d.fatal_anon_24h ? 'People it hit' : 'People it hit · unidentified'}
-          tone={d.users_fatal_24h ? 'red' : d.fatal_anon_24h ? 'amber' : ''} />
+        {/* A NUMBER, NEVER PROSE. This printed the words "not signed in"
+            where a figure belongs, because COUNT(DISTINCT user_id) skips
+            NULLs and every crash report is a NULL — the mobile reporter has
+            never attached who was signed in, 0 of 184 reports since the
+            first one in August. So the honest reading is "we identified
+            nobody", which is a zero with an explanation, not a sentence
+            sitting in a number's place. */}
+        <Kpi small v={num(d.users_fatal_24h)}
+          k={d.identity_ever_recorded === false
+               ? 'People it hit · the app never says'
+               : 'People it hit'}
+          tone={d.users_fatal_24h ? 'red' : ''} />
         <Kpi small v={num(d.fatal_7d)} k="Shut down · 7 days"
           tone={d.fatal_7d ? 'amber' : ''} />
       </div>
@@ -828,10 +838,9 @@ function Crashes({ d }: { d: any }) {
           value={`${num(d.all_time)} · ${num(d.fatal_all)} were crashes · newest ${d.newest_report ? ago(d.newest_report) + ' ago' : 'none'}`} />
       </div>
       {d.what_counts && <div className="note">{d.what_counts}</div>}
-      {/* The list below spans 7 days, not the 24 hours above it — labelled,
-          because mixing the two silently is how a 59-crash row ended up
-          under a headline of 12. */}
-      <div className="more" style={{ marginTop: 2 }}>Who it hit · last 7 days</div>
+      {/* "Who it hit · last 7 days" used to sit HERE, immediately above the
+          diagnosis block it does not describe, with the list it does
+          describe rendering further down. It has moved to sit on its list. */}
       {/* What the crashes have in common. The app's black box records the
           map state before every death; without this the card could only say
           how many, which is a statistic rather than a lead. */}
@@ -849,14 +858,11 @@ function Crashes({ d }: { d: any }) {
             tone={(d.diagnosis.max_dots || 0) > 5000 ? 'red' : ''} />
           <Row label="Phone memory"
             value={`${num(d.diagnosis.smallest_device_gb, 1)}–${num(d.diagnosis.largest_device_gb, 1)} GB`} />
-          {/* A "phone" with 16 GB or more is a Mac running the simulator —
-              your own testing, not a customer. Worth separating before
-              treating a burst as a fleet-wide problem. */}
-          {d.diagnosis.simulator_like > 0 && (
-            <Row label="On the simulator, not a phone"
-              value={`${num(d.diagnosis.simulator_like)} · ${num(d.diagnosis.simulator_pct, 0)}%`}
-              tone="amber" />
-          )}
+          {/* The "on the simulator, not a phone" row is gone with the data
+              behind it. Owner 2026-08-27: simulator crashes do not affect
+              customers, so they are not recorded on this card at all — the
+              panel excludes them from every query rather than counting them
+              and then apologising for them in a row. */}
           {(d.diagnosis.devices || []).length > 0 && (
             <Row label="Devices"
               value={(d.diagnosis.devices || []).slice(0, 2)
@@ -872,6 +878,10 @@ function Crashes({ d }: { d: any }) {
         ? <div className="allgood">No crashes in the last 7 days</div>
         : (
           <div className="rows" style={{ borderTop: '1px solid var(--line)', paddingTop: 7 }}>
+            {/* The header belongs to THIS list — it spans 7 days while the
+                headline above spans 24 hours, and mixing the two silently is
+                how a 59-crash row once sat under a headline of 12. */}
+            <div className="more" style={{ marginBottom: 2 }}>Who it hit · last 7 days</div>
             {affected.slice(0, 5).map((a, i) => (
               <div key={a.user_id || `anon-${i}`} style={{ display: 'grid', gap: 1 }}>
                 <div className="row">
@@ -1326,8 +1336,8 @@ const CARD_INFO: Record<string, CardInfo> = {
         d: 'The largest number of sale dots held in memory when a crash happened. This one is the strongest lead: the dots accumulate deliberately and never unload, so a very large number here suggests the app ran out of memory.' },
       { l: '— phone memory',
         d: 'The range of device memory across the crashes. A crash only on small-memory phones is a memory problem; one across all sizes is a code fault.' },
-      { l: '— on the simulator, not a phone',
-        d: 'Reports from a Mac running the simulator, which is development rather than a customer. Split out so test crashes cannot read as a fleet-wide outage.' },
+      { l: 'Simulator crashes are not here at all',
+        d: 'A crash on the iOS simulator is one of us testing, not a customer, so none of the numbers on this card include them. They were more than half of everything ever recorded — 102 of 184 reports — which is why the headline used to read far worse than reality.' },
     ],
     covers: 'Crashes reported by the phone app, and who they happened to.',
     source: 'mobile_crash_reports, posted by the app\u2019s global error handler.',
