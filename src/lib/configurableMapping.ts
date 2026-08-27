@@ -229,3 +229,73 @@ export function splitGeometry(geometry: any, line: any) {
     body: JSON.stringify({ geometry, line }),
   })
 }
+
+// ── Reports ─────────────────────────────────────────────────────────
+// The API only queues; a worker renders. The UI polls until a report
+// reports itself done, then downloads it through the API — the storage
+// bucket is private, so there is no direct link to hand out.
+
+export const REPORT_KINDS = ['tillable', 'fsa', 'ground_goat'] as const
+export type ReportKind = (typeof REPORT_KINDS)[number]
+
+export const REPORT_LABEL: Record<string, string> = {
+  tillable: 'Tillable Map',
+  fsa: 'FSA Map',
+  ground_goat: 'Ground Goat Report',
+  elevation_3d: '3D Elevation Map',
+  topography: 'Topography Map',
+  cma: 'Market Analysis',
+}
+
+export interface ReportRow {
+  id: string
+  parcel_id: string
+  project_id: string
+  kind: string
+  status: 'queued' | 'running' | 'done' | 'failed'
+  error: string | null
+  ready: boolean
+  created_at: string
+  updated_at: string
+}
+
+export function queueReport(parcelId: string, kind: ReportKind) {
+  return j<{ id: string; kind: string; status: string }>('/api/mapping/reports', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ parcel_id: parcelId, kind }),
+  })
+}
+
+export function listReports(parcelId?: string) {
+  const qs = parcelId ? `?parcel_id=${encodeURIComponent(parcelId)}` : ''
+  return j<{ reports: ReportRow[] }>(`/api/mapping/reports${qs}`)
+}
+
+/** Pulls the PDF through the authenticated API and hands it to the
+ *  browser as a download. */
+export async function downloadReport(id: string, filename: string): Promise<void> {
+  const res = await fetchWithAuth(`${API_URL}/api/mapping/reports/${id}/download`)
+  if (!res.ok) throw new Error(`That report could not be downloaded (${res.status}).`)
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
+export function getBranding() {
+  return j<{ name: string | null; has_logo: boolean }>('/api/mapping/branding')
+}
+
+export function setBranding(patch: { name?: string; logo_base64?: string }) {
+  return j<{ ok: true }>('/api/mapping/branding', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  })
+}

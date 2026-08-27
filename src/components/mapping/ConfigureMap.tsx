@@ -26,13 +26,14 @@ import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import {
   Loader2, Plus, Trash2, RotateCcw, RotateCw, Save, Search, X, Layers,
-  Scissors, Combine,
+  Scissors, Combine, FileText, Download,
 } from 'lucide-react'
 import {
   CLASS_LABEL, CLASS_TINT, LAND_CLASSES, PARCEL_LINE, POLY_LINE, SEARCH_DOT,
   archiveParcel, combineGeometry, fetchParcel, getSavedParcel, saveParcel, searchMap,
   splitGeometry,
-  updateParcel,
+  updateParcel, queueReport, listReports, downloadReport,
+  REPORT_KINDS, REPORT_LABEL, type ReportRow,
   type LandClass, type ParcelDetail, type ParcelSummary,
 } from '@/lib/configurableMapping'
 import { addRegridLayer, buildRegridStateFilter, fetchRegridConfig } from '@/components/map/regridLayer'
@@ -142,6 +143,7 @@ export default function ConfigureMap() {
   const [editingId, setEditingId] = useState<string | null>(null)
   // Every Regrid parcel folded into this subject, for provenance.
   const [sources, setSources] = useState<string[]>([])
+  const [reports, setReports] = useState<ReportRow[]>([])
   // Split results waiting to be named and saved as separate tracts.
   const [pieces, setPieces] = useState<{ geometry: any; acres: number }[]>([])
   const [query, setQuery] = useState('')
@@ -724,6 +726,33 @@ export default function ConfigureMap() {
     } finally { setBusy(null) }
   }, [detail, name, shapes, sources, projectId, projectName, editingId])
 
+  // ── reports ───────────────────────────────────────────────────────
+  // Queue, then poll. Rendering happens on a worker, so the screen must
+  // never sit blocked waiting for a PDF.
+  const refreshReports = useCallback(async (id: string) => {
+    try { setReports((await listReports(id)).reports) } catch { /* non-fatal */ }
+  }, [])
+
+  useEffect(() => {
+    if (!editingId) { setReports([]); return }
+    void refreshReports(editingId)
+    const pending = reports.some((r) => r.status === 'queued' || r.status === 'running')
+    if (!pending) return
+    const t = setTimeout(() => void refreshReports(editingId), 4000)
+    return () => clearTimeout(t)
+  }, [editingId, reports, refreshReports])
+
+  const makeReport = useCallback(async (kind: (typeof REPORT_KINDS)[number]) => {
+    if (!editingId) { setError('Save this parcel before building a report.'); return }
+    setError(null)
+    try {
+      await queueReport(editingId, kind)
+      await refreshReports(editingId)
+    } catch (e: any) {
+      setError(e?.message || 'Could not start that report.')
+    }
+  }, [editingId, refreshReports])
+
   // Live totals by class for the panel.
   const totals = useMemo(() => {
     const t: Record<string, number> = {}
@@ -935,6 +964,40 @@ export default function ConfigureMap() {
             </div>
 
             {/* Name + save */}
+            <div style={card}>
+              <div style={sectionLabel}>Reports</div>
+              {!editingId && (
+                <div style={hint}>Save this parcel first, then build reports from it.</div>
+              )}
+              {editingId && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {REPORT_KINDS.map((k) => (
+                    <button key={k} onClick={() => void makeReport(k)} style={btn}>
+                      <FileText size={13} /> {REPORT_LABEL[k]}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {reports.map((r) => (
+                <div key={r.id} style={statRow}>
+                  <span style={{ opacity: 0.8 }}>{REPORT_LABEL[r.kind] || r.kind}</span>
+                  {r.status === 'done' ? (
+                    <button
+                      onClick={() => void downloadReport(
+                        r.id, `${name || 'parcel'} ${REPORT_LABEL[r.kind] || r.kind}.pdf`)}
+                      style={{ ...btn, padding: '2px 8px', fontSize: 11 }}>
+                      <Download size={11} /> Download
+                    </button>
+                  ) : (
+                    <span style={{ fontSize: 11, opacity: 0.6,
+                                   color: r.status === 'failed' ? '#fca5a5' : undefined }}>
+                      {r.status === 'failed' ? (r.error || 'failed') : 'building…'}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+
             <div>
               <div style={sectionLabel}>Project</div>
               <input value={projectName} onChange={(e) => setProjectName(e.target.value)}
