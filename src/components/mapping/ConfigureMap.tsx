@@ -39,8 +39,9 @@ import {
   type LandClass, type ParcelDetail, type ParcelSummary,
 } from '@/lib/configurableMapping'
 import { addRegridLayer, buildRegridStateFilter, fetchRegridConfig } from '@/components/map/regridLayer'
+import { addPlaceLabels } from '@/components/map/placeLabels'
 import {
-  GLYPH_URL, LABEL_TILE_URL, MAP_CENTER, MAP_INITIAL_ZOOM, TILE_ATTRIBUTION, TILE_URL,
+  GLYPH_URL, MAP_CENTER, MAP_INITIAL_ZOOM, TILE_ATTRIBUTION, TILE_URL,
 } from '@/components/map/mapConstants'
 import { polygonAcres } from '@/lib/polygonGeometry'
 import {
@@ -278,13 +279,13 @@ export default function ConfigureMap() {
         glyphs: GLYPH_URL,
         sources: {
           sat: { type: 'raster', tiles: [TILE_URL], tileSize: 256, attribution: TILE_ATTRIBUTION },
-          // State / county / town labels are kept; everything else the
-          // Explore map draws is deliberately absent.
-          places: { type: 'raster', tiles: [LABEL_TILE_URL], tileSize: 256 },
         },
+        // Place names come from addPlaceLabels (the Explore map's own
+        // vector styling), not the basemap's raster label tiles — those
+        // were blurry, unstyled, and could not be matched to the rest of
+        // the product. State silhouettes are deliberately absent.
         layers: [
           { id: 'sat', type: 'raster', source: 'sat' },
-          { id: 'places', type: 'raster', source: 'places', paint: { 'raster-opacity': 0.85 } },
         ],
       },
       center: MAP_CENTER,
@@ -316,6 +317,8 @@ export default function ConfigureMap() {
     // container — a broken-looking map that only fixes itself if the
     // user happens to resize the window. Measuring again on the next
     // frame and on load costs nothing and does not depend on RO.
+    const removePlaceLabelsRef = { current: null as null | (() => void) }
+
     const raf = requestAnimationFrame(() => map.resize())
     map.once('load', () => map.resize())
 
@@ -344,6 +347,10 @@ export default function ConfigureMap() {
       for (const id of Object.values(SRC)) {
         map.addSource(id, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } as any })
       }
+
+      // Outlines and labels go on before the parcel layer, so parcels
+      // and their labels sit above the place names.
+      removePlaceLabelsRef.current = addPlaceLabels(map)
 
       const cfg = await fetchRegridConfig()
       if (cfg) {
@@ -518,6 +525,7 @@ export default function ConfigureMap() {
     return () => {
       cancelAnimationFrame(raf)
       if (sizeTimer !== undefined) clearTimeout(sizeTimer)
+      removePlaceLabelsRef.current?.()
       ro.disconnect()
       map.remove()
       // Only clear the ref if it still points at THIS map, so a
