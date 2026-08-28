@@ -1410,7 +1410,8 @@ function Quality({ d, fixes }: { d: any; fixes?: any }) {
   )
 }
 
-function Reach({ notif, email, fixes }: { notif: any; email: any; fixes?: any }) {
+function Reach({ notif, email, fixes, onOpenEmails }:
+  { notif: any; email: any; fixes?: any; onOpenEmails?: () => void }) {
   // Only really_failed_24h is a fault. The other three reasons are facts
   // about the audience — no device, notifications off, malformed token — and
   // lumping them together as "tried but did not send" is what produced a
@@ -1420,7 +1421,13 @@ function Reach({ notif, email, fixes }: { notif: any; email: any; fixes?: any })
     <>
       <div className="kpis" style={{ gridTemplateColumns: '1fr 1fr' }}>
         <Kpi small v={num(notif?.pushed_24h)} k="Pushes sent today" />
-        <Kpi small v={num(email?.sent_24h)} k="Emails sent today" />
+        {/* Opens the list of who actually received them. */}
+        <Kpi small
+          v={onOpenEmails
+            ? <button type="button" className="drill" onClick={onOpenEmails}
+                aria-label="Show who we emailed">{num(email?.sent_24h)}</button>
+            : num(email?.sent_24h)}
+          k="Emails sent today" />
       </div>
       <div className="rows" style={{ borderTop: '1px solid var(--line)', paddingTop: 7 }}>
         <Row label="Pushes in the last hour" value={num(notif?.pushed_1h)} />
@@ -1870,6 +1877,102 @@ function TrendChart({ points, unit }: { points: any[]; unit?: string }) {
       <circle cx={x(points.length - 1)} cy={y(last.v)} r="3" fill="var(--pink)"
         vectorEffect="non-scaling-stroke" />
     </svg>
+  )
+}
+
+/** Every email we sent, and to whom.
+
+    The card counted emails and never named a recipient, so "1 sent today"
+    could not be checked against anything. Worse, the count itself was only a
+    slice: until 2026-08-28 the only sends written down were the three
+    campaign categories, while verification codes, password resets, firm
+    invites and reports went out unrecorded. Both halves are fixed — this is
+    the half you can read. */
+function EmailDrawer({ open, onClose, email }:
+  { open: boolean; onClose: () => void; email: any }) {
+  const [q, setQ] = useState('')
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open, onClose])
+
+  const all: any[] = email?.recipients || []
+  const needle = q.trim().toLowerCase()
+  const rows = needle
+    ? all.filter(r => [r.email, r.name, r.subject, r.category, r.kind]
+        .some((v: any) => (v || '').toLowerCase().includes(needle)))
+    : all
+
+  return (
+    <>
+      <div className={`scrim ${open ? 'open' : ''}`} onClick={onClose} aria-hidden="true" />
+      <aside className={`drawer ${open ? 'open' : ''}`} aria-hidden={!open}
+        aria-label="Email — who we sent it to">
+        <div className="drawer-head">
+          <h2>Email</h2>
+          <span className="sub">
+            {num(all.length)} in the last {num(email?.recipients_window_days ?? 30)} days
+            {/* A silent cap reads as "that is everyone". */}
+            {email?.recipients_total > all.length &&
+              <span style={{ color: 'var(--amber)' }}>
+                {' '}· showing the newest {num(all.length)} of {num(email.recipients_total)}
+              </span>}
+          </span>
+          <button type="button" className="drawer-close" onClick={onClose}>Close ·  Esc</button>
+        </div>
+        <div className="fixdrawer-body">
+          <input
+            value={q}
+            onChange={e => setQ(e.target.value)}
+            placeholder="Filter by person, address or subject"
+            aria-label="Filter emails"
+            style={{
+              width: '100%', marginBottom: 12, padding: '7px 10px', fontSize: 12,
+              borderRadius: 'var(--r)', border: '1px solid var(--line-2)',
+              background: 'var(--card)', color: 'var(--ink)', fontFamily: 'inherit',
+            }}
+          />
+          {rows.length === 0 ? (
+            <p style={{ color: 'var(--faint)', fontSize: 12 }}>
+              {all.length === 0
+                ? 'Nothing recorded in this window.'
+                : 'Nothing matches that.'}
+            </p>
+          ) : (
+            <table>
+              <thead>
+                <tr><th>Who</th><th>What</th><th className="n">When</th></tr>
+              </thead>
+              <tbody>
+                {rows.map((r, i) => (
+                  <tr key={i}>
+                    <td className="t">
+                      {r.name || <span className="dim">no name</span>}
+                      <div className="more" style={{ marginTop: 1 }}>{r.email}</div>
+                    </td>
+                    <td className="t">
+                      {r.subject || (r.kind || '').replace(/_/g, ' ')}
+                      {/* A send we decided NOT to make is the more interesting
+                          half, so it stays in the list and says why. */}
+                      {!r.sent && (
+                        <div className="more" style={{ color: 'var(--amber)', marginTop: 1 }}>
+                          not sent — {r.skipped_reason}
+                        </div>
+                      )}
+                    </td>
+                    <td className="n dim" style={{ whiteSpace: 'nowrap' }}>
+                      {r.sent_at ? `${ago(r.sent_at)} ago` : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </aside>
+    </>
   )
 }
 
@@ -2674,6 +2777,7 @@ export default function CommandCenterPage() {
   const notifD = P('notifications'), emailD = P('email')
   const outsideD = P('outside')
   const backupsD = P('backups')
+  const [emailOpen, setEmailOpen] = useState(false)
   const agentsD = P('agents')
   const trendsD = P('trends') || {}
   const fixesD = P('fixes')
@@ -2788,7 +2892,8 @@ export default function CommandCenterPage() {
           </Panel>
 
           <Panel span={2} title="Notifications &amp; email" infoId="reach" panelState={st('notifications')} pip={notifD?.overdue ? 'amber' : 'green'}>
-            {notifD || emailD ? <Reach notif={notifD} email={emailD} fixes={fixesD} /> : <Unavailable why={whyMissing('notifications')} />}
+            {notifD || emailD ? <Reach notif={notifD} email={emailD} fixes={fixesD}
+              onOpenEmails={() => setEmailOpen(true)} /> : <Unavailable why={whyMissing('notifications')} />}
           </Panel>
 
           {/* Backups had no card. The panel existed, the data was published,
@@ -2803,6 +2908,7 @@ export default function CommandCenterPage() {
       </div>
       <AgentDrawer open={devOpen} onClose={() => setDevOpen(false)} data={agentsD} fixes={fixesD} />
       <FixDrawer open={fixOpen} onClose={() => setFixOpen(false)} data={fixesD} />
+      <EmailDrawer open={emailOpen} onClose={() => setEmailOpen(false)} email={emailD} />
       <TrendsDrawer openFor={chartFor} onClose={() => setChartFor(null)}
         title={chartFor ? (CHART_TITLES[chartFor] || 'Trend') : ''}
         series={chartFor ? (trendsD[chartFor] || []) : []}
