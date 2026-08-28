@@ -957,14 +957,33 @@ export default function ConfigureMap() {
   }, [])
   refreshReportsRef.current = refreshReports
 
+  // A boolean, not the array: depending on `reports` here meant every
+  // refresh produced a new array identity and re-ran the effect. Worse,
+  // with no parcel open the effect called setReports([]) — a fresh empty
+  // array each time — so it re-triggered itself forever, allocating and
+  // re-rendering from the moment the screen opened. That was ~6 MB a
+  // second of heap growth on an idle page.
+  const reportsPending = reports.some(
+    (r) => r.status === 'queued' || r.status === 'running',
+  )
+
   useEffect(() => {
-    if (!editingId) { setReports([]); return }
+    if (!editingId) {
+      // Only ever assign when there is something to clear, so this can
+      // never manufacture a new identity for an already-empty list.
+      setReports((prev) => (prev.length ? [] : prev))
+      return
+    }
     void refreshReports(editingId)
-    const pending = reports.some((r) => r.status === 'queued' || r.status === 'running')
-    if (!pending) return
-    const t = setTimeout(() => void refreshReports(editingId), 4000)
-    return () => clearTimeout(t)
-  }, [editingId, reports, refreshReports])
+  }, [editingId, refreshReports])
+
+  // Poll only while something is actually rendering. A boolean flips at
+  // most twice per report, so the interval is armed and cleared once.
+  useEffect(() => {
+    if (!editingId || !reportsPending) return
+    const t = setInterval(() => void refreshReports(editingId), 4000)
+    return () => clearInterval(t)
+  }, [editingId, reportsPending, refreshReports])
 
   const makeReport = useCallback(async (kind: (typeof REPORT_KINDS)[number]) => {
     if (!editingId) { setError('Save this parcel before building a report.'); return }
