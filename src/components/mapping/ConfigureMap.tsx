@@ -26,7 +26,7 @@ import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import {
   Loader2, Plus, Trash2, RotateCcw, RotateCw, Save, Search, X, Layers,
-  Scissors, Combine, FileText, Download, BarChart3,
+  Scissors, Combine, FileText, Download, BarChart3, Eraser,
 } from 'lucide-react'
 import {
   CLASS_COLOR, CLASS_LABEL, LAND_CLASSES, PARCEL_LINE, SEARCH_DOT, VERTEX_LINE,
@@ -58,7 +58,7 @@ interface Shape { id: string; cls: LandClass; polys: Pt[][][] }
 const SRC = {
   boundary: 'cm-boundary', shapes: 'cm-shapes', verts: 'cm-verts',
   dots: 'cm-dots', draft: 'cm-draft', comps: 'cm-comps',
-  cut: 'cm-cut',
+  cut: 'cm-cut', marq: 'cm-marq',
 } as const
 const LYR_VERTS = 'cm-verts-circles'
 const LYR_FILL = 'cm-shapes-fill'
@@ -137,9 +137,11 @@ export default function ConfigureMap() {
   // that cut something in half — the parcel in step 1, the selected land
   // type in step 2;
   // 'combine' adds the next clicked parcel to this boundary.
-  const [tool, setTool] = useState<'draw' | 'cutpoly' | 'combine' | null>(null)
+  const [tool, setTool] = useState<'draw' | 'cutpoly' | 'erase' | 'combine' | null>(null)
   // The two clicks that cut the SELECTED polygon in half.
   const [cutPts, setCutPts] = useState<Pt[]>([])
+  // Rubber-band box for erasing many points at once.
+  const [marq, setMarq] = useState<[Pt, Pt] | null>(null)
   const [draft, setDraft] = useState<Pt[]>([])
 
   const [name, setName] = useState('')
@@ -447,6 +449,14 @@ export default function ConfigureMap() {
         map.addImage('cm-scissors', g.getImageData(0, 0, S, S) as any, { pixelRatio: 2 })
       }
       map.addLayer({
+        id: 'cm-marq-fill', type: 'fill', source: SRC.marq,
+        paint: { 'fill-color': '#ffffff', 'fill-opacity': 0.12 },
+      })
+      map.addLayer({
+        id: 'cm-marq-line', type: 'line', source: SRC.marq,
+        paint: { 'line-color': '#ffffff', 'line-width': 1.5, 'line-dasharray': [2, 2] },
+      })
+      map.addLayer({
         id: 'cm-cut-line', type: 'line', source: SRC.cut,
         filter: ['==', ['geometry-type'], 'LineString'],
         paint: { 'line-color': '#ffffff', 'line-width': 2, 'line-dasharray': [1.5, 1.5] },
@@ -506,6 +516,31 @@ export default function ConfigureMap() {
         },
       })
 
+      // ── erase box: drag a rectangle over a cluster of points and
+      //    every point inside it is removed on release. Shift-clicking
+      //    dots one at a time was unusable where a driveway had dozens.
+      let box: Pt | null = null
+      map.on('mousedown', (e) => {
+        if (toolRef.current !== 'erase') return
+        e.preventDefault()
+        box = [e.lngLat.lng, e.lngLat.lat]
+        setMarq([box, box])
+        map.dragPan.disable()
+      })
+      map.on('mousemove', (e) => {
+        if (!box) return
+        setMarq([box, [e.lngLat.lng, e.lngLat.lat]])
+      })
+      const endBox = () => {
+        if (!box) return
+        const b = marqRef.current
+        box = null
+        map.dragPan.enable()
+        setMarq(null)
+        if (b) eraseInBoxRef.current(b)
+      }
+      map.on('mouseup', endBox)
+
       // ── vertex dragging ───────────────────────────────────────────
       let drag: { id: string; pi: number; ri: number; vi: number } | null = null
       let took = false
@@ -533,6 +568,25 @@ export default function ConfigureMap() {
               if (ring.length <= 3) return ring   // never below a triangle
               return ring.filter((_, v) => v !== vi)
             })))
+          return
+        }
+
+        // Same gesture on a land-type point. This only ever worked on the
+        // boundary, which is why removing a point inside a polygon looked
+        // broken.
+        if (owner !== '__boundary__' && (oe.button === 2 || oe.altKey)) {
+          const pi = Number(f.properties!.pi)
+          const ri = Number(f.properties!.ri)
+          const vi = Number(f.properties!.vi)
+          mutate((prev) => prev.map((sh) => sh.id !== owner ? sh : {
+            ...sh,
+            polys: sh.polys.map((rings, p2) => p2 !== pi ? rings
+              : rings.map((ring, i) => {
+                if (i !== ri) return ring
+                if (ring.length <= 3) return ring   // never below a triangle
+                return ring.filter((_, v) => v !== vi)
+              })),
+          }))
           return
         }
 
@@ -1010,6 +1064,39 @@ export default function ConfigureMap() {
     } finally { setBusy(null) }
   }, [mutate])
   const runCutRef = useRef(runCut); runCutRef.current = runCut
+
+  /** Remove every handle inside the dragged box. Step 1 trims the parcel
+   *  outline; step 2 trims the selected polygon (the only one showing
+   *  handles). A ring is never taken below a triangle. */
+  const eraseInBox = useCallback((b: [Pt, Pt]) => {
+    const x0 = Math.min(b[0][0], b[1][0]), x1 = Math.max(b[0][0], b[1][0])
+    const y0 = Math.min(b[0][1], b[1][1]), y1 = Math.max(b[0][1], b[1][1])
+    if (Math.abs(x1 - x0) < 1e-9 || Math.abs(y1 - y0) < 1e-9) return   // a click, not a drag
+    const inside = (pt: Pt) => pt[0] >= x0 && pt[0] <= x1 && pt[1] >= y0 && pt[1] <= y1
+    const trim = (ring: Pt[]) => {
+      const kept = ring.filter((pt) => !inside(pt))
+      return kept.length >= 3 ? kept : ring
+    }
+    let removed = 0
+    const count = (before: Pt[], after: Pt[]) => { removed += before.length - after.length }
+    if (stepRef.current === 'boundary') {
+      setBoundaryRings((prev) => prev.map((rings) => rings.map((ring) => {
+        const t = trim(ring); count(ring, t); return t
+      })))
+    } else {
+      const id = selectedRef.current
+      if (!id) { setError('Select a polygon first, then drag over its points.'); return }
+      mutate((prev) => prev.map((sh) => sh.id !== id ? sh : {
+        ...sh,
+        polys: sh.polys.map((rings) => rings.map((ring) => {
+          const t = trim(ring); count(ring, t); return t
+        })),
+      }))
+    }
+    if (!removed) setError('No points inside that box — drag a box right over the dots.')
+  }, [mutate])
+  const eraseInBoxRef = useRef(eraseInBox); eraseInBoxRef.current = eraseInBox
+  const marqRef = useRef(marq); marqRef.current = marq
   const enforceNoOverlapRef = useRef(enforceNoOverlap); enforceNoOverlapRef.current = enforceNoOverlap
 
   /** Save every split piece as its own named tract in one project —
@@ -1139,6 +1226,20 @@ export default function ConfigureMap() {
   useEffect(() => {
     const map = mapRef.current
     if (!map || !ready) return
+    ;(map.getSource(SRC.marq) as maplibregl.GeoJSONSource)?.setData({
+      type: 'FeatureCollection',
+      features: marq ? [{
+        type: 'Feature', properties: {},
+        geometry: {
+          type: 'Polygon',
+          coordinates: [[
+            [marq[0][0], marq[0][1]], [marq[1][0], marq[0][1]],
+            [marq[1][0], marq[1][1]], [marq[0][0], marq[1][1]],
+            [marq[0][0], marq[0][1]],
+          ]],
+        },
+      }] : [],
+    } as any)
     ;(map.getSource(SRC.cut) as maplibregl.GeoJSONSource)?.setData({
       type: 'FeatureCollection',
       features: cutPts.map((pt) => ({
@@ -1146,13 +1247,14 @@ export default function ConfigureMap() {
         geometry: { type: 'Point', coordinates: pt },
       })),
     } as any)
-  }, [cutPts, ready])
+  }, [cutPts, marq, ready])
 
   // Crosshair while the cut tool is armed, so it stops looking like a pan.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !ready) return
-    map.getCanvas().style.cursor = tool === 'cutpoly' ? 'crosshair' : ''
+    map.getCanvas().style.cursor =
+      tool === 'cutpoly' ? 'crosshair' : tool === 'erase' ? 'cell' : ''
   }, [tool, ready])
 
   useEffect(() => {
@@ -1501,8 +1603,19 @@ export default function ConfigureMap() {
                     style={{ ...btn, borderColor: tool === 'cutpoly' ? '#ffffff' : undefined }}>
                     <Scissors size={13} /> {tool === 'cutpoly' ? 'Cancel cut' : 'Split parcel'}
                   </button>
+                  <button
+                    onClick={() => setTool(tool === 'erase' ? null : 'erase')}
+                    style={{ ...btn, borderColor: tool === 'erase' ? '#ffffff' : undefined }}>
+                    <Eraser size={13} /> {tool === 'erase' ? 'Done erasing' : 'Erase points'}
+                  </button>
                 </div>
-                {tool === 'cutpoly' && (
+                {tool === 'erase' && (
+              <p style={{ margin: '6px 2px 0', fontSize: 11, lineHeight: 1.45, color: '#9ca3af' }}>
+                Drag a box over a run of dots and they are all removed at once. Right-click
+                (or Alt-click) a single dot to remove just that one.
+              </p>
+            )}
+            {tool === 'cutpoly' && (
                   <p style={{ ...hint, marginTop: 6 }}>
                     Click once <strong>outside each side</strong> of the parcel. It cuts on
                     the second click.
@@ -1564,6 +1677,12 @@ export default function ConfigureMap() {
                 disabled={!selectedId && tool !== 'cutpoly'}
                 style={{ ...btn, borderColor: tool === 'cutpoly' ? '#ffffff' : undefined }}>
                 <Scissors size={13} /> {tool === 'cutpoly' ? 'Cancel cut' : 'Split polygon'}
+              </button>
+              <button
+                onClick={() => setTool(tool === 'erase' ? null : 'erase')}
+                disabled={!selectedId && tool !== 'erase'}
+                style={{ ...btn, borderColor: tool === 'erase' ? '#ffffff' : undefined }}>
+                <Eraser size={13} /> {tool === 'erase' ? 'Done erasing' : 'Erase points'}
               </button>
               <button
                 onClick={() => setTool(tool === 'combine' ? null : 'combine')}
