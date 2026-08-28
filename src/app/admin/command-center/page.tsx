@@ -994,7 +994,10 @@ function Slowest({ d }: { d: any[] }) {
 function Jobs({ d }: { d: any }) {
   const jobs: any[] = d.jobs || []
   const bad = new Set([...(d.failing || []), ...(d.stuck || [])].map((j: any) => j.raw_name))
-  const sorted = [...jobs].sort((a, b) => (bad.has(b.raw_name) ? 1 : 0) - (bad.has(a.raw_name) ? 1 : 0))
+  // Problems first, then live jobs, then ones that have stopped running —
+  // a retired job should never push a running one off the visible nine.
+  const rank = (j: any) => bad.has(j.raw_name) ? 0 : j.stale ? 2 : 1
+  const sorted = [...jobs].sort((a, b) => rank(a) - rank(b))
   return (
     <>
       <table>
@@ -1008,10 +1011,15 @@ function Jobs({ d }: { d: any }) {
                 <td className={`t ${failing ? 'red' : ''}`}>{j.name}</td>
                 <td className="n dim">{j.minutes_ago === null ? 'never' : `${ago(j.finished_at)} ago`}</td>
                 <td className="n">
+                  {/* A JOB THAT STOPPED RUNNING IS NOT A SUCCESS.
+                      The last outcome is kept for ever, so a retired job read
+                      "ok" in green with nothing saying the success was 85 days
+                      old — beside jobs that had run two minutes earlier. */}
                   {failing ? <Chip tone="red">failed {num(j.consecutive_failures)}x</Chip>
                     : stuck ? <Chip tone="amber">stuck</Chip>
-                      : j.status === 'success' ? <Chip tone="green">ok</Chip>
-                        : <Chip>{j.status || '—'}</Chip>}
+                      : j.stale ? <Chip>stopped · {num(j.stale_days)}d</Chip>
+                        : j.status === 'success' ? <Chip tone="green">ok</Chip>
+                          : <Chip>{j.status || '—'}</Chip>}
                 </td>
               </tr>
             )
@@ -1412,8 +1420,15 @@ function Reach({ notif, email, fixes }: { notif: any; email: any; fixes?: any })
               Failed to send{' '}
               <span className="dim" style={{ fontSize: 10 }}>· click for why</span>
             </span>
+            {/* PEOPLE, NOT JUST MESSAGES. "237" reads like an outage;
+                "237 · 30 people" says what actually happened. */}
             <span className="r" style={failing ? { color: 'var(--red)' } : undefined}>
               {num(notif?.really_failed_24h)}
+              {notif?.really_failed_people_24h
+                ? <span className="dim" style={{ fontSize: 10 }}>
+                    {' · '}{num(notif.really_failed_people_24h)} {notif.really_failed_people_24h === 1 ? 'person' : 'people'}
+                  </span>
+                : null}
             </span>
           </summary>
           <div style={{ padding: '4px 0 2px' }}>
