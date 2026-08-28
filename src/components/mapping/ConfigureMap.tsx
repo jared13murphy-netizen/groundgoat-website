@@ -952,6 +952,15 @@ export default function ConfigureMap() {
       type: 'FeatureCollection',
       features: geom ? [{ type: 'Feature', geometry: geom, properties: {} }] : [],
     } as any)
+
+    // The pink wash belongs to step 1 only. Left on in step 2 it lies
+    // over every land type at 22% — green tillable under pink reads as a
+    // muddy brown, so correct engine output looks like nonsense. The
+    // outline itself stays visible in both steps.
+    if (map.getLayer('cm-boundary-fill')) {
+      map.setLayoutProperty('cm-boundary-fill', 'visibility',
+        step === 'boundary' ? 'visible' : 'none')
+    }
   }, [detail, boundaryRings, step, ready])
 
   useEffect(() => {
