@@ -317,6 +317,11 @@ export default function ConfigureMap() {
     // container — a broken-looking map that only fixes itself if the
     // user happens to resize the window. Measuring again on the next
     // frame and on load costs nothing and does not depend on RO.
+    // Right-click is a map gesture here (remove a boundary handle), so
+    // the browser's context menu must not open on top of it.
+    const stopMenu = (ev: Event) => ev.preventDefault()
+    map.getCanvas().addEventListener('contextmenu', stopMenu)
+
     const removePlaceLabelsRef = { current: null as null | (() => void) }
 
     const raf = requestAnimationFrame(() => map.resize())
@@ -442,6 +447,28 @@ export default function ConfigureMap() {
         if (!f) return
         e.preventDefault()
         const owner = String(f.properties!.shapeId)
+
+        // Remove a boundary handle: right button, or Alt/Option-click.
+        // Handled on MOUSEDOWN rather than a 'contextmenu' listener —
+        // that fired inconsistently and the browser's own menu often
+        // won the event instead (the canvas listener below suppresses
+        // that menu). Alt-click is the fallback for anyone whose mouse
+        // or trackpad makes right-click awkward.
+        const oe = e.originalEvent as MouseEvent
+        if (owner === '__boundary__' && stepRef.current === 'boundary'
+            && (oe.button === 2 || oe.altKey)) {
+          const pi = Number(f.properties!.pi)
+          const ri = Number(f.properties!.ri)
+          const vi = Number(f.properties!.vi)
+          setBoundaryRings((prev) => prev.map((rings, p2) => p2 !== pi ? rings
+            : rings.map((ring, i) => {
+              if (i !== ri) return ring
+              if (ring.length <= 3) return ring   // never below a triangle
+              return ring.filter((_, v) => v !== vi)
+            })))
+          return
+        }
+
         if (owner !== '__boundary__' && owner !== selectedRef.current) setSelectedId(owner)
         drag = { id: owner, pi: f.properties!.pi, ri: f.properties!.ri, vi: f.properties!.vi }
         took = false
@@ -496,21 +523,6 @@ export default function ConfigureMap() {
             : rings.map((ring, ri) => ri !== best.ri ? ring
               : [...ring.slice(0, best.seg + 1), pt, ...ring.slice(best.seg + 1)]))
         })
-      })
-      map.on('contextmenu', LYR_VERTS, (e) => {
-        if (stepRef.current !== 'boundary') return
-        const f = e.features?.[0]
-        if (!f || String(f.properties!.shapeId) !== '__boundary__') return
-        e.preventDefault()
-        const pi = Number(f.properties!.pi)
-        const ri = Number(f.properties!.ri)
-        const vi = Number(f.properties!.vi)
-        setBoundaryRings((prev) => prev.map((rings, p2) => p2 !== pi ? rings
-          : rings.map((ring, i) => {
-            if (i !== ri) return ring
-            if (ring.length <= 3) return ring   // never below a triangle
-            return ring.filter((_, v) => v !== vi)
-          })))
       })
       map.on('mouseenter', 'cm-boundary-line', () => {
         if (stepRef.current === 'boundary') map.getCanvas().style.cursor = 'copy'
@@ -591,6 +603,7 @@ export default function ConfigureMap() {
 
     return () => {
       cancelAnimationFrame(raf)
+      try { map.getCanvas().removeEventListener('contextmenu', stopMenu) } catch { /* gone */ }
       if (sizeTimer !== undefined) clearTimeout(sizeTimer)
       removePlaceLabelsRef.current?.()
       ro.disconnect()
@@ -1294,7 +1307,7 @@ export default function ConfigureMap() {
                 <div style={hint}>
                   {(boundaryRings[0]?.[0]?.length ?? 0)} points on the outline
                   <div style={{ ...hint, marginTop: 4 }}>
-                    Click the line to add a point; right-click a point to remove it.
+                    Click the line to add a point. Right-click (or Alt-click) a point to remove it.
                   </div>
                 </div>
               </>
