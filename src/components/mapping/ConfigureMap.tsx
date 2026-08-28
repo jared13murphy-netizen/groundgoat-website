@@ -378,6 +378,15 @@ export default function ConfigureMap() {
           'line-width': ['case', ['boolean', ['get', 'selected'], false], 3, 2],
         },
       })
+      // A light pink wash inside the outline so the parcel reads as one
+      // object at a glance. Deliberately faint — the imagery underneath
+      // is what the user is judging the boundary against, and anything
+      // heavier hides it (the same mistake the topography report made).
+      // Added BEFORE the line so the stroke stays crisp on top.
+      map.addLayer({
+        id: 'cm-boundary-fill', type: 'fill', source: SRC.boundary,
+        paint: { 'fill-color': '#f58cde', 'fill-opacity': 0.12 },
+      })
       map.addLayer({
         id: 'cm-boundary-line', type: 'line', source: SRC.boundary,
         paint: { 'line-color': PARCEL_LINE, 'line-width': 4 },
@@ -1104,7 +1113,23 @@ export default function ConfigureMap() {
     return t
   }, [shapes])
 
-  const parcelAcres = Number(detail?.parcel?.acres ?? 0)
+  // Acres for the boundary as it stands RIGHT NOW. While step 1 is open
+  // the outline is the thing being dragged, so reading the stored figure
+  // left the panel claiming the original acreage no matter how far the
+  // boundary moved — the panel even promises it updates as you edit.
+  // Same geodesic helper the land-type totals use, so the two agree.
+  const liveBoundaryAcres = useMemo(() => (
+    boundaryRings.reduce((sum, rings) => {
+      if (!rings.length) return sum
+      const holes = rings.slice(1).reduce((h, r) => h + polygonAcres(r), 0)
+      return sum + Math.max(polygonAcres(rings[0]) - holes, 0)
+    }, 0)
+  ), [boundaryRings])
+
+  const storedAcres = Number(detail?.parcel?.acres ?? 0)
+  const parcelAcres = (step === 'boundary' && liveBoundaryAcres > 0)
+    ? liveBoundaryAcres
+    : storedAcres
   const classified = LAND_CLASSES.reduce((s, c) => s + totals[c], 0)
 
   return (
