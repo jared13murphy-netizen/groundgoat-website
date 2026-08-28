@@ -425,6 +425,79 @@ function RightNow({ d, series }: { d: any; series: any[] | null }) {
   )
 }
 
+/** Is every database actually backed up?
+
+    THERE WAS NO CARD HERE AT ALL. The backend has computed this panel all
+    along and the page never rendered it, so the only trace of backups on the
+    screen was one amber line in the strip saying the age "is not being
+    checked". Behind that line on 2026-08-27, the soils database — tillable
+    polygons, soil ratings, deed corrections, none of which exist anywhere
+    else — had had no successful backup for eleven nights.
+
+    So this lists every database we expect to be backed up, whether or not it
+    has ever reported. A database that has said nothing reads as overdue, not
+    as absent: silence is the failure mode that actually happened. */
+function Backups({ d }: { d: any }) {
+  const runs = (d.runs || []) as any[]
+  const bad = runs.filter(r => r.verdict !== 'ok')
+  return (
+    <>
+      <div className="kpis" style={{ gridTemplateColumns: '1fr 1fr' }}>
+        <Kpi v={bad.length === 0 ? 'All backed up' : num(bad.length)}
+          k={bad.length === 0 ? 'every database, on schedule' : 'databases without a good backup'}
+          tone={bad.length === 0 ? '' : 'red'} />
+        <Kpi small
+          v={(() => {
+            const ok = runs.filter(r => r.verdict === 'ok' && r.hours_ago !== null)
+            if (!ok.length) return '—'
+            return `${Math.round(Math.min(...ok.map(r => r.hours_ago)))}h`
+          })()}
+          k="since the most recent one" />
+      </div>
+      <table>
+        <thead><tr><th>Database</th><th className="n">Last good</th><th className="n">State</th></tr></thead>
+        <tbody>
+          {runs.map((r: any) => (
+            <tr key={r.name}>
+              <td className="t">
+                {r.name}
+                {/* What is actually in it, because "soils is 11 days old" does
+                    not tell you that the thing at risk is irreplaceable. */}
+                {r.what ? <div className="more" style={{ marginTop: 1 }}>{r.what}</div> : null}
+              </td>
+              <td className="n dim">
+                {r.hours_ago === null || r.hours_ago === undefined
+                  ? 'never'
+                  : r.hours_ago < 48
+                    ? `${Math.round(r.hours_ago)}h ago`
+                    : `${Math.round(r.hours_ago / 24)}d ago`}
+              </td>
+              {/* SAME RULE AS THE STRIP, or the same event is red at the top
+                  of the screen and amber in this table. A run that FAILED is
+                  red whether or not the data could be rebuilt: the backend's
+                  alert uses `irreplaceable OR failed` and this must match it. */}
+              <td className="n" style={{
+                color: r.verdict === 'ok' ? undefined
+                  : (r.failed || r.irreplaceable) ? 'var(--red)' : 'var(--amber)',
+              }}>{r.verdict === 'ok' ? 'ok' : r.verdict}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {/* Said plainly rather than left as an empty table: if nothing has ever
+          reported, the rows above are overdue because nothing can confirm
+          otherwise, which is a different sentence from "the backups failed". */}
+      {d.how ? <div className="rows"><Row label="Why every line says overdue" value={<span className="dim">nothing reports yet</span>} tone="amber" /></div> : null}
+      {(d.unexpected_jobs || []).length > 0 && (
+        <div className="rows">
+          <Row label="Reporting under another name" tone="amber"
+            value={(d.unexpected_jobs || []).join(', ')} />
+        </div>
+      )}
+    </>
+  )
+}
+
 function Money({ d }: { d: any }) {
   // CHECKED AGAINST THE PROCESSORS, NOT AGAINST OURSELVES.
   // Everything on this card used to come from user_subscriptions, which is a
@@ -1423,6 +1496,19 @@ type CardInfo = {
 }
 
 const CARD_INFO: Record<string, CardInfo> = {
+  backups: {
+    covers: 'Whether every database actually has a recent backup sitting in S3.',
+    lines: [
+      { l: 'Last good',
+        d: 'How long since that database was dumped AND the file confirmed present in S3 by size. "never" means nothing has ever reported for it.' },
+      { l: 'overdue',
+        d: 'No confirmed backup inside its own schedule \u2014 nightly for most, Sunday for the 116 GB of reference tables. Silence counts as overdue on purpose: a database that stops reporting looks exactly like one that stopped being backed up, because usually it is.' },
+      { l: 'failed',
+        d: 'The job ran and said the dump did not work. The soils dump did this every night from 16 to 27 August 2026, killed at the 90-minute limit, and nothing on this screen surfaced it.' },
+    ],
+    source: 'system_job_runs, written by the nightly backup job after it confirms each object in S3.',
+    caveat: 'The job checks the SIZE of each object, not just that a file with the right name exists \u2014 a killed upload once left a 53.6 GB partial dump that read as a real backup in a bucket listing. If the job never runs at all, nothing reports and every line here goes overdue, which is the intended behaviour rather than a fault.',
+  },
   pulse: {
     lines: [
       { l: 'What a "request" is',
@@ -2492,6 +2578,7 @@ export default function CommandCenterPage() {
   const storageD = P('storage'), pipelineD = P('pipeline'), qualityD = P('data_quality')
   const notifD = P('notifications'), emailD = P('email')
   const outsideD = P('outside')
+  const backupsD = P('backups')
   const agentsD = P('agents')
   const trendsD = P('trends') || {}
   const fixesD = P('fixes')
@@ -2607,6 +2694,15 @@ export default function CommandCenterPage() {
 
           <Panel span={2} title="Notifications &amp; email" infoId="reach" panelState={st('notifications')} pip={notifD?.overdue ? 'amber' : 'green'}>
             {notifD || emailD ? <Reach notif={notifD} email={emailD} fixes={fixesD} /> : <Unavailable why={whyMissing('notifications')} />}
+          </Panel>
+
+          {/* Backups had no card. The panel existed, the data was published,
+              and the screen showed none of it. */}
+          <Panel span={2} title="Backups" tag="every database" infoId="backups" panelState={st('backups')}
+            pip={!backupsD ? undefined
+              : backupsD.worst === 'ok' ? 'green'
+              : backupsD.irreplaceable_at_risk?.length ? 'red' : 'amber'}>
+            {backupsD ? <Backups d={backupsD} /> : <Unavailable why={whyMissing('backups')} />}
           </Panel>
         </main>
       </div>
