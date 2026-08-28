@@ -277,7 +277,9 @@ export default function ConfigureMap() {
       ;(async () => {
         try {
           const r = await getProject(proj)
-          if (stop || !r.parcels?.length) return
+          if (stop) return
+          if (r.project?.name) setProjectName(r.project.name)
+          if (!r.parcels?.length) return
           const url = new URL(window.location.href)
           url.searchParams.set('parcel', r.parcels[0].id)
           window.location.replace(url.toString())
@@ -295,6 +297,11 @@ export default function ConfigureMap() {
         setEditingId(rec.id)
         setProjectId(rec.project_id)
         setName(rec.name)
+        if (rec.project_id) {
+          getProject(rec.project_id)
+            .then((r) => { if (!cancelled && r.project?.name) setProjectName(r.project.name) })
+            .catch(() => { /* the name is a label, not load-bearing */ })
+        }
         setSources(rec.source_ll_uuids || [])
         setDetail({
           // A saved parcel's stats use `buildings`; the live-parcel path
@@ -594,6 +601,8 @@ export default function ConfigureMap() {
       let drag: { id: string; pi: number; ri: number; vi: number } | null = null
       let took = false
       map.on('mousedown', LYR_VERTS, (e) => {
+        // Belt and braces with the layer being empty in view mode.
+        if (stepRef.current !== 'boundary' && !editingTypesRef.current) return
         const f = e.features?.[0]
         if (!f) return
         e.preventDefault()
@@ -1141,6 +1150,7 @@ export default function ConfigureMap() {
   }, [mutate])
   const eraseInBoxRef = useRef(eraseInBox); eraseInBoxRef.current = eraseInBox
   const marqRef = useRef(marq); marqRef.current = marq
+  const editingTypesRef = useRef(editingTypes); editingTypesRef.current = editingTypes
   const enforceNoOverlapRef = useRef(enforceNoOverlap); enforceNoOverlapRef.current = enforceNoOverlap
 
   /** Save every split piece as its own named tract in one project —
@@ -1207,6 +1217,10 @@ export default function ConfigureMap() {
           type: 'Feature', geometry: { type: 'Point', coordinates: pt },
           properties: { shapeId: '__boundary__', pi, ri, vi, active: true },
         }))))
+    } else if (!editingTypes) {
+      // View mode: no handles at all. They used to still be drawn and
+      // draggable with the tools hidden, so a tract opened just to look
+      // at could be reshaped by a stray drag.
     } else {
       const sel = shapes.find((sh) => sh.id === selectedId)
       sel?.polys.forEach((rings, pi) => rings.forEach((ring, ri) =>
@@ -1936,10 +1950,22 @@ export default function ConfigureMap() {
 
             <div>
               <div style={sectionLabel}>Project</div>
-              <input value={projectName} onChange={(e) => setProjectName(e.target.value)}
-                     placeholder={projectId ? 'Saving into the open project' : 'e.g. Smith Estate Auction (optional)'}
-                     disabled={!!projectId}
-                     style={{ ...inputStyle, opacity: projectId ? 0.55 : 1 }} />
+              {projectId ? (
+                // Already inside a project: name it, don't offer a dead
+                // input. The greyed box with placeholder text said
+                // nothing about WHICH project this tract belongs to.
+                <div style={{ ...statRow, opacity: 0.85 }}>
+                  <span>{projectName || 'Open project'}</span>
+                  <a href="/map-portfolio"
+                     style={{ fontSize: 12, color: '#86efac', textDecoration: 'none' }}>
+                    All tracts
+                  </a>
+                </div>
+              ) : (
+                <input value={projectName} onChange={(e) => setProjectName(e.target.value)}
+                       placeholder="e.g. Smith Estate Auction (optional)"
+                       style={inputStyle} />
+              )}
             </div>
           </>
         )}
@@ -1951,7 +1977,7 @@ export default function ConfigureMap() {
             borderTop: '1px solid rgba(255,255,255,0.10)', padding: 12,
             background: '#0c111a', display: 'flex', flexDirection: 'column', gap: 8,
           }}>
-            {step === 'landtypes' && (
+            {step === 'landtypes' && editingTypes && (
               <div>
                 <div style={sectionLabel}>Tract name</div>
                 <input value={name} onChange={(e) => setName(e.target.value)}
@@ -1959,6 +1985,7 @@ export default function ConfigureMap() {
                        style={inputStyle} />
               </div>
             )}
+            {step === 'landtypes' && !editingTypes ? null : (
             <div style={{ display: 'flex', gap: 8 }}>
               {step === 'boundary' ? (
                 <button onClick={() => void confirmBoundary()} disabled={!!busy}
@@ -1980,6 +2007,7 @@ export default function ConfigureMap() {
                 <X size={14} /> {step === 'landtypes' ? 'Edit outline' : 'Cancel'}
               </button>
             </div>
+            )}
           </div>
         )}
       </aside>
