@@ -73,6 +73,16 @@ function geometryToPolys(geom: any): Pt[][][] {
              .filter((rings) => rings.length > 0)
 }
 
+/** Mean of a shape's outer ring — a cheap, stable fingerprint used to
+ *  find a polygon again after normalising rebuilds it with a new id. */
+function ringCentre(polys: Pt[][][]): Pt | null {
+  const ring = polys[0]?.[0]
+  if (!ring || !ring.length) return null
+  let x = 0, y = 0
+  for (const [a, b] of ring) { x += a; y += b }
+  return [x / ring.length, y / ring.length]
+}
+
 function polysToGeometry(polys: Pt[][][]): any {
   const cleaned = polys
     .map((rings) => rings.filter((r) => r.length >= 3).map(closeRing))
@@ -411,7 +421,20 @@ export default function ConfigureMap() {
       })
       map.addLayer({
         id: 'cm-draft-line', type: 'line', source: SRC.draft,
+        filter: ['==', ['geometry-type'], 'LineString'],
         paint: { 'line-color': '#ffffff', 'line-width': 2, 'line-dasharray': [2, 1.5] },
+      })
+      // A dot per click. Without these you cannot see where your corners
+      // landed, which made both drawing and splitting guesswork.
+      map.addLayer({
+        id: 'cm-draft-dots', type: 'circle', source: SRC.draft,
+        filter: ['==', ['geometry-type'], 'Point'],
+        paint: {
+          'circle-radius': 5,
+          'circle-color': '#ffffff',
+          'circle-stroke-color': VERTEX_LINE,
+          'circle-stroke-width': 2,
+        },
       })
       map.addLayer({
         id: LYR_VERTS, type: 'circle', source: SRC.verts,
@@ -515,9 +538,10 @@ export default function ConfigureMap() {
       const endDrag = () => {
         if (!drag) return
         const wasShape = drag.id !== '__boundary__'
+        const draggedId = drag.id
         drag = null
         map.dragPan.enable()
-        if (wasShape) void enforceNoOverlapRef.current(shapesRef.current)
+        if (wasShape) void enforceNoOverlapRef.current(shapesRef.current, draggedId)
       }
       map.on('mouseup', endDrag)
       map.on('mouseout', endDrag)
@@ -737,16 +761,34 @@ export default function ConfigureMap() {
 
   /** Enforce the owner's rule after every hand-drawn shape: polygons
    *  cannot overlap, and cannot leave the parcel. Later drawing wins. */
-  const enforceNoOverlap = useCallback(async (next: Shape[]) => {
+  const enforceNoOverlap = useCallback(async (next: Shape[], keepId?: string | null) => {
     if (!detail?.boundary) return
+    // Normalising rebuilds every shape with a fresh id, so the selection
+    // used to be dropped on the floor. After moving one handle that meant
+    // re-clicking the polygon before you could move the next one. Keep a
+    // fingerprint of the shape being edited and re-select its replacement.
+    const keep = keepId ? next.find((sh) => sh.id === keepId) : undefined
+    const mark = keep ? ringCentre(keep.polys) : null
     try {
       const res = await normalizeGeometry(detail.boundary, next
         .map((sh) => ({ cls: sh.cls, geometry: polysToGeometry(sh.polys) }))
         .filter((x) => x.geometry) as any)
-      setShapes(res.polygons.map((p) => ({
+      const rebuilt = res.polygons.map((p) => ({
         id: nextId(), cls: p.cls, polys: geometryToPolys(p.geometry),
-      })).filter((x) => x.polys.length > 0))
-      setSelectedId(null)
+      })).filter((x) => x.polys.length > 0)
+      setShapes(rebuilt)
+      let again: string | null = null
+      if (keep && mark) {
+        let best = Infinity
+        for (const sh of rebuilt) {
+          if (sh.cls !== keep.cls) continue
+          const c = ringCentre(sh.polys)
+          if (!c) continue
+          const d = (c[0] - mark[0]) ** 2 + (c[1] - mark[1]) ** 2
+          if (d < best) { best = d; again = sh.id }
+        }
+      }
+      setSelectedId(again)
     } catch (e: any) {
       setError(e?.message || 'Could not fit that shape to the others.')
     }
@@ -1034,9 +1076,21 @@ export default function ConfigureMap() {
     if (!map || !ready) return
     ;(map.getSource(SRC.draft) as maplibregl.GeoJSONSource)?.setData({
       type: 'FeatureCollection',
-      features: draft.length >= 2
-        ? [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [...draft, draft[0]] } }]
-        : [],
+      features: [
+        // The closing segment is only drawn for an area being drawn, not
+        // for a split line -- a split is a cut ACROSS, never a ring.
+        ...(draft.length >= 2 ? [{
+          type: 'Feature', properties: {},
+          geometry: {
+            type: 'LineString',
+            coordinates: toolRef.current === 'split' ? [...draft] : [...draft, draft[0]],
+          },
+        }] : []),
+        ...draft.map((pt, i) => ({
+          type: 'Feature', properties: { i },
+          geometry: { type: 'Point', coordinates: pt },
+        })),
+      ],
     } as any)
   }, [draft, ready])
 
@@ -1411,7 +1465,8 @@ export default function ConfigureMap() {
                 }}
                 style={{ ...btn, borderColor: tool === 'split' ? '#ffffff' : undefined }}>
                 <Scissors size={13} />
-                {tool !== 'split' ? 'Split' : draft.length >= 2 ? 'Make the cut' : 'Click two points'}
+                {tool !== 'split' ? 'Split parcel'
+                  : draft.length >= 2 ? 'Make the cut' : 'Click across the parcel'}
               </button>
               <button
                 onClick={() => setTool(tool === 'combine' ? null : 'combine')}
@@ -1419,6 +1474,14 @@ export default function ConfigureMap() {
                 <Combine size={13} /> {tool === 'combine' ? 'Pick a parcel…' : 'Combine'}
               </button>
             </div>
+            {tool === 'split' && (
+              <p style={{ margin: '6px 2px 0', fontSize: 11, lineHeight: 1.45, color: '#9ca3af' }}>
+                This cuts the <strong>parcel itself</strong> into separate tracts — it does
+                not split a land type. Click just outside one edge, then just outside the
+                opposite edge, so the line crosses the whole parcel. Then press “Make the
+                cut”.
+              </p>
+            )}
 
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               <button onClick={undo} disabled={!undoRef.current.length} style={btn}>
