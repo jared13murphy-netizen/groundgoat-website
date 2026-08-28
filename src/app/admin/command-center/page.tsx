@@ -2221,11 +2221,13 @@ function CopyHandoff({ text }: { text: string }) {
             setTimeout(() => setDone(false), 4000)
           } catch { /* clipboard blocked — the text is shown below anyway */ }
         }}>
-        {done ? 'Copied' : 'Copy for Claude Code'}
+        {done ? 'Copied — now paste it into Claude Code' : 'Copy the fix brief'}
       </button>
       <div className="fixnote">
-        Paste this into Claude Code on your Mac. It carries the problem, the
-        evidence and the diagnosis, so you can go straight to fixing it.
+        <strong>This is the next step.</strong> Paste it into Claude Code on your
+        Mac and say “do this”. It carries the problem, the evidence and the exact
+        change, so nothing has to be explained again. Nothing is fixed until you
+        do — this panel only reads.
       </div>
       <details style={{ marginTop: 6 }}>
         <summary style={{ cursor: 'pointer', fontSize: 11, color: 'var(--faint)' }}>
@@ -2282,9 +2284,9 @@ function FixDrawer({ open, onClose, data }: { open: boolean; onClose: () => void
           </span>
           <button type="button" className="drawer-close" onClick={onClose}>Close ·  Esc</button>
         </div>
-        <div className="drawer-body">
+        <div className="fixdrawer-body">
           {runs.length === 0 ? (
-            <div className="drawer-empty" style={{ display: 'block', textAlign: 'left', color: 'var(--ink)' }}>
+            <div style={{ color: 'var(--ink)' }}>
               <p style={{ margin: '0 0 10px' }}>Nothing has been looked at yet.</p>
               <p style={{ margin: 0, fontSize: 12, color: 'var(--faint)' }}>
                 Press Diagnose on any problem. Opus 5 reads the code and reports
@@ -2292,17 +2294,17 @@ function FixDrawer({ open, onClose, data }: { open: boolean; onClose: () => void
               </p>
             </div>
           ) : (
-            <div className="agent-list" style={{ color: 'var(--ink)' }}>
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+            <div style={{ color: 'var(--ink)' }}>
+              {/* One row, at the top. Selecting a pill swaps the finding below
+                  it — which is the whole point of having more than one. */}
+              <div className="fixpills">
                 {runs.map(r => (
                   <button key={r.id} type="button" onClick={() => setPicked(r.id)}
-                    className="fixbtn"
-                    style={{
-                      background: current?.id === r.id ? tone(r) : 'transparent',
-                      borderColor: tone(r),
-                      color: current?.id === r.id ? '#fff' : 'var(--ink)',
-                    }}>
-                    {(r.issue?.title || 'untitled').slice(0, 34)}
+                    className="fixpill"
+                    style={current?.id === r.id
+                      ? { background: tone(r), borderColor: tone(r), color: '#fff' }
+                      : { borderColor: tone(r) }}>
+                    {(r.issue?.title || 'untitled').slice(0, 44)}
                   </button>
                 ))}
               </div>
@@ -2352,6 +2354,34 @@ function FixDrawer({ open, onClose, data }: { open: boolean; onClose: () => void
                   {current.error && (
                     <div style={{ color: 'var(--red)', marginBottom: 10 }}>{current.error}</div>
                   )}
+
+                  {/* WHAT HAPPENED, AND WHAT DID NOT.
+                      The owner pressed Diagnose, watched the panel, and could
+                      not tell whether the crashes had been FIXED or merely
+                      explained. This agent is read-only — it has no tool that
+                      writes a file, commits, or deploys — so the honest answer
+                      is that nothing changed, and the panel has to say so
+                      before anything else, not leave it to be inferred from a
+                      wall of code. */}
+                  <div className={`fixverdict ${
+                    current.status === 'working' ? 'working'
+                      : current.status === 'done' ? 'done' : 'bad'}`}>
+                    <h4>
+                      {current.status === 'working' ? 'Still reading. Nothing has been changed.'
+                        : current.status === 'done' ? 'Diagnosed. Nothing has been changed.'
+                        : current.status === 'timed_out' ? 'Gave up. Nothing has been changed.'
+                        : 'Failed. Nothing has been changed.'}
+                    </h4>
+                    <p>
+                      {current.status === 'working'
+                        ? 'It is reading the backend, app and website code. It cannot edit or deploy — when it finishes it hands you a brief to fix from.'
+                        : current.status === 'done'
+                          ? (current.handoff
+                              ? 'Your app is still crashing. Copy the brief below into Claude Code on your Mac and it will make the change and ship it.'
+                              : 'It finished without producing a brief. The notes below are all it has.')
+                          : 'The app is still crashing. Press Diagnose again, or take the notes below to Claude Code.'}
+                    </p>
+                  </div>
                   {/* The agent here can only read and diagnose. The fixing
                       happens in Claude Code on the Mac, so the diagnosis
                       leaves as a brief that carries the evidence with it —
@@ -3157,6 +3187,34 @@ svg.spark{display:block;width:100%;height:100%;}
   min-height:0;gap:1px;background:var(--line);}
 .agent-list{overflow-y:auto;background:var(--paper);color:var(--ink);padding:10px;display:grid;
   grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:9px;align-content:start;}
+
+/* THE FINDINGS DRAWER IS NOT THE AGENTS DRAWER.
+   It was reusing .drawer-body, a two-column grid whose second 420px column it
+   never fills — that was the wide blank strip down the right — and .agent-list,
+   an auto-fill card grid, which stretched the single run pill into a green
+   block the full height of the panel. It gets its own layout: pills in a row
+   at the top, the finding underneath, full width. */
+.fixdrawer-body{display:block;overflow-y:auto;background:var(--paper);
+  color:var(--ink);min-height:0;padding:12px 16px 20px;}
+.fixpills{display:flex;flex-wrap:wrap;gap:6px;align-items:flex-start;
+  margin:0 0 12px;}
+.fixpill{
+  flex:0 0 auto;padding:4px 11px;border-radius:999px;cursor:pointer;
+  font-family:var(--label);font-size:9.5px;font-weight:700;letter-spacing:.09em;
+  text-transform:uppercase;white-space:nowrap;line-height:1.5;
+  background:transparent;border:1px solid var(--line-2);color:var(--ink);
+}
+.fixpill:hover{border-color:var(--ink);}
+/* WHAT HAPPENED, AND WHAT DID NOT. */
+.fixverdict{
+  border:1px solid var(--line-2);border-left:3px solid var(--amber);
+  border-radius:var(--r);padding:9px 12px;margin:0 0 12px;background:var(--card);
+}
+.fixverdict h4{margin:0 0 3px;font-size:13px;font-weight:700;color:var(--ink);}
+.fixverdict p{margin:0;font-size:11.5px;line-height:1.5;color:var(--muted);}
+.fixverdict.working{border-left-color:var(--amber);}
+.fixverdict.done{border-left-color:var(--green);}
+.fixverdict.bad{border-left-color:var(--red);}
 .agent-card{
   background:var(--card);border:1px solid var(--line);border-left:3px solid var(--line-2);
   border-radius:var(--r);padding:8px 10px;cursor:pointer;text-align:left;
