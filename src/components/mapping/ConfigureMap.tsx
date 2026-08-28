@@ -319,6 +319,27 @@ export default function ConfigureMap() {
     const raf = requestAnimationFrame(() => map.resize())
     map.once('load', () => map.resize())
 
+    // Belt and braces for the case that actually bites: the container
+    // measures 0x0 when the map is built and only gains size later,
+    // WITHOUT a window resize and without the observer's first callback
+    // being delivered. The map then sits at MapLibre's 400x300 default
+    // forever. Re-measure for a couple of seconds, stop as soon as the
+    // canvas matches, and always stop — this must never become a loop.
+    let tries = 0
+    let sizeTimer: number | undefined
+    const syncSize = () => {
+      sizeTimer = undefined
+      const el = containerRef.current
+      if (!el || mapRef.current !== map) return
+      const r = el.getBoundingClientRect()
+      const c = map.getCanvas()
+      const off = Math.abs(c.clientWidth - Math.round(r.width)) > 1
+        || Math.abs(c.clientHeight - Math.round(r.height)) > 1
+      if (r.width > 0 && off) map.resize()
+      if (++tries < 20) sizeTimer = window.setTimeout(syncSize, 100)
+    }
+    sizeTimer = window.setTimeout(syncSize, 100)
+
     map.on('load', async () => {
       for (const id of Object.values(SRC)) {
         map.addSource(id, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } as any })
@@ -496,6 +517,7 @@ export default function ConfigureMap() {
 
     return () => {
       cancelAnimationFrame(raf)
+      if (sizeTimer !== undefined) clearTimeout(sizeTimer)
       ro.disconnect()
       map.remove()
       // Only clear the ref if it still points at THIS map, so a
