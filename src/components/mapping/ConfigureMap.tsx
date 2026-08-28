@@ -163,6 +163,11 @@ export default function ConfigureMap() {
   // After a save the parcel is finished, so the editing tools come down
   // until the user asks for them again.
   const [editingTypes, setEditingTypes] = useState(true)
+  // Which report kind is being queued right now. The spinner then hands
+  // over to the row's own queued/running status, so the button keeps
+  // spinning until the file is actually built rather than stopping the
+  // moment the request returns.
+  const [queuing, setQueuing] = useState<string | null>(null)
   const [draft, setDraft] = useState<Pt[]>([])
 
   const [name, setName] = useState('')
@@ -1411,14 +1416,14 @@ export default function ConfigureMap() {
 
   const makeReport = useCallback(async (kind: (typeof REPORT_KINDS)[number]) => {
     if (!editingId) { setError('Save this parcel before building a report.'); return }
-    setError(null)
+    setError(null); setQueuing(kind)
     try {
       await queueReport(editingId, kind,
         USES_ELEVATION.includes(kind) ? { exaggeration } : {})
       await refreshReports(editingId)
     } catch (e: any) {
       setError(e?.message || 'Could not start that report.')
-    }
+    } finally { setQueuing(null) }
   }, [editingId, refreshReports, exaggeration])
 
   /** Discard unsaved edits. Falls back to the engine's own polygons when
@@ -1849,11 +1854,19 @@ export default function ConfigureMap() {
               {editingId && (
                 <>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                    {REPORT_KINDS.map((k) => (
-                      <button key={k} onClick={() => void makeReport(k)} style={btn}>
-                        <FileText size={13} /> {REPORT_LABEL[k]}
-                      </button>
-                    ))}
+                    {REPORT_KINDS.map((k) => {
+                      const working = queuing === k || reports.some(
+                        (r) => r.kind === k && (r.status === 'queued' || r.status === 'running'))
+                      return (
+                        <button key={k} onClick={() => void makeReport(k)}
+                                disabled={working} style={btn}>
+                          {working
+                            ? <Loader2 size={13} className="animate-spin" />
+                            : <FileText size={13} />}
+                          {REPORT_LABEL[k]}
+                        </button>
+                      )
+                    })}
                   </div>
                   <button onClick={() => void startCma()} style={{ ...btn, marginTop: 8 }}>
                     <BarChart3 size={13} /> {cma ? 'Market analysis' : 'Start market analysis'}
