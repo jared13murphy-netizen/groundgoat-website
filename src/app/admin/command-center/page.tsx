@@ -2300,7 +2300,40 @@ function FixDrawer({ open, onClose, data }: { open: boolean; onClose: () => void
                     {current.stage ? ` · ${current.stage}` : ''}
                     {current.model ? ` · ${current.model}` : ''}
                     {current.started_by ? ` · started by ${current.started_by}` : ''}
+                    {/* HOW LONG, AND WHEN IT LAST MOVED. Without these a run
+                        that is thinking and a run that has died look the same. */}
+                    {current.started_at ? ` · running ${ago(current.started_at)}` : ''}
+                    {current.status === 'working' && current.updated_at
+                      ? ` · moved ${ago(current.updated_at)} ago` : ''}
                   </div>
+
+                  {/* WHAT IT IS ACTUALLY DOING, IN ORDER.
+                      These investigations run for minutes and the model
+                      narrates once, at the start, then works in silence — so
+                      this drawer showed one sentence and never changed again,
+                      and there was no way to tell progress from a hang. The
+                      prose is below; this is the trail. */}
+                  {(current.steps || []).length > 0 && (
+                    <div style={{ marginBottom: 10 }}>
+                      {(current.steps || []).slice(-12).map((st: any, i: number) => (
+                        <div key={i} style={{
+                          display: 'flex', gap: 8, fontSize: 11, lineHeight: 1.6,
+                          color: 'var(--muted)',
+                          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                        }}>
+                          <span style={{ color: 'var(--faint)', flex: '0 0 auto' }}>
+                            {st.round}/{st.of}
+                          </span>
+                          <span style={{ wordBreak: 'break-word' }}>{st.what}</span>
+                        </div>
+                      ))}
+                      {current.status === 'working' && (
+                        <div style={{ fontSize: 11, color: 'var(--faint)', marginTop: 4 }}>
+                          still reading…
+                        </div>
+                      )}
+                    </div>
+                  )}
                   {current.error && (
                     <div style={{ color: 'var(--red)', marginBottom: 10 }}>{current.error}</div>
                   )}
@@ -2315,7 +2348,9 @@ function FixDrawer({ open, onClose, data }: { open: boolean; onClose: () => void
                     fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
                   }}>
                     {(current.output || []).join('\n\n') ||
-                      (current.status === 'working' ? 'Reading the code…' : '(nothing reported)')}
+                      (current.status === 'working'
+                        ? 'Reading the code — it reports what it finds when it has something to say.'
+                        : '(nothing reported)')}
                   </pre>
                 </div>
               )}
