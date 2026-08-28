@@ -58,6 +58,7 @@ interface Shape { id: string; cls: LandClass; polys: Pt[][][] }
 const SRC = {
   boundary: 'cm-boundary', shapes: 'cm-shapes', verts: 'cm-verts',
   dots: 'cm-dots', draft: 'cm-draft', comps: 'cm-comps',
+  cut: 'cm-cut',
 } as const
 const LYR_VERTS = 'cm-verts-circles'
 const LYR_FILL = 'cm-shapes-fill'
@@ -132,9 +133,13 @@ export default function ConfigureMap() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [drawClass, setDrawClass] = useState<LandClass>('tillable')
   const [drawing, setDrawing] = useState(false)
-  // 'draw' adds a classified polygon; 'split' draws the cut line;
+  // 'draw' adds a classified polygon; 'cutpoly' takes the two clicks
+  // that cut something in half — the parcel in step 1, the selected land
+  // type in step 2;
   // 'combine' adds the next clicked parcel to this boundary.
-  const [tool, setTool] = useState<'draw' | 'split' | 'combine' | null>(null)
+  const [tool, setTool] = useState<'draw' | 'cutpoly' | 'combine' | null>(null)
+  // The two clicks that cut the SELECTED polygon in half.
+  const [cutPts, setCutPts] = useState<Pt[]>([])
   const [draft, setDraft] = useState<Pt[]>([])
 
   const [name, setName] = useState('')
@@ -426,6 +431,32 @@ export default function ConfigureMap() {
       })
       // A dot per click. Without these you cannot see where your corners
       // landed, which made both drawing and splitting guesswork.
+      // A white disc with a scissors glyph, drawn on a canvas so it does
+      // not depend on the glyph server carrying U+2702 in its font stack.
+      if (!map.hasImage('cm-scissors')) {
+        const S = 44
+        const cv = document.createElement('canvas'); cv.width = S; cv.height = S
+        const g = cv.getContext('2d')!
+        g.beginPath(); g.arc(S / 2, S / 2, S / 2 - 3, 0, Math.PI * 2)
+        g.fillStyle = '#ffffff'; g.fill()
+        g.lineWidth = 3; g.strokeStyle = '#111827'; g.stroke()
+        g.fillStyle = '#111827'
+        g.font = '22px system-ui, "Apple Color Emoji", sans-serif'
+        g.textAlign = 'center'; g.textBaseline = 'middle'
+        g.fillText('\u2702', S / 2, S / 2 + 1)
+        map.addImage('cm-scissors', g.getImageData(0, 0, S, S) as any, { pixelRatio: 2 })
+      }
+      map.addLayer({
+        id: 'cm-cut-line', type: 'line', source: SRC.cut,
+        filter: ['==', ['geometry-type'], 'LineString'],
+        paint: { 'line-color': '#ffffff', 'line-width': 2, 'line-dasharray': [1.5, 1.5] },
+      })
+      map.addLayer({
+        id: 'cm-cut-marks', type: 'symbol', source: SRC.cut,
+        filter: ['==', ['geometry-type'], 'Point'],
+        layout: { 'icon-image': 'cm-scissors', 'icon-size': 0.6,
+                  'icon-allow-overlap': true, 'icon-ignore-placement': true },
+      })
       map.addLayer({
         id: 'cm-draft-dots', type: 'circle', source: SRC.draft,
         filter: ['==', ['geometry-type'], 'Point'],
@@ -596,6 +627,17 @@ export default function ConfigureMap() {
         // through would also try to select a parcel underneath.
         if (stepRef.current === 'boundary'
             && map.queryRenderedFeatures(e.point, { layers: ['cm-boundary-line'] }).length) return
+        // Cutting the selected polygon: two clicks, one either side, and
+        // the second one performs the cut immediately.
+        if (toolRef.current === 'cutpoly') {
+          const pt = [e.lngLat.lng, e.lngLat.lat] as Pt
+          setCutPts((prev) => {
+            if (prev.length === 0) return [pt]
+            void runCutRef.current([prev[0], pt])
+            return []
+          })
+          return
+        }
         if (drawingRef.current) {
           setDraft((d) => [...d, [e.lngLat.lng, e.lngLat.lat] as Pt])
           return
@@ -686,11 +728,6 @@ export default function ConfigureMap() {
 
   const finishDraft = useCallback(() => {
     const d = draftRef.current
-    if (toolRef.current === 'split') {
-      if (d.length >= 2) void runSplitRef.current(d)
-      setDraft([]); setDrawing(false); setTool(null)
-      return
-    }
     if (d.length >= 3) {
       const ring = simplifyRing(d, 0.000004)
       const id = nextId()
@@ -931,20 +968,48 @@ export default function ConfigureMap() {
 
   /** Cut the boundary with the drawn line. Pieces come back largest
    *  first so they can be named Tract 1, Tract 2, … sensibly. */
-  const runSplit = useCallback(async (line: Pt[]) => {
-    const cur = detailRef.current
-    if (!cur) return
-    setBusy('Splitting…'); setError(null); setPieces([])
+
+  /** Cut the SELECTED land-type polygon in two along the line between the
+   *  user's two clicks. The line is extended well past both clicks so a
+   *  click landing just inside the polygon still cuts clean through
+   *  instead of failing with "that line did not cut". */
+  const runCut = useCallback(async (line: Pt[]) => {
+    // Step 1 cuts the PARCEL into tracts; step 2 cuts the selected land
+    // type polygon. Same two-click gesture either way.
+    const onBoundary = stepRef.current === 'boundary'
+    const id = selectedRef.current
+    const target = onBoundary ? null : shapesRef.current.find((sh) => sh.id === id)
+    if (!onBoundary && !target) { setError('Select a polygon first, then cut it.'); return }
+    const geom = onBoundary ? polysToGeometry(boundaryRef.current) : polysToGeometry(target!.polys)
+    if (!geom) return
+    const [a, b] = line
+    const dx = b[0] - a[0], dy = b[1] - a[1]
+    const ext: Pt[] = [[a[0] - dx, a[1] - dy], [b[0] + dx, b[1] + dy]]
+    setBusy('Cutting…'); setError(null)
     try {
-      const res = await splitGeometry(cur.boundary, {
-        type: 'LineString', coordinates: line,
-      })
-      setPieces(res.pieces)
+      const res = await splitGeometry(geom, { type: 'LineString', coordinates: ext })
+      if (!res.pieces || res.pieces.length < 2) {
+        setError(onBoundary
+          ? 'That line did not cut the parcel — click once outside each side of it.'
+          : 'That line did not cut the polygon — click once on each side of it.')
+        return
+      }
+      if (onBoundary) {
+        setPieces(res.pieces)
+      } else {
+        const next = shapesRef.current.filter((sh) => sh.id !== id).concat(
+          res.pieces.map((pc) => ({
+            id: nextId(), cls: target!.cls, polys: geometryToPolys(pc.geometry),
+          })).filter((x) => x.polys.length > 0))
+        mutate(() => next)
+        setSelectedId(null)
+      }
+      setTool(null)
     } catch (e: any) {
-      setError(e?.message || 'That line did not cut the boundary.')
+      setError(e?.message || 'Could not cut that polygon.')
     } finally { setBusy(null) }
-  }, [])
-  const runSplitRef = useRef(runSplit); runSplitRef.current = runSplit
+  }, [mutate])
+  const runCutRef = useRef(runCut); runCutRef.current = runCut
   const enforceNoOverlapRef = useRef(enforceNoOverlap); enforceNoOverlapRef.current = enforceNoOverlap
 
   /** Save every split piece as its own named tract in one project —
@@ -1074,6 +1139,25 @@ export default function ConfigureMap() {
   useEffect(() => {
     const map = mapRef.current
     if (!map || !ready) return
+    ;(map.getSource(SRC.cut) as maplibregl.GeoJSONSource)?.setData({
+      type: 'FeatureCollection',
+      features: cutPts.map((pt) => ({
+        type: 'Feature', properties: {},
+        geometry: { type: 'Point', coordinates: pt },
+      })),
+    } as any)
+  }, [cutPts, ready])
+
+  // Crosshair while the cut tool is armed, so it stops looking like a pan.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !ready) return
+    map.getCanvas().style.cursor = tool === 'cutpoly' ? 'crosshair' : ''
+  }, [tool, ready])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !ready) return
     ;(map.getSource(SRC.draft) as maplibregl.GeoJSONSource)?.setData({
       type: 'FeatureCollection',
       features: [
@@ -1083,7 +1167,7 @@ export default function ConfigureMap() {
           type: 'Feature', properties: {},
           geometry: {
             type: 'LineString',
-            coordinates: toolRef.current === 'split' ? [...draft] : [...draft, draft[0]],
+            coordinates: [...draft, draft[0]],
           },
         }] : []),
         ...draft.map((pt, i) => ({
@@ -1409,7 +1493,21 @@ export default function ConfigureMap() {
                     style={btn}>
                     <RotateCcw size={13} /> Reset outline
                   </button>
+                  <button
+                    onClick={() => {
+                      const on = tool !== 'cutpoly'
+                      setTool(on ? 'cutpoly' : null); setCutPts([]); setPieces([])
+                    }}
+                    style={{ ...btn, borderColor: tool === 'cutpoly' ? '#ffffff' : undefined }}>
+                    <Scissors size={13} /> {tool === 'cutpoly' ? 'Cancel cut' : 'Split parcel'}
+                  </button>
                 </div>
+                {tool === 'cutpoly' && (
+                  <p style={{ ...hint, marginTop: 6 }}>
+                    Click once <strong>outside each side</strong> of the parcel. It cuts on
+                    the second click.
+                  </p>
+                )}
                 <div style={hint}>
                   {(boundaryRings[0]?.[0]?.length ?? 0)} points on the outline
                   <div style={{ ...hint, marginTop: 4 }}>
@@ -1448,25 +1546,24 @@ export default function ConfigureMap() {
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               <button
                 onClick={() => {
-                  if (drawing && tool !== 'split') { finishDraft(); return }
+                  if (drawing) { finishDraft(); return }
                   setTool('draw'); setDrawing(true); setDraft([])
                 }}
-                style={{ ...btn, borderColor: drawing && tool !== 'split' ? CLASS_COLOR[drawClass] : undefined }}>
-                <Plus size={13} /> {drawing && tool !== 'split' ? 'Finish shape' : 'Add polygon'}
+                style={{ ...btn, borderColor: drawing ? CLASS_COLOR[drawClass] : undefined }}>
+                <Plus size={13} /> {drawing ? 'Finish shape' : 'Add polygon'}
               </button>
               <button onClick={() => selectedId && deleteShape(selectedId)} disabled={!selectedId} style={btn}>
                 <Trash2 size={13} /> Delete
               </button>
               <button
                 onClick={() => {
-                  if (tool === 'split' && draft.length >= 2) { finishDraft(); return }
-                  const on = tool !== 'split'
-                  setTool(on ? 'split' : null); setDrawing(on); setDraft([]); setPieces([])
+                  const on = tool !== 'cutpoly'
+                  setTool(on ? 'cutpoly' : null)
+                  setCutPts([]); setDrawing(false); setDraft([])
                 }}
-                style={{ ...btn, borderColor: tool === 'split' ? '#ffffff' : undefined }}>
-                <Scissors size={13} />
-                {tool !== 'split' ? 'Split parcel'
-                  : draft.length >= 2 ? 'Make the cut' : 'Click across the parcel'}
+                disabled={!selectedId && tool !== 'cutpoly'}
+                style={{ ...btn, borderColor: tool === 'cutpoly' ? '#ffffff' : undefined }}>
+                <Scissors size={13} /> {tool === 'cutpoly' ? 'Cancel cut' : 'Split polygon'}
               </button>
               <button
                 onClick={() => setTool(tool === 'combine' ? null : 'combine')}
@@ -1474,12 +1571,10 @@ export default function ConfigureMap() {
                 <Combine size={13} /> {tool === 'combine' ? 'Pick a parcel…' : 'Combine'}
               </button>
             </div>
-            {tool === 'split' && (
+            {tool === 'cutpoly' && (
               <p style={{ margin: '6px 2px 0', fontSize: 11, lineHeight: 1.45, color: '#9ca3af' }}>
-                This cuts the <strong>parcel itself</strong> into separate tracts — it does
-                not split a land type. Click just outside one edge, then just outside the
-                opposite edge, so the line crosses the whole parcel. Then press “Make the
-                cut”.
+                Click once on <strong>each side</strong> of the selected polygon. It cuts
+                on the second click.
               </p>
             )}
 
@@ -1497,11 +1592,8 @@ export default function ConfigureMap() {
                 <Layers size={13} /> Start over
               </button>
             </div>
-            {drawing && tool !== 'split' && (
+            {drawing && (
               <div style={hint}>Click to place corners. Enter or double-click closes the shape; Esc cancels.</div>
-            )}
-            {tool === 'split' && (
-              <div style={hint}>Click once on each side of the boundary to lay the cut line, then Enter.</div>
             )}
             {tool === 'combine' && (
               <div style={hint}>Click another parcel to fold it into this one.</div>
