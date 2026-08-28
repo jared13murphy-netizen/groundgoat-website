@@ -333,6 +333,17 @@ export default function ConfigureMap() {
     // being delivered. The map then sits at MapLibre's 400x300 default
     // forever. Re-measure for a couple of seconds, stop as soon as the
     // canvas matches, and always stop — this must never become a loop.
+    // The window has to outlast a COLD full page load. At 2 s this gave
+    // up while the canvas was still 0-sized, and a 0-sized canvas never
+    // finishes loading the style -- so the map sat blank forever, with
+    // no layers, and clicking a parcel did nothing. Opening the screen
+    // by navigating within the app was fast enough to hide it; opening
+    // the URL directly was not.
+    //
+    // It still STOPS: as soon as the canvas matches a container that has
+    // real size, and unconditionally at the cap. This must never become
+    // an unbounded loop -- an effect that never settles is what put 4.3
+    // GB in the owner's browser.
     let tries = 0
     let sizeTimer: number | undefined
     const syncSize = () => {
@@ -344,9 +355,11 @@ export default function ConfigureMap() {
       const off = Math.abs(c.clientWidth - Math.round(r.width)) > 1
         || Math.abs(c.clientHeight - Math.round(r.height)) > 1
       if (r.width > 0 && off) map.resize()
-      if (++tries < 20) sizeTimer = window.setTimeout(syncSize, 100)
+      const settled = r.width > 0 && r.height > 0 && !off
+        && c.clientWidth > 0 && c.clientHeight > 0
+      if (!settled && ++tries < 100) sizeTimer = window.setTimeout(syncSize, 100)
     }
-    sizeTimer = window.setTimeout(syncSize, 100)
+    sizeTimer = window.setTimeout(syncSize, 50)
 
     map.on('load', async () => {
       for (const id of Object.values(SRC)) {
