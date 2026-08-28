@@ -16,7 +16,12 @@
  */
 import type maplibregl from 'maplibre-gl'
 
-const COUNTY_LABEL_MIN = 6
+// Explore hands the low-zoom job to its state silhouettes, which this
+// map deliberately does not draw — so state NAMES take that tier here
+// and counties start one step later. Without this the default view
+// (z6) opened on ~2,000 county pills and no state names at all.
+const STATE_LABEL_MAX = 7
+const COUNTY_LABEL_MIN = 7
 const COUNTY_LABEL_MAX = 9
 const TOWN_LABEL_MIN = 6
 
@@ -121,7 +126,7 @@ export function addPlaceLabels(map: maplibregl.Map): () => void {
     id: 'pl-state-labels',
     type: 'symbol',
     source: 'pl-states',
-    maxzoom: COUNTY_LABEL_MIN,
+    maxzoom: STATE_LABEL_MAX,
     layout: {
       'text-field': ['coalesce', ['get', 'NAME'], ['get', 'name']],
       'text-font': ['Open Sans Bold'],
