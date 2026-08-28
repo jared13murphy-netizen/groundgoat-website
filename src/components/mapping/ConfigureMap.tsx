@@ -33,7 +33,7 @@ import {
   archiveParcel, classifyBoundary, combineGeometry, fetchParcel, getSavedParcel, saveParcel, searchMap,
   splitGeometry, normalizeGeometry, previewSoil,
   updateParcel, queueReport, listReports, downloadReport,
-  REPORT_KINDS, REPORT_LABEL, USES_ELEVATION, type ReportRow,
+  REPORT_KINDS, REPORT_LABEL, REPORT_BUSY_LABEL, USES_ELEVATION, type ReportRow,
   createCma, getCma, listCmas, cmaCandidates, setCmaComps, queueCmaReport, updateCma,
   type Cma, type CompCandidate,
   type LandClass, type ParcelDetail, type ParcelSummary,
@@ -1863,7 +1863,7 @@ export default function ConfigureMap() {
                           {working
                             ? <Loader2 size={13} className="animate-spin" />
                             : <FileText size={13} />}
-                          {REPORT_LABEL[k]}
+                          {working ? (REPORT_BUSY_LABEL[k] || 'Working…') : REPORT_LABEL[k]}
                         </button>
                       )
                     })}

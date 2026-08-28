@@ -279,6 +279,21 @@ export const REPORT_LABEL: Record<string, string> = {
   cma: 'Market Analysis',
 }
 
+/** What a report button says while it is building.
+ *
+ *  Rendering happens on a worker and can take a while, so the button
+ *  needs to say something. Kept short so the button does not jump width,
+ *  and kept dry rather than jokey — this is a tool a farm manager shows
+ *  to a client. */
+export const REPORT_BUSY_LABEL: Record<string, string> = {
+  tillable: 'Counting rows…',
+  fsa: 'Pulling the file…',
+  ground_goat: 'Rounding it up…',
+  elevation_3d: 'Climbing the hill…',
+  topography: 'Walking contours…',
+  cma: 'Reading the market…',
+}
+
 export interface ReportRow {
   id: string
   parcel_id: string
