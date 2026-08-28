@@ -1198,9 +1198,13 @@ export default function ConfigureMap() {
   ), [boundaryRings])
 
   const storedAcres = Number(detail?.parcel?.acres ?? 0)
-  const parcelAcres = (step === 'boundary' && liveBoundaryAcres > 0)
-    ? liveBoundaryAcres
-    : storedAcres
+  // Use the boundary that is actually on screen in BOTH steps. In step 2
+  // this used to fall back to the parcel's stored acreage, so if the
+  // outline had been trimmed the land types (clipped to the new outline)
+  // shrank while Total did not — and the gap landed in
+  // "Other / Unclassified", which reads as though the engine returned
+  // nonsense. Total must describe the same shape the classes were cut to.
+  const parcelAcres = liveBoundaryAcres > 0 ? liveBoundaryAcres : storedAcres
   const classified = LAND_CLASSES.reduce((s, c) => s + totals[c], 0)
 
   return (
