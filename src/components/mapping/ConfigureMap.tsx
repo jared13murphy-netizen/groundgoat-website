@@ -385,7 +385,7 @@ export default function ConfigureMap() {
       // Added BEFORE the line so the stroke stays crisp on top.
       map.addLayer({
         id: 'cm-boundary-fill', type: 'fill', source: SRC.boundary,
-        paint: { 'fill-color': '#f58cde', 'fill-opacity': 0.12 },
+        paint: { 'fill-color': '#f58cde', 'fill-opacity': 0.22 },
       })
       map.addLayer({
         id: 'cm-boundary-line', type: 'line', source: SRC.boundary,
@@ -471,6 +471,52 @@ export default function ConfigureMap() {
       map.on('mouseenter', LYR_VERTS, () => { map.getCanvas().style.cursor = 'move' })
       map.on('mouseleave', LYR_VERTS, () => { map.getCanvas().style.cursor = '' })
 
+      // ── boundary: add a dot on the line, remove one from a dot ─────
+      // Click the outline itself to drop a new handle where you clicked;
+      // right-click a handle to take it out. Both refuse to leave fewer
+      // than three points, which would stop being a polygon.
+      map.on('click', 'cm-boundary-line', (e) => {
+        if (stepRef.current !== 'boundary') return
+        e.preventDefault()
+        const pt = [e.lngLat.lng, e.lngLat.lat] as Pt
+        setBoundaryRings((prev) => {
+          if (!prev.length) return prev
+          // Insert into whichever ring's edge is nearest the click.
+          let best = { pi: 0, ri: 0, seg: 0, d: Infinity }
+          prev.forEach((rings, pi) => rings.forEach((ring, ri) => {
+            if (ring.length < 2) return
+            const seg = nearestSegmentIndex(map, ring, e.point)
+            const a = map.project(ring[seg] as [number, number])
+            const b = map.project(ring[(seg + 1) % ring.length] as [number, number])
+            const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
+            const d = Math.hypot(mid.x - e.point.x, mid.y - e.point.y)
+            if (d < best.d) best = { pi, ri, seg, d }
+          }))
+          return prev.map((rings, pi) => pi !== best.pi ? rings
+            : rings.map((ring, ri) => ri !== best.ri ? ring
+              : [...ring.slice(0, best.seg + 1), pt, ...ring.slice(best.seg + 1)]))
+        })
+      })
+      map.on('contextmenu', LYR_VERTS, (e) => {
+        if (stepRef.current !== 'boundary') return
+        const f = e.features?.[0]
+        if (!f || String(f.properties!.shapeId) !== '__boundary__') return
+        e.preventDefault()
+        const pi = Number(f.properties!.pi)
+        const ri = Number(f.properties!.ri)
+        const vi = Number(f.properties!.vi)
+        setBoundaryRings((prev) => prev.map((rings, p2) => p2 !== pi ? rings
+          : rings.map((ring, i) => {
+            if (i !== ri) return ring
+            if (ring.length <= 3) return ring   // never below a triangle
+            return ring.filter((_, v) => v !== vi)
+          })))
+      })
+      map.on('mouseenter', 'cm-boundary-line', () => {
+        if (stepRef.current === 'boundary') map.getCanvas().style.cursor = 'copy'
+      })
+      map.on('mouseleave', 'cm-boundary-line', () => { map.getCanvas().style.cursor = '' })
+
       // ── clicks: draw a point, select a shape, or pick a parcel ─────
       map.on('click', 'cm-comps-circles', (e) => {
         const f = e.features?.[0]
@@ -483,6 +529,11 @@ export default function ConfigureMap() {
 
       map.on('click', (e) => {
         if (map.queryRenderedFeatures(e.point, { layers: ['cm-comps-circles'] }).length) return
+        // A click on the outline during step 1 means "add a handle here"
+        // and is handled by the layer listener above; letting it fall
+        // through would also try to select a parcel underneath.
+        if (stepRef.current === 'boundary'
+            && map.queryRenderedFeatures(e.point, { layers: ['cm-boundary-line'] }).length) return
         if (drawingRef.current) {
           setDraft((d) => [...d, [e.lngLat.lng, e.lngLat.lat] as Pt])
           return
@@ -1235,6 +1286,9 @@ export default function ConfigureMap() {
                 </div>
                 <div style={hint}>
                   {(boundaryRings[0]?.[0]?.length ?? 0)} points on the outline
+                  <div style={{ ...hint, marginTop: 4 }}>
+                    Click the line to add a point; right-click a point to remove it.
+                  </div>
                 </div>
               </>
             ) : (

@@ -25,6 +25,8 @@ const COUNTY_LABEL_MIN = 7
 const COUNTY_LABEL_MAX = 9
 const TOWN_LABEL_MIN = 6
 
+const EMPTY_FC: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] }
+
 /** Population floor per zoom. Owner-tuned: >=1,000 at z9-10 is what makes
  *  Carthage, Rushville, Havana, Mount Sterling, Pittsfield and Winchester
  *  appear — every one named as a town that must be visible there. */
@@ -86,7 +88,7 @@ function addPill(map: maplibregl.Map, id: string, border: string, fill?: string)
  * Returns a teardown that removes everything it added.
  */
 export function addPlaceLabels(map: maplibregl.Map): () => void {
-  const sources = ['pl-counties', 'pl-states', 'pl-towns']
+  const sources = ['pl-counties', 'pl-states', 'pl-state-points', 'pl-towns']
   const layers = [
     'pl-county-borders', 'pl-state-borders',
     'pl-state-labels', 'pl-county-labels', 'pl-town-labels',
@@ -94,6 +96,11 @@ export function addPlaceLabels(map: maplibregl.Map): () => void {
 
   map.addSource('pl-counties', { type: 'geojson', data: '/data/us-counties.json' })
   map.addSource('pl-states', { type: 'geojson', data: '/data/us-states.json' })
+  // Labels need POINT geometry. A symbol layer over polygons places one
+  // label per tile the polygon covers, so a big state like Illinois was
+  // captioned two or three times across the view. One centroid per
+  // state means exactly one label per state.
+  map.addSource('pl-state-points', { type: 'geojson', data: EMPTY_FC })
 
   map.addLayer({
     id: 'pl-county-borders',
@@ -125,10 +132,10 @@ export function addPlaceLabels(map: maplibregl.Map): () => void {
   map.addLayer({
     id: 'pl-state-labels',
     type: 'symbol',
-    source: 'pl-states',
+    source: 'pl-state-points',
     maxzoom: STATE_LABEL_MAX,
     layout: {
-      'text-field': ['coalesce', ['get', 'NAME'], ['get', 'name']],
+      'text-field': ['get', 'name'],
       'text-font': ['Open Sans Bold'],
       'text-size': ['interpolate', ['linear'], ['zoom'], 3, 11, 6, 16],
       'text-transform': 'uppercase',
@@ -167,6 +174,39 @@ export function addPlaceLabels(map: maplibregl.Map): () => void {
       'text-halo-width': 0.6,
     },
   })
+
+  // One label point per state, from the bounding box of its outline.
+  // Good enough for a caption and far cheaper than a true centroid.
+  fetch('/data/us-states.json')
+    .then((r) => (r.ok ? r.json() : null))
+    .then((gj: any) => {
+      if (cancelled || !gj?.features || !map.getStyle()) return
+      const pts: GeoJSON.Feature[] = []
+      for (const f of gj.features) {
+        const name = f?.properties?.NAME || f?.properties?.name
+        if (!name) continue
+        let minX = 180, minY = 90, maxX = -180, maxY = -90
+        const walk = (a: any) => {
+          if (typeof a?.[0] === 'number') {
+            const [x, y] = a
+            if (x < minX) minX = x; if (x > maxX) maxX = x
+            if (y < minY) minY = y; if (y > maxY) maxY = y
+            return
+          }
+          if (Array.isArray(a)) a.forEach(walk)
+        }
+        walk(f.geometry?.coordinates)
+        if (minX > maxX) continue
+        pts.push({
+          type: 'Feature',
+          properties: { name },
+          geometry: { type: 'Point', coordinates: [(minX + maxX) / 2, (minY + maxY) / 2] },
+        })
+      }
+      const src = map.getSource('pl-state-points') as maplibregl.GeoJSONSource | undefined
+      src?.setData({ type: 'FeatureCollection', features: pts })
+    })
+    .catch(() => { /* labels are an enhancement, never block the map */ })
 
   // Towns arrive asynchronously: the file is a flat record array, not
   // GeoJSON, so it cannot use the `data: <url>` shorthand.
