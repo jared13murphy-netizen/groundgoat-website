@@ -1252,9 +1252,24 @@ function Pipeline({ d }: { d: any }) {
           <Row label="Auction cards seen" value={num(d.run_cards_seen)} />
           <Row label="Auctions worked through" value={num(d.run_auctions_worked)} />
           <Row label="New to us" value={num(d.run_new_urls)} />
+          {/* THE SCRAPER'S TALLY AND THE REVIEW QUEUE ARE DIFFERENT THINGS.
+              "Reached review" used to show the scraper's count of newly
+              SCRAPED urls: on 2026-08-28 that read 46 while listing_staging
+              had taken nothing since the 25th. Both are shown now, and when
+              they disagree the card says so instead of letting one stand in
+              for the other. */}
+          <Row label="Newly scraped" value={num(d.run_newly_scraped)} />
           <Row label="Reached review"
             value={num(d.run_reached_review)}
-            tone={d.run_new_urls > 0 && d.run_reached_review < d.run_new_urls * 0.5 ? 'amber' : ''} />
+            tone={d.scraped_but_not_queued > 0 ? 'amber' : ''} />
+          {d.scraped_but_not_queued > 0 && (
+            <Row label="— scraped but never queued for review"
+              value={num(d.scraped_but_not_queued)} tone="amber" />
+          )}
+          {d.review_queue_last_arrival && (
+            <Row label="— review queue last received anything"
+              value={ago(d.review_queue_last_arrival) + ' ago'} />
+          )}
           {d.run_failed_companies > 0 && (
             <Row label="Companies that failed outright"
               value={num(d.run_failed_companies)} tone="red" />
