@@ -30,7 +30,7 @@ import {
 } from 'lucide-react'
 import {
   CLASS_COLOR, CLASS_LABEL, LAND_CLASSES, PARCEL_LINE, SEARCH_DOT, VERTEX_LINE,
-  archiveParcel, combineGeometry, fetchParcel, getSavedParcel, saveParcel, searchMap,
+  archiveParcel, classifyBoundary, combineGeometry, fetchParcel, getSavedParcel, saveParcel, searchMap,
   splitGeometry, normalizeGeometry, previewSoil,
   updateParcel, queueReport, listReports, downloadReport,
   REPORT_KINDS, REPORT_LABEL, USES_ELEVATION, type ReportRow,
@@ -669,18 +669,31 @@ export default function ConfigureMap() {
     return () => window.removeEventListener('keydown', onKey)
   }, [finishDraft, undo, redo])
 
-  /** Step 1 -> step 2. The engine's land types are clipped to the
-   *  boundary the user actually confirmed, and forced non-overlapping,
-   *  before they are ever drawn. */
+  /** Step 1 -> step 2. Ask the ENGINE for the land types under the
+   *  boundary the user actually confirmed.
+   *
+   *  This used to clip `detail.polygons` — whatever the parcel loaded
+   *  with — to the new boundary. That can only ever remove ground, so
+   *  enlarging a boundary left the new part blank, and it carried
+   *  forward whatever the first read produced. Re-asking the engine is
+   *  correct in both directions and is the same call the parcel click
+   *  makes. */
   const confirmBoundary = useCallback(async () => {
     if (!detail) return
     const geom = polysToGeometry(boundaryRings)
     if (!geom) { setError('Draw a boundary before confirming it.'); return }
     setBusy('Fitting land types to the boundary…'); setError(null)
     try {
+      const fresh = await classifyBoundary(geom, detail.parcel?.state)
+      // Still normalise: the engine's classes are disjoint, but the user
+      // may already have drawn shapes of their own over them.
       const res = await normalizeGeometry(
-        geom, detail.polygons.map((p) => ({ cls: p.cls, geometry: p.geometry })))
+        geom, fresh.polygons.map((p) => ({ cls: p.cls, geometry: p.geometry })))
       setDetail({ ...detail, boundary: geom })
+      if (!fresh.engine_covered) {
+        setError('Part of this boundary is outside the mapped area — '
+               + 'the land types there have not been filled in.')
+      }
       const loaded = res.polygons.map((p) => ({
         id: nextId(), cls: p.cls, polys: geometryToPolys(p.geometry),
       })).filter((x) => x.polys.length > 0)

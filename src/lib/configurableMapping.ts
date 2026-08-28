@@ -60,6 +60,9 @@ export interface ParcelDetail {
   boundary: any
   polygons: EnginePolygon[]
   source: 'engine' | 'none'
+  /** false = part of the parcel sits on ground the engine has not
+   *  published; do not present the gap as unclassified ground. */
+  engine_covered?: boolean
   unclassified_acres: number
 }
 
@@ -336,6 +339,22 @@ export function normalizeGeometry(boundary: any, polygons: { cls: LandClass; geo
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ boundary, polygons }),
+    })
+}
+
+/** Re-fill a boundary with the ENGINE'S land types.
+ *  Confirming a boundary used to trim whatever polygons the parcel first
+ *  loaded with, so an enlarged boundary could never gain ground. This
+ *  asks the engine about the boundary the user actually drew.
+ *  `engine_covered` false = part of it sits on ground the engine has not
+ *  published; say so rather than drawing it as bare. */
+export function classifyBoundary(boundary: any, state?: string | null) {
+  return j<{ polygons: { cls: LandClass; acres: number; geometry: any }[]
+             source: string; engine_covered: boolean; state: string | null }>(
+    '/api/mapping/geometry/classify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ boundary, state: state || null }),
     })
 }
 
