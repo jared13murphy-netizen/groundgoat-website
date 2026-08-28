@@ -551,7 +551,7 @@ export default function ConfigureMap() {
         id: 'cm-comps-circles', type: 'circle', source: SRC.comps,
         paint: {
           'circle-radius': 11,
-          'circle-color': ['case', ['boolean', ['get', 'selected'], false], '#22c55e', '#111827'],
+          'circle-color': ['case', ['boolean', ['get', 'selected'], false], '#f58cde', '#111827'],
           'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2,
         },
       })
@@ -1556,8 +1556,18 @@ export default function ConfigureMap() {
       <div ref={containerRef} style={{ flex: 1, position: 'relative' }} />
 
       <aside style={{
-        width: 360, flexShrink: 0, background: '#0f1520', color: '#e5e7eb',
-        borderLeft: '1px solid rgba(255,255,255,0.08)',
+        width: 360, flexShrink: 0, color: '#e5e7eb',
+        // Two stacked gradients: a sheen that falls off in the top fifth
+        // (the gloss), over a dark-grey-to-black body. The inset
+        // highlight is the lit top edge that makes it read as a surface
+        // rather than a flat fill.
+        background:
+          'linear-gradient(180deg, rgba(255,255,255,0.10) 0%,'
+          + ' rgba(255,255,255,0.035) 7%, rgba(255,255,255,0) 20%),'
+          + ' linear-gradient(180deg, #23262b 0%, #131519 14%,'
+          + ' #0a0a0a 44%, #050505 100%)',
+        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.16)',
+        borderLeft: '1px solid rgba(255,255,255,0.10)',
         display: 'flex', flexDirection: 'column', fontSize: 13,
       }}>
         {/* Scrolling body. Save / Cancel live in the pinned footer below —
@@ -1608,7 +1618,7 @@ export default function ConfigureMap() {
 
         {busy && <div style={hint}><Loader2 size={12} className="animate-spin" /> {busy}</div>}
         {error && <div style={{ ...hint, color: '#fca5a5' }}>{error}</div>}
-        {savedMsg && <div style={{ ...hint, color: '#86efac' }}>{savedMsg}</div>}
+        {savedMsg && <div style={{ ...hint, color: '#f8daf1' }}>{savedMsg}</div>}
 
         {!detail && !busy && (
           <div style={hint}>Click a parcel on the map, or search for one, to start.</div>
@@ -1686,8 +1696,7 @@ export default function ConfigureMap() {
               <>
             {!editingTypes && (
               <button onClick={() => setEditingTypes(true)}
-                      style={{ ...btn, width: '100%', justifyContent: 'center',
-                               borderColor: '#22c55e', color: '#86efac' }}>
+                      style={{ ...primaryBtn, width: '100%', justifyContent: 'center' }}>
                 <PenLine size={13} /> Edit this tract
               </button>
             )}
@@ -1792,7 +1801,7 @@ export default function ConfigureMap() {
                 ))}
                 <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
                   <button onClick={() => void savePieces()} disabled={!!busy}
-                          style={{ ...btn, borderColor: '#22c55e', color: '#86efac' }}>
+                          style={primaryBtn}>
                     <Save size={13} /> Save all as tracts
                   </button>
                   <button onClick={() => setPieces([])} style={btn}>Discard</button>
@@ -1851,7 +1860,7 @@ export default function ConfigureMap() {
                     onClick={() => { setCmaSubject(sub.parcel_id); void loadCandidates(cma, sub.parcel_id) }}
                     style={{
                       ...btn, width: '100%', justifyContent: 'space-between', marginTop: 5,
-                      borderColor: cmaSubject === sub.parcel_id ? '#22c55e' : undefined,
+                      borderColor: cmaSubject === sub.parcel_id ? '#ffffff' : undefined,
                     }}>
                     <span>{sub.name || 'Tract'}</span>
                     <span style={{ opacity: 0.7 }}>
@@ -1881,7 +1890,7 @@ export default function ConfigureMap() {
                   </button>
                 )}
                 <button onClick={() => void buildCmaReport()} disabled={!!busy}
-                        style={{ ...btn, marginTop: 8, borderColor: '#22c55e', color: '#86efac' }}>
+                        style={{ ...primaryBtn, marginTop: 8 }}>
                   <FileText size={13} /> Build the analysis
                 </button>
               </div>
@@ -1957,7 +1966,7 @@ export default function ConfigureMap() {
                 <div style={{ ...statRow, opacity: 0.85 }}>
                   <span>{projectName || 'Open project'}</span>
                   <a href="/map-portfolio"
-                     style={{ fontSize: 12, color: '#86efac', textDecoration: 'none' }}>
+                     style={{ fontSize: 12, color: '#f58cde', textDecoration: 'none' }}>
                     All tracts
                   </a>
                 </div>
@@ -1975,7 +1984,9 @@ export default function ConfigureMap() {
         {detail && (
           <div style={{
             borderTop: '1px solid rgba(255,255,255,0.10)', padding: 12,
-            background: '#0c111a', display: 'flex', flexDirection: 'column', gap: 8,
+            background: 'linear-gradient(180deg, #0a0a0a 0%, #050505 100%)',
+            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)',
+            display: 'flex', flexDirection: 'column', gap: 8,
           }}>
             {step === 'landtypes' && editingTypes && (
               <div>
@@ -1989,14 +2000,12 @@ export default function ConfigureMap() {
             <div style={{ display: 'flex', gap: 8 }}>
               {step === 'boundary' ? (
                 <button onClick={() => void confirmBoundary()} disabled={!!busy}
-                        style={{ ...btn, flex: 1, justifyContent: 'center', padding: '9px 10px',
-                                 borderColor: '#22c55e', color: '#86efac' }}>
+                        style={{ ...primaryBtn, flex: 1, justifyContent: 'center', padding: '9px 10px' }}>
                   <Save size={14} /> Save outline
                 </button>
               ) : (
                 <button onClick={() => void doSave()} disabled={!!busy || !name.trim()}
-                        style={{ ...btn, flex: 1, justifyContent: 'center', padding: '9px 10px',
-                                 borderColor: '#22c55e', color: '#86efac' }}>
+                        style={{ ...primaryBtn, flex: 1, justifyContent: 'center', padding: '9px 10px' }}>
                   <Save size={14} /> {editingId ? 'Update' : 'Save'}
                 </button>
               )}
@@ -2022,14 +2031,31 @@ const inputStyle: React.CSSProperties = {
   flex: 1, background: '#ffffff', border: '1px solid #d1d5db',
   borderRadius: 7, padding: '7px 9px', color: '#1a1a1a', fontSize: 13, outline: 'none',
 }
+// Brand pink (#f58cde, tailwind gg-pink). Tool buttons are outlined pink
+// on a faint pink surface with a top sheen; the commit buttons below use
+// PRIMARY, a solid pink with white text. Solid pink on all fifteen
+// buttons would be a wall of magenta with no hierarchy left.
+const GG_PINK = '#f58cde'
 const btn: React.CSSProperties = {
-  display: 'inline-flex', alignItems: 'center', gap: 5, background: 'rgba(255,255,255,0.05)',
-  border: '1px solid rgba(255,255,255,0.15)', borderRadius: 7, padding: '6px 10px',
-  color: '#e5e7eb', fontSize: 12, cursor: 'pointer',
+  display: 'inline-flex', alignItems: 'center', gap: 5,
+  background: 'linear-gradient(180deg, rgba(245,140,222,0.20) 0%, rgba(245,140,222,0.08) 55%,'
+    + ' rgba(245,140,222,0.05) 100%)',
+  border: `1px solid ${GG_PINK}`, borderRadius: 7, padding: '6px 10px',
+  color: '#fbd6f3', fontSize: 12, cursor: 'pointer',
+  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.18)',
+}
+/** Solid pink, white text — the button that commits the work. */
+const primaryBtn: React.CSSProperties = {
+  ...btn,
+  background: `linear-gradient(180deg, #f9a8e6 0%, ${GG_PINK} 48%, #e072c8 100%)`,
+  border: `1px solid ${GG_PINK}`, color: '#ffffff', fontWeight: 600,
+  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.40), 0 1px 3px rgba(0,0,0,0.45)',
 }
 const chip: React.CSSProperties = { ...btn, padding: '5px 9px' }
 const card: React.CSSProperties = {
-  background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
+  background: 'linear-gradient(180deg, rgba(255,255,255,0.055) 0%, rgba(255,255,255,0.02) 100%)',
+  border: '1px solid rgba(255,255,255,0.09)',
+  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07)',
   borderRadius: 9, padding: 10, display: 'flex', flexDirection: 'column', gap: 3,
 }
 const hint: React.CSSProperties = { fontSize: 11, opacity: 0.6, marginTop: 5, display: 'flex', gap: 5, alignItems: 'center' }
