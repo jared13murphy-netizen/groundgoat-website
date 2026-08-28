@@ -563,6 +563,13 @@ export default function ConfigureMap() {
             return
           }
         }
+        // A parcel is already open: clicking the map must NOT load
+        // another one, and must not reload this one. Reloading rebuilt
+        // the outline from the database, so a stray click anywhere
+        // silently threw away every dot the user had moved. Switching
+        // parcels is deliberate — it goes through Cancel.
+        if (detailRef.current) { setSelectedId(null); return }
+
         const onParcel = map.queryRenderedFeatures(e.point, { layers: ['regrid-parcels-fill'] })
         // `path` is what the tiles actually carry — ll_uuid is not in
         // the tile schema, so keying only off it made every parcel click
