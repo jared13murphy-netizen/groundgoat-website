@@ -160,6 +160,9 @@ export default function ConfigureMap() {
   const [cutPts, setCutPts] = useState<Pt[]>([])
   // Rubber-band box for erasing many points at once.
   const [marq, setMarq] = useState<[Pt, Pt] | null>(null)
+  // After a save the parcel is finished, so the editing tools come down
+  // until the user asks for them again.
+  const [editingTypes, setEditingTypes] = useState(true)
   const [draft, setDraft] = useState<Pt[]>([])
 
   const [name, setName] = useState('')
@@ -853,6 +856,7 @@ export default function ConfigureMap() {
       }
       const loaded = explodeShapes(res.polygons as any)
       setShapes(loaded)
+      setEditingTypes(true)
       undoRef.current = []; redoRef.current = []
       // Select the biggest piece so drag handles are on screen at once.
       setSelectedId(loaded.length
@@ -1362,6 +1366,8 @@ export default function ConfigureMap() {
       }
       const st = res.stats || {}
       setSavedMsg(`Saved "${res.name}" — ${st.acres ?? '?'} ac total, ${st.tillable_acres ?? 0} ac tillable.`)
+      setEditingTypes(false)
+      setTool(null); setDrawing(false); setDraft([]); setCutPts([]); setSelectedId(null)
     } catch (e: any) {
       setError(e?.message || 'Save failed.')
     } finally { setBusy(null) }
@@ -1634,6 +1640,13 @@ export default function ConfigureMap() {
               </>
             ) : (
               <>
+            {!editingTypes && (
+              <button onClick={() => setEditingTypes(true)} style={{ ...btn, width: '100%' }}>
+                <Layers size={13} /> Edit land types
+              </button>
+            )}
+
+            {editingTypes && (<>
             {/* Land type chips — pick the type for the NEXT polygon, or
                 retype the selected one. */}
             <div>
@@ -1721,6 +1734,7 @@ export default function ConfigureMap() {
             {tool === 'combine' && (
               <div style={hint}>Click another parcel to fold it into this one.</div>
             )}
+            </>)}
 
             {pieces.length > 0 && (
               <div style={card}>
