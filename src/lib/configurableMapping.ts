@@ -9,9 +9,15 @@ import { fetchWithAuth } from '@/lib/fetchWithAuth'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
-/** The land types a user can assign. `water` covers the engine's
- *  separate `waterway` class — a customer reads both as water. */
-export const LAND_CLASSES = ['tillable', 'pasture', 'timber', 'water', 'other'] as const
+/** The land types a user can assign.
+ *
+ *  `waterway` is the engine's GRASSED waterway — a mown drainage run
+ *  through a field — and used to be folded into `water`. That painted it
+ *  pond-blue and called it Water, and on the current engine it is badly
+ *  wrong: over one Hancock section there are 11.6 acres of grass
+ *  waterway against 0.2 acres of real water, so blue "water" ran down
+ *  the edge of every dry field. It is its own type now. */
+export const LAND_CLASSES = ['tillable', 'pasture', 'timber', 'water', 'waterway', 'other'] as const
 export type LandClass = (typeof LAND_CLASSES)[number]
 
 export const CLASS_LABEL: Record<LandClass, string> = {
@@ -19,6 +25,7 @@ export const CLASS_LABEL: Record<LandClass, string> = {
   pasture: 'Pasture',
   timber: 'Timber',
   water: 'Water',
+  waterway: 'Grass waterway',
   other: 'Other',
 }
 
@@ -30,6 +37,9 @@ export const CLASS_COLOR: Record<LandClass, string> = {
   timber: '#ef4444',
   pasture: '#f97316',
   water: '#3b82f6',
+  // Distinct from both pond-blue and pasture-orange: it is grass, but a
+  // customer must be able to tell it from pasture at a glance.
+  waterway: '#14b8a6',
   other: '#9ca3af',
 }
 
