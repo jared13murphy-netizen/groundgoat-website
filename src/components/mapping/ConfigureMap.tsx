@@ -505,7 +505,20 @@ export default function ConfigureMap() {
           return { ...s, polys }
         }))
       })
-      const endDrag = () => { if (drag) { drag = null; map.dragPan.enable() } }
+      // Dragging a handle rewrites `shapes` directly, so nothing was
+      // re-checking overlap: enforceNoOverlap only ran from finishDraft,
+      // i.e. when a NEW shape was drawn. That let an edited polygon be
+      // dragged straight over its neighbour. Re-run the check when the
+      // drag ENDS -- not on mousemove, which would fire a round trip per
+      // frame. Boundary drags are excluded: step 1 is the outline, and
+      // the land types are not on screen yet.
+      const endDrag = () => {
+        if (!drag) return
+        const wasShape = drag.id !== '__boundary__'
+        drag = null
+        map.dragPan.enable()
+        if (wasShape) void enforceNoOverlapRef.current(shapesRef.current)
+      }
       map.on('mouseup', endDrag)
       map.on('mouseout', endDrag)
       map.on('mouseenter', LYR_VERTS, () => { map.getCanvas().style.cursor = 'move' })
