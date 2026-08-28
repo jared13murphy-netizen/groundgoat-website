@@ -74,6 +74,24 @@ function geometryToPolys(geom: any): Pt[][][] {
              .filter((rings) => rings.length > 0)
 }
 
+/** One editable shape per POLYGON PART.
+ *
+ *  The engine returns one geometry per land TYPE, so a class made of many
+ *  separate pieces arrived as a single MultiPolygon. Clicking it selected
+ *  every piece and Delete removed every piece — there was no way to act
+ *  on one. Splitting the parts here makes each piece independently
+ *  selectable and deletable. normalizeGeometry returns one row per input
+ *  polygon in order, so the pieces survive editing. */
+function explodeShapes(polys: { cls: LandClass; geometry: any }[]): Shape[] {
+  const out: Shape[] = []
+  for (const p of polys) {
+    for (const part of geometryToPolys(p.geometry)) {
+      if (part.length) out.push({ id: nextId(), cls: p.cls, polys: [part] })
+    }
+  }
+  return out
+}
+
 /** Mean of a shape's outer ring — a cheap, stable fingerprint used to
  *  find a polygon again after normalising rebuilds it with a new id. */
 function ringCentre(polys: Pt[][][]): Pt | null {
@@ -268,9 +286,7 @@ export default function ConfigureMap() {
           source: 'engine',
           unclassified_acres: rec.stats?.unclassified_acres ?? 0,
         })
-        setShapes(rec.polygons.map((pp) => ({
-          id: nextId(), cls: pp.cls, polys: geometryToPolys(pp.geometry),
-        })).filter((x) => x.polys.length > 0))
+        setShapes(explodeShapes(rec.polygons as any))
         const bb = bboxOf(rec.boundary?.coordinates)
         if (bb && mapRef.current) mapRef.current.fitBounds(bb, { padding: 90, duration: 700 })
       } catch (e: any) {
@@ -835,9 +851,7 @@ export default function ConfigureMap() {
         setError('Part of this boundary is outside the mapped area — '
                + 'the land types there have not been filled in.')
       }
-      const loaded = res.polygons.map((p) => ({
-        id: nextId(), cls: p.cls, polys: geometryToPolys(p.geometry),
-      })).filter((x) => x.polys.length > 0)
+      const loaded = explodeShapes(res.polygons as any)
       setShapes(loaded)
       undoRef.current = []; redoRef.current = []
       // Select the biggest piece so drag handles are on screen at once.
@@ -864,9 +878,7 @@ export default function ConfigureMap() {
       const res = await normalizeGeometry(detail.boundary, next
         .map((sh) => ({ cls: sh.cls, geometry: polysToGeometry(sh.polys) }))
         .filter((x) => x.geometry) as any)
-      const rebuilt = res.polygons.map((p) => ({
-        id: nextId(), cls: p.cls, polys: geometryToPolys(p.geometry),
-      })).filter((x) => x.polys.length > 0)
+      const rebuilt = explodeShapes(res.polygons as any)
       setShapes(rebuilt)
       let again: string | null = null
       if (keep && mark) {
@@ -1004,9 +1016,7 @@ export default function ConfigureMap() {
         polygons: cur.polygons,
       })
       // The other parcel's engine polygons come along with it.
-      mutate((prev) => [...prev, ...other.polygons.map((pp) => ({
-        id: nextId(), cls: pp.cls, polys: geometryToPolys(pp.geometry),
-      })).filter((x) => x.polys.length > 0)])
+      mutate((prev) => [...prev, ...explodeShapes(other.polygons as any)])
       // Record the RESOLVED uuid, not whatever id the click supplied —
       // source_ll_uuids is read back as ll_uuids when a saved parcel is
       // reopened, so storing a tile `path` here would break that.
@@ -1322,9 +1332,7 @@ export default function ConfigureMap() {
 
   const resetToEngine = useCallback(() => {
     if (!detail) return
-    mutate(() => detail.polygons.map((p) => ({
-      id: nextId(), cls: p.cls, polys: geometryToPolys(p.geometry),
-    })).filter((s) => s.polys.length > 0))
+    mutate(() => explodeShapes(detail.polygons as any))
     setSelectedId(null)
   }, [detail, mutate])
 
@@ -1417,17 +1425,13 @@ export default function ConfigureMap() {
       setBusy('Reloading saved version…')
       try {
         const rec = await getSavedParcel(editingId)
-        setShapes(rec.polygons.map((pp) => ({
-          id: nextId(), cls: pp.cls, polys: geometryToPolys(pp.geometry),
-        })).filter((x) => x.polys.length > 0))
+        setShapes(explodeShapes(rec.polygons as any))
         setName(rec.name)
       } catch (e: any) {
         setError(e?.message || 'Could not reload the saved version.')
       } finally { setBusy(null) }
     } else if (detail) {
-      setShapes(detail.polygons.map((pp) => ({
-        id: nextId(), cls: pp.cls, polys: geometryToPolys(pp.geometry),
-      })).filter((x) => x.polys.length > 0))
+      setShapes(explodeShapes(detail.polygons as any))
     }
     undoRef.current = []; redoRef.current = []
   }, [editingId, detail])
