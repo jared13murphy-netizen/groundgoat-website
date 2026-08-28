@@ -453,7 +453,10 @@ export default function ConfigureMap() {
         // Combine: the next parcel clicked is merged into this boundary.
         if (toolRef.current === 'combine') {
           const hit = map.queryRenderedFeatures(e.point, { layers: ['regrid-parcels-fill'] })
-          const uu = hit[0]?.properties?.ll_uuid || hit[0]?.properties?.ll_uuid_text
+          // Same tile-schema point as the select handler below: `path`
+          // is the id the tiles carry.
+          const hp = hit[0]?.properties || {}
+          const uu = hp.ll_uuid || hp.ll_uuid_text || hp.path
           if (uu) { void combineWithRef.current(String(uu)) }
           return
         }
@@ -473,8 +476,12 @@ export default function ConfigureMap() {
           }
         }
         const onParcel = map.queryRenderedFeatures(e.point, { layers: ['regrid-parcels-fill'] })
-        const uuid = onParcel[0]?.properties?.ll_uuid || onParcel[0]?.properties?.ll_uuid_text
-        if (uuid) { void loadParcelRef.current(String(uuid)) ; return }
+        // `path` is what the tiles actually carry — ll_uuid is not in
+        // the tile schema, so keying only off it made every parcel click
+        // a no-op and the screen looked like it had no selection at all.
+        const props = onParcel[0]?.properties || {}
+        const pid = props.ll_uuid || props.ll_uuid_text || props.path
+        if (pid) { void loadParcelRef.current(String(pid)) ; return }
         setSelectedId(null)
       })
 
@@ -718,7 +725,12 @@ export default function ConfigureMap() {
       mutate((prev) => [...prev, ...other.polygons.map((pp) => ({
         id: nextId(), cls: pp.cls, polys: geometryToPolys(pp.geometry),
       })).filter((x) => x.polys.length > 0)])
-      setSources((prev) => Array.from(new Set([...prev, llUuid])))
+      // Record the RESOLVED uuid, not whatever id the click supplied —
+      // source_ll_uuids is read back as ll_uuids when a saved parcel is
+      // reopened, so storing a tile `path` here would break that.
+      setSources((prev) => Array.from(new Set([
+        ...prev, other.parcel?.ll_uuid || llUuid,
+      ])))
       setTool(null)
     } catch (e: any) {
       setError(e?.message || 'Those parcels could not be combined.')

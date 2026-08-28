@@ -116,8 +116,13 @@ export function searchMap(q: string, state?: string | null): Promise<SearchResul
   return j<SearchResult>(`/api/mapping/search?${qs}`)
 }
 
-export function fetchParcel(llUuid: string): Promise<ParcelDetail> {
-  return j<ParcelDetail>(`/api/mapping/parcel?ll_uuid=${encodeURIComponent(llUuid)}`)
+/** Look a parcel up by whichever id the caller has.
+ *  The map's vector tiles carry `path`, never `ll_uuid`, so a click can
+ *  only supply the former — sending it as ll_uuid found nothing and the
+ *  click silently did nothing. */
+export function fetchParcel(id: string): Promise<ParcelDetail> {
+  const key = id.startsWith('/') ? 'path' : 'll_uuid'
+  return j<ParcelDetail>(`/api/mapping/parcel?${key}=${encodeURIComponent(id)}`)
 }
 
 export interface SaveBody {
