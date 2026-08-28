@@ -15,6 +15,12 @@ export default function Navigation() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [user, setUser] = useState<any>(null)
   const [showUserMenu, setShowUserMenu] = useState(false)
+  // WHO TO ASK WHEN YOU ARE STUCK.
+  // A firm member whose invite went to a mistyped address has no way to find
+  // out whose account it is or who can fix it — /api/firms/team is admin-only,
+  // so the person with the problem is exactly the person who cannot look. One
+  // Bank Fortress member spent eight days trying to sign himself up instead.
+  const [firmContact, setFirmContact] = useState<any>(null)
 
   useEffect(() => {
     const handleScroll = () => {
@@ -84,6 +90,19 @@ export default function Navigation() {
     router.push('/')
   }
 
+  useEffect(() => {
+    const inFirm = user?.account_type === 'firm_admin' || user?.account_type === 'firm_user'
+    if (!inFirm) { setFirmContact(null); return }
+    const token = localStorage.getItem('auth_token')
+    if (!token) return
+    fetch(`${API_URL}/api/firms/admin-contact`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => setFirmContact(d))
+      .catch(() => setFirmContact(null))
+  }, [user?.account_type])
+
   const isAdmin = user?.account_type === 'groundgoat_admin' || user?.account_type === 'groundgoat_sales'
   const canViewListings = user?.account_type === 'groundgoat_admin' ||
     user?.account_type === 'groundgoat_sales' ||
@@ -152,7 +171,7 @@ export default function Navigation() {
                   </button>
                   
                   {showUserMenu && (
-                    <div className="absolute right-0 top-full mt-2 w-48 bg-gg-gray-800 border border-gg-gray-700 rounded-lg shadow-xl py-2 z-50">
+                    <div className="absolute right-0 top-full mt-2 w-64 bg-gg-gray-800 border border-gg-gray-700 rounded-lg shadow-xl py-2 z-50">
                       <Link
                         href="/account"
                         className="flex items-center gap-2 px-4 py-2 text-gg-gray-300 hover:bg-gg-gray-700 hover:text-white"
@@ -161,9 +180,39 @@ export default function Navigation() {
                         <User size={16} />
                         Account
                       </Link>
+                      {/* Your firm's admin, for anyone in a firm. Shown to the
+                          admin too — as "you are the admin" — so nobody is told
+                          to email themselves. */}
+                      {firmContact?.admin && !firmContact.is_admin && (
+                        <div className="border-t border-gg-gray-700 mt-2 pt-2 px-4 pb-1">
+                          <p className="text-[11px] uppercase tracking-wide text-gg-gray-500 mb-1">
+                            {firmContact.firm_name ? `${firmContact.firm_name} admin` : 'Your firm admin'}
+                          </p>
+                          <p className="text-sm text-white leading-tight">
+                            {firmContact.admin.first_name} {firmContact.admin.last_name}
+                          </p>
+                          <a
+                            href={`mailto:${firmContact.admin.email}`}
+                            className="text-sm text-gg-pink hover:underline break-all"
+                          >
+                            {firmContact.admin.email}
+                          </a>
+                          <p className="text-[11px] text-gg-gray-500 mt-1">
+                            Contact them to change your email or seat.
+                          </p>
+                        </div>
+                      )}
+                      {firmContact?.is_admin && (
+                        <div className="border-t border-gg-gray-700 mt-2 pt-2 px-4 pb-1">
+                          <p className="text-[11px] text-gg-gray-500">
+                            You are the admin for{' '}
+                            {firmContact.firm_name || 'your firm'}.
+                          </p>
+                        </div>
+                      )}
                       <button
                         onClick={handleLogout}
-                        className="flex items-center gap-2 px-4 py-2 text-red-400 hover:bg-gg-gray-700 w-full text-left"
+                        className="flex items-center gap-2 px-4 py-2 text-red-400 hover:bg-gg-gray-700 w-full text-left border-t border-gg-gray-700 mt-2 pt-2"
                       >
                         <LogOut size={16} />
                         Sign Out

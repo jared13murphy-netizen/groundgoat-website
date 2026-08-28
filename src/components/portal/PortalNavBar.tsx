@@ -6,6 +6,8 @@ import { useRouter } from 'next/navigation'
 import { Map, Calendar, Building2, BarChart3, LogOut, User, Users, Settings, Filter, Bookmark, UserCircle } from 'lucide-react'
 import { SHOW_PRIVATE_TREATY } from '@/lib/featureFlags'
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
+
 type TabType = 'map' | 'auctions' | 'private_treaty' | 'results'
 
 interface PortalNavBarProps {
@@ -33,6 +35,25 @@ export default function PortalNavBar({ activeTab, onTabChange, onFilterToggle, f
   const isAdmin = user.account_type === 'groundgoat_admin' || user.account_type === 'groundgoat_sales'
   const isFirmAdmin = user.account_type === 'firm_admin'
   const initials = (user.first_name?.[0] || '') + (user.last_name?.[0] || '')
+
+  // WHO TO ASK WHEN YOU ARE STUCK.
+  // A firm member whose invite went to a mistyped address has no way to find
+  // out whose account it is or who can fix it — /api/firms/team is admin-only,
+  // so the person with the problem is exactly the person who cannot look. One
+  // Bank Fortress member spent eight days trying to sign himself up instead.
+  const [firmContact, setFirmContact] = useState<any>(null)
+  useEffect(() => {
+    const inFirm = user.account_type === 'firm_admin' || user.account_type === 'firm_user'
+    if (!inFirm) return
+    const token = localStorage.getItem('auth_token')
+    if (!token) return
+    fetch(`${API_URL}/api/firms/admin-contact`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(r => (r.ok ? r.json() : null))
+      .then(setFirmContact)
+      .catch(() => setFirmContact(null))
+  }, [user.account_type])
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -195,9 +216,30 @@ export default function PortalNavBar({ activeTab, onTabChange, onFilterToggle, f
                   Admin Dashboard
                 </Link>
               )}
+              {/* Your firm's admin — the person who can change your email or
+                  your seat. Not shown to the admin themselves. */}
+              {firmContact?.admin && !firmContact.is_admin && (
+                <div className="border-t border-white/10 mt-1 pt-2 px-4 pb-2">
+                  <p className="text-[10px] uppercase tracking-wide text-gg-gray-500 mb-1">
+                    {firmContact.firm_name ? `${firmContact.firm_name} admin` : 'Your firm admin'}
+                  </p>
+                  <p className="text-sm text-white leading-tight">
+                    {firmContact.admin.first_name} {firmContact.admin.last_name}
+                  </p>
+                  <a
+                    href={`mailto:${firmContact.admin.email}`}
+                    className="text-xs text-gg-pink hover:underline break-all"
+                  >
+                    {firmContact.admin.email}
+                  </a>
+                  <p className="text-[10px] text-gg-gray-500 mt-1">
+                    Contact them to change your email or seat.
+                  </p>
+                </div>
+              )}
               <button
                 onClick={handleSignOut}
-                className="flex items-center gap-2.5 px-4 py-2 text-sm text-red-400 hover:bg-white/5 w-full text-left transition"
+                className="flex items-center gap-2.5 px-4 py-2 text-sm text-red-400 hover:bg-white/5 w-full text-left transition border-t border-white/10 mt-1 pt-2"
               >
                 <LogOut size={14} />
                 Sign Out

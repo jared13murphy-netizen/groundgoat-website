@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Loader2, Users, UserPlus, Trash2, Mail, Check, AlertCircle, Crown, Shield } from 'lucide-react'
+import { ArrowLeft, Loader2, Users, UserPlus, Trash2, Mail, Check, AlertCircle, Crown, Shield, Pencil } from 'lucide-react'
 import { SALES_CONTACT_EMAIL } from '@/config/pricing'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
@@ -124,6 +124,47 @@ export default function TeamPage() {
       setError(err.message || 'Failed to invite team member')
     } finally {
       setInviting(false)
+    }
+  }
+
+  // CORRECTING A TYPO'D EMAIL.
+  // The admin types a colleague's address from memory and gets it wrong, and
+  // until now nothing in the product could fix it — this page offered only
+  // "add" and "delete", a member cannot change their own email and neither can
+  // a Ground Goat admin. A Bank Fortress member spent eight days locked out of
+  // a seat his firm was paying for because of one wrong address.
+  const [memberBeingEdited, setMemberBeingEdited] = useState<TeamMember | null>(null)
+  const [editEmail, setEditEmail] = useState('')
+  const [savingEdit, setSavingEdit] = useState(false)
+  const [editError, setEditError] = useState('')
+  const [editNote, setEditNote] = useState('')
+
+  const handleSaveEmail = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!memberBeingEdited) return
+    setSavingEdit(true)
+    setEditError('')
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/firms/team/${memberBeingEdited.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: editEmail.trim() }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setEditError(body.detail || 'Could not update that email address.')
+        return
+      }
+      setMemberBeingEdited(null)
+      setEditNote(body.invite_resent
+        ? `Updated. A new invitation is on its way to ${body.email}.`
+        : `Updated to ${body.email}.`)
+      const tok = localStorage.getItem('auth_token')
+      if (tok) await fetchTeamMembers(tok)
+    } catch {
+      setEditError('Could not reach the server. Try again.')
+    } finally {
+      setSavingEdit(false)
     }
   }
 
@@ -339,6 +380,22 @@ export default function TeamPage() {
                     <p className="text-sm text-gg-gray-400">{member.email}</p>
                   </div>
                 </div>
+                {/* Correct a mistyped address. Sits before Remove because
+                    deleting and re-adding was the only way to fix a typo, and
+                    that loses the seat's history. */}
+                <button
+                  onClick={() => {
+                    setMemberBeingEdited(member)
+                    setEditEmail(member.email)
+                    setEditError('')
+                    setEditNote('')
+                  }}
+                  title="Change this member's email address"
+                  aria-label={`Change the email address for ${member.first_name} ${member.last_name}`}
+                  className="text-gg-gray-500 hover:text-gg-pink transition-colors p-2"
+                >
+                  <Pencil size={17} />
+                </button>
                 <button
                   onClick={() => setMemberPendingRemoval(member)}
                   disabled={removingId === member.id}
@@ -370,6 +427,63 @@ export default function TeamPage() {
             </div>
           )}
         </div>
+
+        {editNote && (
+          <div className="card mb-4 flex items-center gap-2 text-sm text-green-400">
+            <Check size={16} /> {editNote}
+          </div>
+        )}
+
+        {/* Change a member's email */}
+        {memberBeingEdited && (
+          <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+            <div className="bg-gg-gray-900 rounded-xl border border-gg-gray-700 max-w-md w-full p-6">
+              <h2 className="font-display text-xl font-semibold text-white mb-2">
+                Change Email Address
+              </h2>
+              <p className="text-gg-gray-400 text-sm mb-6">
+                For {memberBeingEdited.first_name} {memberBeingEdited.last_name}. If they
+                have never signed in, we&apos;ll send a fresh invitation to the new address —
+                the old link went somewhere they cannot read.
+              </p>
+              <form onSubmit={handleSaveEmail}>
+                <label className="block text-sm font-medium text-gg-gray-300 mb-2">Email</label>
+                <input
+                  type="email"
+                  required
+                  value={editEmail}
+                  onChange={(e) => setEditEmail(e.target.value)}
+                  className="w-full bg-white text-gg-gray-900 rounded-lg px-4 py-3 mb-2"
+                  placeholder="name@company.com"
+                />
+                {editError && (
+                  <p className="text-red-400 text-sm mb-2 flex items-center gap-2">
+                    <AlertCircle size={15} /> {editError}
+                  </p>
+                )}
+                <div className="flex gap-3 mt-4">
+                  <button
+                    type="button"
+                    onClick={() => setMemberBeingEdited(null)}
+                    disabled={savingEdit}
+                    className="flex-1 btn-secondary"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={savingEdit || !editEmail.trim() ||
+                      editEmail.trim().toLowerCase() === memberBeingEdited.email.toLowerCase()}
+                    className="flex-1 btn-primary flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    {savingEdit ? <Loader2 size={18} className="animate-spin" /> : <Check size={18} />}
+                    Save
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
 
         {/* Remove Member Confirmation */}
         {memberPendingRemoval && (
