@@ -161,8 +161,21 @@ export default function PortalNavBar({ activeTab, onTabChange, onFilterToggle, f
           content (owner report 2026-08-17). It cannot simply take a lower
           z-index inside the bar above: that container is z-[500] and
           position:fixed, so it forms a stacking context its children can
-          never paint out of. Hence a sibling layer. */}
-      <div className="fixed top-4 right-14 z-[15] pointer-events-auto" ref={menuRef}>
+          never paint out of. Hence a sibling layer.
+
+          While the menu is OPEN it lifts above everything, because the
+          map's DOM markers sit in the root stacking context (the map
+          container is z-index:auto) with their own z-indexes up to
+          ~1001 — so at z-15 the state pins painted straight through the
+          open dropdown. Lifting only while open keeps the 2026-08-17
+          behaviour intact: the closed pill still sits under the
+          slide-out panels. */}
+      <div
+        className={`fixed top-4 right-14 pointer-events-auto ${
+          showUserMenu ? 'z-[1100]' : 'z-[15]'
+        }`}
+        ref={menuRef}
+      >
         <button
           onClick={() => setShowUserMenu(!showUserMenu)}
           className="flex items-center gap-2 bg-black/50 backdrop-blur-xl rounded-full pl-1.5 pr-3 py-1.5 border border-white/10 hover:border-gg-pink/30 transition"
