@@ -1941,7 +1941,15 @@ function EmailDrawer({ open, onClose, email }:
                 : 'Nothing matches that.'}
             </p>
           ) : (
-            <table>
+            <table className="mailtable">
+              {/* Explicit widths, plus .mailtable to undo the cards' single
+                  text-column rule — without both, "What" collapsed to "sub…"
+                  and "aba…", which is the one column that says what was sent. */}
+              <colgroup>
+                <col style={{ width: '42%' }} />
+                <col style={{ width: '43%' }} />
+                <col style={{ width: '15%' }} />
+              </colgroup>
               <thead>
                 <tr><th>Who</th><th>What</th><th className="n">When</th></tr>
               </thead>
@@ -1952,7 +1960,7 @@ function EmailDrawer({ open, onClose, email }:
                       {r.name || <span className="dim">no name</span>}
                       <div className="more" style={{ marginTop: 1 }}>{r.email}</div>
                     </td>
-                    <td className="t">
+                    <td className="t" style={{ whiteSpace: 'normal' }}>
                       {r.subject || (r.kind || '').replace(/_/g, ' ')}
                       {/* A send we decided NOT to make is the more interesting
                           half, so it stays in the list and says why. */}
@@ -2660,6 +2668,12 @@ export default function CommandCenterPage() {
   const [devOpen, setDevOpen] = useState(false)
   const [fixOpen, setFixOpen] = useState(false)
   const [chartFor, setChartFor] = useState<string | null>(null)
+  // WITH THE OTHER HOOKS, ABOVE THE ACCESS CHECK.
+  // Declared below `if (!authorised) return` it ran only on some renders —
+  // "Rendered more hooks than during the previous render" — and the whole
+  // Command Center went blank. Hooks cannot sit after a conditional return,
+  // and TypeScript will not tell you.
+  const [emailOpen, setEmailOpen] = useState(false)
 
   /* Same admin gate as every other /admin page. The backend enforces it
      again on both endpoints — this only avoids showing an empty shell to
@@ -2777,7 +2791,6 @@ export default function CommandCenterPage() {
   const notifD = P('notifications'), emailD = P('email')
   const outsideD = P('outside')
   const backupsD = P('backups')
-  const [emailOpen, setEmailOpen] = useState(false)
   const agentsD = P('agents')
   const trendsD = P('trends') || {}
   const fixesD = P('fixes')
@@ -3461,6 +3474,15 @@ svg.spark{display:block;width:100%;height:100%;}
    hint, so a card full of these still reads as a card of numbers. */
 .drill{border:0;background:none;padding:0;font:inherit;color:inherit;cursor:pointer;
   border-bottom:1px dotted var(--faint);}
+
+/* The email list is the only two-text-column table on this screen.
+   td.t is written for the cards — max-width:0 and width:100% on a single text
+   column — so with two of them both cells collapsed to "sub…" and "aba…",
+   losing the one column that says what was actually sent. */
+.mailtable{table-layout:fixed;}
+.mailtable td.t{max-width:none;width:auto;white-space:normal;overflow:visible;
+  text-overflow:clip;padding-right:10px;overflow-wrap:anywhere;}
+.mailtable td{vertical-align:top;padding:5px 0;}
 .drill:hover{border-bottom-color:currentColor;}
 .drill:focus-visible{outline:2px solid var(--ink);outline-offset:2px;}
 
