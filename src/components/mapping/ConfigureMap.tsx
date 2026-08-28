@@ -26,13 +26,13 @@ import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import {
   Loader2, Plus, Trash2, RotateCcw, RotateCw, Save, Search, X, Layers,
-  Scissors, Combine, FileText, Download, BarChart3, Eraser,
+  Scissors, Combine, FileText, Download, BarChart3, Eraser, PenLine,
 } from 'lucide-react'
 import {
   CLASS_COLOR, CLASS_LABEL, LAND_CLASSES, PARCEL_LINE, SEARCH_DOT, VERTEX_LINE,
   archiveParcel, classifyBoundary, combineGeometry, fetchParcel, getSavedParcel, saveParcel, searchMap,
   splitGeometry, normalizeGeometry, previewSoil,
-  updateParcel, queueReport, listReports, downloadReport,
+  updateParcel, queueReport, listReports, downloadReport, getProject,
   REPORT_KINDS, REPORT_LABEL, REPORT_BUSY_LABEL, USES_ELEVATION, type ReportRow,
   createCma, getCma, listCmas, cmaCandidates, setCmaComps, queueCmaReport, updateCma,
   type Cma, type CompCandidate,
@@ -266,6 +266,25 @@ export default function ConfigureMap() {
     const proj = params.get('project')
     const saved = params.get('parcel')
     if (proj) setProjectId(proj)
+    // 'Add tract' passes new=1: stay on a blank canvas inside this
+    // project instead of reopening the tract that is already there.
+    if (!saved && proj && params.get('new') === '1') return
+    if (!saved && proj) {
+      // 'Open' on a project: show its first tract rather than an empty
+      // map. With no tracts yet this stays a blank canvas, which is what
+      // 'Add tract' wants.
+      let stop = false
+      ;(async () => {
+        try {
+          const r = await getProject(proj)
+          if (stop || !r.parcels?.length) return
+          const url = new URL(window.location.href)
+          url.searchParams.set('parcel', r.parcels[0].id)
+          window.location.replace(url.toString())
+        } catch { /* leave the blank canvas */ }
+      })()
+      return () => { stop = true }
+    }
     if (!saved) return
     let cancelled = false
     ;(async () => {
@@ -295,6 +314,12 @@ export default function ConfigureMap() {
           unclassified_acres: rec.stats?.unclassified_acres ?? 0,
         })
         setShapes(explodeShapes(rec.polygons as any))
+        // Opened from the portfolio to LOOK at, not to edit: show the
+        // land types straight away and keep the editing tools away until
+        // the user asks for them.
+        setStep('landtypes')
+        setEditingTypes(false)
+        setSelectedId(null)
         const bb = bboxOf(rec.boundary?.coordinates)
         if (bb && mapRef.current) mapRef.current.fitBounds(bb, { padding: 90, duration: 700 })
       } catch (e: any) {
@@ -1646,8 +1671,10 @@ export default function ConfigureMap() {
             ) : (
               <>
             {!editingTypes && (
-              <button onClick={() => setEditingTypes(true)} style={{ ...btn, width: '100%' }}>
-                <Layers size={13} /> Edit land types
+              <button onClick={() => setEditingTypes(true)}
+                      style={{ ...btn, width: '100%', justifyContent: 'center',
+                               borderColor: '#22c55e', color: '#86efac' }}>
+                <PenLine size={13} /> Edit this tract
               </button>
             )}
 
@@ -1925,9 +1952,12 @@ export default function ConfigureMap() {
             background: '#0c111a', display: 'flex', flexDirection: 'column', gap: 8,
           }}>
             {step === 'landtypes' && (
-              <input value={name} onChange={(e) => setName(e.target.value)}
-                     placeholder="Name this parcel — e.g. Tract 1, Home Place"
-                     style={inputStyle} />
+              <div>
+                <div style={sectionLabel}>Tract name</div>
+                <input value={name} onChange={(e) => setName(e.target.value)}
+                       placeholder="e.g. Tract 1, Home Place, North 80"
+                       style={inputStyle} />
+              </div>
             )}
             <div style={{ display: 'flex', gap: 8 }}>
               {step === 'boundary' ? (

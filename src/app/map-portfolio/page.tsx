@@ -134,8 +134,9 @@ export default function MapPortfolioPage() {
           {visible.map((p) => (
             <div key={p.id} style={{ ...card, opacity: p.archived_at ? 0.55 : 1 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-                <button onClick={() => void openProject(p.id)} style={nameBtn}>
-                  {p.name}
+                <button onClick={() => void openProject(p.id)} style={nameBtn}
+                        title="Show the tracts in this project">
+                  {openId === p.id ? '▾ ' : '▸ '}{p.name}
                 </button>
                 <span style={muted}>
                   {p.summary?.parcels ?? 0} parcel{(p.summary?.parcels ?? 0) === 1 ? '' : 's'}
@@ -149,6 +150,9 @@ export default function MapPortfolioPage() {
                 </span>
                 <Link href={`/configure-map?project=${p.id}`} style={btn}>
                   <PenLine size={13} /> Open
+                </Link>
+                <Link href={`/configure-map?project=${p.id}&new=1`} style={btn}>
+                  <Plus size={13} /> Add tract
                 </Link>
                 <button style={btn} disabled={!!busy}
                         onClick={() => void act('Duplicating…', () => duplicateProject(p.id))}>
@@ -164,7 +168,11 @@ export default function MapPortfolioPage() {
 
               {openId === p.id && (
                 <div style={{ marginTop: 12, borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 10 }}>
-                  {openParcels.length === 0 && <p style={muted}>No parcels in this project yet.</p>}
+                  {openParcels.length === 0 && (
+                    <p style={muted}>
+                      No tracts in this project yet — use “Add tract” to draw one.
+                    </p>
+                  )}
                   {openParcels.map((x) => (
                     <div key={x.id} style={parcelRow}>
                       <Link href={`/configure-map?parcel=${x.id}`} style={{ ...link, fontSize: 13 }}>
