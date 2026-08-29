@@ -34,7 +34,7 @@ import {
   splitGeometry, normalizeGeometry, previewSoil,
   updateParcel, queueReport, listReports, downloadReport, getProject,
   REPORT_KINDS, REPORT_LABEL, REPORT_BUSY_LABEL, USES_ELEVATION, type ReportRow,
-  deleteReport,
+  deleteReport, projectGeometry, type ProjectTractGeometry,
   createCma, getCma, listCmas, cmaCandidates, setCmaComps, queueCmaReport, updateCma,
   type Cma, type CompCandidate,
   type LandClass, type ParcelDetail, type ParcelSummary,
@@ -60,6 +60,8 @@ const SRC = {
   boundary: 'cm-boundary', shapes: 'cm-shapes', verts: 'cm-verts',
   dots: 'cm-dots', draft: 'cm-draft', comps: 'cm-comps',
   cut: 'cm-cut', marq: 'cm-marq',
+  // The rest of the project, drawn around whatever is open.
+  peerFill: 'cm-peer-shapes', peerLine: 'cm-peer-bounds', peerLabel: 'cm-peer-labels',
 } as const
 const LYR_VERTS = 'cm-verts-circles'
 const LYR_FILL = 'cm-shapes-fill'
@@ -184,6 +186,7 @@ export default function ConfigureMap() {
   const [sources, setSources] = useState<string[]>([])
   const [reports, setReports] = useState<ReportRow[]>([])
   const [deletingReport, setDeletingReport] = useState<string | null>(null)
+  const [peers, setPeers] = useState<ProjectTractGeometry[]>([])
   // Soil rating recomputed as the tillable ground is reshaped. Debounced —
   // it is a real query against SSURGO, not arithmetic in the browser.
   const [soil, setSoil] = useState<{ rating: number | null; rating_type: string | null } | null>(null)
@@ -457,6 +460,27 @@ export default function ConfigureMap() {
         }
       }
 
+      // ── the rest of the project ──────────────────────────────────
+      // Every OTHER tract in this project, drawn underneath whatever is
+      // open so you can see what you already have and do not add the
+      // same ground twice. Deliberately muted: this is context, not the
+      // thing being edited, and it must never be mistaken for it.
+      map.addLayer({
+        id: 'cm-peer-shapes-fill', type: 'fill', source: SRC.peerFill,
+        paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.16 },
+      })
+      map.addLayer({
+        id: 'cm-peer-shapes-line', type: 'line', source: SRC.peerFill,
+        paint: { 'line-color': ['get', 'color'], 'line-width': 1, 'line-opacity': 0.7 },
+      })
+      map.addLayer({
+        id: 'cm-peer-bounds-line', type: 'line', source: SRC.peerLine,
+        paint: {
+          'line-color': '#ffffff', 'line-width': 2,
+          'line-opacity': 0.75, 'line-dasharray': [3, 2],
+        },
+      })
+
       // The polygon IS the land type — its colour carries the meaning and
       // the panel legend explains it. No text on the map: labels stacked
       // on top of a field made the map unreadable.
@@ -508,6 +532,35 @@ export default function ConfigureMap() {
         g.textAlign = 'center'; g.textBaseline = 'middle'
         g.fillText('\u2702', S / 2, S / 2 + 1)
         map.addImage('cm-scissors', g.getImageData(0, 0, S, S) as any, { pixelRatio: 2 })
+      }
+      // The tract-name badge. A 9-slice pill: the middle stretches to
+      // whatever the name needs, the rounded ends do not, so one image
+      // serves "North 80" and "Hamilton test tract" alike.
+      if (!map.hasImage('cm-badge')) {
+        const W = 48, H = 36, R = 12
+        const cv = document.createElement('canvas'); cv.width = W; cv.height = H
+        const g = cv.getContext('2d')!
+        const pill = () => {
+          g.beginPath()
+          g.moveTo(R + 1, 2)
+          g.lineTo(W - R - 1, 2)
+          g.quadraticCurveTo(W - 2, 2, W - 2, R + 2)
+          g.lineTo(W - 2, H - R - 2)
+          g.quadraticCurveTo(W - 2, H - 2, W - R - 1, H - 2)
+          g.lineTo(R + 1, H - 2)
+          g.quadraticCurveTo(2, H - 2, 2, H - R - 2)
+          g.lineTo(2, R + 2)
+          g.quadraticCurveTo(2, 2, R + 1, 2)
+          g.closePath()
+        }
+        pill(); g.fillStyle = 'rgba(8,8,10,0.86)'; g.fill()
+        pill(); g.lineWidth = 2.5; g.strokeStyle = '#f58cde'; g.stroke()
+        map.addImage('cm-badge', g.getImageData(0, 0, W, H) as any, {
+          pixelRatio: 2,
+          stretchX: [[R + 2, W - R - 2]],
+          stretchY: [[R + 2, H - R - 2]],
+          content: [R - 2, 5, W - R + 2, H - 5],
+        })
       }
       map.addLayer({
         id: 'cm-marq-fill', type: 'fill', source: SRC.marq,
@@ -575,6 +628,25 @@ export default function ConfigureMap() {
           'circle-radius': 6, 'circle-color': SEARCH_DOT,
           'circle-stroke-color': '#fff', 'circle-stroke-width': 2,
         },
+      })
+
+      // Tract names, last so they sit above every polygon. Placed on a
+      // point INSIDE each tract (PostGIS gives us point-on-surface, not
+      // a centroid, so an L-shaped tract's badge does not float over the
+      // neighbour's ground).
+      map.addLayer({
+        id: 'cm-peer-label', type: 'symbol', source: SRC.peerLabel,
+        layout: {
+          'icon-image': 'cm-badge',
+          'icon-text-fit': 'both',
+          'icon-text-fit-padding': [2, 7, 2, 7],
+          'text-field': ['get', 'name'],
+          'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'],
+          'text-size': 12,
+          'text-max-width': 12,
+          'symbol-z-order': 'source',
+        },
+        paint: { 'text-color': '#ffffff' },
       })
 
       // ── erase box: drag a rectangle over a cluster of points and
@@ -1196,6 +1268,56 @@ export default function ConfigureMap() {
       setError(e?.message || 'Could not save the tracts.')
     } finally { setBusy(null) }
   }, [pieces, detail, projectId, projectName, name, shapes, sources, editingId])
+
+  // ── the rest of the project ───────────────────────────────────────
+  // Re-read after every save, because saving is what changes the set —
+  // `savedMsg` flips on each completed save, editingId on each open.
+  const loadPeers = useCallback(async (pid: string | null) => {
+    if (!pid) { setPeers((prev) => (prev.length ? [] : prev)); return }
+    try { setPeers((await projectGeometry(pid)).tracts) } catch { /* context only */ }
+  }, [])
+
+  useEffect(() => { void loadPeers(projectId) }, [projectId, savedMsg, loadPeers])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !ready) return
+    // Everything EXCEPT the tract that is open: that one is drawn live
+    // from the editor's own state, and a stale copy underneath it would
+    // ghost every edit.
+    const others = peers.filter((t) => t.id !== editingId)
+    const fills: any[] = []
+    const bounds: any[] = []
+    const labels: any[] = []
+    for (const t of others) {
+      for (const poly of t.polygons) {
+        if (poly.geometry) fills.push({
+          type: 'Feature', geometry: poly.geometry,
+          properties: { color: CLASS_COLOR[poly.cls] || '#9ca3af' },
+        })
+      }
+      if (t.boundary) bounds.push({ type: 'Feature', geometry: t.boundary, properties: {} })
+      if (t.label_point) labels.push({
+        type: 'Feature', geometry: t.label_point,
+        properties: { name: t.name || 'Untitled' },
+      })
+    }
+    // The open tract gets a badge too, from its LIVE outline, so the name
+    // tracks what is being typed instead of what was last saved.
+    const liveCentre = ringCentre(boundaryRings)
+    if (liveCentre && detail && name.trim()) {
+      labels.push({
+        type: 'Feature', geometry: { type: 'Point', coordinates: liveCentre },
+        properties: { name: name.trim() },
+      })
+    }
+    ;(map.getSource(SRC.peerFill) as maplibregl.GeoJSONSource)?.setData(
+      { type: 'FeatureCollection', features: fills } as any)
+    ;(map.getSource(SRC.peerLine) as maplibregl.GeoJSONSource)?.setData(
+      { type: 'FeatureCollection', features: bounds } as any)
+    ;(map.getSource(SRC.peerLabel) as maplibregl.GeoJSONSource)?.setData(
+      { type: 'FeatureCollection', features: labels } as any)
+  }, [peers, editingId, ready, boundaryRings, detail, name])
 
   // ── paint shapes / vertices / boundary / dots / draft ──────────────
   useEffect(() => {

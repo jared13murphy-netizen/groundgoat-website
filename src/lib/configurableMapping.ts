@@ -215,6 +215,22 @@ export function getProject(id: string) {
   return j<{ project: Project; parcels: SavedParcelRow[] }>(`/api/mapping/projects/${id}`)
 }
 
+export interface ProjectTractGeometry {
+  id: string
+  name: string
+  acres: number | null
+  boundary: any
+  label_point: any
+  polygons: { cls: LandClass; geometry: any }[]
+}
+
+/** Every tract in a project with its geometry — drawn as context around
+ *  whatever the editor currently has open. */
+export function projectGeometry(id: string) {
+  return j<{ tracts: ProjectTractGeometry[] }>(
+    `/api/mapping/projects/${id}/geometry`)
+}
+
 export function updateProject(id: string, patch: { name?: string; archived?: boolean }) {
   return j<{ ok: true }>(`/api/mapping/projects/${id}`, {
     method: 'PATCH',
