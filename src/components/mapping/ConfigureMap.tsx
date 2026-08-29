@@ -1524,6 +1524,25 @@ export default function ConfigureMap() {
     undoRef.current = []; redoRef.current = []
   }, [])
 
+  /** Clear the canvas but STAY in the project, so the next parcel you
+   *  draw is filed alongside the one you just finished. Same thing
+   *  'Add tract' does from the Map Portfolio — reaching it used to mean
+   *  leaving this screen and coming back. */
+  const addTractToProject = useCallback(() => {
+    if (!projectId) return
+    setConfirmWhat(null)
+    setError(null); setSavedMsg(null); setPieces([]); setTool(null)
+    setDrawing(false); setDraft([]); setCutPts([]); setMarq(null)
+    setSelectedId(null); setShapes([]); setBoundaryRings([])
+    setDetail(null); setEditingId(null); setName(''); setSources([])
+    setStep('boundary'); setEditingTypes(true)
+    try {
+      window.history.replaceState(
+        {}, '', `/configure-map?project=${encodeURIComponent(projectId)}&new=1`)
+    } catch { /* history is a convenience, not load-bearing */ }
+    undoRef.current = []; redoRef.current = []
+  }, [projectId])
+
   // Recompute the soil rating whenever the tillable ground changes.
   // Debounced by 700 ms so a drag fires one query at the end, not one per
   // mouse move, and keyed on the actual geometry so an unrelated edit
@@ -2106,7 +2125,16 @@ export default function ConfigureMap() {
               // View mode hid Save and Cancel, which left no way off this
               // screen at all — no route back to the portfolio and no way
               // to start a fresh map without editing the URL.
-              <div style={{ display: 'flex', gap: 8 }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                {projectId && (
+                  // The whole point of a project is more than one tract.
+                  // Keeps the project, clears the canvas.
+                  <button onClick={addTractToProject} disabled={!!busy}
+                          style={{ ...primaryBtn, width: '100%',
+                                   justifyContent: 'center', padding: '9px 10px' }}>
+                    <Plus size={14} /> Add another tract to this project
+                  </button>
+                )}
                 <a href="/map-portfolio"
                    style={{ ...btn, flex: 1, justifyContent: 'center', padding: '9px 10px',
                             textDecoration: 'none' }}>
