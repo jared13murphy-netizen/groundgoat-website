@@ -169,7 +169,8 @@ export default function ConfigureMap() {
   // moment the request returns.
   const [queuing, setQueuing] = useState<string | null>(null)
   // Cancel throws away work, so it asks first.
-  const [confirmCancel, setConfirmCancel] = useState(false)
+  // Both of these throw away work, so both ask first.
+  const [confirmWhat, setConfirmWhat] = useState<null | 'cancel' | 'outline'>(null)
   const [draft, setDraft] = useState<Pt[]>([])
 
   const [name, setName] = useState('')
@@ -1491,7 +1492,7 @@ export default function ConfigureMap() {
   /** Cancel, confirmed: drop every edit and close the parcel entirely,
    *  rather than reloading it and leaving it open. */
   const discardAndClose = useCallback(() => {
-    setConfirmCancel(false)
+    setConfirmWhat(null)
     setError(null); setSavedMsg(null); setPieces([]); setTool(null)
     setDrawing(false); setDraft([]); setCutPts([]); setMarq(null)
     setSelectedId(null); setShapes([]); setBoundaryRings([])
@@ -1575,7 +1576,30 @@ export default function ConfigureMap() {
     // Fixed + above the site chrome: this is a full-surface tool, and
     // the marketing header/footer would otherwise wrap around it.
     <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', background: '#0f1520' }}>
-      <div ref={containerRef} style={{ flex: 1, position: 'relative' }} />
+      <div style={{ flex: 1, position: 'relative' }}>
+        <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
+        {/* While a tool is armed, the way OUT of it belongs on the map,
+            where the user's eyes and cursor already are — not in a panel
+            button they have to go hunting for mid-gesture. */}
+        {(tool === 'erase' || tool === 'cutpoly') && (
+          <button
+            onClick={() => { setTool(null); setCutPts([]); setMarq(null) }}
+            style={{
+              position: 'absolute', bottom: 22, left: '50%',
+              transform: 'translateX(-50%)', zIndex: 30,
+              display: 'inline-flex', alignItems: 'center', gap: 8,
+              padding: '11px 20px', borderRadius: 999, cursor: 'pointer',
+              fontSize: 14, fontWeight: 600, color: '#ffffff',
+              background: 'linear-gradient(180deg, #f9a8e6 0%, #f58cde 48%, #e072c8 100%)',
+              border: '1px solid #f58cde',
+              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.45), 0 4px 14px rgba(0,0,0,0.45)',
+            }}>
+            {tool === 'erase'
+              ? <><Eraser size={15} /> Done erasing</>
+              : <><Scissors size={15} /> Cancel cut</>}
+          </button>
+        )}
+      </div>
 
       <aside style={{
         width: 360, flexShrink: 0, color: '#e5e7eb', position: 'relative',
@@ -1687,12 +1711,12 @@ export default function ConfigureMap() {
                       setTool(on ? 'cutpoly' : null); setCutPts([]); setPieces([])
                     }}
                     style={{ ...btn, borderColor: tool === 'cutpoly' ? '#ffffff' : undefined }}>
-                    <Scissors size={13} /> {tool === 'cutpoly' ? 'Cancel cut' : 'Split parcel'}
+                    <Scissors size={13} /> Split parcel
                   </button>
                   <button
                     onClick={() => setTool(tool === 'erase' ? null : 'erase')}
                     style={{ ...btn, borderColor: tool === 'erase' ? '#ffffff' : undefined }}>
-                    <Eraser size={13} /> {tool === 'erase' ? 'Done erasing' : 'Erase points'}
+                    <Eraser size={13} /> Erase points
                   </button>
                 </div>
                 {tool === 'erase' && (
@@ -1770,13 +1794,13 @@ export default function ConfigureMap() {
                 }}
                 disabled={!selectedId && tool !== 'cutpoly'}
                 style={{ ...btn, borderColor: tool === 'cutpoly' ? '#ffffff' : undefined }}>
-                <Scissors size={13} /> {tool === 'cutpoly' ? 'Cancel cut' : 'Split polygon'}
+                <Scissors size={13} /> Split polygon
               </button>
               <button
                 onClick={() => setTool(tool === 'erase' ? null : 'erase')}
                 disabled={!selectedId && tool !== 'erase'}
                 style={{ ...btn, borderColor: tool === 'erase' ? '#ffffff' : undefined }}>
-                <Eraser size={13} /> {tool === 'erase' ? 'Done erasing' : 'Erase points'}
+                <Eraser size={13} /> Erase points
               </button>
               <button
                 onClick={() => setTool(tool === 'combine' ? null : 'combine')}
@@ -2046,8 +2070,8 @@ export default function ConfigureMap() {
               )}
               <button
                 onClick={() => {
-                  if (step === 'landtypes') { setStep('boundary'); return }
-                  setConfirmCancel(true)
+                  if (step === 'landtypes') { setConfirmWhat('outline'); return }
+                  setConfirmWhat('cancel')
                 }}
                 disabled={!!busy}
                 style={{ ...btn, flex: 1, justifyContent: 'center', padding: '9px 10px' }}>
@@ -2059,7 +2083,7 @@ export default function ConfigureMap() {
         )}
         {/* Cancel throws away every unsaved edit and closes the parcel,
             so it confirms first. Sits inside the panel, over it. */}
-        {confirmCancel && (
+        {confirmWhat && (
           <div style={{
             position: 'absolute', inset: 0, zIndex: 40,
             background: 'rgba(0,0,0,0.66)',
@@ -2072,18 +2096,31 @@ export default function ConfigureMap() {
               boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.14), 0 10px 30px rgba(0,0,0,0.6)',
               borderRadius: 11, padding: 16,
             }}>
-              <div style={{ fontWeight: 600, marginBottom: 6 }}>Discard your changes?</div>
+              <div style={{ fontWeight: 600, marginBottom: 6 }}>
+                {confirmWhat === 'outline'
+                  ? 'Go back to the outline?' : 'Discard your changes?'}
+              </div>
               <div style={{ ...hint, marginTop: 0, marginBottom: 14, display: 'block' }}>
-                Every polygon edit you have made will be thrown away and the parcel
-                will close. This cannot be undone.
+                {confirmWhat === 'outline'
+                  ? 'The land types are re-read from the engine for whatever outline '
+                    + 'you confirm, so every polygon edit you have made will be lost.'
+                  : 'Every polygon edit you have made will be thrown away and the '
+                    + 'parcel will close. This cannot be undone.'}
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
-                <button onClick={discardAndClose}
+                <button onClick={() => {
+                          if (confirmWhat === 'outline') {
+                            setConfirmWhat(null); setTool(null); setSelectedId(null)
+                            setStep('boundary')
+                          } else {
+                            discardAndClose()
+                          }
+                        }}
                         style={{ ...primaryBtn, flex: 1, justifyContent: 'center',
                                  padding: '9px 10px' }}>
                   OK
                 </button>
-                <button onClick={() => setConfirmCancel(false)}
+                <button onClick={() => setConfirmWhat(null)}
                         style={{ ...btn, flex: 1, justifyContent: 'center',
                                  padding: '9px 10px' }}>
                   Cancel
