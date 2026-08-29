@@ -2055,7 +2055,22 @@ export default function ConfigureMap() {
                        style={inputStyle} />
               </div>
             )}
-            {step === 'landtypes' && !editingTypes ? null : (
+            {step === 'landtypes' && !editingTypes ? (
+              // View mode hid Save and Cancel, which left no way off this
+              // screen at all — no route back to the portfolio and no way
+              // to start a fresh map without editing the URL.
+              <div style={{ display: 'flex', gap: 8 }}>
+                <a href="/map-portfolio"
+                   style={{ ...btn, flex: 1, justifyContent: 'center', padding: '9px 10px',
+                            textDecoration: 'none' }}>
+                  <Layers size={14} /> Map Portfolio
+                </a>
+                <button onClick={discardAndClose} disabled={!!busy}
+                        style={{ ...btn, flex: 1, justifyContent: 'center', padding: '9px 10px' }}>
+                  <Plus size={14} /> New map
+                </button>
+              </div>
+            ) : (
             <div style={{ display: 'flex', gap: 8 }}>
               {step === 'boundary' ? (
                 <button onClick={() => void confirmBoundary()} disabled={!!busy}
