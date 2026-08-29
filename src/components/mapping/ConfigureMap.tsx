@@ -168,6 +168,8 @@ export default function ConfigureMap() {
   // spinning until the file is actually built rather than stopping the
   // moment the request returns.
   const [queuing, setQueuing] = useState<string | null>(null)
+  // Cancel throws away work, so it asks first.
+  const [confirmCancel, setConfirmCancel] = useState(false)
   const [draft, setDraft] = useState<Pt[]>([])
 
   const [name, setName] = useState('')
@@ -1486,6 +1488,18 @@ export default function ConfigureMap() {
     undoRef.current = []; redoRef.current = []
   }, [editingId, detail])
 
+  /** Cancel, confirmed: drop every edit and close the parcel entirely,
+   *  rather than reloading it and leaving it open. */
+  const discardAndClose = useCallback(() => {
+    setConfirmCancel(false)
+    setError(null); setSavedMsg(null); setPieces([]); setTool(null)
+    setDrawing(false); setDraft([]); setCutPts([]); setMarq(null)
+    setSelectedId(null); setShapes([]); setBoundaryRings([])
+    setDetail(null); setEditingId(null); setName(''); setSources([])
+    setStep('boundary'); setEditingTypes(true)
+    undoRef.current = []; redoRef.current = []
+  }, [])
+
   // Recompute the soil rating whenever the tillable ground changes.
   // Debounced by 700 ms so a drag fires one query at the end, not one per
   // mouse move, and keyed on the actual geometry so an unrelated edit
@@ -1556,7 +1570,7 @@ export default function ConfigureMap() {
       <div ref={containerRef} style={{ flex: 1, position: 'relative' }} />
 
       <aside style={{
-        width: 360, flexShrink: 0, color: '#e5e7eb',
+        width: 360, flexShrink: 0, color: '#e5e7eb', position: 'relative',
         // Two stacked gradients: a sheen that falls off in the top fifth
         // (the gloss), over a dark-grey-to-black body. The inset
         // highlight is the lit top edge that makes it read as a surface
@@ -2010,13 +2024,51 @@ export default function ConfigureMap() {
                 </button>
               )}
               <button
-                onClick={() => { if (step === 'landtypes') setStep('boundary'); else void cancelEdits() }}
+                onClick={() => {
+                  if (step === 'landtypes') { setStep('boundary'); return }
+                  setConfirmCancel(true)
+                }}
                 disabled={!!busy}
                 style={{ ...btn, flex: 1, justifyContent: 'center', padding: '9px 10px' }}>
                 <X size={14} /> {step === 'landtypes' ? 'Edit outline' : 'Cancel'}
               </button>
             </div>
             )}
+          </div>
+        )}
+        {/* Cancel throws away every unsaved edit and closes the parcel,
+            so it confirms first. Sits inside the panel, over it. */}
+        {confirmCancel && (
+          <div style={{
+            position: 'absolute', inset: 0, zIndex: 40,
+            background: 'rgba(0,0,0,0.66)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 18,
+          }}>
+            <div style={{
+              width: '100%',
+              background: 'linear-gradient(180deg, #1b1e23 0%, #0a0a0a 100%)',
+              border: '1px solid rgba(255,255,255,0.14)',
+              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.14), 0 10px 30px rgba(0,0,0,0.6)',
+              borderRadius: 11, padding: 16,
+            }}>
+              <div style={{ fontWeight: 600, marginBottom: 6 }}>Discard your changes?</div>
+              <div style={{ ...hint, marginTop: 0, marginBottom: 14, display: 'block' }}>
+                Every polygon edit you have made will be thrown away and the parcel
+                will close. This cannot be undone.
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={discardAndClose}
+                        style={{ ...primaryBtn, flex: 1, justifyContent: 'center',
+                                 padding: '9px 10px' }}>
+                  OK
+                </button>
+                <button onClick={() => setConfirmCancel(false)}
+                        style={{ ...btn, flex: 1, justifyContent: 'center',
+                                 padding: '9px 10px' }}>
+                  Cancel
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </aside>
