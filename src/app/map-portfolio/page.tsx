@@ -13,10 +13,10 @@
 import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
 import {
-  Archive, ArchiveRestore, Copy, Loader2, Map as MapIcon, PenLine, Plus, Search,
+  Archive, ArchiveRestore, Loader2, Map as MapIcon, PenLine, Plus, Search,
 } from 'lucide-react'
 import {
-  archiveParcel, duplicateProject, fetchMappingAccessState, getProject, listProjects,
+  archiveParcel, fetchMappingAccessState, getProject, listProjects,
   updateProject, type Project, type SavedParcelRow,
 } from '@/lib/configurableMapping'
 
@@ -154,10 +154,6 @@ export default function MapPortfolioPage() {
                 <Link href={`/configure-map?project=${p.id}&new=1`} style={btn}>
                   <Plus size={13} /> Add tract
                 </Link>
-                <button style={btn} disabled={!!busy}
-                        onClick={() => void act('Duplicating…', () => duplicateProject(p.id))}>
-                  <Copy size={13} /> Duplicate
-                </button>
                 <button style={btn} disabled={!!busy}
                         onClick={() => void act(
                           p.archived_at ? 'Restoring…' : 'Archiving…',
