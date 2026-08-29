@@ -2125,24 +2125,22 @@ export default function ConfigureMap() {
               // View mode hid Save and Cancel, which left no way off this
               // screen at all — no route back to the portfolio and no way
               // to start a fresh map without editing the URL.
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                {projectId && (
-                  // The whole point of a project is more than one tract.
-                  // Keeps the project, clears the canvas.
-                  <button onClick={addTractToProject} disabled={!!busy}
-                          style={{ ...primaryBtn, width: '100%',
-                                   justifyContent: 'center', padding: '9px 10px' }}>
-                    <Plus size={14} /> Add another tract to this project
-                  </button>
-                )}
+              <div style={{ display: 'flex', gap: 8 }}>
                 <a href="/map-portfolio"
                    style={{ ...btn, flex: 1, justifyContent: 'center', padding: '9px 10px',
                             textDecoration: 'none' }}>
                   <Layers size={14} /> Map Portfolio
                 </a>
-                <button onClick={discardAndClose} disabled={!!busy}
+                {/* Clears the canvas so you can pick the next parcel. In
+                    a project it KEEPS the project, so the parcel you
+                    draw next is filed alongside this one — that is the
+                    whole point of a project. Outside one it is just a
+                    blank canvas. A brand-new project starts from
+                    "Create Map" in the portfolio. */}
+                <button onClick={projectId ? addTractToProject : discardAndClose}
+                        disabled={!!busy}
                         style={{ ...btn, flex: 1, justifyContent: 'center', padding: '9px 10px' }}>
-                  <Plus size={14} /> New map
+                  <Plus size={14} /> Add Another Parcel
                 </button>
               </div>
             ) : (
