@@ -34,6 +34,7 @@ import {
   splitGeometry, normalizeGeometry, previewSoil,
   updateParcel, queueReport, listReports, downloadReport, getProject,
   REPORT_KINDS, REPORT_LABEL, REPORT_BUSY_LABEL, USES_ELEVATION, type ReportRow,
+  deleteReport,
   createCma, getCma, listCmas, cmaCandidates, setCmaComps, queueCmaReport, updateCma,
   type Cma, type CompCandidate,
   type LandClass, type ParcelDetail, type ParcelSummary,
@@ -182,6 +183,7 @@ export default function ConfigureMap() {
   // Every Regrid parcel folded into this subject, for provenance.
   const [sources, setSources] = useState<string[]>([])
   const [reports, setReports] = useState<ReportRow[]>([])
+  const [deletingReport, setDeletingReport] = useState<string | null>(null)
   // Soil rating recomputed as the tillable ground is reshaped. Debounced —
   // it is a real query against SSURGO, not arithmetic in the browser.
   const [soil, setSoil] = useState<{ rating: number | null; rating_type: string | null } | null>(null)
@@ -1456,6 +1458,19 @@ export default function ConfigureMap() {
     return () => clearInterval(t)
   }, [editingId, reportsPending, refreshReports])
 
+  const removeReport = useCallback(async (id: string) => {
+    setDeletingReport(id)
+    try {
+      await deleteReport(id)
+      // Drop it locally too: the poll only runs while something is
+      // still rendering, so a finished report would otherwise stay on
+      // screen until the next parcel load.
+      setReports((prev) => prev.filter((r) => r.id !== id))
+    } catch (e: any) {
+      setError(e?.message || 'That report could not be deleted.')
+    } finally { setDeletingReport(null) }
+  }, [])
+
   const makeReport = useCallback(async (kind: (typeof REPORT_KINDS)[number]) => {
     if (!editingId) { setError('Save this parcel before building a report.'); return }
     setError(null); setQueuing(kind)
@@ -1575,7 +1590,15 @@ export default function ConfigureMap() {
   return (
     // Fixed + above the site chrome: this is a full-surface tool, and
     // the marketing header/footer would otherwise wrap around it.
-    <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', background: '#0f1520' }}>
+    <div className="cm-surface"
+         style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', background: '#0f1520' }}>
+      {/* The labels are black on pink; the icons are white. That cannot
+          be expressed inline — lucide icons paint with currentColor,
+          which is the label colour. */}
+      <style>{`
+        .cm-surface button svg, .cm-surface a svg { color: #ffffff; }
+        .cm-surface button:disabled { opacity: 0.45; cursor: default; }
+      `}</style>
       <div style={{ flex: 1, position: 'relative' }}>
         <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
         {/* While a tool is armed, the way OUT of it belongs on the map,
@@ -1589,7 +1612,7 @@ export default function ConfigureMap() {
               transform: 'translateX(-50%)', zIndex: 30,
               display: 'inline-flex', alignItems: 'center', gap: 8,
               padding: '11px 20px', borderRadius: 999, cursor: 'pointer',
-              fontSize: 14, fontWeight: 600, color: '#ffffff',
+              fontSize: 14, fontWeight: 700, color: '#0b0b0b',
               background: 'linear-gradient(180deg, #f9a8e6 0%, #f58cde 48%, #e072c8 100%)',
               border: '1px solid #f58cde',
               boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.45), 0 4px 14px rgba(0,0,0,0.45)',
@@ -1762,8 +1785,12 @@ export default function ConfigureMap() {
                     }}
                     style={{
                       ...chip,
-                      borderColor: drawClass === c ? CLASS_COLOR[c] : 'rgba(255,255,255,0.15)',
-                      background: drawClass === c ? 'rgba(255,255,255,0.10)' : 'transparent',
+                      // Selection used to be carried by the fill. The fill
+                      // is pink on every chip now, so it is carried by a
+                      // white ring instead.
+                      outline: drawClass === c ? '2px solid #ffffff' : 'none',
+                      outlineOffset: drawClass === c ? 1 : 0,
+                      opacity: drawClass === c ? 1 : 0.72,
                     }}
                   >
                     <span style={{ width: 9, height: 9, borderRadius: 2, background: CLASS_COLOR[c] }} />
@@ -1986,19 +2013,31 @@ export default function ConfigureMap() {
               {reports.map((r) => (
                 <div key={r.id} style={statRow}>
                   <span style={{ opacity: 0.8 }}>{REPORT_LABEL[r.kind] || r.kind}</span>
-                  {r.status === 'done' ? (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                    {r.status === 'done' ? (
+                      <button
+                        onClick={() => void downloadReport(
+                          r.id, `${name || 'parcel'} ${REPORT_LABEL[r.kind] || r.kind}.pdf`)}
+                        style={{ ...btn, padding: '2px 8px', fontSize: 11 }}>
+                        <Download size={11} /> Download
+                      </button>
+                    ) : (
+                      <span style={{ fontSize: 11, opacity: 0.6,
+                                     color: r.status === 'failed' ? '#fca5a5' : undefined }}>
+                        {r.status === 'failed' ? (r.error || 'failed') : 'building…'}
+                      </span>
+                    )}
+                    {/* Removes this one report. A failed or stale build
+                        otherwise sat in the list for good. */}
                     <button
-                      onClick={() => void downloadReport(
-                        r.id, `${name || 'parcel'} ${REPORT_LABEL[r.kind] || r.kind}.pdf`)}
-                      style={{ ...btn, padding: '2px 8px', fontSize: 11 }}>
-                      <Download size={11} /> Download
+                      onClick={() => void removeReport(r.id)}
+                      disabled={deletingReport === r.id}
+                      title="Delete this report"
+                      aria-label="Delete this report"
+                      style={{ ...btn, padding: '2px 5px', fontSize: 11 }}>
+                      <X size={12} />
                     </button>
-                  ) : (
-                    <span style={{ fontSize: 11, opacity: 0.6,
-                                   color: r.status === 'failed' ? '#fca5a5' : undefined }}>
-                      {r.status === 'failed' ? (r.error || 'failed') : 'building…'}
-                    </span>
-                  )}
+                  </span>
                 </div>
               ))}
             </div>
@@ -2026,7 +2065,7 @@ export default function ConfigureMap() {
                       try { window.history.replaceState({}, '', '/configure-map') } catch {}
                     }}
                     style={{ ...btn, marginTop: 6, width: '100%', justifyContent: 'center' }}>
-                    <Plus size={13} /> Start a new project instead
+                    <Plus size={13} /> Start a new project
                   </button>
                 </>
               ) : (
@@ -2157,24 +2196,22 @@ const inputStyle: React.CSSProperties = {
   borderRadius: 7, padding: '7px 9px', color: '#1a1a1a', fontSize: 13, outline: 'none',
 }
 // Brand pink (#f58cde, tailwind gg-pink). Tool buttons are outlined pink
-// on a faint pink surface with a top sheen; the commit buttons below use
-// PRIMARY, a solid pink with white text. Solid pink on all fifteen
-// buttons would be a wall of magenta with no hierarchy left.
+// on solid pink: black label, white icon. Hierarchy is carried by
+// weight and shadow (PRIMARY, the button that commits) rather than by
+// fill, so every control on the surface reads as the same family.
 const GG_PINK = '#f58cde'
 const btn: React.CSSProperties = {
   display: 'inline-flex', alignItems: 'center', gap: 5,
-  background: 'linear-gradient(180deg, rgba(245,140,222,0.20) 0%, rgba(245,140,222,0.08) 55%,'
-    + ' rgba(245,140,222,0.05) 100%)',
+  background: `linear-gradient(180deg, #f9a8e6 0%, ${GG_PINK} 48%, #e072c8 100%)`,
   border: `1px solid ${GG_PINK}`, borderRadius: 7, padding: '6px 10px',
-  color: '#fbd6f3', fontSize: 12, cursor: 'pointer',
-  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.18)',
+  color: '#0b0b0b', fontSize: 12, fontWeight: 500, cursor: 'pointer',
+  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.40), 0 1px 3px rgba(0,0,0,0.45)',
 }
-/** Solid pink, white text — the button that commits the work. */
+/** The button that commits the work: same pink, heavier. */
 const primaryBtn: React.CSSProperties = {
   ...btn,
-  background: `linear-gradient(180deg, #f9a8e6 0%, ${GG_PINK} 48%, #e072c8 100%)`,
-  border: `1px solid ${GG_PINK}`, color: '#ffffff', fontWeight: 600,
-  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.40), 0 1px 3px rgba(0,0,0,0.45)',
+  fontWeight: 700,
+  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.55), 0 2px 6px rgba(0,0,0,0.55)',
 }
 const chip: React.CSSProperties = { ...btn, padding: '5px 9px' }
 const card: React.CSSProperties = {

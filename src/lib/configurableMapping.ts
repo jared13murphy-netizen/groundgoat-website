@@ -322,6 +322,11 @@ export function listReports(parcelId?: string) {
   return j<{ reports: ReportRow[] }>(`/api/mapping/reports${qs}`)
 }
 
+/** Removes one built report — the row and the stored PDF. */
+export function deleteReport(id: string) {
+  return j<{ ok: boolean }>(`/api/mapping/reports/${id}`, { method: 'DELETE' })
+}
+
 /** Pulls the PDF through the authenticated API and hands it to the
  *  browser as a download. */
 export async function downloadReport(id: string, filename: string): Promise<void> {
