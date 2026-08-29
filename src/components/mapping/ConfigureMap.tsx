@@ -2059,14 +2059,22 @@ export default function ConfigureMap() {
                   <div style={{ ...hint, marginTop: 4 }}>
                     This tract will be saved into that project.
                   </div>
-                  <button
-                    onClick={() => {
-                      setProjectId(null); setProjectName('')
-                      try { window.history.replaceState({}, '', '/configure-map') } catch {}
-                    }}
-                    style={{ ...btn, marginTop: 6, width: '100%', justifyContent: 'center' }}>
-                    <Plus size={13} /> Start a new project
-                  </button>
+                  {/* Only while the tract is UNSAVED. Once it is saved,
+                      leaving the project here changed nothing that
+                      lasted — Update does not move a saved tract between
+                      projects — so the button promised a re-file it
+                      could not do. On a saved tract the way to a fresh
+                      project is "New map" in the footer. */}
+                  {!editingId && (
+                    <button
+                      onClick={() => {
+                        setProjectId(null); setProjectName('')
+                        try { window.history.replaceState({}, '', '/configure-map') } catch {}
+                      }}
+                      style={{ ...btn, marginTop: 6, width: '100%', justifyContent: 'center' }}>
+                      <Plus size={13} /> Save into a new project
+                    </button>
+                  )}
                 </>
               ) : (
                 <input value={projectName} onChange={(e) => setProjectName(e.target.value)}
