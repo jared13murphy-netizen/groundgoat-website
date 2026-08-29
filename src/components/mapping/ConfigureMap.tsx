@@ -1497,6 +1497,14 @@ export default function ConfigureMap() {
     setSelectedId(null); setShapes([]); setBoundaryRings([])
     setDetail(null); setEditingId(null); setName(''); setSources([])
     setStep('boundary'); setEditingTypes(true)
+    // Leave the project as well. Keeping projectId meant the next parcel
+    // you drew was silently filed into the project you had just
+    // cancelled out of — and ?project= in the URL put it straight back
+    // on the next load.
+    setProjectId(null); setProjectName('')
+    try {
+      window.history.replaceState({}, '', '/configure-map')
+    } catch { /* history is a convenience, not load-bearing */ }
     undoRef.current = []; redoRef.current = []
   }, [])
 
@@ -1977,13 +1985,26 @@ export default function ConfigureMap() {
                 // Already inside a project: name it, don't offer a dead
                 // input. The greyed box with placeholder text said
                 // nothing about WHICH project this tract belongs to.
-                <div style={{ ...statRow, opacity: 0.85 }}>
-                  <span>{projectName || 'Open project'}</span>
-                  <a href="/map-portfolio"
-                     style={{ fontSize: 12, color: '#f58cde', textDecoration: 'none' }}>
-                    All tracts
-                  </a>
-                </div>
+                <>
+                  <div style={{ ...statRow, opacity: 0.85 }}>
+                    <span>{projectName || 'Open project'}</span>
+                    <a href="/map-portfolio"
+                       style={{ fontSize: 12, color: '#f58cde', textDecoration: 'none' }}>
+                      All tracts
+                    </a>
+                  </div>
+                  <div style={{ ...hint, marginTop: 4 }}>
+                    This tract will be saved into that project.
+                  </div>
+                  <button
+                    onClick={() => {
+                      setProjectId(null); setProjectName('')
+                      try { window.history.replaceState({}, '', '/configure-map') } catch {}
+                    }}
+                    style={{ ...btn, marginTop: 6, width: '100%', justifyContent: 'center' }}>
+                    <Plus size={13} /> Start a new project instead
+                  </button>
+                </>
               ) : (
                 <input value={projectName} onChange={(e) => setProjectName(e.target.value)}
                        placeholder="e.g. Smith Estate Auction (optional)"
