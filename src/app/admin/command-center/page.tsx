@@ -823,22 +823,35 @@ function Regrid({ d }: { d: any }) {
             The ≥ is per half: records can come from Regrid while tiles come
             from our own cache, and one flag for both mislabelled whichever
             one it did not describe. */}
-        <Row label={`Parcel records${d.records_pct == null ? '' : ` · ${num(d.records_pct, 1)}%`}`}
-          value={d.records == null
-            ? <span className="dim">{d.records_basis}</span>
-            : <>
-                {`${(d.records_is_floor ?? d.is_floor) ? '≥ ' : ''}${num(d.records)} of ${num(d.records_cap)}`}
-                {d.records_pct == null && (
-                  <span className="dim"> · {d.records_basis}</span>)}
-              </>} />
-        <Row label={`Map tiles${d.tiles_pct == null ? '' : ` · ${num(d.tiles_pct, 1)}%`}`}
-          value={d.tiles == null
-            ? <span className="dim">{d.tiles_basis}</span>
-            : <>
-                {`${(d.tiles_is_floor ?? d.is_floor) ? '≥ ' : ''}${num(d.tiles)} of ${num(d.tiles_cap)}`}
-                {d.tiles_pct == null && (
-                  <span className="dim"> · {d.tiles_basis}</span>)}
-              </>} />
+        {/* STACKED, NOT A ONE-LINE ROW. This card is 266px wide — two of
+            twelve grid columns — and `≥ 1,494,583 of 20,000,000` beside a
+            label on one line left the label 56px and cut it to "Map tile…".
+            The share, the count and WHERE THE COUNT CAME FROM all belong to
+            the same half, so they read as one block that wraps.
+
+            The provenance is not decoration: the two halves are decided
+            independently and routinely come from different places. On
+            2026-08-30 records came from our parcel cache (3,121 — the record
+            meter has a gap) and tiles from our meter (1,494,583 — the tile
+            cache is deduplicated by z/x/y and re-fetched monthly, so it held
+            only 4,369). Reading tiles off that cache understated this
+            contract fourfold. */}
+        {[{ n: 'Parcel records', v: d.records, pct: d.records_pct, cap: d.records_cap,
+            floor: d.records_is_floor ?? d.is_floor, basis: d.records_basis },
+          { n: 'Map tiles', v: d.tiles, pct: d.tiles_pct, cap: d.tiles_cap,
+            floor: d.tiles_is_floor ?? d.is_floor, basis: d.tiles_basis }].map(h => (
+          <div className="rghalf" key={h.n}>
+            <div className="rghead">
+              <span>{h.n}</span>
+              <b>{h.pct == null ? <span className="dim">—</span> : `${num(h.pct, 1)}%`}</b>
+            </div>
+            <div className="rgsub">
+              {h.v == null
+                ? h.basis
+                : `${h.floor ? '≥ ' : ''}${num(h.v)} of ${num(h.cap)} · ${h.basis}`}
+            </div>
+          </div>
+        ))}
         <Row label="Days into the year" value={num(d.days_into_year)} />
         {/* What we can answer without Regrid. The rate is measured exactly
             over whatever window the meter holds, and "at this rate, do I
@@ -866,11 +879,16 @@ function Regrid({ d }: { d: any }) {
           updates the timestamp, so a parcel bought twice is counted once. */}
       {d.is_floor && (
         <div className="note" style={{ color: 'var(--amber)' }}>
-          {/* The bases already read "our cache, at least", so naming them
-              again after "Records from" produced "Records from our cache, at
-              least, tiles from our cache, at least." */}
-          Counted from our own cache, so these are a minimum — a parcel or
-          tile bought twice this year is counted once.
+          {/* Both sources are minimums, for different reasons, and the card
+              used to name only the cache one. A cache row is deduplicated by
+              the thing it caches, so a parcel bought twice counts once; the
+              meter counts every purchase but only from the day that endpoint
+              was instrumented, and anything that calls Regrid without going
+              through us — a script hitting tiles.regrid.com directly — never
+              reaches it at all. */}
+          These are minimums. Our cache counts a parcel bought twice as one,
+          and our meter only sees spending that goes through us
+          {d.tiles_counted_from && <> — tile counting starts {String(d.tiles_counted_from).slice(0, 10)}</>}.
         </div>
       )}
       {/* Regrid's own figure, when the window it reports is shorter than the
@@ -892,26 +910,43 @@ function Regrid({ d }: { d: any }) {
             {Object.entries(d.cycle)
               .filter(([k]) => !k.startsWith('_'))
               .map(([k, v]) => (
-                <Row key={k} label={k.replace(/_/g, ' ')}
-                  value={typeof v === 'number' ? num(v as number)
-                    : v == null ? '—' : String(v).slice(0, 80)} />
+                /* A URL is longer than this card is wide, and `.row .r` is
+                   nowrap — so it spilled past the card edge. Text values get
+                   their own wrapping line; numbers keep the tidy row. */
+                typeof v === 'number' || v == null
+                  ? <Row key={k} label={k.replace(/_/g, ' ')}
+                      value={v == null ? '—' : num(v as number)} />
+                  : <div className="rghalf" key={k}>
+                      <div className="rghead"><span>{k.replace(/_/g, ' ')}</span></div>
+                      <div className="rgsub">{String(v).slice(0, 120)}</div>
+                    </div>
               ))}
-            {d.regrid_cycle_days != null && (
-              <div className="note">
-                {d.regrid_cycle_days < 350
-                  ? `This is a ${num(d.regrid_cycle_days)}-day billing cycle, not your contract year — so it cannot answer "how much of the year have I used".`
-                  : (d.records_is_floor || d.tiles_is_floor)
-                    /* Their dates say a year and their counters do not agree
-                       with that, so the figure above is ours, not theirs.
-                       Saying "it is being used as the contract-year figure"
-                       here while the card shows a different number would be
-                       the same mistake in prose. */
-                    ? `This covers ${num(d.regrid_cycle_days)} days, but their counts are lower than what we can account for buying inside that window, so the figure above is counted from our own records instead.`
-                    : `This covers ${num(d.regrid_cycle_days)} days, so it is being used as the contract-year figure above.`}
-              </div>
-            )}
-            <Row label="bought, from our own records"
-              value={`${num(d.floor_records)} records · ${num(d.floor_tiles)} tiles`} />
+            {/* THE DATES AND THE COUNTS ARE TWO DIFFERENT CLAIMS. The dates
+                really are the contract term and are used as such — the
+                contract year on this card starts on the day Regrid says it
+                does. The counts beside them reset at UTC midnight, which is
+                why they read 134 on 26 Aug and 5 on 30 Aug. Treating those
+                counts as the year is what put 0.1% on this card. */}
+            <div className="note">
+              {d.regrid_cycle_days != null && `Their dates name a ${num(d.regrid_cycle_days)}-day term and the contract year above starts on the day they give. `}
+              Their counts, though, are for today only — they reset at UTC
+              midnight — so they are shown here as a live cross-check, never
+              as the year.
+            </div>
+            <Row label="Regrid, today"
+              value={`${num(d.regrid_today_records)} rec · ${num(d.regrid_today_tiles)} tiles`} />
+            {/* Stacked, not rows: inside the details the card is 244px and
+                `1,494,583 tiles` beside a label leaves nothing for the
+                label. These are the two numbers the year is chosen from, so
+                both are shown rather than only the winner. */}
+            <div className="rghalf">
+              <div className="rghead"><span>This year, from our cache</span></div>
+              <div className="rgsub">{`${num(d.floor_records)} records · ${num(d.floor_tiles)} tiles`}</div>
+            </div>
+            <div className="rghalf">
+              <div className="rghead"><span>This year, from our meter</span></div>
+              <div className="rgsub">{`${num(d.our_records)} records · ${num(d.our_tiles)} tiles`}</div>
+            </div>
             {d.source_url && <div className="fixnote">Answered by {d.source_url}</div>}
           </>
         ) : (
@@ -923,13 +958,26 @@ function Regrid({ d }: { d: any }) {
       <div className="rows" style={{ borderTop: '1px solid var(--line)', paddingTop: 7 }}>
         <Row label="Parcel lookups today" value={num(d.parcel_lookups_24h)} />
         <Row label="Saved by our cache" value={rate(d.parcel_cache_pct)} />
+        {/* Owner search buys straight from the Records API with no cache
+            behind it, up to 500 records in a single search, and it runs on
+            every owner lookup. It reached neither this card nor our meter
+            until 2026-08-30, so it is given its own line rather than being
+            folded into the lookup figure above. */}
+        {d.owner_search_calls_24h > 0 && (
+          <Row label="Owner searches today"
+            tone={d.owner_search_records_24h >= 1000 ? 'amber' : ''}
+            value={`${num(d.owner_search_calls_24h)} · ${num(d.owner_search_records_24h)} records bought`} />
+        )}
         <Row label="Map tiles today" value={num(d.tiles_24h)} />
         <Row label="Tiles saved by our cache" value={rate(d.tile_cache_pct)} />
       </div>
+      {/* THE CONTRACT DATE ALWAYS SHOWS. It used to be dropped whenever
+          Regrid sent any note at all, and Regrid now always sends one — so
+          the card would have answered "how much of my year have I used"
+          without ever saying when that year started. It comes from Regrid's
+          own cycle_dates.begin, so it is their date, not our guess. */}
       <div className="note">
-        {d.cycle_note
-          ? <span style={{ color: 'var(--amber)' }}>{d.cycle_note} </span>
-          : `Contract year started ${d.contract_year_start}. `}
+        {`Contract year started ${d.contract_year_start}. `}
         {/* Read off the meter's oldest row. This was a hardcoded date that
             was already wrong when it was written, and contradicted the pace
             line further up the same card. */}
@@ -937,6 +985,9 @@ function Regrid({ d }: { d: any }) {
           ? `Our own counting goes back to ${String(d.counting_since).slice(0, 10)}.`
           : 'Our own counter has recorded nothing yet.'}
       </div>
+      {/* Regrid's note is an explanation, not a warning — amber was crying
+          wolf on a permanent fact about how their API works. */}
+      {d.cycle_note && <div className="note dim">{d.cycle_note}</div>}
     </>
   )
 }
@@ -2857,7 +2908,13 @@ export default function CommandCenterPage() {
           </Panel>
 
           <Panel span={2} title="Regrid budget" infoId="regrid" panelState={st('regrid')} onChart={chart('regrid')}
-            pip={!regridD ? undefined : regridD.records_used_pct >= 90 ? 'red' : regridD.records_used_pct >= 75 ? 'amber' : 'green'}>
+            /* records_used_pct is not a key the Regrid panel publishes — it
+               never has been — so this pip was permanently green no matter
+               how much of the contract was gone. The panel's own headline
+               field is combined_pct, and half a contract is records + tiles,
+               not records alone. */
+            pip={!regridD || regridD.combined_pct == null ? undefined
+              : regridD.combined_pct >= 90 ? 'red' : regridD.combined_pct >= 75 ? 'amber' : 'green'}>
             {regridD ? <Regrid d={regridD} /> : <Unavailable why={whyMissing('regrid')} />}
           </Panel>
 
@@ -3233,6 +3290,12 @@ td.t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:0;width
 td.red,.red-t{color:var(--red);} td.amber{color:var(--amber);} td.dim{color:var(--muted);}
 
 .rows{display:flex;flex-direction:column;gap:5px;min-height:0;}
+/* Regrid halves. The card is two of twelve columns wide, so the count and
+   its provenance have to wrap rather than share a line with the label. */
+.rghalf{display:flex;flex-direction:column;gap:1px;}
+.rghead{display:flex;align-items:baseline;gap:8px;font-size:12px;}
+.rghead b{margin-left:auto;font-family:var(--mono);font-variant-numeric:tabular-nums;font-weight:400;}
+.rgsub{font-family:var(--mono);font-size:10.5px;color:var(--muted);line-height:1.35;overflow-wrap:anywhere;}
 .row{display:flex;align-items:baseline;gap:8px;font-size:12px;}
 .row .l{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .row .r{margin-left:auto;font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap;}
