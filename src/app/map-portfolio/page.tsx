@@ -13,10 +13,10 @@
 import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
 import {
-  Archive, ArchiveRestore, Loader2, Map as MapIcon, PenLine, Plus, Search,
+  Archive, ArchiveRestore, Check, Loader2, Map as MapIcon, PenLine, Plus, Search,
 } from 'lucide-react'
 import {
-  archiveParcel, fetchMappingAccessState, getProject, listProjects,
+  archiveParcel, fetchMappingAccessState, getProject, listProjects, renameParcel,
   updateProject, type Project, type SavedParcelRow,
 } from '@/lib/configurableMapping'
 
@@ -26,6 +26,8 @@ export default function MapPortfolioPage() {
   const [showArchived, setShowArchived] = useState(false)
   const [openId, setOpenId] = useState<string | null>(null)
   const [openParcels, setOpenParcels] = useState<SavedParcelRow[]>([])
+  const [renameId, setRenameId] = useState<string | null>(null)
+  const [renameTo, setRenameTo] = useState('')
   const [q, setQ] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -171,15 +173,48 @@ export default function MapPortfolioPage() {
                   )}
                   {openParcels.map((x) => (
                     <div key={x.id} style={parcelRow}>
-                      <Link href={`/configure-map?parcel=${x.id}`} style={{ ...link, fontSize: 13 }}>
-                        {x.name}
-                      </Link>
+                      {renameId === x.id ? (
+                        <>
+                          <input
+                            autoFocus value={renameTo}
+                            onChange={(e) => setRenameTo(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Escape') setRenameId(null)
+                              if (e.key !== 'Enter' || !renameTo.trim()) return
+                              void act('Renaming…', async () => {
+                                await renameParcel(x.id, renameTo.trim())
+                                setRenameId(null)
+                                const r = await getProject(p.id); setOpenParcels(r.parcels)
+                              })
+                            }}
+                            style={{ ...input, fontSize: 13, padding: '4px 8px', width: 220 }} />
+                          <button style={{ ...btn, padding: '3px 8px', fontSize: 11 }}
+                                  disabled={!!busy || !renameTo.trim()}
+                                  onClick={() => void act('Renaming…', async () => {
+                                    await renameParcel(x.id, renameTo.trim())
+                                    setRenameId(null)
+                                    const r = await getProject(p.id); setOpenParcels(r.parcels)
+                                  })}>
+                            <Check size={11} /> Save
+                          </button>
+                          <button style={{ ...btn, padding: '3px 8px', fontSize: 11 }}
+                                  onClick={() => setRenameId(null)}>Cancel</button>
+                        </>
+                      ) : (
+                        <Link href={`/configure-map?parcel=${x.id}`} style={{ ...link, fontSize: 13 }}>
+                          {x.name}
+                        </Link>
+                      )}
                       <span style={muted}>
                         {(x.stats?.acres ?? 0).toFixed(1)} ac
                         {x.stats?.tillable_acres ? ` · ${x.stats.tillable_acres.toFixed(1)} tillable` : ''}
                         {x.stats?.soil?.rating ? ` · ${x.stats.soil.rating} ${x.stats.soil.rating_type}` : ''}
                       </span>
                       <div style={{ flex: 1 }} />
+                      <button style={{ ...btn, padding: '3px 8px', fontSize: 11 }} disabled={!!busy}
+                              onClick={() => { setRenameId(x.id); setRenameTo(x.name) }}>
+                        <PenLine size={11} /> Rename
+                      </button>
                       <button style={{ ...btn, padding: '3px 8px', fontSize: 11 }} disabled={!!busy}
                               onClick={() => void act('Archiving…', async () => {
                                 await archiveParcel(x.id)

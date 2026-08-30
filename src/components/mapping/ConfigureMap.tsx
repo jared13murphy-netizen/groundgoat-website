@@ -35,7 +35,7 @@ import {
   splitGeometry, normalizeGeometry, previewSoil,
   updateParcel, queueReport, listReports, downloadReport, getProject,
   REPORT_KINDS, REPORT_LABEL, REPORT_BUSY_LABEL, USES_ELEVATION, type ReportRow,
-  deleteReport, projectGeometry, type ProjectTractGeometry, listCounties,
+  deleteReport, projectGeometry, type ProjectTractGeometry, listCounties, renameParcel,
   createCma, getCma, listCmas, cmaCandidates, setCmaComps, queueCmaReport, updateCma,
   type Cma, type CompCandidate,
   type LandClass, type ParcelDetail, type ParcelSummary,
@@ -225,6 +225,7 @@ export default function ConfigureMap() {
   const [searchState, setSearchState] = useState('')
   // 1 = the fills as designed, 0 = outlines only over bare imagery.
   const [fillOpacity, setFillOpacity] = useState(1)
+  const [savedName, setSavedName] = useState('')
   const [searchCounty, setSearchCounty] = useState('')
   const [counties, setCounties] = useState<string[]>([])
   const [hits, setHits] = useState<ParcelSummary[]>([])
@@ -286,7 +287,7 @@ export default function ConfigureMap() {
       setBoundaryRings(geometryToPolys(d.boundary))
       setShapes([])
       setSelectedId(null)
-      setName(d.parcel?.parcelnumb ? `Parcel ${d.parcel.parcelnumb}` : '')
+      setName(d.parcel?.parcelnumb ? `Parcel ${d.parcel.parcelnumb}` : ''); setSavedName('')
       setHits([])
       const bb = bboxOf(d.boundary?.coordinates)
       if (bb && mapRef.current) mapRef.current.fitBounds(bb, { padding: 90, duration: 700 })
@@ -332,7 +333,7 @@ export default function ConfigureMap() {
         if (cancelled) return
         setEditingId(rec.id)
         setProjectId(rec.project_id)
-        setName(rec.name)
+        setName(rec.name); setSavedName(rec.name)
         if (rec.project_id) {
           getProject(rec.project_id)
             .then((r) => { if (!cancelled && r.project?.name) setProjectName(r.project.name) })
@@ -1386,7 +1387,12 @@ export default function ConfigureMap() {
     // The open tract gets a badge too, from its LIVE outline, so the name
     // tracks what is being typed instead of what was last saved.
     const liveCentre = ringCentre(boundaryRings)
-    if (liveCentre && detail && name.trim()) {
+    // Don't badge the same ground twice. Re-opening a parcel that is
+    // already a saved tract in this project drew the saved badge AND
+    // the live one — two identical pills stacked on one field.
+    const alreadyBadged = !!liveCentre && others.some((t) => t.boundary
+      && geometryToPolys(t.boundary).some((rings) => pointInRing(liveCentre, rings[0])))
+    if (liveCentre && detail && name.trim() && !alreadyBadged) {
       labels.push({
         type: 'Feature', geometry: { type: 'Point', coordinates: liveCentre },
         properties: { name: name.trim() },
@@ -1628,6 +1634,22 @@ export default function ConfigureMap() {
     return sh ? sh.polys.reduce((n, rings) => n + Math.max(rings.length - 1, 0), 0) : 0
   }, [shapes, selectedId])
 
+  /** Rename a saved tract on its own. Renaming used to mean entering
+   *  full edit mode and re-saving the whole tract — geometry, acreage
+   *  and soil recomputed — to change a word. */
+  const doRename = useCallback(async () => {
+    const n = name.trim()
+    if (!editingId || !n) return
+    setBusy('Renaming…'); setError(null); setSavedMsg(null)
+    try {
+      await renameParcel(editingId, n)
+      setSavedMsg(`Renamed to "${n}".`); setSavedName(n)
+      await loadPeers(projectId)   // the badge on the map follows
+    } catch (e: any) {
+      setError(e?.message || 'That name could not be saved.')
+    } finally { setBusy(null) }
+  }, [editingId, name, projectId, loadPeers])
+
   const deleteShape = useCallback((id: string) => {
     const gone = shapesRef.current.find((s) => s.id === id)
     const rest = shapesRef.current.filter((s) => s.id !== id)
@@ -1696,6 +1718,7 @@ export default function ConfigureMap() {
       }
       const st = res.stats || {}
       setSavedMsg(`Saved "${res.name}" — ${st.acres ?? '?'} ac total, ${st.tillable_acres ?? 0} ac tillable.`)
+      setSavedName(res.name)
       setEditingTypes(false)
       setTool(null); setDrawing(false); setDraft([]); setCutPts([]); setSelectedId(null)
     } catch (e: any) {
@@ -1775,7 +1798,7 @@ export default function ConfigureMap() {
       try {
         const rec = await getSavedParcel(editingId)
         setShapes(explodeShapes(rec.polygons as any))
-        setName(rec.name)
+        setName(rec.name); setSavedName(rec.name)
       } catch (e: any) {
         setError(e?.message || 'Could not reload the saved version.')
       } finally { setBusy(null) }
@@ -1792,7 +1815,7 @@ export default function ConfigureMap() {
     setError(null); setSavedMsg(null); setPieces([]); setTool(null)
     setDrawing(false); setDraft([]); setCutPts([]); setMarq(null)
     setSelectedId(null); setShapes([]); setBoundaryRings([])
-    setDetail(null); setEditingId(null); setName(''); setSources([])
+    setDetail(null); setEditingId(null); setName(''); setSavedName(''); setSources([])
     setStep('boundary'); setEditingTypes(true)
     // Leave the project as well. Keeping projectId meant the next parcel
     // you drew was silently filed into the project you had just
@@ -1815,7 +1838,7 @@ export default function ConfigureMap() {
     setError(null); setSavedMsg(null); setPieces([]); setTool(null)
     setDrawing(false); setDraft([]); setCutPts([]); setMarq(null)
     setSelectedId(null); setShapes([]); setBoundaryRings([])
-    setDetail(null); setEditingId(null); setName(''); setSources([])
+    setDetail(null); setEditingId(null); setName(''); setSavedName(''); setSources([])
     setStep('boundary'); setEditingTypes(true)
     try {
       window.history.replaceState(
@@ -2436,6 +2459,24 @@ export default function ConfigureMap() {
                 <input value={name} onChange={(e) => setName(e.target.value)}
                        placeholder="e.g. Tract 1, Home Place, North 80"
                        style={inputStyle} />
+              </div>
+            )}
+            {/* Renaming a saved tract without entering edit mode. Only
+                the name is written — the geometry is not touched. */}
+            {step === 'landtypes' && !editingTypes && editingId && (
+              <div>
+                <div style={sectionLabel}>Tract name</div>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <input value={name} onChange={(e) => setName(e.target.value)}
+                         onKeyDown={(e) => { if (e.key === 'Enter') void doRename() }}
+                         placeholder="e.g. Tract 1, Home Place, North 80"
+                         style={inputStyle} />
+                  <button onClick={() => void doRename()}
+                          disabled={!!busy || !name.trim() || name.trim() === savedName}
+                          style={{ ...btn, flex: 'none' }}>
+                    <PenLine size={13} /> Rename
+                  </button>
+                </div>
               </div>
             )}
             {step === 'landtypes' && !editingTypes ? (

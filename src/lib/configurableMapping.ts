@@ -254,6 +254,16 @@ export function duplicateProject(id: string) {
     `/api/mapping/projects/${id}/duplicate`, { method: 'POST' })
 }
 
+/** Rename a tract. Does not touch its geometry — the full save
+ *  recomputes acreage and soil, which is far too much for a name. */
+export function renameParcel(id: string, name: string) {
+  return j<{ id: string; name: string }>(`/api/mapping/parcels/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+}
+
 export function archiveParcel(id: string) {
   return j<{ ok: true }>(`/api/mapping/parcels/${id}`, { method: 'DELETE' })
 }
