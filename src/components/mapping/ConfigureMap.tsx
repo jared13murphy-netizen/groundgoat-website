@@ -223,6 +223,11 @@ export default function ConfigureMap() {
   // Refs mirror state for use inside map event handlers, which close
   // over their first render otherwise.
   const shapesRef = useRef(shapes); shapesRef.current = shapes
+  // Read by map handlers that are registered once, on load, and so can
+  // never close over current state.
+  const peersRef = useRef<ProjectTractGeometry[]>([])
+  const placeLabelsRaised = useRef(new Set<string>()).current
+  const raisePlaceLabelsRef = useRef<(() => void) | null>(null)
   const selectedRef = useRef(selectedId); selectedRef.current = selectedId
   const drawingRef = useRef(drawing); drawingRef.current = drawing
   const toolRef = useRef(tool); toolRef.current = tool
@@ -469,6 +474,27 @@ export default function ConfigureMap() {
           if (map.getLayer(l)) map.setFilter(l, f)
         }
       }
+
+      // Town, county and state names belong ABOVE the parcel grid: a
+      // place name half-crossed by a parcel line is unreadable. Only the
+      // LABEL layers are raised — the county/state borders stay under
+      // the grid, which is what put them below in the first place.
+      //
+      // Anchored before the first Configure Map layer rather than moved
+      // to the very top, so a town name can never cover a tract badge.
+      // The town layer arrives from a fetch AFTER load, so this has to
+      // run again when it shows up; `raised` stops it looping, because
+      // moveLayer itself fires styledata.
+      const raisePlaceLabels = () => {
+        for (const l of ['pl-state-labels', 'pl-county-labels', 'pl-town-labels']) {
+          if (placeLabelsRaised.has(l) || !map.getLayer(l)) continue
+          if (map.getLayer('cm-peer-shapes-fill')) map.moveLayer(l, 'cm-peer-shapes-fill')
+          else map.moveLayer(l)
+          placeLabelsRaised.add(l)
+        }
+      }
+      raisePlaceLabelsRef.current = raisePlaceLabels
+      map.on('styledata', raisePlaceLabels)
 
       // ── the rest of the project ──────────────────────────────────
       // Every OTHER tract in this project, drawn underneath whatever is
@@ -823,11 +849,30 @@ export default function ConfigureMap() {
         e.preventDefault()
         toggleCompRef.current(String(f.properties!.id))
       })
+
+      // Zoomed out, the badge is often the only part of a tract big
+      // enough to hit. Clicking it frames that tract.
+      map.on('click', 'cm-peer-label', (e) => {
+        const f = e.features?.[0]
+        if (!f) return
+        e.preventDefault()
+        const id = f.properties?.tractId ? String(f.properties.tractId) : null
+        const t = id ? peersRef.current.find((x) => x.id === id) : null
+        const bb = t?.boundary ? bboxOf(t.boundary.coordinates) : null
+        if (bb) map.fitBounds(bb, { padding: 80, maxZoom: 16, duration: 800 })
+        else if (f.geometry.type === 'Point') {
+          map.flyTo({ center: (f.geometry as any).coordinates, zoom: 15, duration: 800 })
+        }
+      })
+      map.on('mouseenter', 'cm-peer-label', () => { map.getCanvas().style.cursor = 'pointer' })
+      map.on('mouseleave', 'cm-peer-label', () => { map.getCanvas().style.cursor = '' })
       map.on('mouseenter', 'cm-comps-circles', () => { map.getCanvas().style.cursor = 'pointer' })
       map.on('mouseleave', 'cm-comps-circles', () => { map.getCanvas().style.cursor = '' })
 
       map.on('click', (e) => {
-        if (map.queryRenderedFeatures(e.point, { layers: ['cm-comps-circles'] }).length) return
+        if (map.queryRenderedFeatures(e.point, {
+          layers: ['cm-comps-circles', 'cm-peer-label'].filter((l) => map.getLayer(l)),
+        }).length) return
         // A click on the outline during step 1 means "add a handle here"
         // and is handled by the layer listener above; letting it fall
         // through would also try to select a parcel underneath.
@@ -908,6 +953,8 @@ export default function ConfigureMap() {
       map.remove()
       // Only clear the ref if it still points at THIS map, so a
       // late cleanup cannot orphan a newer instance.
+      raisePlaceLabelsRef.current = null
+      placeLabelsRaised.clear()
       if (mapRef.current === map) { mapRef.current = null; setReady(false) }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1305,6 +1352,7 @@ export default function ConfigureMap() {
     // Everything EXCEPT the tract that is open: that one is drawn live
     // from the editor's own state, and a stale copy underneath it would
     // ghost every edit.
+    peersRef.current = peers
     const others = peers.filter((t) => t.id !== editingId)
     const fills: any[] = []
     const bounds: any[] = []
@@ -1319,7 +1367,7 @@ export default function ConfigureMap() {
       if (t.boundary) bounds.push({ type: 'Feature', geometry: t.boundary, properties: {} })
       if (t.label_point) labels.push({
         type: 'Feature', geometry: t.label_point,
-        properties: { name: t.name || 'Untitled' },
+        properties: { name: t.name || 'Untitled', tractId: t.id },
       })
     }
     // The open tract gets a badge too, from its LIVE outline, so the name
@@ -1337,6 +1385,7 @@ export default function ConfigureMap() {
       { type: 'FeatureCollection', features: bounds } as any)
     ;(map.getSource(SRC.peerLabel) as maplibregl.GeoJSONSource)?.setData(
       { type: 'FeatureCollection', features: labels } as any)
+    raisePlaceLabelsRef.current?.()
   }, [peers, editingId, ready, boundaryRings, detail, name])
 
   // Every fill on the screen scales together, so the slider does one
