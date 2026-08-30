@@ -27,6 +27,7 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import {
   Loader2, Plus, Trash2, RotateCcw, RotateCw, Save, Search, X, Layers,
   Scissors, Combine, FileText, Download, BarChart3, Eraser, PenLine, PaintBucket,
+  ArrowRight,
 } from 'lucide-react'
 import {
   CLASS_COLOR, CLASS_LABEL, LAND_CLASSES, PARCEL_LINE, SEARCH_DOT, VERTEX_LINE,
@@ -2424,10 +2425,14 @@ export default function ConfigureMap() {
               </div>
             ) : (
             <div style={{ display: 'flex', gap: 8 }}>
+              {/* Step 1's button is NOT "Save outline": nothing is
+                  written here. It confirms the outline and moves to step
+                  2, where the land types fill in — so it names where it
+                  is taking you. */}
               {step === 'boundary' ? (
                 <button onClick={() => void confirmBoundary()} disabled={!!busy}
                         style={{ ...primaryBtn, flex: 1, justifyContent: 'center', padding: '9px 10px' }}>
-                  <Save size={14} /> Save outline
+                  <ArrowRight size={14} /> Next: land types
                 </button>
               ) : (
                 <button onClick={() => void doSave()} disabled={!!busy || !name.trim()}
