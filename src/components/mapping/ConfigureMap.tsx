@@ -2228,6 +2228,13 @@ export default function ConfigureMap() {
               </div>
             </div>
 
+
+              </>
+            )}
+
+            {/* Cutting the parcel is a STEP 1 action, but this card lived
+                inside the step 2 branch — so the cut ran, staged its
+                pieces, and nothing appeared. Outside the ternary now. */}
             {pieces.length > 0 && (
               <div style={card}>
                 <div style={sectionLabel}>Split into {pieces.length} tracts</div>
@@ -2246,11 +2253,12 @@ export default function ConfigureMap() {
               </div>
             )}
 
-              </>
-            )}
-
-            {/* Legend + acreage — shown in both steps so the numbers are
-                always in view. */}
+            {/* Step 2 only. In step 1 nothing has been classified yet, so
+                every class read 0.0 and the whole parcel fell into
+                "Other / Unclassified" — which states something false
+                about the ground rather than saying "not computed yet".
+                The live acreage is on the parcel card above either way. */}
+            {step === 'landtypes' && (
             <div style={card}>
               <div style={sectionLabel}>Legend &amp; acres</div>
               {LAND_CLASSES.map((c) => (
@@ -2270,21 +2278,20 @@ export default function ConfigureMap() {
                 <span style={{ opacity: 0.65 }}>Buildings</span>
                 <span>{detail.parcel?.ll_bldg_count ?? 0}</span>
               </div>
-              {step === 'landtypes' && (
-                <div style={{ ...statRow, borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: 6 }}>
-                  <span style={{ opacity: 0.65 }}>
-                    Soil rating{soil?.rating_type ? ` (${soil.rating_type})` : ''}
-                  </span>
-                  <span style={{ opacity: soilBusy ? 0.45 : 1 }}>
-                    {soilBusy ? 'updating…' : (soil?.rating ?? '—')}
-                  </span>
-                </div>
-              )}
+              <div style={{ ...statRow, borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: 6 }}>
+                <span style={{ opacity: 0.65 }}>
+                  Soil rating{soil?.rating_type ? ` (${soil.rating_type})` : ''}
+                </span>
+                <span style={{ opacity: soilBusy ? 0.45 : 1 }}>
+                  {soilBusy ? 'updating…' : (soil?.rating ?? '—')}
+                </span>
+              </div>
               <div style={hint}>
                 Acres update as you edit; the soil rating follows a moment later.
                 Both are recomputed exactly when you save.
               </div>
             </div>
+            )}
 
             {/* Name + save */}
             {cma && (
