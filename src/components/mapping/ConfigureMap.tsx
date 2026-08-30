@@ -149,12 +149,12 @@ function TractName({ value, onCommit, busy, placeholder }: {
         placeholder={placeholder || 'e.g. Tract 1, Home Place, North 80'}
         style={inputStyle} />
       <button onClick={cancel} title="Cancel" aria-label="Cancel rename"
-              style={{ ...btn, flex: 'none', padding: '4px 7px' }}>
+              style={{ ...dangerBtn, flex: 'none', padding: '4px 7px' }}>
         <X size={13} />
       </button>
       <button onClick={commit} disabled={busy || !draft.trim()}
               title="Save this name" aria-label="Save this name"
-              style={{ ...primaryBtn, flex: 'none', padding: '4px 7px' }}>
+              style={{ ...goBtn, flex: 'none', padding: '4px 7px' }}>
         <Check size={13} />
       </button>
     </div>
@@ -2596,7 +2596,7 @@ export default function ConfigureMap() {
                       disabled={deletingReport === r.id}
                       title="Delete this report"
                       aria-label="Delete this report"
-                      style={{ ...btn, padding: '2px 5px', fontSize: 11 }}>
+                      style={{ ...dangerBtn, padding: '2px 5px', fontSize: 11 }}>
                       <X size={12} />
                     </button>
                   </span>
@@ -2824,6 +2824,19 @@ const btn: React.CSSProperties = {
   border: `1px solid ${GG_PINK}`, borderRadius: 7, padding: '6px 10px',
   color: '#0b0b0b', fontSize: 12, fontWeight: 500, cursor: 'pointer',
   boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.40), 0 1px 3px rgba(0,0,0,0.45)',
+}
+/** Abandon (x) is red, keep (tick) is green, wherever they appear —
+ *  the two are always side by side and the colour is what tells them
+ *  apart at a glance (owner). */
+const dangerBtn: React.CSSProperties = {
+  ...btn,
+  background: 'linear-gradient(180deg, #fca5a5 0%, #ef4444 48%, #dc2626 100%)',
+  border: '1px solid #ef4444',
+}
+const goBtn: React.CSSProperties = {
+  ...btn,
+  background: 'linear-gradient(180deg, #86efac 0%, #22c55e 48%, #16a34a 100%)',
+  border: '1px solid #22c55e',
 }
 /** The button that commits the work: same pink, heavier. */
 const primaryBtn: React.CSSProperties = {

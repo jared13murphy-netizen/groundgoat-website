@@ -278,12 +278,12 @@ export default function MapPortfolioPage() {
                               if (e.key === 'Enter') void saveRename(x.id, p.id)
                             }}
                             style={{ ...input, fontSize: 13, padding: '4px 8px', width: 220 }} />
-                          <button style={{ ...btn, padding: '3px 7px', fontSize: 11 }}
+                          <button style={{ ...dangerBtn, padding: '3px 7px', fontSize: 11 }}
                                   title="Cancel" aria-label="Cancel rename"
                                   onClick={() => setRenameId(null)}>
                             <X size={12} />
                           </button>
-                          <button style={{ ...btn, padding: '3px 7px', fontSize: 11 }}
+                          <button style={{ ...goBtn, padding: '3px 7px', fontSize: 11 }}
                                   disabled={!!busy || !renameTo.trim()}
                                   title="Save this name" aria-label="Save this name"
                                   onClick={() => void saveRename(x.id, p.id)}>
@@ -370,6 +370,18 @@ const btn: React.CSSProperties = {
   background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.15)',
   borderRadius: 7, padding: '5px 10px', color: '#e5e7eb', fontSize: 12,
   cursor: 'pointer', textDecoration: 'none',
+}
+/** Abandon is red, keep is green — the same pair as the map panel, so
+ *  the gesture reads identically on both screens. */
+const dangerBtn: React.CSSProperties = {
+  ...btn, color: '#ffffff',
+  background: 'linear-gradient(180deg, #f87171 0%, #ef4444 55%, #dc2626 100%)',
+  border: '1px solid #ef4444',
+}
+const goBtn: React.CSSProperties = {
+  ...btn, color: '#0b0b0b',
+  background: 'linear-gradient(180deg, #86efac 0%, #22c55e 55%, #16a34a 100%)',
+  border: '1px solid #22c55e',
 }
 const input: React.CSSProperties = {
   background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)',
