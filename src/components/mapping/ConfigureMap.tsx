@@ -98,6 +98,18 @@ function explodeShapes(polys: { cls: LandClass; geometry: any }[]): Shape[] {
 
 /** Mean of a shape's outer ring — a cheap, stable fingerprint used to
  *  find a polygon again after normalising rebuilds it with a new id. */
+/** Ray cast. Rings here are open — first point is not repeated. */
+function pointInRing(pt: Pt, ring: Pt[]): boolean {
+  let inside = false
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i]
+    const [xj, yj] = ring[j]
+    if ((yi > pt[1]) !== (yj > pt[1])
+        && pt[0] < ((xj - xi) * (pt[1] - yi)) / (yj - yi) + xi) inside = !inside
+  }
+  return inside
+}
+
 /** Keeps the outer ring, throws away holes that are no longer a shape.
  *  A hole emptied by removing its points must actually disappear. */
 function dropDegenerateHoles(rings: Pt[][]): Pt[][] {
@@ -1617,8 +1629,33 @@ export default function ConfigureMap() {
   }, [shapes, selectedId])
 
   const deleteShape = useCallback((id: string) => {
-    mutate((prev) => prev.filter((s) => s.id !== id))
+    const gone = shapesRef.current.find((s) => s.id === id)
+    const rest = shapesRef.current.filter((s) => s.id !== id)
+    const goneOuter = gone?.polys[0]?.[0]
+
+    // Deleting only ever removed the polygon. The polygon AROUND it kept
+    // the hole that polygon was sitting in, so the ground left behind
+    // showed as a differently coloured patch instead of becoming part of
+    // its neighbour. Close that hole: a hole belongs to the deleted
+    // polygon when its centre falls inside what was just removed.
+    const next = !goneOuter ? rest : rest.map((sh) => ({
+      ...sh,
+      polys: sh.polys.map((rings) => rings.filter((ring, ri) => {
+        if (ri === 0) return true
+        const c = ringCentre([[ring]])
+        if (!c || !pointInRing(c, goneOuter)) return true
+        // Another polygon still occupies this hole — closing it would
+        // swallow that one too.
+        return rest.some((o) => {
+          if (o.id === sh.id) return false
+          const oc = ringCentre(o.polys)
+          return !!oc && pointInRing(oc, ring)
+        })
+      })),
+    }))
+    mutate(() => next)
     setSelectedId((cur) => cur === id ? null : cur)
+    void enforceNoOverlapRef.current(next, null)
   }, [mutate])
 
   const clearAll = useCallback(() => {
@@ -2432,7 +2469,7 @@ export default function ConfigureMap() {
               {step === 'boundary' ? (
                 <button onClick={() => void confirmBoundary()} disabled={!!busy}
                         style={{ ...primaryBtn, flex: 1, justifyContent: 'center', padding: '9px 10px' }}>
-                  <ArrowRight size={14} /> Next: land types
+                  <ArrowRight size={14} /> Continue to Land Types
                 </button>
               ) : (
                 <button onClick={() => void doSave()} disabled={!!busy || !name.trim()}
