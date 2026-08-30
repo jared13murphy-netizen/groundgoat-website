@@ -481,12 +481,22 @@ export default function ConfigureMap() {
         // vector styling), not the basemap's raster label tiles — those
         // were blurry, unstyled, and could not be matched to the rest of
         // the product. State silhouettes are deliberately absent.
+        // maxzoom 19 is where ArcGIS World Imagery actually stops. Past
+        // it the server answers with a "Map data not yet available"
+        // placeholder tile; declaring the ceiling makes MapLibre
+        // over-zoom the deepest real tile instead of asking for one that
+        // does not exist. The Explore map has always done this.
         layers: [
-          { id: 'sat', type: 'raster', source: 'sat' },
+          { id: 'sat', type: 'raster', source: 'sat', minzoom: 0, maxzoom: 19 },
         ],
       },
       center: MAP_CENTER,
       zoom: MAP_INITIAL_ZOOM,
+      // Matches the Explore map. Without the ceiling you can zoom past
+      // the imagery; without the cache cap, heavy panning grows the tile
+      // cache until the GPU loses the WebGL context.
+      maxZoom: 18,
+      maxTileCacheSize: 200,
       attributionControl: false,
       // Parcel tiles come from our backend behind auth; the token rides
       // as a header rather than in the URL (header_auth=1).

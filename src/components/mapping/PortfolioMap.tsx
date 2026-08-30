@@ -74,10 +74,22 @@ export default function PortfolioMap({
         sources: {
           sat: { type: 'raster', tiles: [TILE_URL], tileSize: 256, attribution: TILE_ATTRIBUTION },
         },
-        layers: [{ id: 'sat', type: 'raster', source: 'sat' }],
+        // maxzoom 19 is where ArcGIS World Imagery actually stops. Past
+        // it the server answers with a "Map data not yet available"
+        // placeholder tile; declaring the ceiling makes MapLibre
+        // over-zoom the deepest real tile instead of asking for one that
+        // does not exist. The Explore map has always done this.
+        layers: [
+          { id: 'sat', type: 'raster', source: 'sat', minzoom: 0, maxzoom: 19 },
+        ],
       },
       center: MAP_CENTER,
       zoom: MAP_INITIAL_ZOOM,
+      // Matches the Explore map. Without the ceiling you can zoom past
+      // the imagery; without the cache cap, heavy panning grows the tile
+      // cache until the GPU loses the WebGL context.
+      maxZoom: 18,
+      maxTileCacheSize: 200,
       attributionControl: false,
       transformRequest: (url: string) => {
         if (url.includes(`${API_URL}/api/regrid/tile/`)) {
