@@ -57,6 +57,9 @@ export default function PortfolioMap({ tracts, selectedProject, onPickProject }:
   // Frame a project only when the SELECTION changes — not on every data
   // refresh, which would yank the camera back while someone is panning.
   const framedRef = useRef<string | null | undefined>(undefined)
+  // The map finishes loading after the first render, and the tracts
+  // arrive later still. Whichever lands last runs the current paint.
+  const paintRef = useRef<(() => void) | null>(null)
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
@@ -169,7 +172,7 @@ export default function PortfolioMap({ tracts, selectedProject, onPickProject }:
         map.on('mouseleave', l, () => { map.getCanvas().style.cursor = '' })
       }
       readyRef.current = true
-      map.fire('pf-ready' as any)
+      paintRef.current?.()
     })
 
     return () => {
@@ -204,14 +207,17 @@ export default function PortfolioMap({ tracts, selectedProject, onPickProject }:
       ;(map.getSource(SRC_LABEL) as maplibregl.GeoJSONSource)?.setData(
         { type: 'FeatureCollection', features: labels } as any)
 
-      if (framedRef.current !== selectedProject) {
+      // `shown.length` matters: the first paint runs before the tracts
+      // have arrived, and framing on that empty pass used to spend the
+      // guard, so the real data never moved the camera.
+      if (framedRef.current !== selectedProject && shown.length) {
         framedRef.current = selectedProject
         const bb = bboxOf(shown.map((t) => t.boundary?.coordinates).filter(Boolean))
         if (bb) map.fitBounds(bb, { padding: 80, maxZoom: 15, duration: 700 })
       }
     }
+    paintRef.current = paint
     if (readyRef.current) paint()
-    else map.once('pf-ready' as any, paint)
   }, [tracts, selectedProject])
 
   return <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
