@@ -26,7 +26,7 @@ import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import {
   Loader2, Plus, Trash2, RotateCcw, RotateCw, Save, Search, X, Layers,
-  Scissors, Combine, FileText, Download, BarChart3, Eraser, PenLine,
+  Scissors, Combine, FileText, Download, BarChart3, Eraser, PenLine, PaintBucket,
 } from 'lucide-react'
 import {
   CLASS_COLOR, CLASS_LABEL, LAND_CLASSES, PARCEL_LINE, SEARCH_DOT, VERTEX_LINE,
@@ -97,6 +97,12 @@ function explodeShapes(polys: { cls: LandClass; geometry: any }[]): Shape[] {
 
 /** Mean of a shape's outer ring — a cheap, stable fingerprint used to
  *  find a polygon again after normalising rebuilds it with a new id. */
+/** Keeps the outer ring, throws away holes that are no longer a shape.
+ *  A hole emptied by removing its points must actually disappear. */
+function dropDegenerateHoles(rings: Pt[][]): Pt[][] {
+  return rings.filter((ring, i) => i === 0 || ring.length >= 3)
+}
+
 function ringCentre(polys: Pt[][][]): Pt | null {
   const ring = polys[0]?.[0]
   if (!ring || !ring.length) return null
@@ -700,11 +706,15 @@ export default function ConfigureMap() {
           const ri = Number(f.properties!.ri)
           const vi = Number(f.properties!.vi)
           setBoundaryRings((prev) => prev.map((rings, p2) => p2 !== pi ? rings
-            : rings.map((ring, i) => {
+            : dropDegenerateHoles(rings.map((ring, i) => {
               if (i !== ri) return ring
-              if (ring.length <= 3) return ring   // never below a triangle
+              // Ring 0 is the outline itself and must stay a polygon.
+              // Rings 1+ are HOLES: taking a hole below three points
+              // means the user is trying to get rid of it, so let it
+              // go rather than leaving a vestigial triangle behind.
+              if (ring.length <= 3) return ri === 0 ? ring : []
               return ring.filter((_, v) => v !== vi)
-            })))
+            }))))
           return
         }
 
@@ -718,11 +728,14 @@ export default function ConfigureMap() {
           mutate((prev) => prev.map((sh) => sh.id !== owner ? sh : {
             ...sh,
             polys: sh.polys.map((rings, p2) => p2 !== pi ? rings
-              : rings.map((ring, i) => {
+              : dropDegenerateHoles(rings.map((ring, i) => {
                 if (i !== ri) return ring
-                if (ring.length <= 3) return ring   // never below a triangle
+                // Same rule inside a land-type polygon. This is why a
+                // hole could be whittled down but never actually
+                // removed — it stuck at a three-dot triangle.
+                if (ring.length <= 3) return ri === 0 ? ring : []
                 return ring.filter((_, v) => v !== vi)
-              })),
+              }))),
           }))
           return
         }
@@ -1205,24 +1218,27 @@ export default function ConfigureMap() {
     const y0 = Math.min(b[0][1], b[1][1]), y1 = Math.max(b[0][1], b[1][1])
     if (Math.abs(x1 - x0) < 1e-9 || Math.abs(y1 - y0) < 1e-9) return   // a click, not a drag
     const inside = (pt: Pt) => pt[0] >= x0 && pt[0] <= x1 && pt[1] >= y0 && pt[1] <= y1
-    const trim = (ring: Pt[]) => {
+    // ri 0 is the outer ring and must stay a polygon, so a box that
+    // would flatten it is ignored. Rings 1+ are holes: a box dragged
+    // over a whole hole is someone asking for it to GO, and refusing
+    // left it stuck as a triangle that could not be cleared.
+    const trim = (ring: Pt[], ri: number) => {
       const kept = ring.filter((pt) => !inside(pt))
-      return kept.length >= 3 ? kept : ring
+      if (kept.length >= 3) return kept
+      return ri === 0 ? ring : []
     }
     let removed = 0
     const count = (before: Pt[], after: Pt[]) => { removed += before.length - after.length }
     if (stepRef.current === 'boundary') {
-      setBoundaryRings((prev) => prev.map((rings) => rings.map((ring) => {
-        const t = trim(ring); count(ring, t); return t
-      })))
+      setBoundaryRings((prev) => prev.map((rings) => dropDegenerateHoles(
+        rings.map((ring, ri) => { const t = trim(ring, ri); count(ring, t); return t }))))
     } else {
       const id = selectedRef.current
       if (!id) { setError('Select a polygon first, then drag over its points.'); return }
       mutate((prev) => prev.map((sh) => sh.id !== id ? sh : {
         ...sh,
-        polys: sh.polys.map((rings) => rings.map((ring) => {
-          const t = trim(ring); count(ring, t); return t
-        })),
+        polys: sh.polys.map((rings) => dropDegenerateHoles(
+          rings.map((ring, ri) => { const t = trim(ring, ri); count(ring, t); return t }))),
       }))
     }
     if (!removed) setError('No points inside that box — drag a box right over the dots.')
@@ -1510,6 +1526,27 @@ export default function ConfigureMap() {
   const setClassOf = useCallback((id: string, cls: LandClass) => {
     mutate((prev) => prev.map((s) => s.id === id ? { ...s, cls } : s))
   }, [mutate])
+
+  /** Throw away every hole in the selected polygon, in one go.
+   *  Whittling a big hole away point by point was the only route, and
+   *  it could not finish. Any hole that is genuinely another polygon's
+   *  ground comes straight back: enforceNoOverlap re-cuts it. */
+  const fillHoles = useCallback((id: string) => {
+    // Build the result here rather than reading shapesRef back after
+    // the setState: that ref is assigned during RENDER, so it still
+    // holds the holed version at this point and the overlap check
+    // would run against stale geometry.
+    const next = shapesRef.current.map((sh) => sh.id !== id ? sh : {
+      ...sh, polys: sh.polys.map((rings) => rings.slice(0, 1)),
+    })
+    mutate(() => next)
+    void enforceNoOverlapRef.current(next, id)
+  }, [mutate])
+
+  const holesOnSelected = useMemo(() => {
+    const sh = shapes.find((x) => x.id === selectedId)
+    return sh ? sh.polys.reduce((n, rings) => n + Math.max(rings.length - 1, 0), 0) : 0
+  }, [shapes, selectedId])
 
   const deleteShape = useCallback((id: string) => {
     mutate((prev) => prev.filter((s) => s.id !== id))
@@ -1997,6 +2034,14 @@ export default function ConfigureMap() {
                 disabled={!selectedId && tool !== 'erase'}
                 style={{ ...btn, borderColor: tool === 'erase' ? '#ffffff' : undefined }}>
                 <Eraser size={13} /> Erase points
+              </button>
+              <button
+                onClick={() => selectedId && fillHoles(selectedId)}
+                disabled={!selectedId || holesOnSelected === 0}
+                title="Remove every hole inside the selected polygon"
+                style={btn}>
+                <PaintBucket size={13} /> Fill holes
+                {holesOnSelected > 0 ? ` (${holesOnSelected})` : ''}
               </button>
               <button
                 onClick={() => setTool(tool === 'combine' ? null : 'combine')}
