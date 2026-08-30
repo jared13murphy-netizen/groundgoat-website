@@ -268,6 +268,10 @@ export default function ConfigureMap() {
   const [sources, setSources] = useState<string[]>([])
   const [reports, setReports] = useState<ReportRow[]>([])
   const [deletingReport, setDeletingReport] = useState<string | null>(null)
+  /** ?reports=1 (the portfolio's Reports button) opens the tract in
+   *  VIEW mode and brings the reports into view — no edit mode, no
+   *  hunting down a long panel. */
+  const reportsRef = useRef<HTMLDivElement | null>(null)
   const [peers, setPeers] = useState<ProjectTractGeometry[]>([])
   // Soil rating recomputed as the tillable ground is reshaped. Debounced —
   // it is a real query against SSURGO, not arithmetic in the browser.
@@ -1866,6 +1870,17 @@ export default function ConfigureMap() {
     } finally { setBusy(null) }
   }, [detail, name, shapes, sources, projectId, projectName, editingId])
 
+  useEffect(() => {
+    if (!editingId) return
+    try {
+      if (new URLSearchParams(window.location.search).get('reports') !== '1') return
+    } catch { return }
+    // After the panel has laid out with this tract's cards in it.
+    const t = window.setTimeout(
+      () => reportsRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' }), 400)
+    return () => window.clearTimeout(t)
+  }, [editingId])
+
   // ── reports ───────────────────────────────────────────────────────
   // Queue, then poll. Rendering happens on a worker, so the screen must
   // never sit blocked waiting for a PDF.
@@ -2506,7 +2521,7 @@ export default function ConfigureMap() {
               </div>
             )}
 
-            <div style={card}>
+            <div style={card} ref={reportsRef}>
               <div style={sectionLabel}>Reports</div>
               {!editingId && (
                 <div style={hint}>Save this parcel first, then build reports from it.</div>

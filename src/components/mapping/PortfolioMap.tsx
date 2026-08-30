@@ -43,15 +43,18 @@ function bboxOf(coords: any): [[number, number], [number, number]] | null {
   return seen ? [[w, s], [e, n]] : null
 }
 
-export default function PortfolioMap({ tracts, selectedProject, onPickProject }: {
+export default function PortfolioMap({
+  tracts, selectedProject, selectedTract, onPick,
+}: {
   tracts: PortfolioTract[]
   selectedProject: string | null
-  onPickProject: (projectId: string) => void
+  selectedTract: string | null
+  onPick: (projectId: string, tractId: string) => void
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const readyRef = useRef(false)
-  const pickRef = useRef(onPickProject); pickRef.current = onPickProject
+  const pickRef = useRef(onPick); pickRef.current = onPick
   // The click handler is registered once, so it cannot close over state.
   const tractsRef = useRef<PortfolioTract[]>([]); tractsRef.current = tracts
   // Frame a project only when the SELECTION changes — not on every data
@@ -108,14 +111,24 @@ export default function PortfolioMap({ tracts, selectedProject, onPickProject }:
         id: 'pf-fill', type: 'fill', source: SRC,
         paint: {
           'fill-color': '#f58cde',
-          'fill-opacity': ['case', ['boolean', ['get', 'active'], false], 0.30, 0.10],
+          'fill-opacity': [
+            'case',
+            ['boolean', ['get', 'focus'], false], 0.52,
+            ['boolean', ['get', 'active'], false], 0.30,
+            0.10,
+          ],
         },
       })
       map.addLayer({
         id: 'pf-line', type: 'line', source: SRC,
         paint: {
           'line-color': '#ffffff',
-          'line-width': ['case', ['boolean', ['get', 'active'], false], 2.5, 1.2],
+          'line-width': [
+            'case',
+            ['boolean', ['get', 'focus'], false], 4,
+            ['boolean', ['get', 'active'], false], 2.5,
+            1.2,
+          ],
           'line-opacity': ['case', ['boolean', ['get', 'active'], false], 0.95, 0.5],
         },
       })
@@ -162,8 +175,10 @@ export default function PortfolioMap({ tracts, selectedProject, onPickProject }:
       // Clicking any tract selects the project it belongs to — the same
       // thing as picking that project in the panel.
       const pick = (e: any) => {
-        const pid = e.features?.[0]?.properties?.projectId
-        if (pid) pickRef.current(String(pid))
+        const f = e.features?.[0]
+        const pid = f?.properties?.projectId
+        const tid = f?.properties?.tractId
+        if (pid) pickRef.current(String(pid), tid ? String(tid) : '')
       }
       map.on('click', 'pf-fill', pick)
       map.on('click', 'pf-label', pick)
@@ -196,11 +211,12 @@ export default function PortfolioMap({ tracts, selectedProject, onPickProject }:
         properties: {
           projectId: t.project_id, tractId: t.id,
           active: !selectedProject || t.project_id === selectedProject,
+          focus: t.id === selectedTract,
         },
       }))
       const labels = shown.filter((t) => t.label_point).map((t) => ({
         type: 'Feature', geometry: t.label_point,
-        properties: { projectId: t.project_id, name: t.name || 'Untitled' },
+        properties: { projectId: t.project_id, tractId: t.id, name: t.name || 'Untitled' },
       }))
       ;(map.getSource(SRC) as maplibregl.GeoJSONSource)?.setData(
         { type: 'FeatureCollection', features: feats } as any)
@@ -218,7 +234,7 @@ export default function PortfolioMap({ tracts, selectedProject, onPickProject }:
     }
     paintRef.current = paint
     if (readyRef.current) paint()
-  }, [tracts, selectedProject])
+  }, [tracts, selectedProject, selectedTract])
 
   return <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
 }

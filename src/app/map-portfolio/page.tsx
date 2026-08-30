@@ -19,7 +19,8 @@
 import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
 import {
-  Archive, ArchiveRestore, ArrowLeft, Check, Loader2, Map as MapIcon, PenLine, Plus, Search, X,
+  Archive, ArchiveRestore, ArrowLeft, Check, FileText, Loader2, Map as MapIcon,
+  PenLine, Plus, Search, X,
 } from 'lucide-react'
 import {
   allTractsGeometry, archiveParcel, fetchMappingAccessState, getProject, listProjects,
@@ -37,6 +38,8 @@ export default function MapPortfolioPage() {
   const [renameId, setRenameId] = useState<string | null>(null)
   const [renameTo, setRenameTo] = useState('')
   const [tracts, setTracts] = useState<PortfolioTract[]>([])
+  /** The tract last clicked on the map, highlighted in the list. */
+  const [focusTract, setFocusTract] = useState<string | null>(null)
 
   const saveRename = async (parcelId: string, projectId: string) => {
     const n = renameTo.trim()
@@ -80,7 +83,8 @@ export default function MapPortfolioPage() {
 
   /** Clicking a tract on the map selects the project it belongs to —
    *  the same act as opening that project in the list. */
-  const pickProject = useCallback((id: string) => {
+  const pickProject = useCallback((id: string, tractId?: string) => {
+    setFocusTract(tractId || null)
     setOpenId((cur) => {
       if (cur === id) return cur
       setOpenParcels([])
@@ -130,8 +134,16 @@ export default function MapPortfolioPage() {
     <div style={page}>
       {/* Map first, list beside it: the tracts ARE the portfolio, and a
           list of names never told anyone where their ground is. */}
+      <style>{`
+        @keyframes pf-pulse {
+          0%   { box-shadow: 0 0 0 0 rgba(245,140,222,0.55); }
+          70%  { box-shadow: 0 0 0 9px rgba(245,140,222,0); }
+          100% { box-shadow: 0 0 0 0 rgba(245,140,222,0); }
+        }
+      `}</style>
       <div style={{ flex: 1, position: 'relative', minWidth: 0 }}>
-        <PortfolioMap tracts={tracts} selectedProject={openId} onPickProject={pickProject} />
+        <PortfolioMap tracts={tracts} selectedProject={openId}
+                      selectedTract={focusTract} onPick={pickProject} />
         {/* Nothing is ever unsaved on this screen, so leaving needs no
             confirmation — the editing all happens in Configure Map. */}
         <div style={{ position: 'absolute', top: 14, left: 14, zIndex: 5,
@@ -236,7 +248,24 @@ export default function MapPortfolioPage() {
                     </p>
                   )}
                   {openParcels.map((x) => (
-                    <div key={x.id} style={parcelRow}>
+                    <div key={x.id}
+                         ref={(el) => {
+                           // Bring it into view: a project with twenty
+                           // tracts scrolls, and a highlight nobody can
+                           // see is not a highlight.
+                           if (el && focusTract === x.id) {
+                             el.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+                           }
+                         }}
+                         style={{
+                           ...parcelRow,
+                           ...(focusTract === x.id ? {
+                             background: 'rgba(245,140,222,0.14)',
+                             borderRadius: 7,
+                             padding: '5px 7px',
+                             animation: 'pf-pulse 1.6s ease-out 2',
+                           } : null),
+                         }}>
                       {/* Same gesture as the map panel: text, pencil,
                           then x to abandon and a tick to keep. */}
                       {renameId === x.id ? (
@@ -273,11 +302,21 @@ export default function MapPortfolioPage() {
                       </span>
                       <div style={{ flex: 1 }} />
                       {renameId !== x.id && (
-                        <button style={{ ...btn, padding: '3px 7px', fontSize: 11 }} disabled={!!busy}
-                                title="Rename this tract" aria-label="Rename this tract"
-                                onClick={() => { setRenameId(x.id); setRenameTo(x.name) }}>
-                          <PenLine size={12} />
-                        </button>
+                        <>
+                          {/* Opens the tract to LOOK at, with the reports
+                              in view — the editing tools stay hidden
+                              until someone asks for them. */}
+                          <Link href={`/configure-map?parcel=${x.id}&reports=1`}
+                                style={{ ...btn, padding: '3px 8px', fontSize: 11 }}
+                                title="Build a report from this tract">
+                            <FileText size={12} /> Reports
+                          </Link>
+                          <button style={{ ...btn, padding: '3px 7px', fontSize: 11 }} disabled={!!busy}
+                                  title="Rename this tract" aria-label="Rename this tract"
+                                  onClick={() => { setRenameId(x.id); setRenameTo(x.name) }}>
+                            <PenLine size={12} />
+                          </button>
+                        </>
                       )}
                       <button style={{ ...btn, padding: '3px 8px', fontSize: 11 }} disabled={!!busy}
                               onClick={() => void act('Archiving…', async () => {
