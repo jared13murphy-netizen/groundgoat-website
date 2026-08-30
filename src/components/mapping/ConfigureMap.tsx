@@ -1774,16 +1774,16 @@ export default function ConfigureMap() {
   const doRename = useCallback(async (next?: string) => {
     const n = (next ?? name).trim()
     if (!n) return
-    // Which tract is this? The one open in the editor, or — when a
-    // parcel is re-opened that is ALREADY saved in this project — the
-    // saved tract covering this ground. Renaming that one is plainly
-    // what is meant; its badge is the one on screen.
-    const centre = ringCentre(boundaryRings)
-    const covering = editingId ? null : (centre
-      ? peersRef.current.find((t) => t.boundary
-          && geometryToPolys(t.boundary).some((rings) => pointInRing(centre, rings[0])))
-      : null)
-    const target = editingId || covering?.id
+    // ONLY the tract open in the editor. This used to fall back to
+    // "whichever saved tract's boundary contains this outline's centre",
+    // which renamed the WRONG tract whenever a saved tract overlapped
+    // the parcel being worked on — the name landed on a neighbour and
+    // the tract being named never got it. A rename must never guess
+    // which row it is writing to.
+    //
+    // To rename an existing tract, open it: from the Map Portfolio, or
+    // by clicking its badge on the map.
+    const target = editingId
     if (!target) {
       // Nothing saved yet to rename. The name rides along with the first
       // save; say so rather than reporting a write that did not happen.
@@ -1799,7 +1799,7 @@ export default function ConfigureMap() {
     } catch (e: any) {
       setError(e?.message || 'That name could not be saved.')
     } finally { setBusy(null) }
-  }, [editingId, name, projectId, loadPeers, boundaryRings])
+  }, [editingId, name, projectId, loadPeers])
 
   const deleteShape = useCallback((id: string) => {
     const gone = shapesRef.current.find((s) => s.id === id)
