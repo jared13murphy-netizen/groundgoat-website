@@ -255,7 +255,7 @@ export default function ConfigureMap() {
   const [queuing, setQueuing] = useState<string | null>(null)
   // Cancel throws away work, so it asks first.
   // Both of these throw away work, so both ask first.
-  const [confirmWhat, setConfirmWhat] = useState<null | 'cancel' | 'outline'>(null)
+  const [confirmWhat, setConfirmWhat] = useState<null | 'cancel' | 'outline' | 'switch'>(null)
   const [draft, setDraft] = useState<Pt[]>([])
 
   const [name, setName] = useState('')
@@ -306,6 +306,10 @@ export default function ConfigureMap() {
   const cleanRef = useRef<string>('')
   const markCleanRef = useRef<((sh: Shape[], b: Pt[][][]) => void) | null>(null)
   const [dirty, setDirty] = useState(false)
+  const dirtyRef = useRef(false)
+  /** A tract the user asked to switch to while holding unsaved work. */
+  const [pendingOpen, setPendingOpen] = useState<string | null>(null)
+  const requestOpenRef = useRef<((id: string) => void) | null>(null)
   // Read by map handlers that are registered once, on load, and so can
   // never close over current state.
   const peersRef = useRef<ProjectTractGeometry[]>([])
@@ -396,8 +400,14 @@ export default function ConfigureMap() {
       return () => { stop = true }
     }
     if (!saved) return
+    void openSavedTractRef.current?.(saved)
+  }, [ready])
+
+  /** Open a saved tract into the editor. Extracted from the ?parcel=
+   *  boot path so clicking another tract on the map can reuse it. */
+  const openSavedTract = useCallback(async (saved: string) => {
     let cancelled = false
-    ;(async () => {
+    await (async () => {
       setBusy('Opening saved parcel…')
       try {
         const rec = await getSavedParcel(saved)
@@ -443,8 +453,8 @@ export default function ConfigureMap() {
         setError(e?.message || 'Could not open that saved parcel.')
       } finally { setBusy(null) }
     })()
-    return () => { cancelled = true }
-  }, [ready])
+  }, [])
+  const openSavedTractRef = useRef(openSavedTract); openSavedTractRef.current = openSavedTract
 
   // ── map ───────────────────────────────────────────────────────────
   useEffect(() => {
@@ -946,10 +956,13 @@ export default function ConfigureMap() {
         const id = f.properties?.tractId ? String(f.properties.tractId) : null
         const t = id ? peersRef.current.find((x) => x.id === id) : null
         const bb = t?.boundary ? bboxOf(t.boundary.coordinates) : null
+        // Frame it either way, then open it. Opening fits the bounds
+        // itself, so the zoom the badge already gave you is kept.
         if (bb) map.fitBounds(bb, { padding: 80, maxZoom: 16, duration: 800 })
         else if (f.geometry.type === 'Point') {
           map.flyTo({ center: (f.geometry as any).coordinates, zoom: 15, duration: 800 })
         }
+        if (id) requestOpenRef.current?.(id)
       })
       map.on('mouseenter', 'cm-peer-label', () => { map.getCanvas().style.cursor = 'pointer' })
       map.on('mouseleave', 'cm-peer-label', () => { map.getCanvas().style.cursor = '' })
@@ -1433,8 +1446,20 @@ export default function ConfigureMap() {
   }, [fingerprint])
   markCleanRef.current = markClean
   useEffect(() => {
-    setDirty(fingerprint(shapes, boundaryRings) !== cleanRef.current)
+    const d = fingerprint(shapes, boundaryRings) !== cleanRef.current
+    setDirty(d); dirtyRef.current = d
   }, [shapes, boundaryRings, fingerprint])
+
+  /** Switching to another saved tract behaves like Cancel: straight
+   *  through when nothing is unsaved, otherwise ask — and there OK
+   *  SAVES and switches rather than throwing the work away. */
+  const requestOpen = useCallback((id: string) => {
+    if (id === editingId) return
+    if (!dirtyRef.current) { void openSavedTractRef.current?.(id); return }
+    setPendingOpen(id)
+    setConfirmWhat('switch')
+  }, [editingId])
+  requestOpenRef.current = requestOpen
 
   // ── the rest of the project ───────────────────────────────────────
   // Re-read after every save, because saving is what changes the set —
@@ -1804,9 +1829,9 @@ export default function ConfigureMap() {
     setSelectedId(null)
   }, [detail, mutate])
 
-  const doSave = useCallback(async () => {
-    if (!detail) return
-    if (!name.trim()) { setError('Give this parcel a name before saving.'); return }
+  const doSave = useCallback(async (): Promise<boolean> => {
+    if (!detail) return false
+    if (!name.trim()) { setError('Give this parcel a name before saving.'); return false }
     setBusy('Saving…'); setError(null); setSavedMsg(null)
     try {
       const payload = {
@@ -1834,8 +1859,10 @@ export default function ConfigureMap() {
       markCleanRef.current?.(shapes, boundaryRings)
       setEditingTypes(false)
       setTool(null); setDrawing(false); setDraft([]); setCutPts([]); setSelectedId(null)
+      return true
     } catch (e: any) {
       setError(e?.message || 'Save failed.')
+      return false
     } finally { setBusy(null) }
   }, [detail, name, shapes, sources, projectId, projectName, editingId])
 
@@ -2669,13 +2696,17 @@ export default function ConfigureMap() {
               borderRadius: 11, padding: 16,
             }}>
               <div style={{ fontWeight: 600, marginBottom: 6 }}>
-                {confirmWhat === 'outline'
-                  ? 'Go back to the outline?' : 'Discard your changes?'}
+                {confirmWhat === 'outline' ? 'Go back to the outline?'
+                  : confirmWhat === 'switch' ? 'Save before switching tracts?'
+                  : 'Discard your changes?'}
               </div>
               <div style={{ ...hint, marginTop: 0, marginBottom: 14, display: 'block' }}>
                 {confirmWhat === 'outline'
                   ? 'The land types are re-read from the engine for whatever outline '
                     + 'you confirm, so every polygon edit you have made will be lost.'
+                  : confirmWhat === 'switch'
+                  ? 'This tract has changes you have not saved. OK saves them and '
+                    + 'opens the tract you clicked. Cancel stays on this one.'
                   : 'Every polygon edit you have made will be thrown away and the '
                     + 'parcel will close. This cannot be undone.'}
               </div>
@@ -2684,6 +2715,16 @@ export default function ConfigureMap() {
                           if (confirmWhat === 'outline') {
                             setConfirmWhat(null); setTool(null); setSelectedId(null)
                             setStep('boundary')
+                          } else if (confirmWhat === 'switch') {
+                            // Save FIRST, and only switch if it worked —
+                            // switching on a failed save would lose the
+                            // very work the dialog promised to keep.
+                            const target = pendingOpen
+                            setConfirmWhat(null); setPendingOpen(null)
+                            void (async () => {
+                              const ok = await doSave()
+                              if (ok && target) void openSavedTractRef.current?.(target)
+                            })()
                           } else {
                             discardAndClose()
                           }
@@ -2692,7 +2733,7 @@ export default function ConfigureMap() {
                                  padding: '9px 10px' }}>
                   OK
                 </button>
-                <button onClick={() => setConfirmWhat(null)}
+                <button onClick={() => { setConfirmWhat(null); setPendingOpen(null) }}
                         style={{ ...btn, flex: 1, justifyContent: 'center',
                                  padding: '9px 10px' }}>
                   Cancel
