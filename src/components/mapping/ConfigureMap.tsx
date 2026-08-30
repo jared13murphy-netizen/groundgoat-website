@@ -1431,6 +1431,9 @@ export default function ConfigureMap() {
     // ghost every edit.
     peersRef.current = peers
     const others = peers.filter((t) => t.id !== editingId)
+    // The outline currently open, used to decide which saved badge the
+    // live one replaces.
+    const liveOuter = boundaryRings.map((rings) => rings[0]).filter(Boolean)
     const fills: any[] = []
     const bounds: any[] = []
     const labels: any[] = []
@@ -1442,7 +1445,13 @@ export default function ConfigureMap() {
         })
       }
       if (t.boundary) bounds.push({ type: 'Feature', geometry: t.boundary, properties: {} })
-      if (t.label_point) labels.push({
+      // A saved tract sitting under the parcel you have open gets NO
+      // badge of its own — the live one below stands for that ground.
+      // Suppressing the live badge instead left the SAVED name on screen,
+      // so renaming what you were editing appeared to do nothing.
+      const under = t.label_point?.type === 'Point'
+        && liveOuter.some((r) => pointInRing(t.label_point.coordinates as Pt, r))
+      if (t.label_point && !under) labels.push({
         type: 'Feature', geometry: t.label_point,
         properties: { name: t.name || 'Untitled', tractId: t.id },
       })
@@ -1450,12 +1459,7 @@ export default function ConfigureMap() {
     // The open tract gets a badge too, from its LIVE outline, so the name
     // tracks what is being typed instead of what was last saved.
     const liveCentre = ringCentre(boundaryRings)
-    // Don't badge the same ground twice. Re-opening a parcel that is
-    // already a saved tract in this project drew the saved badge AND
-    // the live one — two identical pills stacked on one field.
-    const alreadyBadged = !!liveCentre && others.some((t) => t.boundary
-      && geometryToPolys(t.boundary).some((rings) => pointInRing(liveCentre, rings[0])))
-    if (liveCentre && detail && name.trim() && !alreadyBadged) {
+    if (liveCentre && detail && name.trim()) {
       labels.push({
         type: 'Feature', geometry: { type: 'Point', coordinates: liveCentre },
         properties: { name: name.trim() },
