@@ -1704,20 +1704,40 @@ export default function ConfigureMap() {
   /** Rename a saved tract on its own. Renaming used to mean entering
    *  full edit mode and re-saving the whole tract — geometry, acreage
    *  and soil recomputed — to change a word. */
+  /** A name is not geometry: the tick writes it on its own, in any step,
+   *  without going near the polygons (owner).
+   *
+   *  Takes the name rather than reading `name` back — the tick commits
+   *  and calls in the same tick, before that setState has landed. */
   const doRename = useCallback(async (next?: string) => {
-    // Takes the name rather than reading `name` back: the tick commits
-    // and calls in the same tick, before that setState has landed.
     const n = (next ?? name).trim()
-    if (!editingId || !n) return
-    setBusy('Renaming…'); setError(null); setSavedMsg(null)
+    if (!n) return
+    // Which tract is this? The one open in the editor, or — when a
+    // parcel is re-opened that is ALREADY saved in this project — the
+    // saved tract covering this ground. Renaming that one is plainly
+    // what is meant; its badge is the one on screen.
+    const centre = ringCentre(boundaryRings)
+    const covering = editingId ? null : (centre
+      ? peersRef.current.find((t) => t.boundary
+          && geometryToPolys(t.boundary).some((rings) => pointInRing(centre, rings[0])))
+      : null)
+    const target = editingId || covering?.id
+    if (!target) {
+      // Nothing saved yet to rename. The name rides along with the first
+      // save; say so rather than reporting a write that did not happen.
+      setSavedName(n)
+      setSavedMsg(`Named "${n}" — saved with the tract.`)
+      return
+    }
+    setBusy('Saving the name…'); setError(null); setSavedMsg(null)
     try {
-      await renameParcel(editingId, n)
+      await renameParcel(target, n)
       setSavedMsg(`Renamed to "${n}".`); setSavedName(n)
       await loadPeers(projectId)   // the badge on the map follows
     } catch (e: any) {
       setError(e?.message || 'That name could not be saved.')
     } finally { setBusy(null) }
-  }, [editingId, name, projectId, loadPeers])
+  }, [editingId, name, projectId, loadPeers, boundaryRings])
 
   const deleteShape = useCallback((id: string) => {
     const gone = shapesRef.current.find((s) => s.id === id)
@@ -2126,7 +2146,8 @@ export default function ConfigureMap() {
                     the badge as you go; nothing is written until save. */}
                 <div>
                   <div style={sectionLabel}>Tract name</div>
-                  <TractName value={name} onCommit={setName} busy={!!busy} />
+                  <TractName value={name} busy={!!busy}
+                             onCommit={(n) => { setName(n); void doRename(n) }} />
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                   <button
@@ -2535,7 +2556,8 @@ export default function ConfigureMap() {
             {step === 'landtypes' && editingTypes && (
               <div>
                 <div style={sectionLabel}>Tract name</div>
-                <TractName value={name} onCommit={setName} busy={!!busy} />
+                <TractName value={name} busy={!!busy}
+                           onCommit={(n) => { setName(n); void doRename(n) }} />
               </div>
             )}
             {/* Renaming a saved tract without entering edit mode. Only
