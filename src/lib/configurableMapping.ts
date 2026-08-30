@@ -234,6 +234,17 @@ export interface ProjectTractGeometry {
   polygons: { cls: LandClass; geometry: any }[]
 }
 
+export interface PortfolioTract extends ProjectTractGeometry {
+  project_id: string
+  project_name: string
+}
+
+/** Every saved tract across every project — outline and label only.
+ *  Land-type polygons come from projectGeometry when one is opened. */
+export function allTractsGeometry() {
+  return j<{ tracts: PortfolioTract[] }>('/api/mapping/tracts/geometry')
+}
+
 /** Every tract in a project with its geometry — drawn as context around
  *  whatever the editor currently has open. */
 export function projectGeometry(id: string) {

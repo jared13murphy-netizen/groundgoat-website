@@ -1,11 +1,17 @@
 'use client'
 
 /**
- * /map-portfolio — every project a Configurable Mapping subscriber has saved.
+ * /map-portfolio — every project a Configurable Mapping subscriber has
+ * saved, on the map and in a list beside it.
  *
- * A 20-tract auction is ONE card here, not twenty. The list reads cached
- * summaries only — no geometry crosses the wire — so it opens at the same
- * speed whether someone has three parcels or three thousand.
+ * The map opens showing EVERY saved tract. Picking a project — from the
+ * list, or by clicking a tract on the map — narrows the map to that
+ * project and frames it. A 20-tract auction is ONE row in the list.
+ *
+ * The list itself reads cached summaries only. The map fetches outlines
+ * and label points, never land-type polygons: at this zoom they are
+ * smaller than the outline stroke, and a few hundred tracts of them
+ * would be tens of megabytes.
  *
  * Projects ARCHIVE, they never delete. Somebody will archive a 20-tract
  * project by accident, and drawing it again is an afternoon.
@@ -16,9 +22,11 @@ import {
   Archive, ArchiveRestore, Check, Loader2, Map as MapIcon, PenLine, Plus, Search, X,
 } from 'lucide-react'
 import {
-  archiveParcel, fetchMappingAccessState, getProject, listProjects, renameParcel,
-  updateProject, type Project, type SavedParcelRow,
+  allTractsGeometry, archiveParcel, fetchMappingAccessState, getProject, listProjects,
+  renameParcel, updateProject,
+  type PortfolioTract, type Project, type SavedParcelRow,
 } from '@/lib/configurableMapping'
+import PortfolioMap from '@/components/mapping/PortfolioMap'
 
 export default function MapPortfolioPage() {
   const [allowed, setAllowed] = useState<boolean | null | undefined>(undefined)
@@ -28,6 +36,7 @@ export default function MapPortfolioPage() {
   const [openParcels, setOpenParcels] = useState<SavedParcelRow[]>([])
   const [renameId, setRenameId] = useState<string | null>(null)
   const [renameTo, setRenameTo] = useState('')
+  const [tracts, setTracts] = useState<PortfolioTract[]>([])
 
   const saveRename = async (parcelId: string, projectId: string) => {
     const n = renameTo.trim()
@@ -47,6 +56,11 @@ export default function MapPortfolioPage() {
     try {
       const r = await listProjects(showArchived)
       setProjects(r.projects)
+      // Geometry is a separate, slower call — never let it hold up the
+      // list, which is what most visits are actually here for.
+      allTractsGeometry()
+        .then((g) => setTracts(g.tracts))
+        .catch(() => { /* the map degrades to empty; the list still works */ })
     } catch (e: any) {
       setError(e?.message || 'Could not load your portfolio.')
     } finally { setBusy(null) }
@@ -63,6 +77,19 @@ export default function MapPortfolioPage() {
       setOpenParcels(r.parcels)
     } catch (e: any) { setError(e?.message || 'Could not open that project.') }
   }, [openId])
+
+  /** Clicking a tract on the map selects the project it belongs to —
+   *  the same act as opening that project in the list. */
+  const pickProject = useCallback((id: string) => {
+    setOpenId((cur) => {
+      if (cur === id) return cur
+      setOpenParcels([])
+      getProject(id)
+        .then((r) => setOpenParcels(r.parcels))
+        .catch(() => { /* the map is already narrowed; the list catches up */ })
+      return id
+    })
+  }, [])
 
   const act = useCallback(async (label: string, fn: () => Promise<any>) => {
     setBusy(label); setError(null)
@@ -101,7 +128,23 @@ export default function MapPortfolioPage() {
 
   return (
     <div style={page}>
-      <div style={{ maxWidth: 1100, margin: '0 auto', padding: '28px 24px 64px' }}>
+      {/* Map first, list beside it: the tracts ARE the portfolio, and a
+          list of names never told anyone where their ground is. */}
+      <div style={{ flex: 1, position: 'relative', minWidth: 0 }}>
+        <PortfolioMap tracts={tracts} selectedProject={openId} onPickProject={pickProject} />
+        {openId && (
+          <button onClick={() => { setOpenId(null); setOpenParcels([]) }}
+                  style={{
+                    position: 'absolute', top: 14, left: 14, zIndex: 5,
+                    ...btn, padding: '7px 12px',
+                    background: 'rgba(8,8,10,0.86)', borderColor: '#f58cde',
+                  }}>
+            <X size={13} /> Show every tract
+          </button>
+        )}
+      </div>
+
+      <aside style={panel}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <h1 style={h1}>Map Portfolio</h1>
           <div style={{ flex: 1 }} />
@@ -239,7 +282,7 @@ export default function MapPortfolioPage() {
             </div>
           ))}
         </div>
-      </div>
+      </aside>
     </div>
   )
 }
@@ -254,9 +297,18 @@ function Shell({ children }: { children: React.ReactNode }) {
 }
 
 const page: React.CSSProperties = {
-  position: 'fixed', inset: 0, overflowY: 'auto',
+  position: 'fixed', inset: 0, display: 'flex',
   background: '#0f1520', color: '#e5e7eb', zIndex: 9999,
   fontSize: 13,
+}
+/** The list. Only this side scrolls — a map that scrolls the page under
+ *  it is unusable. */
+const panel: React.CSSProperties = {
+  width: 420, flexShrink: 0, overflowY: 'auto',
+  padding: '20px 18px 48px',
+  background: 'linear-gradient(180deg, #23262b 0%, #131519 14%, #0a0a0a 44%, #050505 100%)',
+  borderLeft: '1px solid rgba(255,255,255,0.10)',
+  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.16)',
 }
 const h1: React.CSSProperties = { fontSize: 20, fontWeight: 600, margin: 0 }
 const card: React.CSSProperties = {

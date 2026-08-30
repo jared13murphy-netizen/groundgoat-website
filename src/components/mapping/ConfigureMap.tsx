@@ -2164,7 +2164,16 @@ export default function ConfigureMap() {
         {savedMsg && <div style={{ ...hint, color: '#f8daf1' }}>{savedMsg}</div>}
 
         {!detail && !busy && (
-          <div style={hint}>Click a parcel on the map, or search for one, to start.</div>
+          <>
+            <div style={hint}>Click a parcel on the map, or search for one, to start.</div>
+            {/* With nothing open there is no footer, so this was a dead
+                end — no route to the saved work. */}
+            <a href="/map-portfolio"
+               style={{ ...btn, width: '100%', justifyContent: 'center',
+                        padding: '9px 10px', textDecoration: 'none' }}>
+              <Layers size={14} /> Map Portfolio
+            </a>
+          </>
         )}
 
         {detail && (
