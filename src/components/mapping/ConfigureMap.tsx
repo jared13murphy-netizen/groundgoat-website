@@ -2040,18 +2040,13 @@ export default function ConfigureMap() {
                   Deed acreage ({detail.parcel.acres_of_record}) differs from the mapped shape.
                 </div>
               )}
-              <div style={{ ...hint }}>
-                {detail.source === 'engine'
-                  ? 'Ground Goat AI boundaries — adjust as needed.'
-                  : 'No AI boundaries here yet — draw your own.'}
-              </div>
             </div>
 
             {step === 'boundary' ? (
               <>
-                <div style={card}>
-                  <div style={sectionLabel}>Step 1 — the parcel outline</div>
-                  <div style={{ opacity: 0.75, lineHeight: 1.5 }}>
+                <div style={stepCard}>
+                  <div style={stepLabel}>Step 1 — the parcel outline</div>
+                  <div style={{ lineHeight: 1.5 }}>
                     This is the recorded parcel boundary. Drag any dot to adjust it.
                     Continue and the land types will fill in inside.
                   </div>
@@ -2625,6 +2620,20 @@ const card: React.CSSProperties = {
   border: '1px solid rgba(255,255,255,0.09)',
   boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07)',
   borderRadius: 9, padding: 10, display: 'flex', flexDirection: 'column', gap: 3,
+}
+/** The step cards are the one WHITE surface on a black panel — they
+ *  carry the instructions for where you are, and reading them should not
+ *  be work (owner). Everything inside is black, so nothing inherits the
+ *  panel's light-on-dark colours. */
+const stepCard: React.CSSProperties = {
+  background: '#ffffff', color: '#0b0b0b',
+  border: '1px solid rgba(0,0,0,0.12)', borderRadius: 9, padding: 10,
+  display: 'flex', flexDirection: 'column', gap: 3,
+  boxShadow: '0 1px 3px rgba(0,0,0,0.45)',
+}
+const stepLabel: React.CSSProperties = {
+  fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.8,
+  opacity: 0.65, marginBottom: 5, color: '#0b0b0b',
 }
 const hint: React.CSSProperties = { fontSize: 11, opacity: 0.6, marginTop: 5, display: 'flex', gap: 5, alignItems: 'center' }
 const sectionLabel: React.CSSProperties = {
