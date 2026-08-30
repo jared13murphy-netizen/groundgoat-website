@@ -211,33 +211,39 @@ export default function MapPortfolioPage() {
         <div style={{ display: 'grid', gap: 12 }}>
           {visible.map((p) => (
             <div key={p.id} style={{ ...card, opacity: p.archived_at ? 0.55 : 1 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              {/* Stacked, not one wrapping row: in a 420px panel the old
+                  single row broke wherever it ran out of space, which
+                  put the date between the buttons and left Archive
+                  stranded on its own line. */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <button onClick={() => void openProject(p.id)} style={nameBtn}
                         title="Show the tracts in this project">
                   {openId === p.id ? '▾ ' : '▸ '}{p.name}
                 </button>
-                <span style={muted}>
+                <span style={{ ...muted, display: 'block', lineHeight: 1.45 }}>
                   {p.summary?.parcels ?? 0} parcel{(p.summary?.parcels ?? 0) === 1 ? '' : 's'}
                   {' · '}{(p.summary?.acres ?? 0).toFixed(1)} ac
                   {p.summary?.tillable_acres ? ` · ${p.summary.tillable_acres.toFixed(1)} ac tillable` : ''}
                   {p.county ? ` · ${p.county} County ${p.state || ''}` : ''}
                 </span>
-                <div style={{ flex: 1 }} />
-                <span style={{ ...muted, fontSize: 11 }}>
+                {/* One row, never wrapping. */}
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'nowrap', alignItems: 'center' }}>
+                  <Link href={`/configure-map?project=${p.id}`} style={{ ...btn, whiteSpace: 'nowrap' }}>
+                    <PenLine size={13} /> Open
+                  </Link>
+                  <Link href={`/configure-map?project=${p.id}&new=1`} style={{ ...btn, whiteSpace: 'nowrap' }}>
+                    <Plus size={13} /> Add tract
+                  </Link>
+                  <button style={{ ...btn, whiteSpace: 'nowrap' }} disabled={!!busy}
+                          onClick={() => void act(
+                            p.archived_at ? 'Restoring…' : 'Archiving…',
+                            () => updateProject(p.id, { archived: !p.archived_at }))}>
+                    {p.archived_at ? <><ArchiveRestore size={13} /> Restore</> : <><Archive size={13} /> Archive</>}
+                  </button>
+                </div>
+                <span style={{ ...muted, fontSize: 11, display: 'block' }}>
                   edited {new Date(p.updated_at).toLocaleDateString()}
                 </span>
-                <Link href={`/configure-map?project=${p.id}`} style={btn}>
-                  <PenLine size={13} /> Open
-                </Link>
-                <Link href={`/configure-map?project=${p.id}&new=1`} style={btn}>
-                  <Plus size={13} /> Add tract
-                </Link>
-                <button style={btn} disabled={!!busy}
-                        onClick={() => void act(
-                          p.archived_at ? 'Restoring…' : 'Archiving…',
-                          () => updateProject(p.id, { archived: !p.archived_at }))}>
-                  {p.archived_at ? <><ArchiveRestore size={13} /> Restore</> : <><Archive size={13} /> Archive</>}
-                </button>
               </div>
 
               {openId === p.id && (
