@@ -300,6 +300,12 @@ export default function ConfigureMap() {
   // Refs mirror state for use inside map event handlers, which close
   // over their first render otherwise.
   const shapesRef = useRef(shapes); shapesRef.current = shapes
+  /** What the tract looked like when it was loaded or last saved.
+   *  Cancel confirms only when there is something to lose — a
+   *  "discard your changes?" over an untouched tract is noise. */
+  const cleanRef = useRef<string>('')
+  const markCleanRef = useRef<((sh: Shape[], b: Pt[][][]) => void) | null>(null)
+  const [dirty, setDirty] = useState(false)
   // Read by map handlers that are registered once, on load, and so can
   // never close over current state.
   const peersRef = useRef<ProjectTractGeometry[]>([])
@@ -347,8 +353,10 @@ export default function ConfigureMap() {
       // Step 1 is the OUTLINE. Interior polygons stay hidden until the
       // boundary is confirmed, so there is one thing to work on at a time.
       setStep('boundary')
-      setBoundaryRings(geometryToPolys(d.boundary))
+      const rings = geometryToPolys(d.boundary)
+      setBoundaryRings(rings)
       setShapes([])
+      markCleanRef.current?.([], rings)
       setSelectedId(null)
       setName(d.parcel?.parcelnumb ? `Parcel ${d.parcel.parcelnumb}` : ''); setSavedName('')
       setHits([])
@@ -420,7 +428,9 @@ export default function ConfigureMap() {
           source: 'engine',
           unclassified_acres: rec.stats?.unclassified_acres ?? 0,
         })
-        setShapes(explodeShapes(rec.polygons as any))
+        const loadedShapes = explodeShapes(rec.polygons as any)
+        setShapes(loadedShapes)
+        markCleanRef.current?.(loadedShapes, geometryToPolys(rec.boundary))
         // Opened from the portfolio to LOOK at, not to edit: show the
         // land types straight away and keep the editing tools away until
         // the user asks for them.
@@ -1113,6 +1123,7 @@ export default function ConfigureMap() {
       }
       const loaded = explodeShapes(res.polygons as any)
       setShapes(loaded)
+      markCleanRef.current?.(loaded, boundaryRings)
       setEditingTypes(true)
       undoRef.current = []; redoRef.current = []
       // Select the biggest piece so drag handles are on screen at once.
@@ -1412,6 +1423,18 @@ export default function ConfigureMap() {
       setError(e?.message || 'Could not save the tracts.')
     } finally { setBusy(null) }
   }, [pieces, detail, projectId, projectName, name, shapes, sources, editingId])
+
+  const fingerprint = useCallback((sh: Shape[], b: Pt[][][]) => JSON.stringify([
+    sh.map((x) => [x.cls, x.polys]), b,
+  ]), [])
+  const markClean = useCallback((sh: Shape[], b: Pt[][][]) => {
+    cleanRef.current = fingerprint(sh, b)
+    setDirty(false)
+  }, [fingerprint])
+  markCleanRef.current = markClean
+  useEffect(() => {
+    setDirty(fingerprint(shapes, boundaryRings) !== cleanRef.current)
+  }, [shapes, boundaryRings, fingerprint])
 
   // ── the rest of the project ───────────────────────────────────────
   // Re-read after every save, because saving is what changes the set —
@@ -1808,6 +1831,7 @@ export default function ConfigureMap() {
       const st = res.stats || {}
       setSavedMsg(`Saved "${res.name}" — ${st.acres ?? '?'} ac total, ${st.tillable_acres ?? 0} ac tillable.`)
       setSavedName(res.name)
+      markCleanRef.current?.(shapes, boundaryRings)
       setEditingTypes(false)
       setTool(null); setDrawing(false); setDraft([]); setCutPts([]); setSelectedId(null)
     } catch (e: any) {
@@ -2610,8 +2634,16 @@ export default function ConfigureMap() {
               )}
               <button
                 onClick={() => {
-                  if (step === 'landtypes') { setConfirmWhat('outline'); return }
-                  setConfirmWhat('cancel')
+                  // Only ask when there is something to lose. A
+                  // "discard your changes?" over a tract nobody has
+                  // touched is pure noise (owner).
+                  if (step === 'landtypes') {
+                    if (dirty) { setConfirmWhat('outline'); return }
+                    setTool(null); setSelectedId(null); setStep('boundary')
+                    return
+                  }
+                  if (dirty) { setConfirmWhat('cancel'); return }
+                  discardAndClose()
                 }}
                 disabled={!!busy}
                 style={{ ...btn, flex: 1, justifyContent: 'center', padding: '9px 10px' }}>
