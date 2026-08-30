@@ -27,7 +27,7 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import {
   Loader2, Plus, Trash2, RotateCcw, RotateCw, Save, Search, X, Layers,
   Scissors, Combine, FileText, Download, BarChart3, Eraser, PenLine, PaintBucket, Check,
-  ArrowRight,
+  ArrowRight, ArrowLeft,
 } from 'lucide-react'
 import {
   CLASS_COLOR, CLASS_LABEL, LAND_CLASSES, PARCEL_LINE, SEARCH_DOT, VERTEX_LINE,
@@ -255,7 +255,7 @@ export default function ConfigureMap() {
   const [queuing, setQueuing] = useState<string | null>(null)
   // Cancel throws away work, so it asks first.
   // Both of these throw away work, so both ask first.
-  const [confirmWhat, setConfirmWhat] = useState<null | 'cancel' | 'outline' | 'switch'>(null)
+  const [confirmWhat, setConfirmWhat] = useState<null | 'cancel' | 'outline' | 'switch' | 'leave'>(null)
   const [draft, setDraft] = useState<Pt[]>([])
 
   const [name, setName] = useState('')
@@ -2064,6 +2064,24 @@ export default function ConfigureMap() {
       `}</style>
       <div style={{ flex: 1, position: 'relative' }}>
         <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
+        {/* The way OUT of Configurable Mapping. Top-left, on the map,
+            where a back control belongs — the panel is for the tract. */}
+        <button
+          onClick={() => {
+            if (dirty) { setConfirmWhat('leave'); return }
+            window.location.href = '/access'
+          }}
+          style={{
+            position: 'absolute', top: 14, left: 14, zIndex: 30,
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            padding: '8px 13px', borderRadius: 8, cursor: 'pointer',
+            fontSize: 13, fontWeight: 600, color: '#0b0b0b',
+            background: 'linear-gradient(180deg, #f9a8e6 0%, #f58cde 48%, #e072c8 100%)',
+            border: '1px solid #f58cde',
+            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.45), 0 2px 8px rgba(0,0,0,0.5)',
+          }}>
+          <ArrowLeft size={14} /> Back to Map
+        </button>
         {/* While a tool is armed, the way OUT of it belongs on the map,
             where the user's eyes and cursor already are — not in a panel
             button they have to go hunting for mid-gesture. */}
@@ -2707,6 +2725,7 @@ export default function ConfigureMap() {
               <div style={{ fontWeight: 600, marginBottom: 6 }}>
                 {confirmWhat === 'outline' ? 'Go back to the outline?'
                   : confirmWhat === 'switch' ? 'Save before switching tracts?'
+                  : confirmWhat === 'leave' ? 'Leave without saving?'
                   : 'Discard your changes?'}
               </div>
               <div style={{ ...hint, marginTop: 0, marginBottom: 14, display: 'block' }}>
@@ -2716,6 +2735,9 @@ export default function ConfigureMap() {
                   : confirmWhat === 'switch'
                   ? 'This tract has changes you have not saved. OK saves them and '
                     + 'opens the tract you clicked. Cancel stays on this one.'
+                  : confirmWhat === 'leave'
+                  ? 'This tract has changes you have not saved. OK leaves for the '
+                    + 'Explore map and throws them away. Cancel stays here.'
                   : 'Every polygon edit you have made will be thrown away and the '
                     + 'parcel will close. This cannot be undone.'}
               </div>
@@ -2724,6 +2746,9 @@ export default function ConfigureMap() {
                           if (confirmWhat === 'outline') {
                             setConfirmWhat(null); setTool(null); setSelectedId(null)
                             setStep('boundary')
+                          } else if (confirmWhat === 'leave') {
+                            setConfirmWhat(null)
+                            window.location.href = '/access'
                           } else if (confirmWhat === 'switch') {
                             // Save FIRST, and only switch if it worked —
                             // switching on a failed save would lose the

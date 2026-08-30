@@ -19,7 +19,7 @@
 import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
 import {
-  Archive, ArchiveRestore, Check, Loader2, Map as MapIcon, PenLine, Plus, Search, X,
+  Archive, ArchiveRestore, ArrowLeft, Check, Loader2, Map as MapIcon, PenLine, Plus, Search, X,
 } from 'lucide-react'
 import {
   allTractsGeometry, archiveParcel, fetchMappingAccessState, getProject, listProjects,
@@ -132,16 +132,27 @@ export default function MapPortfolioPage() {
           list of names never told anyone where their ground is. */}
       <div style={{ flex: 1, position: 'relative', minWidth: 0 }}>
         <PortfolioMap tracts={tracts} selectedProject={openId} onPickProject={pickProject} />
-        {openId && (
-          <button onClick={() => { setOpenId(null); setOpenParcels([]) }}
-                  style={{
-                    position: 'absolute', top: 14, left: 14, zIndex: 5,
-                    ...btn, padding: '7px 12px',
-                    background: 'rgba(8,8,10,0.86)', borderColor: '#f58cde',
-                  }}>
-            <X size={13} /> Show every tract
-          </button>
-        )}
+        {/* Nothing is ever unsaved on this screen, so leaving needs no
+            confirmation — the editing all happens in Configure Map. */}
+        <div style={{ position: 'absolute', top: 14, left: 14, zIndex: 5,
+                      display: 'flex', gap: 8 }}>
+          <Link href="/access"
+                style={{
+                  ...btn, padding: '8px 13px', fontSize: 13, fontWeight: 600,
+                  color: '#0b0b0b', border: '1px solid #f58cde',
+                  background: 'linear-gradient(180deg, #f9a8e6 0%, #f58cde 48%, #e072c8 100%)',
+                  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.45), 0 2px 8px rgba(0,0,0,0.5)',
+                }}>
+            <ArrowLeft size={14} /> Back to Map
+          </Link>
+          {openId && (
+            <button onClick={() => { setOpenId(null); setOpenParcels([]) }}
+                    style={{ ...btn, padding: '8px 12px',
+                             background: 'rgba(8,8,10,0.86)', borderColor: '#f58cde' }}>
+              <X size={13} /> Show every tract
+            </button>
+          )}
+        </div>
       </div>
 
       <aside style={panel}>
