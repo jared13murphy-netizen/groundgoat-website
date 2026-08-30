@@ -210,6 +210,8 @@ export default function ConfigureMap() {
   const [pieces, setPieces] = useState<{ geometry: any; acres: number }[]>([])
   const [query, setQuery] = useState('')
   const [searchState, setSearchState] = useState('')
+  // 1 = the fills as designed, 0 = outlines only over bare imagery.
+  const [fillOpacity, setFillOpacity] = useState(1)
   const [searchCounty, setSearchCounty] = useState('')
   const [counties, setCounties] = useState<string[]>([])
   const [hits, setHits] = useState<ParcelSummary[]>([])
@@ -1337,6 +1339,22 @@ export default function ConfigureMap() {
       { type: 'FeatureCollection', features: labels } as any)
   }, [peers, editingId, ready, boundaryRings, detail, name])
 
+  // Every fill on the screen scales together, so the slider does one
+  // legible thing: at 0 you get bare imagery with the outlines still
+  // drawn, which is the point — you can see what is underneath WITHOUT
+  // losing track of where the polygon is.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !ready) return
+    const k = fillOpacity
+    const set = (layer: string, value: any) => {
+      if (map.getLayer(layer)) map.setPaintProperty(layer, 'fill-opacity', value)
+    }
+    set(LYR_FILL, ['case', ['boolean', ['get', 'selected'], false], 0.42 * k, 0.22 * k])
+    set('cm-boundary-fill', 0.22 * k)
+    set('cm-peer-shapes-fill', 0.16 * k)
+  }, [fillOpacity, ready])
+
   // ── paint shapes / vertices / boundary / dots / draft ──────────────
   useEffect(() => {
     const map = mapRef.current
@@ -2056,6 +2074,7 @@ export default function ConfigureMap() {
               </p>
             )}
 
+
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               <button onClick={undo} disabled={!undoRef.current.length} style={btn}>
                 <RotateCcw size={13} /> Undo last edit
@@ -2077,6 +2096,22 @@ export default function ConfigureMap() {
               <div style={hint}>Click another parcel to fold it into this one.</div>
             )}
             </>)}
+
+            {/* See what is under a polygon without deleting it. */}
+            <div>
+              <div style={{ ...statRow, marginBottom: 2 }}>
+                <span style={{ opacity: 0.65 }}>Polygon fill</span>
+                <span>{Math.round(fillOpacity * 100)}%</span>
+              </div>
+              <input
+                type="range" min={0} max={1} step={0.05} value={fillOpacity}
+                onChange={(e) => setFillOpacity(parseFloat(e.target.value))}
+                style={{ width: '100%' }} />
+              <div style={hint}>
+                Slide to 0 to see the bare imagery. The outlines stay put, so
+                nothing gets lost — and nothing is changed or saved.
+              </div>
+            </div>
 
             {pieces.length > 0 && (
               <div style={card}>
