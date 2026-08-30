@@ -119,10 +119,20 @@ export async function fetchMappingAccess(): Promise<boolean> {
   return (await fetchMappingAccessState()) === true
 }
 
-export function searchMap(q: string, state?: string | null): Promise<SearchResult> {
+export function searchMap(
+  q: string, state?: string | null, county?: string | null,
+): Promise<SearchResult> {
   const qs = new URLSearchParams({ q })
   if (state) qs.set('state', state)
+  // Only ever sent alongside a state; the API drops it otherwise.
+  if (state && county) qs.set('county', county)
   return j<SearchResult>(`/api/mapping/search?${qs}`)
+}
+
+/** Counties in a state, for the search filter. */
+export function listCounties(state: string) {
+  return j<{ counties: string[] }>(
+    `/api/mapping/counties?state=${encodeURIComponent(state)}`)
 }
 
 /** Look a parcel up by whichever id the caller has.

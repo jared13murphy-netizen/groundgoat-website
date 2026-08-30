@@ -34,7 +34,7 @@ import {
   splitGeometry, normalizeGeometry, previewSoil,
   updateParcel, queueReport, listReports, downloadReport, getProject,
   REPORT_KINDS, REPORT_LABEL, REPORT_BUSY_LABEL, USES_ELEVATION, type ReportRow,
-  deleteReport, projectGeometry, type ProjectTractGeometry,
+  deleteReport, projectGeometry, type ProjectTractGeometry, listCounties,
   createCma, getCma, listCmas, cmaCandidates, setCmaComps, queueCmaReport, updateCma,
   type Cma, type CompCandidate,
   type LandClass, type ParcelDetail, type ParcelSummary,
@@ -204,6 +204,8 @@ export default function ConfigureMap() {
   const [pieces, setPieces] = useState<{ geometry: any; acres: number }[]>([])
   const [query, setQuery] = useState('')
   const [searchState, setSearchState] = useState('')
+  const [searchCounty, setSearchCounty] = useState('')
+  const [counties, setCounties] = useState<string[]>([])
   const [hits, setHits] = useState<ParcelSummary[]>([])
   const [note, setNote] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
@@ -1466,11 +1468,26 @@ export default function ConfigureMap() {
   }, [draft, ready])
 
   // ── panel actions ─────────────────────────────────────────────────
+  // Counties for the chosen state. Cleared with the state, so a county
+  // from the last state can never be sent with the next one.
+  useEffect(() => {
+    setSearchCounty('')
+    if (!searchState) { setCounties([]); return }
+    let stale = false
+    ;(async () => {
+      try {
+        const r = await listCounties(searchState)
+        if (!stale) setCounties(r.counties)
+      } catch { if (!stale) setCounties([]) }
+    })()
+    return () => { stale = true }
+  }, [searchState])
+
   const runSearch = useCallback(async () => {
     if (!query.trim()) return
     setBusy('Searching…'); setError(null); setNote(null); setHits([])
     try {
-      const r = await searchMap(query.trim(), searchState || null)
+      const r = await searchMap(query.trim(), searchState || null, searchCounty || null)
       if (r.kind === 'parcels') {
         setHits(r.parcels)
         setNote(r.parcels.length ? `${r.parcels.length} parcel${r.parcels.length === 1 ? '' : 's'} found` : 'No parcels matched.')
@@ -1488,7 +1505,7 @@ export default function ConfigureMap() {
     } catch (e: any) {
       setError(e?.message || 'Search failed.')
     } finally { setBusy(null) }
-  }, [query, searchState])
+  }, [query, searchState, searchCounty])
 
   const setClassOf = useCallback((id: string, cls: LandClass) => {
     mutate((prev) => prev.map((s) => s.id === id ? { ...s, cls } : s))
@@ -1808,6 +1825,17 @@ export default function ConfigureMap() {
               ))}
             </select>
           </div>
+          {/* Only once a state is chosen: county names repeat across
+              states, so one without the other narrows nothing. */}
+          {searchState && counties.length > 0 && (
+            <select value={searchCounty} onChange={(e) => setSearchCounty(e.target.value)}
+                    style={{ ...inputStyle, width: '100%', marginTop: 6 }}>
+              <option value="">All counties in {searchState}</option>
+              {counties.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          )}
           <button onClick={() => void runSearch()} style={{ ...btn, width: '100%', marginTop: 6 }}>
             <Search size={13} /> Submit
           </button>
