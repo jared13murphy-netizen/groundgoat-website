@@ -180,6 +180,12 @@ export default function PortfolioMap({
           'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'],
           'text-size': 12,
           'text-max-width': 12,
+          // Two tracts drawn on the SAME ground put their badges on the
+          // same pixel, and MapLibre draws one and drops the other —
+          // with no sort key it picks whichever it reached first, so a
+          // tract you had just selected could stay hidden behind its
+          // twin. Lower key is placed first and wins the collision.
+          'symbol-sort-key': ['case', ['boolean', ['get', 'focus'], false], 0, 1],
         },
         paint: { 'text-color': '#ffffff' },
       })
@@ -228,7 +234,10 @@ export default function PortfolioMap({
       }))
       const labels = shown.filter((t) => t.label_point).map((t) => ({
         type: 'Feature', geometry: t.label_point,
-        properties: { projectId: t.project_id, tractId: t.id, name: t.name || 'Untitled' },
+        properties: {
+          projectId: t.project_id, tractId: t.id,
+          name: t.name || 'Untitled', focus: t.id === selectedTract,
+        },
       }))
       ;(map.getSource(SRC) as maplibregl.GeoJSONSource)?.setData(
         { type: 'FeatureCollection', features: feats } as any)
