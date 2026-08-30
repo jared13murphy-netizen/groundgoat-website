@@ -2053,8 +2053,18 @@ export default function ConfigureMap() {
                   <div style={sectionLabel}>Step 1 — the parcel outline</div>
                   <div style={{ opacity: 0.75, lineHeight: 1.5 }}>
                     This is the recorded parcel boundary. Drag any dot to adjust it.
-                    Save it and the land types will fill in inside.
+                    Continue and the land types will fill in inside.
                   </div>
+                </div>
+                {/* The name field belonged in step 2 only, but the badge
+                    on the map is already showing a name here — so this is
+                    where people go looking to change it. Typing renames
+                    the badge as you go; nothing is written until save. */}
+                <div>
+                  <div style={sectionLabel}>Tract name</div>
+                  <input value={name} onChange={(e) => setName(e.target.value)}
+                         placeholder="e.g. Tract 1, Home Place, North 80"
+                         style={inputStyle} />
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                   <button
