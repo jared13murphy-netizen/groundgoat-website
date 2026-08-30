@@ -13,7 +13,7 @@
 import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
 import {
-  Archive, ArchiveRestore, Check, Loader2, Map as MapIcon, PenLine, Plus, Search,
+  Archive, ArchiveRestore, Check, Loader2, Map as MapIcon, PenLine, Plus, Search, X,
 } from 'lucide-react'
 import {
   archiveParcel, fetchMappingAccessState, getProject, listProjects, renameParcel,
@@ -28,6 +28,16 @@ export default function MapPortfolioPage() {
   const [openParcels, setOpenParcels] = useState<SavedParcelRow[]>([])
   const [renameId, setRenameId] = useState<string | null>(null)
   const [renameTo, setRenameTo] = useState('')
+
+  const saveRename = async (parcelId: string, projectId: string) => {
+    const n = renameTo.trim()
+    if (!n) return
+    await act('Renaming…', async () => {
+      await renameParcel(parcelId, n)
+      setRenameId(null)
+      const r = await getProject(projectId); setOpenParcels(r.parcels)
+    })
+  }
   const [q, setQ] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -173,6 +183,8 @@ export default function MapPortfolioPage() {
                   )}
                   {openParcels.map((x) => (
                     <div key={x.id} style={parcelRow}>
+                      {/* Same gesture as the map panel: text, pencil,
+                          then x to abandon and a tick to keep. */}
                       {renameId === x.id ? (
                         <>
                           <input
@@ -180,25 +192,20 @@ export default function MapPortfolioPage() {
                             onChange={(e) => setRenameTo(e.target.value)}
                             onKeyDown={(e) => {
                               if (e.key === 'Escape') setRenameId(null)
-                              if (e.key !== 'Enter' || !renameTo.trim()) return
-                              void act('Renaming…', async () => {
-                                await renameParcel(x.id, renameTo.trim())
-                                setRenameId(null)
-                                const r = await getProject(p.id); setOpenParcels(r.parcels)
-                              })
+                              if (e.key === 'Enter') void saveRename(x.id, p.id)
                             }}
                             style={{ ...input, fontSize: 13, padding: '4px 8px', width: 220 }} />
-                          <button style={{ ...btn, padding: '3px 8px', fontSize: 11 }}
-                                  disabled={!!busy || !renameTo.trim()}
-                                  onClick={() => void act('Renaming…', async () => {
-                                    await renameParcel(x.id, renameTo.trim())
-                                    setRenameId(null)
-                                    const r = await getProject(p.id); setOpenParcels(r.parcels)
-                                  })}>
-                            <Check size={11} /> Save
+                          <button style={{ ...btn, padding: '3px 7px', fontSize: 11 }}
+                                  title="Cancel" aria-label="Cancel rename"
+                                  onClick={() => setRenameId(null)}>
+                            <X size={12} />
                           </button>
-                          <button style={{ ...btn, padding: '3px 8px', fontSize: 11 }}
-                                  onClick={() => setRenameId(null)}>Cancel</button>
+                          <button style={{ ...btn, padding: '3px 7px', fontSize: 11 }}
+                                  disabled={!!busy || !renameTo.trim()}
+                                  title="Save this name" aria-label="Save this name"
+                                  onClick={() => void saveRename(x.id, p.id)}>
+                            <Check size={12} />
+                          </button>
                         </>
                       ) : (
                         <Link href={`/configure-map?parcel=${x.id}`} style={{ ...link, fontSize: 13 }}>
@@ -211,10 +218,13 @@ export default function MapPortfolioPage() {
                         {x.stats?.soil?.rating ? ` · ${x.stats.soil.rating} ${x.stats.soil.rating_type}` : ''}
                       </span>
                       <div style={{ flex: 1 }} />
-                      <button style={{ ...btn, padding: '3px 8px', fontSize: 11 }} disabled={!!busy}
-                              onClick={() => { setRenameId(x.id); setRenameTo(x.name) }}>
-                        <PenLine size={11} /> Rename
-                      </button>
+                      {renameId !== x.id && (
+                        <button style={{ ...btn, padding: '3px 7px', fontSize: 11 }} disabled={!!busy}
+                                title="Rename this tract" aria-label="Rename this tract"
+                                onClick={() => { setRenameId(x.id); setRenameTo(x.name) }}>
+                          <PenLine size={12} />
+                        </button>
+                      )}
                       <button style={{ ...btn, padding: '3px 8px', fontSize: 11 }} disabled={!!busy}
                               onClick={() => void act('Archiving…', async () => {
                                 await archiveParcel(x.id)

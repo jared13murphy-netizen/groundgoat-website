@@ -26,7 +26,7 @@ import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import {
   Loader2, Plus, Trash2, RotateCcw, RotateCw, Save, Search, X, Layers,
-  Scissors, Combine, FileText, Download, BarChart3, Eraser, PenLine, PaintBucket,
+  Scissors, Combine, FileText, Download, BarChart3, Eraser, PenLine, PaintBucket, Check,
   ArrowRight,
 } from 'lucide-react'
 import {
@@ -98,6 +98,69 @@ function explodeShapes(polys: { cls: LandClass; geometry: any }[]): Shape[] {
 
 /** Mean of a shape's outer ring — a cheap, stable fingerprint used to
  *  find a polygon again after normalising rebuilds it with a new id. */
+/** The tract name. Reads as text until you pick up the pencil; then an
+ *  x to abandon the change and a tick to keep it. One component so the
+ *  gesture is identical everywhere a tract can be renamed (owner). */
+function TractName({ value, onCommit, busy, placeholder }: {
+  value: string
+  onCommit: (next: string) => void
+  busy?: boolean
+  placeholder?: string
+}) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(value)
+  // Someone else may have changed it — a save, a reload, another tract
+  // opened. While editing, the draft is the user's and is left alone.
+  useEffect(() => { if (!editing) setDraft(value) }, [value, editing])
+
+  const commit = () => {
+    const n = draft.trim()
+    if (!n) return
+    setEditing(false)
+    if (n !== value) onCommit(n)
+  }
+  const cancel = () => { setDraft(value); setEditing(false) }
+
+  if (!editing) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span style={{ flex: 1, minWidth: 0, overflow: 'hidden',
+                       textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                       opacity: value ? 1 : 0.5 }}>
+          {value || placeholder || 'Unnamed tract'}
+        </span>
+        <button onClick={() => setEditing(true)} disabled={busy}
+                title="Rename this tract" aria-label="Rename this tract"
+                style={{ ...btn, flex: 'none', padding: '4px 7px' }}>
+          <PenLine size={13} />
+        </button>
+      </div>
+    )
+  }
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      <input
+        autoFocus value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') commit()
+          if (e.key === 'Escape') cancel()
+        }}
+        placeholder={placeholder || 'e.g. Tract 1, Home Place, North 80'}
+        style={inputStyle} />
+      <button onClick={cancel} title="Cancel" aria-label="Cancel rename"
+              style={{ ...btn, flex: 'none', padding: '4px 7px' }}>
+        <X size={13} />
+      </button>
+      <button onClick={commit} disabled={busy || !draft.trim()}
+              title="Save this name" aria-label="Save this name"
+              style={{ ...primaryBtn, flex: 'none', padding: '4px 7px' }}>
+        <Check size={13} />
+      </button>
+    </div>
+  )
+}
+
 /** Ray cast. Rings here are open — first point is not repeated. */
 function pointInRing(pt: Pt, ring: Pt[]): boolean {
   let inside = false
@@ -1637,8 +1700,10 @@ export default function ConfigureMap() {
   /** Rename a saved tract on its own. Renaming used to mean entering
    *  full edit mode and re-saving the whole tract — geometry, acreage
    *  and soil recomputed — to change a word. */
-  const doRename = useCallback(async () => {
-    const n = name.trim()
+  const doRename = useCallback(async (next?: string) => {
+    // Takes the name rather than reading `name` back: the tick commits
+    // and calls in the same tick, before that setState has landed.
+    const n = (next ?? name).trim()
     if (!editingId || !n) return
     setBusy('Renaming…'); setError(null); setSavedMsg(null)
     try {
@@ -2057,9 +2122,7 @@ export default function ConfigureMap() {
                     the badge as you go; nothing is written until save. */}
                 <div>
                   <div style={sectionLabel}>Tract name</div>
-                  <input value={name} onChange={(e) => setName(e.target.value)}
-                         placeholder="e.g. Tract 1, Home Place, North 80"
-                         style={inputStyle} />
+                  <TractName value={name} onCommit={setName} busy={!!busy} />
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                   <button
@@ -2468,9 +2531,7 @@ export default function ConfigureMap() {
             {step === 'landtypes' && editingTypes && (
               <div>
                 <div style={sectionLabel}>Tract name</div>
-                <input value={name} onChange={(e) => setName(e.target.value)}
-                       placeholder="e.g. Tract 1, Home Place, North 80"
-                       style={inputStyle} />
+                <TractName value={name} onCommit={setName} busy={!!busy} />
               </div>
             )}
             {/* Renaming a saved tract without entering edit mode. Only
@@ -2478,17 +2539,8 @@ export default function ConfigureMap() {
             {step === 'landtypes' && !editingTypes && editingId && (
               <div>
                 <div style={sectionLabel}>Tract name</div>
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <input value={name} onChange={(e) => setName(e.target.value)}
-                         onKeyDown={(e) => { if (e.key === 'Enter') void doRename() }}
-                         placeholder="e.g. Tract 1, Home Place, North 80"
-                         style={inputStyle} />
-                  <button onClick={() => void doRename()}
-                          disabled={!!busy || !name.trim() || name.trim() === savedName}
-                          style={{ ...btn, flex: 'none' }}>
-                    <PenLine size={13} /> Rename
-                  </button>
-                </div>
+                <TractName value={name} busy={!!busy}
+                           onCommit={(n) => { setName(n); void doRename(n) }} />
               </div>
             )}
             {step === 'landtypes' && !editingTypes ? (
