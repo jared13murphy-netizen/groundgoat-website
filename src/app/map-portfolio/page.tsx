@@ -39,6 +39,7 @@ export default function MapPortfolioPage() {
   const [renameTo, setRenameTo] = useState('')
   const [projRenameId, setProjRenameId] = useState<string | null>(null)
   const [projRenameTo, setProjRenameTo] = useState('')
+  const [sortBy, setSortBy] = useState<'modified' | 'created' | 'name'>('modified')
   const [members, setMembers] = useState<FirmMember[]>([])
   /** The project whose share dialog is open, and the set being edited. */
   const [shareId, setShareId] = useState<string | null>(null)
@@ -222,6 +223,14 @@ export default function MapPortfolioPage() {
                    style={{ marginRight: 6 }} />
             Show archived
           </label>
+          <select value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+                  aria-label="Sort projects"
+                  style={{ ...input, padding: '6px 8px', fontSize: 12 }}>
+            <option value="modified">Last modified</option>
+            <option value="created">Date created</option>
+            <option value="name">Name (A–Z)</option>
+          </select>
         </div>
 
         {busy && <p style={muted}><Loader2 size={13} /> {busy}</p>}
@@ -245,7 +254,17 @@ export default function MapPortfolioPage() {
             what you may do with it, so the two should never be one
             undifferentiated list. */}
         {SECTIONS.map(({ key, title, empty }) => {
-          const inSection = visible.filter((p) => (key === 'shared' ? !!p.shared : !p.shared))
+          // Sorted per section, not once over the whole list: My
+          // Projects and Shared With Me are separate lists to read.
+          const inSection = visible
+            .filter((p) => (key === 'shared' ? !!p.shared : !p.shared))
+            .slice()
+            .sort((a, b) => (
+              sortBy === 'name'
+                ? a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+                : sortBy === 'created'
+                ? Date.parse(b.created_at) - Date.parse(a.created_at)
+                : Date.parse(b.updated_at) - Date.parse(a.updated_at)))
           if (key === 'shared' && inSection.length === 0) return null
           return (
           <div key={key} style={{ marginBottom: 18 }}>
