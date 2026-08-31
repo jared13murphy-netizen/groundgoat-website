@@ -2726,7 +2726,7 @@ export default function ConfigureMap() {
                     draw next is filed alongside this one — that is the
                     whole point of a project. Outside one it is just a
                     blank canvas. A brand-new project starts from
-                    "Create Map" in the portfolio. */}
+                    "New Project" in the portfolio. */}
                 <button onClick={projectId ? addTractToProject : discardAndClose}
                         disabled={!!busy}
                         style={{ ...btn, flex: 1, justifyContent: 'center', padding: '9px 10px' }}>

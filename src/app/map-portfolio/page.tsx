@@ -183,7 +183,7 @@ export default function MapPortfolioPage() {
           <h1 style={h1}>Map Portfolio</h1>
           <div style={{ flex: 1 }} />
           <Link href="/configure-map" style={{ ...btn, borderColor: '#22c55e', color: '#86efac' }}>
-            <Plus size={14} /> Create Map
+            <Plus size={14} /> New Project
           </Link>
         </div>
 
