@@ -24,7 +24,7 @@ import {
 } from 'lucide-react'
 import {
   allTractsGeometry, archiveParcel, fetchMappingAccessState, getProject, listProjects,
-  renameParcel, updateProject,
+  niceCounty, renameParcel, updateProject,
   type PortfolioTract, type Project, type SavedParcelRow,
 } from '@/lib/configurableMapping'
 import PortfolioMap from '@/components/mapping/PortfolioMap'
@@ -269,7 +269,7 @@ export default function MapPortfolioPage() {
                   {p.summary?.parcels ?? 0} parcel{(p.summary?.parcels ?? 0) === 1 ? '' : 's'}
                   {' · '}{(p.summary?.acres ?? 0).toFixed(1)} ac
                   {p.summary?.tillable_acres ? ` · ${p.summary.tillable_acres.toFixed(1)} ac tillable` : ''}
-                  {p.county ? ` · ${p.county} County ${p.state || ''}` : ''}
+                  {p.county ? ` · ${niceCounty(p.county)} County ${p.state || ''}` : ''}
                 </span>
                 {/* One row, never wrapping. */}
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'nowrap', alignItems: 'center' }}>

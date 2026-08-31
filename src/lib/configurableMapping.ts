@@ -119,6 +119,15 @@ export async function fetchMappingAccess(): Promise<boolean> {
   return (await fetchMappingAccessState()) === true
 }
 
+/** Counties are proper nouns. Tracts saved before the API started
+ *  tidying them still carry whatever the county typed, so anything that
+ *  puts a county on screen goes through here. */
+export function niceCounty(name?: string | null): string {
+  if (!name) return ''
+  return String(name).trim().replace(/\S+/g, (w) =>
+    w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+}
+
 export function searchMap(
   q: string, state?: string | null, county?: string | null,
 ): Promise<SearchResult> {

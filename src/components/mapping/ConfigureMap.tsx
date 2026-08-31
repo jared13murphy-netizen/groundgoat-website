@@ -36,6 +36,7 @@ import {
   updateParcel, queueReport, listReports, downloadReport, getProject,
   REPORT_KINDS, REPORT_LABEL, REPORT_BUSY_LABEL, USES_ELEVATION, type ReportRow,
   deleteReport, projectGeometry, type ProjectTractGeometry, listCounties, renameParcel,
+  niceCounty,
   createCma, getCma, listCmas, cmaCandidates, setCmaComps, queueCmaReport, updateCma,
   type Cma, type CompCandidate,
   type LandClass, type ParcelDetail, type ParcelSummary,
@@ -2238,7 +2239,7 @@ export default function ConfigureMap() {
             <div style={card}>
               <div style={{ fontWeight: 600 }}>{detail.parcel?.owner || 'Parcel'}</div>
               <div style={{ opacity: 0.65 }}>
-                {detail.parcel?.parcelnumb} · {detail.parcel?.county} County {detail.parcel?.state}
+                {detail.parcel?.parcelnumb} · {niceCounty(detail.parcel?.county)} County {detail.parcel?.state}
               </div>
               <div style={{ marginTop: 6 }}>{parcelAcres.toFixed(1)} acres</div>
               {detail.parcel?.acreage_mismatch && (
