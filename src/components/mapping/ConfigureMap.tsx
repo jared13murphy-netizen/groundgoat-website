@@ -1493,9 +1493,6 @@ export default function ConfigureMap() {
     // ghost every edit.
     peersRef.current = peers
     const others = peers.filter((t) => t.id !== editingId)
-    // The outline currently open, used to decide which saved badge the
-    // live one replaces.
-    const liveOuter = boundaryRings.map((rings) => rings[0]).filter(Boolean)
     const fills: any[] = []
     const bounds: any[] = []
     const labels: any[] = []
@@ -1507,13 +1504,16 @@ export default function ConfigureMap() {
         })
       }
       if (t.boundary) bounds.push({ type: 'Feature', geometry: t.boundary, properties: {} })
-      // A saved tract sitting under the parcel you have open gets NO
-      // badge of its own — the live one below stands for that ground.
-      // Suppressing the live badge instead left the SAVED name on screen,
-      // so renaming what you were editing appeared to do nothing.
-      const under = t.label_point?.type === 'Point'
-        && liveOuter.some((r) => pointInRing(t.label_point.coordinates as Pt, r))
-      if (t.label_point && !under) labels.push({
+      // EVERY tract gets its own badge, always.
+      //
+      // This used to hide a tract whose label point fell inside the open
+      // tract's outline, on the theory that the live badge stood for
+      // that ground. It broke the one rule this map has to keep: the
+      // name on a badge must belong to the tract that badge opens.
+      // Neighbouring tracts lost their badges, the badge left sitting
+      // over them belonged to something else, and clicking it opened —
+      // and then renamed — the wrong tract.
+      if (t.label_point) labels.push({
         type: 'Feature', geometry: t.label_point,
         properties: { name: t.name || 'Untitled', tractId: t.id },
       })
