@@ -160,15 +160,26 @@ export default function MapPortfolioPage() {
     )
   }
 
+  // Tract names are matched too: people remember 'the Sullivan 80', not
+  // which project they filed it under. Tract names come from the tract
+  // geometry the map already loaded, so this costs no extra request.
+  const tractNamesByProject = tracts.reduce<Record<string, string>>((acc, t) => {
+    acc[t.project_id] = `${acc[t.project_id] || ''} ${t.name || ''}`
+    return acc
+  }, {})
+  const needle = q.trim().toLowerCase()
   const visible = projects.filter((p) =>
-    !q.trim() || p.name.toLowerCase().includes(q.trim().toLowerCase()) ||
-    (p.county || '').toLowerCase().includes(q.trim().toLowerCase()))
+    !needle
+    || p.name.toLowerCase().includes(needle)
+    || (p.county || '').toLowerCase().includes(needle)
+    || (tractNamesByProject[p.id] || '').toLowerCase().includes(needle))
 
   return (
     <div style={page}>
       {/* Map first, list beside it: the tracts ARE the portfolio, and a
           list of names never told anyone where their ground is. */}
       <style>{`
+        .pf-filter::placeholder { color: #6b7280; opacity: 1; }
         @keyframes pf-pulse {
           0%   { box-shadow: 0 0 0 0 rgba(245,140,222,0.55); }
           70%  { box-shadow: 0 0 0 9px rgba(245,140,222,0); }
@@ -212,10 +223,16 @@ export default function MapPortfolioPage() {
 
         <div style={{ display: 'flex', gap: 10, margin: '18px 0', alignItems: 'center', flexWrap: 'wrap' }}>
           <div style={{ position: 'relative', flex: 1, minWidth: 220 }}>
-            <Search size={13} style={{ position: 'absolute', left: 10, top: 10, opacity: 0.4 }} />
+            <Search size={13} style={{ position: 'absolute', left: 10, top: 10, color: '#6b7280' }} />
+            {/* This filters the projects already on this page — it does
+                NOT look up land. Parcel search is Configure Map. The old
+                wording read like parcel search sitting over a map. */}
             <input value={q} onChange={(e) => setQ(e.target.value)}
-                   placeholder="Search by name or county"
-                   style={{ ...input, paddingLeft: 30, width: '100%' }} />
+                   className="pf-filter"
+                   placeholder="Filter your projects by name, tract or county"
+                   style={{ ...input, paddingLeft: 30, width: '100%',
+                            background: '#ffffff', color: '#0b0b0b',
+                            border: '1px solid rgba(0,0,0,0.25)' }} />
           </div>
           <label style={{ ...btn, cursor: 'pointer' }}>
             <input type="checkbox" checked={showArchived}
