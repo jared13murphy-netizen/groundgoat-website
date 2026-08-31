@@ -451,10 +451,18 @@ export default function MapPortfolioPage() {
           auction team usually wants the whole office, not four clicks. */}
       {shareId && (
         <div style={{
-          position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(0,0,0,0.66)',
+          position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(0,0,0,0.78)',
           display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24,
         }}>
-          <div style={{ ...card, width: 460, maxHeight: '80vh', overflowY: 'auto' }}>
+          {/* Its own OPAQUE surface, not the translucent list card —
+              over a satellite map that read as see-through. */}
+          <div style={{
+            width: 460, maxHeight: '80vh', overflowY: 'auto',
+            background: 'linear-gradient(180deg, #1b1e23 0%, #0a0a0a 100%)',
+            border: '1px solid rgba(255,255,255,0.14)',
+            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.14), 0 18px 50px rgba(0,0,0,0.75)',
+            borderRadius: 12, padding: 18,
+          }}>
             <h2 style={{ ...h1, fontSize: 17, marginBottom: 4 }}>Share this project</h2>
             <p style={{ ...muted, display: 'block', marginBottom: 12 }}>
               People you pick can open this project, its tracts and its reports.
