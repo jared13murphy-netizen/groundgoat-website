@@ -2110,9 +2110,12 @@ export default function ConfigureMap() {
         {/* While a tool is armed, the way OUT of it belongs on the map,
             where the user's eyes and cursor already are — not in a panel
             button they have to go hunting for mid-gesture. */}
-        {(tool === 'erase' || tool === 'cutpoly') && (
+        {(tool === 'erase' || tool === 'cutpoly' || drawing) && (
           <button
-            onClick={() => { setTool(null); setCutPts([]); setMarq(null) }}
+            onClick={() => {
+              if (drawing) { finishDraft(); return }
+              setTool(null); setCutPts([]); setMarq(null)
+            }}
             style={{
               position: 'absolute', bottom: 22, left: '50%',
               transform: 'translateX(-50%)', zIndex: 30,
@@ -2123,7 +2126,9 @@ export default function ConfigureMap() {
               border: '1px solid #f58cde',
               boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.45), 0 4px 14px rgba(0,0,0,0.45)',
             }}>
-            {tool === 'erase'
+            {drawing
+              ? <><Plus size={15} /> Finish shape</>
+              : tool === 'erase'
               ? <><Eraser size={15} /> Done erasing</>
               : <><Scissors size={15} /> Cancel cut</>}
           </button>
@@ -2332,14 +2337,16 @@ export default function ConfigureMap() {
 
             {/* Tools — drawing, then edit state, then commit. */}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              <button
-                onClick={() => {
-                  if (drawing) { finishDraft(); return }
-                  setTool('draw'); setDrawing(true); setDraft([])
-                }}
-                style={{ ...btn, borderColor: drawing ? CLASS_COLOR[drawClass] : undefined }}>
-                <Plus size={13} /> {drawing ? 'Finish shape' : 'Add polygon'}
-              </button>
+              {/* While drawing, Finish shape lives on the MAP, where the
+                  cursor already is (owner). Two of them would be two
+                  places to look for the same action. */}
+              {!drawing && (
+                <button
+                  onClick={() => { setTool('draw'); setDrawing(true); setDraft([]) }}
+                  style={btn}>
+                  <Plus size={13} /> Add polygon
+                </button>
+              )}
               <button onClick={() => selectedId && deleteShape(selectedId)} disabled={!selectedId} style={btn}>
                 <Trash2 size={13} /> Delete
               </button>
