@@ -26,12 +26,12 @@ import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import {
   Loader2, Plus, Trash2, RotateCcw, RotateCw, Save, Search, X, Layers,
-  Scissors, Combine, FileText, Download, BarChart3, Eraser, PenLine, PaintBucket, Check,
+  Scissors, FileText, Download, BarChart3, Eraser, PenLine, PaintBucket, Check, Spline,
   ArrowRight, ArrowLeft,
 } from 'lucide-react'
 import {
   CLASS_COLOR, CLASS_LABEL, LAND_CLASSES, PARCEL_LINE, SEARCH_DOT, VERTEX_LINE,
-  archiveParcel, classifyBoundary, combineGeometry, fetchParcel, getSavedParcel, saveParcel, searchMap,
+  archiveParcel, classifyBoundary, fetchParcel, getSavedParcel, saveParcel, searchMap,
   splitGeometry, normalizeGeometry, previewSoil,
   updateParcel, queueReport, listReports, downloadReport, getProject,
   REPORT_KINDS, REPORT_LABEL, REPORT_BUSY_LABEL, USES_ELEVATION, type ReportRow,
@@ -240,8 +240,7 @@ export default function ConfigureMap() {
   // 'draw' adds a classified polygon; 'cutpoly' takes the two clicks
   // that cut something in half — the parcel in step 1, the selected land
   // type in step 2;
-  // 'combine' adds the next clicked parcel to this boundary.
-  const [tool, setTool] = useState<'draw' | 'cutpoly' | 'erase' | 'combine' | null>(null)
+  const [tool, setTool] = useState<'draw' | 'cutpoly' | 'erase' | null>(null)
   // The two clicks that cut the SELECTED polygon in half.
   const [cutPts, setCutPts] = useState<Pt[]>([])
   // Rubber-band box for erasing many points at once.
@@ -1037,16 +1036,6 @@ export default function ConfigureMap() {
           setDraft((d) => [...d, [e.lngLat.lng, e.lngLat.lat] as Pt])
           return
         }
-        // Combine: the next parcel clicked is merged into this boundary.
-        if (toolRef.current === 'combine') {
-          const hit = map.queryRenderedFeatures(e.point, { layers: ['regrid-parcels-fill'] })
-          // Same tile-schema point as the select handler below: `path`
-          // is the id the tiles carry.
-          const hp = hit[0]?.properties || {}
-          const uu = hp.ll_uuid || hp.ll_uuid_text || hp.path
-          if (uu) { void combineWithRef.current(String(uu)) }
-          return
-        }
         const onShape = map.queryRenderedFeatures(e.point, { layers: [LYR_FILL] })
         if (onShape.length) {
           const id = onShape[0].properties?.id
@@ -1323,41 +1312,7 @@ export default function ConfigureMap() {
     } finally { setBusy(null) }
   }, [cma, editingId])
 
-  // ── combine / split / open-saved ──────────────────────────────────
-  /** Merge another clicked parcel into the current subject boundary.
-   *  A real auction tract is often two or three Regrid parcels. */
-  const combineWith = useCallback(async (llUuid: string) => {
-    const cur = detailRef.current
-    if (!cur) { await loadParcelRef.current(llUuid); return }
-    setBusy('Combining…'); setError(null)
-    try {
-      const other = await fetchParcel(llUuid)
-      const merged = await combineGeometry([cur.boundary, other.boundary])
-      setDetail({
-        ...cur,
-        boundary: merged.geometry,
-        parcel: {
-          ...cur.parcel,
-          acres: merged.acres,
-          ll_bldg_count: (cur.parcel?.ll_bldg_count || 0) + (other.parcel?.ll_bldg_count || 0),
-          ll_uuid: cur.parcel?.ll_uuid,
-        },
-        polygons: cur.polygons,
-      })
-      // The other parcel's engine polygons come along with it.
-      mutate((prev) => [...prev, ...explodeShapes(other.polygons as any)])
-      // Record the RESOLVED uuid, not whatever id the click supplied —
-      // source_ll_uuids is read back as ll_uuids when a saved parcel is
-      // reopened, so storing a tile `path` here would break that.
-      setSources((prev) => Array.from(new Set([
-        ...prev, other.parcel?.ll_uuid || llUuid,
-      ])))
-      setTool(null)
-    } catch (e: any) {
-      setError(e?.message || 'Those parcels could not be combined.')
-    } finally { setBusy(null) }
-  }, [mutate])
-  const combineWithRef = useRef(combineWith); combineWithRef.current = combineWith
+  // ── split / open-saved ────────────────────────────────────────────
 
   /** Cut the boundary with the drawn line. Pieces come back largest
    *  first so they can be named Tract 1, Tract 2, … sensibly. */
@@ -1832,6 +1787,43 @@ export default function ConfigureMap() {
       setError(e?.message || 'That name could not be saved.')
     } finally { setBusy(null) }
   }, [editingId, name, projectId, loadPeers])
+
+  /** Fewer dots on the SELECTED polygon, same shape.
+   *
+   *  Identical maths and tolerance to the Simplify on the auction
+   *  staging editor (TractMapEditor): Douglas-Peucker at 0.5% of the
+   *  ring's own bbox diagonal, so it behaves the same at any acreage or
+   *  zoom, and pressing it again takes a little more off. Every ring is
+   *  done, holes included; a ring too small to thin is left alone. */
+  const simplifySelected = useCallback((id: string) => {
+    const target = shapesRef.current.find((sh) => sh.id === id)
+    if (!target) return
+    let before = 0, after = 0
+    const next = shapesRef.current.map((sh) => sh.id !== id ? sh : {
+      ...sh,
+      polys: sh.polys.map((rings) => rings.map((ring) => {
+        before += ring.length
+        if (ring.length < 5) { after += ring.length; return ring }
+        const lngs = ring.map((pt) => pt[0])
+        const lats = ring.map((pt) => pt[1])
+        const diag = Math.hypot(
+          Math.max(...lngs) - Math.min(...lngs),
+          Math.max(...lats) - Math.min(...lats),
+        )
+        const out = simplifyRing(ring, diag * 0.005)
+        after += out.length
+        return out
+      })),
+    })
+    if (after >= before) {
+      setError('That polygon is already as simple as it gets — '
+             + 'erase points by hand for finer control.')
+      return
+    }
+    setError(null)
+    mutate(() => next)
+    setSavedMsg(`Simplified ${before} points down to ${after}.`)
+  }, [mutate])
 
   const deleteShape = useCallback((id: string) => {
     const gone = shapesRef.current.find((s) => s.id === id)
@@ -2423,9 +2415,11 @@ export default function ConfigureMap() {
                 {holesOnSelected > 0 ? ` (${holesOnSelected})` : ''}
               </button>
               <button
-                onClick={() => setTool(tool === 'combine' ? null : 'combine')}
-                style={{ ...btn, borderColor: tool === 'combine' ? '#ffffff' : undefined }}>
-                <Combine size={13} /> {tool === 'combine' ? 'Pick a parcel…' : 'Combine'}
+                onClick={() => selectedId && simplifySelected(selectedId)}
+                disabled={!selectedId}
+                title="Thin out the points on the selected polygon"
+                style={btn}>
+                <Spline size={13} /> Simplify polygon
               </button>
             </div>
             {tool === 'cutpoly' && (
@@ -2452,9 +2446,6 @@ export default function ConfigureMap() {
             </div>
             {drawing && (
               <div style={hint}>Click to place corners. Enter or double-click closes the shape; Esc cancels.</div>
-            )}
-            {tool === 'combine' && (
-              <div style={hint}>Click another parcel to fold it into this one.</div>
             )}
             </>)}
 
