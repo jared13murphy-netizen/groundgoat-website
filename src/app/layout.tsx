@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import './globals.css'
 import ConditionalShell from '@/components/ConditionalShell'
+import ReportJobsIndicator from '@/components/ReportJobsIndicator'
 
 export const metadata: Metadata = {
   title: 'Ground Goat | Land Auction Intelligence',
@@ -34,6 +35,10 @@ export default function RootLayout({
         <ConditionalShell>
           {children}
         </ConditionalShell>
+        {/* Above the pages on purpose: a report keeps building while the
+            user navigates, so the thing telling them about it must not be
+            unmounted by navigation. */}
+        <ReportJobsIndicator />
       </body>
     </html>
   )

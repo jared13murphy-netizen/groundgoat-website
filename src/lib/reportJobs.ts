@@ -10,6 +10,7 @@
 // is a one-line change. Email delivery resolves to a synthetic JSON
 // Response shaped like the old endpoints' {success, message} payload.
 import fetchWithAuth from '@/lib/fetchWithAuth'
+import { reportJobStarted } from '@/lib/reportJobStore'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -39,6 +40,11 @@ export default async function reportJobFetch(
   if (!createRes.ok) return createRes // caller's existing !res.ok path shows its own message
 
   const { job_id } = await createRes.json()
+  // Wake the on-screen indicator immediately. The wait below still works
+  // for anyone who stays on the page, but the report is now ALSO tracked
+  // globally — so navigating away no longer abandons it. The indicator
+  // keeps polling and offers the download when it is ready.
+  reportJobStarted()
   const deadline = Date.now() + TIMEOUT_MS
 
   while (Date.now() < deadline) {
