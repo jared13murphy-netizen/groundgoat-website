@@ -17,6 +17,12 @@ interface TeamMember {
   account_type: string
   created_at: string
   is_active: boolean
+  // Whether they have ever signed in. Until now every member on this page
+  // looked identical, so an admin could not tell a colleague who is working
+  // from one whose invite never arrived — a Fortress Bank seat sat unused for
+  // eight days before anyone noticed.
+  has_signed_in?: boolean
+  invite_expires_at?: string | null
 }
 
 export default function TeamPage() {
@@ -168,6 +174,41 @@ export default function TeamPage() {
     }
   }
 
+  // SENDING THE INVITE AGAIN.
+  // Owner, 2026-08-31: a Fortress Bank member deleted the invite email during
+  // signup. This page could add a member and delete a member and nothing in
+  // between, so the only ways back were to delete the seat (losing the row) or
+  // to change the email to something else and back, which re-issues the invite
+  // as a side effect of the wrong operation.
+  const [resendingId, setResendingId] = useState<string | null>(null)
+
+  const handleResendInvite = async (member: TeamMember) => {
+    setResendingId(member.id)
+    setError('')
+    setSuccess('')
+    try {
+      const res = await fetchWithAuth(
+        `${API_URL}/api/firms/team/${member.id}/resend-invite`, { method: 'POST' })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setError(body.detail || 'Could not send that invitation.')
+        return
+      }
+      // "Sent again" and "your old link had run out, here is a new one" are
+      // different things to the person receiving it, so the admin is told
+      // which one went.
+      setSuccess(body.new_link
+        ? `Their old invitation had expired — a fresh one is on its way to ${body.email}.`
+        : `Invitation sent again to ${body.email}.`)
+      const tok = localStorage.getItem('auth_token')
+      if (tok) await fetchTeamMembers(tok)
+    } catch {
+      setError('Could not reach the server. Try again.')
+    } finally {
+      setResendingId(null)
+    }
+  }
+
   const handleRemoveMember = async (memberId: string) => {
     const token = localStorage.getItem('auth_token')
     if (!token) {
@@ -255,9 +296,10 @@ export default function TeamPage() {
   return (
     <div className="min-h-screen bg-gg-black pt-24 pb-12">
       <div className="max-w-3xl mx-auto px-6">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <div className="flex items-center gap-4">
+        {/* Header. Wraps rather than pushing Add Member off the right edge
+            of a phone, where it was unreachable. */}
+        <div className="flex flex-wrap items-center justify-between gap-4 mb-8">
+          <div className="flex min-w-0 items-center gap-4">
             <Link 
               href="/account" 
               className="w-10 h-10 bg-gg-gray-800 rounded-lg flex items-center justify-center text-gg-gray-400 hover:text-white hover:bg-gg-gray-700 transition-colors"
@@ -271,7 +313,7 @@ export default function TeamPage() {
           </div>
           <button
             onClick={() => setShowInviteModal(true)}
-            className="btn-primary flex items-center gap-2"
+            className="btn-primary flex shrink-0 items-center gap-2 whitespace-nowrap"
           >
             <UserPlus size={18} />
             Add Member
@@ -361,52 +403,93 @@ export default function TeamPage() {
           {/* Team Members */}
           {teamMembers.map((member) => (
             <div key={member.id} className="card">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 bg-gg-gray-700 rounded-full flex items-center justify-center">
+              {/* Wraps on a narrow screen. On one line this row overflowed its
+                  own card by ~150px on a phone once a member carried a status
+                  chip and a Resend button — the button ran off the right edge
+                  and could not be pressed. */}
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                {/* basis-64, so the identity block never gets squeezed to
+                    "a…" — when there is no room beside it the action group
+                    wraps to its own line underneath instead. */}
+                <div className="flex min-w-0 flex-1 basis-64 items-center gap-4">
+                  <div className="w-12 h-12 shrink-0 bg-gg-gray-700 rounded-full flex items-center justify-center">
                     <span className="text-lg font-bold text-gg-gray-300">
                       {member.first_name?.[0]}{member.last_name?.[0]}
                     </span>
                   </div>
-                  <div>
-                    <div className="flex items-center gap-2">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
                       <h3 className="font-medium text-white">
                         {member.first_name} {member.last_name}
                       </h3>
                       <span className="text-xs bg-gg-gray-700 text-gg-gray-400 px-2 py-0.5 rounded">
                         Member
                       </span>
+                      {/* A seat that is paid for but never used is the thing
+                          worth seeing on this page, so it is said plainly
+                          rather than left for the admin to infer. */}
+                      {member.has_signed_in === false && (
+                        <span className="text-xs bg-gg-gold/15 text-gg-gold px-2 py-0.5 rounded">
+                          {member.invite_expires_at
+                            && new Date(member.invite_expires_at) < new Date()
+                            ? 'Invitation expired'
+                            : 'Has not signed up yet'}
+                        </span>
+                      )}
                     </div>
-                    <p className="text-sm text-gg-gray-400">{member.email}</p>
+                    <p className="truncate text-sm text-gg-gray-400">{member.email}</p>
                   </div>
                 </div>
-                {/* Correct a mistyped address. Sits before Remove because
-                    deleting and re-adding was the only way to fix a typo, and
-                    that loses the seat's history. */}
-                <button
-                  onClick={() => {
-                    setMemberBeingEdited(member)
-                    setEditEmail(member.email)
-                    setEditError('')
-                    setEditNote('')
-                  }}
-                  title="Change this member's email address"
-                  aria-label={`Change the email address for ${member.first_name} ${member.last_name}`}
-                  className="text-gg-gray-500 hover:text-gg-pink transition-colors p-2"
-                >
-                  <Pencil size={17} />
-                </button>
-                <button
-                  onClick={() => setMemberPendingRemoval(member)}
-                  disabled={removingId === member.id}
-                  className="text-gg-gray-500 hover:text-red-400 transition-colors p-2"
-                >
-                  {removingId === member.id ? (
-                    <Loader2 size={18} className="animate-spin" />
-                  ) : (
-                    <Trash2 size={18} />
+                <div className="ml-auto flex shrink-0 items-center gap-1">
+                  {/* Send the invitation again. Only for a member who has
+                      never signed in: an invite sets a password, so offering it
+                      to someone who already has one would be misleading — they
+                      need Forgot Password instead. Labelled rather than an
+                      icon alone, because it is the one control on this row
+                      whose effect is invisible from the page. */}
+                  {member.has_signed_in === false && (
+                    <button
+                      onClick={() => handleResendInvite(member)}
+                      disabled={resendingId === member.id}
+                      title={`Send the invitation to ${member.email} again`}
+                      className="flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-gg-gray-600
+                                 px-3 py-1.5 text-xs text-gg-gray-300 transition-colors
+                                 hover:border-gg-pink hover:text-gg-pink disabled:opacity-50"
+                    >
+                      {resendingId === member.id
+                        ? <Loader2 size={14} className="animate-spin" />
+                        : <Mail size={14} />}
+                      {resendingId === member.id ? 'Sending…' : 'Resend invite'}
+                    </button>
                   )}
-                </button>
+                  {/* Correct a mistyped address. Sits before Remove because
+                      deleting and re-adding was the only way to fix a typo, and
+                      that loses the seat's history. */}
+                  <button
+                    onClick={() => {
+                      setMemberBeingEdited(member)
+                      setEditEmail(member.email)
+                      setEditError('')
+                      setEditNote('')
+                    }}
+                    title="Change this member's email address"
+                    aria-label={`Change the email address for ${member.first_name} ${member.last_name}`}
+                    className="text-gg-gray-500 hover:text-gg-pink transition-colors p-2"
+                  >
+                    <Pencil size={17} />
+                  </button>
+                  <button
+                    onClick={() => setMemberPendingRemoval(member)}
+                    disabled={removingId === member.id}
+                    className="text-gg-gray-500 hover:text-red-400 transition-colors p-2"
+                  >
+                    {removingId === member.id ? (
+                      <Loader2 size={18} className="animate-spin" />
+                    ) : (
+                      <Trash2 size={18} />
+                    )}
+                  </button>
+                </div>
               </div>
             </div>
           ))}
