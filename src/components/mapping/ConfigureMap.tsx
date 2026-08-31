@@ -2312,7 +2312,13 @@ export default function ConfigureMap() {
             {/* Land type chips — pick the type for the NEXT polygon, or
                 retype the selected one. */}
             <div>
-              <div style={sectionLabel}>Land type</div>
+              {/* These chips do TWO things: set the class for the next
+                  shape drawn, and retype whatever is selected. That
+                  second one is silent — a polygon changes colour and
+                  nothing says why. Say it. */}
+              <div style={sectionLabel}>
+                {selectedId ? 'Land type — changes the selected polygon' : 'Land type'}
+              </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                 {LAND_CLASSES.map((c) => (
                   <button
@@ -2336,6 +2342,13 @@ export default function ConfigureMap() {
                   </button>
                 ))}
               </div>
+              {selectedId && (
+                <div style={hint}>
+                  A polygon is selected — picking a type here re-classifies it,
+                  and its colour changes to match. Click the map away from it
+                  first if you only meant to set the type for the next shape.
+                </div>
+              )}
             </div>
 
             {/* Tools — drawing, then edit state, then commit. */}
