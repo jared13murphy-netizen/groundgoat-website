@@ -272,6 +272,10 @@ export default function MapPortfolioPage() {
                              animation: 'pf-pulse 1.6s ease-out 2',
                            } : null),
                          }}>
+                      {/* Name and acreage on one line; the buttons get
+                          their own below. */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8,
+                                    flexWrap: 'wrap', width: '100%' }}>
                       {/* Same gesture as the map panel: text, pencil,
                           then x to abandon and a tick to keep. */}
                       {renameId === x.id ? (
@@ -306,42 +310,39 @@ export default function MapPortfolioPage() {
                         {x.stats?.tillable_acres ? ` · ${x.stats.tillable_acres.toFixed(1)} tillable` : ''}
                         {x.stats?.soil?.rating ? ` · ${x.stats.soil.rating} ${x.stats.soil.rating_type}` : ''}
                       </span>
-                      <div style={{ flex: 1 }} />
+                      </div>
+
+                      {/* The controls get their own line and never wrap.
+                          A long tract name used to push them onto a
+                          second line one at a time. */}
                       {renameId !== x.id && (
-                        // EDIT THE TRACT — its polygons, its outline. The
-                        // pencil beside it only renames. There was no way
-                        // in here at all: the name linked through in view
-                        // mode, which is not editing and reads as a label.
-                        <Link href={`/configure-map?parcel=${x.id}&edit=1`}
-                              style={{ ...btn, padding: '3px 8px', fontSize: 11 }}
-                              title="Edit this tract's land types">
-                          <SquarePen size={12} /> Edit
-                        </Link>
-                      )}
-                      {renameId !== x.id && (
-                        <>
-                          {/* Opens the tract to LOOK at, with the reports
-                              in view — the editing tools stay hidden
-                              until someone asks for them. */}
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'nowrap', alignItems: 'center' }}>
+                          {/* EDIT THE TRACT — its polygons, its outline.
+                              The pencil beside it only renames. */}
+                          <Link href={`/configure-map?parcel=${x.id}&edit=1`}
+                                style={{ ...rowBtn, whiteSpace: 'nowrap' }}
+                                title="Edit this tract's land types">
+                            <SquarePen size={12} /> Edit
+                          </Link>
                           <Link href={`/configure-map?parcel=${x.id}&reports=1`}
-                                style={{ ...btn, padding: '3px 8px', fontSize: 11 }}
+                                style={{ ...rowBtn, whiteSpace: 'nowrap' }}
                                 title="Build a report from this tract">
                             <FileText size={12} /> Reports
                           </Link>
-                          <button style={{ ...btn, padding: '3px 7px', fontSize: 11 }} disabled={!!busy}
+                          <button style={rowBtn} disabled={!!busy}
                                   title="Rename this tract" aria-label="Rename this tract"
                                   onClick={() => { setRenameId(x.id); setRenameTo(x.name) }}>
                             <PenLine size={12} />
                           </button>
-                        </>
+                          <button style={{ ...rowBtn, whiteSpace: 'nowrap' }} disabled={!!busy}
+                                  onClick={() => void act('Archiving…', async () => {
+                                    await archiveParcel(x.id)
+                                    const r = await getProject(p.id); setOpenParcels(r.parcels)
+                                  })}>
+                            <Archive size={11} /> Archive
+                          </button>
+                        </div>
                       )}
-                      <button style={{ ...btn, padding: '3px 8px', fontSize: 11 }} disabled={!!busy}
-                              onClick={() => void act('Archiving…', async () => {
-                                await archiveParcel(x.id)
-                                const r = await getProject(p.id); setOpenParcels(r.parcels)
-                              })}>
-                        <Archive size={11} /> Archive
-                      </button>
                     </div>
                   ))}
                 </div>
@@ -411,8 +412,12 @@ const nameBtn: React.CSSProperties = {
   cursor: 'pointer', padding: 0, textAlign: 'left',
 }
 const parcelRow: React.CSSProperties = {
-  display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0',
+  // Stacked: a name, acreage and four controls never fit one 420px line.
+  display: 'flex', flexDirection: 'column', alignItems: 'flex-start',
+  gap: 6, padding: '8px 0',
   borderBottom: '1px solid rgba(255,255,255,0.05)',
-  // Four controls plus a name will not fit a 420px panel on one line.
-  flexWrap: 'wrap',
+}
+/** Compact control used in a tract row. */
+const rowBtn: React.CSSProperties = {
+  ...btn, padding: '3px 8px', fontSize: 11,
 }
