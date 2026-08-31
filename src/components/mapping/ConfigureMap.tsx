@@ -404,12 +404,12 @@ export default function ConfigureMap() {
       return () => { stop = true }
     }
     if (!saved) return
-    void openSavedTractRef.current?.(saved)
+    void openSavedTractRef.current?.(saved, params.get('edit') === '1')
   }, [ready])
 
   /** Open a saved tract into the editor. Extracted from the ?parcel=
    *  boot path so clicking another tract on the map can reuse it. */
-  const openSavedTract = useCallback(async (saved: string) => {
+  const openSavedTract = useCallback(async (saved: string, startEditing = false) => {
     let cancelled = false
     await (async () => {
       setBusy('Opening saved parcel…')
@@ -443,13 +443,22 @@ export default function ConfigureMap() {
           unclassified_acres: rec.stats?.unclassified_acres ?? 0,
         })
         const loadedShapes = explodeShapes(rec.polygons as any)
+        const loadedRings = geometryToPolys(rec.boundary)
         setShapes(loadedShapes)
-        markCleanRef.current?.(loadedShapes, geometryToPolys(rec.boundary))
+        // The outline has to come across too. Without this it kept the
+        // PREVIOUS tract's rings: the panel then read as having unsaved
+        // changes the moment a tract opened, and 'Edit outline' would
+        // have handed you the wrong tract's boundary to drag.
+        setBoundaryRings(loadedRings)
+        markCleanRef.current?.(loadedShapes, loadedRings)
         // Opened from the portfolio to LOOK at, not to edit: show the
         // land types straight away and keep the editing tools away until
         // the user asks for them.
         setStep('landtypes')
-        setEditingTypes(false)
+        // Opened to LOOK at by default; the portfolio's Edit button asks
+        // for the tools up front so it does not take two clicks to get
+        // to the thing you pressed Edit for.
+        setEditingTypes(startEditing)
         setSelectedId(null)
         const bb = bboxOf(rec.boundary?.coordinates)
         if (bb && mapRef.current) mapRef.current.fitBounds(bb, { padding: 90, duration: 700 })

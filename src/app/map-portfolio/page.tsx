@@ -20,7 +20,7 @@ import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
 import {
   Archive, ArchiveRestore, ArrowLeft, Check, FileText, Loader2, Map as MapIcon,
-  PenLine, Plus, Search, X,
+  PenLine, Plus, Search, SquarePen, X,
 } from 'lucide-react'
 import {
   allTractsGeometry, archiveParcel, fetchMappingAccessState, getProject, listProjects,
@@ -308,6 +308,17 @@ export default function MapPortfolioPage() {
                       </span>
                       <div style={{ flex: 1 }} />
                       {renameId !== x.id && (
+                        // EDIT THE TRACT — its polygons, its outline. The
+                        // pencil beside it only renames. There was no way
+                        // in here at all: the name linked through in view
+                        // mode, which is not editing and reads as a label.
+                        <Link href={`/configure-map?parcel=${x.id}&edit=1`}
+                              style={{ ...btn, padding: '3px 8px', fontSize: 11 }}
+                              title="Edit this tract's land types">
+                          <SquarePen size={12} /> Edit
+                        </Link>
+                      )}
+                      {renameId !== x.id && (
                         <>
                           {/* Opens the tract to LOOK at, with the reports
                               in view — the editing tools stay hidden
@@ -400,6 +411,8 @@ const nameBtn: React.CSSProperties = {
   cursor: 'pointer', padding: 0, textAlign: 'left',
 }
 const parcelRow: React.CSSProperties = {
-  display: 'flex', alignItems: 'center', gap: 10, padding: '5px 0',
+  display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0',
   borderBottom: '1px solid rgba(255,255,255,0.05)',
+  // Four controls plus a name will not fit a 420px panel on one line.
+  flexWrap: 'wrap',
 }
