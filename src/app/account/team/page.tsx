@@ -181,29 +181,42 @@ export default function TeamPage() {
   // to change the email to something else and back, which re-issues the invite
   // as a side effect of the wrong operation.
   const [resendingId, setResendingId] = useState<string | null>(null)
+  // THE ANSWER HAS TO APPEAR WHERE THE BUTTON IS. The success/error banner
+  // sits at the top of the page, above the plan card and the whole member
+  // list — a firm admin pressing Resend on the third member never sees it
+  // and reports that nothing happened, which is exactly what happened on
+  // 2026-08-31. This keeps the outcome on the member's own row.
+  const [resendResult, setResendResult] = useState<Record<string, { ok: boolean; text: string }>>({})
 
   const handleResendInvite = async (member: TeamMember) => {
     setResendingId(member.id)
     setError('')
     setSuccess('')
+    setResendResult((r) => ({ ...r, [member.id]: { ok: true, text: 'Sending…' } }))
     try {
       const res = await fetchWithAuth(
         `${API_URL}/api/firms/team/${member.id}/resend-invite`, { method: 'POST' })
       const body = await res.json().catch(() => ({}))
       if (!res.ok) {
-        setError(body.detail || 'Could not send that invitation.')
+        const msg = body.detail || 'Could not send that invitation.'
+        setError(msg)
+        setResendResult((r) => ({ ...r, [member.id]: { ok: false, text: msg } }))
         return
       }
       // "Sent again" and "your old link had run out, here is a new one" are
       // different things to the person receiving it, so the admin is told
       // which one went.
-      setSuccess(body.new_link
+      const msg = body.new_link
         ? `Their old invitation had expired — a fresh one is on its way to ${body.email}.`
-        : `Invitation sent again to ${body.email}.`)
+        : `Invitation sent again to ${body.email}.`
+      setSuccess(msg)
+      setResendResult((r) => ({ ...r, [member.id]: { ok: true, text: msg } }))
       const tok = localStorage.getItem('auth_token')
       if (tok) await fetchTeamMembers(tok)
     } catch {
-      setError('Could not reach the server. Try again.')
+      const msg = 'Could not reach the server. Try again.'
+      setError(msg)
+      setResendResult((r) => ({ ...r, [member.id]: { ok: false, text: msg } }))
     } finally {
       setResendingId(null)
     }
@@ -438,6 +451,12 @@ export default function TeamPage() {
                       )}
                     </div>
                     <p className="truncate text-sm text-gg-gray-400">{member.email}</p>
+                    {resendResult[member.id] && (
+                      <p className={`mt-1 text-xs ${
+                        resendResult[member.id].ok ? 'text-green-400' : 'text-red-400'}`}>
+                        {resendResult[member.id].text}
+                      </p>
+                    )}
                   </div>
                 </div>
                 <div className="ml-auto flex shrink-0 items-center gap-1">
