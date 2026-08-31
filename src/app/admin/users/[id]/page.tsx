@@ -406,16 +406,112 @@ function timeAgo(dateStr: string | null): string {
   return `${days}d ago`
 }
 
+/** The dates arrive as plain 'YYYY-MM-DD' calendar days (UTC), so they are
+    split by hand. `new Date('2026-08-30')` parses as UTC midnight and then
+    prints in the viewer's zone, which in the US is the PREVIOUS day — the
+    axis would have been off by one for every reader west of Greenwich. */
+function dayLabel(iso: string): string {
+  const [, m, d] = iso.split('-').map(Number)
+  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+  return `${MONTHS[(m || 1) - 1]} ${d}`
+}
+
+/** A y-axis top that lands on a round number, so the ticks read 0 / 25 / 50
+    rather than 0 / 23 / 46. */
+function niceCeil(v: number): number {
+  if (v <= 5) return 5
+  const mag = Math.pow(10, Math.floor(Math.log10(v)))
+  for (const step of [1, 2, 2.5, 5, 10]) {
+    const candidate = step * mag
+    if (candidate >= v) return candidate
+  }
+  return 10 * mag
+}
+
+/** Daily requests over the last 30 days.
+ *
+ * This was a bare sparkline: no axes, no labels, no units — a shape with
+ * nothing to read it against (owner, 2026-08-30: "I need an X and Y axis so
+ * I understand what I'm looking at"). It also drew with
+ * preserveAspectRatio="none", which stretches the marks horizontally to
+ * whatever width the card happens to be, so a single day's bar rendered as a
+ * wide slab and the rounded corners came out as ovals.
+ *
+ * Now: a labelled y-axis in requests, a labelled x-axis in dates, hairline
+ * gridlines one step off the card surface, and a hover readout per day. Laid
+ * out in HTML rather than a stretched SVG so the bars keep their proportions
+ * and every day has a full-height hover target — including the empty ones,
+ * which is how you tell "nothing happened" from "no data".
+ */
 function Sparkline({ data }: { data: { date: string; requests: number }[] }) {
   const max = Math.max(...data.map(d => d.requests), 1)
-  const W = 600, H = 48, gap = 2
-  const barW = (W - gap * (data.length - 1)) / data.length
+  const top = niceCeil(max)
+  const ticks = [top, top / 2, 0]
+  const last = data.length - 1
+  const mid = Math.floor(last / 2)
+
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-12" preserveAspectRatio="none">
-      {data.map((d, i) => {
-        const h = Math.max((d.requests / max) * H, d.requests > 0 ? 2 : 0)
-        return <rect key={i} x={i * (barW + gap)} y={H - h} width={barW} height={h} fill="#e91e8c" opacity="0.8" rx="1" />
-      })}
-    </svg>
+    <div>
+      <p className="text-[11px] text-gg-gray-500 mb-1 ml-10">Requests per day</p>
+      <div className="pl-10">
+        <div className="relative h-32">
+          {/* Gridlines: solid hairlines one step off the card surface, and
+              recessive. The 0 line doubles as the x-axis rule. */}
+          {ticks.map(t => (
+            <div key={t} className="absolute left-0 right-0 h-px bg-gg-gray-700"
+              style={{ bottom: `${(t / top) * 100}%` }}>
+              <span className="absolute right-full mr-2 -translate-y-1/2 text-[11px] text-gg-gray-500 tabular-nums whitespace-nowrap">
+                {t.toLocaleString()}
+              </span>
+            </div>
+          ))}
+          {/* The y-axis rule. */}
+          <div className="absolute left-0 top-0 bottom-0 w-px bg-gg-gray-700" />
+
+          {/* One full-height column per day. The column is the hover target;
+              the bar inside it is capped at 24px so a wide card gets air
+              rather than slabs, and the 2px gap between columns is the card
+              surface showing through — no borders on the marks. */}
+          <div className="absolute inset-0 flex items-end gap-[2px]">
+            {data.map((d, i) => (
+              <div key={d.date} className="group relative flex-1 h-full flex items-end justify-center">
+                {d.requests > 0 && (
+                  <div
+                    className="w-full max-w-[24px] rounded-t bg-[#e91e8c]"
+                    style={{ height: `${Math.max((d.requests / top) * 100, 1.5)}%` }}
+                  />
+                )}
+                {/* Hover readout. A number on all 30 days would be unreadable,
+                    so the values live here and on the axis. */}
+                {/* Anchored to the plot edge for the first and last few days.
+                    Centred on the column, the readout for 30 August hangs off
+                    the right of the card — and off the screen entirely on a
+                    phone. */}
+                <div className={`pointer-events-none absolute bottom-full mb-1 hidden group-hover:block z-10
+                                whitespace-nowrap rounded-md border border-gg-gray-600 bg-gg-gray-900 px-2 py-1
+                                text-[11px] text-white shadow-lg ${
+                                  i <= 2 ? 'left-0'
+                                  : i >= data.length - 3 ? 'right-0'
+                                  : 'left-1/2 -translate-x-1/2'}`}>
+                  <span className="text-gg-gray-400">{dayLabel(d.date)}</span>
+                  {' · '}
+                  <span className="tabular-nums">{d.requests.toLocaleString()}</span>
+                  {d.requests === 1 ? ' request' : ' requests'}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Three x labels, not thirty. The ends anchor the window and the
+            middle one shows which way time runs. */}
+        <div className="relative mt-2 h-4 text-[11px] text-gg-gray-500">
+          <span className="absolute left-0">{dayLabel(data[0].date)}</span>
+          <span className="absolute left-1/2 -translate-x-1/2">{dayLabel(data[mid].date)}</span>
+          <span className="absolute right-0">{dayLabel(data[last].date)}</span>
+        </div>
+      </div>
+    </div>
   )
 }
