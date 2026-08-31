@@ -637,6 +637,13 @@ export default function ConfigureMap() {
           'line-opacity': 0.75, 'line-dasharray': [3, 2],
         },
       })
+      // Invisible, and there purely so a click anywhere ON another
+      // tract switches to it. Only the badge used to be clickable, which
+      // is a 100px target on a 600-acre field.
+      map.addLayer({
+        id: 'cm-peer-bounds-hit', type: 'fill', source: SRC.peerLine,
+        paint: { 'fill-color': '#ffffff', 'fill-opacity': 0.001 },
+      })
 
       // The polygon IS the land type — its colour carries the meaning and
       // the panel legend explains it. No text on the map: labels stacked
@@ -997,6 +1004,19 @@ export default function ConfigureMap() {
         if (map.queryRenderedFeatures(e.point, {
           layers: ['cm-comps-circles', 'cm-peer-label'].filter((l) => map.getLayer(l)),
         }).length) return
+
+        // Clicking another tract — anywhere on it, not just its badge —
+        // switches to that tract. requestOpen enforces the unsaved-work
+        // confirmation. This has to come BEFORE the guard below, which
+        // otherwise swallows every click while a parcel is open.
+        if (map.getLayer('cm-peer-bounds-hit')) {
+          const onPeer = map.queryRenderedFeatures(e.point, { layers: ['cm-peer-bounds-hit'] })
+          const peerId = onPeer[0]?.properties?.tractId
+          if (peerId && toolRef.current === null && !drawingRef.current) {
+            requestOpenRef.current?.(String(peerId))
+            return
+          }
+        }
         // A click on the outline during step 1 means "add a handle here"
         // and is handled by the layer listener above; letting it fall
         // through would also try to select a parcel underneath.
@@ -1513,7 +1533,9 @@ export default function ConfigureMap() {
           properties: { color: CLASS_COLOR[poly.cls] || '#9ca3af' },
         })
       }
-      if (t.boundary) bounds.push({ type: 'Feature', geometry: t.boundary, properties: {} })
+      if (t.boundary) bounds.push({
+        type: 'Feature', geometry: t.boundary, properties: { tractId: t.id },
+      })
       // EVERY tract gets its own badge, always.
       //
       // This used to hide a tract whose label point fell inside the open
