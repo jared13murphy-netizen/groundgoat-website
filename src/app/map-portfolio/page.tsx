@@ -240,14 +240,7 @@ export default function MapPortfolioPage() {
                    style={{ marginRight: 6 }} />
             Show archived
           </label>
-          <select value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
-                  aria-label="Sort projects"
-                  style={{ ...input, padding: '6px 8px', fontSize: 12 }}>
-            <option value="modified">Last modified</option>
-            <option value="created">Date created</option>
-            <option value="name">Name (A–Z)</option>
-          </select>
+
         </div>
 
         {busy && <p style={muted}><Loader2 size={13} /> {busy}</p>}
@@ -285,7 +278,24 @@ export default function MapPortfolioPage() {
           if (key === 'shared' && inSection.length === 0) return null
           return (
           <div key={key} style={{ marginBottom: 18 }}>
-          <div style={{ ...sectionLabel }}>{title}</div>
+          {/* Sort sits on the MY PROJECTS heading, where the list it
+              orders begins. It governs both sections; a second copy over
+              Shared would imply they sort independently. */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10,
+                        margin: '4px 0 8px' }}>
+            <div style={{ ...sectionLabel, margin: 0 }}>{title}</div>
+            <div style={{ flex: 1 }} />
+            {key === 'mine' && (
+              <select value={sortBy}
+                      onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+                      aria-label="Sort projects"
+                      style={{ ...input, padding: '4px 8px', fontSize: 12 }}>
+                <option value="modified">Last modified</option>
+                <option value="created">Date created</option>
+                <option value="name">Name (A–Z)</option>
+              </select>
+            )}
+          </div>
           {inSection.length === 0 && <p style={muted}>{empty}</p>}
         <div style={{ display: 'grid', gap: 12 }}>
           {inSection.map((p) => (
