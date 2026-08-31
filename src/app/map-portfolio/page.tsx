@@ -37,6 +37,17 @@ export default function MapPortfolioPage() {
   const [openParcels, setOpenParcels] = useState<SavedParcelRow[]>([])
   const [renameId, setRenameId] = useState<string | null>(null)
   const [renameTo, setRenameTo] = useState('')
+  const [projRenameId, setProjRenameId] = useState<string | null>(null)
+  const [projRenameTo, setProjRenameTo] = useState('')
+
+  const saveProjectRename = async (projectId: string) => {
+    const n = projRenameTo.trim()
+    if (!n) return
+    await act('Renaming the project…', async () => {
+      await updateProject(projectId, { name: n })
+      setProjRenameId(null)
+    })
+  }
   const [tracts, setTracts] = useState<PortfolioTract[]>([])
   /** The tract last clicked on the map, highlighted in the list. */
   const [focusTract, setFocusTract] = useState<string | null>(null)
@@ -216,10 +227,44 @@ export default function MapPortfolioPage() {
                   put the date between the buttons and left Archive
                   stranded on its own line. */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <button onClick={() => void openProject(p.id)} style={nameBtn}
-                        title="Show the tracts in this project">
-                  {openId === p.id ? '▾ ' : '▸ '}{p.name}
-                </button>
+                {/* The project name was the one thing here that could
+                    not be corrected. Same gesture as a tract: pencil,
+                    then x to abandon and a tick to keep. */}
+                {projRenameId === p.id ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <input
+                      autoFocus value={projRenameTo}
+                      onChange={(e) => setProjRenameTo(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Escape') setProjRenameId(null)
+                        if (e.key === 'Enter') void saveProjectRename(p.id)
+                      }}
+                      style={{ ...input, fontSize: 15, fontWeight: 600, flex: 1, minWidth: 0 }} />
+                    <button style={{ ...rowBtn, ...dangerBtn, padding: '4px 7px' }}
+                            title="Cancel" aria-label="Cancel rename"
+                            onClick={() => setProjRenameId(null)}>
+                      <X size={12} />
+                    </button>
+                    <button style={{ ...rowBtn, ...goBtn, padding: '4px 7px' }}
+                            disabled={!!busy || !projRenameTo.trim()}
+                            title="Save this name" aria-label="Save this name"
+                            onClick={() => void saveProjectRename(p.id)}>
+                      <Check size={12} />
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <button onClick={() => void openProject(p.id)} style={nameBtn}
+                            title="Show the tracts in this project">
+                      {openId === p.id ? '▾ ' : '▸ '}{p.name}
+                    </button>
+                    <button style={{ ...rowBtn, padding: '3px 7px' }} disabled={!!busy}
+                            title="Rename this project" aria-label="Rename this project"
+                            onClick={() => { setProjRenameId(p.id); setProjRenameTo(p.name) }}>
+                      <PenLine size={12} />
+                    </button>
+                  </div>
+                )}
                 <span style={{ ...muted, display: 'block', lineHeight: 1.45 }}>
                   {p.summary?.parcels ?? 0} parcel{(p.summary?.parcels ?? 0) === 1 ? '' : 's'}
                   {' · '}{(p.summary?.acres ?? 0).toFixed(1)} ac
@@ -322,17 +367,19 @@ export default function MapPortfolioPage() {
                           <Link href={`/configure-map?parcel=${x.id}&edit=1`}
                                 style={{ ...rowBtn, whiteSpace: 'nowrap' }}
                                 title="Edit this tract's land types">
-                            <SquarePen size={12} /> Edit
+                            <SquarePen size={12} /> Edit tract
                           </Link>
                           <Link href={`/configure-map?parcel=${x.id}&reports=1`}
                                 style={{ ...rowBtn, whiteSpace: 'nowrap' }}
                                 title="Build a report from this tract">
                             <FileText size={12} /> Reports
                           </Link>
-                          <button style={rowBtn} disabled={!!busy}
-                                  title="Rename this tract" aria-label="Rename this tract"
+                          {/* 'Edit' and a bare pencil said nothing about
+                              which was which. Both carry a word now. */}
+                          <button style={{ ...rowBtn, whiteSpace: 'nowrap' }} disabled={!!busy}
+                                  title="Rename this tract"
                                   onClick={() => { setRenameId(x.id); setRenameTo(x.name) }}>
-                            <PenLine size={12} />
+                            <PenLine size={12} /> Rename
                           </button>
                           <button style={{ ...rowBtn, whiteSpace: 'nowrap' }} disabled={!!busy}
                                   onClick={() => void act('Archiving…', async () => {
