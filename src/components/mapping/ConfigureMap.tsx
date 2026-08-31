@@ -2239,6 +2239,18 @@ export default function ConfigureMap() {
               )}
             </div>
 
+            {/* The name, right under the parcel it belongs to. It used
+                to sit at the very bottom of a long scrolling panel in a
+                small grey label, which nobody found. Same place in every
+                step, so it never moves on you. */}
+            <div style={{ ...card, gap: 6 }}>
+              <div style={{ ...sectionLabel, marginBottom: 0, opacity: 0.75 }}>Tract name</div>
+              <div style={{ fontSize: 16, fontWeight: 600 }}>
+                <TractName value={name} busy={!!busy}
+                           onCommit={(n) => { setName(n); void doRename(n) }} />
+              </div>
+            </div>
+
             {step === 'boundary' ? (
               <>
                 <div style={stepCard}>
@@ -2247,15 +2259,6 @@ export default function ConfigureMap() {
                     This is the recorded parcel boundary. Drag any dot to adjust it.
                     Continue and the land types will fill in inside.
                   </div>
-                </div>
-                {/* The name field belonged in step 2 only, but the badge
-                    on the map is already showing a name here — so this is
-                    where people go looking to change it. Typing renames
-                    the badge as you go; nothing is written until save. */}
-                <div>
-                  <div style={sectionLabel}>Tract name</div>
-                  <TractName value={name} busy={!!busy}
-                             onCommit={(n) => { setName(n); void doRename(n) }} />
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                   <button
@@ -2663,22 +2666,6 @@ export default function ConfigureMap() {
             boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)',
             display: 'flex', flexDirection: 'column', gap: 8,
           }}>
-            {step === 'landtypes' && editingTypes && (
-              <div>
-                <div style={sectionLabel}>Tract name</div>
-                <TractName value={name} busy={!!busy}
-                           onCommit={(n) => { setName(n); void doRename(n) }} />
-              </div>
-            )}
-            {/* Renaming a saved tract without entering edit mode. Only
-                the name is written — the geometry is not touched. */}
-            {step === 'landtypes' && !editingTypes && editingId && (
-              <div>
-                <div style={sectionLabel}>Tract name</div>
-                <TractName value={name} busy={!!busy}
-                           onCommit={(n) => { setName(n); void doRename(n) }} />
-              </div>
-            )}
             {step === 'landtypes' && !editingTypes ? (
               // View mode hid Save and Cancel, which left no way off this
               // screen at all — no route back to the portfolio and no way
