@@ -180,6 +180,10 @@ export interface Project {
   archived_at: string | null
   created_at: string
   updated_at: string
+  /** True when a colleague shared this with you rather than you making it. */
+  shared?: boolean
+  /** Who shared it. Null on your own projects. */
+  shared_by?: string | null
 }
 
 export interface SavedParcelRow {
@@ -259,6 +263,32 @@ export function allTractsGeometry() {
 export function projectGeometry(id: string) {
   return j<{ tracts: ProjectTractGeometry[] }>(
     `/api/mapping/projects/${id}/geometry`)
+}
+
+export interface FirmMember {
+  id: string
+  email: string
+  full_name: string | null
+  role: string | null
+}
+
+/** Everyone in the caller's firm — who a project can be shared with. */
+export function firmMembers() {
+  return j<{ members: FirmMember[] }>('/api/mapping/firm/members')
+}
+
+export function projectShares(id: string) {
+  return j<{ user_ids: string[]; owned: boolean }>(`/api/mapping/projects/${id}/shares`)
+}
+
+/** Sends the COMPLETE set, not a delta — what the dialog shows is what
+ *  it saves, so a stale checkbox cannot silently re-share. */
+export function setProjectShares(id: string, userIds: string[]) {
+  return j<{ user_ids: string[] }>(`/api/mapping/projects/${id}/shares`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_ids: userIds }),
+  })
 }
 
 export function updateProject(id: string, patch: { name?: string; archived?: boolean }) {

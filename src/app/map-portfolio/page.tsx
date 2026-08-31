@@ -20,12 +20,12 @@ import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
 import {
   Archive, ArchiveRestore, ArrowLeft, Check, FileText, Loader2, Map as MapIcon,
-  PenLine, Plus, Search, SquarePen, X,
+  PenLine, Plus, Search, SquarePen, Users, X,
 } from 'lucide-react'
 import {
   allTractsGeometry, archiveParcel, fetchMappingAccessState, getProject, listProjects,
-  niceCounty, renameParcel, updateProject,
-  type PortfolioTract, type Project, type SavedParcelRow,
+  firmMembers, niceCounty, projectShares, renameParcel, setProjectShares, updateProject,
+  type FirmMember, type PortfolioTract, type Project, type SavedParcelRow,
 } from '@/lib/configurableMapping'
 import PortfolioMap from '@/components/mapping/PortfolioMap'
 
@@ -39,6 +39,28 @@ export default function MapPortfolioPage() {
   const [renameTo, setRenameTo] = useState('')
   const [projRenameId, setProjRenameId] = useState<string | null>(null)
   const [projRenameTo, setProjRenameTo] = useState('')
+  const [members, setMembers] = useState<FirmMember[]>([])
+  /** The project whose share dialog is open, and the set being edited. */
+  const [shareId, setShareId] = useState<string | null>(null)
+  const [shareWith, setShareWith] = useState<string[]>([])
+
+  const openShare = useCallback(async (projectId: string) => {
+    setShareId(projectId); setShareWith([]); setError(null)
+    try {
+      const [m, cur] = await Promise.all([firmMembers(), projectShares(projectId)])
+      setMembers(m.members)
+      setShareWith(cur.user_ids)
+    } catch (e: any) {
+      setError(e?.message || 'Could not load your firm.')
+    }
+  }, [])
+
+  const saveShare = async (projectId: string) => {
+    await act('Sharing…', async () => {
+      await setProjectShares(projectId, shareWith)
+      setShareId(null)
+    })
+  }
 
   const saveProjectRename = async (projectId: string) => {
     const n = projRenameTo.trim()
@@ -219,8 +241,18 @@ export default function MapPortfolioPage() {
           </div>
         )}
 
+        {/* Mine and Shared kept apart: whose work a project is changes
+            what you may do with it, so the two should never be one
+            undifferentiated list. */}
+        {SECTIONS.map(({ key, title, empty }) => {
+          const inSection = visible.filter((p) => (key === 'shared' ? !!p.shared : !p.shared))
+          if (key === 'shared' && inSection.length === 0) return null
+          return (
+          <div key={key} style={{ marginBottom: 18 }}>
+          <div style={{ ...sectionLabel }}>{title}</div>
+          {inSection.length === 0 && <p style={muted}>{empty}</p>}
         <div style={{ display: 'grid', gap: 12 }}>
-          {visible.map((p) => (
+          {inSection.map((p) => (
             <div key={p.id} style={{ ...card, opacity: p.archived_at ? 0.55 : 1 }}>
               {/* Stacked, not one wrapping row: in a 420px panel the old
                   single row broke wherever it ran out of space, which
@@ -270,15 +302,28 @@ export default function MapPortfolioPage() {
                   {' · '}{(p.summary?.acres ?? 0).toFixed(1)} ac
                   {p.summary?.tillable_acres ? ` · ${p.summary.tillable_acres.toFixed(1)} ac tillable` : ''}
                   {p.county ? ` · ${niceCounty(p.county)} County ${p.state || ''}` : ''}
+                  {p.shared && p.shared_by ? ` · shared by ${p.shared_by}` : ''}
                 </span>
                 {/* One row, never wrapping. */}
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'nowrap', alignItems: 'center' }}>
                   <Link href={`/configure-map?project=${p.id}`} style={{ ...btn, whiteSpace: 'nowrap' }}>
                     <PenLine size={13} /> Open
                   </Link>
-                  <Link href={`/configure-map?project=${p.id}&new=1`} style={{ ...btn, whiteSpace: 'nowrap' }}>
-                    <Plus size={13} /> Add tract
-                  </Link>
+                  {/* Adding a tract writes into the project, which only
+                      its owner may do. */}
+                  {!p.shared && (
+                    <Link href={`/configure-map?project=${p.id}&new=1`} style={{ ...btn, whiteSpace: 'nowrap' }}>
+                      <Plus size={13} /> Add tract
+                    </Link>
+                  )}
+                  {/* Sharing is the OWNER's call. Someone a project was
+                      shared with passing it on is a different decision. */}
+                  {!p.shared && (
+                    <button style={{ ...btn, whiteSpace: 'nowrap' }} disabled={!!busy}
+                            onClick={() => void openShare(p.id)}>
+                      <Users size={13} /> Share
+                    </button>
+                  )}
                   <button style={{ ...btn, whiteSpace: 'nowrap' }} disabled={!!busy}
                           onClick={() => void act(
                             p.archived_at ? 'Restoring…' : 'Archiving…',
@@ -397,7 +442,74 @@ export default function MapPortfolioPage() {
             </div>
           ))}
         </div>
+          </div>
+          )
+        })}
       </aside>
+
+      {/* Share dialog. Everyone in the firm, with a select-all — an
+          auction team usually wants the whole office, not four clicks. */}
+      {shareId && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(0,0,0,0.66)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24,
+        }}>
+          <div style={{ ...card, width: 460, maxHeight: '80vh', overflowY: 'auto' }}>
+            <h2 style={{ ...h1, fontSize: 17, marginBottom: 4 }}>Share this project</h2>
+            <p style={{ ...muted, display: 'block', marginBottom: 12 }}>
+              People you pick can open this project, its tracts and its reports.
+              Only you can change or delete it.
+            </p>
+
+            {members.length === 0 ? (
+              <p style={muted}>
+                Nobody else is on your management firm&apos;s account yet.
+              </p>
+            ) : (
+              <>
+                <label style={{ ...parcelRow, flexDirection: 'row', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={shareWith.length === members.length}
+                    onChange={(e) => setShareWith(
+                      e.target.checked ? members.map((m) => m.id) : [])}
+                    style={{ marginRight: 8 }} />
+                  <span style={{ fontWeight: 600 }}>Everyone in my firm</span>
+                </label>
+                {members.map((m) => (
+                  <label key={m.id}
+                         style={{ ...parcelRow, flexDirection: 'row', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={shareWith.includes(m.id)}
+                      onChange={(e) => setShareWith((prev) => (
+                        e.target.checked
+                          ? Array.from(new Set([...prev, m.id]))
+                          : prev.filter((x) => x !== m.id)))}
+                      style={{ marginRight: 8 }} />
+                    <span>{m.full_name || m.email}</span>
+                    <span style={{ ...muted, marginLeft: 6 }}>
+                      {m.full_name ? m.email : ''}{m.role === 'firm_admin' ? ' · admin' : ''}
+                    </span>
+                  </label>
+                ))}
+              </>
+            )}
+
+            <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+              <button style={{ ...btn, flex: 1, justifyContent: 'center' }}
+                      disabled={!!busy}
+                      onClick={() => void saveShare(shareId)}>
+                <Check size={13} /> Save sharing
+              </button>
+              <button style={{ ...btn, flex: 1, justifyContent: 'center' }}
+                      onClick={() => setShareId(null)}>
+                <X size={13} /> Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -457,6 +569,14 @@ const link: React.CSSProperties = { color: '#93c5fd', textDecoration: 'none' }
 const nameBtn: React.CSSProperties = {
   background: 'none', border: 'none', color: '#e5e7eb', fontSize: 15, fontWeight: 600,
   cursor: 'pointer', padding: 0, textAlign: 'left',
+}
+const SECTIONS = [
+  { key: 'mine', title: 'My Projects', empty: 'You have not created a project yet.' },
+  { key: 'shared', title: 'Shared With Me', empty: '' },
+] as const
+const sectionLabel: React.CSSProperties = {
+  fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.8,
+  opacity: 0.55, margin: '4px 0 8px',
 }
 const parcelRow: React.CSSProperties = {
   // Stacked: a name, acreage and four controls never fit one 420px line.
