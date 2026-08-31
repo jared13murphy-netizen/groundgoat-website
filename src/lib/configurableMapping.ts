@@ -184,6 +184,8 @@ export interface Project {
   shared?: boolean
   /** Who shared it. Null on your own projects. */
   shared_by?: string | null
+  /** On YOUR projects: who you have shared it with. Empty when nobody. */
+  shared_with?: { id: string; name: string }[]
 }
 
 export interface SavedParcelRow {

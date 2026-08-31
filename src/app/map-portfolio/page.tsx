@@ -295,6 +295,20 @@ export default function MapPortfolioPage() {
                             onClick={() => { setProjRenameId(p.id); setProjRenameTo(p.name) }}>
                       <PenLine size={12} />
                     </button>
+                    {/* Says at a glance that this project is out with
+                        colleagues, and opens the list of who. */}
+                    {!p.shared && (p.shared_with?.length ?? 0) > 0 && (
+                      <button
+                        onClick={() => void openShare(p.id)}
+                        title={`Shared with ${p.shared_with!.map((m) => m.name).join(', ')}`}
+                        style={{
+                          ...rowBtn, padding: '3px 8px',
+                          color: '#0b0b0b', border: '1px solid #f58cde',
+                          background: 'linear-gradient(180deg, #f9a8e6 0%, #f58cde 55%, #e072c8 100%)',
+                        }}>
+                        <Users size={12} /> Shared · {p.shared_with!.length}
+                      </button>
+                    )}
                   </div>
                 )}
                 <span style={{ ...muted, display: 'block', lineHeight: 1.45 }}>
@@ -468,6 +482,15 @@ export default function MapPortfolioPage() {
               People you pick can open this project, its tracts and its reports.
               Only you can change or delete it.
             </p>
+
+            {(() => {
+              const now = visible.find((v) => v.id === shareId)?.shared_with || []
+              return now.length > 0 ? (
+                <p style={{ ...muted, display: 'block', marginBottom: 12, opacity: 0.85 }}>
+                  Currently shared with {now.map((m) => m.name).join(', ')}.
+                </p>
+              ) : null
+            })()}
 
             {members.length === 0 ? (
               <p style={muted}>
