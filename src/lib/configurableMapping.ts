@@ -323,11 +323,12 @@ export function splitGeometry(geometry: any, line: any) {
 // bucket is private, so there is no direct link to hand out.
 
 export const REPORT_KINDS =
-  ['tillable', 'elevation_3d', 'fsa', 'topography', 'ground_goat'] as const
+  ['tillable', 'soil_rating', 'elevation_3d', 'fsa', 'topography', 'ground_goat'] as const
 export type ReportKind = (typeof REPORT_KINDS)[number]
 
 export const REPORT_LABEL: Record<string, string> = {
   tillable: 'Tillable Map',
+  soil_rating: 'Soil Rating Map',
   fsa: 'FSA Map',
   ground_goat: 'Ground Goat Report',
   elevation_3d: '3D Elevation Map',
@@ -343,6 +344,7 @@ export const REPORT_LABEL: Record<string, string> = {
  *  to a client. */
 export const REPORT_BUSY_LABEL: Record<string, string> = {
   tillable: 'Counting rows…',
+  soil_rating: 'Grading the dirt…',
   fsa: 'Pulling the file…',
   ground_goat: 'Rounding it up…',
   elevation_3d: 'Climbing the hill…',
