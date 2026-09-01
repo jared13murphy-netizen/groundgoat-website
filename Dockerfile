@@ -22,4 +22,5 @@ WORKDIR /app
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1
 COPY --from=build /app ./
 EXPOSE 3000
-CMD ["npx", "next", "start", "-p", "3000"]
+# Railway injects PORT; the AWS compose stack maps 3000 (the default).
+CMD ["sh", "-c", "npx next start -p ${PORT:-3000}"]
