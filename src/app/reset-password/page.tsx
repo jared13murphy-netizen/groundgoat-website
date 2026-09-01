@@ -11,6 +11,14 @@ function ResetPasswordForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const token = searchParams.get('token')
+  // FIRST-TIME SETUP, NOT A RESET. A firm invite sends people here with
+  // &setup=1 after an email whose button says "Set Up Your Account" — and
+  // the page has always greeted them with "Reset Your Password" and
+  // "Enter your new password below", for an account they have never had a
+  // password on. The flag was added with the invite and the page never
+  // read it (2026-08-31). Same form, same endpoint; only the wording
+  // changes, so nothing about the reset flow moves.
+  const isSetup = searchParams.get('setup') === '1'
 
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -101,7 +109,9 @@ function ResetPasswordForm() {
             Invalid Link
           </h1>
           <p className="text-gg-gray-400 mb-8">
-            This password reset link is invalid or has expired. Please request a new one.
+            {isSetup
+              ? 'This invitation link is invalid or has expired. Ask your firm admin to send you a new one.'
+              : 'This password reset link is invalid or has expired. Please request a new one.'}
           </p>
           <Link
             href="/signin"
@@ -119,10 +129,12 @@ function ResetPasswordForm() {
       <div className="max-w-md w-full">
         <div className="text-center mb-8">
           <h1 className="font-display text-3xl font-bold text-white mb-2">
-            Reset Your Password
+            {isSetup ? 'Set Up Your Account' : 'Reset Your Password'}
           </h1>
           <p className="text-gg-gray-400">
-            Enter your new password below.
+            {isSetup
+              ? 'Choose a password and your Ground Goat account is ready.'
+              : 'Enter your new password below.'}
           </p>
         </div>
 
