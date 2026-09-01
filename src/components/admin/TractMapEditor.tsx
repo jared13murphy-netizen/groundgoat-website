@@ -1058,7 +1058,8 @@ export default function TractMapEditor({
       // Attach the admin bearer token to our parcel vector-tile requests
       // (the /api/tiles/parcels endpoint is admin-only).
       transformRequest: (url: string) => {
-        if (url.includes(`${API_URL}/api/tiles/parcels/`) || url.includes(`${API_URL}/api/tiles/soils/`)) {
+        if (url.includes(`${API_URL}/api/tiles/parcels/`) || url.includes(`${API_URL}/api/tiles/soils/`)
+            || url.includes(`${API_URL}/api/regrid/tile/`)) {
           const token = localStorage.getItem('auth_token')
           return { url, headers: token ? { Authorization: `Bearer ${token}` } : {} }
         }
@@ -1103,6 +1104,36 @@ export default function TractMapEditor({
           paint: {
             'line-color': ['case', ['boolean', ['feature-state', 'selected'], false], '#06b6d4', '#facc15'],
             'line-width': ['case', ['boolean', ['feature-state', 'selected'], false], 3.5, 1.5],
+            'line-opacity': 0.95,
+          },
+        })
+
+        // FALLBACK BOUNDARIES from live Regrid, for states we have NOT
+        // backfilled into our own parcel cache (owner 2026-09-01: "come
+        // from our cached data when we have it, but when we don't, come
+        // from Regrid tiles"). Filtered by the feature's `path` so it
+        // draws ONLY outside the cached states — no double lines where the
+        // durable layer above already covers. Display-only (no snap; those
+        // parcels aren't in our durable table to resolve an ll_uuid), so
+        // the admin can trace against them by eye. The Regrid MVT's layer
+        // is named by the custom-layer id, not 'parcels'.
+        map.addSource('parcels_regrid', {
+          type: 'vector',
+          tiles: [`${API_URL}/api/regrid/tile/{z}/{x}/{y}.mvt`],
+          minzoom: 12,
+          maxzoom: 22,
+        })
+        map.addLayer({
+          id: 'parcels-regrid-line', type: 'line', source: 'parcels_regrid',
+          'source-layer': '23ddb9e360af6270a6cc96870323aa27dbc2e7e9',
+          layout: { visibility: 'visible' },
+          filter: ['!', ['in',
+            ['slice', ['coalesce', ['get', 'path'], ''], 0, 6],
+            ['literal', ['/us/il', '/us/ia', '/us/mo', '/us/ne', '/us/ks', '/us/in']],
+          ]],
+          paint: {
+            'line-color': '#facc15',
+            'line-width': 1.5,
             'line-opacity': 0.95,
           },
         })
