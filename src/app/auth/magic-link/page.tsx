@@ -1,10 +1,14 @@
 'use client'
 
-import { useEffect, useState, useRef, Suspense } from 'react'
+import { useEffect, useState, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
+
+// Tokens this page load has already tried to exchange. Module scope on
+// purpose — see the comment at the guard below.
+const ATTEMPTED = new Set<string>()
 
 function MagicLinkContent() {
   const searchParams = useSearchParams()
@@ -14,12 +18,6 @@ function MagicLinkContent() {
 
   const [status, setStatus] = useState<'loading' | 'error'>('loading')
   const [error, setError] = useState('')
-  // A magic-link token is single-use: the backend consumes it on the first
-  // exchange. This effect can run more than once (re-render, or the router
-  // dep changing identity), and a second call would hit an already-used
-  // token and surface a false "Link Expired" AFTER the first call already
-  // signed the user in. This ref makes the exchange fire exactly once.
-  const exchangedRef = useRef(false)
 
   useEffect(() => {
     if (!token) {
@@ -27,8 +25,15 @@ function MagicLinkContent() {
       setError('No token provided')
       return
     }
-    if (exchangedRef.current) return
-    exchangedRef.current = true
+    // A magic-link token is single-use: the backend consumes it on the
+    // first exchange. This page can MOUNT more than once for one visit
+    // (Suspense boundary around useSearchParams, hydration, the
+    // router.push below) — and a component-scoped ref resets on every
+    // mount, so it cannot prevent the second call. ATTEMPTED lives at
+    // module scope: it survives remounts for the life of the page load,
+    // which is exactly the window in which a duplicate exchange happens.
+    if (ATTEMPTED.has(token)) return
+    ATTEMPTED.add(token)
 
     const exchangeToken = async () => {
       try {
@@ -61,6 +66,15 @@ function MagicLinkContent() {
         // Redirect to target page
         router.push(redirect)
       } catch (err: unknown) {
+        // NEVER show "Link Expired" over a session that actually exists.
+        // If an earlier attempt (this page load or a refresh of the same
+        // link) already exchanged the token and stored a session, the only
+        // honest outcome is to continue — the user IS signed in, and the
+        // error would be about a token that did its job.
+        if (typeof window !== 'undefined' && localStorage.getItem('auth_token')) {
+          router.push(redirect)
+          return
+        }
         setStatus('error')
         setError(err instanceof Error ? err.message : 'Something went wrong')
       }
