@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, Suspense } from 'react'
+import { useEffect, useState, useRef, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 
@@ -14,6 +14,12 @@ function MagicLinkContent() {
 
   const [status, setStatus] = useState<'loading' | 'error'>('loading')
   const [error, setError] = useState('')
+  // A magic-link token is single-use: the backend consumes it on the first
+  // exchange. This effect can run more than once (re-render, or the router
+  // dep changing identity), and a second call would hit an already-used
+  // token and surface a false "Link Expired" AFTER the first call already
+  // signed the user in. This ref makes the exchange fire exactly once.
+  const exchangedRef = useRef(false)
 
   useEffect(() => {
     if (!token) {
@@ -21,6 +27,8 @@ function MagicLinkContent() {
       setError('No token provided')
       return
     }
+    if (exchangedRef.current) return
+    exchangedRef.current = true
 
     const exchangeToken = async () => {
       try {
