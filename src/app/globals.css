@@ -431,3 +431,13 @@ select:-webkit-autofill {
     transition: none !important;
   }
 }
+
+/* Sandbox banner offset — pushes all page chrome down by the banner
+   height, but ONLY on the sandbox build. The class is always present on
+   <body>; this rule only bites when the sandbox env flag added the
+   data attribute below via SandboxBanner's presence. We can't read env
+   in CSS, so we scope by a body attribute the banner sets at runtime. */
+body:has(> [role="status"].bg-amber-500) .sandbox-body-offset,
+body:has(> [role="status"].bg-amber-500) {
+  padding-top: 34px;
+}

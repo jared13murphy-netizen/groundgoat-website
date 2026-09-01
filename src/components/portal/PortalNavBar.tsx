@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Map, Calendar, Building2, BarChart3, LogOut, User, Users, Settings, Filter, Bookmark, UserCircle } from 'lucide-react'
+import GoToSandboxButton, { isGroundGoatStaff } from '@/components/GoToSandboxButton'
 import { SHOW_PRIVATE_TREATY } from '@/lib/featureFlags'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
@@ -24,6 +25,7 @@ interface PortalNavBarProps {
     first_name: string
     last_name: string
     account_type: string
+    email?: string
   }
 }
 
@@ -235,6 +237,11 @@ export default function PortalNavBar({ activeTab, onTabChange, onFilterToggle, f
                   <p className="text-[10px] text-gg-gray-500 mt-1">
                     Contact them to change your email or seat.
                   </p>
+                </div>
+              )}
+              {isGroundGoatStaff(user?.email) && (
+                <div className="border-t border-white/10 mt-1 pt-2">
+                  <GoToSandboxButton className="flex items-center gap-2.5 px-4 py-2 text-sm text-sky-400 hover:bg-white/5 w-full text-left transition disabled:opacity-60" />
                 </div>
               )}
               <button

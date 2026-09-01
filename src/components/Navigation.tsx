@@ -4,6 +4,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { useState, useEffect } from 'react'
 import { Menu, X, LogOut, User, List } from 'lucide-react'
+import GoToSandboxButton, { isGroundGoatStaff } from '@/components/GoToSandboxButton'
 import { useRouter, usePathname } from 'next/navigation'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
@@ -208,6 +209,11 @@ export default function Navigation() {
                             You are the admin for{' '}
                             {firmContact.firm_name || 'your firm'}.
                           </p>
+                        </div>
+                      )}
+                      {isGroundGoatStaff(user?.email) && (
+                        <div className="border-t border-gg-gray-700 mt-2 pt-2">
+                          <GoToSandboxButton />
                         </div>
                       )}
                       <button
