@@ -16,7 +16,9 @@ import { formatAcres } from '@/lib/format'
 import TillableCluWorkshop from '@/components/admin/TillableCluWorkshop'
 
 const SCRAPER_PROXY = '/api/scraper-proxy'
-const SCRAPER_URL = 'https://ground-goat-scraper-production.up.railway.app'
+const SCRAPER_URL =
+  process.env.NEXT_PUBLIC_SCRAPER_URL ||
+  'https://ground-goat-scraper-production.up.railway.app'
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 const TILE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
 const TILE_ATTRIBUTION = '© Esri, Maxar, Earthstar Geographics'

@@ -1,0 +1,29 @@
+# Deploy this repo to the AWS app server (gg-app-1) on every push to main.
+# Railway auto-deploys independently until it is retired; this keeps the
+# AWS stack in lockstep so cutover is only a DNS change.
+name: Deploy to AWS
+on:
+  push:
+    branches: [main]
+concurrency:
+  group: deploy-aws
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.GG_DEPLOY_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H 100.63.171.136 >> ~/.ssh/known_hosts 2>/dev/null
+      - name: Sync code
+        run: |
+          rsync -az --delete --exclude '.git' --exclude '.github' \
+            ./ ubuntu@100.63.171.136:/opt/gg/groundgoat-website/
+      - name: Rebuild and restart
+        run: |
+          ssh ubuntu@100.63.171.136 \
+            'cd /opt/gg && sudo docker compose build website && sudo docker compose up -d website'
