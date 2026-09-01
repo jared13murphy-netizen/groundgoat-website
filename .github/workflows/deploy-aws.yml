@@ -25,5 +25,5 @@ jobs:
             ./ ubuntu@100.63.171.136:/opt/gg/groundgoat-website/
       - name: Rebuild and restart
         run: |
-          ssh ubuntu@100.63.171.136 \
+          ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=20 ubuntu@100.63.171.136 \
             'cd /opt/gg && sudo docker compose build website && sudo docker compose up -d website'
