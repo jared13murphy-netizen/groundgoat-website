@@ -3,8 +3,9 @@
 import { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Map, Calendar, Building2, BarChart3, LogOut, User, Users, Settings, Filter, Bookmark, UserCircle } from 'lucide-react'
+import { Map, Calendar, Building2, BarChart3, LogOut, User, Users, Settings, Filter, Bookmark, UserCircle, PenLine, FolderOpen } from 'lucide-react'
 import GoToSandboxButton, { isGroundGoatStaff } from '@/components/GoToSandboxButton'
+import { fetchMappingAccess } from '@/lib/configurableMapping'
 import { SHOW_PRIVATE_TREATY } from '@/lib/featureFlags'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
@@ -32,6 +33,10 @@ interface PortalNavBarProps {
 export default function PortalNavBar({ activeTab, onTabChange, onFilterToggle, filterOpen, onAnalyticsToggle, analyticsOpen, onWatchlistToggle, watchlistOpen, watchlistCount = 0, user }: PortalNavBarProps) {
   const router = useRouter()
   const [showUserMenu, setShowUserMenu] = useState(false)
+  // Configurable Mapping add-on. Firm-only for now, and per-seat, so the
+  // links only appear for someone whose seat is actually switched on.
+  const [hasMapping, setHasMapping] = useState(false)
+  useEffect(() => { fetchMappingAccess().then(setHasMapping) }, [])
   const menuRef = useRef<HTMLDivElement>(null)
 
   const isAdmin = user.account_type === 'groundgoat_admin' || user.account_type === 'groundgoat_sales'
@@ -198,6 +203,26 @@ export default function PortalNavBar({ activeTab, onTabChange, onFilterToggle, f
                 <User size={14} />
                 Profile
               </Link>
+              {hasMapping && (
+                <>
+                  <Link
+                    href="/configure-map"
+                    className="flex items-center gap-2.5 px-4 py-2 text-sm text-gg-gray-300 hover:bg-white/5 hover:text-white transition"
+                    onClick={() => setShowUserMenu(false)}
+                  >
+                    <PenLine size={14} />
+                    Configure Map
+                  </Link>
+                  <Link
+                    href="/map-portfolio"
+                    className="flex items-center gap-2.5 px-4 py-2 text-sm text-gg-gray-300 hover:bg-white/5 hover:text-white transition"
+                    onClick={() => setShowUserMenu(false)}
+                  >
+                    <FolderOpen size={14} />
+                    Map Portfolio
+                  </Link>
+                </>
+              )}
               {isFirmAdmin && (
                 <Link
                   href="/account/team"
