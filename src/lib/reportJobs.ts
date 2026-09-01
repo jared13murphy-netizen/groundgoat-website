@@ -1,33 +1,25 @@
-// Report queue client (backend audit #3). The backend moved PDF building
-// off the web workers onto a dedicated report-worker fleet: POST creates a
-// job, we poll its status, and for downloads we fetch the bytes exactly
-// once (the backend deletes the row on fetch — it's a hand-off, not an
-// archive).
+// Report queue client. The backend moved PDF building off the web workers
+// onto a dedicated report-worker fleet: POST creates a job and hands back
+// its id — building happens in the background from there.
 //
-// This helper deliberately RETURNS A Response so every existing call site
-// keeps its blob()/Content-Disposition/res.ok handling unchanged — swapping
-// a direct `fetchWithAuth(POST /report/pdf)` call for `reportJobFetch(...)`
-// is a one-line change. Email delivery resolves to a synthetic JSON
-// Response shaped like the old endpoints' {success, message} payload.
+// FIRE-AND-FORGET BY DESIGN (owner, 2026-09-01: never trap the user on a
+// "Building..." button). This resolves as soon as the job is CREATED, not
+// when it finishes. Callers get back the raw create Response so their
+// existing res.ok / res.json() / res.text() error handling keeps working
+// unchanged — creation-time failures (403 not entitled, 429 too many in
+// flight, 400 no email on file, etc.) still surface right here. On success
+// there is nothing left to await: ReportJobsIndicator (mounted in the root
+// layout) owns the rest of the job's lifecycle — polling, the auto-download
+// hand-off, and the "sent"/"downloaded" confirmation.
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { reportJobStarted } from '@/lib/reportJobStore'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
-const POLL_MS = 2000
-const TIMEOUT_MS = 180_000
-
 export type ReportJobType = 'comparables' | 'tract' | 'parcel' | 'parcel_by_point'
 export type ReportDelivery = 'download' | 'email'
 
-function syntheticError(detail: string, status = 500): Response {
-  return new Response(JSON.stringify({ detail }), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  })
-}
-
-export default async function reportJobFetch(
+export default async function reportJobEnqueue(
   jobType: ReportJobType,
   delivery: ReportDelivery,
   params: Record<string, unknown>,
@@ -37,40 +29,10 @@ export default async function reportJobFetch(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ job_type: jobType, delivery, params }),
   })
-  if (!createRes.ok) return createRes // caller's existing !res.ok path shows its own message
-
-  const { job_id } = await createRes.json()
-  // Wake the on-screen indicator immediately. The wait below still works
-  // for anyone who stays on the page, but the report is now ALSO tracked
-  // globally — so navigating away no longer abandons it. The indicator
-  // keeps polling and offers the download when it is ready.
-  reportJobStarted()
-  const deadline = Date.now() + TIMEOUT_MS
-
-  while (Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, POLL_MS))
-    let status: { status: string; error?: string | null; filename?: string | null; message?: string | null }
-    try {
-      const pollRes = await fetchWithAuth(`${API_URL}/api/reports/jobs/${job_id}`)
-      if (!pollRes.ok) continue // transient poll failure — keep waiting until the deadline
-      status = await pollRes.json()
-    } catch {
-      continue
-    }
-    if (status.status === 'error') {
-      return syntheticError(status.error || 'Report build failed')
-    }
-    if (status.status === 'done') {
-      if (delivery === 'download') {
-        return fetchWithAuth(`${API_URL}/api/reports/jobs/${job_id}/download`)
-      }
-      return new Response(
-        // Server's message is personalized ("Parcel report sent to <email>")
-        // — pass it through, same wording the sync endpoints returned.
-        JSON.stringify({ success: true, message: status.message || 'Report sent to your email' }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      )
-    }
+  if (createRes.ok) {
+    // Wake the on-screen indicator immediately rather than leaving it to
+    // its next lazy poll tick — it takes it from here.
+    reportJobStarted()
   }
-  return syntheticError('Report timed out — please try again', 504)
+  return createRes // caller's existing !res.ok path shows its own message
 }

@@ -19,7 +19,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { Mail, Download, Check, Loader2 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
-import reportJobFetch from '@/lib/reportJobs'
+import reportJobEnqueue from '@/lib/reportJobs'
 import { formatAcres } from '@/lib/format'
 import { SOIL_FILTER_ENABLED } from '@/lib/featureFlags'
 import {
@@ -351,22 +351,28 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
   // they fall back to the by-point endpoints with the raw click
   // coordinate, which resolve their own ll_uuid server-side (see
   // main.py's _resolve_ll_uuid_by_point).
+  // Fire-and-forget (owner, 2026-09-01: never trap the user on a
+  // "Building..." button). This only enqueues the job — the floating
+  // ReportJobsIndicator (root layout) owns polling, the download
+  // hand-off, and the "sent" confirmation from here on, so the user is
+  // free to keep browsing the map immediately. Creation-time errors
+  // (403/429/400) still surface right here since they come back on the
+  // enqueue call.
   const handleEmailReport = async () => {
     if (!llUuid && !reportPoint) return
     setEmailStatus('sending')
     setEmailMessage(null)
     try {
       const res = llUuid
-        ? await reportJobFetch('parcel', 'email', { ll_uuid: llUuid })
-        : await reportJobFetch('parcel_by_point', 'email', reportPoint!)
+        ? await reportJobEnqueue('parcel', 'email', { ll_uuid: llUuid })
+        : await reportJobEnqueue('parcel_by_point', 'email', reportPoint!)
       if (!res.ok) {
         setEmailStatus('error')
         setEmailMessage(await parseReportError(res))
         return
       }
-      const data = await res.json()
       setEmailStatus('sent')
-      setEmailMessage(data?.message || 'Sent!')
+      setTimeout(() => setEmailStatus('idle'), 1500)
     } catch (e) {
       console.error('Parcel report email error:', e)
       setEmailStatus('error')
@@ -380,28 +386,17 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
     setDownloadError(null)
     try {
       const res = llUuid
-        ? await reportJobFetch('parcel', 'download', { ll_uuid: llUuid })
-        : await reportJobFetch('parcel_by_point', 'download', reportPoint!)
+        ? await reportJobEnqueue('parcel', 'download', { ll_uuid: llUuid })
+        : await reportJobEnqueue('parcel_by_point', 'download', reportPoint!)
       if (!res.ok) {
         setDownloadError(await parseReportError(res))
+        setDownloading(false)
         return
       }
-      const blob = await res.blob()
-      const dispo = res.headers.get('Content-Disposition') || ''
-      const match = dispo.match(/filename="?([^";]+)"?/i)
-      const filename = match?.[1] || 'parcel-report.pdf'
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = filename
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      URL.revokeObjectURL(url)
+      setTimeout(() => setDownloading(false), 1500)
     } catch (e) {
       console.error('Parcel report download error:', e)
       setDownloadError('Something went wrong — try again')
-    } finally {
       setDownloading(false)
     }
   }
@@ -1155,7 +1150,7 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
                     }}
                   >
                     {downloading ? (
-                      <><Loader2 size={14} className="animate-spin" /> Building PDF...</>
+                      <><Check size={14} /> Queued ✓</>
                     ) : (
                       <><Download size={14} /> Download Parcel</>
                     )}
@@ -1181,7 +1176,7 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
                     }}
                   >
                     {emailStatus === 'sent' ? (
-                      <><Check size={14} /> Sent!</>
+                      <><Check size={14} /> Queued ✓</>
                     ) : emailStatus === 'sending' ? (
                       <><Loader2 size={14} className="animate-spin" /> Sending...</>
                     ) : (
@@ -1191,11 +1186,12 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
                 </>
               )}
             </div>
-            {(emailStatus === 'sent' || emailStatus === 'error' || downloadError) && (
+            {/* Success is no longer reported here: the job is only queued
+                at this point, so the floating ReportJobsIndicator (root
+                layout) shows the real "sent" confirmation once it's
+                actually done. */}
+            {(emailStatus === 'error' || downloadError) && (
               <div style={{ marginTop: 8 }}>
-                {emailStatus === 'sent' && emailMessage && (
-                  <p style={{ fontSize: 11, color: '#1a9146', margin: 0 }}>{emailMessage}</p>
-                )}
                 {emailStatus === 'error' && emailMessage && (
                   <p style={{ fontSize: 11, color: '#d33', margin: 0 }}>{emailMessage}</p>
                 )}

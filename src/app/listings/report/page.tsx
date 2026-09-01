@@ -2,9 +2,9 @@
 
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
-import { ArrowLeft, Mail } from 'lucide-react'
+import { ArrowLeft, Mail, Check } from 'lucide-react'
 import { fetchWithAuth } from '@/lib/fetchWithAuth'
-import reportJobFetch from '@/lib/reportJobs'
+import reportJobEnqueue from '@/lib/reportJobs'
 import { formatAcres, toNum } from '@/lib/format'
 import { computeCompAverages } from '@/lib/compAverages'
 
@@ -70,10 +70,15 @@ export default function ExploreReportPage() {
 
   const { avgPricePerAcre, avgPricePerTillable, avgPricePerSoil } = computeCompAverages(comparables)
 
+  // Fire-and-forget (owner, 2026-09-01: never trap the user on a
+  // "Sending..." button). This only enqueues the job — the floating
+  // ReportJobsIndicator (root layout) owns polling and the "sent"
+  // confirmation from here on, so the user is free to navigate away
+  // immediately. The button just flashes a brief "Queued ✓".
   const handleEmail = async () => {
     setSending(true)
     try {
-      const res = await reportJobFetch('comparables', 'email', {
+      const res = await reportJobEnqueue('comparables', 'email', {
           comparables: comparables.map(c => ({
             county: c.county || '',
             state: c.state || '',
@@ -92,14 +97,16 @@ export default function ExploreReportPage() {
         })
       if (!res.ok) {
         alert('Failed to send email')
-      } else {
-        setSent(true)
+        setSending(false)
+        return
       }
+      setSent(true)
+      setTimeout(() => { setSending(false); setSent(false) }, 1500)
     } catch (e) {
       console.error('Email error:', e)
       alert('Failed to send email')
+      setSending(false)
     }
-    setSending(false)
   }
 
   return (
@@ -181,11 +188,11 @@ export default function ExploreReportPage() {
         {/* Email button */}
         <button
           onClick={handleEmail}
-          disabled={sending || sent}
+          disabled={sending}
           className="w-full py-3 rounded-xl bg-gg-pink text-white font-semibold flex items-center justify-center gap-2 hover:bg-gg-pink/90 disabled:opacity-50"
         >
-          <Mail size={18} />
-          {sent ? '✓ Report Sent!' : sending ? 'Sending...' : 'Email Report'}
+          {sent ? <Check size={18} /> : <Mail size={18} />}
+          {sent ? 'Queued ✓' : 'Email Report'}
         </button>
       </div>
     </div>

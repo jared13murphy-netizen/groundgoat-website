@@ -2,9 +2,9 @@
 
 import { useState, useMemo } from 'react'
 import { motion } from 'framer-motion'
-import { X, Mail, Loader2, Trash2, Check, Mountain, ExternalLink, Download } from 'lucide-react'
+import { X, Mail, Trash2, Check, Mountain, ExternalLink, Download } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
-import reportJobFetch from '@/lib/reportJobs'
+import reportJobEnqueue from '@/lib/reportJobs'
 import { formatAcres, toNum } from '@/lib/format'
 import { computeCompAverages } from '@/lib/compAverages'
 import type { TractSaleData } from './PortalTractDetail'
@@ -162,47 +162,44 @@ export default function PortalComparablesReportPanel({ subjectInfo, reportTracts
     })),
   })
 
+  // Fire-and-forget (owner, 2026-09-01: never trap the user on a
+  // "Building..." button). This only enqueues the job — the floating
+  // ReportJobsIndicator (root layout) owns polling, the download
+  // hand-off, and the "sent" confirmation from here on, so the user is
+  // free to close this panel or navigate away immediately.
   const handleEmail = async () => {
     setSending(true)
     try {
-      const res = await reportJobFetch('comparables', 'email', buildReportBody())
+      const res = await reportJobEnqueue('comparables', 'email', buildReportBody())
       if (!res.ok) {
+        setSending(false)
         alert('Failed to send email')
-      } else {
-        setSent(true)
+        return
       }
+      setSent(true)
+      setTimeout(() => { setSending(false); setSent(false) }, 1500)
     } catch (e) {
       console.error('Email error:', e)
+      setSending(false)
       alert('Failed to send email')
     }
-    setSending(false)
   }
 
   const handleDownload = async () => {
     setDownloading(true)
     try {
-      const res = await reportJobFetch('comparables', 'download', buildReportBody())
+      const res = await reportJobEnqueue('comparables', 'download', buildReportBody())
       if (!res.ok) {
+        setDownloading(false)
         alert('Failed to generate PDF')
         return
       }
-      const blob = await res.blob()
-      const dispo = res.headers.get('Content-Disposition') || ''
-      const match = dispo.match(/filename="?([^";]+)"?/i)
-      const filename = match?.[1] || 'ground-goat-comp-report.pdf'
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = filename
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      URL.revokeObjectURL(url)
+      setTimeout(() => setDownloading(false), 1500)
     } catch (e) {
       console.error('Download error:', e)
+      setDownloading(false)
       alert('Failed to generate PDF')
     }
-    setDownloading(false)
   }
 
   return (
@@ -429,7 +426,7 @@ export default function PortalComparablesReportPanel({ subjectInfo, reportTracts
             }`}
           >
             {downloading ? (
-              <><Loader2 size={16} className="animate-spin" /> Building PDF...</>
+              <><Check size={16} /> Queued ✓</>
             ) : (
               <><Download size={16} /> Download PDF</>
             )}
@@ -446,9 +443,7 @@ export default function PortalComparablesReportPanel({ subjectInfo, reportTracts
             }`}
           >
             {sent ? (
-              <><Check size={16} /> Sent!</>
-            ) : sending ? (
-              <><Loader2 size={16} className="animate-spin" /> Sending...</>
+              <><Check size={16} /> Queued ✓</>
             ) : (
               <><Mail size={16} /> Email Report</>
             )}

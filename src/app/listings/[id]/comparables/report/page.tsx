@@ -2,9 +2,9 @@
 
 import { useSearchParams, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
-import { ArrowLeft, Mail, Download, Loader2 } from 'lucide-react'
+import { ArrowLeft, Mail, Download, Check } from 'lucide-react'
 import { fetchWithAuth } from '@/lib/fetchWithAuth'
-import reportJobFetch from '@/lib/reportJobs'
+import reportJobEnqueue from '@/lib/reportJobs'
 import { formatAcres, toNum } from '@/lib/format'
 import { computeCompAverages } from '@/lib/compAverages'
 
@@ -131,49 +131,45 @@ export default function ComparablesReportPage({ params }: { params: { id: string
     })),
   })
 
+  // Fire-and-forget (owner, 2026-09-01: never trap the user on a
+  // "Building..." button). This only enqueues the job — ReportJobsIndicator
+  // (mounted in the root layout) owns polling, the download hand-off, and
+  // the "sent" confirmation from here on, so the user is free to navigate
+  // away immediately. The button just flashes a brief "Queued ✓".
   const handleEmail = async () => {
     setSending(true)
     try {
-      const res = await reportJobFetch('comparables', 'email', buildReportBody())
+      const res = await reportJobEnqueue('comparables', 'email', buildReportBody())
       if (!res.ok) {
         const errText = await res.text()
         console.error('Email API error:', res.status, errText)
         alert(`Failed to send email: ${res.status}`)
-      } else {
-        alert('Report sent to your email!')
+        setSending(false)
+        return
       }
+      setTimeout(() => setSending(false), 1500)
     } catch (e) {
       console.error('Email error:', e)
       alert('Failed to send email: ' + (e instanceof Error ? e.message : 'unknown error'))
+      setSending(false)
     }
-    setSending(false)
   }
 
   const handleDownload = async () => {
     setDownloading(true)
     try {
-      const res = await reportJobFetch('comparables', 'download', buildReportBody())
+      const res = await reportJobEnqueue('comparables', 'download', buildReportBody())
       if (!res.ok) {
         alert(`Failed to generate PDF: ${res.status}`)
+        setDownloading(false)
         return
       }
-      const blob = await res.blob()
-      const dispo = res.headers.get('Content-Disposition') || ''
-      const match = dispo.match(/filename="?([^";]+)"?/i)
-      const filename = match?.[1] || 'ground-goat-comp-report.pdf'
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = filename
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      URL.revokeObjectURL(url)
+      setTimeout(() => setDownloading(false), 1500)
     } catch (e) {
       console.error('Download error:', e)
       alert('Failed to generate PDF: ' + (e instanceof Error ? e.message : 'unknown error'))
+      setDownloading(false)
     }
-    setDownloading(false)
   }
 
   return (
@@ -285,16 +281,16 @@ export default function ComparablesReportPage({ params }: { params: { id: string
             disabled={downloading || sending}
             className="flex-1 py-3 rounded-xl bg-white/10 border border-white/15 text-white font-semibold flex items-center justify-center gap-2 hover:bg-white/15 disabled:opacity-50"
           >
-            {downloading ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
-            {downloading ? 'Building PDF...' : 'Download PDF'}
+            {downloading ? <Check size={18} /> : <Download size={18} />}
+            {downloading ? 'Queued ✓' : 'Download PDF'}
           </button>
           <button
             onClick={handleEmail}
             disabled={sending || downloading}
             className="flex-1 py-3 rounded-xl bg-gg-pink text-white font-semibold flex items-center justify-center gap-2 hover:bg-gg-pink/90 disabled:opacity-50"
           >
-            <Mail size={18} />
-            {sending ? 'Sending...' : 'Email Report'}
+            {sending ? <Check size={18} /> : <Mail size={18} />}
+            {sending ? 'Queued ✓' : 'Email Report'}
           </button>
         </div>
       </div>

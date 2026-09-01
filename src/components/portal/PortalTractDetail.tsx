@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { Loader2, Mountain, BarChart3, FileText, Mail, Download, Check } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
-import reportJobFetch from '@/lib/reportJobs'
+import reportJobEnqueue from '@/lib/reportJobs'
 import { formatAcres } from '@/lib/format'
 import { formatAuctionDate } from '@/lib/auctionTime'
 import GroundTruthPanel from './GroundTruthPanel'
@@ -609,19 +609,24 @@ export function TractDetailActionBar({
     return 'Something went wrong — try again'
   }
 
+  // Fire-and-forget (owner, 2026-09-01: never trap the user on a
+  // "Building..." button). This only enqueues the job — the floating
+  // ReportJobsIndicator (root layout) owns polling, the download
+  // hand-off, and the "sent" confirmation from here on, so the user is
+  // free to keep browsing immediately. Creation-time errors (403/429/400)
+  // still surface right here since they come back on the enqueue call.
   const handleEmailReport = async () => {
     setEmailStatus('sending')
     setEmailMessage(null)
     try {
-      const res = await reportJobFetch('tract', 'email', { tract_id: reportTractId })
+      const res = await reportJobEnqueue('tract', 'email', { tract_id: reportTractId })
       if (!res.ok) {
         setEmailStatus('error')
         setEmailMessage(await parseErrorMessage(res))
         return
       }
-      const data = await res.json()
       setEmailStatus('sent')
-      setEmailMessage(data?.message || 'Sent!')
+      setTimeout(() => setEmailStatus('idle'), 1500)
     } catch (e) {
       console.error('Tract report email error:', e)
       setEmailStatus('error')
@@ -633,27 +638,16 @@ export function TractDetailActionBar({
     setDownloading(true)
     setDownloadError(null)
     try {
-      const res = await reportJobFetch('tract', 'download', { tract_id: reportTractId })
+      const res = await reportJobEnqueue('tract', 'download', { tract_id: reportTractId })
       if (!res.ok) {
         setDownloadError(await parseErrorMessage(res))
+        setDownloading(false)
         return
       }
-      const blob = await res.blob()
-      const dispo = res.headers.get('Content-Disposition') || ''
-      const match = dispo.match(/filename="?([^";]+)"?/i)
-      const filename = match?.[1] || 'tract-report.pdf'
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = filename
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      URL.revokeObjectURL(url)
+      setTimeout(() => setDownloading(false), 1500)
     } catch (e) {
       console.error('Tract report download error:', e)
       setDownloadError('Something went wrong — try again')
-    } finally {
       setDownloading(false)
     }
   }
@@ -748,7 +742,7 @@ export function TractDetailActionBar({
           }`}
         >
           {downloading ? (
-            <><Loader2 size={14} className="animate-spin" /> Building PDF...</>
+            <><Check size={14} /> Queued ✓</>
           ) : (
             <><Download size={14} /> Download report</>
           )}
@@ -765,7 +759,7 @@ export function TractDetailActionBar({
           }`}
         >
           {emailStatus === 'sent' ? (
-            <><Check size={14} /> Sent!</>
+            <><Check size={14} /> Queued ✓</>
           ) : emailStatus === 'sending' ? (
             <><Loader2 size={14} className="animate-spin" /> Sending...</>
           ) : (
@@ -775,13 +769,12 @@ export function TractDetailActionBar({
       </div>
       )}
 
-      {/* Inline status — success shows the backend's "Sent to you@email.com"
-          message; failures show the parsed error (403/400/other). */}
-      {(emailStatus === 'sent' || emailStatus === 'error' || downloadError) && (
+      {/* Inline status — failures show the parsed error (403/400/other).
+          Success is no longer reported here: the job is only queued at
+          this point, so the floating ReportJobsIndicator (root layout)
+          shows the real "sent" confirmation once it's actually done. */}
+      {(emailStatus === 'error' || downloadError) && (
         <div className="px-5 pb-4 -mt-2">
-          {emailStatus === 'sent' && emailMessage && (
-            <p className="text-[11px] text-green-400">{emailMessage}</p>
-          )}
           {emailStatus === 'error' && emailMessage && (
             <p className="text-[11px] text-red-400">{emailMessage}</p>
           )}

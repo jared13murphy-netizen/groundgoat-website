@@ -344,3 +344,90 @@ select:-webkit-autofill {
   caret-color: #ffffff;
   transition: background-color 9999s ease-in-out 0s;
 }
+
+/* ---------------------------------------------------------------------------
+   ReportJobsIndicator exit animations (owner, 2026-09-01)
+   ---------------------------------------------------------------------------
+   Two distinct "job finished" send-offs, CSS-only (transforms/keyframes,
+   no animation libs):
+
+   DOWNLOAD: the building spinner is swapped for a static ring + a
+   checkmark that draws itself (stroke-dashoffset via pathLength=1, so the
+   path's real geometry doesn't matter), the chip holds briefly, then
+   collapses/scales down toward the icon and is removed.
+
+   EMAIL: the chip's text+button collapse away leaving just the mail icon,
+   then that icon tilts and flies off toward the top-right with a faint
+   blurred "trail" copy following a beat behind, then is removed.
+
+   Every one of these is skipped under prefers-reduced-motion — the
+   component itself swaps straight to the success text and removes the
+   chip after a plain hold with no animation classes applied, and this
+   block is a belt-and-suspenders backstop in case a class slips through. */
+@keyframes gg-report-ring-in {
+  from { opacity: 0; transform: scale(0.7); }
+  to { opacity: 1; transform: scale(1); }
+}
+.gg-report-ring-in {
+  animation: gg-report-ring-in 180ms ease-out forwards;
+}
+
+@keyframes gg-report-check-draw {
+  from { stroke-dashoffset: 1; }
+  to { stroke-dashoffset: 0; }
+}
+.gg-report-check-draw {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: gg-report-check-draw 260ms ease-out 120ms forwards;
+}
+
+@keyframes gg-report-collapse-out {
+  from { opacity: 1; transform: scale(1) translateY(0); max-height: 160px; }
+  to { opacity: 0; transform: scale(0.7) translateY(-6px); max-height: 0; }
+}
+.gg-report-exit-collapse {
+  animation: gg-report-collapse-out 250ms ease-in forwards;
+  overflow: hidden;
+}
+
+.gg-report-content {
+  overflow: hidden;
+  /* Roughly the chip's natural text-column width (22rem card minus
+     padding/icon/gap/dismiss-button) — close enough to the unconstrained
+     flex width that normal (non-collapsing) states wrap exactly as
+     before; this value only matters as the transition's starting point. */
+  max-width: 280px;
+  opacity: 1;
+  transition: max-width 200ms ease-in, opacity 160ms ease-in;
+}
+.gg-report-content-collapsed {
+  max-width: 0;
+  opacity: 0;
+}
+
+@keyframes gg-report-flyoff {
+  0% { transform: translate(0, 0) rotate(0deg); opacity: 1; }
+  25% { transform: translate(6px, -5px) rotate(-15deg); opacity: 1; }
+  100% { transform: translate(160px, -46px) rotate(-30deg); opacity: 0; }
+}
+.gg-report-flyoff {
+  animation: gg-report-flyoff 450ms ease-in forwards;
+}
+.gg-report-flyoff-trail {
+  animation: gg-report-flyoff 450ms ease-in 60ms forwards;
+  opacity: 0.35;
+  filter: blur(3px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gg-report-ring-in,
+  .gg-report-check-draw,
+  .gg-report-exit-collapse,
+  .gg-report-content,
+  .gg-report-flyoff,
+  .gg-report-flyoff-trail {
+    animation: none !important;
+    transition: none !important;
+  }
+}
