@@ -306,7 +306,7 @@ export default function ReportJobsIndicator() {
   if (visible.length === 0) return null
 
   return (
-    <div className="fixed bottom-4 right-4 z-[60] flex flex-col items-end gap-2">
+    <div className="fixed bottom-4 right-4 z-[9999] flex flex-col items-end gap-2">
       {visible.map((job) => {
         const building = job.status === 'queued' || job.status === 'running'
         const isError = job.status === 'error'
@@ -339,7 +339,7 @@ export default function ReportJobsIndicator() {
         return (
           <div
             key={job.job_id}
-            className={`flex items-start gap-3 rounded-xl border ${style.border} bg-[#1e2430]/90 backdrop-blur-md p-3 ${style.glow}
+            className={`flex items-start gap-3 rounded-xl border ${style.border} bg-white/95 backdrop-blur-md p-3 ${style.glow}
               w-fit max-w-[min(22rem,calc(100vw-2rem))]
               ${p === 'download-exit' ? 'gg-report-exit-collapse' : ''}
               ${exitingHard ? 'pointer-events-none' : ''}`}
@@ -355,8 +355,8 @@ export default function ReportJobsIndicator() {
                 p === 'email-collapse' || p === 'email-flyoff' ? 'gg-report-content-collapsed' : ''
               }`}
             >
-              <p className="text-sm font-medium text-white">{name}</p>
-              <p className="mt-0.5 text-xs text-gg-gray-400">{subtitle}</p>
+              <p className="text-sm font-medium text-black">{name}</p>
+              <p className="mt-0.5 text-xs text-gray-600">{subtitle}</p>
               {p === 'download-fallback' && (
                 <button
                   onClick={() => download(job)}
@@ -376,7 +376,7 @@ export default function ReportJobsIndicator() {
               <button
                 onClick={() => manualDismiss(job.job_id)}
                 aria-label="Dismiss"
-                className="shrink-0 text-gg-gray-500 transition-colors hover:text-white"
+                className="shrink-0 text-gray-400 transition-colors hover:text-black"
               >
                 <X size={15} />
               </button>
