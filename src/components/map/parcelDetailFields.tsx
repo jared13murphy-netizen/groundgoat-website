@@ -109,10 +109,16 @@ export function extractTownship(record: any): string {
 export function deriveRatingLabel(soilRatingType: string | null | undefined, state: string | null | undefined): string {
   if (soilRatingType) return soilRatingType.toUpperCase()
   const s = (state || '').toUpperCase()
-  if (s === 'IA') return 'CSR2'
-  if (s === 'IL') return 'PI'
-  if (s === 'MN') return 'CPI'
-  return 'NCCPI'
+  // Mirrors the backend's soil_rating_registry (the source of truth):
+  // every state with a native index gets its own label; NCCPI only for
+  // states that genuinely display NCCPI. Owner bug 2026-09-01: an Indiana
+  // parcel showed "NCCPI · IN" with a 141 value — WAPI is a 0-200
+  // bushels-based scale, and labeling it NCCPI (0-100) reads as broken.
+  const NATIVE: Record<string, string> = {
+    IA: 'CSR2', IL: 'PI', MN: 'CPI', IN: 'WAPI', OH: 'WAPI',
+    SD: 'PI', ND: 'PI',
+  }
+  return NATIVE[s] || 'NCCPI'
 }
 
 // Disclaimer — owner-requested (2026-08-14), verbatim text, do not edit.
