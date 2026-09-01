@@ -76,6 +76,29 @@ const LABEL: Record<string, string> = {
   parcel: 'Parcel report',
 }
 
+// Owner, 2026-09-01 (second pass, after seeing the old chip live): it has
+// to read as a floating layer over the map, not disappear into it — an
+// elevated surface, a border tinted by what's happening, and a soft glow
+// in the same color. One state color per job: sky while building, emerald
+// once done (covers every non-error post-"done" phase, including the
+// download-fallback state — the report DID finish, only the browser-side
+// auto-download hiccuped), red on error.
+type StateColor = 'sky' | 'emerald' | 'red'
+const STATE_STYLE: Record<StateColor, { border: string; glow: string }> = {
+  sky: {
+    border: 'border-sky-400/45',
+    glow: 'shadow-[0_20px_40px_-16px_rgba(0,0,0,0.6),0_0_16px_-2px_rgba(56,189,248,0.35)]',
+  },
+  emerald: {
+    border: 'border-emerald-400/60',
+    glow: 'shadow-[0_20px_40px_-16px_rgba(0,0,0,0.6),0_0_16px_-2px_rgba(52,211,153,0.4)]',
+  },
+  red: {
+    border: 'border-red-400/60',
+    glow: 'shadow-[0_20px_40px_-16px_rgba(0,0,0,0.6),0_0_16px_-2px_rgba(248,113,113,0.4)]',
+  },
+}
+
 function prefersReducedMotion(): boolean {
   return typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
 }
@@ -283,13 +306,15 @@ export default function ReportJobsIndicator() {
   if (visible.length === 0) return null
 
   return (
-    <div className="fixed bottom-4 right-4 z-[60] flex w-[min(22rem,calc(100vw-2rem))] flex-col gap-2">
+    <div className="fixed bottom-4 right-4 z-[60] flex flex-col items-end gap-2">
       {visible.map((job) => {
         const building = job.status === 'queued' || job.status === 'running'
         const isError = job.status === 'error'
         const p = phase[job.job_id]
         const name = LABEL[job.job_type] || 'Report'
         const reduced = prefersReducedMotion()
+        const stateColor: StateColor = isError ? 'red' : building ? 'sky' : 'emerald'
+        const style = STATE_STYLE[stateColor]
 
         const isSuccess = p === 'download-success' || p === 'download-exit'
         const isEmailDone = p === 'email-hold' || p === 'email-collapse' || p === 'email-flyoff'
@@ -314,7 +339,8 @@ export default function ReportJobsIndicator() {
         return (
           <div
             key={job.job_id}
-            className={`flex items-start gap-3 rounded-xl border border-gg-gray-700 bg-gg-gray-800 p-3 shadow-2xl
+            className={`flex items-start gap-3 rounded-xl border ${style.border} bg-[#1e2430]/90 backdrop-blur-md p-3 ${style.glow}
+              w-fit max-w-[min(22rem,calc(100vw-2rem))]
               ${p === 'download-exit' ? 'gg-report-exit-collapse' : ''}
               ${exitingHard ? 'pointer-events-none' : ''}`}
           >
@@ -325,7 +351,7 @@ export default function ReportJobsIndicator() {
               {icon}
             </div>
             <div
-              className={`min-w-0 flex-1 gg-report-content ${
+              className={`min-w-0 gg-report-content ${
                 p === 'email-collapse' || p === 'email-flyoff' ? 'gg-report-content-collapsed' : ''
               }`}
             >
