@@ -51,6 +51,7 @@ import {
 import { polygonAcres, polygonPerimeterFeet, formatPerimeter } from '@/lib/polygonGeometry'
 import { formatAcres } from '@/lib/format'
 import { fetchWithAuth, fetchScraperProxy } from '@/lib/fetchWithAuth'
+import { fetchRegridConfig } from '@/components/map/regridLayer'
 
 const SCRAPER_PROXY = '/api/scraper-proxy'
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
@@ -687,6 +688,10 @@ export default function TractMapEditor({
       try {
         if (map.getLayer('parcels-line')) map.setLayoutProperty('parcels-line', 'visibility', vis)
         if (map.getLayer('parcels-fill')) map.setLayoutProperty('parcels-fill', 'visibility', vis)
+        // Regrid fallback follows the same toggle so it's a snap target
+        // whenever the durable layer is (in the non-cached states).
+        if (map.getLayer('parcels-regrid-line')) map.setLayoutProperty('parcels-regrid-line', 'visibility', vis)
+        if (map.getLayer('parcels-regrid-fill')) map.setLayoutProperty('parcels-regrid-fill', 'visibility', vis)
       } catch {/* style not ready */}
     }
     if (map.isStyleLoaded()) apply(); else map.once('idle', apply)
@@ -723,10 +728,16 @@ export default function TractMapEditor({
   const snapRingsNear = (map: maplibregl.Map, screenPt: { x: number; y: number }): Pt[][] => {
     const rings: Pt[][] = [...neighborRingsRef.current]
     try {
-      if (map.getLayer('parcels-fill')) {
+      // Both parcel fills: our durable cache ('parcels-fill', the 6
+      // backfilled states) AND the Regrid fallback ('parcels-regrid-fill',
+      // everywhere else). Snap reads geometry straight from whichever is
+      // rendered under the pointer, so it works in every state.
+      const parcelLayers = ['parcels-fill', 'parcels-regrid-fill']
+        .filter((id) => map.getLayer(id))
+      if (parcelLayers.length) {
         const box: [[number, number], [number, number]] = [
           [screenPt.x - 40, screenPt.y - 40], [screenPt.x + 40, screenPt.y + 40]]
-        for (const f of map.queryRenderedFeatures(box, { layers: ['parcels-fill'] })) {
+        for (const f of map.queryRenderedFeatures(box, { layers: parcelLayers })) {
           const g: any = f.geometry
           if (g?.type === 'Polygon') for (const r of g.coordinates) rings.push(r as Pt[])
           else if (g?.type === 'MultiPolygon') for (const p of g.coordinates) for (const r of p) rings.push(r as Pt[])
@@ -1108,34 +1119,64 @@ export default function TractMapEditor({
           },
         })
 
-        // FALLBACK BOUNDARIES from live Regrid, for states we have NOT
+        // FALLBACK PARCELS from live Regrid, for states we have NOT
         // backfilled into our own parcel cache (owner 2026-09-01: "come
         // from our cached data when we have it, but when we don't, come
         // from Regrid tiles"). Filtered by the feature's `path` so it
         // draws ONLY outside the cached states — no double lines where the
-        // durable layer above already covers. Display-only (no snap; those
-        // parcels aren't in our durable table to resolve an ll_uuid), so
-        // the admin can trace against them by eye. The Regrid MVT's layer
-        // is named by the custom-layer id, not 'parcels'.
-        map.addSource('parcels_regrid', {
-          type: 'vector',
-          tiles: [`${API_URL}/api/regrid/tile/{z}/{x}/{y}.mvt`],
-          minzoom: 12,
-          maxzoom: 22,
-        })
-        map.addLayer({
-          id: 'parcels-regrid-line', type: 'line', source: 'parcels_regrid',
-          'source-layer': '23ddb9e360af6270a6cc96870323aa27dbc2e7e9',
-          layout: { visibility: 'visible' },
-          filter: ['!', ['in',
-            ['slice', ['coalesce', ['get', 'path'], ''], 0, 6],
-            ['literal', ['/us/il', '/us/ia', '/us/mo', '/us/ne', '/us/ks', '/us/in']],
-          ]],
-          paint: {
-            'line-color': '#facc15',
-            'line-width': 1.5,
-            'line-opacity': 0.95,
-          },
+        // durable layer above already covers. The Regrid MVT's layer is
+        // named by the custom-layer id, not 'parcels'.
+        //
+        // FULLY SNAPPABLE: snap reads polygon geometry straight from the
+        // rendered tile via queryRenderedFeatures (see snapRingsNear) — it
+        // never needed our durable DB or an ll_uuid. So a transparent fill
+        // here makes these Regrid parcels snap targets exactly like the
+        // durable ones, and snapRingsNear queries both fills.
+        const REGRID_NOT_CACHED = ['!', ['in',
+          ['slice', ['coalesce', ['get', 'path'], ''], 0, 6],
+          ['literal', ['/us/il', '/us/ia', '/us/mo', '/us/ne', '/us/ks', '/us/in']],
+        ]]
+        // The Regrid custom source's internal MVT layer name is a UUID that
+        // ROTATES whenever its field set changes (it already changed once,
+        // 2026-05→06). Fetch it from /api/regrid/config like every other
+        // map does, never hardcode — a stale id silently renders zero
+        // features with no error. The config also gives the token-embedded
+        // tile URL; we use header-auth (?header_auth=1) so transformRequest
+        // attaches the Bearer, matching the durable parcel layer.
+        fetchRegridConfig().then((cfg) => {
+          if (!cfg || !map.getStyle()) return
+          const sourceLayer = cfg.source_layer || 'parcels'
+          try {
+            if (!map.getSource('parcels_regrid')) {
+              map.addSource('parcels_regrid', {
+                type: 'vector',
+                tiles: [`${API_URL}/api/regrid/tile/{z}/{x}/{y}.mvt`],
+                minzoom: 12,
+                maxzoom: 22,
+              })
+            }
+            if (!map.getLayer('parcels-regrid-fill')) {
+              map.addLayer({
+                id: 'parcels-regrid-fill', type: 'fill', source: 'parcels_regrid',
+                'source-layer': sourceLayer,
+                // Visible (transparent) so queryRenderedFeatures returns
+                // these polygons for snap hit-testing — same trick as
+                // parcels-fill.
+                layout: { visibility: 'visible' },
+                filter: REGRID_NOT_CACHED as any,
+                paint: { 'fill-color': '#22d3ee', 'fill-opacity': 0.0 },
+              }, map.getLayer('neighbors-fill') ? 'neighbors-fill' : undefined)
+            }
+            if (!map.getLayer('parcels-regrid-line')) {
+              map.addLayer({
+                id: 'parcels-regrid-line', type: 'line', source: 'parcels_regrid',
+                'source-layer': sourceLayer,
+                layout: { visibility: 'visible' },
+                filter: REGRID_NOT_CACHED as any,
+                paint: { 'line-color': '#facc15', 'line-width': 1.5, 'line-opacity': 0.95 },
+              }, map.getLayer('neighbors-fill') ? 'neighbors-fill' : undefined)
+            }
+          } catch { /* regrid fallback is best-effort */ }
         })
       } catch (e) { /* parcels layer is best-effort */ }
 
