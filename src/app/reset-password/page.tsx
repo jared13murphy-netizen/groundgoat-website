@@ -62,6 +62,30 @@ function ResetPasswordForm() {
       })
 
       if (response.ok) {
+        // Owner 2026-09-01: setting a password signs you in — never hand
+        // someone a login form right after they chose their password.
+        // Same storage sequence as the signin page; if the backend is an
+        // older build without tokens in this response, fall back to the
+        // old "now sign in" success screen.
+        const data = await response.json().catch(() => null)
+        if (data?.access_token) {
+          localStorage.setItem('auth_token', data.access_token)
+          if (data.refresh_token) {
+            localStorage.setItem('refresh_token', data.refresh_token)
+          }
+          try {
+            const userResponse = await fetch(`${API_URL}/api/auth/me`, {
+              headers: { 'Authorization': `Bearer ${data.access_token}` },
+            })
+            if (userResponse.ok) {
+              localStorage.setItem('user', JSON.stringify(await userResponse.json()))
+            }
+          } catch {
+            /* profile fetch is a nicety — the session itself is stored */
+          }
+          router.push('/access')
+          return
+        }
         setSuccess(true)
       } else {
         const data = await response.json()
