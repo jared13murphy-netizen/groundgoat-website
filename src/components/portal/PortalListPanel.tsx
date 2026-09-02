@@ -22,6 +22,7 @@ interface Listing {
   auction_datetime?: string
   auction_date?: string
   primary_image_url?: string
+  marketing_image_url?: string
   asking_price?: number
   sale_price?: number
   price_per_acre?: number
@@ -52,6 +53,14 @@ interface PortalListPanelProps {
 }
 
 const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=600'
+
+// Landscape twin of a marketing image (same file name + '-wide.jpg', written by
+// the staging service beside the portrait one). Used for wide boxes.
+function wideMarketingImage(url?: string | null): string | null {
+  if (!url || !/\.jpg$/i.test(url)) return null
+  return url.replace(/\.jpg$/i, '-wide.jpg')
+}
+
 
 const TAB_TITLES: Record<TabType, string> = {
   auctions: 'Upcoming Auctions',
@@ -140,7 +149,7 @@ export function getListingSoilRating(tracts?: { tillable_acres?: number; total_a
 function ListingCard({ listing, activeTab, onClick, isWatchlisted, onToggleWatchlist, isAdmin }: { listing: Listing; activeTab: TabType; onClick: () => void; isWatchlisted?: boolean; onToggleWatchlist?: (id: string) => void; isAdmin?: boolean }) {
   const hasCompany = !!(listing.company?.name || listing.company_name)
   const [imgError, setImgError] = useState(false)
-  const imgSrc = (!imgError && listing.primary_image_url) ? listing.primary_image_url : FALLBACK_IMAGE
+  const imgSrc = (!imgError && (wideMarketingImage(listing.marketing_image_url) || listing.primary_image_url)) || FALLBACK_IMAGE
   const handleImgError = useCallback(() => setImgError(true), [])
 
   return (

@@ -275,10 +275,18 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
         <div className="rounded-xl overflow-hidden border border-white/10">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={`${API_URL}/api/tracts/${tract.tractId || tract.id}/image?w=600&q=80`}
+            // Marketing card art (landscape twin) when the tract has one; the
+            // backend answers 404 until then, and onError swaps in today's
+            // boundary image so the panel never shows blank.
+            src={`${API_URL}/api/tracts/${tract.tractId || tract.id}/marketing-image?wide=1`}
             alt="Tract satellite view with boundary outline"
             className="w-full h-auto block bg-gg-gray-900"
             loading="lazy"
+            onError={(e) => {
+              const el = e.target as HTMLImageElement
+              const fallback = `${API_URL}/api/tracts/${tract.tractId || tract.id}/image?w=600&q=80`
+              if (el.src !== fallback) el.src = fallback
+            }}
           />
         </div>
       )}

@@ -16,6 +16,14 @@ import { getListingTillableAcres, getListingSoilRating, getSoilLabel } from './P
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=600'
 
+// Landscape twin of a marketing image (same file name + '-wide.jpg', written by
+// the staging service beside the portrait one). Used for wide boxes.
+function wideMarketingImage(url?: string | null): string | null {
+  if (!url || !/\.jpg$/i.test(url)) return null
+  return url.replace(/\.jpg$/i, '-wide.jpg')
+}
+
+
 interface Company {
   id: string
   name: string
@@ -40,6 +48,7 @@ interface Tract {
   estimated_value_per_acre?: number
   estimate_confidence?: number
   image_url?: string
+  marketing_image_url?: string
   township?: string
   county_name?: string
   state_abbr?: string
@@ -63,6 +72,7 @@ interface Listing {
   bidding_url?: string
   source_url?: string
   primary_image_url?: string
+  marketing_image_url?: string
   asking_price?: number
   sale_price?: number
   price_per_acre?: number
@@ -223,7 +233,7 @@ export default function PortalListingDetail({ listingId, onBack, onTractSelected
       {/* Hero Image */}
       <div className="relative h-48 bg-gg-gray-800 rounded-xl overflow-hidden mb-4">
         <Image
-          src={(!heroImgError && listing.primary_image_url) ? listing.primary_image_url : FALLBACK_IMAGE}
+          src={(!heroImgError && (wideMarketingImage(listing.marketing_image_url) || listing.primary_image_url)) || FALLBACK_IMAGE}
           alt={`${listing.county}, ${listing.state}`}
           fill
           className="object-cover"
@@ -480,10 +490,10 @@ export default function PortalListingDetail({ listingId, onBack, onTractSelected
                   onClick={onTractSelected ? handleTractClick : undefined}
                 >
                   {/* Tract Image */}
-                  {tract.image_url && (
+                  {(tract.marketing_image_url || tract.image_url) && (
                     <div className="relative h-32 w-full bg-gg-gray-800">
                       <img
-                        src={tract.image_url}
+                        src={wideMarketingImage(tract.marketing_image_url) || tract.image_url}
                         alt={`Tract ${tract.tract_number || index + 1}`}
                         className="w-full h-full object-cover"
                         onError={(e) => { (e.target as HTMLImageElement).src = FALLBACK_IMAGE }}
