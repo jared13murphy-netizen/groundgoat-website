@@ -5,6 +5,10 @@ name: Deploy to AWS
 on:
   push:
     branches: [main]
+    # CI-only commits must not trigger an on-box build (owner rule 2026-09-02:
+    # never build images on the production host during business hours).
+    paths-ignore:
+      - '.github/**'
 concurrency:
   group: deploy-aws
   cancel-in-progress: false
