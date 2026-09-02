@@ -1,33 +1,65 @@
 # Deploy this repo to the AWS app server (gg-app-1) on every push to main.
-# Railway auto-deploys independently until it is retired; this keeps the
-# AWS stack in lockstep so cutover is only a DNS change.
+# The image is BUILT HERE in GitHub Actions and published to GHCR; the host
+# only pulls and restarts (owner rule 2026-09-02: never build images on the
+# production host — an on-box build pinned its 2 CPUs while users were on).
 name: Deploy to AWS
 on:
   push:
     branches: [main]
-    # CI-only commits must not trigger an on-box build (owner rule 2026-09-02:
-    # never build images on the production host during business hours).
     paths-ignore:
       - '.github/**'
 concurrency:
   group: deploy-aws
   cancel-in-progress: false
+permissions:
+  contents: read
+  packages: write
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and publish image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/groundgoat-website:main
+            ghcr.io/${{ github.repository_owner }}/groundgoat-website:main-${{ github.sha }}
+          build-args: |
+            NEXT_PUBLIC_API_URL=https://api.groundgoat.com
+            NEXT_PUBLIC_TILES_URL=https://tiles.groundgoat.com
+            NEXT_PUBLIC_SCRAPER_URL=https://scraper.groundgoat.com
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
       - name: Install SSH key
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.GG_DEPLOY_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H 100.63.171.136 >> ~/.ssh/known_hosts 2>/dev/null
-      - name: Sync code
+      - name: Sync source (reference copy only, nothing is built from it)
         run: |
           rsync -az --delete --exclude '.git' --exclude '.github' \
             ./ ubuntu@100.63.171.136:/opt/gg/groundgoat-website/
-      - name: Rebuild and restart
+      - name: Pull image and restart (no build on the host)
         run: |
           ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=20 ubuntu@100.63.171.136 \
-            'cd /opt/gg && sudo docker compose build website && sudo docker compose up -d website'
+            "echo '${{ secrets.GITHUB_TOKEN }}' | sudo docker login ghcr.io -u '${{ github.actor }}' --password-stdin \
+             && cd /opt/gg && sudo docker compose pull website \
+             && sudo docker compose up -d --no-build website \
+             && sudo docker logout ghcr.io \
+             && sudo docker image prune -f >/dev/null"
+      - name: Verify
+        run: |
+          sleep 15
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 https://www.groundgoat.com/)
+          echo "www.groundgoat.com -> $code"
+          test "$code" = "200"
