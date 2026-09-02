@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import MappingAddOnCard from '@/components/mapping/MappingAddOnCard'
 import { ArrowLeft, Loader2, CreditCard, Calendar, AlertTriangle, CheckCircle, Crown, MapPin, Plus, ExternalLink, Building2, X, ChevronDown, ArrowUpCircle, Minus, Tag } from 'lucide-react'
 import { parseApiError } from '@/lib/parseApiError'
 import { PRICING, formatPrice } from '@/config/pricing'
@@ -599,6 +600,10 @@ export default function SubscriptionPage() {
             </div>
           </div>
         )}
+
+        {/* Configurable Mapping add-on — seats are bought per user on
+            the team page; this card just makes it visible here. */}
+        <MappingAddOnCard accountType={user?.account_type} />
 
         {/* Plan Overview Card */}
         {activeSubscriptions.length > 0 && !subscriptionData?.unlimited && canManageSubscription() && (

@@ -49,7 +49,12 @@ export const PRICING = {
       'County & township analytics',
       'Comparable sales reports',
       'Priority support',
+      'Configurable Mapping available as a per-user add-on',
     ],
+    // Sold per user, per year, on top of the plan — a firm admin turns it
+    // on for whichever users need it from the team page. Not offered at
+    // signup because it is priced per user and no users exist yet.
+    configurableMappingAnnualPerUser: 595,
     trialDays: 30,
     trialLabel: '30-day free trial',
   },

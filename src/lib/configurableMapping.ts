@@ -9,8 +9,14 @@ import { fetchWithAuth } from '@/lib/fetchWithAuth'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
-/** The land types a user can assign. `water` covers the engine's
- *  separate `waterway` class — a customer reads both as water. */
+/** The land types a user can assign.
+ *
+ *  There is deliberately NO waterway type. The engine's grassed waterway
+ *  is a mown drainage run through a field — it is grass, not water.
+ *  Owner rule 2026-08-28: it gets no polygon and no colour, and counts as
+ *  untillable. The backend drops the class, so its acreage arrives inside
+ *  "unclassified". It was briefly teal, and before that blue, and neither
+ *  is wanted — do not re-add it without asking. */
 export const LAND_CLASSES = ['tillable', 'pasture', 'timber', 'water', 'other'] as const
 export type LandClass = (typeof LAND_CLASSES)[number]
 
@@ -60,6 +66,9 @@ export interface ParcelDetail {
   boundary: any
   polygons: EnginePolygon[]
   source: 'engine' | 'none'
+  /** false = part of the parcel sits on ground the engine has not
+   *  published; do not present the gap as unclassified ground. */
+  engine_covered?: boolean
   unclassified_acres: number
 }
 
@@ -85,23 +94,63 @@ async function j<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json()
 }
 
-export async function fetchMappingAccess(): Promise<boolean> {
+/** Whether the signed-in user may use Configurable Mapping.
+ *
+ *  Returns null when we could NOT find out — an expired session, a
+ *  network failure. That case used to collapse into `false`, which told
+ *  a paying customer the feature "isn't enabled on your account" when
+ *  the truth was that their token had lapsed. Callers must treat null
+ *  as "ask them to sign in again", not as "not entitled".
+ */
+export async function fetchMappingAccessState(): Promise<boolean | null> {
   try {
     const r = await j<{ enabled: boolean }>('/api/mapping/access')
     return !!r.enabled
-  } catch {
-    return false
+  } catch (e: any) {
+    const msg = String(e?.message || '')
+    if (/\(401\)|\(403\)|Not authenticated|credentials/i.test(msg)) return null
+    return null
   }
 }
 
-export function searchMap(q: string, state?: string | null): Promise<SearchResult> {
+/** Convenience for places that only decide whether to render a link —
+ *  there, "could not check" and "not entitled" both mean "hide it". */
+export async function fetchMappingAccess(): Promise<boolean> {
+  return (await fetchMappingAccessState()) === true
+}
+
+/** Counties are proper nouns. Tracts saved before the API started
+ *  tidying them still carry whatever the county typed, so anything that
+ *  puts a county on screen goes through here. */
+export function niceCounty(name?: string | null): string {
+  if (!name) return ''
+  return String(name).trim().replace(/\S+/g, (w) =>
+    w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+}
+
+export function searchMap(
+  q: string, state?: string | null, county?: string | null,
+): Promise<SearchResult> {
   const qs = new URLSearchParams({ q })
   if (state) qs.set('state', state)
+  // Only ever sent alongside a state; the API drops it otherwise.
+  if (state && county) qs.set('county', county)
   return j<SearchResult>(`/api/mapping/search?${qs}`)
 }
 
-export function fetchParcel(llUuid: string): Promise<ParcelDetail> {
-  return j<ParcelDetail>(`/api/mapping/parcel?ll_uuid=${encodeURIComponent(llUuid)}`)
+/** Counties in a state, for the search filter. */
+export function listCounties(state: string) {
+  return j<{ counties: string[] }>(
+    `/api/mapping/counties?state=${encodeURIComponent(state)}`)
+}
+
+/** Look a parcel up by whichever id the caller has.
+ *  The map's vector tiles carry `path`, never `ll_uuid`, so a click can
+ *  only supply the former — sending it as ll_uuid found nothing and the
+ *  click silently did nothing. */
+export function fetchParcel(id: string): Promise<ParcelDetail> {
+  const key = id.startsWith('/') ? 'path' : 'll_uuid'
+  return j<ParcelDetail>(`/api/mapping/parcel?${key}=${encodeURIComponent(id)}`)
 }
 
 export interface SaveBody {
@@ -131,6 +180,12 @@ export interface Project {
   archived_at: string | null
   created_at: string
   updated_at: string
+  /** True when a colleague shared this with you rather than you making it. */
+  shared?: boolean
+  /** Who shared it. Null on your own projects. */
+  shared_by?: string | null
+  /** On YOUR projects: who you have shared it with. Empty when nobody. */
+  shared_with?: { id: string; name: string }[]
 }
 
 export interface SavedParcelRow {
@@ -185,6 +240,59 @@ export function getProject(id: string) {
   return j<{ project: Project; parcels: SavedParcelRow[] }>(`/api/mapping/projects/${id}`)
 }
 
+export interface ProjectTractGeometry {
+  id: string
+  name: string
+  acres: number | null
+  boundary: any
+  label_point: any
+  polygons: { cls: LandClass; geometry: any }[]
+}
+
+export interface PortfolioTract extends ProjectTractGeometry {
+  project_id: string
+  project_name: string
+}
+
+/** Every saved tract across every project — outline and label only.
+ *  Land-type polygons come from projectGeometry when one is opened. */
+export function allTractsGeometry() {
+  return j<{ tracts: PortfolioTract[] }>('/api/mapping/tracts/geometry')
+}
+
+/** Every tract in a project with its geometry — drawn as context around
+ *  whatever the editor currently has open. */
+export function projectGeometry(id: string) {
+  return j<{ tracts: ProjectTractGeometry[] }>(
+    `/api/mapping/projects/${id}/geometry`)
+}
+
+export interface FirmMember {
+  id: string
+  email: string
+  full_name: string | null
+  role: string | null
+}
+
+/** Everyone in the caller's firm — who a project can be shared with. */
+export function firmMembers() {
+  return j<{ members: FirmMember[] }>('/api/mapping/firm/members')
+}
+
+export function projectShares(id: string) {
+  return j<{ user_ids: string[]; owned: boolean }>(`/api/mapping/projects/${id}/shares`)
+}
+
+/** Sends the COMPLETE set, not a delta — what the dialog shows is what
+ *  it saves, so a stale checkbox cannot silently re-share. */
+export function setProjectShares(id: string, userIds: string[]) {
+  return j<{ user_ids: string[] }>(`/api/mapping/projects/${id}/shares`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_ids: userIds }),
+  })
+}
+
 export function updateProject(id: string, patch: { name?: string; archived?: boolean }) {
   return j<{ ok: true }>(`/api/mapping/projects/${id}`, {
     method: 'PATCH',
@@ -196,6 +304,16 @@ export function updateProject(id: string, patch: { name?: string; archived?: boo
 export function duplicateProject(id: string) {
   return j<{ id: string; name: string; parcels: number }>(
     `/api/mapping/projects/${id}/duplicate`, { method: 'POST' })
+}
+
+/** Rename a tract. Does not touch its geometry — the full save
+ *  recomputes acreage and soil, which is far too much for a name. */
+export function renameParcel(id: string, name: string) {
+  return j<{ id: string; name: string }>(`/api/mapping/parcels/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
 }
 
 export function archiveParcel(id: string) {
@@ -237,16 +355,33 @@ export function splitGeometry(geometry: any, line: any) {
 // bucket is private, so there is no direct link to hand out.
 
 export const REPORT_KINDS =
-  ['tillable', 'elevation_3d', 'fsa', 'topography', 'ground_goat'] as const
+  ['tillable', 'soil_rating', 'elevation_3d', 'fsa', 'topography', 'ground_goat'] as const
 export type ReportKind = (typeof REPORT_KINDS)[number]
 
 export const REPORT_LABEL: Record<string, string> = {
   tillable: 'Tillable Map',
+  soil_rating: 'Soil Rating Map',
   fsa: 'FSA Map',
   ground_goat: 'Ground Goat Report',
   elevation_3d: '3D Elevation Map',
   topography: 'Topography Map',
   cma: 'Market Analysis',
+}
+
+/** What a report button says while it is building.
+ *
+ *  Rendering happens on a worker and can take a while, so the button
+ *  needs to say something. Kept short so the button does not jump width,
+ *  and kept dry rather than jokey — this is a tool a farm manager shows
+ *  to a client. */
+export const REPORT_BUSY_LABEL: Record<string, string> = {
+  tillable: 'Counting rows…',
+  soil_rating: 'Grading the dirt…',
+  fsa: 'Pulling the file…',
+  ground_goat: 'Rounding it up…',
+  elevation_3d: 'Climbing the hill…',
+  topography: 'Walking contours…',
+  cma: 'Reading the market…',
 }
 
 export interface ReportRow {
@@ -275,6 +410,11 @@ export function queueReport(parcelId: string, kind: ReportKind, params: Record<s
 export function listReports(parcelId?: string) {
   const qs = parcelId ? `?parcel_id=${encodeURIComponent(parcelId)}` : ''
   return j<{ reports: ReportRow[] }>(`/api/mapping/reports${qs}`)
+}
+
+/** Removes one built report — the row and the stored PDF. */
+export function deleteReport(id: string) {
+  return j<{ ok: boolean }>(`/api/mapping/reports/${id}`, { method: 'DELETE' })
 }
 
 /** Pulls the PDF through the authenticated API and hands it to the
@@ -315,6 +455,22 @@ export function normalizeGeometry(boundary: any, polygons: { cls: LandClass; geo
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ boundary, polygons }),
+    })
+}
+
+/** Re-fill a boundary with the ENGINE'S land types.
+ *  Confirming a boundary used to trim whatever polygons the parcel first
+ *  loaded with, so an enlarged boundary could never gain ground. This
+ *  asks the engine about the boundary the user actually drew.
+ *  `engine_covered` false = part of it sits on ground the engine has not
+ *  published; say so rather than drawing it as bare. */
+export function classifyBoundary(boundary: any, state?: string | null) {
+  return j<{ polygons: { cls: LandClass; acres: number; geometry: any }[]
+             source: string; engine_covered: boolean; state: string | null }>(
+    '/api/mapping/geometry/classify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ boundary, state: state || null }),
     })
 }
 
@@ -414,5 +570,90 @@ export function queueCmaReport(cmaId: string) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ kind: 'cma', cma_id: cmaId }),
+  })
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Seats — the firm admin's per-user toggle
+//
+// Seats are capacity the firm buys for the term. Switching a user on
+// buys one only if none are spare; switching a user off frees it but
+// refunds nothing, so the firm can reassign it. Never call setSeat
+// without showing previewSeat()'s message first — it is the only thing
+// that tells the admin whether this click costs money.
+// ─────────────────────────────────────────────────────────────────────
+export interface SeatPrice {
+  configured: boolean
+  price_id: string | null
+  amount_cents: number | null
+  amount: string | null
+  interval: string
+}
+
+export interface SeatMember {
+  id: string
+  email: string
+  name: string
+  account_type: string
+  enabled: boolean
+}
+
+export interface SeatSummary {
+  firm_id: string
+  firm_name: string
+  subscription_status: string
+  billable: boolean
+  price: SeatPrice
+  /** Users switched on right now. */
+  seats_in_use: number
+  /** Capacity bought for this term. Never shrinks mid-term. */
+  seats_paid: number
+  /** Paid seats nobody is using — free to hand to another user. */
+  seats_spare: number
+  annual_total_cents: number | null
+  annual_total: string | null
+  renewal_total: string | null
+  members: SeatMember[]
+}
+
+export interface SeatPreview {
+  seats_now: number
+  seats_after: number
+  seats_paid: number
+  seats_paid_after: number
+  price: SeatPrice
+  annual_total_after: string | null
+  renewal_total_after: string | null
+  /** True only when the toggle actually buys new capacity. */
+  will_be_charged: boolean
+  message: string
+}
+
+export function fetchSeats(firmId?: string) {
+  const q = firmId ? `?firm_id=${encodeURIComponent(firmId)}` : ''
+  return j<SeatSummary>(`/api/mapping/seats${q}`)
+}
+
+export function previewSeat(enabled: boolean, firmId?: string) {
+  const q = firmId ? `&firm_id=${encodeURIComponent(firmId)}` : ''
+  return j<SeatPreview>(`/api/mapping/seats/preview?enabled=${enabled}${q}`)
+}
+
+export function setSeat(userId: string, enabled: boolean, firmId?: string) {
+  const q = firmId ? `?firm_id=${encodeURIComponent(firmId)}` : ''
+  return j<{
+    user_id: string
+    enabled: boolean
+    seats_in_use: number
+    seats_paid: number
+    charged_now: boolean
+    billed: boolean
+    note: string | null
+    annual_total: string | null
+    renewal_total: string | null
+  }>(`/api/mapping/seats/${encodeURIComponent(userId)}${q}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled }),
   })
 }

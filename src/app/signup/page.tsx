@@ -3,7 +3,7 @@
 import { useState, useEffect, Suspense, useRef } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Check, ArrowLeft, ArrowRight, Eye, EyeOff, MapPin, ChevronDown, X, Loader2, Building2, Users, Plus, Mail } from 'lucide-react'
+import { Check, ArrowLeft, ArrowRight, Eye, EyeOff, MapPin, ChevronDown, X, Loader2, Building2, Users, Plus, Mail, Map as MapIcon } from 'lucide-react'
 import { US_STATES, getCountiesForState, getStateAbbreviation } from '@/data/counties'
 import { parseApiError } from '@/lib/parseApiError'
 import { PRICING, displayPriceLabel, formatPrice } from '@/config/pricing'
@@ -54,6 +54,8 @@ interface TeamMember {
   email: string
   firstName: string
   lastName: string
+  /** Configurable Mapping seat, bought with the subscription. */
+  configurableMapping: boolean
 }
 
 interface ReferrerInfo {
@@ -115,11 +117,16 @@ function SignUpContent() {
     firmZip: '',
   })
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
+  // Only ever set in the sandbox, where email is disabled.
+  const [sandboxNote, setSandboxNote] = useState('')
   const [newMember, setNewMember] = useState<TeamMember>({
     email: '',
     firstName: '',
     lastName: '',
+    configurableMapping: false,
   })
+  // The admin is a user too, so they can buy themselves a seat here.
+  const [adminConfigurableMapping, setAdminConfigurableMapping] = useState(false)
   const [additionalSeats, setAdditionalSeats] = useState(0)
   const [showAddMember, setShowAddMember] = useState(false)
   const [promoCode, setPromoCode] = useState('')
@@ -318,13 +325,33 @@ function SignUpContent() {
     }
     
     setTeamMembers([...teamMembers, newMember])
-    setNewMember({ email: '', firstName: '', lastName: '' })
+    setNewMember({ email: '', firstName: '', lastName: '', configurableMapping: false })
     setShowAddMember(false)
     setError('')
   }
 
   const removeTeamMember = (index: number) => {
     setTeamMembers(teamMembers.filter((_, i) => i !== index))
+  }
+
+  // Seats bought at signup: the admin plus any member switched on.
+  const cmSeatCount =
+    (adminConfigurableMapping ? 1 : 0) +
+    teamMembers.filter(m => m.configurableMapping).length
+  const cmSeatTotal = cmSeatCount * PRICING.firm.configurableMappingAnnualPerUser
+
+  /** Tidy a phone number for display once the user leaves the field.
+   *  Deliberately NOT applied while typing: forcing a mask as they go
+   *  fights anyone who pastes, or who types the country code first.
+   *  Anything that is not a recognisable US number is left exactly as
+   *  entered rather than mangled. */
+  const formatPhoneOnBlur = (raw: string): string => {
+    const digits = (raw || '').replace(/\D/g, '')
+    const local = digits.length === 11 && digits.startsWith('1')
+      ? digits.slice(1)
+      : digits
+    if (local.length !== 10) return raw
+    return `(${local.slice(0, 3)}) ${local.slice(3, 6)}-${local.slice(6)}`
   }
 
   const calculatePrice = () => {
@@ -334,6 +361,7 @@ function SignUpContent() {
     if (selectedPlan === 'firm') {
       const firm = PLANS.firm
       annual = firm.basePrice + additionalSeats * firm.additionalUserPrice
+      annual += cmSeatCount * PRICING.firm.configurableMappingAnnualPerUser
     } else {
       const plan = PLANS[selectedPlan as 'basic_state' | 'premium_state']
       annual = Math.max(selectedAreas.length, 1) * plan.pricePerState
@@ -390,9 +418,17 @@ function SignUpContent() {
       })
 
       if (response.ok) {
+        // The sandbox cannot send mail, so it returns the code instead.
+        // Fill it in rather than making the tester copy it across.
+        const sent = await response.json().catch(() => ({} as any))
         setCodeSent(true)
         setResendCountdown(60)
-        setVerificationCode(['', '', '', '', '', ''])
+        if (typeof sent.sandbox_code === 'string' && sent.sandbox_code.length === 6) {
+          setVerificationCode(sent.sandbox_code.split(''))
+          setSandboxNote(`Email is disabled here, so your code (${sent.sandbox_code}) is filled in for you.`)
+        } else {
+          setVerificationCode(['', '', '', '', '', ''])
+        }
       } else {
         const data = await response.json()
         throw new Error(parseApiError(data, 'Failed to send verification code'))
@@ -574,7 +610,9 @@ function SignUpContent() {
             email: m.email,
             first_name: m.firstName,
             last_name: m.lastName,
+            configurable_mapping: m.configurableMapping,
           })),
+          admin_configurable_mapping: adminConfigurableMapping,
           home_state: getStateAbbreviation(formData.homeState),
           home_county: formData.homeCounty,
           billing_cycle: 'annual', // toggle is display-only; billing is always annual
@@ -810,7 +848,7 @@ function SignUpContent() {
                       name="firstName"
                       value={formData.firstName}
                       onChange={handleInputChange}
-                      className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none"
+                      className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-[#1a1a1a] placeholder-gray-400 focus:border-gg-pink focus:outline-none"
                       placeholder="John"
                     />
                   </div>
@@ -821,7 +859,7 @@ function SignUpContent() {
                       name="lastName"
                       value={formData.lastName}
                       onChange={handleInputChange}
-                      className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none"
+                      className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-[#1a1a1a] placeholder-gray-400 focus:border-gg-pink focus:outline-none"
                       placeholder="Doe"
                     />
                   </div>
@@ -834,7 +872,7 @@ function SignUpContent() {
                     name="email"
                     value={formData.email}
                     onChange={handleInputChange}
-                    className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none"
+                    className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-[#1a1a1a] placeholder-gray-400 focus:border-gg-pink focus:outline-none"
                     placeholder="john@example.com"
                   />
                 </div>
@@ -847,13 +885,13 @@ function SignUpContent() {
                       name="password"
                       value={formData.password}
                       onChange={handleInputChange}
-                      className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 pr-12 focus:border-gg-pink focus:outline-none"
+                      className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-[#1a1a1a] placeholder-gray-400 pr-12 focus:border-gg-pink focus:outline-none"
                       placeholder="••••••••"
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-4 top-1/2 -translate-y-1/2 text-gg-gray-500 hover:text-gg-gray-300"
+                      className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
                     >
                       {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                     </button>
@@ -867,7 +905,7 @@ function SignUpContent() {
                     name="confirmPassword"
                     value={formData.confirmPassword}
                     onChange={handleInputChange}
-                    className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none"
+                    className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-[#1a1a1a] placeholder-gray-400 focus:border-gg-pink focus:outline-none"
                     placeholder="••••••••"
                   />
                 </div>
@@ -1015,6 +1053,11 @@ function SignUpContent() {
           {/* Step 1b: Verification Code Entry */}
           {step === 1 && codeSent && (
             <div className="card">
+              {sandboxNote && (
+                <div className="mb-6 rounded-lg bg-yellow-500/10 p-3 text-sm text-yellow-300">
+                  {sandboxNote}
+                </div>
+              )}
               <div className="text-center mb-8">
                 <div className="w-16 h-16 bg-gg-pink/20 rounded-full flex items-center justify-center mx-auto mb-4">
                   <Mail className="text-gg-pink" size={32} />
@@ -1197,7 +1240,7 @@ function SignUpContent() {
                       name="firmName"
                       value={firmData.firmName}
                       onChange={handleFirmInputChange}
-                      className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none"
+                      className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-[#1a1a1a] placeholder-gray-400 focus:border-gg-pink focus:outline-none"
                       placeholder="Acme Land Management"
                     />
                   </div>
@@ -1209,7 +1252,7 @@ function SignUpContent() {
                       name="firmWebsite"
                       value={firmData.firmWebsite}
                       onChange={handleFirmInputChange}
-                      className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none"
+                      className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-[#1a1a1a] placeholder-gray-400 focus:border-gg-pink focus:outline-none"
                       placeholder="https://example.com"
                     />
                   </div>
@@ -1221,7 +1264,11 @@ function SignUpContent() {
                       name="firmPhone"
                       value={firmData.firmPhone}
                       onChange={handleFirmInputChange}
-                      className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none"
+                      onBlur={(e) => setFirmData({
+                        ...firmData,
+                        firmPhone: formatPhoneOnBlur(e.target.value),
+                      })}
+                      className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-[#1a1a1a] placeholder-gray-400 focus:border-gg-pink focus:outline-none"
                       placeholder="(555) 123-4567"
                     />
                   </div>
@@ -1233,7 +1280,7 @@ function SignUpContent() {
                       name="firmAddress"
                       value={firmData.firmAddress}
                       onChange={handleFirmInputChange}
-                      className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none"
+                      className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-[#1a1a1a] placeholder-gray-400 focus:border-gg-pink focus:outline-none"
                       placeholder="123 Main St"
                     />
                   </div>
@@ -1246,7 +1293,7 @@ function SignUpContent() {
                         name="firmCity"
                         value={firmData.firmCity}
                         onChange={handleFirmInputChange}
-                        className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none"
+                        className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-[#1a1a1a] placeholder-gray-400 focus:border-gg-pink focus:outline-none"
                         placeholder="Springfield"
                       />
                     </div>
@@ -1271,7 +1318,7 @@ function SignUpContent() {
                         name="firmZip"
                         value={firmData.firmZip}
                         onChange={handleFirmInputChange}
-                        className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none"
+                        className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-[#1a1a1a] placeholder-gray-400 focus:border-gg-pink focus:outline-none"
                         placeholder="62704"
                       />
                     </div>
@@ -1287,7 +1334,7 @@ function SignUpContent() {
                     type="text"
                     value={promoCode}
                     onChange={(e) => { setPromoCode(e.target.value.toUpperCase()); setPromoValidation(null) }}
-                    className="flex-1 bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none uppercase"
+                    className="flex-1 bg-white border border-gray-300 rounded-lg px-4 py-3 text-[#1a1a1a] placeholder-gray-400 focus:border-gg-pink focus:outline-none uppercase"
                     placeholder="Enter promo code"
                   />
                   <button
@@ -1448,7 +1495,7 @@ function SignUpContent() {
                     type="text"
                     value={promoCode}
                     onChange={(e) => { setPromoCode(e.target.value.toUpperCase()); setPromoValidation(null) }}
-                    className="flex-1 bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none uppercase"
+                    className="flex-1 bg-white border border-gray-300 rounded-lg px-4 py-3 text-[#1a1a1a] placeholder-gray-400 focus:border-gg-pink focus:outline-none uppercase"
                     placeholder="Enter promo code (optional)"
                   />
                   <button
@@ -1503,6 +1550,53 @@ function SignUpContent() {
           {/* Step 4: Team Setup (for firm plans) */}
           {step === 4 && selectedPlan === 'firm' && (
             <div className="space-y-6">
+              {/* Configurable Mapping is priced per user, and at this point
+                  the users do not exist yet — so this tells them it is
+                  available and what it costs, rather than offering a second
+                  checkout that could double-charge against the seat toggle
+                  on the team page. */}
+              <div className="card border border-gg-pink/30">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-gg-pink/20 flex items-center justify-center shrink-0">
+                    <MapIcon className="text-gg-pink" size={20} />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-white">
+                      Configurable Mapping — optional add-on
+                    </h3>
+                    <p className="text-gg-gray-400 text-sm mt-1">
+                      Draw your own boundaries on any parcel, classify the ground,
+                      and build reports from it. ${PRICING.firm.configurableMappingAnnualPerUser} per user
+                      per year, added to this subscription.
+                    </p>
+                    <p className="text-gg-gray-500 text-sm mt-2">
+                      Switch it on for whoever needs it — here, or from your team
+                      page later. It renews with the rest of your subscription.
+                    </p>
+
+                    <label className="mt-4 flex items-center justify-between gap-4 rounded-lg bg-gg-gray-900 p-3 cursor-pointer">
+                      <span className="text-sm text-white">
+                        Add it to my own account ({formData.firstName || 'admin'})
+                      </span>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={adminConfigurableMapping}
+                        aria-label="Configurable Mapping for my account"
+                        onClick={() => setAdminConfigurableMapping(!adminConfigurableMapping)}
+                        className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${
+                          adminConfigurableMapping ? 'bg-gg-pink' : 'bg-gg-gray-700'
+                        }`}
+                      >
+                        <span className={`absolute left-0 top-0.5 w-5 h-5 rounded-full bg-white transition-transform ${
+                          adminConfigurableMapping ? 'translate-x-5' : 'translate-x-0.5'
+                        }`} />
+                      </button>
+                    </label>
+                  </div>
+                </div>
+              </div>
+
               <div className="card">
                 <div className="flex items-center gap-3 mb-6">
                   <div className="w-12 h-12 rounded-full bg-gg-pink/20 flex items-center justify-center">
@@ -1538,16 +1632,39 @@ function SignUpContent() {
                         key={index}
                         className="flex items-center justify-between bg-gg-gray-900 rounded-lg px-4 py-3"
                       >
-                        <div>
-                          <p className="text-white">{member.firstName} {member.lastName}</p>
-                          <p className="text-gg-gray-400 text-sm">{member.email}</p>
+                        <div className="min-w-0">
+                          <p className="text-white truncate">{member.firstName} {member.lastName}</p>
+                          <p className="text-gg-gray-400 text-sm truncate">{member.email}</p>
                         </div>
-                        <button
-                          onClick={() => removeTeamMember(index)}
-                          className="text-gg-gray-500 hover:text-red-400 transition-colors"
-                        >
-                          <X size={18} />
-                        </button>
+                        <div className="flex items-center gap-4 shrink-0">
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <span className="text-xs text-gg-gray-400 hidden sm:inline">
+                              Mapping
+                            </span>
+                            <button
+                              type="button"
+                              role="switch"
+                              aria-checked={member.configurableMapping}
+                              aria-label={`Configurable Mapping for ${member.firstName} ${member.lastName}`}
+                              onClick={() => setTeamMembers(teamMembers.map((m, i) =>
+                                i === index ? { ...m, configurableMapping: !m.configurableMapping } : m
+                              ))}
+                              className={`relative w-11 h-6 rounded-full transition-colors ${
+                                member.configurableMapping ? 'bg-gg-pink' : 'bg-gg-gray-700'
+                              }`}
+                            >
+                              <span className={`absolute left-0 top-0.5 w-5 h-5 rounded-full bg-white transition-transform ${
+                                member.configurableMapping ? 'translate-x-5' : 'translate-x-0.5'
+                              }`} />
+                            </button>
+                          </label>
+                          <button
+                            onClick={() => removeTeamMember(index)}
+                            className="text-gg-gray-500 hover:text-red-400 transition-colors"
+                          >
+                            <X size={18} />
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -1563,7 +1680,7 @@ function SignUpContent() {
                           name="firstName"
                           value={newMember.firstName}
                           onChange={handleNewMemberChange}
-                          className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none"
+                          className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-[#1a1a1a] placeholder-gray-400 focus:border-gg-pink focus:outline-none"
                           placeholder="Jane"
                         />
                       </div>
@@ -1574,7 +1691,7 @@ function SignUpContent() {
                           name="lastName"
                           value={newMember.lastName}
                           onChange={handleNewMemberChange}
-                          className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none"
+                          className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-[#1a1a1a] placeholder-gray-400 focus:border-gg-pink focus:outline-none"
                           placeholder="Smith"
                         />
                       </div>
@@ -1586,16 +1703,45 @@ function SignUpContent() {
                         name="email"
                         value={newMember.email}
                         onChange={handleNewMemberChange}
-                        className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none"
+                        className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-[#1a1a1a] placeholder-gray-400 focus:border-gg-pink focus:outline-none"
                         placeholder="jane@example.com"
                       />
                       <p className="text-gg-gray-500 text-xs mt-1">They&apos;ll receive an email invitation to set up their own password</p>
+                    </div>
+
+                    <label className="flex items-center justify-between gap-4 rounded-lg border border-gg-gray-700 p-3 cursor-pointer">
+                      <span>
+                        <span className="block text-sm text-white">Configurable Mapping</span>
+                        <span className="block text-xs text-gg-gray-400">
+                          ${PRICING.firm.configurableMappingAnnualPerUser}/year — added to your total
+                        </span>
+                      </span>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={newMember.configurableMapping}
+                        aria-label="Configurable Mapping for this member"
+                        onClick={() => setNewMember({
+                          ...newMember,
+                          configurableMapping: !newMember.configurableMapping,
+                        })}
+                        className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${
+                          newMember.configurableMapping ? 'bg-gg-pink' : 'bg-gg-gray-700'
+                        }`}
+                      >
+                        <span className={`absolute left-0 top-0.5 w-5 h-5 rounded-full bg-white transition-transform ${
+                          newMember.configurableMapping ? 'translate-x-5' : 'translate-x-0.5'
+                        }`} />
+                      </button>
+                    </label>
+
+                    <div>
                     </div>
                     <div className="flex gap-2">
                       <button
                         onClick={() => {
                           setShowAddMember(false)
-                          setNewMember({ email: '', firstName: '', lastName: '' })
+                          setNewMember({ email: '', firstName: '', lastName: '', configurableMapping: false })
                           setError('')
                         }}
                         className="btn-secondary flex-1"
@@ -1614,7 +1760,7 @@ function SignUpContent() {
                   <button
                     onClick={() => setShowAddMember(true)}
                     disabled={teamMembers.length >= 2 + additionalSeats}
-                    className="btn-secondary w-full flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="btn-primary w-full flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <Plus size={18} />
                     Add Team Member
@@ -1659,6 +1805,14 @@ function SignUpContent() {
                     <div className="flex justify-between">
                       <span className="text-gg-gray-400">{additionalSeats} Additional User(s)</span>
                       <span className="text-white">${displayPriceLabel(additionalSeats * PLANS.firm.additionalUserPrice, billingCycle)}/{billingCycle === 'annual' ? 'yr' : 'mo'}</span>
+                    </div>
+                  )}
+                  {cmSeatCount > 0 && (
+                    <div className="flex justify-between">
+                      <span className="text-gg-gray-400">
+                        Configurable Mapping ({cmSeatCount} {cmSeatCount === 1 ? 'user' : 'users'})
+                      </span>
+                      <span className="text-white">${formatPrice(cmSeatTotal)}/yr</span>
                     </div>
                   )}
                   <div className="pt-2 border-t border-gg-gray-700 flex justify-between">

@@ -179,7 +179,7 @@ function ResetPasswordForm() {
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white pr-12 focus:border-gg-pink focus:outline-none"
+                  className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-[#1a1a1a] pr-12 focus:border-gg-pink focus:outline-none"
                   placeholder="Enter new password"
                 />
                 <button
@@ -200,7 +200,7 @@ function ResetPasswordForm() {
                 type={showPassword ? 'text' : 'password'}
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
-                className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white focus:border-gg-pink focus:outline-none"
+                className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-[#1a1a1a] focus:border-gg-pink focus:outline-none"
                 placeholder="Confirm new password"
               />
             </div>

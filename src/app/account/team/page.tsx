@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Loader2, Users, UserPlus, Trash2, Mail, Check, AlertCircle, Crown, Shield, Pencil } from 'lucide-react'
 import { SALES_CONTACT_EMAIL } from '@/config/pricing'
+import MappingSeats from '@/components/mapping/MappingSeats'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -38,6 +39,9 @@ export default function TeamPage() {
   const [upgradingSeats, setUpgradingSeats] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  // The sandbox cannot send mail, so the API hands the invite link back
+  // instead. Production never returns this field.
+  const [inviteLink, setInviteLink] = useState('')
   
   const [inviteForm, setInviteForm] = useState({
     email: '',
@@ -120,7 +124,11 @@ export default function TeamPage() {
         throw new Error(data.detail || 'Failed to invite team member')
       }
 
-      setSuccess(`Successfully added ${inviteForm.firstName} to your team!`)
+      const added = await response.json().catch(() => ({} as any))
+      setInviteLink(added.invite_link || '')
+      setSuccess(added.invite_link
+        ? `Added ${inviteForm.firstName}. Email cannot be sent here, so use the link below to set their password.`
+        : `Successfully added ${inviteForm.firstName} to your team!`)
       setShowInviteModal(false)
       setInviteForm({ email: '', firstName: '', lastName: '' })
       
@@ -334,6 +342,15 @@ export default function TeamPage() {
         </div>
 
         {/* Success/Error Messages */}
+        {/* Sandbox only: the API returns this when it could not
+            email the invite, so the member can still be reached. */}
+        {inviteLink && (
+          <div className="card mb-4">
+            <p className="text-sm text-gg-gray-400 mb-2">Set-password link for the new member:</p>
+            <code className="block text-xs text-gg-pink break-all">{inviteLink}</code>
+          </div>
+        )}
+
         {success && (
           <div className="card bg-green-500/10 border-green-500/30 mb-6 flex items-center gap-3">
             <Check className="text-green-500" size={20} />
@@ -383,6 +400,12 @@ export default function TeamPage() {
               </span>
             ) : null}
           </div>
+        </div>
+
+        {/* Configurable Mapping add-on — assigning a seat here is a
+            purchase, so the panel quotes the cost before it commits. */}
+        <div className="mb-6">
+          <MappingSeats />
         </div>
 
         {/* Team Members List */}

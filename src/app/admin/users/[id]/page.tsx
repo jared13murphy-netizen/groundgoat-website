@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, User, Loader2 } from 'lucide-react'
+import MappingSeatToggle from '@/components/mapping/MappingSeatToggle'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
@@ -36,6 +37,8 @@ interface UserInfo {
   access_override_firm_id?: string | null
   access_override_reason?: string | null
   access_override_expires_at?: string | null
+  management_firm_id?: string | null
+  cm_enabled?: boolean
 }
 
 interface FirmOption {
@@ -222,6 +225,20 @@ export default function UserDetailPage() {
               <p className="text-gg-gray-400 mt-1">{userInfo.email}</p>
             )}
           </div>
+        </div>
+
+        {/* Configurable Mapping seat. Unlike the access override below,
+            this DOES bill the firm — same endpoint the firm admin uses. */}
+        <div className="card mb-6">
+          <h2 className="text-lg font-semibold text-white mb-1">Add-ons</h2>
+          <p className="text-xs text-gg-gray-400 mb-4">
+            Turning this on adds a paid seat to the firm&apos;s subscription.
+          </p>
+          <MappingSeatToggle
+            userId={id}
+            firmId={userInfo?.management_firm_id}
+            enabled={Boolean(userInfo?.cm_enabled)}
+          />
         </div>
 
         {/* Access override (2026-08-18). Grants access ABOVE what the user
