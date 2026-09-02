@@ -13,6 +13,14 @@ import {
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=600'
 
+// Landscape twin of the tract marketing image (same file name with a -wide
+// suffix, written by the staging service alongside the portrait one).
+function wideMarketingImage(url?: string | null): string | null {
+  if (!url || !/\.jpg$/i.test(url)) return null
+  return url.replace(/\.jpg$/i, '-wide.jpg')
+}
+
+
 interface Company {
   id: string
   name: string
@@ -50,6 +58,7 @@ interface Listing {
   bidding_url?: string
   source_url?: string
   primary_image_url?: string
+  marketing_image_url?: string
   asking_price?: number
   sale_price?: number
   price_per_acre?: number
@@ -281,7 +290,7 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
         {/* Hero Image */}
         <div className="relative h-72 md:h-96 bg-gg-gray-900 rounded-xl overflow-hidden mb-6">
           <img
-            src={listing.primary_image_url || FALLBACK_IMAGE}
+            src={wideMarketingImage(listing.marketing_image_url) || listing.primary_image_url || FALLBACK_IMAGE}
             alt=""
             className="w-full h-full object-cover"
             onError={(e) => { (e.target as HTMLImageElement).src = FALLBACK_IMAGE }}
