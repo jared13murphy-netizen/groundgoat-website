@@ -263,6 +263,15 @@ export default function AdminStagingPage() {
 
   // Lazy-loaded tract images cache: "staging_id-tract_index" -> base64
   const [tractImageCache, setTractImageCache] = useState<Record<string, string | null>>({})
+  // Owner incident 2026-09-02: the 5-second status poll refreshes `listings`,
+  // the [listings] effect below re-requests EVERY tract image on the page, and
+  // the old guard only knew about images that had already ARRIVED. While the
+  // API was slow the next poll fired before the first batch landed, so one
+  // Staging tab issued ~1,300 image requests a minute (each one a 0.2-1 MB
+  // staged row on the server) and pinned the API at 100% CPU for every user.
+  // Track requested keys in a ref so a key is fetched at most once per page
+  // regardless of how many renders or polls happen in between.
+  const tractImageRequestedRef = useRef<Set<string>>(new Set())
   const [loadingTractImage, setLoadingTractImage] = useState<string | null>(null)
 
   // Per-tract CLU-workshop reload counter ("staging_id-tract_index" -> n).
@@ -716,16 +725,22 @@ export default function AdminStagingPage() {
 
   const loadTractImage = async (listingId: number, tractIndex: number) => {
     const key = `${listingId}-${tractIndex}`
-    if (tractImageCache[key] !== undefined) return // Already loaded or loading
+    if (tractImageCache[key] !== undefined) return // Already loaded
+    if (tractImageRequestedRef.current.has(key)) return // In flight (or already tried) — never re-request
+    tractImageRequestedRef.current.add(key)
     setLoadingTractImage(key)
     try {
       const response = await fetchWithAuth(`${API_URL}/api/admin/staging/${listingId}/tract-image/${tractIndex}`)
       if (response.ok) {
         const data = await response.json()
         setTractImageCache(prev => ({ ...prev, [key]: data.tract_image_base64 }))
+      } else {
+        // Remember the miss so a refresh doesn't hammer a 404/500 forever.
+        setTractImageCache(prev => ({ ...prev, [key]: null }))
       }
     } catch (err) {
       console.error('Failed to load tract image:', err)
+      tractImageRequestedRef.current.delete(key) // network blip: allow one retry on the next pass
     } finally {
       setLoadingTractImage(null)
     }
@@ -735,6 +750,7 @@ export default function AdminStagingPage() {
     setPage(newPage)
     setScreenshotCache({})
     setTractImageCache({})
+    tractImageRequestedRef.current = new Set()
     fetchStagingListings(newPage)
     window.scrollTo(0, 0)
   }

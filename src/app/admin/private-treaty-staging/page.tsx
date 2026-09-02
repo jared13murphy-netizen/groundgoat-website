@@ -213,6 +213,9 @@ export default function AdminPrivateTreatyStagingPage() {
   // /api/admin/staging/{id}/tract-image/{idx} when the user expands a
   // card.
   const [tractImageCache, setTractImageCache] = useState<Record<string, string | null>>({})
+  // Same guard as admin/staging (owner incident 2026-09-02): a key is requested
+  // at most once per page, no matter how many polls/renders happen meanwhile.
+  const tractImageRequestedRef = useRef<Set<string>>(new Set())
   const [loadingTractImage, setLoadingTractImage] = useState<string | null>(null)
 
   // Per-tract CLU-workshop reload counter — bumped on boundary save so the
@@ -610,7 +613,9 @@ export default function AdminPrivateTreatyStagingPage() {
   // on-demand when the user expands a card.
   const loadTractImage = async (listingId: number, tractIndex: number) => {
     const key = `${listingId}-${tractIndex}`
-    if (tractImageCache[key] !== undefined) return // already loaded/loading
+    if (tractImageCache[key] !== undefined) return // already loaded
+    if (tractImageRequestedRef.current.has(key)) return // in flight (or already tried)
+    tractImageRequestedRef.current.add(key)
     setLoadingTractImage(key)
     try {
       const response = await fetchWithAuth(`${API_URL}/api/admin/staging/${listingId}/tract-image/${tractIndex}`)
