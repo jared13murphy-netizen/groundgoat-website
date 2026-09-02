@@ -6194,7 +6194,16 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       }
     }
 
-    if (!uuidsChanged && !pathsChanged && !tractDeedsChanged) {
+    // Comp-mode regression (owner 2026-09-02, IA CSR2 60-72 / 80-100%
+    // tillable): a fresh fetch whose dots fall inside NO tract polygon
+    // changes none of the suppression sets, so this early return fired
+    // BEFORE the setData below and the newly fetched dots never reached
+    // the GL source — county circles counted 74 parcels while the zoomed-in
+    // map drew nothing. Explore mode (branch above) never had this gap.
+    // A different dot count than last pushed is a change too.
+    const compSize = durableDotsByIdRef.current.size
+    const sizeChanged = durableDotsPushedSizeRef.current !== compSize
+    if (!uuidsChanged && !pathsChanged && !tractDeedsChanged && !sizeChanged) {
       // Nothing changed at all — a bare retry (sourcedata) with no new
       // information (e.g. a tile finished loading for a parcel that
       // isn't even one of ours). Skip EVERY mutation below so this can
@@ -6239,8 +6248,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // updated, so no dot and no "+" appeared. Explore mode always pushed,
     // which is exactly why the same parcel showed a pink dot the moment you
     // left comp mode.
-    const compSize = durableDotsByIdRef.current.size
-    if (src && (uuidsChanged || durableDotsPushedSizeRef.current !== compSize)) {
+    if (src && (uuidsChanged || sizeChanged)) {
       const features = Array.from(durableDotsByIdRef.current.values())
         .filter(f => !newSuppressedUuids.has((f.properties as any)?.id))
       src.setData({ type: 'FeatureCollection', features })
