@@ -28,6 +28,10 @@ on:
       live_url:
         required: false
         default: https://www.groundgoat.com
+      host:
+        description: "Sandbox host to pull into (public IP or DNS name)"
+        required: false
+        default: "100.63.171.136"
       deploy_sandbox:
         description: "Pull the image into /opt/gg/sandbox on gg-app-1 and restart sandbox-web"
         required: false
@@ -70,5 +74,5 @@ jobs:
           mkdir -p ~/.ssh
           echo "${{ secrets.GG_DEPLOY_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H 100.63.171.136 >> ~/.ssh/known_hosts 2>/dev/null
-          ssh -o ServerAliveInterval=30 ubuntu@100.63.171.136 "echo '${{ secrets.GITHUB_TOKEN }}' | sudo docker login ghcr.io -u '${{ github.actor }}' --password-stdin && cd /opt/gg/sandbox && sudo docker compose pull sandbox-web && sudo docker compose up -d --no-build sandbox-web && sudo docker logout ghcr.io"
+          ssh-keyscan -H '${{ inputs.host }}' >> ~/.ssh/known_hosts 2>/dev/null
+          ssh -o ServerAliveInterval=30 ubuntu@'${{ inputs.host }}' "echo '${{ secrets.GITHUB_TOKEN }}' | sudo docker login ghcr.io -u '${{ github.actor }}' --password-stdin && cd /opt/gg/sandbox && sudo docker compose pull sandbox-web && sudo docker compose up -d --no-build sandbox-web && sudo docker logout ghcr.io"
