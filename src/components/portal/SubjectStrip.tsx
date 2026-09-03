@@ -13,7 +13,7 @@
  * genuine 0 — via explicit numeric coercion (toNum / subjectTillableAcres),
  * not truthiness checks. See src/lib/subjectStats.ts for why that matters.
  */
-import { formatAcres, toNum } from '@/lib/format'
+import { toNum } from '@/lib/format'
 import { subjectTillableAcres, getSoilRatingLabel } from '@/lib/subjectStats'
 
 interface SubjectStripProps {
@@ -58,7 +58,7 @@ export default function SubjectStrip({
   const soilLabel = soilRatingType || getSoilRatingLabel(state)
 
   const tiles: [string, string][] = [
-    ['Total Acres', formatAcres(totalAcres)],
+    ['Total Acres', fmtDecimal(toNum(totalAcres))],  // one decimal, same as the PDF and the app
     ['Tillable Acres', fmtDecimal(tillable)],
     ['% Tillable', pct != null ? pct + '%' : '—'],
     [soilLabel, fmtDecimal(soil)],
