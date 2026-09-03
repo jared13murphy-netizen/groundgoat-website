@@ -7,10 +7,17 @@ import fetchWithAuth from '@/lib/fetchWithAuth'
 import reportJobEnqueue from '@/lib/reportJobs'
 import { formatAcres, toNum } from '@/lib/format'
 import { computeCompAverages } from '@/lib/compAverages'
+import { formatAuctionDateTime } from '@/lib/auctionTime'
+import SubjectStrip from './SubjectStrip'
 import type { TractSaleData } from './PortalTractDetail'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
+// getSoilLabel(t.state) below (used for each comp tract, not the subject)
+// keeps this panel's own state->label lookup — subjectStats' getSoilRatingLabel
+// only handles 2-letter codes, whereas comp tract rows have been seen with a
+// full state name; the subject tile row now goes through SubjectStrip, which
+// uses getSoilRatingLabel directly per the owner's PDF-parity spec.
 const STATE_SOIL_LABELS: Record<string, string> = {
   IL: 'PI', IA: 'CSR2', IN: 'WAPI', MO: 'NCCPI', MN: 'CPI',
   NE: 'NCCPI', SD: 'PI', ND: 'PI', KS: 'NCCPI', OH: 'NCCPI',
@@ -241,32 +248,23 @@ export default function PortalComparablesReportPanel({ subjectInfo, reportTracts
               {subjectInfo.county}, {subjectInfo.state}
               {subjectInfo.subject_township ? ` \u00B7 ${subjectInfo.subject_township}` : ''}
             </div>
-            <div className="grid grid-cols-4 gap-3 mt-3">
-              {subjectInfo.subject_acres ? (
-                <div>
-                  <div className="text-[10px] text-gg-gray-400">Acres</div>
-                  <div className="text-sm font-semibold">{formatAcres(subjectInfo.subject_acres)}</div>
-                </div>
-              ) : null}
-              {subjectInfo.subject_pct_tillable ? (
-                <div>
-                  <div className="text-[10px] text-gg-gray-400">Tillable</div>
-                  <div className="text-sm font-semibold">{Math.round(subjectInfo.subject_pct_tillable)}%</div>
-                </div>
-              ) : null}
-              {subjectInfo.subject_soil_rating ? (
-                <div>
-                  <div className="text-[10px] text-gg-gray-400">{subjectInfo.subject_soil_rating_type || getSoilLabel(subjectInfo.state)}</div>
-                  <div className="text-sm font-semibold">{subjectInfo.subject_soil_rating}</div>
-                </div>
-              ) : null}
-              {subjectInfo.subject_land_type ? (
-                <div>
-                  <div className="text-[10px] text-gg-gray-400">Type</div>
-                  <div className="text-sm font-semibold">{subjectInfo.subject_land_type}</div>
-                </div>
-              ) : null}
-            </div>
+            {subjectInfo.subject_land_type && (
+              <div className="text-xs text-gg-gray-400 mb-2">{subjectInfo.subject_land_type}</div>
+            )}
+            <SubjectStrip
+              totalAcres={subjectInfo.subject_acres}
+              tillableAcres={subjectInfo.subject_tillable_acres}
+              pctTillable={subjectInfo.subject_pct_tillable}
+              soilRating={subjectInfo.subject_soil_rating}
+              soilRatingType={subjectInfo.subject_soil_rating_type}
+              state={subjectInfo.state}
+            />
+            {subjectInfo.subject_auction_date && (
+              <p className="text-xs text-gg-gray-400 mt-2">
+                {formatAuctionDateTime(subjectInfo.subject_auction_date, subjectInfo.state)}
+                {subjectInfo.subject_company ? ` \u00B7 ${subjectInfo.subject_company}` : ''}
+              </p>
+            )}
           </div>
         )}
 

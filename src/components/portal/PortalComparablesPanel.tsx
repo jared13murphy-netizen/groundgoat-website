@@ -5,6 +5,8 @@ import { motion } from 'framer-motion'
 import { X, Loader2, MapPin, Calendar, Building2, ArrowUpDown, SlidersHorizontal } from 'lucide-react'
 import { formatAcres } from '@/lib/format'
 import { SOIL_FILTER_ENABLED } from '@/lib/featureFlags'
+import { formatAuctionDateTime } from '@/lib/auctionTime'
+import SubjectStrip from './SubjectStrip'
 
 interface Comparable {
   id: string
@@ -51,6 +53,9 @@ interface SearchCriteria {
   subject_township?: string
   subject_tract_number?: number
   subject_land_type?: string
+  subject_auction_date?: string | null
+  subject_company?: string | null
+  listing_id?: string | null
 }
 
 interface PortalComparablesPanelProps {
@@ -245,24 +250,23 @@ export default function PortalComparablesPanel({ data, loading, onClose, onSelec
                   {sc.county}, {sc.state}
                   {sc.subject_township && <span className="text-gg-gray-400 font-normal"> · {sc.subject_township}</span>}
                 </div>
-                <div className="grid grid-cols-4 gap-3 mt-3">
-                  <div>
-                    <div className="text-[10px] text-gg-gray-400 uppercase">Acres</div>
-                    <div className="text-sm font-bold">{sc.subject_acres ? formatAcres(sc.subject_acres) : '—'}</div>
-                  </div>
-                  <div>
-                    <div className="text-[10px] text-gg-gray-400 uppercase">Tillable</div>
-                    <div className="text-sm font-bold">{sc.subject_pct_tillable ? Math.round(sc.subject_pct_tillable) + '%' : '—'}</div>
-                  </div>
-                  <div>
-                    <div className="text-[10px] text-gg-gray-400 uppercase">{getSoilLabel(sc.subject_soil_rating_type, sc.state)}</div>
-                    <div className="text-sm font-bold">{sc.subject_soil_rating ? Math.round(sc.subject_soil_rating * 10) / 10 : '—'}</div>
-                  </div>
-                  <div>
-                    <div className="text-[10px] text-gg-gray-400 uppercase">Type</div>
-                    <div className="text-sm font-bold">{sc.subject_land_type || '—'}</div>
-                  </div>
-                </div>
+                {sc.subject_land_type && (
+                  <div className="text-xs text-gg-gray-400 mb-2">{sc.subject_land_type}</div>
+                )}
+                <SubjectStrip
+                  totalAcres={sc.subject_acres}
+                  tillableAcres={sc.subject_tillable_acres}
+                  pctTillable={sc.subject_pct_tillable}
+                  soilRating={sc.subject_soil_rating}
+                  soilRatingType={sc.subject_soil_rating_type}
+                  state={sc.state}
+                />
+                {sc.subject_auction_date && (
+                  <p className="text-xs text-gg-gray-400 mt-2">
+                    {formatAuctionDateTime(sc.subject_auction_date, sc.state)}
+                    {sc.subject_company ? ` · ${sc.subject_company}` : ''}
+                  </p>
+                )}
               </div>
             )}
 

@@ -7,8 +7,8 @@ import { fetchWithAuth } from '@/lib/fetchWithAuth'
 import reportJobEnqueue from '@/lib/reportJobs'
 import { formatAcres, toNum } from '@/lib/format'
 import { computeCompAverages } from '@/lib/compAverages'
-import { subjectTillableAcres, getSoilRatingLabel } from '@/lib/subjectStats'
 import { formatAuctionDateTime } from '@/lib/auctionTime'
+import SubjectStrip from '@/components/portal/SubjectStrip'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -187,34 +187,26 @@ export default function ComparablesReportPage({ params }: { params: { id: string
 
         {/* Subject Tract — must match the PDF's strip pixel-for-pixel in
             content and order: Total Acres, Tillable Acres, % Tillable,
-            then the state's native soil-rating tile (e.g. CSR2 in Iowa). */}
-        {subject && (() => {
-          const subjectTotalAcres = toNum(subject.total_acres)
-          const tillableAcres = subjectTillableAcres(subject.total_acres, subject.tillable_acres, subject.pct_tillable)
-          // Explicit null/undefined checks throughout — a genuine 0 (0%
-          // tillable) must render as "0.0" / "0%", not fall through to
-          // "—" the way truthiness checks (`x && y ? ... : '—'`) do.
-          const pctTillable = tillableAcres != null && subjectTotalAcres != null && subjectTotalAcres !== 0
-            ? Math.round((tillableAcres / subjectTotalAcres) * 100)
-            : null
-          const soilLabel = getSoilRatingLabel(subject.state)
-
-          return (
-            <div className="bg-gg-gray-900 rounded-xl p-4 mb-6 border-l-4 border-gg-pink">
-              <p className="text-sm text-gray-400 mb-1">Subject Tract</p>
-              <h2 className="text-xl font-bold">{subject.county}, {subject.state}</h2>
-              <div className="flex gap-6 mt-2 text-sm">
-                <div><span className="text-lg font-bold">{formatAcres(subject.total_acres)}</span><br /><span className="text-gray-400">Total Acres</span></div>
-                <div><span className="text-lg font-bold">{tillableAcres != null ? tillableAcres.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : '—'}</span><br /><span className="text-gray-400">Tillable Acres</span></div>
-                <div><span className="text-lg font-bold">{pctTillable != null ? pctTillable + '%' : '—'}</span><br /><span className="text-gray-400">% Tillable</span></div>
-                <div><span className="text-lg font-bold">{fmtNum(subject.soil_rating)}</span><br /><span className="text-gray-400">{soilLabel}</span></div>
-              </div>
-              {subject.auction_datetime && (
-                <p className="text-sm text-gray-400 mt-2">{formatAuctionDateTime(subject.auction_datetime, subject.state)} · {subject.company_name}</p>
-              )}
-            </div>
-          )
-        })()}
+            then the state's native soil-rating tile (e.g. CSR2 in Iowa).
+            SubjectStrip (shared with the portal panels) owns the
+            null-vs-0 handling and the tillable/pct fallback math. */}
+        {subject && (
+          <div className="bg-gg-gray-900 rounded-xl p-4 mb-6 border-l-4 border-gg-pink">
+            <p className="text-sm text-gray-400 mb-1">Subject Tract</p>
+            <h2 className="text-xl font-bold">{subject.county}, {subject.state}</h2>
+            <SubjectStrip
+              variant="flex"
+              totalAcres={subject.total_acres}
+              tillableAcres={subject.tillable_acres}
+              pctTillable={subject.pct_tillable}
+              soilRating={subject.soil_rating}
+              state={subject.state}
+            />
+            {subject.auction_datetime && (
+              <p className="text-sm text-gray-400 mt-2">{formatAuctionDateTime(subject.auction_datetime, subject.state)} · {subject.company_name}</p>
+            )}
+          </div>
+        )}
 
         {/* Summary */}
         <div className="mb-6">
