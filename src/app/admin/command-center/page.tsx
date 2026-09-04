@@ -64,7 +64,7 @@ type Snapshot = {
   message?: string
 }
 
-const CHART_TITLES: Record<string, string> = {"pulse": "Right now", "money": "Money", "crashes": "App crashes", "failing_endpoints": "What is erroring", "people": "People", "storage": "Storage", "pipeline": "Scraper & staging"}
+const CHART_TITLES: Record<string, string> = {"pulse": "Right now", "money": "Money", "crashes": "App crashes", "regrid": "Regrid budget", "failing_endpoints": "What is erroring", "people": "People", "storage": "Storage", "pipeline": "Scraper & staging"}
 
 const EMPTY: Snapshot = { ready: false, generated_at: null, revision: 0, alerts: [], panels: {} }
 
@@ -795,6 +795,222 @@ function People({ d }: { d: any }) {
       </div>
       {/* Says out loud what this number is not, so it can't be over-read. */}
       <div className="note">{d.funnel_caveat}</div>
+    </>
+  )
+}
+
+function Regrid({ d }: { d: any }) {
+  const known = d.known !== false
+  const pc = d.combined_pct || 0
+  const tone: Tone = !known ? '' : pc >= 90 ? 'red' : pc >= 75 ? 'amber' : 'green'
+  const rate = (v: number | null | undefined) =>
+    v === null || v === undefined ? <span className="dim">not yet</span> : `${num(v, 1)}%`
+  return (
+    <>
+      {/* Regrid bills the combined fraction of records AND parcel tiles, so
+          that is the headline. Either half alone understates the bill. */}
+      <Kpi v={known ? `${num(pc, 1)}%` : 'unknown'}
+        k={`Of the year's Regrid contract · ${d.source}`}
+        tone={tone === 'green' ? '' : tone} />
+      {known && <div className="bar"><i className={tone} style={{ width: `${Math.min(100, pc)}%` }} /></div>}
+      {!known && (
+        <div className="note" style={{ color: 'var(--amber)' }}>
+          {/* A count that FAILED is not a small number. Say which. */}
+          {d.floor_error
+            ? `Could not count the year from our own data — ${d.floor_error}.`
+            : (d.cycle_note || (d.counting_since
+                ? `Regrid has not answered, and our own counter has nothing recorded since the contract year began (it goes back to ${String(d.counting_since).slice(0, 10)}).`
+                : 'Regrid has not answered and our own counter has recorded nothing yet.'))}
+          {' '}Showing 0% here would read as &ldquo;plenty left&rdquo;, which is the
+          worst thing this card could get wrong.
+        </div>
+      )}
+      {/* WHEN THE TWO METERS CANNOT BOTH BE RIGHT.
+          Regrid's reported window and Regrid's reported counters are two
+          different claims, and this card used to treat them as one: on
+          2026-08-26 their API returned a full 365-day contract year
+          alongside counts of 134 records and 254 tiles, while our own caches
+          held 3,029 parcels and 3,056 tiles bought inside that same window.
+          The headline read 0.1%. The gap is now the first thing on the card
+          rather than something you could only find by opening the details. */}
+      {d.meter_disagreement && (
+        <div className="note" style={{ color: 'var(--amber)' }}>{d.meter_disagreement}</div>
+      )}
+      <div className="rows">
+        {/* The percentage is only printed when the backend says the figure
+            actually covers the contract year. One day of counting shown as
+            "0.1%" of an annual cap reads as "barely touched it", which is
+            the worst thing this card can get wrong — so when the share is
+            unknown the row carries the basis instead of a number.
+
+            The ≥ is per half: records can come from Regrid while tiles come
+            from our own cache, and one flag for both mislabelled whichever
+            one it did not describe. */}
+        {/* STACKED, NOT A ONE-LINE ROW. This card is 266px wide — two of
+            twelve grid columns — and `≥ 1,494,583 of 20,000,000` beside a
+            label on one line left the label 56px and cut it to "Map tile…".
+            The share, the count and WHERE THE COUNT CAME FROM all belong to
+            the same half, so they read as one block that wraps.
+
+            The provenance is not decoration: the two halves are decided
+            independently and routinely come from different places. On
+            2026-08-30 records came from our parcel cache (3,121 — the record
+            meter has a gap) and tiles from our meter (1,494,583 — the tile
+            cache is deduplicated by z/x/y and re-fetched monthly, so it held
+            only 4,369). Reading tiles off that cache understated this
+            contract fourfold. */}
+        {[{ n: 'Parcel records', v: d.records, pct: d.records_pct, cap: d.records_cap,
+            floor: d.records_is_floor ?? d.is_floor, basis: d.records_basis },
+          { n: 'Map tiles', v: d.tiles, pct: d.tiles_pct, cap: d.tiles_cap,
+            floor: d.tiles_is_floor ?? d.is_floor, basis: d.tiles_basis }].map(h => (
+          <div className="rghalf" key={h.n}>
+            <div className="rghead">
+              <span>{h.n}</span>
+              <b>{h.pct == null ? <span className="dim">—</span> : `${num(h.pct, 1)}%`}</b>
+            </div>
+            <div className="rgsub">
+              {h.v == null
+                ? h.basis
+                : `${h.floor ? '≥ ' : ''}${num(h.v)} of ${num(h.cap)} · ${h.basis}`}
+            </div>
+          </div>
+        ))}
+        <Row label="Days into the year" value={num(d.days_into_year)} />
+        {/* What we can answer without Regrid. The rate is measured exactly
+            over whatever window the meter holds, and "at this rate, do I
+            blow the contract?" is the question that actually matters.
+            Labelled a pace, never a total, with the unmeasured days stated
+            beside it. (This note used to assert the meter began on 25 Aug;
+            it did not — production's oldest row is 3 May, which the pace
+            line beside it was already saying.) */}
+        {d.pace && (
+          <Row label="On pace for"
+            tone={d.pace.combined_pct >= 90 ? 'red' : d.pace.combined_pct >= 75 ? 'amber' : ''}
+            value={`${num(d.pace.combined_pct, 1)}% of the year`} />
+        )}
+      </div>
+      {d.pace && (
+        <div className="note">
+          {num(d.pace.records_per_day, 1)} records and {num(d.pace.tiles_per_day, 1)} tiles a day,
+          measured over {num(d.pace.measured_days, 1)} day{d.pace.measured_days === 1 ? '' : 's'}
+          {d.pace.unmeasured_days > 0 && <> · the {num(d.pace.unmeasured_days)} days before
+            that were never counted, so this is a rate, not a year-to-date total</>}.
+        </div>
+      )}
+      {/* Counted from our own caches when Regrid does not answer. It is a
+          floor: both caches are keyed on what they cache and a re-fetch
+          updates the timestamp, so a parcel bought twice is counted once. */}
+      {d.is_floor && (
+        <div className="note" style={{ color: 'var(--amber)' }}>
+          {/* Both sources are minimums, for different reasons, and the card
+              used to name only the cache one. A cache row is deduplicated by
+              the thing it caches, so a parcel bought twice counts once; the
+              meter counts every purchase but only from the day that endpoint
+              was instrumented, and anything that calls Regrid without going
+              through us — a script hitting tiles.regrid.com directly — never
+              reaches it at all. */}
+          These are minimums. Our cache counts a parcel bought twice as one,
+          and our meter only sees spending that goes through us
+          {d.tiles_counted_from && <> — tile counting starts {String(d.tiles_counted_from).slice(0, 10)}</>}.
+        </div>
+      )}
+      {/* Regrid's own figure, when the window it reports is shorter than the
+          contract year. Useful, but not an answer to "how much of the year
+          have I used" — so it sits here rather than in the headline. */}
+      {/* EVERYTHING REGRID ACTUALLY RETURNS, verbatim. The card used to show
+          only the two fields we happened to use, so there was no way to tell
+          whether Regrid was answering with a month, a year or nothing at
+          all — or to see any other field they send. This prints the whole
+          reply, whatever shape it is. */}
+      <details className="rows" style={{ borderTop: '1px solid var(--line)', paddingTop: 7 }}>
+        <summary style={{ cursor: 'pointer', listStyle: 'none' }}>
+          <span className="more">
+            What Regrid&rsquo;s API says {d.cycle ? '· click to open' : '· no answer'}
+          </span>
+        </summary>
+        {d.cycle ? (
+          <>
+            {Object.entries(d.cycle)
+              .filter(([k]) => !k.startsWith('_'))
+              .map(([k, v]) => (
+                /* A URL is longer than this card is wide, and `.row .r` is
+                   nowrap — so it spilled past the card edge. Text values get
+                   their own wrapping line; numbers keep the tidy row. */
+                typeof v === 'number' || v == null
+                  ? <Row key={k} label={k.replace(/_/g, ' ')}
+                      value={v == null ? '—' : num(v as number)} />
+                  : <div className="rghalf" key={k}>
+                      <div className="rghead"><span>{k.replace(/_/g, ' ')}</span></div>
+                      <div className="rgsub">{String(v).slice(0, 120)}</div>
+                    </div>
+              ))}
+            {/* THE DATES AND THE COUNTS ARE TWO DIFFERENT CLAIMS. The dates
+                really are the contract term and are used as such — the
+                contract year on this card starts on the day Regrid says it
+                does. The counts beside them reset at UTC midnight, which is
+                why they read 134 on 26 Aug and 5 on 30 Aug. Treating those
+                counts as the year is what put 0.1% on this card. */}
+            <div className="note">
+              {d.regrid_cycle_days != null && `Their dates name a ${num(d.regrid_cycle_days)}-day term and the contract year above starts on the day they give. `}
+              Their counts, though, are for today only — they reset at UTC
+              midnight — so they are shown here as a live cross-check, never
+              as the year.
+            </div>
+            <Row label="Regrid, today"
+              value={`${num(d.regrid_today_records)} rec · ${num(d.regrid_today_tiles)} tiles`} />
+            {/* Stacked, not rows: inside the details the card is 244px and
+                `1,494,583 tiles` beside a label leaves nothing for the
+                label. These are the two numbers the year is chosen from, so
+                both are shown rather than only the winner. */}
+            <div className="rghalf">
+              <div className="rghead"><span>This year, from our cache</span></div>
+              <div className="rgsub">{`${num(d.floor_records)} records · ${num(d.floor_tiles)} tiles`}</div>
+            </div>
+            <div className="rghalf">
+              <div className="rghead"><span>This year, from our meter</span></div>
+              <div className="rgsub">{`${num(d.our_records)} records · ${num(d.our_tiles)} tiles`}</div>
+            </div>
+            {d.source_url && <div className="fixnote">Answered by {d.source_url}</div>}
+          </>
+        ) : (
+          <div className="note" style={{ color: 'var(--amber)' }}>
+            {d.cycle_note || 'Regrid returned no usage body. Every host we know of was tried.'}
+          </div>
+        )}
+      </details>
+      <div className="rows" style={{ borderTop: '1px solid var(--line)', paddingTop: 7 }}>
+        <Row label="Parcel lookups today" value={num(d.parcel_lookups_24h)} />
+        <Row label="Saved by our cache" value={rate(d.parcel_cache_pct)} />
+        {/* Owner search buys straight from the Records API with no cache
+            behind it, up to 500 records in a single search, and it runs on
+            every owner lookup. It reached neither this card nor our meter
+            until 2026-08-30, so it is given its own line rather than being
+            folded into the lookup figure above. */}
+        {d.owner_search_calls_24h > 0 && (
+          <Row label="Owner searches today"
+            tone={d.owner_search_records_24h >= 1000 ? 'amber' : ''}
+            value={`${num(d.owner_search_calls_24h)} · ${num(d.owner_search_records_24h)} records bought`} />
+        )}
+        <Row label="Map tiles today" value={num(d.tiles_24h)} />
+        <Row label="Tiles saved by our cache" value={rate(d.tile_cache_pct)} />
+      </div>
+      {/* THE CONTRACT DATE ALWAYS SHOWS. It used to be dropped whenever
+          Regrid sent any note at all, and Regrid now always sends one — so
+          the card would have answered "how much of my year have I used"
+          without ever saying when that year started. It comes from Regrid's
+          own cycle_dates.begin, so it is their date, not our guess. */}
+      <div className="note">
+        {`Contract year started ${d.contract_year_start}. `}
+        {/* Read off the meter's oldest row. This was a hardcoded date that
+            was already wrong when it was written, and contradicted the pace
+            line further up the same card. */}
+        {d.counting_since
+          ? `Our own counting goes back to ${String(d.counting_since).slice(0, 10)}.`
+          : 'Our own counter has recorded nothing yet.'}
+      </div>
+      {/* Regrid's note is an explanation, not a warning — amber was crying
+          wolf on a permanent fact about how their API works. */}
+      {d.cycle_note && <div className="note dim">{d.cycle_note}</div>}
     </>
   )
 }
@@ -1552,6 +1768,25 @@ const CARD_INFO: Record<string, CardInfo> = {
     source: 'mobile_crash_reports, posted by the app\u2019s global error handler.',
     caveat: '"Last 24 hours" is a rolling window, so crashes age out of it and the number falls — the 7-day and all-time figures beside it exist so that can never look like data going missing. "What they had on screen" comes from the app\u2019s own black box, which records the map state before each death; an iOS memory kill runs no JavaScript, so that snapshot is the only evidence such a crash ever leaves. Crashes with nobody signed in are counted separately, since they carry no user to attribute.',
   },
+  regrid: {
+    lines: [
+      { l: 'Parcel records',
+        d: 'Billable Records bought from Regrid this contract year, against the annual cap. A percentage only appears when the figure underneath genuinely covers the year.' },
+      { l: 'Map tiles',
+        d: 'Billable map tiles fetched this contract year, against their own cap. Regrid bills on both, combined.' },
+      { l: 'Days into the year',
+        d: 'How far through the contract year you are. Compare against the percentage used: halfway through the year and well under half the cap is healthy.' },
+      { l: 'On pace for',
+        d: 'What the measured daily rate projects across a full year. This is the number to watch, because the year-to-date total cannot be reconstructed from before our meter started.' },
+      { l: 'Parcel lookups today',
+        d: 'Every parcel the app asked for today, whether we bought it or served it from cache.' },
+      { l: 'Saved by our cache',
+        d: 'The share of those lookups served from our own cache instead of being bought. Higher is cheaper. "Not measured yet" is shown rather than 0% when nothing has been counted.' },
+    ],
+    covers: 'How much of the annual Regrid contract is used: parcel records and map tiles, combined the way Regrid bills.',
+    source: 'Regrid\u2019s own /api/v2/usage endpoint where reachable, our own counters otherwise. The card says which.',
+    caveat: 'Records alone understate it — tiles are usually the larger half of the bill. Regrid\u2019s own endpoint reports whatever billing cycle they are running, which may be far shorter than the contract year; when it is, the year is counted from our own caches instead and their figure is shown separately. Cache counts are a minimum: a parcel bought twice in the year is stored once, so it is counted once.',
+  },
   failing_endpoints: {
     lines: [
       { l: 'Endpoint',
@@ -1597,18 +1832,18 @@ const CARD_INFO: Record<string, CardInfo> = {
   },
   storage: {
     lines: [
-      { l: 'Share of the ceiling',
-        d: 'How full each database is against the largest it can ever be. The percentage is the headline, not the gigabytes: Railway cannot grow a volume past its cap, so 91% is a deadline rather than a number.' },
-      { l: 'Railway / AWS tags',
-        d: 'Which provider holds it, so you know where to go when one fills up.' },
-      { l: 'Measured vs stated',
-        d: 'Anything we hold a live connection to is measured now. Anything we do not carries the date it was last measured by hand, so a stale figure can never pass as a reading.' },
-      { l: 'Days to full',
-        d: 'At the rate it is actually growing. This is the number worth acting on — "71 GB" is trivia, "full in 69 days" is a decision.' },
+      { l: 'All databases, one disk',
+        d: 'Every database now lives on a single AWS disk, so this total is the one that runs out. A database sitting at 22% is not using a fifth of its own space — it is using a fifth of everybody\u2019s.' },
+      { l: 'Each database',
+        d: 'That database\u2019s share of the same shared disk. The percentages add up to the total above.' },
+      { l: 'S3 buckets',
+        d: 'Measured by AWS itself, once a day. This used to be a number somebody typed by hand — it said 1,870 GB while the bucket actually held 3,056 GB.' },
+      { l: 'Growing / shrinking',
+        d: 'At the rate the main database is actually changing. "Full in 69 days" is a decision; "71 GB" is trivia.' },
     ],
-    covers: 'Every place data is kept, as a share of its ceiling.',
-    source: 'pg_database_size for databases the backend connects to; the rest were measured by hand on the date shown.',
-    caveat: 'A Railway Postgres disk cannot exceed 1,000 GB, so percentage matters more than gigabytes. Rows marked with a date are not live readings.',
+    covers: 'Every place data is kept, and how full the disk they share is.',
+    source: 'pg_database_size for each database, RDS for the disk itself, and CloudWatch for the S3 buckets.',
+    caveat: 'AWS can grow this disk, so filling it is a bigger bill rather than an outage — unlike the old Railway volume, which had a hard 1,000 GB ceiling and no upgrade past it. The disk total comes from RDS, so it counts the sandbox database and the write-ahead logs, which the per-database rows below it do not.',
   },
   outside: {
     covers: 'Every outside service we depend on — Stripe, Resend and Anthropic — with how many calls failed and WHY.',
@@ -3151,63 +3386,6 @@ function Meter({ label, pct, note, tone = '' }:
   )
 }
 
-/* ── Railway ──────────────────────────────────────────────────────────
-   Kept on the board on purpose after the move to AWS. DNS points at AWS
-   and customers reach AWS, but the Railway project was never torn down —
-   so this card exists to answer one question: is anything still running
-   over there, and therefore still being billed for. */
-
-function RailwayCard({ d }: { d: any }) {
-  if (!d) return <Unavailable why="no reading yet" />
-  const spend = d.spend || {}
-  const hosts = d.hosts || []
-
-  return (
-    <div className="railway">
-      <div className="kpirow">
-        <Kpi v={num(d.still_running)} k={`of ${num(d.checked)} old services still answering`}
-          tone={d.still_running ? 'amber' : ''} />
-        <Kpi v={spend.available ? moneyFine(spend.this_period) : '—'}
-          k={spend.available ? 'billed this period' : 'spend not connected'} />
-      </div>
-
-      {d.duplicate_of_aws ? (
-        <p className="warn">
-          Everything customer-facing moved to AWS, but these are still deployed and
-          still answering. Railway bills for a running service whether or not anyone
-          is pointed at it.
-        </p>
-      ) : (
-        <p className="good">Nothing is answering on Railway any more.</p>
-      )}
-
-      <table className="tbl">
-        <tbody>
-          {hosts.map((h: any) => (
-            <tr key={h.url}>
-              <td className="mono trunc">{h.url.replace(/^https:\/\//, '')}</td>
-              <td className="n">
-                {h.alive
-                  ? <Chip tone="amber">answering</Chip>
-                  : <Chip tone="green">{h.status ? `gone (${h.status})` : 'gone'}</Chip>}
-              </td>
-              <td className="n dim">{h.ms == null ? '' : `${h.ms} ms`}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-
-      {!spend.available && (
-        <p className="foot">
-          To show what Railway is charging, this needs a Railway API token in
-          RAILWAY_API_TOKEN and the project id in RAILWAY_PROJECT_ID. Until then the
-          card reports only what it can prove by asking the old hosts directly.
-        </p>
-      )}
-    </div>
-  )
-}
-
 /* The Overview's small AWS card. Deliberately four numbers and a
    sparkline — the full breakdown lives in its own section. */
 function AwsSpendMini({ d }: { d: any }) {
@@ -3255,7 +3433,7 @@ type SectionId =
   | 'overview' | 'map' | 'problems' | 'money' | 'people' | 'reach'
   | 'performance' | 'errors' | 'jobs'
   | 'pipeline' | 'quality'
-  | 'aws' | 'railway' | 'storage' | 'outside'
+  | 'aws' | 'regrid' | 'storage' | 'outside'
 
 const NAV: { group: string | null; items: { id: SectionId; label: string }[] }[] = [
   {
@@ -3288,7 +3466,7 @@ const NAV: { group: string | null; items: { id: SectionId; label: string }[] }[]
   {
     group: 'Infrastructure', items: [
       { id: 'aws', label: 'AWS' },
-      { id: 'railway', label: 'Railway' },
+      { id: 'regrid', label: 'Regrid' },
       { id: 'storage', label: 'Storage & backups' },
       { id: 'outside', label: 'Outside services' },
     ],
@@ -3308,7 +3486,7 @@ const SECTION_TITLES: Record<SectionId, string> = {
   pipeline: 'Scraper & staging',
   quality: 'Data quality',
   aws: 'AWS',
-  railway: 'Railway',
+  regrid: 'Regrid budget',
   storage: 'Storage & backups',
   outside: 'Outside services',
 }
@@ -3610,7 +3788,7 @@ export default function CommandCenterPage() {
      A feature must not disappear because its data is late. */
   const chart = (key: string) => () => setChartFor(key)
 
-  const mapD = P('map'), awsD = P('aws'), railwayD = P('railway')
+  const mapD = P('map'), awsD = P('aws'), regridD = P('regrid')
   const storageTrendD = P('storage_trend')
 
   const alerts = snap.alerts || []
@@ -3625,7 +3803,6 @@ export default function CommandCenterPage() {
       tone: erroringD?.length ? 'red' : 'amber',
     },
     jobs: { n: (jobsD?.failing || []).length, tone: 'red' },
-    railway: { n: railwayD?.still_running || 0, tone: 'amber' },
   }
 
   /* EVERY SECTION FITS THE SCREEN.
@@ -3831,13 +4008,19 @@ export default function CommandCenterPage() {
           </div>
         )
 
-      case 'railway':
+      case 'regrid':
         return (
           <div className="grid" style={{ gridTemplateRows: 'minmax(0,1fr)' }}>
-            <Panel span={7} title="Railway" tag="what is left of it"
-              panelState={st('railway')}
-              pip={!railwayD ? undefined : railwayD.duplicate_of_aws ? 'amber' : 'green'}>
-              {railwayD ? <RailwayCard d={railwayD} /> : <Unavailable why={whyMissing('railway')} />}
+            <Panel span={7} title="Regrid budget" infoId="regrid"
+              panelState={st('regrid')} onChart={chart('regrid')}
+              pip={!regridD || regridD.combined_pct == null ? undefined
+                : regridD.combined_pct >= 90 ? 'red'
+                : regridD.combined_pct >= 75 ? 'amber' : 'green'}>
+              {regridD ? <Regrid d={regridD} /> : <Unavailable why={whyMissing('regrid')} />}
+            </Panel>
+            <Panel span={5} title="Outside services" infoId="outside" panelState={st('outside')}>
+              {outsideD ? <Outside d={outsideD} fixes={fixesD} />
+                : <Unavailable why={whyMissing('outside')} />}
             </Panel>
           </div>
         )
@@ -4600,6 +4783,13 @@ svg.spark{display:block;width:100%;height:100%;}
   .top{flex-wrap:wrap;}
 }
 
+/* Regrid halves. The card is narrow, so the count and its provenance have
+   to wrap rather than share a line. */
+.rghalf{display:flex;flex-direction:column;gap:1px;}
+.rghead{display:flex;align-items:baseline;gap:8px;font-size:12px;}
+.rghead b{margin-left:auto;font-family:var(--mono);font-variant-numeric:tabular-nums;font-weight:400;}
+.rgsub{font-family:var(--mono);font-size:10.5px;color:var(--muted);line-height:1.35;overflow-wrap:anywhere;}
+
 /* ── New cards ───────────────────────────────────────────────────── */
 
 /* THE MAP CARD'S BODY IS A BOX, NOT A FLEX COLUMN.
@@ -4735,7 +4925,7 @@ svg.spark{display:block;width:100%;height:100%;}
 .actfeed li span{font-size:11.5px;color:var(--muted);}
 
 /* ── AWS ── */
-.aws,.health,.railway,.awsmini{display:flex;flex-direction:column;gap:10px;}
+.aws,.health,.awsmini{display:flex;flex-direction:column;gap:10px;}
 .daily{display:flex;align-items:flex-end;gap:2px;height:64px;padding-top:4px;}
 .daily.small{height:36px;}
 .daily .d{flex:1;min-width:2px;border-radius:2px 2px 0 0;background:var(--blue);opacity:.75;}
@@ -4775,10 +4965,6 @@ svg.spark{display:block;width:100%;height:100%;}
 .meter .mv.amber{color:var(--amber);} .meter .mv.red{color:var(--red);}
 .meter .mn{font-family:var(--mono);font-size:10.5px;}
 
-.railway .warn{margin:0;padding:9px 11px;border-radius:7px;font-size:12px;line-height:1.45;
-  background:var(--amber-bg);border:1px solid var(--amber-line);color:var(--ink-2);}
-.railway .good{margin:0;padding:9px 11px;border-radius:7px;font-size:12px;
-  background:var(--green-bg);border:1px solid rgba(52,211,153,.3);color:var(--ink-2);}
 .trunc{max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 
 .foot{margin:2px 0 0;font-size:10.5px;line-height:1.5;color:var(--faint);}
