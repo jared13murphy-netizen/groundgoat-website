@@ -21,6 +21,7 @@ import {
 } from 'lucide-react'
 import dynamic from 'next/dynamic'
 import { formatAcres } from '@/lib/format'
+import { PromoVideoSection } from '@/components/PromoVideo'
 
 const HomeTerrain3D = dynamic(() => import('@/components/HomeTerrain3D'), { ssr: false })
 
@@ -298,6 +299,9 @@ export default function Home() {
           </div>
         )}
       </section>
+
+      {/* Promo video — sits between the hero and the feature grid */}
+      <PromoVideoSection />
 
       {/* Features Section */}
       <section id="features" className="py-24 bg-gg-gray-900 relative">
