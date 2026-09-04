@@ -2549,11 +2549,12 @@ function Problems({ alerts, fixes, onOpenFindings }:
                           hands in the last year. Capped, and the legend
                           says so when the cap bites.
 
-     Our people           NOT a location. We do not record a device
-                          position and we do not geolocate anyone's IP.
-                          This is a count per state, drawn at the state's
-                          centre, and it is labelled that way on screen so
-                          it can never be read as "where our users are".
+   THERE IS NO PEOPLE LAYER. It was built and taken out again on
+   4 September 2026: the only signal available was the state each person
+   typed at signup, drawn at that state's centre, which is a form answer
+   and not a position. The owner's call was that a map claiming to show
+   users has to be built on real locations or not exist at all. Putting it
+   back means finding a real source first, not reviving this one.
 
    The pins arrive from their own endpoint rather than the snapshot,
    because a quarter of a megabyte of coordinates has no business riding
@@ -2588,7 +2589,6 @@ type MapPoints = {
   available?: boolean
   auctions?: any[]
   sold?: any[]
-  people?: any[]
   live_count?: number
   upcoming_count?: number
   live_pins?: number
@@ -2596,9 +2596,6 @@ type MapPoints = {
   sold_shown?: number
   sold_total?: number
   sold_truncated?: boolean
-  /** People who made a request in the last five minutes, by home state. */
-  online_now?: number
-  people_basis?: string
   generated_at?: string
   reason?: string
 }
@@ -2639,7 +2636,7 @@ function LiveMap({ points }: { points: MapPoints | null }) {
      this business and a plain map of it is an abstraction. */
   const [aerial, setAerial] = useState(true)
   const [labels, setLabels] = useState(true)
-  const [show, setShow] = useState({ upcoming: true, live: true, sold: false, people: true })
+  const [show, setShow] = useState({ upcoming: true, live: true, sold: false })
   const [picked, setPicked] = useState<any>(null)
 
   /* Build the map once.
@@ -2863,42 +2860,6 @@ function LiveMap({ points }: { points: MapPoints | null }) {
   }, [points, ready])
 
 
-  /* PEOPLE ARE HTML MARKERS, NOT A GL SYMBOL LAYER.
-     A symbol layer with text needs a glyph server, and this style has no
-     `glyphs` URL — the labels would simply never draw, silently. There are
-     only ever fifty of these at most, so a div each is cheaper than taking
-     on a font dependency to render two digits. */
-  const markers = useRef<any[]>([])
-  useEffect(() => {
-    const m = map.current
-    if (!m || !ready) return
-    for (const mk of markers.current) mk.remove()
-    markers.current = []
-    if (!show.people) return
-    for (const p of (points?.people || [])) {
-      const el = document.createElement('button')
-      el.type = 'button'
-      // A state with somebody on the product THIS MINUTE pulses; the rest
-      // sit still. That difference is the whole point of the layer.
-      el.className = `peoplepin${p.online_now ? ' live' : ''}`
-      el.textContent = String(p.people)
-      el.title = p.online_now
-        ? `${p.state}: ${p.online_now} on right now, of ${p.people}`
-        : `${p.state}: ${p.people} ${p.people === 1 ? 'person' : 'people'}`
-      // Scaled by headcount, floored so a single person is still clickable.
-      const size = Math.max(24, Math.min(52, 20 + Math.sqrt(p.people) * 6))
-      el.style.width = `${size}px`
-      el.style.height = `${size}px`
-      el.addEventListener('click', (ev) => {
-        ev.stopPropagation()
-        setPicked({ ...p, kind: 'people' })
-      })
-      markers.current.push(
-        new maplibregl.Marker({ element: el }).setLngLat([p.lng, p.lat]).addTo(m))
-    }
-    return () => { for (const mk of markers.current) mk.remove(); markers.current = [] }
-  }, [points, ready, show.people])
-
   // Layer switches.
   useEffect(() => {
     const m = map.current
@@ -2968,16 +2929,6 @@ function LiveMap({ points }: { points: MapPoints | null }) {
           <i style={{ background: '#64748b' }} />
           Sold, past year <b>{points?.sold_shown ?? '—'}</b>
         </button>
-        <button type="button" className={`lg ${show.people ? 'on' : ''}`} onClick={toggle('people')}>
-          <i style={{ background: '#38bdf8' }} />
-          Our people <b>{(points?.people || []).reduce((n, p: any) => n + (p.people || 0), 0) || '—'}</b>
-        </button>
-        {!!points?.online_now && (
-          <span className="lg onair">
-            <i className="beacon" />
-            On right now <b>{num(points.online_now)}</b>
-          </span>
-        )}
         <div className="lgswitches">
           <button type="button" className="lg base" onClick={() => setAerial(a => !a)}>
             {aerial ? 'Plain map' : 'Aerial'}
@@ -2998,19 +2949,7 @@ function LiveMap({ points }: { points: MapPoints | null }) {
       {picked && (
         <div className="mappop">
           <button type="button" className="x" onClick={() => setPicked(null)} aria-label="Close">×</button>
-          {picked.kind === 'people' ? (
-            <>
-              <h4>{picked.state}</h4>
-              <div className="pk">{num(picked.people)} {picked.people === 1 ? 'person' : 'people'}</div>
-              {picked.online_now > 0 && (
-                <Row label="On right now" value={<span className="live-now">{num(picked.online_now)}</span>} />
-              )}
-              <Row label="Active this week" value={num(picked.active_7d)} />
-              <Row label="Active today" value={num(picked.active_24h)} />
-              {/* Said on every single popup, not once in a footnote. */}
-              <p className="basis">This is the state they entered at signup — not where their device is.</p>
-            </>
-          ) : (
+          {(
             <>
               <h4>{picked.title || 'Untitled sale'}</h4>
               <div className="pk">
@@ -3300,44 +3239,6 @@ function AwsSpendMini({ d }: { d: any }) {
           ))}
         </tbody>
       </table>
-    </div>
-  )
-}
-
-/* WHERE OUR PEOPLE SAY THEY ARE.
-   The heading and the footnote both say "home state", every time, because
-   this is the one number on the board somebody could mistake for a live
-   location and it is nothing of the kind. */
-function PeopleByState({ d }: { d: any }) {
-  if (!d) return <Unavailable why="no reading yet" />
-  const rows = d.people_by_state || []
-  const top = rows[0]?.people || 1
-  const total = rows.reduce((n: number, r: any) => n + r.people, 0)
-  return (
-    <div className="bystate">
-      <div className="kpirow">
-        <Kpi v={num(total)} k="customers with a home state on file" />
-        <Kpi v={num(rows.reduce((n: number, r: any) => n + r.active_7d, 0))} k="of them active this week" />
-        <Kpi v={num(d.people_without_a_state)} k="never told us a state"
-          tone={d.people_without_a_state ? 'amber' : ''} />
-      </div>
-      <div className="statebars">
-        {rows.slice(0, 12).map((r: any) => (
-          <div className="sb" key={r.state}>
-            <span className="l">{r.state}</span>
-            <span className="bar">
-              <i style={{ width: `${Math.max(4, r.people / top * 100)}%` }} />
-              <u style={{ width: `${Math.max(0, r.active_7d / top * 100)}%` }} />
-            </span>
-            <span className="n">{num(r.people)}<em>{r.active_7d ? ` · ${num(r.active_7d)} active` : ''}</em></span>
-          </div>
-        ))}
-      </div>
-      <p className="foot">
-        {d.people_location_basis
-          ? `Based on ${d.people_location_basis}. We do not record device locations and do not geolocate anyone's connection.`
-          : ''}
-      </p>
     </div>
   )
 }
@@ -3780,13 +3681,10 @@ export default function CommandCenterPage() {
               panelState={st('map')} flush>
               {mapError ? <Unavailable why={mapError} /> : <LiveMap points={mapPoints} />}
             </Panel>
-            <Panel span={4} title="Sales coming up" panelState={st('map')}>
+            <Panel span={6} title="Sales coming up" panelState={st('map')}>
               <MapSummary d={mapD} points={mapPoints} />
             </Panel>
-            <Panel span={4} title="Where our people are" panelState={st('map')}>
-              <PeopleByState d={mapD} />
-            </Panel>
-            <Panel span={4} title="Problems"
+            <Panel span={6} title="Problems"
               tag={alerts.length ? `${num(alerts.length)} open` : 'all clear'}>
               <Problems alerts={alerts} fixes={fixesD}
                 onOpenFindings={() => setFixOpen(true)} />
@@ -3823,12 +3721,9 @@ export default function CommandCenterPage() {
       case 'people':
         return (
           <div className="grid" style={{ gridTemplateRows: 'minmax(0,1fr)' }}>
-            <Panel span={7} title="People" infoId="people" panelState={st('people')}
+            <Panel span={12} title="People" infoId="people" panelState={st('people')}
               onChart={chart('people')}>
               {peopleD ? <People d={peopleD} /> : <Unavailable why={whyMissing('people')} />}
-            </Panel>
-            <Panel span={5} title="Where our people are" panelState={st('map')}>
-              <PeopleByState d={mapD} />
             </Panel>
           </div>
         )
@@ -4680,14 +4575,25 @@ svg.spark{display:block;width:100%;height:100%;}
   .grid > .panel[style*="span 12"]{grid-column:span 12!important;}
 }
 @media (max-width:900px){
+  /* THE RAIL BECOMES ONE SCROLLING ROW, NOT A STACK.
+     Wrapping it turned fourteen sections into a full-height list above the
+     board — the sidebar ended up taller than the content it indexes. One
+     row that scrolls sideways keeps every section reachable and costs
+     about fifty pixels. */
   .shell{position:static;grid-template-columns:1fr;overflow:visible;}
   body:has(.shell){overflow:auto;}
-  .side{height:auto;flex-direction:row;flex-wrap:wrap;
-    align-items:center;gap:8px;border-right:0;border-bottom:1px solid var(--bar-line);}
-  .side nav{flex-direction:row;flex-wrap:wrap;gap:6px;}
-  .navgroup{flex-direction:row;flex-wrap:wrap;}
+  .side{height:auto;flex-direction:row;align-items:center;gap:10px;
+    padding:8px 10px;border-right:0;border-bottom:1px solid var(--bar-line);}
+  .brand{padding:0;flex:none;}
+  .brandtext{display:none;}
+  .side nav{flex-direction:row;flex-wrap:nowrap;gap:4px;min-width:0;
+    overflow-x:auto;scrollbar-width:none;}
+  .side nav::-webkit-scrollbar{display:none;}
+  .navgroup{flex-direction:row;flex-wrap:nowrap;gap:2px;}
   .navgroup h6{display:none;}
-  .sidefoot{border-top:0;padding-top:0;}
+  .navitem{white-space:nowrap;padding:6px 10px;}
+  .navitem.on{box-shadow:inset 0 -2px 0 var(--pink-bright);}
+  .sidefoot{border-top:0;padding-top:0;flex:none;}
   .mainwrap{overflow:visible;}
   .view{overflow:visible;}
   .grid > .panel{grid-column:span 12!important;}
@@ -4770,18 +4676,7 @@ svg.spark{display:block;width:100%;height:100%;}
 .maplegend .lg.base{justify-content:center;opacity:1;color:var(--blue-ink);
   font-size:11px;}
 .maplegend .lg.base.on{color:#BAE6FD;}
-.maplegend .lg.onair{opacity:1;color:var(--green);cursor:default;}
-.maplegend .lg.onair b{color:var(--green);}
-.maplegend .beacon{
-  width:9px;height:9px;border-radius:50%;background:var(--green);flex:none;
-  box-shadow:0 0 0 0 rgba(52,211,153,.7);
-  animation:beacon 2.2s ease-out infinite;
-}
-@keyframes beacon{
-  0%   {box-shadow:0 0 0 0 rgba(52,211,153,.6);}
-  100% {box-shadow:0 0 0 9px rgba(52,211,153,0);}
-}
-@media (prefers-reduced-motion:reduce){.maplegend .beacon{animation:none;}}
+
 .mapnote{
   position:absolute;left:10px;bottom:10px;z-index:6;
   background:rgba(6,11,20,.66);backdrop-filter:blur(14px);
@@ -4805,41 +4700,7 @@ svg.spark{display:block;width:100%;height:100%;}
 .mappop .popl{display:inline-block;margin-top:9px;font-size:11.5px;color:var(--blue-ink);
   text-decoration:none;font-weight:600;}
 .mappop .popl:hover{text-decoration:underline;}
-/* State headcounts are HTML markers rather than a GL text layer — the map
-   style carries no glyph server, so a symbol layer's labels would never
-   draw and nothing would say why. */
-.peoplepin{
-  position:relative;
-  display:flex;align-items:center;justify-content:center;
-  border-radius:50%;border:1px solid rgba(56,189,248,.55);
-  background:rgba(56,189,248,.16);color:#BAE6FD;
-  font-family:var(--mono);font-size:11px;font-weight:600;cursor:pointer;
-  backdrop-filter:blur(3px);
-  box-shadow:0 0 0 1px rgba(8,18,30,.6), 0 0 14px rgba(56,189,248,.25);
-}
-.peoplepin:hover{background:rgba(56,189,248,.32);}
-/* SOMEBODY FROM THIS STATE IS ON THE PRODUCT RIGHT NOW.
-   Brighter, and ringed by an expanding pulse. The ring is a pseudo-element
-   so it costs no extra DOM node per state. */
-.peoplepin.live{
-  border-color:rgba(52,211,153,.8);
-  background:rgba(52,211,153,.22);color:#D1FAE5;
-  box-shadow:0 0 0 1px rgba(8,18,30,.6), 0 0 18px rgba(52,211,153,.45);
-}
-.peoplepin.live::after{
-  content:'';position:absolute;inset:-2px;border-radius:50%;
-  border:1.5px solid rgba(52,211,153,.75);
-  animation:pinpulse 2.2s ease-out infinite;
-  pointer-events:none;
-}
-@keyframes pinpulse{
-  0%   {transform:scale(1);   opacity:.75;}
-  100% {transform:scale(2.4); opacity:0;}
-}
-@media (prefers-reduced-motion:reduce){
-  .peoplepin.live::after{animation:none;opacity:.5;}
-}
-.live-now{color:var(--green);font-weight:700;}
+
 
 .mapsum{display:flex;flex-direction:column;gap:10px;}
 .statebars{display:flex;flex-direction:column;gap:5px;}
@@ -4855,7 +4716,6 @@ svg.spark{display:block;width:100%;height:100%;}
   border-radius:4px;}
 .statebars .sb .n{font-family:var(--mono);font-size:11.5px;color:var(--ink-2);}
 .statebars .sb .n em{font-style:normal;color:var(--faint);font-size:10.5px;}
-.bystate{display:flex;flex-direction:column;gap:11px;}
 
 /* ── Activity feed ── */
 .actfeed{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px;}
