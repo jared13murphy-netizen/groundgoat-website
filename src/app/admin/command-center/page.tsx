@@ -39,9 +39,11 @@
 
 import React, { useEffect, useRef, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
+import maplibregl from 'maplibre-gl'
+import 'maplibre-gl/dist/maplibre-gl.css'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.groundgoat.com'
 
 /* ── Types ────────────────────────────────────────────────────────── */
 
@@ -62,7 +64,7 @@ type Snapshot = {
   message?: string
 }
 
-const CHART_TITLES: Record<string, string> = {"pulse": "Right now", "money": "Money", "crashes": "App crashes", "regrid": "Regrid budget", "failing_endpoints": "What is erroring", "people": "People", "storage": "Storage", "pipeline": "Scraper & staging"}
+const CHART_TITLES: Record<string, string> = {"pulse": "Right now", "money": "Money", "crashes": "App crashes", "failing_endpoints": "What is erroring", "people": "People", "storage": "Storage", "pipeline": "Scraper & staging"}
 
 const EMPTY: Snapshot = { ready: false, generated_at: null, revision: 0, alerts: [], panels: {} }
 
@@ -75,6 +77,17 @@ const num = (v: any, d = 0) =>
 
 const money = (v: any) =>
   v === null || v === undefined ? '—' : '$' + Number(v).toLocaleString('en-US', { maximumFractionDigits: 0 })
+
+/** Money that may be small. Whole dollars above ten, cents below — the AWS
+    breakdown was printing "$0" against six real cents of Cost Explorer
+    charges, which reads as a line that costs nothing. */
+const moneyFine = (v: any) => {
+  if (v === null || v === undefined) return '—'
+  const n = Number(v)
+  if (n === 0) return '$0'
+  if (Math.abs(n) < 10) return '$' + n.toFixed(2)
+  return '$' + n.toLocaleString('en-US', { maximumFractionDigits: 0 })
+}
 
 /** Plain English. Nobody should have to read a timestamp off this screen. */
 function ago(iso: string | null | undefined): string {
@@ -90,14 +103,20 @@ function ago(iso: string | null | undefined): string {
 
 type Tone = 'red' | 'amber' | 'green' | ''
 
-function Panel({ span, title, tag, pip, onChart, infoId, panelState, children }: {
+function Panel({ span, title, tag, pip, onChart, onOpen, flush, infoId, panelState, children }: {
   span: number; title: string; tag?: string; pip?: Tone
-  onChart?: () => void; infoId?: string; panelState?: PanelState
+  onChart?: () => void
+  /** Jump to the section that shows this card in full. */
+  onOpen?: () => void
+  /** Let the body run to the panel's edges — for the map, which has its own
+      padding and looks wrong inset. */
+  flush?: boolean
+  infoId?: string; panelState?: PanelState
   children: React.ReactNode
 }) {
   const [showInfo, setShowInfo] = useState(false)
   return (
-    <section className="panel" style={{ gridColumn: `span ${span}` }}>
+    <section className={`panel ${flush ? 'flush' : ''}`} style={{ gridColumn: `span ${span}` }}>
       <h2>
         {/* The status dot beside each title is gone — the owner does not
             want it, and the cards already carry their state in the numbers
@@ -116,6 +135,10 @@ function Panel({ span, title, tag, pip, onChart, infoId, panelState, children }:
             title={`${title} over time`} aria-label={`${title} over time`}>
             <ChartIcon />
           </button>
+        )}
+        {onOpen && (
+          <button type="button" className="openbtn" onClick={onOpen}
+            title={`Open ${title}`} aria-label={`Open ${title}`}>→</button>
         )}
       </h2>
       {showInfo && infoId && (
@@ -776,222 +799,6 @@ function People({ d }: { d: any }) {
   )
 }
 
-function Regrid({ d }: { d: any }) {
-  const known = d.known !== false
-  const pc = d.combined_pct || 0
-  const tone: Tone = !known ? '' : pc >= 90 ? 'red' : pc >= 75 ? 'amber' : 'green'
-  const rate = (v: number | null | undefined) =>
-    v === null || v === undefined ? <span className="dim">not yet</span> : `${num(v, 1)}%`
-  return (
-    <>
-      {/* Regrid bills the combined fraction of records AND parcel tiles, so
-          that is the headline. Either half alone understates the bill. */}
-      <Kpi v={known ? `${num(pc, 1)}%` : 'unknown'}
-        k={`Of the year's Regrid contract · ${d.source}`}
-        tone={tone === 'green' ? '' : tone} />
-      {known && <div className="bar"><i className={tone} style={{ width: `${Math.min(100, pc)}%` }} /></div>}
-      {!known && (
-        <div className="note" style={{ color: 'var(--amber)' }}>
-          {/* A count that FAILED is not a small number. Say which. */}
-          {d.floor_error
-            ? `Could not count the year from our own data — ${d.floor_error}.`
-            : (d.cycle_note || (d.counting_since
-                ? `Regrid has not answered, and our own counter has nothing recorded since the contract year began (it goes back to ${String(d.counting_since).slice(0, 10)}).`
-                : 'Regrid has not answered and our own counter has recorded nothing yet.'))}
-          {' '}Showing 0% here would read as &ldquo;plenty left&rdquo;, which is the
-          worst thing this card could get wrong.
-        </div>
-      )}
-      {/* WHEN THE TWO METERS CANNOT BOTH BE RIGHT.
-          Regrid's reported window and Regrid's reported counters are two
-          different claims, and this card used to treat them as one: on
-          2026-08-26 their API returned a full 365-day contract year
-          alongside counts of 134 records and 254 tiles, while our own caches
-          held 3,029 parcels and 3,056 tiles bought inside that same window.
-          The headline read 0.1%. The gap is now the first thing on the card
-          rather than something you could only find by opening the details. */}
-      {d.meter_disagreement && (
-        <div className="note" style={{ color: 'var(--amber)' }}>{d.meter_disagreement}</div>
-      )}
-      <div className="rows">
-        {/* The percentage is only printed when the backend says the figure
-            actually covers the contract year. One day of counting shown as
-            "0.1%" of an annual cap reads as "barely touched it", which is
-            the worst thing this card can get wrong — so when the share is
-            unknown the row carries the basis instead of a number.
-
-            The ≥ is per half: records can come from Regrid while tiles come
-            from our own cache, and one flag for both mislabelled whichever
-            one it did not describe. */}
-        {/* STACKED, NOT A ONE-LINE ROW. This card is 266px wide — two of
-            twelve grid columns — and `≥ 1,494,583 of 20,000,000` beside a
-            label on one line left the label 56px and cut it to "Map tile…".
-            The share, the count and WHERE THE COUNT CAME FROM all belong to
-            the same half, so they read as one block that wraps.
-
-            The provenance is not decoration: the two halves are decided
-            independently and routinely come from different places. On
-            2026-08-30 records came from our parcel cache (3,121 — the record
-            meter has a gap) and tiles from our meter (1,494,583 — the tile
-            cache is deduplicated by z/x/y and re-fetched monthly, so it held
-            only 4,369). Reading tiles off that cache understated this
-            contract fourfold. */}
-        {[{ n: 'Parcel records', v: d.records, pct: d.records_pct, cap: d.records_cap,
-            floor: d.records_is_floor ?? d.is_floor, basis: d.records_basis },
-          { n: 'Map tiles', v: d.tiles, pct: d.tiles_pct, cap: d.tiles_cap,
-            floor: d.tiles_is_floor ?? d.is_floor, basis: d.tiles_basis }].map(h => (
-          <div className="rghalf" key={h.n}>
-            <div className="rghead">
-              <span>{h.n}</span>
-              <b>{h.pct == null ? <span className="dim">—</span> : `${num(h.pct, 1)}%`}</b>
-            </div>
-            <div className="rgsub">
-              {h.v == null
-                ? h.basis
-                : `${h.floor ? '≥ ' : ''}${num(h.v)} of ${num(h.cap)} · ${h.basis}`}
-            </div>
-          </div>
-        ))}
-        <Row label="Days into the year" value={num(d.days_into_year)} />
-        {/* What we can answer without Regrid. The rate is measured exactly
-            over whatever window the meter holds, and "at this rate, do I
-            blow the contract?" is the question that actually matters.
-            Labelled a pace, never a total, with the unmeasured days stated
-            beside it. (This note used to assert the meter began on 25 Aug;
-            it did not — production's oldest row is 3 May, which the pace
-            line beside it was already saying.) */}
-        {d.pace && (
-          <Row label="On pace for"
-            tone={d.pace.combined_pct >= 90 ? 'red' : d.pace.combined_pct >= 75 ? 'amber' : ''}
-            value={`${num(d.pace.combined_pct, 1)}% of the year`} />
-        )}
-      </div>
-      {d.pace && (
-        <div className="note">
-          {num(d.pace.records_per_day, 1)} records and {num(d.pace.tiles_per_day, 1)} tiles a day,
-          measured over {num(d.pace.measured_days, 1)} day{d.pace.measured_days === 1 ? '' : 's'}
-          {d.pace.unmeasured_days > 0 && <> · the {num(d.pace.unmeasured_days)} days before
-            that were never counted, so this is a rate, not a year-to-date total</>}.
-        </div>
-      )}
-      {/* Counted from our own caches when Regrid does not answer. It is a
-          floor: both caches are keyed on what they cache and a re-fetch
-          updates the timestamp, so a parcel bought twice is counted once. */}
-      {d.is_floor && (
-        <div className="note" style={{ color: 'var(--amber)' }}>
-          {/* Both sources are minimums, for different reasons, and the card
-              used to name only the cache one. A cache row is deduplicated by
-              the thing it caches, so a parcel bought twice counts once; the
-              meter counts every purchase but only from the day that endpoint
-              was instrumented, and anything that calls Regrid without going
-              through us — a script hitting tiles.regrid.com directly — never
-              reaches it at all. */}
-          These are minimums. Our cache counts a parcel bought twice as one,
-          and our meter only sees spending that goes through us
-          {d.tiles_counted_from && <> — tile counting starts {String(d.tiles_counted_from).slice(0, 10)}</>}.
-        </div>
-      )}
-      {/* Regrid's own figure, when the window it reports is shorter than the
-          contract year. Useful, but not an answer to "how much of the year
-          have I used" — so it sits here rather than in the headline. */}
-      {/* EVERYTHING REGRID ACTUALLY RETURNS, verbatim. The card used to show
-          only the two fields we happened to use, so there was no way to tell
-          whether Regrid was answering with a month, a year or nothing at
-          all — or to see any other field they send. This prints the whole
-          reply, whatever shape it is. */}
-      <details className="rows" style={{ borderTop: '1px solid var(--line)', paddingTop: 7 }}>
-        <summary style={{ cursor: 'pointer', listStyle: 'none' }}>
-          <span className="more">
-            What Regrid&rsquo;s API says {d.cycle ? '· click to open' : '· no answer'}
-          </span>
-        </summary>
-        {d.cycle ? (
-          <>
-            {Object.entries(d.cycle)
-              .filter(([k]) => !k.startsWith('_'))
-              .map(([k, v]) => (
-                /* A URL is longer than this card is wide, and `.row .r` is
-                   nowrap — so it spilled past the card edge. Text values get
-                   their own wrapping line; numbers keep the tidy row. */
-                typeof v === 'number' || v == null
-                  ? <Row key={k} label={k.replace(/_/g, ' ')}
-                      value={v == null ? '—' : num(v as number)} />
-                  : <div className="rghalf" key={k}>
-                      <div className="rghead"><span>{k.replace(/_/g, ' ')}</span></div>
-                      <div className="rgsub">{String(v).slice(0, 120)}</div>
-                    </div>
-              ))}
-            {/* THE DATES AND THE COUNTS ARE TWO DIFFERENT CLAIMS. The dates
-                really are the contract term and are used as such — the
-                contract year on this card starts on the day Regrid says it
-                does. The counts beside them reset at UTC midnight, which is
-                why they read 134 on 26 Aug and 5 on 30 Aug. Treating those
-                counts as the year is what put 0.1% on this card. */}
-            <div className="note">
-              {d.regrid_cycle_days != null && `Their dates name a ${num(d.regrid_cycle_days)}-day term and the contract year above starts on the day they give. `}
-              Their counts, though, are for today only — they reset at UTC
-              midnight — so they are shown here as a live cross-check, never
-              as the year.
-            </div>
-            <Row label="Regrid, today"
-              value={`${num(d.regrid_today_records)} rec · ${num(d.regrid_today_tiles)} tiles`} />
-            {/* Stacked, not rows: inside the details the card is 244px and
-                `1,494,583 tiles` beside a label leaves nothing for the
-                label. These are the two numbers the year is chosen from, so
-                both are shown rather than only the winner. */}
-            <div className="rghalf">
-              <div className="rghead"><span>This year, from our cache</span></div>
-              <div className="rgsub">{`${num(d.floor_records)} records · ${num(d.floor_tiles)} tiles`}</div>
-            </div>
-            <div className="rghalf">
-              <div className="rghead"><span>This year, from our meter</span></div>
-              <div className="rgsub">{`${num(d.our_records)} records · ${num(d.our_tiles)} tiles`}</div>
-            </div>
-            {d.source_url && <div className="fixnote">Answered by {d.source_url}</div>}
-          </>
-        ) : (
-          <div className="note" style={{ color: 'var(--amber)' }}>
-            {d.cycle_note || 'Regrid returned no usage body. Every host we know of was tried.'}
-          </div>
-        )}
-      </details>
-      <div className="rows" style={{ borderTop: '1px solid var(--line)', paddingTop: 7 }}>
-        <Row label="Parcel lookups today" value={num(d.parcel_lookups_24h)} />
-        <Row label="Saved by our cache" value={rate(d.parcel_cache_pct)} />
-        {/* Owner search buys straight from the Records API with no cache
-            behind it, up to 500 records in a single search, and it runs on
-            every owner lookup. It reached neither this card nor our meter
-            until 2026-08-30, so it is given its own line rather than being
-            folded into the lookup figure above. */}
-        {d.owner_search_calls_24h > 0 && (
-          <Row label="Owner searches today"
-            tone={d.owner_search_records_24h >= 1000 ? 'amber' : ''}
-            value={`${num(d.owner_search_calls_24h)} · ${num(d.owner_search_records_24h)} records bought`} />
-        )}
-        <Row label="Map tiles today" value={num(d.tiles_24h)} />
-        <Row label="Tiles saved by our cache" value={rate(d.tile_cache_pct)} />
-      </div>
-      {/* THE CONTRACT DATE ALWAYS SHOWS. It used to be dropped whenever
-          Regrid sent any note at all, and Regrid now always sends one — so
-          the card would have answered "how much of my year have I used"
-          without ever saying when that year started. It comes from Regrid's
-          own cycle_dates.begin, so it is their date, not our guess. */}
-      <div className="note">
-        {`Contract year started ${d.contract_year_start}. `}
-        {/* Read off the meter's oldest row. This was a hardcoded date that
-            was already wrong when it was written, and contradicted the pace
-            line further up the same card. */}
-        {d.counting_since
-          ? `Our own counting goes back to ${String(d.counting_since).slice(0, 10)}.`
-          : 'Our own counter has recorded nothing yet.'}
-      </div>
-      {/* Regrid's note is an explanation, not a warning — amber was crying
-          wolf on a permanent fact about how their API works. */}
-      {d.cycle_note && <div className="note dim">{d.cycle_note}</div>}
-    </>
-  )
-}
-
 function Erroring({ d }: { d: any[] }) {
   if (!d.length) return <div className="allgood">Nothing is erroring</div>
   return (
@@ -1221,9 +1028,41 @@ function Crashes({ d }: { d: any }) {
   )
 }
 
+/** A gigabyte figure that does not round small things away.
+    "0 GB" against a bucket holding 100 MB reads as an empty bucket. */
+const gb = (v: any) => {
+  if (v === null || v === undefined) return '—'
+  const n = Number(v)
+  return n > 0 && n < 10 ? `${num(n, 1)} GB` : `${num(n)} GB`
+}
+
 function Storage({ d, trend }: { d: any; trend: any }) {
+  const vp = d.volume_pct
+  const vtone: Tone = vp == null ? '' : vp >= 90 ? 'red' : vp >= 80 ? 'amber' : 'green'
   return (
     <>
+      {/* THE DISK, FIRST. Every database shares one RDS volume now, so the
+          total is the number that runs out — a row at 22% is not 22% of its
+          own disk, it is 22% of everybody's. */}
+      {vp != null && (
+        <div className="store">
+          <div className="top">
+            <span>All databases, one disk</span>
+            <Chip>AWS RDS</Chip>
+            <span className="pc" style={vtone === 'red' ? { color: 'var(--red)' } : undefined}>
+              {num(vp, 1)}%
+            </span>
+          </div>
+          <div className="bar"><i className={vtone} style={{ width: `${Math.min(100, vp)}%` }} /></div>
+          <div className="note">
+            {gb(d.volume_used_gb)} of {gb(d.volume_gb)}
+            {d.volume_used_measured
+              ? ' — RDS\u2019s own figure, so it counts the sandbox database and the write-ahead logs too'
+              : ' — the databases we can reach; the disk holds more than this'}
+          </div>
+        </div>
+      )}
+
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         {(d.stores || []).map((s: any) => {
           const pc = s.pct_of_cap
@@ -1234,39 +1073,55 @@ function Storage({ d, trend }: { d: any; trend: any }) {
               <div className="top">
                 <span>{s.label}</span>
                 {s.provider ? <Chip>{s.provider}</Chip> : null}
-                {s.live ? null : <Chip>measured {s.measured_at}</Chip>}
+                {s.live === false ? <Chip>measured {s.measured_at}</Chip> : null}
                 <span className="pc" style={tone === 'red' ? { color: 'var(--red)' } : undefined}>
-                  {capped ? `${num(pc, 1)}%` : `${num(s.used_gb)} GB`}
+                  {capped ? `${num(pc, 1)}%` : gb(s.used_gb)}
                 </span>
               </div>
               {capped && <div className="bar"><i className={tone} style={{ width: `${Math.min(100, pc)}%` }} /></div>}
               <div className="note">
-                {capped ? `${num(s.used_gb)} of ${num(s.cap_gb)} GB · ${num(s.free_gb)} GB left · ${s.note}` : s.note}
+                {capped
+                  ? `${gb(s.used_gb)} of the shared ${gb(s.cap_gb)} disk · ${s.note}`
+                  : s.note}
               </div>
             </div>
           )
         })}
       </div>
+
       {trend && (
         <div style={{ borderTop: '1px solid var(--line)', paddingTop: 8 }}>
-          <Row label="Main database is growing" value={`${num(trend.growth_gb_per_day, 2)} GB a day`} />
+          <Row label={(trend.growth_gb_per_day ?? 0) < 0 ? 'Main database is shrinking' : 'Main database is growing'}
+            value={`${num(Math.abs(trend.growth_gb_per_day ?? 0), 2)} GB a day`} />
           {trend.days_to_cap !== null && trend.days_to_cap !== undefined && (
             <Row label="Full in" value={`about ${num(trend.days_to_cap)} days`}
               tone={trend.days_to_cap <= 120 ? 'red' : ''} />
           )}
-          <div className="more" style={{ margin: '6px 0 3px' }}>Biggest tables</div>
-          {(trend.biggest_tables || []).slice(0, 3).map((t: any) => (
-            <div className="row" key={t.table}>
-              {/* state_parcels is retired. It is only ever shown as wasted space. */}
-              <span className="l" style={t.table === 'state_parcels' ? { color: 'var(--amber)' } : undefined}>
-                {t.table}{t.table === 'state_parcels' ? ' — retired, pure waste' : ''}
-              </span>
-              <span className="r">{num(t.gb, 0)} GB</span>
-            </div>
-          ))}
+          {(trend.biggest_tables || []).length > 0 && (
+            <>
+              <div className="more" style={{ margin: '6px 0 3px' }}>Biggest tables</div>
+              {(trend.biggest_tables || []).slice(0, 3).map((t: any) => (
+                <div className="row" key={t.table}>
+                  {/* state_parcels is retired. It is only ever shown as wasted space. */}
+                  <span className="l" style={t.table === 'state_parcels' ? { color: 'var(--amber)' } : undefined}>
+                    {t.table}{t.table === 'state_parcels' ? ' — retired, pure waste' : ''}
+                  </span>
+                  <span className="r">{gb(t.gb)}</span>
+                </div>
+              ))}
+            </>
+          )}
         </div>
       )}
-      <div className="note">A Railway database disk cannot go past 1,000 GB. There is no bigger size to buy.</div>
+
+      {/* The old note here said a Railway disk cannot grow past 1,000 GB.
+          There is no Railway disk any more, and an RDS volume CAN be grown —
+          which changes the whole meaning of the bar above from a deadline
+          into a bill. */}
+      <div className="note">
+        One RDS volume holds every database. AWS can grow it, so filling it is
+        a bigger bill rather than an outage — but nothing shrinks it back on its own.
+      </div>
     </>
   )
 }
@@ -1697,25 +1552,6 @@ const CARD_INFO: Record<string, CardInfo> = {
     source: 'mobile_crash_reports, posted by the app\u2019s global error handler.',
     caveat: '"Last 24 hours" is a rolling window, so crashes age out of it and the number falls — the 7-day and all-time figures beside it exist so that can never look like data going missing. "What they had on screen" comes from the app\u2019s own black box, which records the map state before each death; an iOS memory kill runs no JavaScript, so that snapshot is the only evidence such a crash ever leaves. Crashes with nobody signed in are counted separately, since they carry no user to attribute.',
   },
-  regrid: {
-    lines: [
-      { l: 'Parcel records',
-        d: 'Billable Records bought from Regrid this contract year, against the annual cap. A percentage only appears when the figure underneath genuinely covers the year.' },
-      { l: 'Map tiles',
-        d: 'Billable map tiles fetched this contract year, against their own cap. Regrid bills on both, combined.' },
-      { l: 'Days into the year',
-        d: 'How far through the contract year you are. Compare against the percentage used: halfway through the year and well under half the cap is healthy.' },
-      { l: 'On pace for',
-        d: 'What the measured daily rate projects across a full year. This is the number to watch, because the year-to-date total cannot be reconstructed from before our meter started.' },
-      { l: 'Parcel lookups today',
-        d: 'Every parcel the app asked for today, whether we bought it or served it from cache.' },
-      { l: 'Saved by our cache',
-        d: 'The share of those lookups served from our own cache instead of being bought. Higher is cheaper. "Not measured yet" is shown rather than 0% when nothing has been counted.' },
-    ],
-    covers: 'How much of the annual Regrid contract is used: parcel records and map tiles, combined the way Regrid bills.',
-    source: 'Regrid\u2019s own /api/v2/usage endpoint where reachable, our own counters otherwise. The card says which.',
-    caveat: 'Records alone understate it — tiles are usually the larger half of the bill. Regrid\u2019s own endpoint reports whatever billing cycle they are running, which may be far shorter than the contract year; when it is, the year is counted from our own caches instead and their figure is shown separately. Cache counts are a minimum: a parcel bought twice in the year is stored once, so it is counted once.',
-  },
   failing_endpoints: {
     lines: [
       { l: 'Endpoint',
@@ -1776,7 +1612,7 @@ const CARD_INFO: Record<string, CardInfo> = {
   },
   outside: {
     covers: 'Every outside service we depend on — Stripe, Resend and Anthropic — with how many calls failed and WHY.',
-    source: 'hourly_external_api_calls, written by the wrappers around each service. Regrid is not here: it has its own meter and its own card.',
+    source: 'hourly_external_api_calls, written by the wrappers around each service.',
     lines: [
       { l: 'Calls · failed · rate',
         d: 'How many times we called that service in the last 24 hours, how many came back an error, and the share. A service nobody called shows no rate rather than 0%.' },
@@ -2647,62 +2483,1050 @@ function FixButton({ issue, fixes, compact }:
    it. Reds sort first; the verdict block on the left carries the totals
    so nothing is hidden by the strip scrolling sideways. */
 
-function AlertStrip({ alerts, fixes, onOpenFindings }:
+/* PROBLEMS ARE A CARD NOW, NOT A BANNER.
+   They used to run across the top as a horizontal strip of boxes, which ate
+   the height every other card needed and pushed the Diagnose buttons off
+   the right-hand edge as soon as there were more than four. As a card they
+   scroll vertically in their own box, every Diagnose button is reachable,
+   and the rest of the board keeps its room. */
+function Problems({ alerts, fixes, onOpenFindings }:
   { alerts: Alert[]; fixes?: any; onOpenFindings?: () => void }) {
-  const rowRef = useRef<HTMLDivElement>(null)
-  const [fits, setFits] = useState(true)
   const reds = alerts.filter(a => a.level === 'red').length
-  // A finished diagnosis rides in this strip so it cannot be lost, but it is
-  // an answer, not a problem — counting it would inflate "things to look at".
   const ambers = alerts.filter(a => a.level === 'amber').length
 
-  useEffect(() => {
-    const el = rowRef.current
-    if (!el) return
-    const check = () => setFits(el.scrollWidth <= el.clientWidth + 1)
-    check()
-    const ro = new ResizeObserver(check)
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [alerts])
+  if (alerts.length === 0) {
+    return (
+      <div className="allgood">
+        <b>Nothing is broken.</b>
+        <span>Every check passed.</span>
+      </div>
+    )
+  }
 
   return (
-    <section className="alerts" aria-label="Alerts" aria-live="polite">
+    <div className="problems">
       <div className={`verdict ${reds ? '' : ambers ? 'warn' : 'clear'}`}>
         <span className="big">
-          {reds ? `${reds} problem${reds === 1 ? '' : 's'}` : ambers ? `${ambers} to look at` : 'All clear'}
+          {reds ? `${reds} problem${reds === 1 ? '' : 's'}` : `${ambers} to look at`}
         </span>
         <span className="small">
           {reds ? (ambers ? `and ${ambers} more to look at` : 'needing you now')
-            : ambers ? 'nothing urgent' : 'nothing needs you'}
+            : 'nothing urgent'}
         </span>
       </div>
-      <div className={`alert-row ${fits ? 'fits' : ''}`} ref={rowRef}>
-        {alerts.length === 0
-          ? <div className="all-clear">Nothing is broken. Every check passed.</div>
-          : alerts.map(a => (
-            <article className={`alert ${a.level}`} key={a.key}>
-              <div className="where">{a.where}</div>
-              <div className="title">{a.title}</div>
-              <div className="detail">{a.detail}</div>
-              {a.level === 'info'
-                ? <button type="button" className="fixbtn" onClick={onOpenFindings}>
-                    Read it
-                  </button>
-                : <div className="alert-actions">
-                    <FixButton compact issue={{ key: a.key, title: a.title, detail: a.detail,
-                      where: a.where }} fixes={fixes} />
-                  </div>}
-            </article>
-          ))}
-      </div>
-    </section>
+
+      {alerts.map(a => (
+        <article className={`alert ${a.level}`} key={a.key}>
+          <div className="where">{a.where}</div>
+          <div className="title">{a.title}</div>
+          <div className="detail">{a.detail}</div>
+          {a.level === 'info'
+            ? <button type="button" className="fixbtn" onClick={onOpenFindings}>Read it</button>
+            : <div className="alert-actions">
+                <FixButton compact issue={{ key: a.key, title: a.title, detail: a.detail,
+                  where: a.where }} fixes={fixes} />
+              </div>}
+        </article>
+      ))}
+    </div>
   )
 }
 
 /* ── The screen ───────────────────────────────────────────────────────
    Twelve columns, three rows. Panel order is by "would this wake him at
    2am": failures first, money second, everything else after. */
+
+/* ── The map ──────────────────────────────────────────────────────────
+   Three layers, three different kinds of truth, and the card says which
+   is which:
+
+     Selling / Upcoming   one dot per TRACT, at that tract's own recorded
+                          coordinate. Never an average of several tracts —
+                          a sale of four parcels forty miles apart would
+                          otherwise pin itself in a field nobody is selling.
+
+     Sold                 the same, for ground that has already changed
+                          hands in the last year. Capped, and the legend
+                          says so when the cap bites.
+
+     Our people           NOT a location. We do not record a device
+                          position and we do not geolocate anyone's IP.
+                          This is a count per state, drawn at the state's
+                          centre, and it is labelled that way on screen so
+                          it can never be read as "where our users are".
+
+   The pins arrive from their own endpoint rather than the snapshot,
+   because a quarter of a megabyte of coordinates has no business riding
+   on a blob that is re-pushed every fifteen seconds. */
+
+const BASEMAP_DARK =
+  'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}'
+const BASEMAP_AERIAL =
+  'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+/* State lines and place names, drawn over the imagery. Esri's own reference
+   layer — the same one the boundary editor uses — so it lines up with the
+   aerial tiles exactly. */
+const REF_BOUNDARIES =
+  'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}'
+/* COUNTY LINES COME FROM THE CENSUS, NOT FROM ESRI.
+   Esri's reference layer stops at states. Counties are the unit this
+   business actually works in — every listing is filed by county — so they
+   come from TIGERweb, the Census Bureau's own boundary service, as a
+   transparent overlay rendered per tile. */
+const REF_COUNTIES =
+  'https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/State_County/MapServer/export' +
+  '?bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857&size=512,512' +
+  '&format=png32&transparent=true&dpi=96&f=image'
+const BASEMAP_ATTRIBUTION = '© Esri · county lines © US Census TIGERweb'
+
+// The lower 48, with room to breathe. Alaska and Hawaii have no farmland
+// listings and dragging the view out to hold them would shrink the corn
+// belt to a smudge.
+const US_BOUNDS: [[number, number], [number, number]] = [[-125.5, 24.0], [-66.5, 49.8]]
+
+type MapPoints = {
+  available?: boolean
+  auctions?: any[]
+  sold?: any[]
+  people?: any[]
+  live_count?: number
+  upcoming_count?: number
+  live_pins?: number
+  upcoming_pins?: number
+  sold_shown?: number
+  sold_total?: number
+  sold_truncated?: boolean
+  /** People who made a request in the last five minutes, by home state. */
+  online_now?: number
+  people_basis?: string
+  generated_at?: string
+  reason?: string
+}
+
+function useMapPoints(active: boolean) {
+  const [data, setData] = useState<MapPoints | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!active) return
+    let stop = false
+    const load = async () => {
+      try {
+        const r = await fetchWithAuth(`${API_URL}/api/admin/command-center/map`)
+        if (!r.ok) throw new Error(`the map endpoint answered ${r.status}`)
+        const j = await r.json()
+        if (!stop) { setData(j); setError(null) }
+      } catch (e: any) {
+        if (!stop) setError(e?.message || 'could not load the pins')
+      }
+    }
+    load()
+    // The pins are cached for a minute on the server; asking more often
+    // than that would buy nothing.
+    const t = setInterval(load, 60000)
+    return () => { stop = true; clearInterval(t) }
+  }, [active])
+
+  return { data, error }
+}
+
+function LiveMap({ points }: { points: MapPoints | null }) {
+  const wrap = useRef<HTMLDivElement | null>(null)
+  const box = useRef<HTMLDivElement | null>(null)
+  const map = useRef<any>(null)
+  const [ready, setReady] = useState(false)
+  /* Aerial by default: the owner's call. Ground is the subject of
+     this business and a plain map of it is an abstraction. */
+  const [aerial, setAerial] = useState(true)
+  const [labels, setLabels] = useState(true)
+  const [show, setShow] = useState({ upcoming: true, live: true, sold: false, people: true })
+  const [picked, setPicked] = useState<any>(null)
+
+  /* Build the map once.
+
+     THE LOAD HANDLER MUST NOT RESURRECT A REMOVED MAP.
+     React runs effects twice in development. The first map was created,
+     torn down by the cleanup, and then its own `load` callback fired a
+     moment later and wrote that dead instance back into map.current — so
+     every layer, source and camera call afterwards went to a map with no
+     style attached and the canvas painted nothing at all, silently. The
+     `alive` flag is what stops a callback from a previous run touching
+     anything, and map.current is set once, here, never from a callback. */
+  useEffect(() => {
+    const container = box.current
+    if (!container) return
+    let alive = true
+
+    const m = new maplibregl.Map({
+      container,
+      style: {
+        version: 8,
+        sources: {
+          base: { type: 'raster', tiles: [BASEMAP_DARK], tileSize: 256, attribution: BASEMAP_ATTRIBUTION },
+          aerial: { type: 'raster', tiles: [BASEMAP_AERIAL], tileSize: 256, attribution: BASEMAP_ATTRIBUTION },
+          /* COUNTIES ONLY WHEN THEY MEAN SOMETHING.
+             Every county line in the country at national zoom is a grey
+             haze, and the Census service was also holding the map's `load`
+             event open at those zooms — the style never finished, so no
+             pins and no markers ever appeared, silently. minzoom 6 is about
+             the point a county fills a useful part of the card. */
+          counties: { type: 'raster', tiles: [REF_COUNTIES], tileSize: 512, minzoom: 6 },
+          boundaries: { type: 'raster', tiles: [REF_BOUNDARIES], tileSize: 256 },
+        },
+        layers: [
+          { id: 'base', type: 'raster', source: 'base', layout: { visibility: 'none' } },
+          /* THE IMAGERY IS KNOCKED BACK BY ITS OWN OPACITY.
+             Green pins on green farmland is the whole problem with drawing
+             data over an aerial — the sales vanished into the crop — so the
+             photograph has to sit back while the pins do not. Three other
+             ways were tried and each failed: a background layer covered the
+             imagery entirely, raster-brightness/saturation left the map
+             black, and a CSS filter on the canvas dimmed the pins too,
+             because they are drawn on the same canvas. Opacity against the
+             dark card behind it dims the photograph and nothing else. */
+          { id: 'aerial', type: 'raster', source: 'aerial',
+            paint: { 'raster-opacity': 0.62 } },
+          // County fills under the state lines and labels, dimmed so they
+          // read as a grid rather than competing with the pins.
+          { id: 'counties', type: 'raster', source: 'counties', minzoom: 6,
+            paint: { 'raster-opacity': 0.5 } },
+          { id: 'boundaries', type: 'raster', source: 'boundaries',
+            paint: { 'raster-opacity': 0.85 } },
+        ],
+      },
+      bounds: US_BOUNDS,
+      fitBoundsOptions: { padding: 24 },
+      attributionControl: false,
+      dragRotate: false,
+    })
+    map.current = m
+    m.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right')
+
+    /* NOTHING TOUCHES THE MAP UNTIL ITS STYLE IS UP.
+       A ResizeObserver fires once the moment it starts observing, which is
+       before `load`. Calling resize() into a style that is still being
+       built left maplibre throwing "There is no tile manager with ID
+       'base'" and abandoning the style — getStyle() came back undefined on
+       a live map, the basemap never drew, and there was no error on screen
+       to say why. Everything below waits for this flag. */
+    /* READY MEANS THE STYLE IS UP — AND `load` IS NOT A RELIABLE WAY TO
+       HEAR THAT. It waits on the first frame's tiles as well, so one slow
+       or unhappy raster source (the Census county service, say) can leave
+       it un-fired for ever: the map sat there with imagery drawn, no pins,
+       no markers and nothing in the console. `styledata` fires whenever the
+       style changes and isStyleLoaded() answers the actual question, so
+       both are checked, and the style may already be up by the time this
+       runs. */
+    let styled = false
+    const onStyled = () => {
+      if (!alive || styled || !m.isStyleLoaded()) return
+      styled = true
+      m.resize()
+      m.fitBounds(US_BOUNDS, { padding: 24, animate: false })
+      setReady(true)
+    }
+    m.on('load', onStyled)
+    m.on('styledata', onStyled)
+    if (m.isStyleLoaded()) onStyled()
+
+    /* WATCH THE WRAPPER, NOT THE MAP'S OWN CONTAINER.
+       MapLibre resizes the element it was given, so observing that element
+       and calling resize() from the callback feeds itself. The wrapper's
+       size is decided by the card, not by the map. */
+    const ro = new ResizeObserver(() => {
+      if (alive && styled) m.resize()
+    })
+    if (wrap.current) ro.observe(wrap.current)
+
+    return () => {
+      alive = false
+      ro.disconnect()
+      m.remove()
+      map.current = null
+      setReady(false)
+    }
+  }, [])
+
+  // Basemap and reference toggles.
+  useEffect(() => {
+    const m = map.current
+    if (!m || !ready) return
+    const vis = (id: string, on: boolean) =>
+      m.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none')
+    vis('aerial', aerial)
+    vis('base', !aerial)
+    vis('counties', labels)
+    vis('boundaries', labels)
+  }, [aerial, labels, ready])
+
+  /* Feed the layers. Sources are created on first data and updated in
+     place afterwards, so panning never flickers. */
+  useEffect(() => {
+    const m = map.current
+    if (!m || !ready || !points) return
+
+    const fc = (features: any[]) => ({ type: 'FeatureCollection', features })
+    const pt = (lng: number, lat: number, props: any) => ({
+      type: 'Feature', geometry: { type: 'Point', coordinates: [lng, lat] }, properties: props,
+    })
+
+    const auctions = points.auctions || []
+    const sets: Record<string, any> = {
+      cc_sold: fc((points.sold || []).map(s => pt(s.lng, s.lat, { ppa: s.ppa ?? null }))),
+      cc_upcoming: fc(auctions.filter(a => a.phase === 'upcoming').map(a =>
+        pt(a.lng, a.lat, { ...a, kind: 'upcoming' }))),
+      cc_live: fc(auctions.filter(a => a.phase === 'live').map(a =>
+        pt(a.lng, a.lat, { ...a, kind: 'live' }))),
+    }
+
+    for (const [id, data] of Object.entries(sets)) {
+      const existing = m.getSource(id)
+      if (existing) { existing.setData(data as any); continue }
+      m.addSource(id, { type: 'geojson', data } as any)
+    }
+
+    if (!m.getLayer('cc_sold_dots')) {
+      m.addLayer({
+        id: 'cc_sold_dots', type: 'circle', source: 'cc_sold',
+        paint: {
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], 3, 1.6, 8, 4],
+          'circle-color': '#64748b', 'circle-opacity': 0.55,
+        },
+      })
+      m.addLayer({
+        id: 'cc_upcoming_glow', type: 'circle', source: 'cc_upcoming',
+        paint: {
+          'circle-radius': ['interpolate', ['linear'], ['zoom'],
+            3, ['interpolate', ['linear'], ['coalesce', ['get', 'acres'], 40], 10, 6, 400, 13],
+            9, ['interpolate', ['linear'], ['coalesce', ['get', 'acres'], 40], 10, 12, 400, 32]],
+          'circle-color': '#22c55e', 'circle-opacity': 0.16, 'circle-blur': 0.7,
+        },
+      })
+      m.addLayer({
+        id: 'cc_upcoming_dots', type: 'circle', source: 'cc_upcoming',
+        paint: {
+          // Sized by acreage, because a 600-acre sale and a 12-acre one
+          // are not the same event.
+          'circle-radius': ['interpolate', ['linear'], ['zoom'],
+            3, ['interpolate', ['linear'], ['coalesce', ['get', 'acres'], 40], 10, 3, 400, 7],
+            9, ['interpolate', ['linear'], ['coalesce', ['get', 'acres'], 40], 10, 6, 400, 18]],
+          'circle-color': '#4ade80', 'circle-opacity': 0.92,
+          'circle-stroke-width': 1.2, 'circle-stroke-color': 'rgba(4,12,20,.9)',
+        },
+      })
+      // Two rings behind each sale happening today, driven by the frame
+      // loop below. A sale in progress should catch the eye from across
+      // the room; a static dot does not.
+      m.addLayer({
+        id: 'cc_live_pulse2', type: 'circle', source: 'cc_live',
+        paint: { 'circle-radius': 14, 'circle-color': '#fbbf24', 'circle-opacity': 0.1 },
+      })
+      m.addLayer({
+        id: 'cc_live_pulse1', type: 'circle', source: 'cc_live',
+        paint: {
+          'circle-radius': 10, 'circle-color': '#fbbf24', 'circle-opacity': 0.2,
+          'circle-stroke-width': 1, 'circle-stroke-color': '#fde68a',
+          'circle-stroke-opacity': 0.35,
+        },
+      })
+      m.addLayer({
+        id: 'cc_live_dots', type: 'circle', source: 'cc_live',
+        paint: {
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], 3, 5, 9, 12],
+          'circle-color': '#fbbf24', 'circle-opacity': 0.95,
+          'circle-stroke-width': 1.5, 'circle-stroke-color': '#111827',
+        },
+      })
+
+      /* FRAME ON THE PINS, ONCE.
+         A fixed lower-48 rectangle fit to whichever axis the panel is
+         longer in, so a tall map padded the extra height with Canada and
+         Venezuela and left the corn belt small in the middle. The sales
+         themselves are the subject; fit to those. */
+      const lngs: number[] = [], lats: number[] = []
+      for (const a of auctions) { lngs.push(a.lng); lats.push(a.lat) }
+      if (lngs.length >= 2) {
+        m.fitBounds(
+          [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
+          { padding: 48, animate: false, maxZoom: 7 })
+      }
+
+      for (const id of ['cc_upcoming_dots', 'cc_live_dots']) {
+        m.on('click', id, (e: any) => {
+          const f = e.features?.[0]
+          if (f) setPicked({ ...f.properties, lng: e.lngLat.lng, lat: e.lngLat.lat })
+        })
+        m.on('mouseenter', id, () => { m.getCanvas().style.cursor = 'pointer' })
+        m.on('mouseleave', id, () => { m.getCanvas().style.cursor = '' })
+      }
+    }
+  }, [points, ready])
+
+
+  /* PEOPLE ARE HTML MARKERS, NOT A GL SYMBOL LAYER.
+     A symbol layer with text needs a glyph server, and this style has no
+     `glyphs` URL — the labels would simply never draw, silently. There are
+     only ever fifty of these at most, so a div each is cheaper than taking
+     on a font dependency to render two digits. */
+  const markers = useRef<any[]>([])
+  useEffect(() => {
+    const m = map.current
+    if (!m || !ready) return
+    for (const mk of markers.current) mk.remove()
+    markers.current = []
+    if (!show.people) return
+    for (const p of (points?.people || [])) {
+      const el = document.createElement('button')
+      el.type = 'button'
+      // A state with somebody on the product THIS MINUTE pulses; the rest
+      // sit still. That difference is the whole point of the layer.
+      el.className = `peoplepin${p.online_now ? ' live' : ''}`
+      el.textContent = String(p.people)
+      el.title = p.online_now
+        ? `${p.state}: ${p.online_now} on right now, of ${p.people}`
+        : `${p.state}: ${p.people} ${p.people === 1 ? 'person' : 'people'}`
+      // Scaled by headcount, floored so a single person is still clickable.
+      const size = Math.max(24, Math.min(52, 20 + Math.sqrt(p.people) * 6))
+      el.style.width = `${size}px`
+      el.style.height = `${size}px`
+      el.addEventListener('click', (ev) => {
+        ev.stopPropagation()
+        setPicked({ ...p, kind: 'people' })
+      })
+      markers.current.push(
+        new maplibregl.Marker({ element: el }).setLngLat([p.lng, p.lat]).addTo(m))
+    }
+    return () => { for (const mk of markers.current) mk.remove(); markers.current = [] }
+  }, [points, ready, show.people])
+
+  // Layer switches.
+  useEffect(() => {
+    const m = map.current
+    if (!m || !ready || !m.getLayer('cc_sold_dots')) return
+    const vis = (layer: string, on: boolean) =>
+      m.setLayoutProperty(layer, 'visibility', on ? 'visible' : 'none')
+    vis('cc_sold_dots', show.sold)
+    vis('cc_upcoming_dots', show.upcoming)
+    vis('cc_upcoming_glow', show.upcoming)
+    vis('cc_live_dots', show.live)
+    vis('cc_live_pulse1', show.live)
+    vis('cc_live_pulse2', show.live)
+  }, [show, ready])
+
+  /* THE PULSE.
+     Two rings expanding out of each live sale, half a cycle apart, fading
+     as they grow. Driven by requestAnimationFrame rather than CSS because
+     these are GL circles on a map that pans and zooms — a CSS animation
+     would be pinned to the screen, not to the ground.
+
+     The loop stops when the tab is hidden and when the live layer is
+     switched off, so an idle dashboard is not spinning a frame loop all
+     day for something nobody is looking at. */
+  useEffect(() => {
+    const m = map.current
+    if (!m || !ready || !show.live) return
+    if (typeof window !== 'undefined' &&
+        window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return
+
+    let raf = 0
+    let stopped = false
+    const CYCLE = 2200
+
+    const frame = (t: number) => {
+      if (stopped) return
+      if (!document.hidden && m.getLayer('cc_live_pulse1')) {
+        for (const [id, offset] of [['cc_live_pulse1', 0], ['cc_live_pulse2', 0.5]] as const) {
+          const phase = (((t % CYCLE) / CYCLE) + offset) % 1
+          m.setPaintProperty(id, 'circle-radius', 7 + phase * 30)
+          // Fades as it grows, so the ring reads as leaving the dot.
+          m.setPaintProperty(id, 'circle-opacity', 0.34 * (1 - phase))
+          m.setPaintProperty(id, 'circle-stroke-opacity', 0.5 * (1 - phase))
+        }
+      }
+      raf = requestAnimationFrame(frame)
+    }
+    raf = requestAnimationFrame(frame)
+    return () => { stopped = true; cancelAnimationFrame(raf) }
+  }, [ready, show.live, points])
+
+  const toggle = (k: keyof typeof show) => () => setShow(s => ({ ...s, [k]: !s[k] }))
+
+  return (
+    <div className="mapwrap" ref={wrap}>
+      <div ref={box} className="mapbox" />
+
+      <div className="maplegend">
+        <button type="button" className={`lg ${show.live ? 'on' : ''}`} onClick={toggle('live')}>
+          <i style={{ background: '#fbbf24' }} />
+          Selling today <b>{points?.live_count ?? '—'}</b>
+        </button>
+        <button type="button" className={`lg ${show.upcoming ? 'on' : ''}`} onClick={toggle('upcoming')}>
+          <i style={{ background: '#22c55e' }} />
+          Upcoming <b>{points?.upcoming_count ?? '—'}</b>
+        </button>
+        <button type="button" className={`lg ${show.sold ? 'on' : ''}`} onClick={toggle('sold')}>
+          <i style={{ background: '#64748b' }} />
+          Sold, past year <b>{points?.sold_shown ?? '—'}</b>
+        </button>
+        <button type="button" className={`lg ${show.people ? 'on' : ''}`} onClick={toggle('people')}>
+          <i style={{ background: '#38bdf8' }} />
+          Our people <b>{(points?.people || []).reduce((n, p: any) => n + (p.people || 0), 0) || '—'}</b>
+        </button>
+        {!!points?.online_now && (
+          <span className="lg onair">
+            <i className="beacon" />
+            On right now <b>{num(points.online_now)}</b>
+          </span>
+        )}
+        <div className="lgswitches">
+          <button type="button" className="lg base" onClick={() => setAerial(a => !a)}>
+            {aerial ? 'Plain map' : 'Aerial'}
+          </button>
+          <button type="button" className={`lg base ${labels ? 'on' : ''}`}
+            onClick={() => setLabels(v => !v)}>
+            {labels ? 'Hide lines' : 'State & county lines'}
+          </button>
+        </div>
+      </div>
+
+      {points?.sold_truncated && show.sold && (
+        <div className="mapnote">
+          Showing the {num(points.sold_shown)} most recent of {num(points.sold_total)} sales.
+        </div>
+      )}
+
+      {picked && (
+        <div className="mappop">
+          <button type="button" className="x" onClick={() => setPicked(null)} aria-label="Close">×</button>
+          {picked.kind === 'people' ? (
+            <>
+              <h4>{picked.state}</h4>
+              <div className="pk">{num(picked.people)} {picked.people === 1 ? 'person' : 'people'}</div>
+              {picked.online_now > 0 && (
+                <Row label="On right now" value={<span className="live-now">{num(picked.online_now)}</span>} />
+              )}
+              <Row label="Active this week" value={num(picked.active_7d)} />
+              <Row label="Active today" value={num(picked.active_24h)} />
+              {/* Said on every single popup, not once in a footnote. */}
+              <p className="basis">This is the state they entered at signup — not where their device is.</p>
+            </>
+          ) : (
+            <>
+              <h4>{picked.title || 'Untitled sale'}</h4>
+              <div className="pk">
+                {[picked.county && `${picked.county} County`, picked.state].filter(Boolean).join(', ')}
+              </div>
+              <Row label="Sells" value={picked.at ? new Date(picked.at).toLocaleString('en-US', {
+                month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—'} />
+              {picked.acres != null && <Row label="Acres" value={num(picked.acres, 1)} />}
+              {picked.tillable_acres != null &&
+                <Row label="Tillable acres" value={num(picked.tillable_acres, 1)} />}
+              {picked.soil_rating != null &&
+                <Row label="Soil rating" value={num(picked.soil_rating, 1)} />}
+              <Row label="Coordinates"
+                value={<span className="mono">{Number(picked.lat).toFixed(5)}, {Number(picked.lng).toFixed(5)}</span>} />
+              {picked.url && <a className="popl" href={picked.url} target="_blank" rel="noreferrer">Open the sale ↗</a>}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function MapSummary({ d, points }: { d: any; points: MapPoints | null }) {
+  if (!d) return <Unavailable why="no reading yet" />
+  return (
+    <div className="mapsum">
+      <div className="kpirow">
+        <Kpi v={num(d.today)} k="selling today" tone={d.today ? 'amber' : ''} />
+        <Kpi v={num(d.next_7)} k="in the next 7 days" />
+        <Kpi v={num(d.next_30)} k="in the next 30 days" />
+        <Kpi v={num(d.states)} k="states with a sale coming" />
+      </div>
+      {d.upcoming_without_a_location > 0 && (
+        <Row label="Upcoming sales with no location"
+          value={num(d.upcoming_without_a_location)} tone="amber" />
+      )}
+      <div className="statebars">
+        {(d.auctions_by_state || []).slice(0, 8).map((s: any) => {
+          const top = d.auctions_by_state[0]?.n || 1
+          return (
+            <div className="sb" key={s.state}>
+              <span className="l">{s.state}</span>
+              <span className="bar"><i style={{ width: `${Math.max(4, s.n / top * 100)}%` }} /></span>
+              <span className="n">{num(s.n)}</span>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+/* ── AWS ──────────────────────────────────────────────────────────────
+   Two halves on two different clocks, and the card says so: spend is a
+   paid API read every six hours, health is CloudWatch every five minutes.
+   Neither can blank the other. */
+
+function AwsSpend({ d }: { d: any }) {
+  const s = d?.spend
+  if (!s) return <Unavailable why="no reading yet" />
+  if (!s.available) return <Unavailable why={s.reason} />
+
+  const over = s.projected_month != null && s.last_month != null && s.projected_month > s.last_month
+  const peak = Math.max(...(s.daily || []).map((x: any) => x.amount), 0.01)
+
+  return (
+    <div className="aws">
+      <div className="kpirow">
+        <Kpi v={money(s.month_to_date)} k={`spent in ${s.this_month_label} so far`} />
+        <Kpi v={money(s.projected_month)} k="on track for the full month"
+          tone={over ? 'amber' : ''} />
+        <Kpi v={money(s.last_month)} k={`all of ${s.last_month_label}`} />
+        <Kpi v={moneyFine(s.yesterday)} k="yesterday" />
+      </div>
+
+      <div className="daily" aria-hidden="true">
+        {(s.daily || []).map((x: any) => (
+          <span key={x.day} className={`d ${x.partial ? 'partial' : ''}`}
+            style={{ height: `${Math.max(3, x.amount / peak * 100)}%` }}
+            title={`${x.day} — $${x.amount.toFixed(2)}${x.partial ? ' (today, still running)' : ''}`} />
+        ))}
+      </div>
+      <div className="dailyfoot">
+        <span>{(s.daily || [])[0]?.day}</span>
+        <span className="dim">a day at a time · today is still counting</span>
+        <span>today</span>
+      </div>
+
+      <table className="tbl">
+        <thead><tr><th>Service</th><th className="n">{s.this_month_label}</th><th className="n">{s.last_month_label}</th></tr></thead>
+        <tbody>
+          {(s.services || []).slice(0, 8).map((x: any) => (
+            <tr key={x.service}>
+              <td>{x.label}</td>
+              <td className="n">{moneyFine(x.mtd)}</td>
+              <td className="n dim">{moneyFine(x.last_month)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      <p className="foot">
+        Read from AWS every {s.refresh_hours} hours. Cost Explorer charges a cent a
+        call, so watching this costs about {moneyFine(s.monitoring_cost_per_month)} a month.
+        {s.stale_reason ? ` Last refresh failed: ${s.stale_reason}` : ''}
+      </p>
+    </div>
+  )
+}
+
+function AwsHealth({ d }: { d: any }) {
+  const h = d?.health
+  if (!h) return <Unavailable why="no reading yet" />
+  if (!h.available) return <Unavailable why={h.reason} />
+
+  const barTone = (pct: number | null) =>
+    pct == null ? '' : pct >= 85 ? 'red' : pct >= 60 ? 'amber' : ''
+
+  return (
+    <div className="health">
+      {(h.load_balancers || []).map((lb: any) => (
+        <div className="lb" key={lb.name}>
+          <div className="kpirow">
+            <Kpi v={num(lb.requests_per_min, 0)} k="requests a minute" />
+            <Kpi v={lb.response_ms == null ? '—' : `${num(lb.response_ms, 0)} ms`} k="typical response"
+              tone={(lb.response_ms || 0) > 800 ? 'amber' : ''} />
+            <Kpi v={num(lb.errors_3h)} k="server errors, 3 hours"
+              tone={lb.errors_3h ? 'red' : ''} />
+          </div>
+        </div>
+      ))}
+
+      <h5>Databases</h5>
+      {(h.databases || []).map((db: any) => (
+        <div className="mrow" key={db.id}>
+          <div className="mtop">
+            <span className="l">{db.id}{db.is_replica ? <em> · read copy</em> : null}</span>
+            <span className="r">{db.class} · {num(db.connections, 0)} connections</span>
+          </div>
+          <div className="mbars">
+            <Meter label="CPU" pct={db.cpu_pct} tone={barTone(db.cpu_pct)} />
+            <Meter label="Disk" pct={db.pct_of_storage}
+              note={`${num(db.used_gb, 0)} of ${num(db.storage_gb, 0)} GB`}
+              tone={barTone(db.pct_of_storage)} />
+          </div>
+          <div className="mfoot dim">
+            reads {db.read_ms == null ? '—' : `${num(db.read_ms, 1)} ms`} ·
+            writes {db.write_ms == null ? '—' : `${num(db.write_ms, 1)} ms`} ·
+            {' '}{num(db.freeable_memory_gb, 1)} GB memory free
+          </div>
+        </div>
+      ))}
+
+      <h5>Servers</h5>
+      {(h.servers || []).map((s: any) => (
+        <div className="mrow" key={s.id}>
+          <div className="mtop">
+            <span className="l">{s.name}</span>
+            <span className="r">{s.type} · {s.az}</span>
+          </div>
+          <div className="mbars">
+            <Meter label="CPU" pct={s.cpu_pct} tone={barTone(s.cpu_pct)}
+              note={s.cpu_peak_3h != null ? `peaked ${num(s.cpu_peak_3h, 0)}%` : undefined} />
+          </div>
+        </div>
+      ))}
+
+      {(h.buckets || []).length > 0 && (
+        <>
+          <h5>S3</h5>
+          {(h.buckets || []).map((b: any) => (
+            <Row key={b.name} label={b.name}
+              value={b.size_gb == null ? <span className="dim">not measured</span>
+                : <>{num(b.size_gb, 1)} GB<span className="dim"> · {num(b.objects)} files</span></>} />
+          ))}
+        </>
+      )}
+
+      <p className="foot">
+        Machine readings refresh every five minutes; S3 sizes are AWS&rsquo;s own daily
+        figure. {h.stale_reason ? `Last refresh failed: ${h.stale_reason}` : ''}
+      </p>
+    </div>
+  )
+}
+
+function Meter({ label, pct, note, tone = '' }:
+  { label: string; pct: number | null | undefined; note?: string; tone?: Tone }) {
+  return (
+    <div className="meter">
+      <span className="ml">{label}</span>
+      <span className="mb">
+        <i className={tone} style={{ width: `${Math.max(1, Math.min(100, pct ?? 0))}%` }} />
+      </span>
+      <span className={`mv ${tone}`}>{pct == null ? '—' : `${num(pct, 0)}%`}</span>
+      {note && <span className="mn dim">{note}</span>}
+    </div>
+  )
+}
+
+/* ── Railway ──────────────────────────────────────────────────────────
+   Kept on the board on purpose after the move to AWS. DNS points at AWS
+   and customers reach AWS, but the Railway project was never torn down —
+   so this card exists to answer one question: is anything still running
+   over there, and therefore still being billed for. */
+
+function RailwayCard({ d }: { d: any }) {
+  if (!d) return <Unavailable why="no reading yet" />
+  const spend = d.spend || {}
+  const hosts = d.hosts || []
+
+  return (
+    <div className="railway">
+      <div className="kpirow">
+        <Kpi v={num(d.still_running)} k={`of ${num(d.checked)} old services still answering`}
+          tone={d.still_running ? 'amber' : ''} />
+        <Kpi v={spend.available ? moneyFine(spend.this_period) : '—'}
+          k={spend.available ? 'billed this period' : 'spend not connected'} />
+      </div>
+
+      {d.duplicate_of_aws ? (
+        <p className="warn">
+          Everything customer-facing moved to AWS, but these are still deployed and
+          still answering. Railway bills for a running service whether or not anyone
+          is pointed at it.
+        </p>
+      ) : (
+        <p className="good">Nothing is answering on Railway any more.</p>
+      )}
+
+      <table className="tbl">
+        <tbody>
+          {hosts.map((h: any) => (
+            <tr key={h.url}>
+              <td className="mono trunc">{h.url.replace(/^https:\/\//, '')}</td>
+              <td className="n">
+                {h.alive
+                  ? <Chip tone="amber">answering</Chip>
+                  : <Chip tone="green">{h.status ? `gone (${h.status})` : 'gone'}</Chip>}
+              </td>
+              <td className="n dim">{h.ms == null ? '' : `${h.ms} ms`}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      {!spend.available && (
+        <p className="foot">
+          To show what Railway is charging, this needs a Railway API token in
+          RAILWAY_API_TOKEN and the project id in RAILWAY_PROJECT_ID. Until then the
+          card reports only what it can prove by asking the old hosts directly.
+        </p>
+      )}
+    </div>
+  )
+}
+
+/* The Overview's small AWS card. Deliberately four numbers and a
+   sparkline — the full breakdown lives in its own section. */
+function AwsSpendMini({ d }: { d: any }) {
+  const s = d?.spend
+  if (!s) return <Unavailable why="no reading yet" />
+  if (!s.available) return <Unavailable why={s.reason} />
+  const peak = Math.max(...(s.daily || []).map((x: any) => x.amount), 0.01)
+  const up = s.projected_month != null && s.last_month != null && s.projected_month > s.last_month
+  return (
+    <div className="awsmini">
+      <div className="big">{money(s.month_to_date)}</div>
+      <div className="cap">spent so far in {s.this_month_label}</div>
+      <div className="proj">
+        <span className={up ? 'amber' : 'green'}>
+          {up ? '▲' : '▼'} {money(s.projected_month)}
+        </span>
+        <span className="dim"> on track for the month · {money(s.last_month)} in {s.last_month_label}</span>
+      </div>
+      <div className="daily small" aria-hidden="true">
+        {(s.daily || []).slice(-30).map((x: any) => (
+          <span key={x.day} className={`d ${x.partial ? 'partial' : ''}`}
+            style={{ height: `${Math.max(3, x.amount / peak * 100)}%` }} />
+        ))}
+      </div>
+      <table className="tbl tight">
+        <tbody>
+          {(s.services || []).slice(0, 4).map((x: any) => (
+            <tr key={x.service}><td>{x.label}</td><td className="n">{moneyFine(x.mtd)}</td></tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+/* WHERE OUR PEOPLE SAY THEY ARE.
+   The heading and the footnote both say "home state", every time, because
+   this is the one number on the board somebody could mistake for a live
+   location and it is nothing of the kind. */
+function PeopleByState({ d }: { d: any }) {
+  if (!d) return <Unavailable why="no reading yet" />
+  const rows = d.people_by_state || []
+  const top = rows[0]?.people || 1
+  const total = rows.reduce((n: number, r: any) => n + r.people, 0)
+  return (
+    <div className="bystate">
+      <div className="kpirow">
+        <Kpi v={num(total)} k="customers with a home state on file" />
+        <Kpi v={num(rows.reduce((n: number, r: any) => n + r.active_7d, 0))} k="of them active this week" />
+        <Kpi v={num(d.people_without_a_state)} k="never told us a state"
+          tone={d.people_without_a_state ? 'amber' : ''} />
+      </div>
+      <div className="statebars">
+        {rows.slice(0, 12).map((r: any) => (
+          <div className="sb" key={r.state}>
+            <span className="l">{r.state}</span>
+            <span className="bar">
+              <i style={{ width: `${Math.max(4, r.people / top * 100)}%` }} />
+              <u style={{ width: `${Math.max(0, r.active_7d / top * 100)}%` }} />
+            </span>
+            <span className="n">{num(r.people)}<em>{r.active_7d ? ` · ${num(r.active_7d)} active` : ''}</em></span>
+          </div>
+        ))}
+      </div>
+      <p className="foot">
+        {d.people_location_basis
+          ? `Based on ${d.people_location_basis}. We do not record device locations and do not geolocate anyone's connection.`
+          : ''}
+      </p>
+    </div>
+  )
+}
+
+/* ── The shell ────────────────────────────────────────────────────────
+   A left rail of sections instead of one wall of cards.
+
+   The old board put twenty panels on a single non-scrolling screen, which
+   worked only on a 2560-wide monitor and cut cards off on anything else.
+   Sections mean each view can be as tall as its content needs and the page
+   works on a laptop, which is where it actually gets opened. */
+
+type SectionId =
+  | 'overview' | 'map' | 'problems' | 'money' | 'people' | 'reach'
+  | 'performance' | 'errors' | 'jobs'
+  | 'pipeline' | 'quality'
+  | 'aws' | 'railway' | 'storage' | 'outside'
+
+const NAV: { group: string | null; items: { id: SectionId; label: string }[] }[] = [
+  {
+    group: null, items: [
+      { id: 'overview', label: 'Overview' },
+      { id: 'map', label: 'Live map' },
+      { id: 'problems', label: 'Problems' },
+    ],
+  },
+  {
+    group: 'Business', items: [
+      { id: 'money', label: 'Money' },
+      { id: 'people', label: 'People' },
+      { id: 'reach', label: 'Notifications & email' },
+    ],
+  },
+  {
+    group: 'Platform', items: [
+      { id: 'performance', label: 'Performance' },
+      { id: 'errors', label: 'Errors & crashes' },
+      { id: 'jobs', label: 'Background jobs' },
+    ],
+  },
+  {
+    group: 'Data', items: [
+      { id: 'pipeline', label: 'Scraper & staging' },
+      { id: 'quality', label: 'Data quality' },
+    ],
+  },
+  {
+    group: 'Infrastructure', items: [
+      { id: 'aws', label: 'AWS' },
+      { id: 'railway', label: 'Railway' },
+      { id: 'storage', label: 'Storage & backups' },
+      { id: 'outside', label: 'Outside services' },
+    ],
+  },
+]
+
+const SECTION_TITLES: Record<SectionId, string> = {
+  overview: 'Overview',
+  map: 'Where every sale is',
+  problems: 'Problems',
+  money: 'Money',
+  people: 'People',
+  reach: 'Notifications & email',
+  performance: 'Performance',
+  errors: 'Errors & crashes',
+  jobs: 'Background jobs',
+  pipeline: 'Scraper & staging',
+  quality: 'Data quality',
+  aws: 'AWS',
+  railway: 'Railway',
+  storage: 'Storage & backups',
+  outside: 'Outside services',
+}
+
+function Sidebar({ current, onPick, badges }: {
+  current: SectionId
+  onPick: (id: SectionId) => void
+  badges: Partial<Record<SectionId, { n: number; tone: Tone }>>
+}) {
+  return (
+    <aside className="side">
+      <div className="brand">
+        {/* The owner's own mark, sized and never otherwise touched. */}
+        <img src="/goat-icon-white.png" alt="" width={30} height={31} />
+        <div className="brandtext">
+          <b>Ground Goat</b>
+          <span>Command Center</span>
+        </div>
+      </div>
+
+      <nav>
+        {NAV.map((g, i) => (
+          <div className="navgroup" key={g.group || `g${i}`}>
+            {g.group && <h6>{g.group}</h6>}
+            {g.items.map(item => {
+              const badge = badges[item.id]
+              return (
+                <button type="button" key={item.id}
+                  className={`navitem ${current === item.id ? 'on' : ''}`}
+                  onClick={() => onPick(item.id)}
+                  aria-current={current === item.id ? 'page' : undefined}>
+                  <span className="nl">{item.label}</span>
+                  {badge && badge.n > 0 && (
+                    <span className={`nb ${badge.tone}`}>{num(badge.n)}</span>
+                  )}
+                </button>
+              )
+            })}
+          </div>
+        ))}
+      </nav>
+
+      <div className="sidefoot">
+        <a className="back" href="/admin/dashboard">← Admin</a>
+      </div>
+    </aside>
+  )
+}
+
+/* What has actually happened, newest first. Built from the panels the
+   board already computes — nothing here is a second query. */
+function ActivityFeed({ pulse, pipeline, money, people, mapD }:
+  { pulse: any; pipeline: any; money: any; people: any; mapD: any }) {
+  const items: { icon: string; title: string; detail: string; tone: Tone }[] = []
+
+  if (mapD?.today) {
+    items.push({
+      icon: '◆', tone: 'amber',
+      title: `${num(mapD.today)} ${mapD.today === 1 ? 'sale' : 'sales'} selling today`,
+      detail: `${num(mapD.next_7)} more inside a week`,
+    })
+  }
+  if (pipeline?.found != null) {
+    items.push({
+      icon: '↓', tone: '',
+      title: `${num(pipeline.found)} listings found overnight`,
+      // run_finished, not run_finished_at. The panel publishes the former;
+      // reading a key a panel does not publish fails silently and forever.
+      detail: pipeline.run_finished ? `${ago(pipeline.run_finished)} ago` : 'last scraper run',
+    })
+  }
+  if (pulse?.signups_today != null) {
+    items.push({
+      icon: '＋', tone: pulse.signups_today ? 'green' : '',
+      title: `${num(pulse.signups_today)} ${pulse.signups_today === 1 ? 'signup' : 'signups'} today`,
+      detail: `${num(pulse.customers_today)} customers used the product today`,
+    })
+  }
+  if (people?.new_7d != null) {
+    items.push({
+      icon: '☺', tone: '',
+      title: `${num(people.new_7d)} new ${people.new_7d === 1 ? 'account' : 'accounts'} this week`,
+      detail: `${num(people.seen_7d)} people signed in over the same week`,
+    })
+  }
+  if (money?.past_due_people) {
+    items.push({
+      icon: '!', tone: 'amber',
+      title: `${num(money.past_due_people)} past due`,
+      detail: 'payment failed and has not recovered',
+    })
+  }
+  if (pulse?.requests_today != null) {
+    items.push({
+      icon: '≡', tone: '',
+      title: `${num(pulse.requests_today)} requests today`,
+      detail: pulse.server_errors_today
+        ? `${num(pulse.server_errors_today)} of them failed on our side`
+        : 'none of them failed on our side',
+    })
+  }
+
+  if (!items.length) return <Unavailable why="no reading yet" />
+  return (
+    /* actfeed, not feed: the agent drawer already owns .feed and a shared
+       class name would have restyled both. */
+    <ul className="actfeed">
+      {items.map((it, i) => (
+        <li key={i}>
+          <span className={`fi ${it.tone}`}>{it.icon}</span>
+          <div>
+            <b>{it.title}</b>
+            <span>{it.detail}</span>
+          </div>
+        </li>
+      ))}
+    </ul>
+  )
+}
 
 export default function CommandCenterPage() {
   const router = useRouter()
@@ -2725,6 +3549,38 @@ export default function CommandCenterPage() {
   // Command Center went blank. Hooks cannot sit after a conditional return,
   // and TypeScript will not tell you.
   const [emailOpen, setEmailOpen] = useState(false)
+  /* Which section is on screen. Overview on load, and it never
+     navigates — the whole board is one route, so switching costs
+     nothing and the SSE stream is never torn down. */
+  const [section, setSection] = useState<SectionId>('overview')
+  /* The rail hides. The owner does not want it taking a fifth of the width
+     all day, and on this board width is the map. Remembered across reloads
+     because a preference you have to set every time is not a preference. */
+  const [railOpen, setRailOpen] = useState(true)
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('cc.rail')
+      if (saved !== null) setRailOpen(saved === '1')
+    } catch { /* private windows have no localStorage; the default stands */ }
+  }, [])
+  const toggleRail = useCallback(() => {
+    setRailOpen(v => {
+      try { localStorage.setItem('cc.rail', v ? '0' : '1') } catch { /* ignore */ }
+      return !v
+    })
+  }, [])
+
+  /* WITH THE OTHER HOOKS, ABOVE THE ACCESS CHECK.
+     Declared below `if (!authorised) return` this ran on some renders and
+     not others — "Rendered more hooks than during the previous render" —
+     and the whole Command Center went blank. The file has been bitten by
+     exactly this before, two hooks up. Nothing that calls a hook may sit
+     after a conditional return.
+
+     Pins load only while the map is on screen. Nobody reading the Money
+     page should be fetching a quarter of a megabyte of coordinates. */
+  const wantsMap = section === 'map' || section === 'overview'
+  const { data: mapPoints, error: mapError } = useMapPoints(authorised && wantsMap)
 
   /* Same admin gate as every other /admin page. The backend enforces it
      again on both endpoints — this only avoids showing an empty shell to
@@ -2836,7 +3692,7 @@ export default function CommandCenterPage() {
     return <><style dangerouslySetInnerHTML={{ __html: CSS }} /><div className="booting">Checking your access…</div></>
   }
 
-  const pulse = P('pulse'), moneyD = P('money'), peopleD = P('people'), regridD = P('regrid')
+  const pulse = P('pulse'), moneyD = P('money'), peopleD = P('people')
   const erroringD = P('failing_endpoints'), slowD = P('slow_endpoints'), jobsD = P('jobs'), crashD = P('crashes')
   const storageD = P('storage'), pipelineD = P('pipeline'), qualityD = P('data_quality')
   const notifD = P('notifications'), emailD = P('email')
@@ -2853,129 +3709,327 @@ export default function CommandCenterPage() {
      A feature must not disappear because its data is late. */
   const chart = (key: string) => () => setChartFor(key)
 
+  const mapD = P('map'), awsD = P('aws'), railwayD = P('railway')
+  const storageTrendD = P('storage_trend')
+
+  const alerts = snap.alerts || []
+  const redCount = alerts.filter(a => a.level === 'red').length
+  const amberCount = alerts.filter(a => a.level === 'amber').length
+
+  const badges: Partial<Record<SectionId, { n: number; tone: Tone }>> = {
+    map: { n: mapD?.today || 0, tone: 'amber' },
+    problems: { n: redCount, tone: 'red' },
+    errors: {
+      n: (erroringD?.length || 0) + (crashD?.last_24h || 0),
+      tone: erroringD?.length ? 'red' : 'amber',
+    },
+    jobs: { n: (jobsD?.failing || []).length, tone: 'red' },
+    railway: { n: railwayD?.still_running || 0, tone: 'amber' },
+  }
+
+  /* EVERY SECTION FITS THE SCREEN.
+     `rows` is the grid template for that view, so each section states how
+     its height is divided instead of letting content push the page into a
+     scrollbar. Cards scroll inside themselves; the board never does. */
+  const view = () => {
+    switch (section) {
+      case 'overview':
+        return (
+          <div className="grid" style={{ gridTemplateRows: 'minmax(0,1.75fr) minmax(0,1fr)' }}>
+            {/* The map is the point of this screen, so it gets the most of it. */}
+            <Panel span={8} title="Where every sale is"
+              tag={mapD ? `${num(mapD.upcoming)} still to come · ${num(mapD.states)} states` : undefined}
+              panelState={st('map')} onOpen={() => setSection('map')} flush>
+              {mapError ? <Unavailable why={mapError} /> : <LiveMap points={mapPoints} />}
+            </Panel>
+
+            <Panel span={4} title="Problems"
+              tag={alerts.length ? `${num(alerts.length)} open` : 'all clear'}>
+              <Problems alerts={alerts} fixes={fixesD}
+                onOpenFindings={() => setFixOpen(true)} />
+            </Panel>
+
+            <Panel span={3} title="Right now" infoId="pulse"
+              panelState={st('pulse')} onChart={chart('pulse')}>
+              {pulse ? <RightNow d={pulse} series={P('traffic_series')} />
+                : <Unavailable why={whyMissing('pulse')} />}
+            </Panel>
+
+            <Panel span={3} title="Money" tag="per year" infoId="money"
+              panelState={st('money')} onChart={chart('money')}>
+              {moneyD ? <Money d={moneyD} /> : <Unavailable why={whyMissing('money')} />}
+            </Panel>
+
+            <Panel span={3} title="AWS this month" panelState={st('aws')}
+              onOpen={() => setSection('aws')}>
+              {awsD ? <AwsSpendMini d={awsD} /> : <Unavailable why={whyMissing('aws')} />}
+            </Panel>
+
+            <Panel span={3} title="What is happening" panelState={st('pulse')}>
+              <ActivityFeed pulse={pulse} pipeline={pipelineD} money={moneyD}
+                people={peopleD} mapD={mapD} />
+            </Panel>
+          </div>
+        )
+
+      case 'map':
+        return (
+          <div className="grid" style={{ gridTemplateRows: 'minmax(0,2.4fr) minmax(0,1fr)' }}>
+            <Panel span={12} title="Every sale, and where our people are"
+              tag={mapPoints ? `${num((mapPoints.auctions || []).length)} pins` : undefined}
+              panelState={st('map')} flush>
+              {mapError ? <Unavailable why={mapError} /> : <LiveMap points={mapPoints} />}
+            </Panel>
+            <Panel span={4} title="Sales coming up" panelState={st('map')}>
+              <MapSummary d={mapD} points={mapPoints} />
+            </Panel>
+            <Panel span={4} title="Where our people are" panelState={st('map')}>
+              <PeopleByState d={mapD} />
+            </Panel>
+            <Panel span={4} title="Problems"
+              tag={alerts.length ? `${num(alerts.length)} open` : 'all clear'}>
+              <Problems alerts={alerts} fixes={fixesD}
+                onOpenFindings={() => setFixOpen(true)} />
+            </Panel>
+          </div>
+        )
+
+      case 'problems':
+        return (
+          <div className="grid" style={{ gridTemplateRows: 'minmax(0,1fr)' }}>
+            <Panel span={12} title="Everything that needs you"
+              tag={alerts.length ? `${num(alerts.length)} open` : 'all clear'}>
+              <Problems alerts={alerts} fixes={fixesD}
+                onOpenFindings={() => setFixOpen(true)} />
+            </Panel>
+          </div>
+        )
+
+      case 'money':
+        return (
+          <div className="grid" style={{ gridTemplateRows: 'minmax(0,1fr)' }}>
+            <Panel span={7} title="Money" tag="per year" infoId="money"
+              panelState={st('money')} onChart={chart('money')}
+              pip={!moneyD ? undefined : moneyD.past_due_people ? 'amber' : 'green'}>
+              {moneyD ? <Money d={moneyD} /> : <Unavailable why={whyMissing('money')} />}
+            </Panel>
+            <Panel span={5} title="People" infoId="people" panelState={st('people')}
+              onChart={chart('people')}>
+              {peopleD ? <People d={peopleD} /> : <Unavailable why={whyMissing('people')} />}
+            </Panel>
+          </div>
+        )
+
+      case 'people':
+        return (
+          <div className="grid" style={{ gridTemplateRows: 'minmax(0,1fr)' }}>
+            <Panel span={7} title="People" infoId="people" panelState={st('people')}
+              onChart={chart('people')}>
+              {peopleD ? <People d={peopleD} /> : <Unavailable why={whyMissing('people')} />}
+            </Panel>
+            <Panel span={5} title="Where our people are" panelState={st('map')}>
+              <PeopleByState d={mapD} />
+            </Panel>
+          </div>
+        )
+
+      case 'reach':
+        return (
+          <div className="grid" style={{ gridTemplateRows: 'minmax(0,1fr)' }}>
+            <Panel span={6} title="Notifications &amp; email" infoId="reach"
+              panelState={st('notifications')} pip={notifD?.overdue ? 'amber' : 'green'}>
+              {notifD || emailD
+                ? <Reach notif={notifD} email={emailD} fixes={fixesD}
+                    onOpenEmails={() => setEmailOpen(true)} />
+                : <Unavailable why={whyMissing('notifications')} />}
+            </Panel>
+          </div>
+        )
+
+      case 'performance':
+        return (
+          <div className="grid" style={{ gridTemplateRows: 'minmax(0,1fr) minmax(0,1.15fr)' }}>
+            <Panel span={6} title="Right now" tag="last 24 hours below" infoId="pulse"
+              panelState={st('pulse')} onChart={chart('pulse')}>
+              {pulse ? <RightNow d={pulse} series={P('traffic_series')} />
+                : <Unavailable why={whyMissing('pulse')} />}
+            </Panel>
+            <Panel span={6} title="Slowest things" infoId="slow_endpoints"
+              panelState={st('slow_endpoints')}
+              pip={!slowD ? undefined : slowD.some((e: any) => e.p95_ms >= 5000) ? 'amber' : 'green'}>
+              {slowD ? <Slowest d={slowD} /> : <Unavailable why={whyMissing('slow_endpoints')} />}
+            </Panel>
+            <Panel span={12} title="The machines behind it" panelState={st('aws')}>
+              {awsD ? <AwsHealth d={awsD} /> : <Unavailable why={whyMissing('aws')} />}
+            </Panel>
+          </div>
+        )
+
+      case 'errors':
+        return (
+          <div className="grid" style={{ gridTemplateRows: 'minmax(0,1fr)' }}>
+            <Panel span={6} title="What is erroring" infoId="failing_endpoints"
+              panelState={st('failing_endpoints')} onChart={chart('failing_endpoints')}
+              pip={!erroringD ? undefined : erroringD.length ? 'red' : 'green'}>
+              {erroringD ? <Erroring d={erroringD} /> : <Unavailable why={whyMissing('failing_endpoints')} />}
+            </Panel>
+            <Panel span={6} title="App crashes" infoId="crashes" panelState={st('crashes')}
+              onChart={chart('crashes')}
+              pip={!crashD ? undefined : crashD.last_hour ? 'red' : crashD.last_24h ? 'amber' : 'green'}>
+              {crashD ? <Crashes d={crashD} /> : <Unavailable why={whyMissing('crashes')} />}
+            </Panel>
+          </div>
+        )
+
+      case 'jobs':
+        return (
+          <div className="grid" style={{ gridTemplateRows: 'minmax(0,1fr)' }}>
+            <Panel span={12} title="Background jobs" infoId="jobs" panelState={st('jobs')}
+              pip={!jobsD ? undefined
+                : (jobsD.failing || []).length ? 'red' : (jobsD.stuck || []).length ? 'amber' : 'green'}>
+              {jobsD ? <Jobs d={jobsD} /> : <Unavailable why={whyMissing('jobs')} />}
+            </Panel>
+          </div>
+        )
+
+      case 'pipeline':
+        return (
+          <div className="grid" style={{ gridTemplateRows: 'minmax(0,1fr)' }}>
+            <Panel span={12} title="Scraper &amp; staging" infoId="pipeline"
+              panelState={st('pipeline')} onChart={chart('pipeline')}
+              pip={!pipelineD ? undefined
+                : pipelineD.run_failures ? 'red'
+                : pipelineD.listings_missing_main_image || pipelineD.tracts_boundary_missing_image
+                  ? 'amber' : 'green'}>
+              {pipelineD ? <Pipeline d={pipelineD} /> : <Unavailable why={whyMissing('pipeline')} />}
+            </Panel>
+          </div>
+        )
+
+      case 'quality':
+        return (
+          <div className="grid" style={{ gridTemplateRows: 'minmax(0,1fr)' }}>
+            <Panel span={12} title="Data quality" infoId="data_quality"
+              panelState={st('data_quality')}
+              pip={!qualityD ? undefined
+                : qualityD.valid_but_no_boundary || qualityD.past_auctions_no_price ? 'amber' : 'green'}>
+              {qualityD ? <Quality d={qualityD} fixes={fixesD} />
+                : <Unavailable why={whyMissing('data_quality')} />}
+            </Panel>
+          </div>
+        )
+
+      case 'aws':
+        return (
+          <div className="grid" style={{ gridTemplateRows: 'minmax(0,1fr)' }}>
+            <Panel span={7} title="What AWS costs" panelState={st('aws')}
+              pip={!awsD?.spend?.available ? undefined
+                : (awsD.spend.projected_month > awsD.spend.last_month * 1.25 ? 'amber' : 'green')}>
+              {awsD ? <AwsSpend d={awsD} /> : <Unavailable why={whyMissing('aws')} />}
+            </Panel>
+            <Panel span={5} title="How hard it is working" panelState={st('aws')}
+              pip={!awsD?.busiest ? undefined
+                : awsD.busiest.cpu_pct >= 80 ? 'red'
+                : awsD.busiest.cpu_pct >= 60 ? 'amber' : 'green'}>
+              {awsD ? <AwsHealth d={awsD} /> : <Unavailable why={whyMissing('aws')} />}
+            </Panel>
+          </div>
+        )
+
+      case 'railway':
+        return (
+          <div className="grid" style={{ gridTemplateRows: 'minmax(0,1fr)' }}>
+            <Panel span={7} title="Railway" tag="what is left of it"
+              panelState={st('railway')}
+              pip={!railwayD ? undefined : railwayD.duplicate_of_aws ? 'amber' : 'green'}>
+              {railwayD ? <RailwayCard d={railwayD} /> : <Unavailable why={whyMissing('railway')} />}
+            </Panel>
+          </div>
+        )
+
+      case 'storage':
+        return (
+          <div className="grid" style={{ gridTemplateRows: 'minmax(0,1fr)' }}>
+            <Panel span={7} title="Storage" tag="one shared disk" infoId="storage"
+              panelState={st('storage')} onChart={chart('storage')}
+              pip={!storageD || storageD.volume_pct == null ? undefined
+                : storageD.volume_pct >= 90 ? 'red'
+                : storageD.volume_pct >= 80 ? 'amber' : 'green'}>
+              {storageD ? <Storage d={storageD} trend={storageTrendD} />
+                : <Unavailable why={whyMissing('storage')} />}
+            </Panel>
+            <Panel span={5} title="Backups" tag="every database" infoId="backups"
+              panelState={st('backups')}
+              pip={!backupsD ? undefined
+                : backupsD.worst === 'ok' ? 'green'
+                : backupsD.irreplaceable_at_risk?.length ? 'red' : 'amber'}>
+              {backupsD ? <Backups d={backupsD} /> : <Unavailable why={whyMissing('backups')} />}
+            </Panel>
+          </div>
+        )
+
+      case 'outside':
+        return (
+          <div className="grid" style={{ gridTemplateRows: 'minmax(0,1fr)' }}>
+            <Panel span={12} title="Outside services" infoId="outside" panelState={st('outside')}>
+              {outsideD ? <Outside d={outsideD} fixes={fixesD} />
+                : <Unavailable why={whyMissing('outside')} />}
+            </Panel>
+          </div>
+        )
+    }
+  }
+
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
-      <div className="shell">
-        <header className="rail">
-          <div className="mark">
-            <h1>Ground Goat <em>Command Center</em></h1>
-            <span className="sub">Admins only</span>
-          </div>
-          <button type="button" className="devbtn" onClick={() => setDevOpen(true)}
-            aria-expanded={devOpen}>
-            Developers{(agentsD?.working || 0) + (fixesD?.working || 0)
-              ? <> · <span className="count">{num((agentsD?.working || 0) + (fixesD?.working || 0))}</span></>
-              : null}
-          </button>
-          <button type="button" className="devbtn" onClick={() => setFixOpen(true)}
-            aria-expanded={fixOpen}>
-            Findings{fixesD?.working ? <> · <span className="count">{num(fixesD.working)}</span></> : null}
-          </button>
-          <a className="back" href="/admin/dashboard">&larr; Admin</a>
-          <div className="rail-spacer" />
-          <span className={`pill ${connected ? '' : 'off'}`}>
-            <span className="dot" />
-            {connected ? 'Live' : 'Reconnecting'}
-          </span>
-          <div className="stat">
-            Last updated <b>{snap.generated_at ? ago(snap.generated_at) : '—'}</b> ago
-          </div>
-          {snap.stale && <div className="stat stale">Updates have stopped</div>}
-          <div className="clock">{clock}</div>
-        </header>
+      <div className={`shell ${railOpen ? '' : 'norail'}`}>
+        {railOpen && <Sidebar current={section} onPick={setSection} badges={badges} />}
 
-        <AlertStrip alerts={snap.alerts || []} fixes={fixesD}
-          onOpenFindings={() => setFixOpen(true)} />
+        <div className="mainwrap">
+          <header className="top">
+            <button type="button" className="railbtn" onClick={toggleRail}
+              aria-expanded={railOpen} aria-label={railOpen ? 'Hide the menu' : 'Show the menu'}
+              title={railOpen ? 'Hide the menu' : 'Show the menu'}>
+              <span /><span /><span />
+            </button>
+            {!railOpen && (
+              <span className="minibrand">
+                <img src="/goat-icon-white.png" alt="" width={18} height={19} />
+              </span>
+            )}
+            <h1>{SECTION_TITLES[section]}</h1>
 
-        <main className="field">
-          <Panel span={4} title="Right now" tag="last 24 hours below" infoId="pulse" panelState={st('pulse')} onChart={chart('pulse')}
-            pip={/* null when the hour has measured nothing — an
-                    unmeasured hour is not a green one */
-                 !pulse || pulse.error_rate_hour_pct == null ? undefined
-                 : pulse.error_rate_hour_pct >= 5 ? 'red'
-                 : pulse.error_rate_hour_pct >= 2 ? 'amber' : 'green'}>
-            {pulse ? <RightNow d={pulse} series={P('traffic_series')} /> : <Unavailable why={whyMissing('pulse')} />}
-          </Panel>
+            <div className="topspacer" />
 
-          <Panel span={3} title="Money" tag="per year" infoId="money" panelState={st('money')} onChart={chart('money')} pip={!moneyD ? undefined : moneyD.past_due_people ? 'amber' : 'green'}>
-            {moneyD ? <Money d={moneyD} /> : <Unavailable why={whyMissing('money')} />}
-          </Panel>
+            <button type="button" className="tbtn" onClick={() => setDevOpen(true)}
+              aria-expanded={devOpen}>
+              Developers{(agentsD?.working || 0) + (fixesD?.working || 0)
+                ? <> · <b>{num((agentsD?.working || 0) + (fixesD?.working || 0))}</b></> : null}
+            </button>
+            <button type="button" className="tbtn" onClick={() => setFixOpen(true)}
+              aria-expanded={fixOpen}>
+              Findings{fixesD?.working ? <> · <b>{num(fixesD.working)}</b></> : null}
+            </button>
 
-          <Panel span={3} title="App crashes" infoId="crashes" panelState={st('crashes')} onChart={chart('crashes')}
-            pip={!crashD ? undefined : crashD.last_hour ? 'red' : crashD.last_24h ? 'amber' : 'green'}>
-            {crashD ? <Crashes d={crashD} /> : <Unavailable why={whyMissing('crashes')} />}
-          </Panel>
+            <div className="stat">
+              updated <b>{snap.generated_at ? ago(snap.generated_at) : '—'}</b> ago
+            </div>
+            <div className="clock">{clock}</div>
 
-          <Panel span={2} title="Regrid budget" infoId="regrid" panelState={st('regrid')} onChart={chart('regrid')}
-            /* records_used_pct is not a key the Regrid panel publishes — it
-               never has been — so this pip was permanently green no matter
-               how much of the contract was gone. The panel's own headline
-               field is combined_pct, and half a contract is records + tiles,
-               not records alone. */
-            pip={!regridD || regridD.combined_pct == null ? undefined
-              : regridD.combined_pct >= 90 ? 'red' : regridD.combined_pct >= 75 ? 'amber' : 'green'}>
-            {regridD ? <Regrid d={regridD} /> : <Unavailable why={whyMissing('regrid')} />}
-          </Panel>
+            <span className={`status ${redCount ? 'bad' : amberCount ? 'warn' : ''} ${connected ? '' : 'off'}`}>
+              <span className="dot" />
+              {!connected ? 'Reconnecting'
+                : redCount ? `${redCount} ${redCount === 1 ? "thing needs" : "things need"} attention`
+                : amberCount ? `${amberCount} worth a look`
+                : 'All systems operational'}
+            </span>
+          </header>
 
-          <Panel span={3} title="What is erroring" infoId="failing_endpoints" panelState={st('failing_endpoints')} onChart={chart('failing_endpoints')} pip={!erroringD ? undefined : erroringD.length ? 'red' : 'green'}>
-            {erroringD ? <Erroring d={erroringD} /> : <Unavailable why={whyMissing('failing_endpoints')} />}
-          </Panel>
-
-          <Panel span={3} title="Slowest things" infoId="slow_endpoints" panelState={st('slow_endpoints')}
-            pip={!slowD ? undefined : slowD.some((e: any) => e.p95_ms >= 5000) ? 'amber' : 'green'}>
-            {slowD ? <Slowest d={slowD} /> : <Unavailable why={whyMissing('slow_endpoints')} />}
-          </Panel>
-
-          <Panel span={3} title="Background jobs" infoId="jobs" panelState={st('jobs')}
-            pip={!jobsD ? undefined : (jobsD.failing || []).length ? 'red' : (jobsD.stuck || []).length ? 'amber' : 'green'}>
-            {jobsD ? <Jobs d={jobsD} /> : <Unavailable why={whyMissing('jobs')} />}
-          </Panel>
-
-          <Panel span={3} title="People" infoId="people" panelState={st('people')} onChart={chart('people')} pip={peopleD ? 'green' : undefined}>
-            {peopleD ? <People d={peopleD} /> : <Unavailable why={whyMissing('people')} />}
-          </Panel>
-
-          <Panel span={4} title="Storage" tag="share of the ceiling" infoId="storage" panelState={st('storage')} onChart={chart('storage')}
-            pip={!storageD ? undefined : (storageD.stores || []).some((s: any) => (s.pct_of_cap || 0) >= 90) ? 'red' : 'amber'}>
-            {storageD ? <Storage d={storageD} trend={P('storage_trend')} /> : <Unavailable why={whyMissing('storage')} />}
-          </Panel>
-
-          {/* Stripe, Resend and Anthropic. This table has been filling up all
-              along — calls, errors and the last error MESSAGE — and nothing
-              on this dashboard read it, so an outside service failing was
-              invisible here. */}
-          <Panel span={3} title="Outside services" infoId="outside" panelState={st('outside')}>
-            {outsideD ? <Outside d={outsideD} fixes={fixesD} /> : <Unavailable why={whyMissing('outside')} />}
-          </Panel>
-          <Panel span={3} title="Scraper & staging" infoId="pipeline" panelState={st('pipeline')} onChart={chart('pipeline')}
-            pip={!pipelineD ? undefined
-              : pipelineD.run_failures ? 'red'
-              : pipelineD.listings_missing_main_image || pipelineD.tracts_boundary_missing_image ? 'amber' : 'green'}>
-            {pipelineD ? <Pipeline d={pipelineD} /> : <Unavailable why={whyMissing('pipeline')} />}
-          </Panel>
-
-          <Panel span={3} title="Data quality" infoId="data_quality" panelState={st('data_quality')}
-            pip={!qualityD ? undefined
-              : qualityD.valid_but_no_boundary || qualityD.past_auctions_no_price ? 'amber' : 'green'}>
-            {qualityD ? <Quality d={qualityD} fixes={fixesD} /> : <Unavailable why={whyMissing('data_quality')} />}
-          </Panel>
-
-          <Panel span={2} title="Notifications &amp; email" infoId="reach" panelState={st('notifications')} pip={notifD?.overdue ? 'amber' : 'green'}>
-            {notifD || emailD ? <Reach notif={notifD} email={emailD} fixes={fixesD}
-              onOpenEmails={() => setEmailOpen(true)} /> : <Unavailable why={whyMissing('notifications')} />}
-          </Panel>
-
-          {/* Backups had no card. The panel existed, the data was published,
-              and the screen showed none of it. */}
-          <Panel span={2} title="Backups" tag="every database" infoId="backups" panelState={st('backups')}
-            pip={!backupsD ? undefined
-              : backupsD.worst === 'ok' ? 'green'
-              : backupsD.irreplaceable_at_risk?.length ? 'red' : 'amber'}>
-            {backupsD ? <Backups d={backupsD} /> : <Unavailable why={whyMissing('backups')} />}
-          </Panel>
-        </main>
+          <main className="view">{view()}</main>
+        </div>
       </div>
+
       <AgentDrawer open={devOpen} onClose={() => setDevOpen(false)} data={agentsD} fixes={fixesD} />
       <FixDrawer open={fixOpen} onClose={() => setFixOpen(false)} data={fixesD} />
       <EmailDrawer open={emailOpen} onClose={() => setEmailOpen(false)} email={emailD} />
@@ -2988,9 +4042,10 @@ export default function CommandCenterPage() {
 }
 
 /* ── Styles ───────────────────────────────────────────────────────────
-   Kept as one string rather than a Tailwind soup: this is a fixed-height
-   instrument panel, and its grid, density and light palette are the
-   design, not incidental utility classes. */
+   Kept as one string rather than a Tailwind soup: this is an instrument
+   panel, and its rail, grid and density are the design, not incidental
+   utility classes. Every colour is a variable in :root, so the whole
+   palette turns over in one block. */
 const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 /* ───────────────────────────────────────────────────────────────
@@ -3005,56 +4060,47 @@ const CSS = `
    on this screen is red, something is actually wrong.
    ─────────────────────────────────────────────────────────────── */
 :root{
-  /* Ground Goat: pink, black and white, with blue as the one highlight.
-     The pink and black are the site's own brand values; pink only shifts
-     darker where it has to carry text on white. */
-  --paper:#F7F7F8;          /* flat fallback for --page */
-  /* White at the top falling to grey at the bottom. The cards nearest the
-     top separate on their shadow alone, which is why the shadow does the
-     lifting here and the border is only a hairline. */
-  /* Mission Control sits on a flat near-white, not a gradient — the
-     cards do the separating. */
-  --page:linear-gradient(180deg,#FAFAFB 0%,#F4F4F6 100%);
-  --card:#FFFFFF;
-  --card-2:#FFFFFF;         /* card headers: white, like Mission Control */
-  --head-line:#ECECEF;      /* the hairline under a card header */
-  --track:#EAEAEE;          /* unfilled part of a progress bar */
-  --ink:#0A0A0A;            /* gg-black */
-  --ink-2:#2A2A2A;          /* gg-gray-700 */
-  --muted:#555555;          /* gg-gray-500 */
-  --faint:#888888;          /* gg-gray-400 */
-  --line:#E6E6EA; --line-2:#D8D8DE;
+  /* DARK, BY THE OWNER'S OWN CHOICE.
+     This screen used to be light on purpose — he had a dark Health Monitor
+     and said he did not use it because it was dark. On 4 September 2026 he
+     sent a dark reference and asked for this board to look like it, so the
+     earlier decision is reversed here deliberately rather than by accident.
+     Every colour below is a variable, so reversing it again is one block.
 
-  /* Brand pink. #f58cde is the site's value and is too light to carry
-     text on white, so type and strokes use the dark tone and fills use
-     the bright one. */
-  --pink:#B84C97; --pink-bright:#F58CDE; --pink-tint:#F8DAF1;
-  /* The top bar. Black, with everything on it in white — the one place
-     on this page that inverts, so the panels below read as the content. */
-  --bar:#0A0A0A; --on-bar:#FFFFFF; --on-bar-dim:rgba(255,255,255,.68);
-  --bar-line:#0A0A0A; --pill:rgba(255,255,255,.10); --pill-line:rgba(255,255,255,.28);
+     Ground Goat's own pink stays as the identity accent — the active
+     section, the logo lockup, the focus ring. Green, amber and red are
+     reserved for state: if something on this screen is red, something is
+     actually wrong. */
+  --paper:#0A0D13;
+  --page:linear-gradient(180deg,#0C1017 0%,#080B10 100%);
+  --card:#121822;
+  --card-2:#151C28;
+  --head-line:#1E2634;
+  --track:#1A2230;
+  --ink:#E9EEF6;
+  --ink-2:#C4CDDB;
+  --muted:#8B98AB;
+  --faint:#69758A;
+  --line:#1D2532; --line-2:#2A3547;
 
-  /* The highlight. Deliberately used twice on the whole screen — the
-     traffic line and the live dot — so it stays a highlight. */
-  --blue:#2E6BE6;
-  --blue-pill:#DCE9FF; --blue-pill-hi:#B4D0FF; --blue-pill-line:#A9C6F5;
-  --blue-ink:#12459E;
-  /* Royal blue, for the info and chart buttons. */
-  --royal:#2B4FCB; --royal-hi:#1E3BA6; --royal-line:#1B379B;
+  --pink:#F58CDE; --pink-bright:#F9A8E6; --pink-tint:rgba(245,140,222,.14);
 
-  /* State colours, kept apart from the brand on purpose: if something on
-     this screen is red, something is actually wrong. */
-  --red:#C8102E; --red-bg:#FDEEF1; --red-line:#F2C3CD;
-  --amber:#9A6400; --amber-bg:#FDF4E5; --amber-line:#EBD7A8;
-  --green:#2E7D46; --green-bg:#EFF6F1;
-  --r:7px;
-  --lift:0 1px 2px rgba(16,16,20,.10), 0 4px 12px rgba(16,16,20,.16);
-  --lift-hi:0 2px 4px rgba(16,16,20,.14), 0 8px 22px rgba(16,16,20,.22);
-  /* DM Sans is the website's own body face (globals.css), so the dashboard
-     reads as part of Ground Goat rather than as a separate tool. It carries
-     the wordmark, every label and all running text.
-     IBM Plex Mono stays for figures only — digits have to line up in
-     columns, and a proportional face cannot do that. */
+  --bar:#0A0D13; --on-bar:#E9EEF6; --on-bar-dim:rgba(233,238,246,.62);
+  --bar-line:#1B2432; --pill:rgba(255,255,255,.06); --pill-line:rgba(255,255,255,.16);
+
+  --blue:#3B82F6;
+  --blue-pill:rgba(59,130,246,.16); --blue-pill-hi:rgba(59,130,246,.28);
+  --blue-pill-line:rgba(59,130,246,.42);
+  --blue-ink:#93C5FD;
+  --royal:#3B5BDB; --royal-hi:#4C6EF5; --royal-line:#3B5BDB;
+
+  --red:#F87171; --red-bg:rgba(248,113,113,.13); --red-line:rgba(248,113,113,.32);
+  --amber:#FBBF24; --amber-bg:rgba(251,191,36,.13); --amber-line:rgba(251,191,36,.32);
+  --green:#34D399; --green-bg:rgba(52,211,153,.13);
+
+  --r:9px;
+  --lift:0 1px 2px rgba(0,0,0,.45), 0 6px 18px rgba(0,0,0,.34);
+  --lift-hi:0 2px 6px rgba(0,0,0,.5), 0 12px 30px rgba(0,0,0,.45);
   --sans:'DM Sans',system-ui,-apple-system,'Segoe UI',sans-serif;
   --label:'DM Sans',system-ui,-apple-system,'Segoe UI',sans-serif;
   --mono:'IBM Plex Mono',ui-monospace,'SF Mono',Menlo,monospace;
@@ -3082,6 +4128,7 @@ const CSS = `
    turns overflow off. */
 body:has(.shell) > nav,
 body:has(.shell) > footer{display:none;}
+body:has(.shell){overflow:hidden;}
 .shell,.booting{
   background:var(--paper);
   background-image:var(--page);
@@ -3100,139 +4147,167 @@ body:has(.shell) > footer{display:none;}
 }
 .booting{display:flex;align-items:center;justify-content:center;height:100dvh;
   color:var(--muted);font-family:var(--label);letter-spacing:.06em;text-transform:uppercase;}
-.dot.off{background:var(--amber);}
-.stat.stale{color:#FF8A8A;font-weight:700;}
-.back{font-family:var(--label);font-size:11px;letter-spacing:.07em;text-transform:uppercase;
-  color:var(--on-bar);text-decoration:none;border:1px solid var(--pill-line);border-radius:999px;
-  padding:4px 12px;background:var(--pill);}
-.back:hover{background:rgba(255,255,255,.22);border-color:rgba(255,255,255,.6);}
-.back:focus-visible{outline:2px solid var(--pink);outline-offset:2px;}
-.num{font-family:var(--mono);font-variant-numeric:tabular-nums;font-feature-settings:"tnum";}
-
-/* ── Frame: three bands, the last one fills whatever is left ── */
+/* ── Frame: a rail of sections, and one scrolling view beside it ──
+   The old board was one non-scrolling wall of twenty cards, which needed a
+   2560x1440 monitor and silently cut cards off on anything smaller. Each
+   section now owns its own view and is free to be as tall as it needs. */
+/* ONE SCREEN. NOTHING SCROLLS BUT THE CARDS.
+   The board is pinned to the viewport and every view divides that height
+   between its cards; anything too tall for its card scrolls inside the
+   card. The page itself never scrolls in either direction — the owner
+   should never have to hunt for a number below the fold or off to the
+   right. */
 .shell{
-  /* Covers the site's fixed navigation and footer. This page is an
-     instrument panel, not a page in the site — sharing the chrome would
-     cost it the full width it was asked for. The Admin link in the rail is
-     the way back. */
-  position:relative;z-index:60;width:100%;min-height:100dvh;
-  display:grid;grid-template-rows:auto auto minmax(0,1fr);gap:9px;padding:0;
+  position:fixed;inset:0;z-index:60;
+  display:grid;grid-template-columns:216px minmax(0,1fr);
+  overflow:hidden;
 }
+.shell.norail{grid-template-columns:minmax(0,1fr);}
 
-/* ── Header rail ── */
-.rail{display:flex;align-items:center;gap:14px;
-  /* Runs edge to edge: no radius, no margin, and the shell below carries
-     the page inset instead of wrapping this bar in it. */
-  padding:9px 16px;border-radius:0;
-  background:var(--bar);border-bottom:1px solid var(--bar-line);
-  position:relative;z-index:2;}
-.mark{display:flex;align-items:baseline;gap:9px;}
-.mark h1{
-  font-family:var(--sans);font-weight:700;font-size:18px;letter-spacing:.055em;
-  margin:0;text-transform:uppercase;color:var(--on-bar);
+/* ── The rail ── */
+.side{
+  height:100%;min-height:0;
+  display:flex;flex-direction:column;gap:2px;
+  padding:16px 12px 12px;
+  background:var(--bar);border-right:1px solid var(--bar-line);
+  overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--line-2) transparent;
 }
-.mark h1 em{font-style:normal;font-weight:500;color:var(--pink-bright);}
-.mark .sub{font-family:var(--label);font-size:11px;color:var(--on-bar-dim);font-weight:600;
-  letter-spacing:.09em;text-transform:uppercase;}
-.rail-spacer{flex:1;}
+.brand{display:flex;align-items:center;gap:10px;padding:0 6px 16px;}
+/* The owner's mark, scaled to fit and never cropped, padded or recoloured. */
+.brand img{width:30px;height:auto;flex:none;opacity:.94;}
+.brandtext{display:flex;flex-direction:column;line-height:1.15;min-width:0;}
+.brandtext b{font-size:14px;font-weight:700;letter-spacing:-.01em;color:var(--on-bar);}
+.brandtext span{font-family:var(--label);font-size:9.5px;font-weight:600;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--pink-bright);}
+
+.side nav{display:flex;flex-direction:column;gap:14px;flex:1;}
+.navgroup{display:flex;flex-direction:column;gap:1px;}
+.navgroup h6{margin:0 0 4px;padding:0 8px;font-family:var(--label);font-size:9.5px;
+  font-weight:700;letter-spacing:.15em;text-transform:uppercase;color:var(--faint);}
+.navitem{
+  display:flex;align-items:center;gap:8px;width:100%;
+  padding:7px 9px;border:0;border-radius:7px;background:transparent;
+  font-family:var(--sans);font-size:12.5px;font-weight:500;color:var(--on-bar-dim);
+  text-align:left;cursor:pointer;
+}
+.navitem:hover{background:rgba(255,255,255,.05);color:var(--on-bar);}
+.navitem.on{background:var(--pink-tint);color:var(--on-bar);font-weight:600;
+  box-shadow:inset 2px 0 0 var(--pink-bright);}
+.navitem:focus-visible{outline:2px solid var(--pink-bright);outline-offset:-2px;}
+.navitem .nl{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.navitem .nb{font-family:var(--mono);font-size:10.5px;font-weight:600;
+  padding:1px 6px;border-radius:999px;background:var(--pill);color:var(--on-bar);}
+.navitem .nb.red{background:var(--red-bg);color:var(--red);}
+.navitem .nb.amber{background:var(--amber-bg);color:var(--amber);}
+.navitem .nb.green{background:var(--green-bg);color:var(--green);}
+.sidefoot{padding-top:12px;border-top:1px solid var(--bar-line);}
+
+.mainwrap{display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden;}
+
+/* ── Top bar ── */
+.top{
+  flex:none;z-index:20;
+  display:flex;align-items:center;gap:12px;
+  padding:9px 14px;
+  background:rgba(10,13,19,.86);backdrop-filter:blur(10px);
+  border-bottom:1px solid var(--bar-line);
+}
+.top h1{margin:0;font-size:16px;font-weight:600;letter-spacing:-.01em;color:var(--ink);}
+.topspacer{flex:1;}
+.tbtn{
+  font-family:var(--label);font-size:11px;letter-spacing:.05em;
+  color:var(--on-bar-dim);background:var(--pill);border:1px solid var(--pill-line);
+  border-radius:999px;padding:4px 11px;cursor:pointer;
+}
+.tbtn:hover{background:rgba(255,255,255,.12);color:var(--on-bar);}
+.tbtn b{font-family:var(--mono);color:var(--pink-bright);}
+.tbtn:focus-visible{outline:2px solid var(--pink-bright);outline-offset:2px;}
 .stat{display:flex;align-items:center;gap:6px;font-family:var(--label);font-size:11.5px;
-      letter-spacing:.05em;text-transform:uppercase;color:var(--on-bar-dim);}
-.stat b{font-family:var(--mono);font-weight:600;color:var(--on-bar);letter-spacing:0;text-transform:none;}
-/* The live indicator. A pill rather than a dot so it reads at a glance
-   from across the room, and the background pulses so a frozen page is
-   obvious: if this stops moving, the numbers have stopped too. */
-.pill{
-  display:inline-flex;align-items:center;gap:6px;
-  padding:3px 11px;border-radius:999px;
-  font-family:var(--label);font-size:11px;font-weight:700;
-  letter-spacing:.12em;text-transform:uppercase;
-  background:var(--blue-pill);color:var(--blue-ink);
-  border:1px solid var(--blue-pill-line);
-  animation:livepulse 2.2s ease-in-out infinite;
-}
-.pill .dot{width:6px;height:6px;border-radius:50%;background:var(--blue-ink);flex:none;}
-.pill.off{
-  background:var(--amber-bg);color:var(--amber);border-color:var(--amber-line);
-  animation:none;
-}
-.pill.off .dot{background:var(--amber);}
-@keyframes livepulse{
-  0%,100%{background:var(--blue-pill);}
-  50%    {background:var(--blue-pill-hi);}
-}
-@media (prefers-reduced-motion:reduce){.pill{animation:none;}}
-.clock{font-family:var(--mono);font-size:15px;font-weight:600;letter-spacing:-.01em;color:var(--on-bar);}
-.seg{display:flex;border:1px solid rgba(255,255,255,.28);border-radius:var(--r);overflow:hidden;}
-.seg button{
-  font-family:var(--label);font-size:11px;letter-spacing:.06em;text-transform:uppercase;
-  padding:4px 9px;border:0;background:rgba(255,255,255,.10);color:var(--on-bar-dim);cursor:pointer;
-}
-.seg button+button{border-left:1px solid rgba(255,255,255,.28);}
-.seg button[aria-pressed="true"]{background:#fff;color:var(--ink);}
-.seg button:focus-visible{outline:2px solid var(--pink);outline-offset:-2px;}
+  color:var(--muted);}
+.stat b{font-family:var(--mono);font-weight:600;color:var(--ink-2);}
+.stat.stale{color:var(--red);font-weight:700;}
+.clock{font-family:var(--mono);font-size:14px;font-weight:600;color:var(--ink-2);}
 
-/* ── Alert strip: the one thing that must be impossible to miss ── */
-.alerts{
-  display:grid;grid-template-columns:auto minmax(0,1fr);gap:9px;align-items:stretch;
-  /* Room below for the cards' shadows, pulled back with a negative margin so
-     the strip still occupies the same height. Without it the shadow was
-     sliced flat against the row underneath. */
-  padding:0 9px 16px;
-  margin-bottom:-16px;
+.status{
+  display:inline-flex;align-items:center;gap:7px;
+  font-family:var(--label);font-size:11.5px;font-weight:600;
+  padding:5px 12px;border-radius:999px;
+  background:var(--green-bg);border:1px solid rgba(52,211,153,.3);color:var(--green);
 }
+.status .dot{width:7px;height:7px;border-radius:50%;background:currentColor;flex:none;
+  animation:livepulse 2.4s ease-in-out infinite;}
+.status.warn{background:var(--amber-bg);border-color:var(--amber-line);color:var(--amber);}
+.status.bad{background:var(--red-bg);border-color:var(--red-line);color:var(--red);}
+.status.off{background:var(--pill);border-color:var(--pill-line);color:var(--muted);}
+.railbtn{
+  flex:none;width:28px;height:28px;border-radius:7px;cursor:pointer;
+  border:1px solid var(--line);background:var(--card);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+}
+.railbtn span{display:block;width:13px;height:1.5px;border-radius:1px;background:var(--ink-2);}
+.railbtn:hover{background:var(--pink-tint);border-color:var(--pink);}
+.railbtn:hover span{background:var(--pink-bright);}
+.railbtn:focus-visible{outline:2px solid var(--pink-bright);outline-offset:2px;}
+.minibrand{display:flex;align-items:center;}
+.minibrand img{opacity:.9;}
+.back{font-family:var(--label);font-size:11px;letter-spacing:.07em;text-transform:uppercase;
+  color:var(--on-bar-dim);text-decoration:none;display:block;padding:6px 8px;border-radius:7px;}
+.back:hover{background:rgba(255,255,255,.06);color:var(--on-bar);}
+.back:focus-visible{outline:2px solid var(--pink);outline-offset:2px;}
+
+/* ── The view ── */
+.view{flex:1;min-height:0;min-width:0;padding:11px 14px 14px;overflow:hidden;}
+.grid{
+  height:100%;min-height:0;
+  display:grid;grid-template-columns:repeat(12,minmax(0,1fr));
+  /* Rows come from each view, which knows how it wants its height split.
+     A default of equal rows keeps a view that forgets to say so on screen
+     rather than letting it grow a scrollbar. */
+  grid-auto-rows:minmax(0,1fr);
+  gap:10px;align-items:stretch;
+}
+.grid > .panel{min-height:0;}
+
+/* ── Problems, as a scrolling card ──
+   These used to be a horizontal banner across the top of the board. It ate
+   the height every other card needed and pushed the Diagnose buttons off
+   the right edge past the fourth alert. Now they stack in a card that
+   scrolls, so every button is reachable and the map keeps the room. */
+.problems{display:flex;flex-direction:column;gap:7px;}
 .verdict{
-  display:flex;flex-direction:column;justify-content:center;gap:1px;
-  padding:9px 16px;border-radius:var(--r);min-width:190px;
-  border:1px solid var(--red-line);background:var(--red-bg);
-  box-shadow:var(--lift-hi);
+  display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;
+  padding:8px 10px;border-radius:8px;
+  background:var(--red-bg);border:1px solid var(--red-line);
 }
-.verdict .big{font-family:var(--sans);font-weight:700;font-size:24px;line-height:1.05;
-  letter-spacing:.01em;text-transform:uppercase;color:var(--red);}
-.verdict .small{font-family:var(--label);font-size:11px;letter-spacing:.05em;
-  text-transform:uppercase;color:var(--muted);}
-.verdict.clear{border-color:#C6DECF;background:var(--green-bg);}
-.verdict.clear .big{color:var(--green);}
-.verdict.warn{border-color:var(--amber-line);background:var(--amber-bg);}
+.verdict.warn{background:var(--amber-bg);border-color:var(--amber-line);}
+.verdict.clear{background:var(--green-bg);border-color:rgba(52,211,153,.3);}
+.verdict .big{font-family:var(--mono);font-size:17px;font-weight:600;color:var(--red);}
 .verdict.warn .big{color:var(--amber);}
+.verdict.clear .big{color:var(--green);}
+.verdict .small{font-size:11.5px;color:var(--muted);}
 
-.alert-row{display:flex;gap:7px;overflow-x:auto;overflow-y:hidden;
-  scrollbar-width:thin;position:relative;
-  /* overflow-x:auto forces overflow-y to compute as auto, so anything drawn
-     past this box is clipped — a shadow included. The bottom padding is the
-     shadow's room to exist inside the scroller; the negative margin keeps
-     the strip its original height, letting the shadow fall behind the cards
-     on the row below rather than being cut off against them. */
-  padding:3px 2px 22px;
-  margin-bottom:-18px;
-  -webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 52px),transparent 100%);
-  mask-image:linear-gradient(90deg,#000 calc(100% - 52px),transparent 100%);}
-.alert-row.fits{-webkit-mask-image:none;mask-image:none;}
 .alert{
-  flex:0 0 auto;max-width:296px;min-width:186px;
-  border:1px solid var(--line);border-left:4px solid var(--faint);
-  border-radius:var(--r);background:var(--card);padding:7px 11px;
-  box-shadow:var(--lift-hi);
+  display:flex;flex-direction:column;gap:2px;
+  padding:8px 10px;border-radius:8px;
+  background:var(--card-2);border:1px solid var(--line);
+  border-left:3px solid var(--red);
 }
-.alert.red{border-left-color:var(--red);background:var(--red-bg);border-color:var(--red-line);}
-.alert.amber{border-left-color:var(--amber);background:var(--amber-bg);border-color:var(--amber-line);}
-.alert.info{border-left-color:var(--royal);background:#EEF2FF;border-color:#C7D2FE;}
-.alert .where{font-family:var(--label);font-size:9.5px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);}
-.alert .title{font-weight:600;font-size:13px;margin:1px 0 2px;line-height:1.2;text-wrap:balance;}
-.alert.red .title{color:var(--red);}
-.alert.amber .title{color:var(--amber);}
-.alert.info .title{color:var(--royal);}
-.alert .detail{font-size:11.5px;color:var(--ink-2);line-height:1.3;
-  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
-.all-clear{display:flex;align-items:center;padding:0 14px;border:1px solid #C6DECF;
-  border-radius:var(--r);background:var(--green-bg);color:var(--green);font-size:13px;
-  box-shadow:var(--lift-hi);}
+.alert.amber{border-left-color:var(--amber);}
+.alert.info{border-left-color:var(--royal);}
+.alert .where{font-family:var(--label);font-size:9px;font-weight:700;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--faint);}
+.alert .title{font-size:12.5px;font-weight:600;color:var(--ink);line-height:1.3;}
+.alert.amber .title{color:var(--ink);}
+.alert .detail{font-size:11.5px;line-height:1.45;color:var(--muted);}
+.alert-actions{display:flex;gap:6px;margin-top:5px;}
+.allgood{
+  display:flex;flex-direction:column;gap:3px;align-items:center;justify-content:center;
+  height:100%;min-height:80px;text-align:center;
+  color:var(--green);
+}
+.allgood b{font-size:14px;font-weight:600;}
+.allgood span{font-size:11.5px;color:var(--muted);}
 
-/* ── Panel field ── */
-.field{display:grid;padding:0 9px 9px;grid-template-columns:repeat(12,minmax(0,1fr));
-  /* Cards size to their own content and the page scrolls. The three weighted
-     bands that fit everything on one screen are applied only on a display
-     tall enough for them — see the bottom of this stylesheet. */
-  grid-auto-rows:minmax(240px,auto);gap:9px;min-height:0;}
 .panel{
   min-height:0;display:flex;flex-direction:column;overflow:hidden;
   background:var(--card);border:1px solid var(--line);border-radius:var(--r);
@@ -3240,19 +4315,17 @@ body:has(.shell) > footer{display:none;}
 }
 .panel > h2{
   flex:none;margin:0;display:flex;align-items:center;gap:7px;
-  padding:7px 11px;border-bottom:1px solid #0B0B0F;
-  background:linear-gradient(180deg,#3A3A44 0%,#26262E 55%,#1A1A20 100%);
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.10), 0 1px 0 rgba(16,16,20,.30);
-  font-family:var(--label);font-weight:700;font-size:11px;
-  letter-spacing:.085em;text-transform:uppercase;color:#F2F2F5;
-  text-shadow:0 1px 0 rgba(0,0,0,.5);
+  padding:9px 13px;border-bottom:1px solid var(--head-line);
+  background:var(--card-2);
+  font-family:var(--label);font-weight:700;font-size:10.5px;
+  letter-spacing:.11em;text-transform:uppercase;color:var(--ink-2);
 }
-.panel > h2 .tag{margin-left:auto;font-size:10px;letter-spacing:.06em;
-  color:#A9A9B6;font-weight:600;}
+.panel > h2 .tag{margin-left:auto;font-size:10px;letter-spacing:.05em;
+  color:var(--faint);font-weight:600;text-transform:none;}
 .panel > h2 .pip{width:7px;height:7px;border-radius:50%;background:var(--pink-bright);flex:none;}
 .panel > h2 .pip.red{background:var(--red);} .panel > h2 .pip.amber{background:var(--amber);}
 .panel > h2 .pip.green{background:var(--green);}
-.body{min-height:0;flex:1;overflow-y:auto;overflow-x:hidden;padding:9px 11px;
+.body{min-height:0;flex:1;overflow-y:auto;overflow-x:hidden;padding:11px 13px;
   display:flex;flex-direction:column;gap:8px;scrollbar-width:thin;
   scrollbar-color:var(--line-2) transparent;}
 .body > *{flex:0 0 auto;min-height:0;}
@@ -3281,7 +4354,7 @@ body:has(.shell) > footer{display:none;}
 table{width:100%;border-collapse:collapse;font-size:12px;}
 th{font-family:var(--label);font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;
    color:var(--faint);font-weight:600;text-align:left;padding:0 0 3px;border-bottom:1px solid var(--line);}
-td{padding:3.5px 0;border-bottom:1px solid #F1F1F3;vertical-align:baseline;}
+td{padding:3.5px 0;border-bottom:1px solid var(--line);vertical-align:baseline;}
 tr:last-child td{border-bottom:0;}
 td.n,th.n{text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums;
    white-space:nowrap;padding-left:14px;}
@@ -3457,10 +4530,10 @@ svg.spark{display:block;width:100%;height:100%;}
 .axis{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:9px;fill:#7A7A88;letter-spacing:0;}
 .chartbtn{
   flex:none;width:20px;height:20px;padding:0;margin-left:6px;cursor:pointer;
-  border:1px solid #D9D9E0;border-radius:5px;background:#F59E0B;
+  border:1px solid var(--line-2);border-radius:5px;background:#B45309;
   color:#0B0B0F;display:inline-flex;align-items:center;justify-content:center;
 }
-.chartbtn:hover{background:#FBAF24;border-color:#EDEDF2;}
+.chartbtn:hover{background:#D97706;border-color:var(--line-2);}
 .chartbtn:focus-visible{outline:2px solid var(--pink);outline-offset:1px;}
 .chartbtn svg{width:12px;height:12px;display:block;}
 .panel > h2 .tag + .chartbtn{margin-left:6px;}
@@ -3498,11 +4571,11 @@ svg.spark{display:block;width:100%;height:100%;}
    limits are written down can be trusted; one without them cannot. */
 .infobtn{
   flex:none;width:20px;height:20px;padding:0;margin-left:5px;cursor:pointer;
-  border:1px solid #D9D9E0;border-radius:50%;background:var(--royal);
+  border:1px solid var(--line-2);border-radius:50%;background:var(--royal);
   color:#fff;display:inline-flex;align-items:center;justify-content:center;
   font-family:var(--sans);font-size:11px;font-weight:700;line-height:1;
 }
-.infobtn:hover{background:var(--royal-hi);border-color:#EDEDF2;}
+.infobtn:hover{background:var(--royal-hi);border-color:var(--line-2);}
 .infobtn:focus-visible{outline:2px solid var(--pink);outline-offset:1px;}
 .panel > h2 .infobtn:first-of-type{margin-left:auto;}
 .panel{position:relative;}
@@ -3558,7 +4631,7 @@ svg.spark{display:block;width:100%;height:100%;}
 .runbtn:hover{background:#a3427f;border-color:#a3427f;}
 .runbtn:focus-visible{outline:2px solid var(--ink);outline-offset:2px;}
 .runbtn.ghost{background:var(--pill);color:var(--ink);border-color:var(--pill-line);}
-.runbtn.ghost:hover{background:#fff;border-color:var(--faint);}
+.runbtn.ghost:hover{background:var(--card-2);border-color:var(--faint);}
 .runnote{font-size:11px;color:var(--faint);}
 
 /* ── Fix button ─────────────────────────────────────────────────────
@@ -3580,29 +4653,283 @@ svg.spark{display:block;width:100%;height:100%;}
 .fixnote{font-size:10px;color:var(--faint);margin-top:3px;}
 .alert-actions{display:flex;gap:5px;align-items:center;flex-wrap:wrap;margin-top:auto;}
 
-/* ── Everything on one screen, but only when one screen can hold it ──
-   This used to key on WIDTH ALONE (max-width:1700px). A laptop is wide
-   enough to clear that and nowhere near tall enough to hold three bands of
-   panels, so the page stayed locked to 100dvh, the weighted rows squashed,
-   and every card silently clipped its own contents — People showed three
-   numbers with their labels cut off, Slowest things showed a header and no
-   rows. overflow:hidden on .panel meant it lost the content without a
-   scrollbar to hint that anything was missing.
+/* ── Narrower screens ──
+   The one-screen layout needs the width to hold twelve columns AND the
+   height to hold two bands of readable cards. A 2560x1440 monitor has both;
+   a laptop does not — and clipping cards to keep a promise about not
+   scrolling is worse than scrolling. Below the threshold the cards take
+   their natural height and the view scrolls, vertically only, never
+   sideways.
 
-   Fitting everything at once is a question about HEIGHT, so it is asked
-   about height. Both conditions have to hold: twelve columns need the
-   width, three bands of readable cards need roughly 1200px of it. A
-   2560x1440 monitor passes; a 16" laptop at 1117 tall does not, and gets a
-   page that scrolls with every card at its natural size. */
-@media (min-width:1700px) and (min-height:1200px){
-  body:has(.shell){overflow:hidden;}
-  .shell{position:fixed;inset:0;width:auto;min-height:0;
-    background-attachment:fixed;background-size:auto;}
-  .field{grid-auto-rows:auto;
-    grid-template-rows:minmax(0,1.12fr) minmax(0,.64fr) minmax(0,1.24fr);}
+   The version before this forced two columns below 1500px WITHOUT relaxing
+   the row template, so three rows of cards were pushed into a two-row grid
+   and the bottom row was cut off with no scrollbar to say so.  */
+@media (max-width:1600px), (max-height:760px){
+  .view{overflow-y:auto;overflow-x:hidden;}
+  /* ROWS ARE CAPPED, NOT AUTO.
+     With auto, the row grew to its tallest card — the Problems list with
+     fourteen alerts, 1,772px of it — and every card beside it stretched to
+     match. The map card became a 440x1772 sliver with the United States
+     somewhere off the top. A row is at most half the viewport; anything
+     longer scrolls inside its own card, which is the whole arrangement. */
+  .grid{height:auto;grid-template-rows:none!important;
+    grid-auto-rows:minmax(260px,48vh);}
 }
-@media (max-width:1100px){
-  .field{grid-template-columns:repeat(6,minmax(0,1fr));}
-  .panel{grid-column:span 6!important;}
+@media (max-width:1280px){
+  .grid > .panel{grid-column:span 6!important;}
+  .grid > .panel[style*="span 12"]{grid-column:span 12!important;}
 }
+@media (max-width:900px){
+  .shell{position:static;grid-template-columns:1fr;overflow:visible;}
+  body:has(.shell){overflow:auto;}
+  .side{height:auto;flex-direction:row;flex-wrap:wrap;
+    align-items:center;gap:8px;border-right:0;border-bottom:1px solid var(--bar-line);}
+  .side nav{flex-direction:row;flex-wrap:wrap;gap:6px;}
+  .navgroup{flex-direction:row;flex-wrap:wrap;}
+  .navgroup h6{display:none;}
+  .sidefoot{border-top:0;padding-top:0;}
+  .mainwrap{overflow:visible;}
+  .view{overflow:visible;}
+  .grid > .panel{grid-column:span 12!important;}
+  .top{flex-wrap:wrap;}
+}
+
+/* ── New cards ───────────────────────────────────────────────────── */
+
+/* THE MAP CARD'S BODY IS A BOX, NOT A FLEX COLUMN.
+   .body is a scrolling flex column and .body > * is pinned to
+   flex:0 0 auto, so a child asking for height:100% was resolving against
+   an indefinite height: the map fell back to its min-height and sat in
+   part of the card with the rest left blank. Positioning it absolutely
+   inside a relative body removes the question entirely — the map is
+   exactly the size of the card it is in, at every width.
+
+   NOTE FOR ANYONE EDITING THIS STYLESHEET: it lives inside a template
+   literal, so a backtick anywhere in here — even in a comment — ends the
+   string and breaks the build. */
+.panel.flush > .body{padding:0;position:relative;display:block;overflow:hidden;}
+.panel.flush > .body > *{position:absolute;inset:0;}
+.openbtn{
+  margin-left:6px;flex:none;width:20px;height:20px;border-radius:6px;
+  border:1px solid var(--line-2);background:transparent;color:var(--muted);
+  font-size:12px;line-height:1;cursor:pointer;
+}
+.panel > h2 .tag + .openbtn,
+.panel > h2 .openbtn:first-of-type{margin-left:auto;}
+.openbtn:hover{background:var(--pink-tint);border-color:var(--pink);color:var(--pink-bright);}
+.openbtn:focus-visible{outline:2px solid var(--pink-bright);outline-offset:1px;}
+
+/* ── Map ── */
+/* ── The map, as a piece of glass ──
+   A faint grid, a cool wash and a vignette laid over the imagery, so the
+   card reads as an instrument rather than a satellite photo in a box. All
+   three are pointer-events:none — they sit on top and change nothing about
+   dragging, zooming or clicking a pin. */
+.mapwrap{position:relative;height:100%;width:100%;overflow:hidden;
+  background:#060B14;}
+.mapbox{position:absolute;inset:0;background:#060B14;}
+.mapbox canvas{outline:none;}
+.mapwrap::before{
+  content:'';position:absolute;inset:0;z-index:2;pointer-events:none;
+  background:
+    repeating-linear-gradient(0deg, rgba(120,200,255,.055) 0 1px, transparent 1px 42px),
+    repeating-linear-gradient(90deg, rgba(120,200,255,.055) 0 1px, transparent 1px 42px);
+  mix-blend-mode:screen;
+}
+.mapwrap::after{
+  content:'';position:absolute;inset:0;z-index:3;pointer-events:none;
+  background:
+    radial-gradient(120% 90% at 50% 45%, transparent 55%, rgba(4,8,15,.72) 100%),
+    linear-gradient(180deg, rgba(56,189,248,.06), transparent 38%, rgba(12,74,110,.14));
+}
+
+@media (prefers-reduced-motion:reduce){
+  /* The grid is decoration, not information — but it stays, because it does
+     not move. Only the pulses below are motion. */
+}
+.maplegend{
+  position:absolute;left:10px;top:10px;z-index:6;
+  display:flex;flex-direction:column;gap:3px;align-items:flex-start;
+  background:rgba(6,11,20,.66);backdrop-filter:blur(14px) saturate(140%);
+  border:1px solid rgba(120,200,255,.18);border-radius:10px;padding:8px;
+  box-shadow:0 8px 28px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.06);
+}
+.maplegend .lg{
+  display:flex;align-items:center;gap:7px;width:100%;
+  padding:3px 7px;border:0;border-radius:5px;background:transparent;cursor:pointer;
+  font-family:var(--sans);font-size:11.5px;color:var(--muted);text-align:left;
+  opacity:.5;
+}
+.maplegend .lg.on{opacity:1;color:var(--ink-2);}
+.maplegend .lg:hover{background:rgba(255,255,255,.06);}
+.maplegend .lg:focus-visible{outline:2px solid var(--pink-bright);outline-offset:-2px;}
+.maplegend .lg i{width:9px;height:9px;border-radius:50%;flex:none;}
+.maplegend .lg b{font-family:var(--mono);font-size:11px;color:var(--ink);margin-left:auto;}
+.lgswitches{display:flex;flex-direction:column;gap:2px;width:100%;margin-top:4px;
+  border-top:1px solid rgba(120,200,255,.16);padding-top:5px;}
+.maplegend .lg.base{justify-content:center;opacity:1;color:var(--blue-ink);
+  font-size:11px;}
+.maplegend .lg.base.on{color:#BAE6FD;}
+.maplegend .lg.onair{opacity:1;color:var(--green);cursor:default;}
+.maplegend .lg.onair b{color:var(--green);}
+.maplegend .beacon{
+  width:9px;height:9px;border-radius:50%;background:var(--green);flex:none;
+  box-shadow:0 0 0 0 rgba(52,211,153,.7);
+  animation:beacon 2.2s ease-out infinite;
+}
+@keyframes beacon{
+  0%   {box-shadow:0 0 0 0 rgba(52,211,153,.6);}
+  100% {box-shadow:0 0 0 9px rgba(52,211,153,0);}
+}
+@media (prefers-reduced-motion:reduce){.maplegend .beacon{animation:none;}}
+.mapnote{
+  position:absolute;left:10px;bottom:10px;z-index:6;
+  background:rgba(6,11,20,.66);backdrop-filter:blur(14px);
+  border:1px solid rgba(120,200,255,.18);border-radius:8px;
+  padding:5px 9px;font-size:11px;color:var(--muted);
+}
+.mappop{
+  position:absolute;right:10px;top:10px;z-index:7;width:262px;max-height:calc(100% - 20px);
+  overflow-y:auto;background:rgba(9,15,24,.86);backdrop-filter:blur(16px) saturate(140%);
+  border:1px solid rgba(120,200,255,.2);
+  border-radius:11px;box-shadow:0 12px 40px rgba(0,0,0,.6);padding:12px 13px;
+}
+.mappop h4{margin:0 4px 3px 0;font-size:13px;font-weight:600;color:var(--ink);line-height:1.3;}
+.mappop .pk{font-size:11.5px;color:var(--muted);margin-bottom:8px;}
+.mappop .x{
+  position:absolute;right:7px;top:6px;width:20px;height:20px;border:0;border-radius:5px;
+  background:transparent;color:var(--muted);font-size:16px;line-height:1;cursor:pointer;
+}
+.mappop .x:hover{background:var(--pill);color:var(--ink);}
+.mappop .basis{margin:8px 0 0;font-size:10.5px;line-height:1.45;color:var(--faint);}
+.mappop .popl{display:inline-block;margin-top:9px;font-size:11.5px;color:var(--blue-ink);
+  text-decoration:none;font-weight:600;}
+.mappop .popl:hover{text-decoration:underline;}
+/* State headcounts are HTML markers rather than a GL text layer — the map
+   style carries no glyph server, so a symbol layer's labels would never
+   draw and nothing would say why. */
+.peoplepin{
+  position:relative;
+  display:flex;align-items:center;justify-content:center;
+  border-radius:50%;border:1px solid rgba(56,189,248,.55);
+  background:rgba(56,189,248,.16);color:#BAE6FD;
+  font-family:var(--mono);font-size:11px;font-weight:600;cursor:pointer;
+  backdrop-filter:blur(3px);
+  box-shadow:0 0 0 1px rgba(8,18,30,.6), 0 0 14px rgba(56,189,248,.25);
+}
+.peoplepin:hover{background:rgba(56,189,248,.32);}
+/* SOMEBODY FROM THIS STATE IS ON THE PRODUCT RIGHT NOW.
+   Brighter, and ringed by an expanding pulse. The ring is a pseudo-element
+   so it costs no extra DOM node per state. */
+.peoplepin.live{
+  border-color:rgba(52,211,153,.8);
+  background:rgba(52,211,153,.22);color:#D1FAE5;
+  box-shadow:0 0 0 1px rgba(8,18,30,.6), 0 0 18px rgba(52,211,153,.45);
+}
+.peoplepin.live::after{
+  content:'';position:absolute;inset:-2px;border-radius:50%;
+  border:1.5px solid rgba(52,211,153,.75);
+  animation:pinpulse 2.2s ease-out infinite;
+  pointer-events:none;
+}
+@keyframes pinpulse{
+  0%   {transform:scale(1);   opacity:.75;}
+  100% {transform:scale(2.4); opacity:0;}
+}
+@media (prefers-reduced-motion:reduce){
+  .peoplepin.live::after{animation:none;opacity:.5;}
+}
+.live-now{color:var(--green);font-weight:700;}
+
+.mapsum{display:flex;flex-direction:column;gap:10px;}
+.statebars{display:flex;flex-direction:column;gap:5px;}
+.statebars .sb{display:grid;grid-template-columns:26px 1fr auto;align-items:center;gap:8px;}
+.statebars .sb .l{font-family:var(--mono);font-size:11px;color:var(--muted);}
+.statebars .sb .bar{position:relative;height:7px;border-radius:4px;background:var(--track);
+  overflow:hidden;}
+.statebars .sb .bar i{position:absolute;left:0;top:0;bottom:0;background:var(--green);
+  border-radius:4px;opacity:.75;}
+/* The lighter overlay is the "active" subset drawn inside the same bar, so
+   the two are read against each other rather than side by side. */
+.statebars .sb .bar u{position:absolute;left:0;top:0;bottom:0;background:var(--blue);
+  border-radius:4px;}
+.statebars .sb .n{font-family:var(--mono);font-size:11.5px;color:var(--ink-2);}
+.statebars .sb .n em{font-style:normal;color:var(--faint);font-size:10.5px;}
+.bystate{display:flex;flex-direction:column;gap:11px;}
+
+/* ── Activity feed ── */
+.actfeed{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px;}
+.actfeed li{display:flex;gap:10px;align-items:flex-start;padding:8px 4px;
+  border-bottom:1px solid var(--line);}
+.actfeed li:last-child{border-bottom:0;}
+.actfeed .fi{
+  flex:none;width:26px;height:26px;border-radius:7px;display:flex;
+  align-items:center;justify-content:center;font-size:12px;
+  background:var(--pill);color:var(--muted);
+}
+.actfeed .fi.green{background:var(--green-bg);color:var(--green);}
+.actfeed .fi.amber{background:var(--amber-bg);color:var(--amber);}
+.actfeed .fi.red{background:var(--red-bg);color:var(--red);}
+.actfeed li div{display:flex;flex-direction:column;min-width:0;gap:1px;}
+.actfeed li b{font-size:12.5px;font-weight:600;color:var(--ink);}
+.actfeed li span{font-size:11.5px;color:var(--muted);}
+
+/* ── AWS ── */
+.aws,.health,.railway,.awsmini{display:flex;flex-direction:column;gap:10px;}
+.daily{display:flex;align-items:flex-end;gap:2px;height:64px;padding-top:4px;}
+.daily.small{height:36px;}
+.daily .d{flex:1;min-width:2px;border-radius:2px 2px 0 0;background:var(--blue);opacity:.75;}
+.daily .d:hover{opacity:1;}
+/* Today is a part-day and always looks like a collapse in spend. Hatched
+   rather than solid so it never reads as a finished figure. */
+.daily .d.partial{background:repeating-linear-gradient(45deg,
+  var(--blue) 0 3px,transparent 3px 6px);opacity:.55;}
+.dailyfoot{display:flex;justify-content:space-between;font-family:var(--mono);
+  font-size:10px;color:var(--faint);}
+.awsmini .big{font-family:var(--mono);font-size:30px;font-weight:600;
+  letter-spacing:-.02em;color:var(--ink);line-height:1;}
+.awsmini .cap{font-size:11.5px;color:var(--muted);}
+.awsmini .proj{font-size:11.5px;}
+.awsmini .proj .amber{color:var(--amber);font-weight:600;}
+.awsmini .proj .green{color:var(--green);font-weight:600;}
+
+.health h5{margin:6px 0 0;font-family:var(--label);font-size:10px;font-weight:700;
+  letter-spacing:.13em;text-transform:uppercase;color:var(--faint);}
+.mrow{display:flex;flex-direction:column;gap:5px;padding:8px 0;
+  border-bottom:1px solid var(--line);}
+.mrow:last-child{border-bottom:0;}
+.mtop{display:flex;align-items:baseline;gap:8px;}
+.mtop .l{font-size:12.5px;font-weight:600;color:var(--ink);}
+.mtop .l em{font-style:normal;font-weight:400;color:var(--faint);}
+.mtop .r{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--muted);}
+.mbars{display:flex;flex-direction:column;gap:4px;}
+.mfoot{font-family:var(--mono);font-size:10.5px;}
+.meter{display:grid;grid-template-columns:34px 1fr 40px auto;align-items:center;gap:8px;}
+.meter .ml{font-family:var(--label);font-size:10px;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--faint);}
+.meter .mb{height:7px;border-radius:4px;background:var(--track);overflow:hidden;}
+.meter .mb i{display:block;height:100%;border-radius:4px;background:var(--green);}
+.meter .mb i.amber{background:var(--amber);}
+.meter .mb i.red{background:var(--red);}
+.meter .mv{font-family:var(--mono);font-size:11.5px;color:var(--ink-2);text-align:right;}
+.meter .mv.amber{color:var(--amber);} .meter .mv.red{color:var(--red);}
+.meter .mn{font-family:var(--mono);font-size:10.5px;}
+
+.railway .warn{margin:0;padding:9px 11px;border-radius:7px;font-size:12px;line-height:1.45;
+  background:var(--amber-bg);border:1px solid var(--amber-line);color:var(--ink-2);}
+.railway .good{margin:0;padding:9px 11px;border-radius:7px;font-size:12px;
+  background:var(--green-bg);border:1px solid rgba(52,211,153,.3);color:var(--ink-2);}
+.trunc{max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
+.foot{margin:2px 0 0;font-size:10.5px;line-height:1.5;color:var(--faint);}
+.tbl.tight td{padding:3px 0;}
+
+/* KPI rows: the new cards lay their headline numbers out in a row that
+   wraps, where the old .kpis was a column grid. */
+.kpirow{display:flex;flex-wrap:wrap;gap:16px 26px;}
+.kpirow > .kpi{min-width:96px;}
+.lb{display:flex;flex-direction:column;gap:8px;padding-bottom:8px;
+  border-bottom:1px solid var(--line);}
+.mono,.num{font-family:var(--mono);font-variant-numeric:tabular-nums;
+  font-feature-settings:"tnum";}
 `
