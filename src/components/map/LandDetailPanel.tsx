@@ -231,7 +231,7 @@ interface LandDetailPanelProps {
       instant instead of scanning a 48M-row national table. */
   // Returns a promise so the button can show a spinner until the dots
   // actually land. `void` is still accepted for callers that don't.
-  onShowOwnedGround?: (ownerName: string, state?: string | null, county?: string | null) => void | Promise<void>
+  onShowOwnedGround?: (ownerName: string, state?: string | null, county?: string | null, lat?: number | null, lng?: number | null) => void | Promise<void>
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
@@ -309,6 +309,12 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
   const reportPoint = (clickData?.clickLat != null && clickData?.clickLng != null)
     ? { lat: clickData.clickLat, lng: clickData.clickLng }
     : null
+
+  // Same lat/lng fallback fetchData uses for the crop-history fetch above —
+  // the tapped parcel's resolved point, for Show Owned Ground's owner/
+  // state/county lookup on the backend.
+  const ownedGroundLat = clickData?.parcelProps?.centroid_lat ?? clickData?.clickLat ?? null
+  const ownedGroundLng = clickData?.parcelProps?.centroid_lng ?? clickData?.clickLng ?? null
 
   // Reset transient send/download state whenever the clicked parcel changes.
   // Keyed on `clickData` itself (a fresh object literal per click — see
@@ -774,7 +780,7 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
                 if (loadingOwnedGround) return   // guard the double-click
                 setLoadingOwnedGround(true)
                 try {
-                  await onShowOwnedGround(owner, derived.state || null, derived.county || null)
+                  await onShowOwnedGround(owner, derived.state || null, derived.county || null, ownedGroundLat, ownedGroundLng)
                 } finally {
                   // finally, not after the await: the handler swallows its
                   // own errors today, but a future throw must not strand

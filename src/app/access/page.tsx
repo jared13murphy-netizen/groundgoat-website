@@ -258,11 +258,15 @@ function AccessPortalPageInner() {
   // button. Deterministic REST call (no LLM), then the result flows into
   // the exact same owner-dots pipeline a Goat Search owner lookup uses.
   // Zero-match never touches the map (same rule as the chat path).
-  const handleShowOwnedGround = async (ownerName: string, state?: string | null, county?: string | null) => {
+  const handleShowOwnedGround = async (ownerName: string, state?: string | null, county?: string | null, lat?: number | null, lng?: number | null) => {
     try {
       const qs = new URLSearchParams({ owner_name: ownerName })
       if (state) qs.set('state_abbr', state)
       if (county) qs.set('county_name', county)
+      if (Number.isFinite(lat) && Number.isFinite(lng)) {
+        qs.set('lat', String(lat))
+        qs.set('lng', String(lng))
+      }
       const res = await fetchWithAuth(`${API_URL}/api/parcels/owned-by?${qs.toString()}`)
       if (!res.ok) return
       const body = await res.json()
