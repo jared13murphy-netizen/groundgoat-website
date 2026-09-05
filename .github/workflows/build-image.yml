@@ -1,0 +1,91 @@
+# Build the website Docker image in GitHub Actions and publish it to GHCR.
+# Nothing here touches the production host: this exists so images are never
+# built on gg-app-1 (owner rule 2026-09-02). Run it by hand for any ref:
+#   gh workflow run build-image.yml -r <branch> -f tag=<tag> -f api_url=... -f deploy_sandbox=true
+# The optional deploy_sandbox step pulls the image into the SANDBOX stack only.
+name: Build image
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag (e.g. sandbox, main)"
+        required: true
+        default: sandbox
+      api_url:
+        description: "NEXT_PUBLIC_API_URL baked into the bundle"
+        required: true
+        default: https://sandbox-api.groundgoat.com
+      tiles_url:
+        required: true
+        default: https://tiles.groundgoat.com
+      scraper_url:
+        required: false
+        default: ""
+      is_sandbox:
+        description: "NEXT_PUBLIC_IS_SANDBOX"
+        required: false
+        default: "true"
+      live_url:
+        required: false
+        default: https://www.groundgoat.com
+      host:
+        description: "Sandbox host to pull into — a PRIVATE IP reached through gg-app-1 as the jump host (the sandbox box accepts SSH only from the app server)"
+        required: false
+        default: "172.31.40.129"
+      deploy_sandbox:
+        description: "Pull the image into /opt/gg/sandbox on gg-app-1 and restart sandbox-web"
+        required: false
+        default: "false"
+permissions:
+  contents: read
+  packages: write
+concurrency:
+  group: build-image-${{ inputs.tag }}
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/groundgoat-website:${{ inputs.tag }}
+            ghcr.io/${{ github.repository_owner }}/groundgoat-website:${{ inputs.tag }}-${{ github.sha }}
+          build-args: |
+            NEXT_PUBLIC_API_URL=${{ inputs.api_url }}
+            NEXT_PUBLIC_TILES_URL=${{ inputs.tiles_url }}
+            NEXT_PUBLIC_SCRAPER_URL=${{ inputs.scraper_url }}
+            NEXT_PUBLIC_IS_SANDBOX=${{ inputs.is_sandbox }}
+            NEXT_PUBLIC_LIVE_URL=${{ inputs.live_url }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Open SSH on gg-app-1 for this runner only
+        if: ${{ inputs.deploy_sandbox == 'true' }}
+        run: |
+          export AWS_ACCESS_KEY_ID='${{ secrets.AWS_CI_ACCESS_KEY_ID }}' AWS_SECRET_ACCESS_KEY='${{ secrets.AWS_CI_SECRET_ACCESS_KEY }}' AWS_DEFAULT_REGION=us-east-1
+          RUNNER_IP=$(curl -s https://checkip.amazonaws.com)
+          echo "RUNNER_IP=$RUNNER_IP" >> "$GITHUB_ENV"
+          aws ec2 authorize-security-group-ingress --group-id sg-007dd60b54833d70b --ip-permissions "IpProtocol=tcp,FromPort=22,ToPort=22,IpRanges=[{CidrIp=$RUNNER_IP/32,Description=github-actions-run-${{ github.run_id }}}]" >/dev/null 2>&1 || true
+          sleep 5
+      - name: Deploy to sandbox (pull only, no build on the host)
+        if: ${{ inputs.deploy_sandbox == 'true' }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.GG_DEPLOY_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H 100.63.171.136 >> ~/.ssh/known_hosts 2>/dev/null
+          ssh -o ServerAliveInterval=30 -o StrictHostKeyChecking=accept-new -J ubuntu@100.63.171.136 ubuntu@'${{ inputs.host }}' "echo '${{ secrets.GITHUB_TOKEN }}' | sudo docker login ghcr.io -u '${{ github.actor }}' --password-stdin && cd /opt/gg/sandbox && sudo docker compose pull sandbox-web && sudo docker compose up -d --no-build sandbox-web && sudo docker logout ghcr.io"
+      - name: Close SSH for this runner (always)
+        if: ${{ always() && inputs.deploy_sandbox == 'true' }}
+        run: |
+          export AWS_ACCESS_KEY_ID='${{ secrets.AWS_CI_ACCESS_KEY_ID }}' AWS_SECRET_ACCESS_KEY='${{ secrets.AWS_CI_SECRET_ACCESS_KEY }}' AWS_DEFAULT_REGION=us-east-1
+          [ -n "$RUNNER_IP" ] && aws ec2 revoke-security-group-ingress --group-id sg-007dd60b54833d70b --protocol tcp --port 22 --cidr "$RUNNER_IP/32" >/dev/null 2>&1 || true
