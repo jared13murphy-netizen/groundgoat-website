@@ -2900,6 +2900,11 @@ function useCounties(active: boolean, months: number, company: string, status: s
   return { data, error, loading }
 }
 
+/* THE LIST IS FETCHED AS SOON AS THE MAP IS UP.
+   It used to wait until a colour measure was chosen or the select had been
+   focused — so opening the dropdown showed an empty list, because the
+   request had not been made yet and a <select> needs its options before it
+   opens. It is a few dozen names; there is nothing to defer. */
 function useCompanies(active: boolean, months: number) {
   const [list, setList] = useState<any[]>([])
   useEffect(() => {
@@ -2949,13 +2954,16 @@ function LiveMap({ points, full, onToggleFull }: {
      most looks at this map are about pins, not prices. */
   const [measure, setMeasure] = useState<CountyMeasure | null>(null)
   const [months, setMonths] = useState(12)
-  const [company, setCompany] = useState('')
+  const [picked_companies, setPickedCompanies] = useState<string[]>([])
   const [soldStatus, setSoldStatus] = useState<'sold' | 'no_sale'>('sold')
   const [pickedCounty, setPickedCounty] = useState<any>(null)
   const [countyLayerReady, setCountyLayerReady] = useState(false)
+  /* The break values behind the colours, so the legend can say what
+     each one is worth rather than showing an unlabelled ramp. */
+  const [scale, setScale] = useState<number[]>([])
   const [filtersOpen, setFiltersOpen] = useState(false)
-  const counties = useCounties(!!measure, months, company, soldStatus)
-  const companyList = useCompanies(!!measure || filtersOpen, months)
+  const counties = useCounties(!!measure, months, picked_companies.join(','), soldStatus)
+  const companyList = useCompanies(true, months)
 
   /* Build the map once.
 
@@ -3386,10 +3394,10 @@ function LiveMap({ points, full, onToggleFull }: {
           <h6>Colour counties by</h6>
           {MEASURES.map(mo => (
             <button type="button" key={mo.id}
-              className={`lg ${measure === mo.id ? 'on' : ''}`}
+              className={`lg pick ${measure === mo.id ? 'on' : ''}`}
               title={mo.hint}
               onClick={() => setMeasure(measure === mo.id ? null : mo.id)}>
-              <i className="sw" style={{ background: measure === mo.id ? HEAT_COLOURS[3] : 'transparent' }} />
+              <i className="sw" aria-hidden="true" />
               {mo.label}
             </button>
           ))}
@@ -3415,14 +3423,40 @@ function LiveMap({ points, full, onToggleFull }: {
             <button type="button" className={`chipbtn ${soldStatus === 'no_sale' ? 'on' : ''}`}
               onClick={() => setSoldStatus('no_sale')}>No sale</button>
           </div>
-          <select className="lgsel" value={company}
-            onChange={e => setCompany(e.target.value)}
-            onFocus={() => setFiltersOpen(true)}>
-            <option value="">Every auction company</option>
-            {companyList.map(c => (
-              <option key={c.name} value={c.name}>{c.name} ({c.auctions})</option>
-            ))}
-          </select>
+          {/* SEVERAL AT ONCE, NOT ONE.
+              A dropdown could only ever answer "how did this firm do"; the
+              question worth asking is how two or three compare in the same
+              county. Checkboxes, busiest first, with the count each has
+              sold so the list is ordered by something meaningful. */}
+          <button type="button" className="lg firmshead"
+            onClick={() => setFiltersOpen(v => !v)} aria-expanded={filtersOpen}>
+            {picked_companies.length
+              ? `${num(picked_companies.length)} auction ${picked_companies.length === 1 ? 'company' : 'companies'}`
+              : 'Every auction company'}
+            <b>{filtersOpen ? '\u2212' : '+'}</b>
+          </button>
+          {filtersOpen && (
+            <div className="firmlist">
+              {picked_companies.length > 0 && (
+                <button type="button" className="lg clear"
+                  onClick={() => setPickedCompanies([])}>Clear, show every company</button>
+              )}
+              {companyList.length === 0 && <span className="firmnone">Loading…</span>}
+              {companyList.map(c => {
+                const on = picked_companies.includes(c.name)
+                return (
+                  <label key={c.name} className={`firm ${on ? 'on' : ''}`}>
+                    <input type="checkbox" checked={on}
+                      onChange={() => setPickedCompanies(prev =>
+                        prev.includes(c.name) ? prev.filter(x => x !== c.name)
+                                              : [...prev, c.name])} />
+                    <span className="fn">{c.name}</span>
+                    <span className="fc">{num(c.auctions)}</span>
+                  </label>
+                )
+              })}
+            </div>
+          )}
         </div>
       </div>
 
@@ -3445,8 +3479,24 @@ function LiveMap({ points, full, onToggleFull }: {
                   ? ` · ${num(counties.data.counties_with_sales - counties.data.counties_drawn)} could not be drawn`
                   : ''}
                 <em className="scale">
-                  faint = fewer than {num(counties.data.thin_threshold)} priced sales, so not a market rate
+                  bigger circle = more acres sold · faint = fewer than
+                  {' '}{num(counties.data.thin_threshold)} priced sales, so not a market rate
                 </em>
+                {scale.length > 0 && (
+                  <span className="ramp">
+                    {HEAT_COLOURS.slice(0, scale.length + 1).map((c, i) => (
+                      <span key={c} className="rk">
+                        <i style={{ background: c }} />
+                        <em>
+                          {i === 0 ? `under ${activeMeasure?.money
+                            ? '$' + num(scale[0], 0) : num(scale[0], 0)}`
+                            : activeMeasure?.money ? '$' + num(scale[i - 1], 0)
+                            : num(scale[i - 1], 0)}
+                        </em>
+                      </span>
+                    ))}
+                  </span>
+                )}
               </>
             ) : 'No county sales in this window.'}
         </div>
@@ -3459,7 +3509,7 @@ function LiveMap({ points, full, onToggleFull }: {
           <h4>{pickedCounty.county} County, {pickedCounty.state}</h4>
           <div className="pk">
             {soldStatus === 'sold' ? 'Sold' : 'No sale'} · last {months} months
-            {company ? ` · ${company}` : ''}
+            {picked_companies.length ? ` · ${picked_companies.join(', ')}` : ''}
           </div>
 
           <div className="kpirow tight">
@@ -5321,6 +5371,40 @@ svg.spark{display:block;width:100%;height:100%;}
 .mappop .kpirow.tight{gap:12px 18px;margin-bottom:6px;}
 .mappop .firms{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;}
 .mappop .more{margin-top:9px;}
+
+
+/* Measure buttons are the feature, not a footnote. The unselected ones sat
+   at half opacity like the layer toggles above them, which on screen reads
+   as disabled — the owner asked for "a way to change the colours" while
+   looking straight at the control that does it. */
+.maplegend .lg.pick{opacity:1;color:var(--ink-2);}
+.maplegend .lg.pick .sw{width:11px;height:11px;border-radius:3px;flex:none;
+  border:1px solid var(--line-2);background:transparent;}
+.maplegend .lg.pick.on{background:var(--pink-tint);color:var(--ink);font-weight:600;}
+.maplegend .lg.pick.on .sw{background:var(--pink-bright);border-color:var(--pink-bright);}
+.maplegend .lg.pick:hover{background:rgba(255,255,255,.07);}
+
+/* Auction companies: several at once, busiest first. */
+.maplegend .lg.firmshead{opacity:1;color:var(--ink-2);margin-top:2px;}
+.maplegend .lg.firmshead b{margin-left:auto;font-family:var(--mono);color:var(--muted);}
+.firmlist{display:flex;flex-direction:column;max-height:210px;overflow-y:auto;
+  margin:2px 4px 0;padding-right:2px;scrollbar-width:thin;
+  scrollbar-color:var(--line-2) transparent;}
+.firmnone{padding:5px 7px;font-size:11px;color:var(--faint);}
+.firm{display:flex;align-items:center;gap:7px;padding:3px 6px;border-radius:5px;
+  cursor:pointer;font-size:11.5px;color:var(--muted);}
+.firm:hover{background:rgba(255,255,255,.06);color:var(--ink-2);}
+.firm.on{color:var(--ink);}
+.firm input{accent-color:var(--pink);margin:0;flex:none;}
+.firm .fn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.firm .fc{font-family:var(--mono);font-size:10.5px;color:var(--faint);}
+
+/* The colour ramp, with the values it stands for. */
+.ramp{display:flex;gap:0;margin-top:5px;}
+.ramp .rk{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0;}
+.ramp .rk i{height:6px;border-radius:1px;}
+.ramp .rk em{font-style:normal;font-family:var(--mono);font-size:9px;
+  color:var(--faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 
 /* ── People growth, and the Stripe check ─────────────────────────── */
 .pgrowth,.btruth{display:flex;flex-direction:column;gap:10px;}
