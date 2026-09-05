@@ -2862,7 +2862,77 @@ function useMapPoints(active: boolean) {
   return { data, error }
 }
 
-function LiveMap({ points }: { points: MapPoints | null }) {
+/* ── County sales, for the heat layer ─────────────────────────────────
+   Loaded only when a heat measure is switched on, and cached for fifteen
+   minutes on the server per filter combination. Half a megabyte of county
+   outlines has no business being fetched by someone looking at pins. */
+
+type CountyMeasure = 'ppa' | 'ppa_tillable' | 'acres' | 'auctions'
+
+const MEASURES: { id: CountyMeasure; label: string; money: boolean; hint: string }[] = [
+  { id: 'ppa', label: '$ / acre', money: true,
+    hint: 'total dollars ÷ total acres, over every priced sale in the county' },
+  { id: 'ppa_tillable', label: '$ / acre, cropland', money: true,
+    hint: 'the same, over tracts that are mostly tillable' },
+  { id: 'acres', label: 'Acres sold', money: false, hint: 'acres that changed hands' },
+  { id: 'auctions', label: 'Auctions', money: false, hint: 'how many sales were held' },
+]
+
+function useCounties(active: boolean, months: number, company: string, status: string) {
+  const [data, setData] = useState<any>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (!active) return
+    let stop = false
+    setLoading(true)
+    const q = new URLSearchParams({ months: String(months), status })
+    if (company) q.set('company', company)
+    fetchWithAuth(`${API_URL}/api/admin/command-center/map/counties?${q}`)
+      .then(r => (r.ok ? r.json() : Promise.reject(new Error(`counties answered ${r.status}`))))
+      .then(j => { if (!stop) { setData(j.available === false ? null : j); setError(j.reason || null) } })
+      .catch(e => { if (!stop) setError(e?.message || 'could not load county sales') })
+      .finally(() => { if (!stop) setLoading(false) })
+    return () => { stop = true }
+  }, [active, months, company, status])
+
+  return { data, error, loading }
+}
+
+function useCompanies(active: boolean, months: number) {
+  const [list, setList] = useState<any[]>([])
+  useEffect(() => {
+    if (!active) return
+    let stop = false
+    fetchWithAuth(`${API_URL}/api/admin/command-center/map/companies?months=${months}`)
+      .then(r => (r.ok ? r.json() : { companies: [] }))
+      .then(j => { if (!stop) setList(j.companies || []) })
+      .catch(() => { /* the filter simply stays empty */ })
+    return () => { stop = true }
+  }, [active, months])
+  return list
+}
+
+/** Quantile breaks, so the colours split the counties evenly rather than
+    splitting the RANGE evenly — one $40,000 county would otherwise leave
+    every other county in the same bottom bucket. */
+function breaks(values: number[], n = 5): number[] {
+  const v = values.filter(x => Number.isFinite(x) && x > 0).sort((a, b) => a - b)
+  if (v.length < n) return v.length ? [v[0]] : [0]
+  const out: number[] = []
+  for (let i = 1; i < n; i++) out.push(v[Math.floor(v.length * i / n)])
+  return Array.from(new Set(out))
+}
+
+const HEAT_COLOURS = ['#1e3a5f', '#1d4ed8', '#0891b2', '#16a34a', '#eab308', '#f97316']
+
+function LiveMap({ points, full, onToggleFull }: {
+  points: MapPoints | null
+  /** Filling the window. Esc leaves. */
+  full?: boolean
+  onToggleFull?: () => void
+}) {
   const wrap = useRef<HTMLDivElement | null>(null)
   const box = useRef<HTMLDivElement | null>(null)
   const map = useRef<any>(null)
@@ -2873,6 +2943,19 @@ function LiveMap({ points }: { points: MapPoints | null }) {
   const [labels, setLabels] = useState(true)
   const [show, setShow] = useState({ upcoming: true, live: true, sold: false })
   const [picked, setPicked] = useState<any>(null)
+
+  /* ── County shading: what is asked for, and over which sales ──
+     Off until a measure is chosen: the outlines are half a megabyte and
+     most looks at this map are about pins, not prices. */
+  const [measure, setMeasure] = useState<CountyMeasure | null>(null)
+  const [months, setMonths] = useState(12)
+  const [company, setCompany] = useState('')
+  const [soldStatus, setSoldStatus] = useState<'sold' | 'no_sale'>('sold')
+  const [pickedCounty, setPickedCounty] = useState<any>(null)
+  const [countyLayerReady, setCountyLayerReady] = useState(false)
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const counties = useCounties(!!measure, months, company, soldStatus)
+  const companyList = useCompanies(!!measure || filtersOpen, months)
 
   /* Build the map once.
 
@@ -3145,11 +3228,133 @@ function LiveMap({ points }: { points: MapPoints | null }) {
     return () => { stopped = true; cancelAnimationFrame(raf) }
   }, [ready, show.live, points])
 
+  /* Click and hover on the county shading, attached once the layer exists. */
+  useEffect(() => {
+    const m = map.current
+    if (!m || !ready || !countyLayerReady) return
+    const onClick = (e: any) => {
+      const f = e.features?.[0]
+      if (f) { setPickedCounty(f.properties); setPicked(null) }
+    }
+    const enter = () => { m.getCanvas().style.cursor = 'pointer' }
+    const leave = () => { m.getCanvas().style.cursor = '' }
+    m.on('click', 'cc_county_fill', onClick)
+    m.on('mouseenter', 'cc_county_fill', enter)
+    m.on('mouseleave', 'cc_county_fill', leave)
+    return () => {
+      m.off('click', 'cc_county_fill', onClick)
+      m.off('mouseenter', 'cc_county_fill', enter)
+      m.off('mouseleave', 'cc_county_fill', leave)
+    }
+  }, [ready, countyLayerReady])
+
+  /* Feed it, and colour it.
+     Breaks are quantiles over the counties actually returned, so the
+     colours split the counties evenly instead of splitting the range —
+     one $40,000-an-acre county would otherwise flatten every other county
+     into the bottom bucket. */
+  useEffect(() => {
+    const m = map.current
+    if (!m || !ready) return
+
+    const fc = counties.data
+    const on = !!measure && !!fc
+
+    /* CREATED HERE, WITH THE DATA IN HAND — NOT AT STYLE-READY.
+       This is the whole reason the shading drew nothing for so long. The
+       source used to be added the moment the style reported ready, and
+       what came back was a source that accepted data, answered loaded()
+       true, and tiled NOTHING: 575 features in, zero tiles out, and a
+       plain hardcoded square put through the same source tiled zero too.
+       So it was never the county data — it was a source created too early
+       to have a working tile cache behind it. The pin layers a few effects
+       up have always waited for their data before creating anything, and
+       they have always rendered. This now does exactly the same. */
+    if (!on) {
+      if (m.getLayer('cc_county_fill')) {
+        m.setLayoutProperty('cc_county_fill', 'visibility', 'none')
+      }
+      return
+    }
+
+    const data = { type: 'FeatureCollection', features: fc.features || [] }
+    const existing: any = m.getSource('cc_counties')
+    if (existing) {
+      existing.setData(data as any)
+    } else {
+      m.addSource('cc_counties', { type: 'geojson', data } as any)
+    }
+
+    if (!m.getLayer('cc_county_fill')) {
+      // Under the auction pins: the county figures are context, the sales
+      // themselves are the subject.
+      const under = m.getLayer('cc_sold_dots') ? 'cc_sold_dots' : undefined
+      m.addLayer({
+        id: 'cc_county_fill', type: 'circle', source: 'cc_counties',
+        paint: {
+          'circle-color': '#2a3547',
+          // Sized by how much ground the county actually moved, so a county
+          // with two sales cannot look like one with forty.
+          'circle-radius': ['interpolate', ['linear'], ['zoom'],
+            3, ['interpolate', ['linear'], ['coalesce', ['get', 'acres'], 0], 0, 3, 6000, 11],
+            8, ['interpolate', ['linear'], ['coalesce', ['get', 'acres'], 0], 0, 7, 6000, 30]],
+          // Faint when the price rests on one or two deals — not a market rate.
+          'circle-opacity': ['case', ['==', ['get', 'thin'], true], 0.35, 0.82],
+          'circle-stroke-width': 1,
+          'circle-stroke-color': '#0b1220',
+          'circle-stroke-opacity': 0.8,
+        },
+      } as any, under)
+      setCountyLayerReady(true)
+    }
+    m.setLayoutProperty('cc_county_fill', 'visibility', 'visible')
+  }, [ready, measure, counties.data])
+
+  /* Esc leaves full screen. The arrow used to jump to another section,
+     which is not what an expand arrow means anywhere else. */
+  useEffect(() => {
+    if (!full) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onToggleFull?.() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [full, onToggleFull])
+
+  /* Going full screen changes the box, and MapLibre only measures on demand.
+     It also has to RE-FRAME: resizing keeps the old camera, so the first
+     full-screen view opened on the whole hemisphere with the corn belt a
+     smudge in the middle. Fit to the pins again at the new size. */
+  useEffect(() => {
+    const m = map.current
+    if (!m) return
+    const t = setTimeout(() => {
+      m.resize()
+      const pts = points?.auctions || []
+      if (pts.length >= 2) {
+        const lngs = pts.map((a: any) => a.lng), lats = pts.map((a: any) => a.lat)
+        m.fitBounds(
+          [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
+          { padding: full ? 70 : 40, animate: false, maxZoom: 7 })
+      }
+    }, 80)
+    return () => clearTimeout(t)
+  }, [full, points])
+
   const toggle = (k: keyof typeof show) => () => setShow(s => ({ ...s, [k]: !s[k] }))
 
+  const money0 = (v: any) => v == null ? '—' : '$' + Number(v).toLocaleString('en-US', { maximumFractionDigits: 0 })
+  const activeMeasure = MEASURES.find(x => x.id === measure)
+
   return (
-    <div className="mapwrap" ref={wrap}>
+    <div className={`mapwrap ${full ? 'full' : ''}`} ref={wrap}>
       <div ref={box} className="mapbox" />
+
+      {onToggleFull && (
+        <button type="button" className="mapfull" onClick={onToggleFull}
+          title={full ? 'Leave full screen (Esc)' : 'Full screen'}
+          aria-label={full ? 'Leave full screen' : 'Full screen'}>
+          {full ? '\u2715' : '\u2922'}
+        </button>
+      )}
 
       <div className="maplegend">
         <button type="button" className={`lg ${show.live ? 'on' : ''}`} onClick={toggle('live')}>
@@ -3173,11 +3378,134 @@ function LiveMap({ points }: { points: MapPoints | null }) {
             {labels ? 'Hide lines' : 'State & county lines'}
           </button>
         </div>
+
+        {/* ── County colouring ──
+            One measure at a time. Two colour scales on one map cannot both
+            be read, and a county cannot be two colours. */}
+        <div className="lgheat">
+          <h6>Colour counties by</h6>
+          {MEASURES.map(mo => (
+            <button type="button" key={mo.id}
+              className={`lg ${measure === mo.id ? 'on' : ''}`}
+              title={mo.hint}
+              onClick={() => setMeasure(measure === mo.id ? null : mo.id)}>
+              <i className="sw" style={{ background: measure === mo.id ? HEAT_COLOURS[3] : 'transparent' }} />
+              {mo.label}
+            </button>
+          ))}
+          {measure && (
+            <button type="button" className="lg clear" onClick={() => setMeasure(null)}>
+              Turn colouring off
+            </button>
+          )}
+        </div>
+
+        <div className="lgheat">
+          <h6>Which sales</h6>
+          <div className="lgrow">
+            {[6, 12, 24].map(mm => (
+              <button type="button" key={mm}
+                className={`chipbtn ${months === mm ? 'on' : ''}`}
+                onClick={() => setMonths(mm)}>{mm} mo</button>
+            ))}
+          </div>
+          <div className="lgrow">
+            <button type="button" className={`chipbtn ${soldStatus === 'sold' ? 'on' : ''}`}
+              onClick={() => setSoldStatus('sold')}>Sold</button>
+            <button type="button" className={`chipbtn ${soldStatus === 'no_sale' ? 'on' : ''}`}
+              onClick={() => setSoldStatus('no_sale')}>No sale</button>
+          </div>
+          <select className="lgsel" value={company}
+            onChange={e => setCompany(e.target.value)}
+            onFocus={() => setFiltersOpen(true)}>
+            <option value="">Every auction company</option>
+            {companyList.map(c => (
+              <option key={c.name} value={c.name}>{c.name} ({c.auctions})</option>
+            ))}
+          </select>
+        </div>
       </div>
 
-      {points?.sold_truncated && show.sold && (
+      {points?.sold_truncated && show.sold && !measure && (
         <div className="mapnote">
           Showing the {num(points.sold_shown)} most recent of {num(points.sold_total)} sales.
+        </div>
+      )}
+
+      {measure && (
+        <div className="mapnote heatnote">
+          {counties.loading ? 'Loading county sales…'
+            : counties.error ? counties.error
+            : counties.data ? (
+              <>
+                <b>{activeMeasure?.label}</b> · {num(counties.data.counties_drawn)} counties ·
+                {' '}{num(counties.data.totals?.auctions)} auctions ·
+                {' '}{num(counties.data.totals?.acres, 0)} acres
+                {counties.data.counties_without_an_outline?.length
+                  ? ` · ${num(counties.data.counties_with_sales - counties.data.counties_drawn)} could not be drawn`
+                  : ''}
+                <em className="scale">
+                  faint = fewer than {num(counties.data.thin_threshold)} priced sales, so not a market rate
+                </em>
+              </>
+            ) : 'No county sales in this window.'}
+        </div>
+      )}
+
+      {pickedCounty && (
+        <div className="mappop county">
+          <button type="button" className="x" onClick={() => setPickedCounty(null)}
+            aria-label="Close">×</button>
+          <h4>{pickedCounty.county} County, {pickedCounty.state}</h4>
+          <div className="pk">
+            {soldStatus === 'sold' ? 'Sold' : 'No sale'} · last {months} months
+            {company ? ` · ${company}` : ''}
+          </div>
+
+          <div className="kpirow tight">
+            <Kpi v={num(pickedCounty.auctions)} k="auctions" small />
+            <Kpi v={num(pickedCounty.acres, 0)} k="acres" small />
+            <Kpi v={money0(pickedCounty.ppa)} k="$ per acre" small />
+          </div>
+
+          <div className="more">By what the ground mostly is</div>
+          <Row label="Mostly cropland"
+            value={pickedCounty.ppa_tillable == null
+              ? <span className="dim">no priced sales</span>
+              : <>{money0(pickedCounty.ppa_tillable)}<span className="dim"> · {num(pickedCounty.tillable_tracts)} tracts</span></>} />
+          <Row label="Mostly pasture"
+            value={pickedCounty.ppa_pasture == null
+              ? <span className="dim">no priced sales</span>
+              : <>{money0(pickedCounty.ppa_pasture)}<span className="dim"> · {num(pickedCounty.pasture_tracts)} tracts</span></>} />
+          <Row label="Mostly timber"
+            value={pickedCounty.ppa_timber == null
+              ? <span className="dim">no priced sales</span>
+              : <>{money0(pickedCounty.ppa_timber)}<span className="dim"> · {num(pickedCounty.timber_tracts)} tracts</span></>} />
+
+          <Row label="Total sold" value={money0(pickedCounty.dollars)} />
+          <Row label="Priced tracts"
+            value={<>{num(pickedCounty.priced_tracts)} of {num(pickedCounty.tracts)}</>} />
+
+          {(() => {
+            /* Sent as one joined string, because MapLibre feature properties
+               have to be scalars — an array silently cost us the whole
+               layer. Split back out here. */
+            const raw = pickedCounty.companies
+            const firms: string[] = typeof raw === 'string' && raw
+              ? raw.split(' · ') : Array.isArray(raw) ? raw : []
+            return firms.length ? (
+              <>
+                <div className="more">Who sold it</div>
+                <div className="firms">{firms.map(f => <Chip key={f}>{f}</Chip>)}</div>
+              </>
+            ) : null
+          })()}
+
+          <p className="basis">
+            Every price here is total dollars divided by total acres, never the
+            average of each tract&rsquo;s own rate. A tract counts toward a land
+            type only when that type is most of it.
+          </p>
         </div>
       )}
 
@@ -3758,6 +4086,9 @@ export default function CommandCenterPage() {
      navigates — the whole board is one route, so switching costs
      nothing and the SSE stream is never torn down. */
   const [section, setSection] = useState<SectionId>('overview')
+  /* The map filling the window. Esc leaves — handled inside LiveMap, which
+     is the thing that knows it is full screen. */
+  const [mapFull, setMapFull] = useState(false)
   /* The rail hides. The owner does not want it taking a fifth of the width
      all day, and on this board width is the map. Remembered across reloads
      because a preference you have to set every time is not a preference. */
@@ -3945,8 +4276,10 @@ export default function CommandCenterPage() {
             {/* The map is the point of this screen, so it gets the most of it. */}
             <Panel span={8} title="Where every sale is"
               tag={mapD ? `${num(mapD.upcoming)} still to come · ${num(mapD.states)} states` : undefined}
-              panelState={st('map')} onOpen={() => setSection('map')} flush>
-              {mapError ? <Unavailable why={mapError} /> : <LiveMap points={mapPoints} />}
+              panelState={st('map')} flush>
+              {mapError ? <Unavailable why={mapError} />
+                : <LiveMap points={mapPoints} full={mapFull}
+                    onToggleFull={() => setMapFull(v => !v)} />}
             </Panel>
 
             <Panel span={4} title="Problems"
@@ -3998,10 +4331,12 @@ export default function CommandCenterPage() {
       case 'map':
         return (
           <div className="grid" style={{ gridTemplateRows: 'minmax(0,2.4fr) minmax(0,1fr)' }}>
-            <Panel span={12} title="Every sale, and where our people are"
+            <Panel span={12} title="Every sale"
               tag={mapPoints ? `${num((mapPoints.auctions || []).length)} pins` : undefined}
               panelState={st('map')} flush>
-              {mapError ? <Unavailable why={mapError} /> : <LiveMap points={mapPoints} />}
+              {mapError ? <Unavailable why={mapError} />
+                : <LiveMap points={mapPoints} full={mapFull}
+                    onToggleFull={() => setMapFull(v => !v)} />}
             </Panel>
             <Panel span={6} title="Sales coming up" panelState={st('map')}>
               <MapSummary d={mapD} points={mapPoints} />
@@ -4938,6 +5273,54 @@ svg.spark{display:block;width:100%;height:100%;}
 .rghead b{margin-left:auto;font-family:var(--mono);font-variant-numeric:tabular-nums;font-weight:400;}
 .rgsub{font-family:var(--mono);font-size:10.5px;color:var(--muted);line-height:1.35;overflow-wrap:anywhere;}
 
+
+
+/* ── Map: full screen, county heat, filters ──────────────────────── */
+/* Out of the panel and over everything. The board keeps running behind it;
+   Esc puts it back. */
+/* Beaten by .panel.flush > .body > * {position:absolute}, which is more
+   specific — the class went on, the map stayed in its panel, and the
+   button flipped to a close icon over a map that had not moved. Both
+   selectors so it wins inside a flush panel and anywhere else. */
+.panel.flush > .body > .mapwrap.full,
+.mapwrap.full{position:fixed;inset:0;z-index:200;height:100dvh;width:100vw;
+  border-radius:0;}
+.mapfull{
+  position:absolute;right:10px;top:10px;z-index:7;
+  width:28px;height:28px;border-radius:7px;cursor:pointer;
+  background:rgba(10,13,19,.82);border:1px solid var(--line-2);color:var(--ink-2);
+  font-size:13px;line-height:1;backdrop-filter:blur(8px);
+}
+.mapfull:hover{background:var(--pink-tint);border-color:var(--pink);color:var(--pink-bright);}
+.mapfull:focus-visible{outline:2px solid var(--pink-bright);outline-offset:1px;}
+/* The popup sits below the full-screen button rather than under it. */
+.mapwrap .mappop{top:46px;}
+
+.lgheat{display:flex;flex-direction:column;gap:2px;margin-top:6px;
+  padding-top:6px;border-top:1px solid var(--line);}
+.lgheat h6{margin:0 0 3px;padding:0 7px;font-family:var(--label);font-size:9px;
+  font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);}
+.lgheat .sw{width:9px;height:9px;border-radius:2px;border:1px solid var(--line-2);flex:none;}
+.lgheat .clear{opacity:.75;color:var(--muted);justify-content:center;}
+.lgrow{display:flex;gap:4px;padding:2px 5px;}
+.chipbtn{
+  flex:1;padding:3px 6px;border-radius:5px;cursor:pointer;
+  border:1px solid var(--line-2);background:transparent;color:var(--muted);
+  font-family:var(--sans);font-size:10.5px;
+}
+.chipbtn.on{background:var(--pink-tint);border-color:var(--pink);color:var(--ink);}
+.chipbtn:hover{color:var(--ink);}
+.lgsel{
+  margin:4px 5px 2px;padding:4px 6px;border-radius:5px;max-width:190px;
+  border:1px solid var(--line-2);background:var(--card);color:var(--ink-2);
+  font-family:var(--sans);font-size:10.5px;
+}
+.heatnote{max-width:min(70%,560px);line-height:1.5;}
+.heatnote .scale{display:block;font-style:normal;font-size:10px;color:var(--faint);margin-top:2px;}
+.mappop.county{width:290px;}
+.mappop .kpirow.tight{gap:12px 18px;margin-bottom:6px;}
+.mappop .firms{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;}
+.mappop .more{margin-top:9px;}
 
 /* ── People growth, and the Stripe check ─────────────────────────── */
 .pgrowth,.btruth{display:flex;flex-direction:column;gap:10px;}
