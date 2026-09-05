@@ -3421,6 +3421,132 @@ function AwsSpendMini({ d }: { d: any }) {
   )
 }
 
+/* ── People, as a business rather than a headcount ────────────────────
+   Signups and their direction, whether trials turn into money, whether
+   anyone leaves, and whether the people who stay actually use the thing.
+
+   EVERY PERCENTAGE HERE CAN REFUSE TO BE A PERCENTAGE. Below the panel's
+   own floor the backend sends null and this shows the two counts instead:
+   "3 of 4" is honest where "75%" reads as a trend somebody might act on. */
+function PeopleGrowth({ d }: { d: any }) {
+  if (!d) return <Unavailable why="no reading yet" />
+
+  const series: { day: string; n: number }[] = d.signups_30d_series || []
+  const peak = Math.max(1, ...series.map(s => s.n))
+  const change = d.new_30d_change_pct
+
+  /** A rate, or the counts it was too small to be. */
+  const rate = (pctVal: number | null | undefined, part: any, whole: any) =>
+    pctVal == null
+      ? <span className="small">{num(part)} of {num(whole)}</span>
+      : <>{num(pctVal, 1)}%</>
+
+  return (
+    <div className="pgrowth">
+      <div className="kpirow">
+        <Kpi v={num(d.new_30d)} k="signed up in 30 days"
+          tone={change != null && change > 0 ? 'green' : ''} />
+        <Kpi v={rate(d.trial_to_paid_pct, d.trials_won, d.trials_ended)}
+          k="trials that became paid" />
+        <Kpi v={rate(d.cancel_pct_30d, d.cancelled_30d, d.churn_base)}
+          k="cancelled in 30 days"
+          tone={(d.cancel_pct_30d ?? 0) >= 5 ? 'amber' : ''} />
+        <Kpi v={d.requests_per_active_30d == null ? '—' : num(d.requests_per_active_30d, 0)}
+          k="uses per active customer" />
+      </div>
+
+      {/* The 30-day shape. Bars rather than a line: signups are countable
+          events on specific days, and a line between two zeroes invents a
+          slope that never happened. */}
+      <div className="sparkbars" aria-hidden="true">
+        {series.map(s => (
+          <span key={s.day} className={s.n ? 'on' : ''}
+            style={{ height: `${Math.max(4, s.n / peak * 100)}%` }}
+            title={`${s.day}: ${s.n} ${s.n === 1 ? 'signup' : 'signups'}`} />
+        ))}
+      </div>
+      <div className="dailyfoot">
+        <span>{series[0]?.day?.slice(5)}</span>
+        <span className="dim">
+          {change == null
+            ? `${num(d.new_prev_30d)} the 30 days before`
+            : <>{change > 0 ? '▲' : '▼'} {num(Math.abs(change), 0)}% against the 30 days before ({num(d.new_prev_30d)})</>}
+        </span>
+        <span>today</span>
+      </div>
+
+      <Row label="Active this month"
+        value={<>{num(d.active_30d)}<span className="dim">
+          {d.stickiness_pct == null ? '' : ` · ${num(d.stickiness_pct, 0)}% came back this week`}
+        </span></>} />
+      <Row label="New signups who actually used it"
+        value={rate(d.activation_pct, d.new_who_used_it, d.new_30d)}
+        tone={(d.activation_pct ?? 100) < 60 ? 'amber' : ''} />
+      <Row label="Signed up, never subscribed"
+        value={<>{num(d.never_subscribed)}<span className="dim">
+          {d.never_subscribed_new_30d ? ` · ${num(d.never_subscribed_new_30d)} this month` : ''}
+        </span></>}
+        tone={d.never_subscribed_new_30d ? 'amber' : ''} />
+
+      {d.trial_to_paid_pct == null && (
+        <p className="foot">
+          Percentages appear once a figure covers at least {num(d.rate_floor)} people.
+          Below that the counts are shown, because a share of four is not a rate.
+        </p>
+      )}
+    </div>
+  )
+}
+
+/* ── Is our revenue figure the same as Stripe's ───────────────────────
+   The Money card is built from our own copy of Stripe. Copies drift, and
+   on 5 September 2026 this one was nine per cent light with nothing on the
+   board saying so. This card is the check. */
+function BillingTruth({ d }: { d: any }) {
+  if (!d) return <Unavailable why="no reading yet" />
+  if (!d.available) return <Unavailable why={d.reason} />
+
+  const delta = d.delta ?? 0
+  const off = Math.abs(delta) >= 1
+  return (
+    <div className="btruth">
+      <div className="kpirow">
+        <Kpi v={money(d.stripe_active_annual)} k="Stripe is billing, per year" />
+        <Kpi v={money(d.our_active_annual)} k="our records say"
+          tone={off ? (delta < 0 ? 'red' : 'amber') : 'green'} />
+        <Kpi v={off ? money(Math.abs(delta)) : 'matches'}
+          k={off ? (delta < 0 ? 'we are under by' : 'we are over by') : 'no difference'}
+          tone={off ? (delta < 0 ? 'red' : 'amber') : 'green'} />
+      </div>
+
+      {off ? (
+        <table className="tbl">
+          <thead><tr><th>Subscription</th><th className="n">Stripe</th><th className="n">Ours</th></tr></thead>
+          <tbody>
+            {(d.differences || []).map((x: any) => (
+              <tr key={x.subscription}>
+                <td className="t">
+                  <span className="l">{x.who || x.subscription}</span>
+                  <em className="why">{x.why}</em>
+                </td>
+                <td className="n">{money(x.stripe)}</td>
+                <td className="n" style={{ color: 'var(--red)' }}>{money(x.ours)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : (
+        <p className="good">Every Stripe subscription matches what we have recorded.</p>
+      )}
+
+      <p className="foot">
+        Read from Stripe every {num(d.refresh_minutes)} minutes. {d.covers}
+        {d.stale_reason ? ` Last refresh failed: ${d.stale_reason}` : ''}
+      </p>
+    </div>
+  )
+}
+
 /* ── The shell ────────────────────────────────────────────────────────
    A left rail of sections instead of one wall of cards.
 
@@ -3789,6 +3915,7 @@ export default function CommandCenterPage() {
   const chart = (key: string) => () => setChartFor(key)
 
   const mapD = P('map'), awsD = P('aws'), regridD = P('regrid')
+  const billingD = P('billing_truth')
   const storageTrendD = P('storage_trend')
 
   const alerts = snap.alerts || []
@@ -3813,7 +3940,8 @@ export default function CommandCenterPage() {
     switch (section) {
       case 'overview':
         return (
-          <div className="grid" style={{ gridTemplateRows: 'minmax(0,1.75fr) minmax(0,1fr)' }}>
+          <div className="grid" style={{
+            gridTemplateRows: 'minmax(0,1.6fr) minmax(0,0.9fr) minmax(0,1fr)' }}>
             {/* The map is the point of this screen, so it gets the most of it. */}
             <Panel span={8} title="Where every sale is"
               tag={mapD ? `${num(mapD.upcoming)} still to come · ${num(mapD.states)} states` : undefined}
@@ -3846,6 +3974,23 @@ export default function CommandCenterPage() {
             <Panel span={3} title="What is happening" panelState={st('pulse')}>
               <ActivityFeed pulse={pulse} pipeline={pipelineD} money={moneyD}
                 people={peopleD} mapD={mapD} />
+            </Panel>
+
+            {/* People as a business: where signups are going, whether trials
+                turn into money, whether anyone leaves, and whether the ones
+                who stay use it. */}
+            <Panel span={8} title="People" tag="last 30 days"
+              panelState={st('people')} onChart={chart('people')}
+              onOpen={() => setSection('people')}>
+              {peopleD ? <PeopleGrowth d={peopleD} />
+                : <Unavailable why={whyMissing('people')} />}
+            </Panel>
+
+            <Panel span={4} title="Does the money match Stripe?"
+              panelState={st('billing_truth')}
+              onOpen={() => setSection('money')}>
+              {billingD ? <BillingTruth d={billingD} />
+                : <Unavailable why={whyMissing('billing_truth')} />}
             </Panel>
           </div>
         )
@@ -3888,9 +4033,12 @@ export default function CommandCenterPage() {
               pip={!moneyD ? undefined : moneyD.past_due_people ? 'amber' : 'green'}>
               {moneyD ? <Money d={moneyD} /> : <Unavailable why={whyMissing('money')} />}
             </Panel>
-            <Panel span={5} title="People" infoId="people" panelState={st('people')}
-              onChart={chart('people')}>
-              {peopleD ? <People d={peopleD} /> : <Unavailable why={whyMissing('people')} />}
+            <Panel span={5} title="Does it match Stripe?" tag="checked every 20 minutes"
+              panelState={st('billing_truth')}
+              pip={!billingD?.available ? undefined
+                : Math.abs(billingD.delta || 0) < 1 ? 'green' : 'red'}>
+              {billingD ? <BillingTruth d={billingD} />
+                : <Unavailable why={whyMissing('billing_truth')} />}
             </Panel>
           </div>
         )
@@ -4789,6 +4937,21 @@ svg.spark{display:block;width:100%;height:100%;}
 .rghead{display:flex;align-items:baseline;gap:8px;font-size:12px;}
 .rghead b{margin-left:auto;font-family:var(--mono);font-variant-numeric:tabular-nums;font-weight:400;}
 .rgsub{font-family:var(--mono);font-size:10.5px;color:var(--muted);line-height:1.35;overflow-wrap:anywhere;}
+
+
+/* ── People growth, and the Stripe check ─────────────────────────── */
+.pgrowth,.btruth{display:flex;flex-direction:column;gap:10px;}
+/* Bars, not a line: signups are countable events on particular days, and a
+   line drawn between two zeroes invents a slope nothing actually did. */
+.sparkbars{display:flex;align-items:flex-end;gap:2px;height:52px;padding-top:4px;}
+.sparkbars span{flex:1;min-width:2px;border-radius:2px 2px 0 0;
+  background:var(--line-2);}
+.sparkbars span.on{background:var(--green);}
+.btruth td.t{max-width:0;width:100%;}
+.btruth td.t .l{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.btruth td.t .why{display:block;font-style:normal;font-size:10.5px;color:var(--faint);}
+.btruth .good{margin:0;padding:9px 11px;border-radius:7px;font-size:12px;
+  background:var(--green-bg);border:1px solid rgba(52,211,153,.3);color:var(--ink-2);}
 
 /* ── New cards ───────────────────────────────────────────────────── */
 
