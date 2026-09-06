@@ -2,6 +2,7 @@
 
 import { useRef, useEffect, useState, useCallback, useMemo, type MutableRefObject } from 'react'
 import maplibregl from 'maplibre-gl'
+import { allTractsGeometry, type PortfolioTract } from '@/lib/configurableMapping'
 import { Protocol as PMTilesProtocol } from 'pmtiles'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import './ComparablesMap.css'
@@ -2004,7 +2005,66 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // Rendered as separate markers in their own useEffect below.
   const [todayTracts, setTodayTracts] = useState<ApiMapTract[]>([])
   const [currentZoom, setCurrentZoom] = useState(MAP_INITIAL_ZOOM)
+  // ── My Tracts (Configurable Mapping) ────────────────────────────
+  // The subscriber's own drawn ground, shown on this map behind a
+  // toggle. Fetched once, the first time it is switched on: most
+  // sessions never ask for it, and it must not slow the map's start.
+  const [myTractsOn, setMyTractsOn] = useState(false)
+  const [myTracts, setMyTracts] = useState<PortfolioTract[]>([])
+  const [myTractsLoaded, setMyTractsLoaded] = useState(false)
+  const [myTractsError, setMyTractsError] = useState<string | null>(null)
+
+  // Map handlers are registered once; this keeps the current callback
+  // reachable from inside them.
+  const onToggleReportRef = useRef(onToggleReport)
+  onToggleReportRef.current = onToggleReport
+
   const [mapLoaded, setMapLoaded] = useState(false)
+
+  // Fetch the subscriber's tracts the first time the toggle is switched
+  // on, then keep them. Failure leaves the toggle on with a message
+  // rather than silently drawing nothing.
+  useEffect(() => {
+    if (!myTractsOn || myTractsLoaded) return
+    let stale = false
+    ;(async () => {
+      try {
+        const r = await allTractsGeometry()
+        if (!stale) { setMyTracts(r.tracts); setMyTractsLoaded(true); setMyTractsError(null) }
+      } catch (e: any) {
+        if (!stale) setMyTractsError(e?.message || 'Could not load your tracts.')
+      }
+    })()
+    return () => { stale = true }
+  }, [myTractsOn, myTractsLoaded])
+
+  // Paint them, and show or hide the three layers together.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+    if (!map.getSource('my-tracts')) return
+    const feats = myTracts.filter(t => t.boundary).map(t => ({
+      type: 'Feature' as const,
+      geometry: t.boundary,
+      properties: {
+        tractId: t.id,
+        name: t.name || 'Untitled',
+        projectName: t.project_name || '',
+        inReport: !!reportIds?.has(`cm:${t.id}`),
+        acres: t.acres ?? null,
+        tillableAcres: t.tillable_acres ?? null,
+        county: t.county || '',
+        state: t.state || '',
+        soilRating: t.soil_rating ?? null,
+      },
+    }))
+    ;(map.getSource('my-tracts') as maplibregl.GeoJSONSource)?.setData(
+      { type: 'FeatureCollection', features: feats } as any)
+    const vis = myTractsOn ? 'visible' : 'none'
+    for (const id of ['my-tracts-fill', 'my-tracts-line', 'my-tracts-label']) {
+      if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis)
+    }
+  }, [myTracts, myTractsOn, mapLoaded, reportIds])
 
   // Owner "show on map" chat search: push dots into the owner-parcels
   // source (added once in the map-init block) and zoom to their bbox.
@@ -3827,6 +3887,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       } catch {/* image already added by a racing call */}
 
       // ── Native marker GeoJSON sources (driven by setData effects) ───
+      // The subscriber's OWN tracts, drawn from Configurable Mapping.
+      // Off unless the Layers panel turns them on.
+      map.addSource('my-tracts', { type: 'geojson', data: EMPTY_FC })
       map.addSource('tract-pins', { type: 'geojson', data: EMPTY_FC })
       map.addSource('county-counts', { type: 'geojson', data: EMPTY_FC })
 
@@ -3976,6 +4039,50 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           'text-allow-overlap': true,
         },
         paint: { 'text-color': '#ffffff' },
+      })
+
+      // ── My Tracts — ground this subscriber drew in Configurable
+      // Mapping. Added BEFORE the tract pins so an auction pin is never
+      // buried under one of these. Visibility is driven by the Layers
+      // panel; the layers themselves are never recreated.
+      map.addLayer({
+        id: 'my-tracts-fill',
+        type: 'fill',
+        source: 'my-tracts',
+        layout: { visibility: 'none' },
+        // Green once it is in the report — the same signal a parcel dot
+        // and an auction pin already use for "added to the comp report".
+        paint: {
+          'fill-color': ['case', ['boolean', ['get', 'inReport'], false], '#22c55e', '#f58cde'],
+          'fill-opacity': 0.22,
+        },
+      })
+      map.addLayer({
+        id: 'my-tracts-line',
+        type: 'line',
+        source: 'my-tracts',
+        layout: { visibility: 'none' },
+        paint: {
+          'line-color': ['case', ['boolean', ['get', 'inReport'], false], '#22c55e', '#f58cde'],
+          'line-width': 2,
+        },
+      })
+      map.addLayer({
+        id: 'my-tracts-label',
+        type: 'symbol',
+        source: 'my-tracts',
+        layout: {
+          visibility: 'none',
+          'text-field': ['get', 'name'],
+          'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'],
+          'text-size': 12,
+          'text-max-width': 12,
+        },
+        paint: {
+          'text-color': '#ffffff',
+          'text-halo-color': 'rgba(0,0,0,0.85)',
+          'text-halo-width': 1.6,
+        },
       })
 
       // ── Tract pins (the crux) — circles + price/acres labels. Both
@@ -8333,6 +8440,45 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const onEnter = () => { map.getCanvas().style.cursor = 'pointer' }
     const onLeave = () => { map.getCanvas().style.cursor = '' }
 
+    // ── My Tracts: click one to add or remove it as a comparable ──
+    // A drawn tract has no sale — it is the subscriber's own ground — so
+    // it carries acreage, tillable acreage and its soil rating, and the
+    // report shows those. Price stays null rather than invented.
+    const onMyTractClick = (e: any) => {
+      const f = e.features?.[0]
+      if (!f || !onToggleReportRef.current) return
+      const p = f.properties || {}
+      const id = `cm:${p.tractId}`
+      const ring = (() => {
+        try {
+          const g = f.geometry
+          const c = g?.type === 'Polygon' ? g.coordinates?.[0]
+            : g?.type === 'MultiPolygon' ? g.coordinates?.[0]?.[0] : null
+          return Array.isArray(c) ? (c as [number, number][]) : null
+        } catch { return null }
+      })()
+      onToggleReportRef.current({
+        id,
+        tractId: id,
+        // Named for the report row: the tract, and which project it is in.
+        companyName: p.projectName || null,
+        owner: p.name || null,
+        totalAcres: p.acres ?? null,
+        tillableAcres: p.tillableAcres ?? null,
+        soilRating: p.soilRating ?? null,
+        county: p.county || '',
+        state: p.state || '',
+        salePrice: null,
+        pricePerAcre: null,
+        latitude: e.lngLat?.lat ?? null,
+        longitude: e.lngLat?.lng ?? null,
+        polygonCoordinates: ring,
+      } as any)
+    }
+    map.on('click', 'my-tracts-fill', onMyTractClick)
+    map.on('mouseenter', 'my-tracts-fill', onEnter)
+    map.on('mouseleave', 'my-tracts-fill', onLeave)
+
     map.on('click', 'tract-pin-circles', onClick)
     map.on('mouseenter', 'tract-pin-circles', onEnter)
     map.on('mouseleave', 'tract-pin-circles', onLeave)
@@ -9878,6 +10024,45 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             ))}
             <div style={{ height: 4 }} />
           </div>
+
+          <div style={{ height: 1, background: 'rgba(255,255,255,0.07)', margin: '6px 0' }} />
+
+          {/* ── My Tracts (independent) ──
+              Ground this subscriber drew in Configurable Mapping. Its own
+              toggle, not an Overlay button: the overlays are mutually
+              exclusive with each other, and this has to be able to sit on
+              top of whichever one is up. */}
+          <div style={{ padding: '0 10px 6px', color: 'rgba(255,255,255,0.40)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8 }}>
+            My Maps
+          </div>
+          <div
+            onClick={() => setMyTractsOn(v => !v)}
+            style={{ display: 'flex', alignItems: 'center', height: 36, padding: '0 12px', cursor: 'pointer', gap: 8 }}
+          >
+            <span style={{ width: 14, height: 14, borderRadius: 2, flexShrink: 0, backgroundColor: '#f58cde', border: '1px solid rgba(255,255,255,0.2)' }} />
+            <span style={{ flex: 1, color: 'rgba(255,255,255,0.75)', fontSize: 11 }}>My Tracts</span>
+            <span style={{
+              width: 28, height: 16, borderRadius: 8, flexShrink: 0,
+              background: myTractsOn ? '#E91E8C' : 'rgba(255,255,255,0.18)',
+              position: 'relative', transition: 'background 0.15s',
+            }}>
+              <span style={{
+                position: 'absolute', top: 2, left: myTractsOn ? 12 : 2, width: 12, height: 12,
+                borderRadius: '50%', background: '#fff', transition: 'left 0.15s',
+              }} />
+            </span>
+          </div>
+          {myTractsOn && (
+            <div style={{ padding: '0 12px 6px', color: 'rgba(255,255,255,0.45)', fontSize: 10 }}>
+              {myTractsError
+                ? myTractsError
+                : !myTractsLoaded
+                ? 'Loading your tracts…'
+                : myTracts.length === 0
+                ? 'You have not saved any tracts yet.'
+                : `${myTracts.length} tract${myTracts.length === 1 ? '' : 's'} — click one to add it to a report.`}
+            </div>
+          )}
 
           <div style={{ height: 1, background: 'rgba(255,255,255,0.07)', margin: '6px 0' }} />
 

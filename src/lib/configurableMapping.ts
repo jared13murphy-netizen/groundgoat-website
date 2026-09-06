@@ -252,6 +252,13 @@ export interface ProjectTractGeometry {
 export interface PortfolioTract extends ProjectTractGeometry {
   project_id: string
   project_name: string
+  /** Carried so the Explore map can build a comparable from a tract
+   *  without a second request per tract. */
+  tillable_acres?: number | null
+  county?: string | null
+  state?: string | null
+  soil_rating?: number | null
+  soil_rating_type?: string | null
 }
 
 /** Every saved tract across every project — outline and label only.
