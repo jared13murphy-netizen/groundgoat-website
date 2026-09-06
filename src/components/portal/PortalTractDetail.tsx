@@ -271,17 +271,32 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
           when the tract has polygon_coordinates (so we know there's a
           rendered thumbnail in tracts.image_base64). 480-wide JPEG via
           the existing /api/tracts/{id}/image resize endpoint. */}
-      {hasBoundaries && (tract.tractId || tract.id) && (
-        <div className="rounded-xl overflow-hidden border border-white/10">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={`${API_URL}/api/tracts/${tract.tractId || tract.id}/image?w=600&q=80`}
-            alt="Tract satellite view with boundary outline"
-            className="w-full h-auto block bg-gg-gray-900"
-            loading="lazy"
-          />
-        </div>
-      )}
+      {hasBoundaries && (tract.tractId || tract.id) && (() => {
+        // A Configurable Mapping tract is not in `tracts`, so
+        // /api/tracts/{id}/image 404s for one — that is the broken image
+        // the owner saw. Its picture comes from the mapping route
+        // instead, keyed on the id without the `cm:` prefix.
+        const rawId = String(tract.tractId || tract.id)
+        const isCustom = rawId.startsWith('cm:')
+        const src = isCustom
+          ? `${API_URL}/api/mapping/parcels/${rawId.slice(3)}/image`
+          : `${API_URL}/api/tracts/${rawId}/image?w=600&q=80`
+        return (
+          <div className="rounded-xl overflow-hidden border border-white/10">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={src}
+              alt="Tract satellite view with boundary outline"
+              className="w-full h-auto block bg-gg-gray-900"
+              loading="lazy"
+              // A tract saved before imagery existed, or one still
+              // rendering, has no picture yet — show nothing rather than
+              // a broken-image icon.
+              onError={(e) => { (e.currentTarget.parentElement as HTMLElement).style.display = 'none' }}
+            />
+          </div>
+        )
+      })()}
 
       {/* Price/Acre highlight */}
       {tract.pricePerAcre ? (
