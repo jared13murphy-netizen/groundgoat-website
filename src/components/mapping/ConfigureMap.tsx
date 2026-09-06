@@ -338,7 +338,12 @@ export default function ConfigureMap() {
     forceHist((t) => t + 1)
   }, [])
   const mutate = useCallback((fn: (s: Shape[]) => Shape[]) => {
-    setShapes((prev) => { snapshot(prev); return fn(prev) })
+    // Snapshot OUTSIDE the updater. It used to run inside, which is a
+    // side effect where React is allowed to run the updater twice — so
+    // one edit pushed two undo entries, and the forceHist that re-enables
+    // the Undo button never reliably fired, leaving the button dead.
+    snapshot(shapesRef.current)
+    setShapes(fn)
   }, [snapshot])
   const undo = useCallback(() => {
     const p = undoRef.current.pop(); if (!p) return
@@ -677,7 +682,9 @@ export default function ConfigureMap() {
       map.addLayer({
         id: 'cm-draft-line', type: 'line', source: SRC.draft,
         filter: ['==', ['geometry-type'], 'LineString'],
-        paint: { 'line-color': '#ffffff', 'line-width': 2, 'line-dasharray': [2, 1.5] },
+        // Repainted from `drawClass` below — a shape being drawn as water
+        // has to look like water, not like every other shape.
+        paint: { 'line-color': '#ffffff', 'line-width': 2.5, 'line-dasharray': [2, 1.5] },
       })
       // A dot per click. Without these you cannot see where your corners
       // landed, which made both drawing and splitting guesswork.
@@ -750,8 +757,8 @@ export default function ConfigureMap() {
         paint: {
           'circle-radius': 5,
           'circle-color': '#ffffff',
-          'circle-stroke-color': VERTEX_LINE,
-          'circle-stroke-width': 2,
+          'circle-stroke-color': VERTEX_LINE,   // repainted from drawClass
+          'circle-stroke-width': 3,
         },
       })
       map.addLayer({
@@ -2036,6 +2043,18 @@ export default function ConfigureMap() {
     undoRef.current = []; redoRef.current = []
   }, [projectId])
 
+  // The draft takes the colour of the land type being drawn, so what you
+  // are drawing looks like what it will become.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !ready) return
+    const c = CLASS_COLOR[drawClass] || '#ffffff'
+    if (map.getLayer('cm-draft-line')) map.setPaintProperty('cm-draft-line', 'line-color', c)
+    if (map.getLayer('cm-draft-dots')) {
+      map.setPaintProperty('cm-draft-dots', 'circle-stroke-color', c)
+    }
+  }, [drawClass, ready])
+
   // Recompute the soil rating whenever the tillable ground changes.
   // Debounced by 700 ms so a drag fires one query at the end, not one per
   // mouse move, and keyed on the actual geometry so an unrelated edit
@@ -2151,7 +2170,7 @@ export default function ConfigureMap() {
               boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.45), 0 4px 14px rgba(0,0,0,0.45)',
             }}>
             {drawing
-              ? <><Plus size={15} /> Finish shape</>
+              ? <><Plus size={15} /> Save Polygon</>
               : tool === 'erase'
               ? <><Eraser size={15} /> Done erasing</>
               : <><Scissors size={15} /> Cancel cut</>}
@@ -2377,7 +2396,7 @@ export default function ConfigureMap() {
 
             {/* Tools — drawing, then edit state, then commit. */}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              {/* While drawing, Finish shape lives on the MAP, where the
+              {/* While drawing, Save Polygon lives on the MAP, where the
                   cursor already is (owner). Two of them would be two
                   places to look for the same action. */}
               {!drawing && (
@@ -2445,7 +2464,7 @@ export default function ConfigureMap() {
               </button>
             </div>
             {drawing && (
-              <div style={hint}>Click to place corners. Enter or double-click closes the shape; Esc cancels.</div>
+              <div style={hint}>Click to place corners. Save Polygon, Enter or double-click closes the shape; Esc cancels.</div>
             )}
             </>)}
 
