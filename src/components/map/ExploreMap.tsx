@@ -2,7 +2,7 @@
 
 import { useRef, useEffect, useState, useCallback, useMemo, type MutableRefObject } from 'react'
 import maplibregl from 'maplibre-gl'
-import { allTractsGeometry, type PortfolioTract } from '@/lib/configurableMapping'
+import { allTractsGeometry, CLASS_COLOR, type PortfolioTract } from '@/lib/configurableMapping'
 import { Protocol as PMTilesProtocol } from 'pmtiles'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import './ComparablesMap.css'
@@ -2014,6 +2014,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const [myTractsLoaded, setMyTractsLoaded] = useState(false)
   const [myTractsError, setMyTractsError] = useState<string | null>(null)
 
+  // Read by the map click handler, which is registered once.
+  const myTractsRef = useRef<PortfolioTract[]>([])
+  myTractsRef.current = myTracts
+
   const [mapLoaded, setMapLoaded] = useState(false)
 
   // Fetch the subscriber's tracts the first time the toggle is switched
@@ -2024,7 +2028,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     let stale = false
     ;(async () => {
       try {
-        const r = await allTractsGeometry()
+        // With land types: the Explore map colours them.
+        const r = await allTractsGeometry(true)
         if (!stale) { setMyTracts(r.tracts); setMyTractsLoaded(true); setMyTractsError(null) }
       } catch (e: any) {
         if (!stale) setMyTractsError(e?.message || 'Could not load your tracts.')
@@ -2055,8 +2060,27 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }))
     ;(map.getSource('my-tracts') as maplibregl.GeoJSONSource)?.setData(
       { type: 'FeatureCollection', features: feats } as any)
+
+    // The land types inside each tract, coloured exactly as Configure Map
+    // colours them: tillable green, timber red, pasture orange, water
+    // blue, other grey.
+    const shapeFeats = myTracts.flatMap(t => (t.polygons || [])
+      .filter(sh => sh.geometry)
+      .map(sh => ({
+        type: 'Feature' as const,
+        geometry: sh.geometry,
+        properties: {
+          tractId: t.id,
+          cls: sh.cls,
+          color: (CLASS_COLOR as Record<string, string>)[sh.cls] || '#9ca3af',
+        },
+      })))
+    ;(map.getSource('my-tract-shapes') as maplibregl.GeoJSONSource)?.setData(
+      { type: 'FeatureCollection', features: shapeFeats } as any)
+
     const vis = myTractsOn ? 'visible' : 'none'
-    for (const id of ['my-tracts-fill', 'my-tracts-line', 'my-tracts-label']) {
+    for (const id of ['my-tracts-fill', 'my-tract-shapes-fill',
+                      'my-tract-shapes-line', 'my-tracts-line', 'my-tracts-label']) {
       if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis)
     }
   }, [myTracts, myTractsOn, mapLoaded, reportIds])
@@ -3885,6 +3909,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // The subscriber's OWN tracts, drawn from Configurable Mapping.
       // Off unless the Layers panel turns them on.
       map.addSource('my-tracts', { type: 'geojson', data: EMPTY_FC })
+      map.addSource('my-tract-shapes', { type: 'geojson', data: EMPTY_FC })
       map.addSource('tract-pins', { type: 'geojson', data: EMPTY_FC })
       map.addSource('county-counts', { type: 'geojson', data: EMPTY_FC })
 
@@ -4040,26 +4065,40 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // Mapping. Added BEFORE the tract pins so an auction pin is never
       // buried under one of these. Visibility is driven by the Layers
       // panel; the layers themselves are never recreated.
+      // A faint wash so the tract reads as one object, then the LAND
+      // TYPES on top in the same colours Configure Map uses — a field is
+      // the same green on both maps or the two disagree.
       map.addLayer({
         id: 'my-tracts-fill',
         type: 'fill',
         source: 'my-tracts',
         layout: { visibility: 'none' },
-        // Green once it is in the report — the same signal a parcel dot
-        // and an auction pin already use for "added to the comp report".
-        paint: {
-          'fill-color': ['case', ['boolean', ['get', 'inReport'], false], '#22c55e', '#f58cde'],
-          'fill-opacity': 0.22,
-        },
+        paint: { 'fill-color': '#2563eb', 'fill-opacity': 0.10 },
       })
+      map.addLayer({
+        id: 'my-tract-shapes-fill',
+        type: 'fill',
+        source: 'my-tract-shapes',
+        layout: { visibility: 'none' },
+        paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.45 },
+      })
+      map.addLayer({
+        id: 'my-tract-shapes-line',
+        type: 'line',
+        source: 'my-tract-shapes',
+        layout: { visibility: 'none' },
+        paint: { 'line-color': ['get', 'color'], 'line-width': 1, 'line-opacity': 0.9 },
+      })
+      // The tract OUTLINE last, so it reads over its own land types.
+      // Blue (owner), turning green once the tract is in the report.
       map.addLayer({
         id: 'my-tracts-line',
         type: 'line',
         source: 'my-tracts',
         layout: { visibility: 'none' },
         paint: {
-          'line-color': ['case', ['boolean', ['get', 'inReport'], false], '#22c55e', '#f58cde'],
-          'line-width': 2,
+          'line-color': ['case', ['boolean', ['get', 'inReport'], false], '#22c55e', '#2563eb'],
+          'line-width': ['case', ['boolean', ['get', 'inReport'], false], 4, 3],
         },
       })
       map.addLayer({
@@ -8443,10 +8482,28 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const onMyTractClick = (e: any) => {
       const f = e.features?.[0]
       if (!f) return
-      const p = f.properties || {}
+      // A click may land on the tract wash OR on a land-type polygon on
+      // top of it. Only the wash carries the tract's details, so resolve
+      // the tract by id either way rather than reading whichever
+      // feature happened to be hit.
+      const hitId = f.properties?.tractId
+      const t = myTractsRef.current.find(x => x.id === hitId)
+      if (!t) return
+      const p = {
+        tractId: t.id,
+        name: t.name,
+        projectName: t.project_name,
+        acres: t.acres,
+        tillableAcres: t.tillable_acres,
+        county: t.county,
+        state: t.state,
+        soilRating: t.soil_rating,
+      } as any
+      // The tract's own outline — never the land-type polygon that was
+      // clicked, or a report would draw one field instead of the tract.
       const ring = (() => {
         try {
-          const g: any = f.geometry
+          const g: any = t.boundary
           const c = g?.type === 'Polygon' ? g.coordinates?.[0]
             : g?.type === 'MultiPolygon' ? g.coordinates?.[0]?.[0] : null
           return Array.isArray(c) ? (c as [number, number][]) : null
@@ -8482,9 +8539,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         setSelectedSale(saleData)
       }
     }
-    map.on('click', 'my-tracts-fill', onMyTractClick)
-    map.on('mouseenter', 'my-tracts-fill', onEnter)
-    map.on('mouseleave', 'my-tracts-fill', onLeave)
+    // Both the tract wash and the land types on top of it open the
+    // tract — clicking a green field inside your own tract must not fall
+    // through to whatever is underneath.
+    for (const lyr of ['my-tracts-fill', 'my-tract-shapes-fill']) {
+      map.on('click', lyr, onMyTractClick)
+      map.on('mouseenter', lyr, onEnter)
+      map.on('mouseleave', lyr, onLeave)
+    }
 
     map.on('click', 'tract-pin-circles', onClick)
     map.on('mouseenter', 'tract-pin-circles', onEnter)

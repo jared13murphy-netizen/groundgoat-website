@@ -263,8 +263,9 @@ export interface PortfolioTract extends ProjectTractGeometry {
 
 /** Every saved tract across every project — outline and label only.
  *  Land-type polygons come from projectGeometry when one is opened. */
-export function allTractsGeometry() {
-  return j<{ tracts: PortfolioTract[] }>('/api/mapping/tracts/geometry')
+export function allTractsGeometry(includePolygons = false) {
+  const qs = includePolygons ? '?include_polygons=1' : ''
+  return j<{ tracts: PortfolioTract[] }>(`/api/mapping/tracts/geometry${qs}`)
 }
 
 /** Every tract in a project with its geometry — drawn as context around
