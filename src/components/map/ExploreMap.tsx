@@ -2014,11 +2014,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const [myTractsLoaded, setMyTractsLoaded] = useState(false)
   const [myTractsError, setMyTractsError] = useState<string | null>(null)
 
-  // Map handlers are registered once; this keeps the current callback
-  // reachable from inside them.
-  const onToggleReportRef = useRef(onToggleReport)
-  onToggleReportRef.current = onToggleReport
-
   const [mapLoaded, setMapLoaded] = useState(false)
 
   // Fetch the subscriber's tracts the first time the toggle is switched
@@ -8440,40 +8435,52 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const onEnter = () => { map.getCanvas().style.cursor = 'pointer' }
     const onLeave = () => { map.getCanvas().style.cursor = '' }
 
-    // ── My Tracts: click one to add or remove it as a comparable ──
-    // A drawn tract has no sale — it is the subscriber's own ground — so
-    // it carries acreage, tillable acreage and its soil rating, and the
-    // report shows those. Price stays null rather than invented.
+    // ── My Tracts: open the SAME detail panel an auction tract opens ──
+    // Adding to a report happens from that panel's own button, so there is
+    // one way to build a comparable, not two. A drawn tract has no sale —
+    // exactly like an upcoming auction tract — so salePrice stays null and
+    // the panel treats it the way it already treats anything unsold.
     const onMyTractClick = (e: any) => {
       const f = e.features?.[0]
-      if (!f || !onToggleReportRef.current) return
+      if (!f) return
       const p = f.properties || {}
-      const id = `cm:${p.tractId}`
       const ring = (() => {
         try {
-          const g = f.geometry
+          const g: any = f.geometry
           const c = g?.type === 'Polygon' ? g.coordinates?.[0]
             : g?.type === 'MultiPolygon' ? g.coordinates?.[0]?.[0] : null
           return Array.isArray(c) ? (c as [number, number][]) : null
         } catch { return null }
       })()
-      onToggleReportRef.current({
-        id,
-        tractId: id,
-        // Named for the report row: the tract, and which project it is in.
-        companyName: p.projectName || null,
-        owner: p.name || null,
+      const saleData = {
+        // `cm:` so a drawn tract can never collide with an auction id.
+        id: `cm:${p.tractId}`,
+        tractId: `cm:${p.tractId}`,
+        listingId: null,
+        auctionDate: null,
         totalAcres: p.acres ?? null,
         tillableAcres: p.tillableAcres ?? null,
-        soilRating: p.soilRating ?? null,
-        county: p.county || '',
-        state: p.state || '',
+        // The project reads as the "company" line, the tract as the name.
+        companyName: p.projectName || null,
+        owner: p.name || null,
         salePrice: null,
         pricePerAcre: null,
+        priceBasis: null,
+        county: p.county || '',
+        state: p.state || '',
+        soilRating: p.soilRating ?? null,
+        polygonCoordinates: ring,
+        saleStatus: null,
         latitude: e.lngLat?.lat ?? null,
         longitude: e.lngLat?.lng ?? null,
-        polygonCoordinates: ring,
-      } as any)
+      } as unknown as SaleDetail
+      setLandDetail(null)
+      if (portalMode && onTractSelected) {
+        lastPortalSaleRef.current = saleData
+        onTractSelected(saleData)
+      } else {
+        setSelectedSale(saleData)
+      }
     }
     map.on('click', 'my-tracts-fill', onMyTractClick)
     map.on('mouseenter', 'my-tracts-fill', onEnter)
