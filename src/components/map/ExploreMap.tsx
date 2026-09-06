@@ -2009,7 +2009,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // The subscriber's own drawn ground, shown on this map behind a
   // toggle. Fetched once, the first time it is switched on: most
   // sessions never ask for it, and it must not slow the map's start.
-  const [myTractsOn, setMyTractsOn] = useState(false)
+  // ON by default (owner): a subscriber's own ground should be on the
+  // map without being asked for. The fetch is still lazy — it fires the
+  // first time the layer is on, never blocks the map's start, and a
+  // subscriber with no tracts pays about a kilobyte for the answer.
+  const [myTractsOn, setMyTractsOn] = useState(true)
   const [myTracts, setMyTracts] = useState<PortfolioTract[]>([])
   const [myTractsLoaded, setMyTractsLoaded] = useState(false)
   const [myTractsError, setMyTractsError] = useState<string | null>(null)

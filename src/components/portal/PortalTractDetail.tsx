@@ -392,7 +392,15 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
               }
               return null
             })()}
-            {tract.companyName && <DetailRow label="Listing Company" value={tract.companyName} />}
+            {/* A tract the subscriber drew has no listing company — the
+                name here is their own project, so say so. `cm:` ids are
+                minted by the Explore map for Configurable Mapping
+                tracts. */}
+            {tract.companyName && (
+              <DetailRow
+                label={String(tract.id || '').startsWith('cm:') ? 'Project' : 'Listing Company'}
+                value={tract.companyName} />
+            )}
             <DetailRow label="County" value={tract.county || '—'} />
             <DetailRow label="State" value={tract.state || '—'} />
             <DetailRow label="Township" value={tract.township || '—'} />
