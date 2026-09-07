@@ -279,7 +279,7 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
         const rawId = String(tract.tractId || tract.id)
         const isCustom = rawId.startsWith('cm:')
         const src = isCustom
-          ? `${API_URL}/api/mapping/parcels/${rawId.slice(3)}/image`
+          ? `${API_URL}/api/mapping/parcels/${rawId.slice(3)}/image?v=1`
           : `${API_URL}/api/tracts/${rawId}/image?w=600&q=80`
         return (
           <div className="rounded-xl overflow-hidden border border-white/10">
@@ -292,7 +292,24 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
               // A tract saved before imagery existed, or one still
               // rendering, has no picture yet — show nothing rather than
               // a broken-image icon.
-              onError={(e) => { (e.currentTarget.parentElement as HTMLElement).style.display = 'none' }}
+              // 202 means the render was queued by this very request;
+              // 404 means there is nothing to show. Either way hide the
+              // frame — and for a custom tract, look once more shortly
+              // after, since the first viewer is the one who triggers it.
+              onError={(e) => {
+                const el = e.currentTarget
+                const box = el.parentElement as HTMLElement
+                if (isCustom && !el.dataset.retried) {
+                  el.dataset.retried = '1'
+                  window.setTimeout(() => { el.src = `${src}&_=${Date.now()}` }, 6000)
+                  box.style.display = 'none'
+                  return
+                }
+                box.style.display = 'none'
+              }}
+              onLoad={(e) => {
+                ;((e.currentTarget.parentElement as HTMLElement) || {}).style.display = ''
+              }}
             />
           </div>
         )
