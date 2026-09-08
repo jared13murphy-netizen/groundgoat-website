@@ -86,6 +86,12 @@ interface MapChatPanelProps {
       (which, via ExploreMap's applyExternalFilters effect, also clears
       any owner-parcels dots) — the bubble's X button. */
   clearActiveSearch?: () => void
+  /** Bumped by the parent (access/page.tsx) when the Explore map's
+      Utilities panel "Goat Search" tile is tapped — opens this pill and
+      focuses the input, the same way clicking the pill itself does.
+      A nonce rather than a boolean so tapping the tile again while
+      already open still re-focuses. */
+  openSignal?: number
 }
 
 interface OutOfScopeResponse {
@@ -194,7 +200,7 @@ function SearchSpinner() {
   )
 }
 
-export default function MapChatPanel({ onApplyFilters, onChatReportResult, currentFilters, hasActiveFilters, onSearchStart, onSearchEnd, mapSearchError, onOwnerParcels, onSearchQueryStart, activeSearchQuery, clearActiveSearch }: MapChatPanelProps) {
+export default function MapChatPanel({ onApplyFilters, onChatReportResult, currentFilters, hasActiveFilters, onSearchStart, onSearchEnd, mapSearchError, onOwnerParcels, onSearchQueryStart, activeSearchQuery, clearActiveSearch, openSignal }: MapChatPanelProps) {
   const [open, setOpen] = useState(false)
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -304,6 +310,24 @@ export default function MapChatPanel({ onApplyFilters, onChatReportResult, curre
     scheduleToastDismiss(mapSearchError.kind, mapSearchError.message)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapSearchError?.nonce])
+
+  // Utilities panel "Goat Search" tile: open + focus, same as clicking
+  // the pill. Skips the initial mount (openSignal starts at 0 in the
+  // parent and this effect must not fire before a real tap bumps it).
+  const openSignalMountedRef = useRef(false)
+  useEffect(() => {
+    if (!openSignalMountedRef.current) {
+      openSignalMountedRef.current = true
+      return
+    }
+    if (openSignal === undefined) return
+    setOpen(true)
+    // Already-open case: the focus effect below only fires on open's
+    // false→true transition, so nudge focus directly here too.
+    const t = setTimeout(() => inputRef.current?.focus(), 250)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openSignal])
 
   // Focus input when the pill opens; close on Esc
   useEffect(() => {

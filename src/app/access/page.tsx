@@ -308,6 +308,10 @@ function AccessPortalPageInner() {
   // non-empty applied_filters) — never for analytics/out-of-scope/error,
   // which leave no map state for the bubble's X to clear.
   const [activeSearchQuery, setActiveSearchQuery] = useState<string | null>(null)
+  // Utilities panel "Goat Search" tile (2026-09-08): bumped to open +
+  // focus MapChatPanel's pill, which lives as a sibling of ExploreMap so
+  // it can't be reached directly from inside the map component.
+  const [goatSearchOpenSignal, setGoatSearchOpenSignal] = useState(0)
   // Bubble's X button: clears the bubble AND resets the map's
   // chat-applied filters. handleChatApplyFilters({}, true) bumps
   // chatAppliedFilters' nonce, which ExploreMap's applyExternalFilters
@@ -815,6 +819,7 @@ function AccessPortalPageInner() {
           comparableVisibleIds={null}
           neighborParcels={neighborParcels}
           neighborsLoading={neighborsLoading}
+          onOpenGoatSearch={() => setGoatSearchOpenSignal(n => n + 1)}
         />
       </div>
 
@@ -1127,6 +1132,7 @@ function AccessPortalPageInner() {
       {!subjectTractId &&
         (user?.can_use_goat_search || user?.account_type === 'groundgoat_admin') && (
         <MapChatPanel
+          openSignal={goatSearchOpenSignal}
           onApplyFilters={handleChatApplyFilters}
           onChatReportResult={handleChatReportResult}
           onSearchStart={handleChatSearchStart}
