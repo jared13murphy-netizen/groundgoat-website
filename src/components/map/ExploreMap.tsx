@@ -3821,6 +3821,17 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       mapRef.current = map
       setMapLoaded(true)
 
+      // On maps 640px wide or narrower MapLibre's attribution starts
+      // EXPANDED and only collapses on the first drag. Expanded, it spans
+      // most of the bottom edge and covers the bottom-left controls (the
+      // aerial-year button). Collapse it to its ⓘ toggle right away; the
+      // full credit line is still one tap away.
+      if (map.getCanvasContainer().offsetWidth <= 640) {
+        map.getContainer()
+          .querySelector('.maplibregl-ctrl-attrib.maplibregl-compact')
+          ?.classList.remove('maplibregl-compact-show')
+      }
+
       // ── Terrain DEM source (Terrarium encoding) ──────────────────
       // Added here once so the 3D terrain effect can reference it.
       // Public tiles — no auth header needed.
