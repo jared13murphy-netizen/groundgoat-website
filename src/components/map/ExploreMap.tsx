@@ -1582,6 +1582,13 @@ interface ExploreMapProps {
     zoning?: string | null
   }[] | null
   neighborsLoading?: boolean
+  /** Shared-link pin (2026-09-08): mobile app share links carry
+      ?focusLat&focusLng&focusZoom&pin=1 (see access/page.tsx). When set,
+      drops ONE marker with a click-to-open popup at the coords. Purely a
+      visual marker — the camera fly-to is already handled by the existing
+      zoomToLocation prop, this just draws the pin once the camera gets
+      there. Pass null/undefined to remove it. */
+  sharedPin?: { lat: number; lng: number } | null
 }
 
 // ── CDL_PALETTE — USDA Cropland Data Layer code → {name, color} ─────────────
@@ -1758,7 +1765,7 @@ function OverlayButton({
   )
 }
 
-export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onLandDetailOpen, externalTractSelection, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, chatSearchEndSignal, onChatSearchError, ownerParcelsResult, onShowOwnedGround, comparableVisibleIds, neighborParcels, neighborsLoading }: ExploreMapProps) {
+export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onLandDetailOpen, externalTractSelection, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, chatSearchEndSignal, onChatSearchError, ownerParcelsResult, onShowOwnedGround, comparableVisibleIds, neighborParcels, neighborsLoading, sharedPin }: ExploreMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const stateMarkersRef = useRef<maplibregl.Marker[]>([])
@@ -8768,6 +8775,44 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       subjectMarkerRef.current = null
     }
   }, [portalMode, subjectTractLocation])
+
+  // Shared-link pin (2026-09-08): a single click-to-open marker for
+  // ?focusLat&focusLng&pin=1 share links (see access/page.tsx). The
+  // camera fly-to is already handled by the existing zoomToLocation
+  // prop/effect — this effect only draws the pin, gated on mapLoaded
+  // so it doesn't try to add to a map that isn't ready yet.
+  const sharedPinMarkerRef = useRef<maplibregl.Marker | null>(null)
+  useEffect(() => {
+    const map = mapRef.current
+    if (sharedPinMarkerRef.current) {
+      sharedPinMarkerRef.current.remove()
+      sharedPinMarkerRef.current = null
+    }
+    if (!sharedPin || !map || !mapLoaded) return
+
+    const popup = new maplibregl.Popup({ offset: 32, closeButton: true }).setHTML(
+      `<strong>Shared pin</strong><br />${sharedPin.lat.toFixed(6)}, ${sharedPin.lng.toFixed(6)}`
+    )
+
+    const marker = new maplibregl.Marker({ color: '#E91E8C', anchor: 'bottom' })
+      .setLngLat([sharedPin.lng, sharedPin.lat])
+      .setPopup(popup)
+      .addTo(map)
+
+    // Marker() builds its own default SVG-pin element (color option only
+    // applies to that default element, not a custom one) — tag it for
+    // a11y after the fact rather than passing a custom `element` in.
+    const el = marker.getElement()
+    el.setAttribute('role', 'img')
+    el.setAttribute('aria-label', `Shared pin at ${sharedPin.lat}, ${sharedPin.lng}`)
+
+    sharedPinMarkerRef.current = marker
+
+    return () => {
+      marker.remove()
+      sharedPinMarkerRef.current = null
+    }
+  }, [sharedPin, mapLoaded])
 
   // ─────────────────────────────────────────────────────────────
   // 3-tier zoom system: state silhouettes → county squares → tract

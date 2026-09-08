@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef, Suspense } from 'react'
+import { useState, useEffect, useMemo, useRef, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import Image from 'next/image'
@@ -142,6 +142,25 @@ function AccessPortalPageInner() {
     setZoomToLocation({ lat, lng, zoom: Number.isFinite(zoom) ? zoom : 15 })
     setTimeout(() => setZoomToLocation(null), 10000)
   }, [user, searchParams])
+  // Shared pin: mobile app share links add &pin=1 onto the same
+  // focusLat/focusLng shape above (e.g. https://groundgoat.com/access?
+  // focusLat=..&focusLng=..&focusZoom=..&pin=1). Unlike zoomToLocation
+  // (a one-shot camera signal that self-clears), this stays put — it's
+  // just what ExploreMap draws once the camera gets there, so it's a
+  // plain memo off the query string rather than the focusHandledRef gate.
+  const sharedPin = useMemo(() => {
+    if (searchParams.get('pin') !== '1') return null
+    const latStr = searchParams.get('focusLat')
+    const lngStr = searchParams.get('focusLng')
+    if (!latStr || !lngStr) return null
+    const lat = parseFloat(latStr)
+    const lng = parseFloat(lngStr)
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
+    // Lower-48 bbox sanity check so a malformed/garbage link can't drop a
+    // pin off in the ocean or off the map entirely.
+    if (lat < 24 || lat > 50 || lng < -125 || lng > -66) return null
+    return { lat, lng }
+  }, [searchParams])
   const zoomToFirstTractWithBoundary = (listing: any) => {
     // Also capture county/state for the pane header subtitle.
     if (listing?.county || listing?.state) {
@@ -781,6 +800,7 @@ function AccessPortalPageInner() {
           reportIds={reportIds}
           onFiltersApplied={handleFiltersApplied}
           zoomToLocation={zoomToLocation}
+          sharedPin={sharedPin}
           zoomToBoundsSignal={zoomToBoundsSignal}
           pinnedTractPolygon={pinnedTractPolygon}
           subjectTractId={subjectTractId}
