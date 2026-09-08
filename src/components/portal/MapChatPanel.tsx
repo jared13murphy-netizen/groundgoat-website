@@ -173,7 +173,7 @@ const SPINNER_DOTS = 8
 const SPINNER_RADIUS = 12   // px — sits just inside the 36px (w-9) button
 const SPINNER_DOT_SIZE = 3
 
-function SearchSpinner() {
+function SearchSpinner({ dotClassName = 'bg-white' }: { dotClassName?: string }) {
   return (
     <span
       aria-hidden="true"
@@ -185,7 +185,7 @@ function SearchSpinner() {
         return (
           <span
             key={i}
-            className="absolute rounded-full bg-white"
+            className={`absolute rounded-full ${dotClassName}`}
             style={{
               width: SPINNER_DOT_SIZE,
               height: SPINNER_DOT_SIZE,
@@ -685,7 +685,7 @@ export default function MapChatPanel({ onApplyFilters, onChatReportResult, curre
         style={{
           filter: 'drop-shadow(0 3px 12px rgba(0,0,0,0.7)) drop-shadow(0 1px 4px rgba(0,0,0,0.5))',
         }}
-        className="group relative rounded-full flex items-center gap-2 pl-5 pr-1.5 py-1.5 overflow-hidden bg-black/75 backdrop-blur-xl border border-white/15 focus-within:border-gg-pink/70"
+        className="group relative rounded-full flex items-center gap-2 pl-5 pr-1.5 py-1.5 overflow-hidden bg-white border border-black/10 focus-within:border-[#E91E8C]/70"
       >
         <Sparkles size={18} className="flex-shrink-0 text-gg-pink" />
 
@@ -696,25 +696,38 @@ export default function MapChatPanel({ onApplyFilters, onChatReportResult, curre
             onChange={(e) => setInput(e.target.value)}
             placeholder="Ask the map…  e.g. Iowa CSR2 75+ upcoming auctions"
             disabled={loading}
-            className="absolute inset-0 w-full bg-transparent outline-none text-sm text-white placeholder-gg-gray-400 px-1"
+            className="absolute inset-0 w-full bg-white outline-none text-sm text-[#111] placeholder-gray-500 px-1"
           />
         </div>
 
-        {/* Send button */}
+        {/* Send button. Owner ruling 2026-09-08 (box turned white): idle
+            state stays the brand pink (#E91E8C, exact hex — the gg-pink
+            Tailwind token is a lighter shade used elsewhere and isn't
+            what was asked for here) with a white arrow; the STOP state
+            (search in flight) switches to dark-grey-on-white instead of
+            staying pink, since pink no longer reads as "quiet neutral
+            action" against the now-white box the way it did on black. */}
         <button
           type={loading ? 'button' : 'submit'}
           onClick={loading ? (e) => { e.preventDefault(); cancelSearch() } : undefined}
           disabled={loading ? false : !input.trim()}
           aria-label={loading ? 'Stop search' : 'Submit'}
           title={loading ? 'Stop search' : undefined}
-          className="relative bg-gg-pink hover:bg-gg-pink-light disabled:opacity-40 disabled:hover:bg-gg-pink text-white rounded-full w-9 h-9 flex items-center justify-center transition-colors flex-shrink-0"
+          className={`relative rounded-full w-9 h-9 flex items-center justify-center transition-colors flex-shrink-0 ${
+            loading
+              ? 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+              : 'bg-[#E91E8C] hover:bg-[#d41a7d] disabled:opacity-40 disabled:hover:bg-[#E91E8C] text-white'
+          }`}
         >
           {/* While a search is in flight this becomes a STOP button (owner
               2026-07-28: a slow query had no way out and looked hung). Same
               affordance as the send button so the control never moves.
               The orbiting ring around it is the loading indicator (owner
-              2026-08-13) — matches the phone/iPad apps. */}
-          {loading && <SearchSpinner />}
+              2026-08-13) — matches the phone/iPad apps. Dots switch to
+              dark grey in this state too — see the button's className
+              above for why white dots would vanish on the (now light)
+              stop button. */}
+          {loading && <SearchSpinner dotClassName="bg-gray-500" />}
           {loading ? <Square size={12} fill="currentColor" /> : <Send size={15} />}
         </button>
       </motion.form>
