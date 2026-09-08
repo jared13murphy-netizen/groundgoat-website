@@ -658,89 +658,50 @@ export default function MapChatPanel({ onApplyFilters, onChatReportResult, curre
         )}
       </AnimatePresence>
 
-      {/* Morphing pill — single consistent layout. Width animates
-          smoothly between two numeric values; padding stays constant
-          so the spring never "catches" mid-animation. Inner content
-          (label vs input + send) crossfades in place. */}
+      {/* Morphing pill (owner ruling 2026-09-08: the COLLAPSED pill no
+          longer renders on the map at all — Goat Search's only trigger
+          now is the "Goat Search" item in the top pill nav, which bumps
+          openSignal below. This box still appears here, bottom-center,
+          but only once `open` is true, mirroring the mobile app's
+          pillVisible-style gating). Width animates smoothly between two
+          numeric values; padding stays constant so the spring never
+          "catches" mid-animation. Inner content (label vs input + send)
+          crossfades in place — the label path is now unreachable since
+          the form only mounts while open, but left as-is (harmless,
+          minimal diff) rather than stripped. */}
+      <AnimatePresence>
+      {open && (
       <motion.form
         ref={formRef}
         onSubmit={(e) => { e.preventDefault(); submit(input) }}
+        initial={{ opacity: 0, scale: 0.92 }}
         animate={{
-          width: open
-            ? Math.min(620, typeof window !== 'undefined' ? window.innerWidth - 32 : 620)
-            : 168,
+          opacity: 1,
+          scale: 1,
+          width: Math.min(620, typeof window !== 'undefined' ? window.innerWidth - 32 : 620),
         }}
+        exit={{ opacity: 0, scale: 0.92 }}
         transition={{ type: 'spring', damping: 28, stiffness: 240 }}
         style={{
           filter: 'drop-shadow(0 3px 12px rgba(0,0,0,0.7)) drop-shadow(0 1px 4px rgba(0,0,0,0.5))',
-          // Collapsed state gets the brand pink→magenta gradient (same
-          // family as the Goat Analysis pane's gradient) instead of a
-          // flat fill. Expanded state keeps its dark glass look.
-          ...(!open && {
-            background: 'linear-gradient(135deg, #F58CDE 0%, #EC4899 100%)',
-            borderColor: 'rgba(255,255,255,0.35)',
-          }),
         }}
-        className={`group relative rounded-full flex items-center gap-2 pl-5 pr-1.5 py-1.5 overflow-hidden transition-colors duration-300 ${
-          open
-            ? 'bg-black/75 backdrop-blur-xl border border-white/15 focus-within:border-gg-pink/70'
-            : 'border cursor-pointer hover:brightness-110'
-        }`}
-        onClick={!open ? () => setOpen(true) : undefined}
+        className="group relative rounded-full flex items-center gap-2 pl-5 pr-1.5 py-1.5 overflow-hidden bg-black/75 backdrop-blur-xl border border-white/15 focus-within:border-gg-pink/70"
       >
-        {/* Shiny sheen — a soft top highlight over the gradient so the
-            collapsed pill reads as glossy rather than a flat fill.
-            Pointer-events-none so it never blocks the click-to-open
-            handler on the form above. */}
-        {!open && (
-          <span
-            className="absolute inset-0 rounded-full pointer-events-none"
-            style={{
-              background:
-                'linear-gradient(180deg, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0.08) 32%, rgba(255,255,255,0) 58%)',
-            }}
-          />
-        )}
-        <Sparkles
-          size={18}
-          className={`flex-shrink-0 transition-colors duration-300 ${
-            open ? 'text-gg-pink' : 'text-white'
-          }`}
-        />
+        <Sparkles size={18} className="flex-shrink-0 text-gg-pink" />
 
-        {/* Crossfade label vs input. Both rendered, only one visible/
-            interactive at a time. Stays in the same flex slot so the
-            width animation has nothing to fight with. */}
         <div className="relative flex-1 min-w-0 h-9 flex items-center">
-          <motion.span
-            animate={{ opacity: open ? 0 : 1 }}
-            transition={{ duration: 0.18 }}
-            className="absolute inset-0 flex items-center text-sm font-semibold text-black whitespace-nowrap pointer-events-none"
-          >
-            Goat Search
-          </motion.span>
-          <motion.input
+          <input
             ref={inputRef}
-            animate={{ opacity: open ? 1 : 0 }}
-            transition={{ duration: 0.18, delay: open ? 0.12 : 0 }}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder="Ask the map…  e.g. Iowa CSR2 75+ upcoming auctions"
-            disabled={loading || !open}
-            tabIndex={open ? 0 : -1}
+            disabled={loading}
             className="absolute inset-0 w-full bg-transparent outline-none text-sm text-white placeholder-gg-gray-400 px-1"
-            style={{ pointerEvents: open ? 'auto' : 'none' }}
           />
         </div>
 
-        {/* Send button — fades + scales in once expanded */}
-        <motion.button
-          animate={{
-            opacity: open ? 1 : 0,
-            scale: open ? 1 : 0.4,
-          }}
-          transition={{ duration: 0.18, delay: open ? 0.15 : 0 }}
-          style={{ pointerEvents: open ? 'auto' : 'none' }}
+        {/* Send button */}
+        <button
           type={loading ? 'button' : 'submit'}
           onClick={loading ? (e) => { e.preventDefault(); cancelSearch() } : undefined}
           disabled={loading ? false : !input.trim()}
@@ -755,8 +716,10 @@ export default function MapChatPanel({ onApplyFilters, onChatReportResult, curre
               2026-08-13) — matches the phone/iPad apps. */}
           {loading && <SearchSpinner />}
           {loading ? <Square size={12} fill="currentColor" /> : <Send size={15} />}
-        </motion.button>
+        </button>
       </motion.form>
+      )}
+      </AnimatePresence>
 
       {/* Analytics RIGHT-SIDE slide-out pane — PORTALED to document.body
           because the chat-panel wrapper above has CSS transform

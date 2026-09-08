@@ -850,6 +850,15 @@ function AccessPortalPageInner() {
         onWatchlistToggle={() => setShowWatchlistPanel(!showWatchlistPanel)}
         watchlistOpen={showWatchlistPanel}
         watchlistCount={watchlistIds.size}
+        // Same gate as the Goat Search box itself just below (comp mode
+        // hides it — owner ruling 2026-08-06 — and the can_use_goat_search/
+        // admin gate matches it exactly). Passed as the callback's
+        // presence, same idiom as onWatchlistToggle above.
+        onGoatSearchToggle={
+          !subjectTractId && (user?.can_use_goat_search || user?.account_type === 'groundgoat_admin')
+            ? () => setGoatSearchOpenSignal(n => n + 1)
+            : undefined
+        }
         onUtilitiesToggle={() => setUtilitiesToggleSignal(n => n + 1)}
         utilitiesActive={utilitiesActive}
         user={user}
