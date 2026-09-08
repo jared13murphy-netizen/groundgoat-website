@@ -1875,6 +1875,17 @@ const pinActionButtonStyle: React.CSSProperties = {
   cursor: 'pointer',
 }
 
+// ── Set Pin placement cursor (2026-09-08, web-only) — a small pink
+// map-pin, 24x32, dark outline so it reads on both light and dark
+// basemap imagery. Hotspot (12, 30) points at the pin's tip. Falls back
+// to a plain crosshair if the data URI ever fails to load. ─────────────
+const SET_PIN_CURSOR_SVG =
+  "<svg xmlns='http://www.w3.org/2000/svg' width='24' height='32' viewBox='0 0 24 32'>" +
+  "<path d='M12 0C5.373 0 0 5.373 0 12c0 9 12 20 12 20s12-11 12-20C24 5.373 18.627 0 12 0z' fill='#E91E8C' stroke='#000' stroke-width='1.5'/>" +
+  "<circle cx='12' cy='12' r='4.5' fill='#fff'/>" +
+  "</svg>"
+const SET_PIN_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(SET_PIN_CURSOR_SVG)}") 12 30, crosshair`
+
 export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onLandDetailOpen, externalTractSelection, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, chatSearchEndSignal, onChatSearchError, ownerParcelsResult, onShowOwnedGround, comparableVisibleIds, neighborParcels, neighborsLoading, sharedPin, onOpenGoatSearch, utilitiesToggleSignal, onUtilitiesActiveChange }: ExploreMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
@@ -2543,6 +2554,66 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     setUtilitiesOpen(false)
     setUtilitiesView('menu')
   }, [])
+
+  // ── Set Pin placement mode (2026-09-08, web-only click-to-place —
+  // owner ruling: the mobile app keeps its centre-crosshair, that's a
+  // finger UI; web gets a real click-to-place cursor instead) ─────────
+  //
+  // pinPlacementActiveRef mirrors pinMode into a ref so the many
+  // layer-scoped click handlers elsewhere in this file (parcel fill,
+  // tract pins/polygons, durable sale dots, CSB fields, soils, today
+  // pins, county-count circles — search this file for
+  // `pinPlacementActiveRef.current) return` to find every guarded
+  // handler) can bail out synchronously. MapLibre has no real
+  // stopPropagation across independently-registered 'click' listeners
+  // (see clickClaimedByLayers above for the same constraint, and its
+  // callers for the established "each handler checks a shared flag and
+  // returns" pattern this reuses) — a listener added only once
+  // placement mode starts would in any case fire AFTER the handlers
+  // bound at mount, not before, so a shared ref every handler checks is
+  // the only ordering-independent fix.
+  const pinPlacementActiveRef = useRef(false)
+  useEffect(() => { pinPlacementActiveRef.current = pinMode }, [pinMode])
+
+  // Cursor + Escape-to-cancel while in placement mode. The hint pill
+  // itself is rendered in JSX below (top-center, under the nav).
+  useEffect(() => {
+    const map = mapRef.current
+    if (!pinMode || !map) return
+    const canvas = map.getCanvas()
+    const prevCursor = canvas.style.cursor
+    canvas.style.cursor = SET_PIN_CURSOR
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setPinMode(false)
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown)
+      canvas.style.cursor = prevCursor
+    }
+  }, [pinMode])
+
+  // The actual placement click — registered once (persistent, not
+  // map.once: a fresh once-listener added when placement mode starts
+  // would still fire after the already-bound layer handlers below, per
+  // the ordering note above) and self-gated on pinPlacementActiveRef so
+  // it only acts while placement mode is on. Global (no layer filter)
+  // so clicking anywhere — including empty space, water, whatever —
+  // places the pin, matching "click the map to place your pin".
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+    const handlePlacementClick = (e: maplibregl.MapMouseEvent) => {
+      if (!pinPlacementActiveRef.current) return
+      const { lat, lng } = e.lngLat
+      setPin({ lat, lng })
+      setPinMode(false)
+      setUtilitiesView('pin')
+      setUtilitiesOpen(true)
+    }
+    map.on('click', handlePlacementClick)
+    return () => { map.off('click', handlePlacementClick) }
+  }, [mapLoaded])
 
   // Marker for the pin (shared-link OR user-set — same marker either
   // way). Clicking it reopens the Pin view. Extends the pre-9/8
@@ -5440,6 +5511,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // at the click point so the panel can show soil + crop data alongside
     // the parcel data without a competing anchored Popup.
     const onClick = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
+      // Set Pin placement mode (2026-09-08): this click places a pin
+      // instead — see pinPlacementActiveRef's declaration for why every
+      // click handler in this file checks it rather than relying on
+      // listener registration order.
+      if (pinPlacementActiveRef.current) return
       const f = e.features?.[0]
       if (!f) return
       // If the click also landed on a top-of-stack pin, that layer's own
@@ -5773,6 +5849,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // default popup box and looked broken.
     let activePopup: maplibregl.Popup | null = null
     const onPinClick = async (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
+      // Set Pin placement mode (2026-09-08) — see pinPlacementActiveRef.
+      if (pinPlacementActiveRef.current) return
       const f = e.features?.[0]
       if (!f) return
       // A tract ALWAYS wins over the sale-dot underneath it (task #26
@@ -6122,6 +6200,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     if (isFirstMount) {
       let activePopup: maplibregl.Popup | null = null
       const onClick = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
+        // Set Pin placement mode (2026-09-08) — see pinPlacementActiveRef.
+        if (pinPlacementActiveRef.current) return
         const f = e.features?.[0]
         if (!f || f.geometry.type !== 'Point') return
         // Task #26: this layer's minzoom (9) overlaps tract-pin-circles'
@@ -7772,6 +7852,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // can safely skip. We use the same "query regrid to check for
     // parcel" approach as onSoilsFullClick.
     const onCsbFieldClick = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
+      // Set Pin placement mode (2026-09-08) — see pinPlacementActiveRef.
+      if (pinPlacementActiveRef.current) return
       if (!e.features?.length) return
       const csbProps: any = e.features[0].properties || {}
       // Task #26: CSB (minzoom 10, uncapped) overlaps tract layers
@@ -7904,6 +7986,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // polygon is hit (no Regrid parcel), we open the panel with soil
     // context only so the user still gets the muname/musym info.
     const onSoilsFullClick = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
+      // Set Pin placement mode (2026-09-08) — see pinPlacementActiveRef.
+      if (pinPlacementActiveRef.current) return
       if (!e.features?.length) return
       const soilProps: any = e.features[0].properties || {}
       // Query whether the Regrid fill also underlies this point. If so,
@@ -8589,6 +8673,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     if (!map || !mapLoaded) return
 
     const onClick = (e: maplibregl.MapLayerMouseEvent) => {
+      // Set Pin placement mode (2026-09-08) — see pinPlacementActiveRef.
+      if (pinPlacementActiveRef.current) return
       const f = e.features?.[0]
       if (!f) return
       const tractId = (f.properties?.tractId as string) || ''
@@ -8812,6 +8898,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     if (!map || !mapLoaded) return
 
     const onClick = (e: maplibregl.MapLayerMouseEvent) => {
+      // Set Pin placement mode (2026-09-08) — see pinPlacementActiveRef.
+      if (pinPlacementActiveRef.current) return
       const f = e.features?.[0]
       if (!f) return
       const tractId = (f.properties?.tractId as string) || ''
@@ -9265,6 +9353,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const map = mapRef.current
     if (!map || !mapLoaded) return
     const onClick = (e: maplibregl.MapLayerMouseEvent) => {
+      // Set Pin placement mode (2026-09-08) — see pinPlacementActiveRef.
+      if (pinPlacementActiveRef.current) return
       const f = e.features?.[0]
       if (!f) return
       const geom = f.geometry as GeoJSON.Point
@@ -10430,96 +10520,37 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         </div>
       </div>
 
-      {/* Set Pin mode — crosshair fixed at the map container's centre plus
-          a bottom-centre "Set Pin" pill + round × cancel. The map still
-          pans/zooms freely; "Set Pin" reads the current map center. */}
+      {/* Set Pin placement mode (owner ruling 2026-09-08: click-to-place
+          on web, NOT the mobile app's centre-crosshair — that's a
+          finger-based UI and stays untouched on mobile). The cursor
+          becomes a pin (see the pinMode cursor/click effects declared
+          alongside the pin state above) and the next click on the map
+          places the pin — that click is kept from also opening a
+          parcel/tract/dot panel via pinPlacementActiveRef, which every
+          other click handler in this file checks first. This hint pill
+          is the only visible placement-mode UI left on the map. */}
       {pinMode && (
-        <>
-          <div
-            aria-hidden="true"
-            style={{
-              position: 'absolute',
-              top: '50%',
-              left: '50%',
-              width: 44,
-              height: 44,
-              marginLeft: -22,
-              marginTop: -22,
-              zIndex: 500,
-              pointerEvents: 'none',
-            }}
-          >
-            <svg width="44" height="44" viewBox="0 0 44 44" fill="none">
-              <circle cx="22" cy="22" r="10" stroke="#000" strokeOpacity="0.45" strokeWidth="4" />
-              <circle cx="22" cy="22" r="10" stroke="#E91E8C" strokeWidth="2.5" />
-              <line x1="22" y1="1"  x2="22" y2="10" stroke="#000" strokeOpacity="0.45" strokeWidth="4" strokeLinecap="round" />
-              <line x1="22" y1="1"  x2="22" y2="10" stroke="#E91E8C" strokeWidth="2.5" strokeLinecap="round" />
-              <line x1="22" y1="34" x2="22" y2="43" stroke="#000" strokeOpacity="0.45" strokeWidth="4" strokeLinecap="round" />
-              <line x1="22" y1="34" x2="22" y2="43" stroke="#E91E8C" strokeWidth="2.5" strokeLinecap="round" />
-              <line x1="1"  y1="22" x2="10" y2="22" stroke="#000" strokeOpacity="0.45" strokeWidth="4" strokeLinecap="round" />
-              <line x1="1"  y1="22" x2="10" y2="22" stroke="#E91E8C" strokeWidth="2.5" strokeLinecap="round" />
-              <line x1="34" y1="22" x2="43" y2="22" stroke="#000" strokeOpacity="0.45" strokeWidth="4" strokeLinecap="round" />
-              <line x1="34" y1="22" x2="43" y2="22" stroke="#E91E8C" strokeWidth="2.5" strokeLinecap="round" />
-            </svg>
-          </div>
-
-          <div style={{
+        <div
+          role="status"
+          style={{
             position: 'absolute',
-            bottom: 24,
+            top: 64,
             left: '50%',
             transform: 'translateX(-50%)',
             zIndex: 500,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-          }}>
-            <button
-              onClick={() => {
-                const map = mapRef.current
-                if (!map) return
-                const c = map.getCenter()
-                setPin({ lat: c.lat, lng: c.lng })
-                setPinMode(false)
-                setUtilitiesView('pin')
-                setUtilitiesOpen(true)
-              }}
-              style={{
-                height: 40,
-                padding: '0 20px',
-                borderRadius: 999,
-                border: 'none',
-                background: '#E91E8C',
-                color: '#fff',
-                fontSize: 14,
-                fontWeight: 700,
-                cursor: 'pointer',
-                boxShadow: '0 4px 12px rgba(0,0,0,0.35)',
-              }}
-            >
-              Set Pin
-            </button>
-            <button
-              onClick={() => setPinMode(false)}
-              aria-label="Cancel pin placement"
-              style={{
-                width: 40,
-                height: 40,
-                borderRadius: '50%',
-                border: 'none',
-                background: 'rgba(0,0,0,0.75)',
-                color: '#fff',
-                fontSize: 18,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                boxShadow: '0 4px 12px rgba(0,0,0,0.35)',
-              }}
-            >
-              ×
-            </button>
-          </div>
-        </>
+            background: 'rgba(0,0,0,0.75)',
+            backdropFilter: 'blur(4px)',
+            color: '#fff',
+            fontSize: 12,
+            fontWeight: 500,
+            padding: '8px 14px',
+            borderRadius: 999,
+            boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
+            pointerEvents: 'none',
+          }}
+        >
+          Click the map to place your pin · Esc to cancel
+        </div>
       )}
 
       {/* Filter Button */}
