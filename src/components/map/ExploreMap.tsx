@@ -42,14 +42,12 @@ import { STATE_ABBR, STATE_BOUNDS } from './mapConstants'
 // the Regrid parcel layers are unfiltered by design as of 2026-07-30 (see
 // the setFilter effect below). Only the layer-id list is still needed.
 import { REGRID_PARCEL_LAYER_IDS } from '@/lib/regridParcelFilter'
-// Utilities control (2026-09-08) — mirrors the mobile app's map-outline +
-// wrench icon. `Map` is aliased to avoid shadowing the built-in Map class,
-// which this file uses extensively (durableDotsByIdRef, tractMapRef, etc.);
-// `Navigation` is aliased for clarity at the call site (the Directions
-// button, not the browser Navigation API).
+// Utilities panel icons (2026-09-08). The map-outline + wrench trigger
+// icon itself now lives in PortalNavBar (top pill nav, owner ruling
+// 2026-09-08 moved it out of this file) — only the panel's own tile/action
+// icons are still imported here. `Navigation` is aliased for clarity at
+// the call site (the Directions button, not the browser Navigation API).
 import {
-  Map as MapIcon,
-  Wrench,
   Layers as LayersIcon,
   Calendar as CalendarIcon,
   MapPin as MapPinIcon,
@@ -1613,6 +1611,18 @@ interface ExploreMapProps {
       its own MapChatPanel pill — that component lives as a sibling of
       ExploreMap, not a child, so it can't be opened directly from here. */
   onOpenGoatSearch?: () => void
+  /** Utilities panel open/close trigger (2026-09-08 owner ruling: the
+      trigger moved from a floating map button into the top pill nav,
+      PortalNavBar's "Utilities" item next to Watchlist — see
+      access/page.tsx). The panel's own state (open/view/pin/etc.) still
+      lives inside this component; the parent only bumps this nonce to
+      toggle it, same pattern as onOpenGoatSearch/openSignal. */
+  utilitiesToggleSignal?: number
+  /** Reports whether the nav-bar item should render pink: true while the
+      panel is open, or a pin exists, or a non-default layer/year is
+      active. The parent mirrors this into PortalNavBar's active styling
+      since that state lives inside this component. */
+  onUtilitiesActiveChange?: (active: boolean) => void
 }
 
 // ── CDL_PALETTE — USDA Cropland Data Layer code → {name, color} ─────────────
@@ -1865,7 +1875,7 @@ const pinActionButtonStyle: React.CSSProperties = {
   cursor: 'pointer',
 }
 
-export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onLandDetailOpen, externalTractSelection, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, chatSearchEndSignal, onChatSearchError, ownerParcelsResult, onShowOwnedGround, comparableVisibleIds, neighborParcels, neighborsLoading, sharedPin, onOpenGoatSearch }: ExploreMapProps) {
+export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onLandDetailOpen, externalTractSelection, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, chatSearchEndSignal, onChatSearchError, ownerParcelsResult, onShowOwnedGround, comparableVisibleIds, neighborParcels, neighborsLoading, sharedPin, onOpenGoatSearch, utilitiesToggleSignal, onUtilitiesActiveChange }: ExploreMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const stateMarkersRef = useRef<maplibregl.Marker[]>([])
@@ -2415,6 +2425,21 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const [utilitiesOpen, setUtilitiesOpen] = useState(false)
   const [utilitiesView, setUtilitiesView] = useState<'menu' | 'layers' | 'year' | 'pin'>('menu')
 
+  // Nav-bar trigger (owner ruling 2026-09-08): PortalNavBar's "Utilities"
+  // item bumps utilitiesToggleSignal; this mirrors the removed floating
+  // button's own onClick exactly (reset to the menu view, toggle open).
+  // Skips the initial mount, same pattern as MapChatPanel's openSignal.
+  const utilitiesToggleMountedRef = useRef(false)
+  useEffect(() => {
+    if (!utilitiesToggleMountedRef.current) {
+      utilitiesToggleMountedRef.current = true
+      return
+    }
+    if (utilitiesToggleSignal === undefined) return
+    setUtilitiesView('menu')
+    setUtilitiesOpen(v => !v)
+  }, [utilitiesToggleSignal])
+
   // Escape closes the panel. The click-catcher (rendered with the panel
   // below) handles the click-outside case.
   useEffect(() => {
@@ -2555,6 +2580,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
   // "while a pin exists or a non-default layer/year is active" — owner spec.
   const utilitiesActive = pin !== null || baseOverlay !== null || terrain3DOn || aerialYear !== null
+
+  // Mirrors utilitiesOpen/utilitiesActive up to the nav bar (owner ruling
+  // 2026-09-08: the trigger button now lives in PortalNavBar, which has
+  // no other way to see this component's internal panel/pin/layer state).
+  useEffect(() => {
+    onUtilitiesActiveChange?.(utilitiesOpen || utilitiesActive)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [utilitiesOpen, utilitiesActive])
 
   // Filter options — fetched once on mount, always shows ALL available states/counties
   const [filterOptions, setFilterOptions] = useState<{ states: string[]; counties_by_state: Record<string, string[]>; townships_by_county: Record<string, string[]> }>({ states: [], counties_by_state: {}, townships_by_county: {} })
@@ -9998,55 +10031,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
       {/* Soil overlay toggles are in the in-map Layer Panel below. */}
 
-      {/* Utilities Button — mirrors the mobile app's Utilities control: an
-          outline map glyph with a small solid wrench badge on its
-          bottom-right corner. Always shown (the old Layers button was
-          entitlement-gated — that gate now lives on the Layers TILE inside
-          the panel instead, so non-Layers users still get Map Year/Set
-          Pin/3D Map/Goat Search). Turns pink while a pin exists or a
-          non-default layer/year is active. */}
-      <button
-        onClick={() => { setUtilitiesView('menu'); setUtilitiesOpen(v => !v) }}
-        title="Utilities"
-        aria-label="Utilities"
-        aria-haspopup="true"
-        aria-expanded={utilitiesOpen}
-        style={{
-          position: 'absolute',
-          bottom: 16,
-          left: 16,
-          zIndex: 400, // above the fixed logo (z-[390] in access/page.tsx) so the toggle stays clickable above it
-          width: 36,
-          height: 36,
-          borderRadius: 6,
-          border: 'none',
-          backgroundColor: utilitiesActive ? '#E91E8C' : 'rgba(0,0,0,0.75)',
-          color: '#fff',
-          cursor: 'pointer',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
-        }}
-      >
-        <span style={{ position: 'relative', width: 20, height: 20, display: 'inline-flex' }}>
-          <MapIcon size={20} strokeWidth={2} />
-          <span style={{
-            position: 'absolute',
-            bottom: -5,
-            right: -5,
-            width: 14,
-            height: 14,
-            borderRadius: '50%',
-            background: '#111',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}>
-            <Wrench size={9} strokeWidth={2.5} />
-          </span>
-        </span>
-      </button>
+      {/* Utilities trigger now lives in the top pill nav (PortalNavBar,
+          "Utilities" item next to Watchlist — owner ruling 2026-09-08).
+          This floating map button was removed so there is exactly one
+          trigger; the panel/click-catcher/pin-mode UI below are unchanged,
+          just no longer opened from here. See utilitiesToggleSignal
+          effect above for the nav-bar wiring. */}
 
       {/* Utilities click-catcher — semi-transparent (not a heavy dim), sits
           over the map and closes the panel on click. */}

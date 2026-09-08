@@ -312,6 +312,12 @@ function AccessPortalPageInner() {
   // focus MapChatPanel's pill, which lives as a sibling of ExploreMap so
   // it can't be reached directly from inside the map component.
   const [goatSearchOpenSignal, setGoatSearchOpenSignal] = useState(0)
+  // Utilities nav-bar item (owner ruling 2026-09-08: moved out of a
+  // floating map button into PortalNavBar, next to Watchlist). The panel
+  // state itself still lives inside ExploreMap — this is only the
+  // toggle-in signal + the active-state mirrored back out for styling.
+  const [utilitiesToggleSignal, setUtilitiesToggleSignal] = useState(0)
+  const [utilitiesActive, setUtilitiesActive] = useState(false)
   // Bubble's X button: clears the bubble AND resets the map's
   // chat-applied filters. handleChatApplyFilters({}, true) bumps
   // chatAppliedFilters' nonce, which ExploreMap's applyExternalFilters
@@ -820,6 +826,8 @@ function AccessPortalPageInner() {
           neighborParcels={neighborParcels}
           neighborsLoading={neighborsLoading}
           onOpenGoatSearch={() => setGoatSearchOpenSignal(n => n + 1)}
+          utilitiesToggleSignal={utilitiesToggleSignal}
+          onUtilitiesActiveChange={setUtilitiesActive}
         />
       </div>
 
@@ -842,6 +850,8 @@ function AccessPortalPageInner() {
         onWatchlistToggle={() => setShowWatchlistPanel(!showWatchlistPanel)}
         watchlistOpen={showWatchlistPanel}
         watchlistCount={watchlistIds.size}
+        onUtilitiesToggle={() => setUtilitiesToggleSignal(n => n + 1)}
+        utilitiesActive={utilitiesActive}
         user={user}
       />
 
