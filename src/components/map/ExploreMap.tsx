@@ -2393,15 +2393,36 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // ── Layer control state ─────────────────────────────────────────────
   // baseOverlay: radio-exclusive base overlay ('crops' = Crops by Year CDL,
   //   'ssurgo' = soil types SSURGO, 'nccpi' = NCCPI productivity overlay,
-  //   'fsa' = FSA coverage + CLU field lines, null = none).
+  //   'fsa' = FSA coverage + CLU field lines, 'precip' = PRISM annual
+  //   precipitation raster, null = none).
   //   Toggling one off turns the others off.
   // terrain3DOn: independent 3D pitch toggle.
   // Both are now surfaced as tiles inside the Utilities panel (below)
   // rather than their own bottom-left button/popup.
-  const [baseOverlay, setBaseOverlay] = useState<'crops' | 'csb' | 'ssurgo' | 'nccpi' | 'fsa' | 'engine' | null>(null)
+  const [baseOverlay, setBaseOverlay] = useState<'crops' | 'csb' | 'ssurgo' | 'nccpi' | 'fsa' | 'engine' | 'precip' | null>(null)
   const [selectedCropYear, setSelectedCropYear] = useState<number>(2024)
   const [terrain3DOn, setTerrain3DOn] = useState(false)
   const [terrainExaggeration, setTerrainExaggeration] = useState(1.3)
+
+  // ── Annual Precipitation overlay (PRISM, via /api/tiles/overlay-config)
+  // overlayConfig is fetched once (see the effect near regridConfig below)
+  // and gates the "Annual Precipitation" row: it's only shown when the
+  // caller is entitled AND the backend has minted a tiles.precip template.
+  // selectedPrecipYear defaults to the newest year in precip_years the
+  // first time the config arrives (see the effect that sets it).
+  const [overlayConfig, setOverlayConfig] = useState<{
+    entitled?: boolean
+    tiles?: { precip?: string }
+    precip_years?: number[]
+    precip_attribution?: string
+  } | null>(null)
+  const [selectedPrecipYear, setSelectedPrecipYear] = useState<number | null>(null)
+  useEffect(() => {
+    const years = overlayConfig?.precip_years
+    if (selectedPrecipYear === null && years && years.length > 0) {
+      setSelectedPrecipYear(Math.max(...years))
+    }
+  }, [overlayConfig, selectedPrecipYear])
 
   // ── Aerial imagery year (Esri Wayback archive) ─────────────────────
   // aerialYear: null = "Latest" (the default, current mosaic via TILE_URL).
@@ -2734,7 +2755,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
   // Mutable ref so the unified map-click handler always reads the
   // current overlay without being torn down/re-created on every change.
-  const baseOverlayRef = useRef<'crops' | 'csb' | 'ssurgo' | 'nccpi' | 'fsa' | 'engine' | null>(null)
+  const baseOverlayRef = useRef<'crops' | 'csb' | 'ssurgo' | 'nccpi' | 'fsa' | 'engine' | 'precip' | null>(null)
   // Keep baseOverlayRef in sync with baseOverlay state.
   useEffect(() => { baseOverlayRef.current = baseOverlay }, [baseOverlay])
 
@@ -5165,6 +5186,27 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     return () => { cancelled = true }
   }, [])
 
+  // Overlay tile config (soils/csb/nccpi/fsa/precip bootstrap) — mirrors
+  // the regridConfig fetch above. entitled=false (non-premium/basic_state
+  // callers) still returns 200 with an empty tiles object, so the
+  // "Annual Precipitation" row simply never renders rather than the map
+  // erroring — same fail-quiet posture as the Regrid fetch's catch below.
+  useEffect(() => {
+    let cancelled = false
+    const fetchOverlayConfig = async () => {
+      try {
+        const res = await fetchWithAuth(`${API_URL}/api/tiles/overlay-config`)
+        if (!res.ok) return
+        const data = await res.json()
+        if (!cancelled) setOverlayConfig(data)
+      } catch {
+        // Silent — precipitation is enrichment, not required for the map.
+      }
+    }
+    fetchOverlayConfig()
+    return () => { cancelled = true }
+  }, [])
+
   // Register the Regrid source + layers when both the map and the
   // config are ready. Tear down on unmount.
   useEffect(() => {
@@ -7213,6 +7255,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         case 'nccpi': return SOIL_PMTILES_STATES.map(st => `explore-nccpi-${st}`)
         case 'fsa': return FSA_PMTILES_STATES.map(st => `explore-fsa-${st}`)
         case 'engine': return ENGINE_PMTILES_STATES.map(st => `explore-engine-${st}`)
+        case 'precip': return ['precip-src']
         default: return []
       }
     })()
@@ -7224,6 +7267,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         case 'nccpi': return 'NCCPI'
         case 'fsa': return 'FSA'
         case 'crops': return 'Crops'
+        case 'precip': return 'Precipitation'
         default: return 'Overlay'
       }
     })()
@@ -8207,6 +8251,57 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     } catch {/* layer not ready */}
   }, [selectedCropYear, mapLoaded])
 
+  // ── Annual Precipitation (PRISM) raster overlay ─────────────────────
+  // Public PNG raster tiles (z3-10, 256px) from overlayConfig.tiles.precip,
+  // a URL template containing a literal "{year}" placeholder swapped for
+  // selectedPrecipYear. Mounts precip-src/precip-tiles when baseOverlay
+  // becomes 'precip'; tears both down when the overlay is deselected
+  // (mirrors every other baseOverlay's on/off effect in this file).
+  // On a year change while already active, reuses the existing source and
+  // calls setTiles — same in-place-swap technique as selectAerialYear
+  // above — rather than removing/re-adding the layer.
+  // No dedicated unmount cleanup: like the soils/nccpi/fsa/csb sources,
+  // this source+layer live until the whole map is torn down elsewhere.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+    const SRC = 'precip-src'
+    const LAYER = 'precip-tiles'
+    const template = overlayConfig?.tiles?.precip
+    const active = baseOverlay === 'precip' && !!template && selectedPrecipYear !== null
+
+    if (!active) {
+      if (map.getLayer(LAYER)) map.removeLayer(LAYER)
+      if (map.getSource(SRC)) map.removeSource(SRC)
+      return
+    }
+
+    const url = template!.replace('{year}', String(selectedPrecipYear))
+    const existingSource = map.getSource(SRC) as maplibregl.RasterTileSource | undefined
+    if (existingSource) {
+      existingSource.setTiles([url])
+    } else {
+      map.addSource(SRC, {
+        type: 'raster',
+        tiles: [url],
+        tileSize: 256,
+        minzoom: 3,
+        maxzoom: 10,
+        // Surfaces automatically in the built-in attribution control,
+        // same mechanism as the Regrid parcel-source credit above.
+        attribution: `Rainfall &copy; ${overlayConfig?.precip_attribution || 'PRISM Group, Oregon State University'}`,
+      } as any)
+    }
+    if (!map.getLayer(LAYER)) {
+      map.addLayer({
+        id: LAYER,
+        type: 'raster',
+        source: SRC,
+        paint: { 'raster-opacity': 0.72, 'raster-resampling': 'linear' },
+      })
+    }
+  }, [mapLoaded, baseOverlay, overlayConfig, selectedPrecipYear])
+
   // ── 3D Terrain — all-zoom implementation ────────────────────────────
   //
   // Design goals:
@@ -8373,6 +8468,15 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // i.e. just below tracts — which is exactly Regrid Parcel
       // Labels per the spec above.
       const desiredBottomToTop = [
+        // Annual Precipitation (PRISM) raster — sits directly above the
+        // satellite/Wayback imagery + terrain (which aren't in this list;
+        // they're the implicit bottom of the stack) and below every other
+        // overlay/parcel/tract layer below. Mutually exclusive with the
+        // soils/nccpi/csb/fsa overlays via baseOverlay, so its exact
+        // position relative to them never matters in practice — it's
+        // listed first purely so it never floats above them if that ever
+        // changes.
+        'precip-tiles',
         // SSURGO soil polygons (Land ID-style) — fill + outline
         // share the same z-slot as the green tillable; only one
         // is visible at a time depending on the data-source toggle.
@@ -10288,7 +10392,15 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                     label: 'Tillable Map',
                     swatchGradient: 'linear-gradient(to right,#3caa28,#eb9620,#e12d23,#d73cc8,#3c6edc)',
                   },
-                ] as Array<{ key: 'crops' | 'ssurgo' | 'csb' | 'nccpi' | 'fsa' | 'engine'; label: string; swatchGradient?: string; swatchColor?: string }>).map(({ key, label, swatchGradient, swatchColor }) => {
+                  // Only shown once the overlay-config fetch confirms this
+                  // caller is entitled to precipitation tiles (backend
+                  // omits tiles.precip entirely for non-entitled callers).
+                  ...(overlayConfig?.tiles?.precip ? [{
+                    key: 'precip' as const,
+                    label: 'Annual Precipitation',
+                    swatchGradient: 'linear-gradient(to right,#f7f4ec,#e6e0b4,#cfe2a0,#9fd3a3,#5fbfb0,#2f9fc6,#1f6fb5,#14468f,#0b2560)',
+                  }] : []),
+                ] as Array<{ key: 'crops' | 'ssurgo' | 'csb' | 'nccpi' | 'fsa' | 'engine' | 'precip'; label: string; swatchGradient?: string; swatchColor?: string }>).map(({ key, label, swatchGradient, swatchColor }) => {
                   const active = baseOverlay === key
                   return (
                     <OverlayButton
@@ -10330,6 +10442,55 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                     <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 10 }}>FSA field boundary</span>
                   </div>
                   <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 9, marginTop: 2 }}>2008 snapshot · Not available in AL, FL, AK</span>
+                </div>
+              )}
+
+              {/* Annual Precipitation legend + year picker — shown only when the precip overlay is active */}
+              {baseOverlay === 'precip' && (
+                <div style={{ padding: '2px 0 6px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 10 }}>PRISM rainfall by year, inches</span>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                    {(overlayConfig?.precip_years ?? []).map(yr => {
+                      const sel = selectedPrecipYear === yr
+                      return (
+                        <div
+                          key={yr}
+                          onClick={() => setSelectedPrecipYear(yr)}
+                          style={{
+                            height: 22,
+                            padding: '0 6px',
+                            borderRadius: 5,
+                            fontSize: 10,
+                            fontWeight: 500,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            background: sel ? 'rgba(233,30,140,0.25)' : 'rgba(255,255,255,0.05)',
+                            border: sel ? '1px solid rgba(233,30,140,0.70)' : '1px solid rgba(255,255,255,0.15)',
+                            color: sel ? '#f9a8d4' : 'rgba(255,255,255,0.50)',
+                            transition: 'background 0.12s, border-color 0.12s, color 0.12s',
+                          }}
+                        >
+                          {yr}
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <div>
+                    <div style={{
+                      height: 8,
+                      borderRadius: 3,
+                      background: 'linear-gradient(to right,#f7f4ec,#e6e0b4,#cfe2a0,#9fd3a3,#5fbfb0,#2f9fc6,#1f6fb5,#14468f,#0b2560)',
+                    }} />
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 2 }}>
+                      {['0', '20', '40', '60', '80+'].map(l => (
+                        <span key={l} style={{ color: 'rgba(255,255,255,0.4)', fontSize: 8 }}>{l}</span>
+                      ))}
+                    </div>
+                  </div>
+                  <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 8, textAlign: 'center' }}>
+                    Annual precipitation, inches · {overlayConfig?.precip_attribution || 'PRISM Group, Oregon State University'}
+                  </span>
                 </div>
               )}
 
