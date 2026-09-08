@@ -3826,11 +3826,15 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // most of the bottom edge and covers the bottom-left controls (the
       // aerial-year button). Collapse it to its ⓘ toggle right away; the
       // full credit line is still one tap away.
-      if (map.getCanvasContainer().offsetWidth <= 640) {
-        map.getContainer()
-          .querySelector('.maplibregl-ctrl-attrib.maplibregl-compact')
-          ?.classList.remove('maplibregl-compact-show')
+      const collapseNarrowAttribution = () => {
+        if (map.getCanvasContainer().offsetWidth <= 640) {
+          map.getContainer()
+            .querySelector('.maplibregl-ctrl-attrib.maplibregl-compact')
+            ?.classList.remove('maplibregl-compact-show')
+        }
       }
+      collapseNarrowAttribution()
+      map.on('resize', collapseNarrowAttribution)
 
       // ── Terrain DEM source (Terrarium encoding) ──────────────────
       // Added here once so the 3D terrain effect can reference it.
@@ -10538,7 +10542,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           setAerialPanelOpen(v => !v)
         }}
         title="Change aerial imagery year"
-        aria-pressed={aerialYear !== null}
+        aria-haspopup="true"
+        aria-expanded={aerialPanelOpen}
         style={{
           position: 'absolute',
           bottom: 16,
@@ -10645,7 +10650,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           closed AND the pilot overlay is not available, so non-pilot
           users still see the tract status key. Sits at bottom:60 (not 16)
           because the Aerial button now always occupies bottom:16 left:16. */}
-      {!layersEnabled && (
+      {/* Hidden while the aerial-year popup is open: the popup anchors at
+          the same bottom-left spot and would otherwise sit on top of it. */}
+      {!layersEnabled && !aerialPanelOpen && (
         <div style={{
           position: 'absolute',
           bottom: 60,
