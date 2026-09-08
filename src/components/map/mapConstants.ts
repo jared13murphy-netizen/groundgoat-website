@@ -9,6 +9,33 @@ export const TILE_ATTRIBUTION = '&copy; Esri, Maxar, Earthstar Geographics'
 export const GLYPH_URL = 'https://fonts.openmaptiles.org/{fontstack}/{range}.pbf'
 export const LABEL_TILE_URL = 'https://cartodb-basemaps-a.global.ssl.fastly.net/light_only_labels/{z}/{x}/{y}.png'
 
+// Esri "World Imagery Wayback" is a free dated archive of the same World
+// Imagery layer TILE_URL points at (same {z}/{y}/{x} tile scheme, CORS
+// open). Each entry below is the newest Wayback "release" that touched
+// each calendar year, so picking a year always gets the best available
+// imagery for that year, not necessarily imagery captured on that date —
+// rural ground is only re-flown every year or two. "Latest" (no release)
+// keeps using TILE_URL, which is always the current mosaic.
+export const AERIAL_YEARS: { year: number; release: number }[] = [
+  { year: 2026, release: 26334 },
+  { year: 2025, release: 13192 },
+  { year: 2024, release: 16453 },
+  { year: 2023, release: 56102 },
+  { year: 2022, release: 45134 },
+  { year: 2021, release: 26120 },
+  { year: 2020, release: 29260 },
+  { year: 2019, release: 4756 },
+  { year: 2018, release: 23448 },
+  { year: 2017, release: 25521 },
+  { year: 2016, release: 18966 },
+  { year: 2015, release: 28163 },
+  { year: 2014, release: 5844 },
+]
+
+export function aerialTileUrl(release: number): string {
+  return `https://wayback.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/WMTS/1.0.0/default028mm/MapServer/tile/${release}/{z}/{y}/{x}`
+}
+
 export const STATUS_COLORS: Record<string, { fill: string; border: string; opacity: number }> = {
   auction: { fill: '#2563eb', border: '#1d4ed8', opacity: 0.28 },  // Royal blue for upcoming auctions
   listed:  { fill: '#eab308', border: '#ca8a04', opacity: 0.25 },

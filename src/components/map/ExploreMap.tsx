@@ -21,6 +21,8 @@ import {
   GLYPH_URL,
   STATUS_COLORS,
   derivePinStatus,
+  AERIAL_YEARS,
+  aerialTileUrl,
 } from './mapConstants'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import reportJobFetch from '@/lib/reportJobs'
@@ -2272,6 +2274,58 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const [selectedCropYear, setSelectedCropYear] = useState<number>(2024)
   const [terrain3DOn, setTerrain3DOn] = useState(false)
   const [terrainExaggeration, setTerrainExaggeration] = useState(1.3)
+
+  // ── Aerial imagery year (Esri Wayback archive) ─────────────────────
+  // aerialYear: null = "Latest" (the default, current mosaic via TILE_URL).
+  // A number is the selected calendar year, swapped in via
+  // AERIAL_YEARS/aerialTileUrl. Component state only — no persistence,
+  // so every page load starts back on Latest (owner rule).
+  const [aerialYear, setAerialYear] = useState<number | null>(null)
+  const [aerialPanelOpen, setAerialPanelOpen] = useState(false)
+  const aerialPanelRef = useRef<HTMLDivElement>(null)
+
+  // Swaps the base imagery source's tiles in place (MapLibre GL JS 5:
+  // setTiles reloads tiles without touching any other layer/source), then
+  // records the choice for the button label. year=null restores TILE_URL
+  // ("Latest", the current Esri mosaic).
+  const selectAerialYear = useCallback((year: number | null) => {
+    const map = mapRef.current
+    const source = map?.getSource('osm') as maplibregl.RasterTileSource | undefined
+    if (source) {
+      if (year === null) {
+        source.setTiles([TILE_URL])
+      } else {
+        const match = AERIAL_YEARS.find(y => y.year === year)
+        if (match) source.setTiles([aerialTileUrl(match.release)])
+      }
+    }
+    setAerialYear(year)
+    setAerialPanelOpen(false)
+  }, [])
+
+  // Close the aerial popup on outside click / Escape, and whenever the
+  // Layers panel opens (only one bottom-left panel open at a time).
+  useEffect(() => {
+    if (!aerialPanelOpen) return
+    const handlePointerDown = (e: MouseEvent) => {
+      if (aerialPanelRef.current && !aerialPanelRef.current.contains(e.target as Node)) {
+        setAerialPanelOpen(false)
+      }
+    }
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setAerialPanelOpen(false)
+    }
+    document.addEventListener('mousedown', handlePointerDown)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [aerialPanelOpen])
+
+  useEffect(() => {
+    if (layerPanelOpen) setAerialPanelOpen(false)
+  }, [layerPanelOpen])
 
   // Filter options — fetched once on mount, always shows ALL available states/counties
   const [filterOptions, setFilterOptions] = useState<{ states: string[]; counties_by_state: Record<string, string[]>; townships_by_county: Record<string, string[]> }>({ states: [], counties_by_state: {}, townships_by_county: {} })
@@ -9699,7 +9753,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       {/* Layers Button */}
       {layersEnabled && (
         <button
-          onClick={() => setLayerPanelOpen(v => !v)}
+          onClick={() => {
+            setAerialPanelOpen(false)
+            setLayerPanelOpen(v => !v)
+          }}
           title="Layers"
           style={{
             position: 'absolute',
@@ -10460,6 +10517,100 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         </div>
       )}
 
+      {/* Aerial Imagery Year Button — bottom-left, always shown (unlike the
+          Layers button, which is entitlement-gated). Anchored at bottom:16
+          left:16 in every mode; when the Layers button is also showing
+          (layersEnabled) it sits at bottom:60, so this stays clear of it. */}
+      <button
+        onClick={() => {
+          setLayerPanelOpen(false)
+          setAerialPanelOpen(v => !v)
+        }}
+        title="Change aerial imagery year"
+        aria-pressed={aerialYear !== null}
+        style={{
+          position: 'absolute',
+          bottom: 16,
+          left: 16,
+          zIndex: 400,
+          height: 36,
+          padding: '0 12px',
+          borderRadius: 6,
+          border: 'none',
+          backgroundColor: aerialYear !== null ? '#E91E8C' : 'rgba(0,0,0,0.75)',
+          color: '#fff',
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          fontSize: 13,
+          fontWeight: 600,
+          boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
+        }}
+      >
+        {/* Calendar/clock icon, same 18px stroke style as the Layers icon */}
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="3" y="4" width="18" height="18" rx="2" />
+          <line x1="16" y1="2" x2="16" y2="6" />
+          <line x1="8" y1="2" x2="8" y2="6" />
+          <line x1="3" y1="10" x2="21" y2="10" />
+          <path d="M12 14v3l2 1.5" />
+        </svg>
+        Aerial: {aerialYear !== null ? aerialYear : 'Latest'}
+      </button>
+
+      {/* Aerial Imagery Year Popup */}
+      {aerialPanelOpen && (
+        <div
+          ref={aerialPanelRef}
+          style={{
+            position: 'absolute',
+            bottom: layersEnabled ? 104 : 60,
+            left: 16,
+            zIndex: 401,
+            background: 'linear-gradient(175deg, #2a2a2a 0%, #1a1a1a 35%, #111111 70%, #0a0a0a 100%)',
+            boxShadow: '0 0 0 0.5px rgba(255,255,255,0.06) inset, 0 1px 0 rgba(255,255,255,0.10) inset, 0 20px 60px rgba(0,0,0,0.85), 0 8px 24px rgba(0,0,0,0.70), 0 2px 8px rgba(0,0,0,0.50)',
+            border: '0.5px solid rgba(255,255,255,0.14)',
+            backdropFilter: 'blur(16px)',
+            WebkitBackdropFilter: 'blur(16px)',
+            borderRadius: 12,
+            width: 260,
+            padding: '12px 10px 10px',
+          }}
+        >
+          <div style={{ color: '#fff', fontSize: 13, fontWeight: 700, marginBottom: 4 }}>
+            Aerial imagery year
+          </div>
+          <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11, marginBottom: 10 }}>
+            Esri archive. Rural ground is re-flown every year or two, so nearby years can look the same.
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
+            {([{ year: null as number | null, label: 'Latest' }, ...AERIAL_YEARS.map(y => ({ year: y.year as number | null, label: String(y.year) }))]).map(({ year, label }) => {
+              const selected = aerialYear === year
+              return (
+                <button
+                  key={label}
+                  onClick={() => selectAerialYear(year)}
+                  aria-pressed={selected}
+                  style={{
+                    height: 30,
+                    borderRadius: 6,
+                    border: 'none',
+                    backgroundColor: selected ? '#E91E8C' : 'rgba(255,255,255,0.08)',
+                    color: selected ? '#fff' : 'rgba(255,255,255,0.85)',
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {label}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Tract count */}
       {!portalMode && (
         <div style={{
@@ -10481,11 +10632,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       {/* Legend — migrated into the Layer Control Panel above.
           A compact fallback dot-legend is shown when the panel is
           closed AND the pilot overlay is not available, so non-pilot
-          users still see the tract status key. */}
+          users still see the tract status key. Sits at bottom:60 (not 16)
+          because the Aerial button now always occupies bottom:16 left:16. */}
       {!layersEnabled && (
         <div style={{
           position: 'absolute',
-          bottom: 16,
+          bottom: 60,
           left: 16,
           zIndex: 10,
           background: 'rgba(0,0,0,0.8)',
