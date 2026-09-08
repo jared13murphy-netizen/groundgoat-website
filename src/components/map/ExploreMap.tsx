@@ -2283,6 +2283,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const [aerialYear, setAerialYear] = useState<number | null>(null)
   const [aerialPanelOpen, setAerialPanelOpen] = useState(false)
   const aerialPanelRef = useRef<HTMLDivElement>(null)
+  const aerialButtonRef = useRef<HTMLButtonElement | null>(null)
 
   // Swaps the base imagery source's tiles in place (MapLibre GL JS 5:
   // setTiles reloads tiles without touching any other layer/source), then
@@ -2308,7 +2309,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   useEffect(() => {
     if (!aerialPanelOpen) return
     const handlePointerDown = (e: MouseEvent) => {
-      if (aerialPanelRef.current && !aerialPanelRef.current.contains(e.target as Node)) {
+      const t = e.target as Node
+      // The toggle button is NOT "outside": its mousedown would close the
+      // popup here and its click would immediately reopen it.
+      if (aerialButtonRef.current?.contains(t)) return
+      if (aerialPanelRef.current && !aerialPanelRef.current.contains(t)) {
         setAerialPanelOpen(false)
       }
     }
@@ -10537,6 +10542,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           left:16 in every mode; when the Layers button is also showing
           (layersEnabled) it sits at bottom:60, so this stays clear of it. */}
       <button
+        ref={aerialButtonRef}
         onClick={() => {
           setLayerPanelOpen(false)
           setAerialPanelOpen(v => !v)
