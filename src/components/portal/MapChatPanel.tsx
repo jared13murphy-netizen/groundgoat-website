@@ -685,7 +685,7 @@ export default function MapChatPanel({ onApplyFilters, onChatReportResult, curre
         style={{
           filter: 'drop-shadow(0 3px 12px rgba(0,0,0,0.7)) drop-shadow(0 1px 4px rgba(0,0,0,0.5))',
         }}
-        className="group relative rounded-full flex items-center gap-2 pl-5 pr-1.5 py-1.5 overflow-hidden bg-white border border-black/10 focus-within:border-[#E91E8C]/70"
+        className="group relative rounded-full flex items-center gap-2 pl-5 pr-1.5 py-1.5 overflow-hidden bg-white border border-black/10"
       >
         <Sparkles size={18} className="flex-shrink-0 text-gg-pink" />
 
