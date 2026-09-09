@@ -46,7 +46,7 @@ import { REGRID_PARCEL_LAYER_IDS } from '@/lib/regridParcelFilter'
 // Mapping and Map Portfolio used to be nav-dropdown links (nav commit
 // 2a09575, 8/27); they now live as Utilities-panel tiles instead. Same
 // gating as that dropdown had — see hasMapping below.
-import { fetchMappingAccess, allTractsGeometry, type PortfolioTract } from '@/lib/configurableMapping'
+import { fetchMappingAccess, allTractsGeometry, CLASS_COLOR, type PortfolioTract } from '@/lib/configurableMapping'
 // Utilities panel icons (2026-09-08). The map-outline + wrench trigger
 // icon itself now lives in PortalNavBar (top pill nav, owner ruling
 // 2026-09-08 moved it out of this file) — only the panel's own tile/action
@@ -2202,21 +2202,25 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const [myTracts, setMyTracts] = useState<PortfolioTract[]>([])
   const [myTractsLoaded, setMyTractsLoaded] = useState(false)
   const [myTractsError, setMyTractsError] = useState<string | null>(null)
-  // Map handlers below are registered once; this keeps the current
-  // callback reachable from inside them.
-  const onToggleReportRef = useRef(onToggleReport)
-  onToggleReportRef.current = onToggleReport
+  // Read by the map click handler, which is registered once (owner fix
+  // 9/9, restored from commit dd69aed): a click may land on the tract's
+  // wash OR on one of the land-type polygons drawn on top of it, and only
+  // this list carries the full tract record either way resolves against.
+  const myTractsRef = useRef<PortfolioTract[]>([])
+  myTractsRef.current = myTracts
   const [mapLoaded, setMapLoaded] = useState(false)
 
   // Fetch the subscriber's tracts the first time the toggle is switched
   // on, then keep them. Failure leaves the toggle on with a message
-  // rather than silently drawing nothing.
+  // rather than silently drawing nothing. `true` also fetches each
+  // tract's land-type polygons (owner fix 9/9, restored from dd69aed) —
+  // the Explore map colours them exactly as Configure Map does.
   useEffect(() => {
     if (!myTractsOn || myTractsLoaded) return
     let stale = false
     ;(async () => {
       try {
-        const r = await allTractsGeometry()
+        const r = await allTractsGeometry(true)
         if (!stale) { setMyTracts(r.tracts); setMyTractsLoaded(true); setMyTractsError(null) }
       } catch (e: any) {
         if (!stale) setMyTractsError(e?.message || 'Could not load your project maps.')
@@ -2225,7 +2229,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     return () => { stale = true }
   }, [myTractsOn, myTractsLoaded])
 
-  // Paint them, and show or hide the three layers together.
+  // Paint them, and show or hide the layers together. Restored from
+  // commit dd69aed (owner fix 9/9 — the plain pink wash was wrong): a
+  // faint blue wash so the tract reads as one object, the LAND TYPES on
+  // top in the same colours Configure Map uses, and the tract's own
+  // OUTLINE drawn last (blue, green once it's in the report) so it reads
+  // over its own land types.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded) return
@@ -2247,8 +2256,27 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }))
     ;(map.getSource('my-tracts') as maplibregl.GeoJSONSource)?.setData(
       { type: 'FeatureCollection', features: feats } as any)
+
+    // The land types inside each tract, coloured exactly as Configure Map
+    // colours them: tillable green, timber red, pasture orange, water
+    // blue, other grey.
+    const shapeFeats = myTracts.flatMap(t => (t.polygons || [])
+      .filter(sh => sh.geometry)
+      .map(sh => ({
+        type: 'Feature' as const,
+        geometry: sh.geometry,
+        properties: {
+          tractId: t.id,
+          cls: sh.cls,
+          color: (CLASS_COLOR as Record<string, string>)[sh.cls] || '#9ca3af',
+        },
+      })))
+    ;(map.getSource('my-tract-shapes') as maplibregl.GeoJSONSource)?.setData(
+      { type: 'FeatureCollection', features: shapeFeats } as any)
+
     const vis = myTractsOn ? 'visible' : 'none'
-    for (const id of ['my-tracts-fill', 'my-tracts-line', 'my-tracts-label']) {
+    for (const id of ['my-tracts-fill', 'my-tract-shapes-fill',
+                      'my-tract-shapes-line', 'my-tracts-line', 'my-tracts-label']) {
       if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis)
     }
   }, [myTracts, myTractsOn, mapLoaded, reportIds])
@@ -3339,10 +3367,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // into layersEnabled.
   const isEnrichmentPilot = isAdmin
   // Configurable Mapping entitlement — gates the "Map Project" and "Map
-  // Portfolio" Utilities tiles. Same rule the old nav-dropdown links used
-  // (Navigation.tsx, nav commit 2a09575, 8/27): only firm_admin/firm_user
-  // accounts are asked, and only a genuine `true` from fetchMappingAccess
-  // turns the tiles on — an error or a non-firm account leaves them off.
+  // Portfolio" Utilities tiles. Owner correction 9/9: the old nav-dropdown
+  // links prefiltered to firm_admin/firm_user before even asking, which
+  // hid the tiles from a groundgoat_admin (and staff) who CAN open
+  // /configure-map and /map-portfolio directly. Those pages carry no
+  // account_type prefilter at all — they just call fetchMappingAccess()
+  // for whoever is signed in and let the backend's own entitlement check
+  // decide. Mirror that exactly: ask for every signed-in user, and only a
+  // genuine `true` turns the tiles on.
   const [hasMapping, setHasMapping] = useState(false)
   // Force-OFF: the legacy state_parcels pmtiles overlay (with its own
   // hover popups) is superseded by the always-on Regrid layer. We keep
@@ -3395,12 +3427,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         setCanUseReports(
           REPORT_ALLOWED_ROLES.includes(me?.account_type) || Boolean(me?.can_use_reports)
         )
-        // Configurable Mapping — only firm accounts can have the add-on,
-        // same gate the old nav dropdown used, so ask at most once per
-        // load for the accounts it could apply to.
-        if (['firm_admin', 'firm_user'].includes(me?.account_type)) {
-          fetchMappingAccess().then(ok => { if (!cancelled) setHasMapping(ok) })
-        }
+        // Configurable Mapping — same call /configure-map and
+        // /map-portfolio make themselves, with no account_type
+        // prefilter; the backend decides who is entitled (owner 9/9: a
+        // groundgoat_admin must see these tiles too, not just firm
+        // accounts).
+        fetchMappingAccess().then(ok => { if (!cancelled) setHasMapping(ok) })
         // The tile-server discovery fetch that used to live here has
         // been removed. It populated `adminParcelStates`, which fed
         // the "Show Parcels" admin toggle — but that toggle has been
@@ -4654,6 +4686,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // Off unless the Utilities panel's "Show My Project Maps" toggle
       // turns them on.
       map.addSource('my-tracts', { type: 'geojson', data: EMPTY_FC })
+      map.addSource('my-tract-shapes', { type: 'geojson', data: EMPTY_FC })
       map.addSource('tract-pins', { type: 'geojson', data: EMPTY_FC })
       map.addSource('county-counts', { type: 'geojson', data: EMPTY_FC })
 
@@ -4809,27 +4842,42 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // Mapping. Added BEFORE the tract pins so an auction pin is never
       // buried under one of these. Visibility is driven by the Utilities
       // panel's "Show My Project Maps" toggle; the layers themselves are
-      // never recreated.
+      // never recreated. Rendering restored from commit dd69aed (owner
+      // fix 9/9 — a plain pink wash was wrong and too faint): a faint
+      // blue wash so the tract reads as one object, then the LAND TYPES
+      // on top in the same colours Configure Map uses — a field must be
+      // the same colour on both maps or the two disagree.
       map.addLayer({
         id: 'my-tracts-fill',
         type: 'fill',
         source: 'my-tracts',
         layout: { visibility: 'none' },
-        // Green once it is in the report — the same signal a parcel dot
-        // and an auction pin already use for "added to the comp report".
-        paint: {
-          'fill-color': ['case', ['boolean', ['get', 'inReport'], false], '#22c55e', '#f58cde'],
-          'fill-opacity': 0.22,
-        },
+        paint: { 'fill-color': '#2563eb', 'fill-opacity': 0.10 },
       })
+      map.addLayer({
+        id: 'my-tract-shapes-fill',
+        type: 'fill',
+        source: 'my-tract-shapes',
+        layout: { visibility: 'none' },
+        paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.45 },
+      })
+      map.addLayer({
+        id: 'my-tract-shapes-line',
+        type: 'line',
+        source: 'my-tract-shapes',
+        layout: { visibility: 'none' },
+        paint: { 'line-color': ['get', 'color'], 'line-width': 1, 'line-opacity': 0.9 },
+      })
+      // The tract OUTLINE last, so it reads over its own land types. Blue,
+      // turning green once the tract is in the report.
       map.addLayer({
         id: 'my-tracts-line',
         type: 'line',
         source: 'my-tracts',
         layout: { visibility: 'none' },
         paint: {
-          'line-color': ['case', ['boolean', ['get', 'inReport'], false], '#22c55e', '#f58cde'],
-          'line-width': 2,
+          'line-color': ['case', ['boolean', ['get', 'inReport'], false], '#22c55e', '#2563eb'],
+          'line-width': ['case', ['boolean', ['get', 'inReport'], false], 4, 3],
         },
       })
       map.addLayer({
@@ -9297,6 +9345,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // over any sale-dot or parcel/overlay panel already open from a
       // previous click.
       setLandDetail(null)
+      // Owner fix 9/9: opening a tract detail must close the Utilities
+      // panel first — otherwise the detail panel renders hidden behind it.
+      setUtilitiesOpen(false)
       if (subjectTractIdRef.current && portalMode && onTractSelected) {
         // Comp mode now opens the SAME left slide-out a tract opens in
         // explore mode, instead of an inline anchored popup (owner ruling
@@ -9322,45 +9373,80 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const onEnter = () => { if (mapInteractionSuspendedRef.current) return; map.getCanvas().style.cursor = 'pointer' }
     const onLeave = () => { if (mapInteractionSuspendedRef.current) return; map.getCanvas().style.cursor = '' }
 
-    // ── My Project Maps: click one to add or remove it as a comparable
-    // — restored from history (commit e781c43). A drawn tract has no
-    // sale — it is the subscriber's own ground — so it carries acreage,
-    // tillable acreage and its soil rating, and the report shows those.
-    // Price stays null rather than invented.
+    // ── My Project Maps: opens the SAME detail panel a normal tract
+    // does — restored from history (commits 6ce0e53, dd69aed; owner fix
+    // 9/9 replaced the earlier "click adds it to the report" behavior,
+    // e781c43, which the owner never wanted duplicated — Add to Report is
+    // that panel's own button, one way to build a comparable, not two).
+    // A click may land on the tract's blue wash OR on one of the
+    // land-type polygons drawn on top of it; only `myTractsRef` carries
+    // the full tract record, so it is resolved by id either way rather
+    // than trusting whichever feature happened to be hit.
     const onMyTractClick = (e: any) => {
       const f = e.features?.[0]
-      if (!f || !onToggleReportRef.current) return
-      const p = f.properties || {}
-      const id = `cm:${p.tractId}`
+      if (!f) return
+      const hitId = f.properties?.tractId
+      const t = myTractsRef.current.find(x => x.id === hitId)
+      if (!t) return
+      const p = {
+        tractId: t.id,
+        name: t.name,
+        projectName: t.project_name,
+        acres: t.acres,
+        tillableAcres: t.tillable_acres,
+        county: t.county,
+        state: t.state,
+        soilRating: t.soil_rating,
+      } as any
+      // The tract's own outline — never the land-type polygon that was
+      // clicked, or a report/detail would draw one field instead of the
+      // whole tract.
       const ring = (() => {
         try {
-          const g = f.geometry
+          const g: any = t.boundary
           const c = g?.type === 'Polygon' ? g.coordinates?.[0]
             : g?.type === 'MultiPolygon' ? g.coordinates?.[0]?.[0] : null
           return Array.isArray(c) ? (c as [number, number][]) : null
         } catch { return null }
       })()
-      onToggleReportRef.current({
-        id,
-        tractId: id,
-        // Named for the report row: the tract, and which project it is in.
-        companyName: p.projectName || null,
-        owner: p.name || null,
+      const saleData = {
+        // `cm:` so a drawn tract can never collide with an auction id.
+        id: `cm:${p.tractId}`,
+        tractId: `cm:${p.tractId}`,
+        listingId: null,
+        auctionDate: null,
         totalAcres: p.acres ?? null,
         tillableAcres: p.tillableAcres ?? null,
-        soilRating: p.soilRating ?? null,
-        county: p.county || '',
-        state: p.state || '',
+        // The project reads as the "company" line (PortalTractDetail
+        // relabels it "Project" for a `cm:` id), the tract as the name.
+        companyName: p.projectName || null,
+        owner: p.name || null,
         salePrice: null,
         pricePerAcre: null,
+        county: p.county || '',
+        state: p.state || '',
+        soilRating: p.soilRating ?? null,
+        polygonCoordinates: ring,
+        saleStatus: null,
         latitude: e.lngLat?.lat ?? null,
         longitude: e.lngLat?.lng ?? null,
-        polygonCoordinates: ring,
-      } as any)
+      } as unknown as SaleDetail
+      // Same "one click, one panel" + Utilities-panel-closes rule as any
+      // other tract (see the Task #26 block above).
+      setLandDetail(null)
+      setUtilitiesOpen(false)
+      if (portalMode && onTractSelected) {
+        lastPortalSaleRef.current = saleData
+        onTractSelected(saleData)
+      } else {
+        setSelectedSale(saleData)
+      }
     }
-    map.on('click', 'my-tracts-fill', onMyTractClick)
-    map.on('mouseenter', 'my-tracts-fill', onEnter)
-    map.on('mouseleave', 'my-tracts-fill', onLeave)
+    for (const lyr of ['my-tracts-fill', 'my-tract-shapes-fill']) {
+      map.on('click', lyr, onMyTractClick)
+      map.on('mouseenter', lyr, onEnter)
+      map.on('mouseleave', lyr, onLeave)
+    }
 
     map.on('click', 'tract-pin-circles', onClick)
     map.on('mouseenter', 'tract-pin-circles', onEnter)
@@ -9373,9 +9459,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     map.on('mouseenter', 'tract-polygon-fill', onEnter)
     map.on('mouseleave', 'tract-polygon-fill', onLeave)
     return () => {
-      map.off('click', 'my-tracts-fill', onMyTractClick)
-      map.off('mouseenter', 'my-tracts-fill', onEnter)
-      map.off('mouseleave', 'my-tracts-fill', onLeave)
+      for (const lyr of ['my-tracts-fill', 'my-tract-shapes-fill']) {
+        map.off('click', lyr, onMyTractClick)
+        map.off('mouseenter', lyr, onEnter)
+        map.off('mouseleave', lyr, onLeave)
+      }
       map.off('click', 'tract-pin-circles', onClick)
       map.off('mouseenter', 'tract-pin-circles', onEnter)
       map.off('mouseleave', 'tract-pin-circles', onLeave)
@@ -10861,9 +10949,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                 />
                 {/* Restored from the old "Hi, Jared" dropdown (owner 9/9):
                     Configurable Mapping and Map Portfolio used to be
-                    nav-dropdown links; they now live here instead, under
-                    the same firm-only gate the dropdown used (hasMapping,
-                    see the /api/auth/me effect above). */}
+                    nav-dropdown links; they now live here instead. Gated
+                    by hasMapping — the same fetchMappingAccess() call the
+                    /configure-map and /map-portfolio pages make
+                    themselves, no account_type prefilter (see the
+                    /api/auth/me effect above). */}
                 {hasMapping && (
                   <>
                     <UtilityTile
@@ -10917,7 +11007,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                     ? 'Loading your project maps…'
                     : myTracts.length === 0
                     ? 'You have not saved any project maps yet.'
-                    : `${myTracts.length} project map${myTracts.length === 1 ? '' : 's'} — click one to add it to a report.`}
+                    : `${myTracts.length} project map${myTracts.length === 1 ? '' : 's'}`}
                 </div>
               )}
               {terrain3DOn && (
