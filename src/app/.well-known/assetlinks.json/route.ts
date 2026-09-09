@@ -14,7 +14,10 @@ import { NextResponse } from 'next/server'
 // "14:6D:E9:83:...") — until then this serves a clearly-invalid
 // placeholder so App Links verification fails closed rather than silently
 // mis-associating.
-const ANDROID_SHA256 = process.env.ANDROID_RELEASE_SHA256 || 'REPLACE_WITH_ANDROID_RELEASE_SHA256_FINGERPRINT'
+// Upload-key fingerprint read from the signed 2.1.4 AAB (2026-09-09). Google Play re-signs with its
+// own app-signing key: add that certificate's SHA-256 (Play Console → App integrity) via
+// ANDROID_RELEASE_SHA256 as a comma-separated list; both are served.
+const ANDROID_SHA256_LIST = (process.env.ANDROID_RELEASE_SHA256 || '03:54:88:DD:38:AD:69:47:38:1B:D0:36:2E:51:25:5F:23:97:11:1A:A8:B9:15:A6:24:1E:DC:A3:F4:C7:3B:BF').split(',').map((s) => s.trim()).filter(Boolean)
 const PACKAGE_NAME = 'com.groundgoat.app'
 
 export async function GET() {
@@ -24,7 +27,7 @@ export async function GET() {
       target: {
         namespace: 'android_app',
         package_name: PACKAGE_NAME,
-        sha256_cert_fingerprints: [ANDROID_SHA256],
+        sha256_cert_fingerprints: ANDROID_SHA256_LIST,
       },
     },
   ]

@@ -18,7 +18,8 @@ import { NextResponse } from 'next/server'
 // serves a clearly-invalid placeholder that will fail Apple's association
 // check, so Universal Links won't silently misbehave, they just won't
 // activate.
-const APPLE_TEAM_ID = process.env.APPLE_TEAM_ID || 'REPLACE_WITH_APPLE_TEAM_ID'
+// Team ID read from the signed 2.1.4 store binary's provisioning profile (2026-09-09).
+const APPLE_TEAM_ID = process.env.APPLE_TEAM_ID || '8L6YFA8GYQ'
 const BUNDLE_ID = 'com.landresult.landresult'
 
 export async function GET() {
