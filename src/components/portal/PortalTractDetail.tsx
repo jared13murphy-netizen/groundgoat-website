@@ -136,10 +136,10 @@ function formatDeedDate(iso: string | null | undefined): string | null {
   return `${mo}/${d}/${y}`
 }
 
-// Landscape twin of a marketing image (same file name + '-wide.jpg', written
-// by the staging service beside the portrait one). Mirrors
-// PortalListingDetail.tsx's wideMarketingImage — kept as a local copy since
-// these files don't share a media-helpers module yet.
+// Landscape twin of a marketing image (same file name + '-wide.jpg'; the
+// scraper's marketing-image renderer writes both beside each other in S3).
+// Same helper as src/app/listings/page.tsx and listings/[id]/page.tsx —
+// kept as a local copy since these files don't share a media-helpers module.
 function wideMarketingImage(url?: string | null): string | null {
   if (!url || !/\.jpg$/i.test(url)) return null
   return url.replace(/\.jpg$/i, '-wide.jpg')
