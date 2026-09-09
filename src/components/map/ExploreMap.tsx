@@ -42,6 +42,11 @@ import { STATE_ABBR, STATE_BOUNDS } from './mapConstants'
 // the Regrid parcel layers are unfiltered by design as of 2026-07-30 (see
 // the setFilter effect below). Only the layer-id list is still needed.
 import { REGRID_PARCEL_LAYER_IDS } from '@/lib/regridParcelFilter'
+// Restored from the old "Hi, Jared" dropdown (owner 9/9): Configurable
+// Mapping and Map Portfolio used to be nav-dropdown links (nav commit
+// 2a09575, 8/27); they now live as Utilities-panel tiles instead. Same
+// gating as that dropdown had — see hasMapping below.
+import { fetchMappingAccess, allTractsGeometry, type PortfolioTract } from '@/lib/configurableMapping'
 // Utilities panel icons (2026-09-08). The map-outline + wrench trigger
 // icon itself now lives in PortalNavBar (top pill nav, owner ruling
 // 2026-09-08 moved it out of this file) — only the panel's own tile/action
@@ -60,6 +65,8 @@ import {
   Trash as TrashIcon,
   Map as MapDrawIcon,
   Plus as PlusIcon,
+  PenLine as MapProjectIcon,
+  FolderOpen as MapPortfolioIcon,
 } from 'lucide-react'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
@@ -2182,7 +2189,69 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // Rendered as separate markers in their own useEffect below.
   const [todayTracts, setTodayTracts] = useState<ApiMapTract[]>([])
   const [currentZoom, setCurrentZoom] = useState(MAP_INITIAL_ZOOM)
+  // ── My Project Maps (Configurable Mapping) ──────────────────────────
+  // Restored from history (commits e781c43, 182d91e — "My Tracts"): the
+  // subscriber's own ground drawn in Configurable Mapping, shown behind
+  // the Utilities panel's "Show My Project Maps" toggle. ON by default
+  // per the owner's later ruling in that history — a subscriber's own
+  // ground should be on the map without being asked for. The fetch stays
+  // lazy: it only fires the first time the layer is on, so it never
+  // blocks the map's start and a subscriber with no tracts pays about a
+  // kilobyte for the answer.
+  const [myTractsOn, setMyTractsOn] = useState(true)
+  const [myTracts, setMyTracts] = useState<PortfolioTract[]>([])
+  const [myTractsLoaded, setMyTractsLoaded] = useState(false)
+  const [myTractsError, setMyTractsError] = useState<string | null>(null)
+  // Map handlers below are registered once; this keeps the current
+  // callback reachable from inside them.
+  const onToggleReportRef = useRef(onToggleReport)
+  onToggleReportRef.current = onToggleReport
   const [mapLoaded, setMapLoaded] = useState(false)
+
+  // Fetch the subscriber's tracts the first time the toggle is switched
+  // on, then keep them. Failure leaves the toggle on with a message
+  // rather than silently drawing nothing.
+  useEffect(() => {
+    if (!myTractsOn || myTractsLoaded) return
+    let stale = false
+    ;(async () => {
+      try {
+        const r = await allTractsGeometry()
+        if (!stale) { setMyTracts(r.tracts); setMyTractsLoaded(true); setMyTractsError(null) }
+      } catch (e: any) {
+        if (!stale) setMyTractsError(e?.message || 'Could not load your project maps.')
+      }
+    })()
+    return () => { stale = true }
+  }, [myTractsOn, myTractsLoaded])
+
+  // Paint them, and show or hide the three layers together.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+    if (!map.getSource('my-tracts')) return
+    const feats = myTracts.filter(t => t.boundary).map(t => ({
+      type: 'Feature' as const,
+      geometry: t.boundary,
+      properties: {
+        tractId: t.id,
+        name: t.name || 'Untitled',
+        projectName: t.project_name || '',
+        inReport: !!reportIds?.has(`cm:${t.id}`),
+        acres: t.acres ?? null,
+        tillableAcres: t.tillable_acres ?? null,
+        county: t.county || '',
+        state: t.state || '',
+        soilRating: t.soil_rating ?? null,
+      },
+    }))
+    ;(map.getSource('my-tracts') as maplibregl.GeoJSONSource)?.setData(
+      { type: 'FeatureCollection', features: feats } as any)
+    const vis = myTractsOn ? 'visible' : 'none'
+    for (const id of ['my-tracts-fill', 'my-tracts-line', 'my-tracts-label']) {
+      if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis)
+    }
+  }, [myTracts, myTractsOn, mapLoaded, reportIds])
 
   // Owner "show on map" chat search: push dots into the owner-parcels
   // source (added once in the map-init block) and zoom to their bbox.
@@ -3269,6 +3338,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // non-admins), NOT part of the customer Layers panel. Do not fold it
   // into layersEnabled.
   const isEnrichmentPilot = isAdmin
+  // Configurable Mapping entitlement — gates the "Map Project" and "Map
+  // Portfolio" Utilities tiles. Same rule the old nav-dropdown links used
+  // (Navigation.tsx, nav commit 2a09575, 8/27): only firm_admin/firm_user
+  // accounts are asked, and only a genuine `true` from fetchMappingAccess
+  // turns the tiles on — an error or a non-firm account leaves them off.
+  const [hasMapping, setHasMapping] = useState(false)
   // Force-OFF: the legacy state_parcels pmtiles overlay (with its own
   // hover popups) is superseded by the always-on Regrid layer. We keep
   // the code path around for emergency fallback, but hard-disable the
@@ -3320,6 +3395,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         setCanUseReports(
           REPORT_ALLOWED_ROLES.includes(me?.account_type) || Boolean(me?.can_use_reports)
         )
+        // Configurable Mapping — only firm accounts can have the add-on,
+        // same gate the old nav dropdown used, so ask at most once per
+        // load for the accounts it could apply to.
+        if (['firm_admin', 'firm_user'].includes(me?.account_type)) {
+          fetchMappingAccess().then(ok => { if (!cancelled) setHasMapping(ok) })
+        }
         // The tile-server discovery fetch that used to live here has
         // been removed. It populated `adminParcelStates`, which fed
         // the "Show Parcels" admin toggle — but that toggle has been
@@ -4569,6 +4650,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       } catch {/* image already added by a racing call */}
 
       // ── Native marker GeoJSON sources (driven by setData effects) ───
+      // The subscriber's OWN tracts, drawn from Configurable Mapping.
+      // Off unless the Utilities panel's "Show My Project Maps" toggle
+      // turns them on.
+      map.addSource('my-tracts', { type: 'geojson', data: EMPTY_FC })
       map.addSource('tract-pins', { type: 'geojson', data: EMPTY_FC })
       map.addSource('county-counts', { type: 'geojson', data: EMPTY_FC })
 
@@ -4718,6 +4803,51 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           'text-allow-overlap': true,
         },
         paint: { 'text-color': '#ffffff' },
+      })
+
+      // ── My Project Maps — ground this subscriber drew in Configurable
+      // Mapping. Added BEFORE the tract pins so an auction pin is never
+      // buried under one of these. Visibility is driven by the Utilities
+      // panel's "Show My Project Maps" toggle; the layers themselves are
+      // never recreated.
+      map.addLayer({
+        id: 'my-tracts-fill',
+        type: 'fill',
+        source: 'my-tracts',
+        layout: { visibility: 'none' },
+        // Green once it is in the report — the same signal a parcel dot
+        // and an auction pin already use for "added to the comp report".
+        paint: {
+          'fill-color': ['case', ['boolean', ['get', 'inReport'], false], '#22c55e', '#f58cde'],
+          'fill-opacity': 0.22,
+        },
+      })
+      map.addLayer({
+        id: 'my-tracts-line',
+        type: 'line',
+        source: 'my-tracts',
+        layout: { visibility: 'none' },
+        paint: {
+          'line-color': ['case', ['boolean', ['get', 'inReport'], false], '#22c55e', '#f58cde'],
+          'line-width': 2,
+        },
+      })
+      map.addLayer({
+        id: 'my-tracts-label',
+        type: 'symbol',
+        source: 'my-tracts',
+        layout: {
+          visibility: 'none',
+          'text-field': ['get', 'name'],
+          'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'],
+          'text-size': 12,
+          'text-max-width': 12,
+        },
+        paint: {
+          'text-color': '#ffffff',
+          'text-halo-color': 'rgba(0,0,0,0.85)',
+          'text-halo-width': 1.6,
+        },
       })
 
       // ── Tract pins (the crux) — circles + price/acres labels. Both
@@ -9192,6 +9322,46 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const onEnter = () => { if (mapInteractionSuspendedRef.current) return; map.getCanvas().style.cursor = 'pointer' }
     const onLeave = () => { if (mapInteractionSuspendedRef.current) return; map.getCanvas().style.cursor = '' }
 
+    // ── My Project Maps: click one to add or remove it as a comparable
+    // — restored from history (commit e781c43). A drawn tract has no
+    // sale — it is the subscriber's own ground — so it carries acreage,
+    // tillable acreage and its soil rating, and the report shows those.
+    // Price stays null rather than invented.
+    const onMyTractClick = (e: any) => {
+      const f = e.features?.[0]
+      if (!f || !onToggleReportRef.current) return
+      const p = f.properties || {}
+      const id = `cm:${p.tractId}`
+      const ring = (() => {
+        try {
+          const g = f.geometry
+          const c = g?.type === 'Polygon' ? g.coordinates?.[0]
+            : g?.type === 'MultiPolygon' ? g.coordinates?.[0]?.[0] : null
+          return Array.isArray(c) ? (c as [number, number][]) : null
+        } catch { return null }
+      })()
+      onToggleReportRef.current({
+        id,
+        tractId: id,
+        // Named for the report row: the tract, and which project it is in.
+        companyName: p.projectName || null,
+        owner: p.name || null,
+        totalAcres: p.acres ?? null,
+        tillableAcres: p.tillableAcres ?? null,
+        soilRating: p.soilRating ?? null,
+        county: p.county || '',
+        state: p.state || '',
+        salePrice: null,
+        pricePerAcre: null,
+        latitude: e.lngLat?.lat ?? null,
+        longitude: e.lngLat?.lng ?? null,
+        polygonCoordinates: ring,
+      } as any)
+    }
+    map.on('click', 'my-tracts-fill', onMyTractClick)
+    map.on('mouseenter', 'my-tracts-fill', onEnter)
+    map.on('mouseleave', 'my-tracts-fill', onLeave)
+
     map.on('click', 'tract-pin-circles', onClick)
     map.on('mouseenter', 'tract-pin-circles', onEnter)
     map.on('mouseleave', 'tract-pin-circles', onLeave)
@@ -9203,6 +9373,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     map.on('mouseenter', 'tract-polygon-fill', onEnter)
     map.on('mouseleave', 'tract-polygon-fill', onLeave)
     return () => {
+      map.off('click', 'my-tracts-fill', onMyTractClick)
+      map.off('mouseenter', 'my-tracts-fill', onEnter)
+      map.off('mouseleave', 'my-tracts-fill', onLeave)
       map.off('click', 'tract-pin-circles', onClick)
       map.off('mouseenter', 'tract-pin-circles', onEnter)
       map.off('mouseleave', 'tract-pin-circles', onLeave)
@@ -10618,7 +10791,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               </button>
             )}
             <span style={{ color: '#fff', fontSize: 16, fontWeight: 700 }}>
-              {utilitiesView === 'layers' ? 'Layers' : utilitiesView === 'year' ? 'Map Year' : utilitiesView === 'pin' ? 'Pin' : utilitiesView === 'drawArea' ? 'Draw Area' : 'Utilities'}
+              {utilitiesView === 'layers' ? 'Layers' : utilitiesView === 'year' ? 'Map Year' : utilitiesView === 'pin' ? 'Pin' : utilitiesView === 'drawArea' ? 'Quick Draw' : 'Utilities'}
             </span>
           </div>
           <button
@@ -10662,7 +10835,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                       <PlusIcon size={10} style={{ position: 'absolute', bottom: -2, right: -4 }} />
                     </div>
                   )}
-                  label="Draw Area"
+                  label="Quick Draw"
                   active={drawMode || drawPoints.length > 0}
                   onClick={() => {
                     setPinMode(false)
@@ -10686,7 +10859,67 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                   label="Goat Search"
                   onClick={() => { setUtilitiesOpen(false); onOpenGoatSearch?.() }}
                 />
+                {/* Restored from the old "Hi, Jared" dropdown (owner 9/9):
+                    Configurable Mapping and Map Portfolio used to be
+                    nav-dropdown links; they now live here instead, under
+                    the same firm-only gate the dropdown used (hasMapping,
+                    see the /api/auth/me effect above). */}
+                {hasMapping && (
+                  <>
+                    <UtilityTile
+                      icon={<MapProjectIcon size={20} />}
+                      label="Map Project"
+                      onClick={() => { window.location.href = '/configure-map' }}
+                    />
+                    <UtilityTile
+                      icon={<MapPortfolioIcon size={20} />}
+                      label="Map Portfolio"
+                      onClick={() => { window.location.href = '/map-portfolio' }}
+                    />
+                  </>
+                )}
               </div>
+              {/* ── Show My Project Maps — restored from history (commits
+                  e781c43, 182d91e: "My Tracts"). Draws the ground this
+                  subscriber drew in Configurable Mapping (fill, outline,
+                  name) on the Explore map; clicking one adds or removes it
+                  as a comparable. Its own toggle rather than a Layers
+                  overlay: overlays are mutually exclusive with each other,
+                  and this has to sit on top of whichever one is up. */}
+              <div
+                onClick={() => setMyTractsOn(v => !v)}
+                style={{ display: 'flex', alignItems: 'center', height: 40, marginTop: 12, padding: '0 2px', cursor: 'pointer', gap: 8 }}
+              >
+                <span style={{ width: 14, height: 14, borderRadius: 2, flexShrink: 0, backgroundColor: '#f58cde', border: '1px solid rgba(255,255,255,0.2)' }} />
+                <span style={{ flex: 1, color: 'rgba(255,255,255,0.85)', fontSize: 13 }}>Show My Project Maps</span>
+                <button
+                  role="switch"
+                  aria-checked={myTractsOn}
+                  aria-label="Show My Project Maps"
+                  onClick={e => { e.stopPropagation(); setMyTractsOn(v => !v) }}
+                  style={{
+                    width: 32, height: 18, borderRadius: 9, flexShrink: 0, border: 'none', padding: 0, cursor: 'pointer',
+                    background: myTractsOn ? '#E91E8C' : 'rgba(255,255,255,0.18)',
+                    position: 'relative', transition: 'background 0.15s',
+                  }}
+                >
+                  <span style={{
+                    position: 'absolute', top: 2, left: myTractsOn ? 16 : 2, width: 14, height: 14,
+                    borderRadius: '50%', background: '#fff', transition: 'left 0.15s',
+                  }} />
+                </button>
+              </div>
+              {myTractsOn && (
+                <div style={{ padding: '2px 2px 0', color: 'rgba(255,255,255,0.45)', fontSize: 10 }}>
+                  {myTractsError
+                    ? myTractsError
+                    : !myTractsLoaded
+                    ? 'Loading your project maps…'
+                    : myTracts.length === 0
+                    ? 'You have not saved any project maps yet.'
+                    : `${myTracts.length} project map${myTracts.length === 1 ? '' : 's'} — click one to add it to a report.`}
+                </div>
+              )}
               {terrain3DOn && (
                 <div style={{ display: 'flex', alignItems: 'center', height: 40, gap: 8, marginTop: 14 }}>
                   <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 9, flexShrink: 0 }}>Flat</span>
