@@ -16,7 +16,7 @@ import PortalKPICards from '@/components/portal/PortalKPICards'
 import PortalListPanel from '@/components/portal/PortalListPanel'
 import PortalAnalyticsPanel from '@/components/portal/PortalAnalyticsPanel'
 import PortalListingDetail from '@/components/portal/PortalListingDetail'
-import PortalTractDetail, { TractDetailActionBar } from '@/components/portal/PortalTractDetail'
+import PortalTractDetail, { TractDetailActionBar, TractMediaSlot } from '@/components/portal/PortalTractDetail'
 import { canUseReportsFor } from '@/lib/reportAccess'
 import PortalComparablesReportPanel from '@/components/portal/PortalComparablesReportPanel'
 import PortalReportPanel from '@/components/portal/PortalReportPanel'
@@ -923,6 +923,15 @@ function AccessPortalPageInner() {
             transition={{ type: 'spring', damping: 28, stiffness: 300 }}
             className="fixed top-0 left-0 bottom-0 w-[480px] z-[530] bg-black border-r border-white/10 shadow-2xl flex flex-col"
           >
+            {/* Media slot (fly-over video / wide marketing image / tract
+                satellite image) — owner ruling for parity with the mobile
+                tract sheet: flush to the pane's top and both side edges,
+                full pane width, with the header sitting below it. Renders
+                only here (never for the Listing Detail or Comparables
+                panes above/below). When the tract has no media at all,
+                TractMediaSlot renders null and the header below sits at
+                the very top exactly as before. */}
+            <TractMediaSlot tract={selectedTract} />
             {/* Header: [← Back]  Tract Detail
                               <County> County, <ST>
                 Back button sits on the same row as the title (left of
