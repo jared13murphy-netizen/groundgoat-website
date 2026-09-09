@@ -696,7 +696,7 @@ export default function MapChatPanel({ onApplyFilters, onChatReportResult, curre
             onChange={(e) => setInput(e.target.value)}
             placeholder="Ask the map…  e.g. Iowa CSR2 75+ upcoming auctions"
             disabled={loading}
-            className="absolute inset-0 w-full bg-white outline-none text-sm text-[#111] placeholder-gray-500 px-1"
+            className="absolute inset-0 w-full bg-white outline-none focus:shadow-none focus:border-transparent text-sm text-[#111] placeholder-gray-500 px-1"
           />
         </div>
 
