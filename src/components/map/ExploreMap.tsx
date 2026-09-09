@@ -1582,6 +1582,15 @@ interface ExploreMapProps {
     zoning?: string | null
   }[] | null
   neighborsLoading?: boolean
+  /** /go Set-Pin share (see access/page.tsx's sharedPin state): drops a
+      pink dropped-pin marker at this location. Mutually exclusive with
+      sharedArea — a share link is one or the other, never both. */
+  sharedPin?: { lat: number; lng: number } | null
+  /** /go Quick-Draw share: outlines this ring on the map and fits the
+      camera to it. [lng, lat] pairs, same convention as
+      zoomToBoundsSignal/pinnedTractPolygon's coords. Does not need to be
+      closed (first === last) — the render effect closes it. */
+  sharedArea?: [number, number][] | null
 }
 
 // ── CDL_PALETTE — USDA Cropland Data Layer code → {name, color} ─────────────
@@ -1758,7 +1767,7 @@ function OverlayButton({
   )
 }
 
-export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onLandDetailOpen, externalTractSelection, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, chatSearchEndSignal, onChatSearchError, ownerParcelsResult, onShowOwnedGround, comparableVisibleIds, neighborParcels, neighborsLoading }: ExploreMapProps) {
+export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onLandDetailOpen, externalTractSelection, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, chatSearchEndSignal, onChatSearchError, ownerParcelsResult, onShowOwnedGround, comparableVisibleIds, neighborParcels, neighborsLoading, sharedPin, sharedArea }: ExploreMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const stateMarkersRef = useRef<maplibregl.Marker[]>([])
@@ -3141,6 +3150,93 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       { padding: 80, duration: 1200, maxZoom: 16 },
     )
   }, [zoomToBoundsSignal?.nonce])
+
+  // Shared-pin marker (/go Set-Pin share, sharedPin prop) — a DOM Marker,
+  // same visual treatment as the mobile app's own "dropped pin" (white
+  // outline behind a pink glyph, anchor bottom) so a shared pin reads the
+  // same on both surfaces. No interaction beyond showing where the sender
+  // meant — this isn't the tract-pin click system, just a marker.
+  const sharedPinMarkerRef = useRef<maplibregl.Marker | null>(null)
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+
+    sharedPinMarkerRef.current?.remove()
+    sharedPinMarkerRef.current = null
+    if (!sharedPin) return
+
+    const el = document.createElement('div')
+    el.className = 'gg-shared-pin'
+    el.innerHTML = `
+      <svg width="40" height="40" viewBox="0 0 24 24" style="position:absolute;top:-3px;left:-3px">
+        <path fill="#fff" d="M12 2C7.6 2 4 5.6 4 10c0 5.4 6.6 11.2 7.2 11.7a1.2 1.2 0 0 0 1.6 0C13.4 21.2 20 15.4 20 10c0-4.4-3.6-8-8-8z"/>
+      </svg>
+      <svg width="34" height="34" viewBox="0 0 24 24">
+        <path fill="#E91E8C" d="M12 2C7.6 2 4 5.6 4 10c0 5.4 6.6 11.2 7.2 11.7a1.2 1.2 0 0 0 1.6 0C13.4 21.2 20 15.4 20 10c0-4.4-3.6-8-8-8z"/>
+      </svg>
+    `
+    el.style.position = 'relative'
+    el.style.width = '34px'
+    el.style.height = '34px'
+
+    const marker = new maplibregl.Marker({ element: el, anchor: 'bottom' })
+      .setLngLat([sharedPin.lng, sharedPin.lat])
+      .addTo(map)
+    sharedPinMarkerRef.current = marker
+
+    return () => {
+      marker.remove()
+      if (sharedPinMarkerRef.current === marker) sharedPinMarkerRef.current = null
+    }
+  }, [mapLoaded, sharedPin])
+
+  // Shared-area outline (/go Quick-Draw share, sharedArea prop). Lazily
+  // creates the source/layers on first use (mirrors the tract-polygons
+  // effect above) rather than adding them in the mount-time 'load' handler
+  // — keeps this feature fully self-contained. Same #E91E8C fill/line the
+  // mobile app's own Draw Area layer uses (ExploreMapView.js), so a shared
+  // area reads the same on both surfaces.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+
+    const geometry = sharedArea && sharedArea.length >= 3 ? ringsToGeometry(sharedArea) : null
+    const data: GeoJSON.FeatureCollection = geometry
+      ? { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: geometry as GeoJSON.Geometry }] }
+      : EMPTY_FC
+
+    const src = map.getSource('shared-area') as maplibregl.GeoJSONSource
+    if (src) {
+      src.setData(data)
+    } else {
+      map.addSource('shared-area', { type: 'geojson', data })
+      map.addLayer({
+        id: 'shared-area-fill',
+        type: 'fill',
+        source: 'shared-area',
+        paint: { 'fill-color': '#E91E8C', 'fill-opacity': 0.18 },
+      })
+      map.addLayer({
+        id: 'shared-area-line',
+        type: 'line',
+        source: 'shared-area',
+        paint: { 'line-color': '#E91E8C', 'line-width': 3 },
+      })
+    }
+
+    if (sharedArea && sharedArea.length >= 3) {
+      let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity
+      for (const [lng, lat] of sharedArea) {
+        if (lng < minLng) minLng = lng
+        if (lng > maxLng) maxLng = lng
+        if (lat < minLat) minLat = lat
+        if (lat > maxLat) maxLat = lat
+      }
+      if (Number.isFinite(minLng)) {
+        map.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 80, duration: 1200, maxZoom: 17 })
+      }
+    }
+  }, [mapLoaded, sharedArea])
 
   const setFilterOpen = (open: boolean) => {
     setFilterOpenInternal(open)

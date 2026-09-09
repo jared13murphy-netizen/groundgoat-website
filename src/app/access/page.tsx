@@ -18,6 +18,7 @@ import PortalAnalyticsPanel from '@/components/portal/PortalAnalyticsPanel'
 import PortalListingDetail from '@/components/portal/PortalListingDetail'
 import PortalTractDetail, { TractDetailActionBar, TractMediaSlot, tractHasMedia } from '@/components/portal/PortalTractDetail'
 import { canUseReportsFor } from '@/lib/reportAccess'
+import { decodeArea } from '@/lib/shareLink'
 import PortalComparablesReportPanel from '@/components/portal/PortalComparablesReportPanel'
 import PortalReportPanel from '@/components/portal/PortalReportPanel'
 import MapChatPanel from '@/components/portal/MapChatPanel'
@@ -108,6 +109,12 @@ function AccessPortalPageInner() {
   // `coords` is a single flat ring OR a list of rings (multi-piece tract) —
   // see toRings in @/lib/polygonRings. ExploreMap normalizes either shape.
   const [zoomToBoundsSignal, setZoomToBoundsSignal] = useState<{ coords: [number, number][] | [number, number][][]; nonce: number } | null>(null)
+  // Shared-link pin/area (from /go — Quick Draw or Set Pin share). At most
+  // one of these is set at a time (a share link is either a pin or an
+  // area, never both — see shareLink.ts's buildGoLink). [lng, lat] ring,
+  // same convention as everything else that feeds ExploreMap's map layers.
+  const [sharedPin, setSharedPin] = useState<{ lat: number; lng: number } | null>(null)
+  const [sharedArea, setSharedArea] = useState<[number, number][] | null>(null)
   // Most-recently-clicked tract polygon. Force-rendered on the map even
   // if the tract's status would otherwise be filtered out by the
   // current view (e.g. a sold tract inside an upcoming-auction listing).
@@ -141,6 +148,27 @@ function AccessPortalPageInner() {
     // covers a slow first map-load, so panning away later isn't yanked back.
     setZoomToLocation({ lat, lng, zoom: Number.isFinite(zoom) ? zoom : 15 })
     setTimeout(() => setZoomToLocation(null), 10000)
+
+    // /go share-link extras (Quick Draw or Set Pin) — at most one of these
+    // is present. `area` wins if a link somehow carried both, matching
+    // buildGoLink's own precedence. Neither ever clears itself: unlike the
+    // camera fly-to, the pin/area is the whole point of a shared link and
+    // should stay on the map until the user does something that would
+    // naturally replace it (there's no such action here yet).
+    const areaParam = searchParams.get('area')
+    if (areaParam) {
+      try {
+        // shareLink's wire format is [lat, lng] pairs (Google polyline
+        // convention); ExploreMap's ring convention is [lng, lat].
+        const ring = decodeArea(areaParam).map(([plat, plng]) => [plng, plat] as [number, number])
+        if (ring.length >= 3) setSharedArea(ring)
+      } catch {
+        // Malformed/truncated area param (e.g. a link cut short by a
+        // messaging app) — fail quietly and just show the pin/camera zoom.
+      }
+    } else if (searchParams.get('pin') === '1') {
+      setSharedPin({ lat, lng })
+    }
   }, [user, searchParams])
   const zoomToFirstTractWithBoundary = (listing: any) => {
     // Also capture county/state for the pane header subtitle.
@@ -783,6 +811,8 @@ function AccessPortalPageInner() {
           zoomToLocation={zoomToLocation}
           zoomToBoundsSignal={zoomToBoundsSignal}
           pinnedTractPolygon={pinnedTractPolygon}
+          sharedPin={sharedPin}
+          sharedArea={sharedArea}
           subjectTractId={subjectTractId}
           subjectTractLocation={subjectTractLocation}
           resetFiltersSignal={resetFiltersSignal}
