@@ -44,8 +44,9 @@ import { STATE_ABBR, STATE_BOUNDS } from './mapConstants'
 import { REGRID_PARCEL_LAYER_IDS } from '@/lib/regridParcelFilter'
 // Restored from the old "Hi, Jared" dropdown (owner 9/9): Configurable
 // Mapping and Map Portfolio used to be nav-dropdown links (nav commit
-// 2a09575, 8/27); they now live as Utilities-panel tiles instead. Same
-// gating as that dropdown had — see hasMapping below.
+// 2a09575, 8/27); they now live as Utilities-panel tiles instead, plus a
+// "Show My Project Maps" toggle. All three share one gate — see
+// canUseProjectMaps below.
 import { fetchMappingAccess, allTractsGeometry, CLASS_COLOR, type PortfolioTract } from '@/lib/configurableMapping'
 // Utilities panel icons (2026-09-08). The map-outline + wrench trigger
 // icon itself now lives in PortalNavBar (top pill nav, owner ruling
@@ -3366,16 +3367,42 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // non-admins), NOT part of the customer Layers panel. Do not fold it
   // into layersEnabled.
   const isEnrichmentPilot = isAdmin
-  // Configurable Mapping entitlement — gates the "Map Project" and "Map
-  // Portfolio" Utilities tiles. Owner correction 9/9: the old nav-dropdown
-  // links prefiltered to firm_admin/firm_user before even asking, which
-  // hid the tiles from a groundgoat_admin (and staff) who CAN open
-  // /configure-map and /map-portfolio directly. Those pages carry no
-  // account_type prefilter at all — they just call fetchMappingAccess()
-  // for whoever is signed in and let the backend's own entitlement check
-  // decide. Mirror that exactly: ask for every signed-in user, and only a
-  // genuine `true` turns the tiles on.
-  const [hasMapping, setHasMapping] = useState(false)
+  // Configurable Mapping entitlement — the ONE gate shared by the "Map
+  // Project" tile, the "Map Portfolio" tile, AND the "Show My Project
+  // Maps" toggle (owner ruling 9/9). Confirmed against the backend
+  // (configurable_mapping.py, has_configurable_mapping, on `main`) rather
+  // than guessed: fetchMappingAccess() -> GET /api/mapping/access ->
+  // {enabled: has_configurable_mapping(user, db)}, which already returns:
+  //   - true, unconditionally, for groundgoat_admin / groundgoat_sales /
+  //     groundgoat_sales_manager — "as long as their account status is
+  //     Active" is already guaranteed one layer up: get_current_user()
+  //     403s an inactive account before this ever runs, so a deactivated
+  //     GG account cannot reach ANY authenticated route, this one
+  //     included.
+  //   - true for firm_admin / firm_user ONLY when their firm's
+  //     subscription is active/trialing, the firm bought at least one
+  //     Configurable Mapping seat (firm.cm_seats), AND this specific
+  //     user's seat is switched on (user.cm_enabled) — the paid add-on,
+  //     not bare firm membership.
+  //   - false for everyone else (individual, solo, trial, expired).
+  // That is exactly the owner's spec, so this is a single passthrough of
+  // fetchMappingAccess() — no separate client-side account_type check,
+  // which is what caused the last bug (a client-side firm_admin/
+  // firm_user prefilter that hid the tiles from groundgoat_admin even
+  // though the backend already said yes).
+  const [canUseProjectMaps, setCanUseProjectMaps] = useState(false)
+  // Owner ruling 9/9: when the gate flips false — entitlement lost mid
+  // session, or this account never had it once /api/auth/me + the
+  // fetchMappingAccess() check above resolve — force the toggle off.
+  // The paint effect already drives layer visibility off myTractsOn, so
+  // this alone takes "My Project Maps" off the map; without it, a
+  // session where the toggle had been switched on could keep showing
+  // the layer with no toggle left on screen to turn it off (the tiles
+  // and the toggle row itself are also unmounted by the same
+  // canUseProjectMaps check, above and below).
+  useEffect(() => {
+    if (!canUseProjectMaps) setMyTractsOn(false)
+  }, [canUseProjectMaps])
   // Force-OFF: the legacy state_parcels pmtiles overlay (with its own
   // hover popups) is superseded by the always-on Regrid layer. We keep
   // the code path around for emergency fallback, but hard-disable the
@@ -3428,11 +3455,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           REPORT_ALLOWED_ROLES.includes(me?.account_type) || Boolean(me?.can_use_reports)
         )
         // Configurable Mapping — same call /configure-map and
-        // /map-portfolio make themselves, with no account_type
-        // prefilter; the backend decides who is entitled (owner 9/9: a
-        // groundgoat_admin must see these tiles too, not just firm
-        // accounts).
-        fetchMappingAccess().then(ok => { if (!cancelled) setHasMapping(ok) })
+        // /map-portfolio make themselves, with no client-side
+        // account_type prefilter; the backend decides who is entitled
+        // (see canUseProjectMaps's declaration above for what it
+        // actually returns per account class).
+        fetchMappingAccess().then(ok => { if (!cancelled) setCanUseProjectMaps(ok) })
         // The tile-server discovery fetch that used to live here has
         // been removed. It populated `adminParcelStates`, which fed
         // the "Show Parcels" admin toggle — but that toggle has been
@@ -10950,11 +10977,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                 {/* Restored from the old "Hi, Jared" dropdown (owner 9/9):
                     Configurable Mapping and Map Portfolio used to be
                     nav-dropdown links; they now live here instead. Gated
-                    by hasMapping — the same fetchMappingAccess() call the
-                    /configure-map and /map-portfolio pages make
-                    themselves, no account_type prefilter (see the
-                    /api/auth/me effect above). */}
-                {hasMapping && (
+                    by canUseProjectMaps — see its declaration above for
+                    exactly what it checks. */}
+                {canUseProjectMaps && (
                   <>
                     <UtilityTile
                       icon={<MapProjectIcon size={20} />}
@@ -10972,43 +10997,51 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               {/* ── Show My Project Maps — restored from history (commits
                   e781c43, 182d91e: "My Tracts"). Draws the ground this
                   subscriber drew in Configurable Mapping (fill, outline,
-                  name) on the Explore map; clicking one adds or removes it
-                  as a comparable. Its own toggle rather than a Layers
+                  name) on the Explore map; clicking one opens the tract
+                  detail panel. Its own toggle rather than a Layers
                   overlay: overlays are mutually exclusive with each other,
-                  and this has to sit on top of whichever one is up. */}
-              <div
-                onClick={() => setMyTractsOn(v => !v)}
-                style={{ display: 'flex', alignItems: 'center', height: 40, marginTop: 12, padding: '0 2px', cursor: 'pointer', gap: 8 }}
-              >
-                <span style={{ width: 14, height: 14, borderRadius: 2, flexShrink: 0, backgroundColor: '#f58cde', border: '1px solid rgba(255,255,255,0.2)' }} />
-                <span style={{ flex: 1, color: 'rgba(255,255,255,0.85)', fontSize: 13 }}>Show My Project Maps</span>
-                <button
-                  role="switch"
-                  aria-checked={myTractsOn}
-                  aria-label="Show My Project Maps"
-                  onClick={e => { e.stopPropagation(); setMyTractsOn(v => !v) }}
-                  style={{
-                    width: 32, height: 18, borderRadius: 9, flexShrink: 0, border: 'none', padding: 0, cursor: 'pointer',
-                    background: myTractsOn ? '#E91E8C' : 'rgba(255,255,255,0.18)',
-                    position: 'relative', transition: 'background 0.15s',
-                  }}
-                >
-                  <span style={{
-                    position: 'absolute', top: 2, left: myTractsOn ? 16 : 2, width: 14, height: 14,
-                    borderRadius: '50%', background: '#fff', transition: 'left 0.15s',
-                  }} />
-                </button>
-              </div>
-              {myTractsOn && (
-                <div style={{ padding: '2px 2px 0', color: 'rgba(255,255,255,0.45)', fontSize: 10 }}>
-                  {myTractsError
-                    ? myTractsError
-                    : !myTractsLoaded
-                    ? 'Loading your project maps…'
-                    : myTracts.length === 0
-                    ? 'You have not saved any project maps yet.'
-                    : `${myTracts.length} project map${myTracts.length === 1 ? '' : 's'}`}
-                </div>
+                  and this has to sit on top of whichever one is up.
+                  SAME gate as the two tiles above (owner ruling 9/9: the
+                  toggle must never be visible, or the layer showing, for
+                  an account that can't reach Configurable Mapping at
+                  all) — see the force-off effect below the toggle. */}
+              {canUseProjectMaps && (
+                <>
+                  <div
+                    onClick={() => setMyTractsOn(v => !v)}
+                    style={{ display: 'flex', alignItems: 'center', height: 40, marginTop: 12, padding: '0 2px', cursor: 'pointer', gap: 8 }}
+                  >
+                    <span style={{ width: 14, height: 14, borderRadius: 2, flexShrink: 0, backgroundColor: '#2563eb', border: '1px solid rgba(255,255,255,0.2)' }} />
+                    <span style={{ flex: 1, color: 'rgba(255,255,255,0.85)', fontSize: 13 }}>Show My Project Maps</span>
+                    <button
+                      role="switch"
+                      aria-checked={myTractsOn}
+                      aria-label="Show My Project Maps"
+                      onClick={e => { e.stopPropagation(); setMyTractsOn(v => !v) }}
+                      style={{
+                        width: 32, height: 18, borderRadius: 9, flexShrink: 0, border: 'none', padding: 0, cursor: 'pointer',
+                        background: myTractsOn ? '#E91E8C' : 'rgba(255,255,255,0.18)',
+                        position: 'relative', transition: 'background 0.15s',
+                      }}
+                    >
+                      <span style={{
+                        position: 'absolute', top: 2, left: myTractsOn ? 16 : 2, width: 14, height: 14,
+                        borderRadius: '50%', background: '#fff', transition: 'left 0.15s',
+                      }} />
+                    </button>
+                  </div>
+                  {myTractsOn && (
+                    <div style={{ padding: '2px 2px 0', color: 'rgba(255,255,255,0.45)', fontSize: 10 }}>
+                      {myTractsError
+                        ? myTractsError
+                        : !myTractsLoaded
+                        ? 'Loading your project maps…'
+                        : myTracts.length === 0
+                        ? 'You have not saved any project maps yet.'
+                        : `${myTracts.length} project map${myTracts.length === 1 ? '' : 's'}`}
+                    </div>
+                  )}
+                </>
               )}
               {terrain3DOn && (
                 <div style={{ display: 'flex', alignItems: 'center', height: 40, gap: 8, marginTop: 14 }}>
