@@ -1324,9 +1324,13 @@ function resolveDateWindow(filters: FilterState): {
 // recorded sales are the entire point of the comparables flow — a 6-year cap
 // would gut it. Swapping the default sentinel for an explicit 'all' makes
 // resolveDateWindow return an unbounded window, exactly as before this change.
-function saleDotFilters(f: FilterState, inCompMode: boolean): FilterState {
-  if (!inCompMode || f.dateRange !== DEFAULT_DATE_RANGE) return f
-  return { ...f, dateRange: 'all' }
+// 2026-09-08: the swap above is GONE. It made the panel say "Last 6 years"
+// while the comp map showed every sale (owner bug report, mobile had the
+// same). The comp map now STARTS at 'all' (see modeInitialFilters), which is
+// what it always showed, so the label is true — and an explicit "Last 6
+// years" pick filters like every other preset.
+function saleDotFilters(f: FilterState, _inCompMode: boolean): FilterState {
+  return f
 }
 
 // Parcel-DATA filters (PI range, % tillable, tillable acres, land types)
@@ -3004,13 +3008,21 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // closure/dep-array must already be initialized by the time that
   // effect statement runs during the component's render pass, or React
   // throws a TDZ "Cannot access before initialization" error.
-  const [filters, setFilters] = useState<FilterState>(INITIAL_FILTERS)
+  // Comp report map (subjectTractId set) opens at "All time" — old recorded
+  // sales are the whole point of comparables (owner 2026-08-13) — and its
+  // panel must SAY so (owner 2026-09-08). Explore keeps the 6-year default.
+  const modeInitialFilters = useMemo<FilterState>(
+    () => (subjectTractId ? { ...INITIAL_FILTERS, dateRange: 'all' } : INITIAL_FILTERS),
+    [subjectTractId],
+  )
+  const modeDefaultDateRange = subjectTractId ? 'all' : DEFAULT_DATE_RANGE
+  const [filters, setFilters] = useState<FilterState>(modeInitialFilters)
   const [filterOpen, setFilterOpenInternal] = useState(false)
   // Filters to layer on top of appliedFilters the next time the panel
   // opens — see the re-seed effect below. Set by the state badge's
   // "Filter" link so the panel opens with that state already selected.
   const pendingFilterSeedRef = useRef<Partial<FilterState> | null>(null)
-  const filtersRef = useRef<FilterState>(INITIAL_FILTERS)
+  const filtersRef = useRef<FilterState>(modeInitialFilters)
   // Apply-atomic model: `filters` is the DRAFT the panel edits live;
   // `appliedFilters` is the committed snapshot that drives every
   // indicator (count bubbles, Filter-button dot, durable-dot refetch).
@@ -3018,7 +3030,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // filtersRef.current is assigned today (Apply, Reset, chat-search
   // commit, external reset) — see each site below. Editing the panel
   // must NEVER touch this.
-  const [appliedFilters, setAppliedFilters] = useState<FilterState>(INITIAL_FILTERS)
+  const [appliedFilters, setAppliedFilters] = useState<FilterState>(modeInitialFilters)
   // Registry-gated map filters (step 3, 2026-08-15): parcel_data_states off
   // GET /api/regrid/config, mirrored into its OWN early state for the exact
   // TDZ reason documented above `filters`/`appliedFilters` — filterParamString
@@ -3338,9 +3350,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // Reset filters from parent (e.g. when launching Find Comparables)
   useEffect(() => {
     if (resetFiltersSignal && resetFiltersSignal > 0) {
-      setFilters(INITIAL_FILTERS)
-      filtersRef.current = INITIAL_FILTERS
-      setAppliedFilters(INITIAL_FILTERS)
+      setFilters(modeInitialFilters)
+      filtersRef.current = modeInitialFilters
+      setAppliedFilters(modeInitialFilters)
       loadedCellsRef.current = new Set()
       tractMapRef.current = new Map()
       tractsGenRef.current++
@@ -3388,7 +3400,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // don't linger under an unrelated result set.
     clearOwnerParcels()
 
-    const base = clearUnspecified ? INITIAL_FILTERS : filtersRef.current
+    const base = clearUnspecified ? modeInitialFilters : filtersRef.current
     // If this chat filter set changes the state selection without itself
     // specifying the registry-gated fields (soil rating, % tillable, land
     // types), clear those out of `base` too — otherwise a value carried
@@ -4073,9 +4085,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
   const resetFilters = () => {
     clearOwnerParcels()
-    setFilters(INITIAL_FILTERS)
-    filtersRef.current = INITIAL_FILTERS
-    setAppliedFilters(INITIAL_FILTERS)
+    setFilters(modeInitialFilters)
+    filtersRef.current = modeInitialFilters
+    setAppliedFilters(modeInitialFilters)
     // Clear cached data so it refetches without filters
     loadedCellsRef.current = new Set()
     tractMapRef.current = new Map()
@@ -4118,7 +4130,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // Compared against the DEFAULT sentinel, not 'all' — otherwise the map
   // reports active filters on a cold load, before the user has touched
   // anything. Explicitly choosing All time IS an active filter.
-  const hasActiveFilters = appliedFilters.dateRange !== DEFAULT_DATE_RANGE || appliedFilters.stateFilter !== '' ||
+  const hasActiveFilters = appliedFilters.dateRange !== modeDefaultDateRange || appliedFilters.stateFilter !== '' ||
     appliedFilters.countyFilters.length > 0 ||
     appliedFilters.townshipFilters.length > 0 ||
     (SOIL_FILTER_ENABLED && (appliedFilters.soilRatingMin !== '' || appliedFilters.soilRatingMax !== '' ||
