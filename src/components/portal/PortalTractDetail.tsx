@@ -178,21 +178,28 @@ const STATUS_COLORS: Record<string, string> = {
   no_sale: 'bg-gray-500/15 text-gray-400 border-gray-500/30',
 }
 
-export default function PortalTractDetail({ tract, onBack, onViewListing, onView3DTerrain, onToggleReport, isInReport, onShowNeighbors, onNeighborsLoadingChange, showNeighborsButton = false, onFindComparables }: PortalTractDetailProps) {
-  const [soilData, setSoilData] = useState<SoilData | null>(null)
-  const [elevationData, setElevationData] = useState<ElevationData | null>(null)
-  const [soilLoading, setSoilLoading] = useState(false)
-  const [neighborsLoading, setNeighborsLoading] = useState(false)
-  const [neighborsLoaded, setNeighborsLoaded] = useState(false)
-  const [neighborCount, setNeighborCount] = useState(0)
-
+/**
+ * Media slot for the Tract Detail slide-out: fly-over video, else the wide
+ * marketing image, else the tract satellite image with pink boundary
+ * overlay (same /api/tracts/{id}/image resize endpoint as always). Fixed
+ * 16:9 so the pane never shifts once media/video-url resolves.
+ *
+ * Rendered by the slide-out SHELL (src/app/access/page.tsx), ABOVE the
+ * pane header (back button / "Tract Detail" title / county subtitle) —
+ * owner ruling for parity with the mobile tract sheet: the media must be
+ * flush to the pane's top and both side edges, full 480px pane width, with
+ * the header sitting below it. It renders only for the tract-detail pane;
+ * PortalTractDetail itself no longer renders any media. When the tract has
+ * no polygon boundaries (so there isn't even a satellite thumbnail), this
+ * renders null and the header stays at the very top exactly as before.
+ */
+export function TractMediaSlot({ tract }: { tract: TractSaleData }) {
   const hasBoundaries = !!(tract.polygonCoordinates && tract.polygonCoordinates.length > 0)
   const mediaTractId = tract.tractId || tract.id
 
-  // Fly-over video + wide marketing image for the media slot at the top of
-  // the pane. Fetched once per tract id; until it resolves (or if the tract
-  // has neither), the slot below falls through to the tract satellite image
-  // so the pane never pops content in late.
+  // Fetched once per tract id; until it resolves (or if the tract has
+  // neither), the slot falls through to the tract satellite image so the
+  // pane never pops content in late.
   const [media, setMedia] = useState<TractMedia | null>(null)
   const [videoFailed, setVideoFailed] = useState(false)
   const [marketingFailed, setMarketingFailed] = useState(false)
@@ -218,6 +225,87 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
       .catch(() => {}) // aborted (tract changed) or network error — stay on the image fallback
     return () => controller.abort()
   }, [mediaTractId])
+
+  if (!hasBoundaries || !mediaTractId) return null
+
+  const tractImageUrl = `${API_URL}/api/tracts/${mediaTractId}/image?w=600&q=80`
+  const videoUrl = media?.video_url || null
+  const wideUrl = wideMarketingImage(media?.marketing_image_url)
+  const showVideo = !!videoUrl && !videoFailed
+  const showMarketing = !showVideo && !!wideUrl && !marketingFailed
+  const posterUrl = wideUrl || tractImageUrl
+  const reduceMotion = prefersReducedMotion()
+
+  return (
+    <div className="relative w-full aspect-video overflow-hidden bg-gg-gray-900 shrink-0">
+      {showVideo ? (
+        <>
+          <video
+            key={`video-${mediaTractId}`}
+            ref={videoRef}
+            src={videoUrl as string}
+            poster={posterUrl}
+            autoPlay={!reduceMotion}
+            muted
+            loop
+            playsInline
+            preload="metadata"
+            className="w-full h-full object-cover block"
+            onError={() => setVideoFailed(true)}
+          />
+          {reduceMotion && !manualPlay && (
+            <button
+              onClick={() => {
+                setManualPlay(true)
+                videoRef.current?.play().catch(() => {})
+              }}
+              aria-label="Play fly-over video"
+              className="absolute inset-0 w-full h-full flex items-center justify-center bg-black/25 hover:bg-black/10 transition-colors"
+            >
+              <span className="w-14 h-14 rounded-full bg-gg-pink text-black flex items-center justify-center shadow-2xl">
+                <Play size={24} className="ml-1" fill="currentColor" />
+              </span>
+            </button>
+          )}
+          <button
+            onClick={() => { videoRef.current?.requestFullscreen?.().catch(() => {}) }}
+            aria-label="Full screen"
+            className="absolute top-2 right-2 w-8 h-8 rounded-lg bg-black/50 hover:bg-black/70 text-white flex items-center justify-center transition-colors"
+          >
+            <Maximize2 size={16} />
+          </button>
+        </>
+      ) : showMarketing ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={wideUrl as string}
+          alt="Tract marketing view"
+          className="w-full h-full object-cover block"
+          loading="lazy"
+          onError={() => setMarketingFailed(true)}
+        />
+      ) : (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={tractImageUrl}
+          alt="Tract satellite view with boundary outline"
+          className="w-full h-full object-cover block"
+          loading="lazy"
+        />
+      )}
+    </div>
+  )
+}
+
+export default function PortalTractDetail({ tract, onBack, onViewListing, onView3DTerrain, onToggleReport, isInReport, onShowNeighbors, onNeighborsLoadingChange, showNeighborsButton = false, onFindComparables }: PortalTractDetailProps) {
+  const [soilData, setSoilData] = useState<SoilData | null>(null)
+  const [elevationData, setElevationData] = useState<ElevationData | null>(null)
+  const [soilLoading, setSoilLoading] = useState(false)
+  const [neighborsLoading, setNeighborsLoading] = useState(false)
+  const [neighborsLoaded, setNeighborsLoaded] = useState(false)
+  const [neighborCount, setNeighborCount] = useState(0)
+
+  const hasBoundaries = !!(tract.polygonCoordinates && tract.polygonCoordinates.length > 0)
 
   useEffect(() => {
     if (!tract.tractId || !hasBoundaries) return
@@ -318,82 +406,6 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
           ))
         })()}
       </div>
-
-      {/* Media slot: fly-over video, else the wide marketing image, else
-          the tract satellite image with pink boundary overlay (same
-          /api/tracts/{id}/image resize endpoint as always). Only renders
-          when the tract has polygon_coordinates (so we know there's at
-          least a rendered thumbnail in tracts.image_base64). Fixed 16:9 so
-          the pane never shifts once media/video-url resolves. */}
-      {hasBoundaries && mediaTractId && (() => {
-        const tractImageUrl = `${API_URL}/api/tracts/${mediaTractId}/image?w=600&q=80`
-        const videoUrl = media?.video_url || null
-        const wideUrl = wideMarketingImage(media?.marketing_image_url)
-        const showVideo = !!videoUrl && !videoFailed
-        const showMarketing = !showVideo && !!wideUrl && !marketingFailed
-        const posterUrl = wideUrl || tractImageUrl
-        const reduceMotion = prefersReducedMotion()
-
-        return (
-          <div className="relative w-full aspect-video rounded-xl overflow-hidden border border-white/10 bg-gg-gray-900">
-            {showVideo ? (
-              <>
-                <video
-                  key={`video-${mediaTractId}`}
-                  ref={videoRef}
-                  src={videoUrl as string}
-                  poster={posterUrl}
-                  autoPlay={!reduceMotion}
-                  muted
-                  loop
-                  playsInline
-                  preload="metadata"
-                  className="w-full h-full object-cover block"
-                  onError={() => setVideoFailed(true)}
-                />
-                {reduceMotion && !manualPlay && (
-                  <button
-                    onClick={() => {
-                      setManualPlay(true)
-                      videoRef.current?.play().catch(() => {})
-                    }}
-                    aria-label="Play fly-over video"
-                    className="absolute inset-0 w-full h-full flex items-center justify-center bg-black/25 hover:bg-black/10 transition-colors"
-                  >
-                    <span className="w-14 h-14 rounded-full bg-gg-pink text-black flex items-center justify-center shadow-2xl">
-                      <Play size={24} className="ml-1" fill="currentColor" />
-                    </span>
-                  </button>
-                )}
-                <button
-                  onClick={() => { videoRef.current?.requestFullscreen?.().catch(() => {}) }}
-                  aria-label="Full screen"
-                  className="absolute top-2 right-2 w-8 h-8 rounded-lg bg-black/50 hover:bg-black/70 text-white flex items-center justify-center transition-colors"
-                >
-                  <Maximize2 size={16} />
-                </button>
-              </>
-            ) : showMarketing ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={wideUrl as string}
-                alt="Tract marketing view"
-                className="w-full h-full object-cover block"
-                loading="lazy"
-                onError={() => setMarketingFailed(true)}
-              />
-            ) : (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={tractImageUrl}
-                alt="Tract satellite view with boundary outline"
-                className="w-full h-full object-cover block"
-                loading="lazy"
-              />
-            )}
-          </div>
-        )
-      })()}
 
       {/* Price/Acre highlight */}
       {tract.pricePerAcre ? (
