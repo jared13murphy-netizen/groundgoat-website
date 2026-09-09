@@ -1,8 +1,8 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { motion } from 'framer-motion'
-import { Loader2, Mountain, BarChart3, FileText, Mail, Download, Check } from 'lucide-react'
+import { Loader2, Mountain, BarChart3, FileText, Mail, Download, Check, Play, Maximize2 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import reportJobEnqueue from '@/lib/reportJobs'
 import { formatAcres } from '@/lib/format'
@@ -136,6 +136,27 @@ function formatDeedDate(iso: string | null | undefined): string | null {
   return `${mo}/${d}/${y}`
 }
 
+// Landscape twin of a marketing image (same file name + '-wide.jpg'; the
+// scraper's marketing-image renderer writes both beside each other in S3).
+// Same helper as src/app/listings/page.tsx and listings/[id]/page.tsx —
+// kept as a local copy since these files don't share a media-helpers module.
+function wideMarketingImage(url?: string | null): string | null {
+  if (!url || !/\.jpg$/i.test(url)) return null
+  return url.replace(/\.jpg$/i, '-wide.jpg')
+}
+
+function prefersReducedMotion(): boolean {
+  return typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+}
+
+// video_url / marketing_image_url come from GET /api/tracts/{id} (fetched
+// fresh by this pane — the map click handler that builds TractSaleData
+// doesn't carry media fields).
+interface TractMedia {
+  video_url: string | null
+  marketing_image_url: string | null
+}
+
 function getStatusLabel(status?: string | null): string {
   switch (status?.toLowerCase()) {
     case 'sold': return 'Sold'
@@ -155,6 +176,131 @@ const STATUS_COLORS: Record<string, string> = {
   live: 'bg-red-500/15 text-red-400 border-red-500/30',
   pending: 'bg-yellow-500/15 text-yellow-400 border-yellow-500/30',
   no_sale: 'bg-gray-500/15 text-gray-400 border-gray-500/30',
+}
+
+/**
+ * Media slot for the Tract Detail slide-out: fly-over video, else the wide
+ * marketing image, else the tract satellite image with pink boundary
+ * overlay (same /api/tracts/{id}/image resize endpoint as always). Fixed
+ * 16:9 so the pane never shifts once media/video-url resolves.
+ *
+ * Rendered by the slide-out SHELL (src/app/access/page.tsx), ABOVE the
+ * pane header (back button / "Tract Detail" title / county subtitle) —
+ * owner ruling for parity with the mobile tract sheet: the media must be
+ * flush to the pane's top and both side edges, full 480px pane width, with
+ * the header sitting below it. It renders only for the tract-detail pane;
+ * PortalTractDetail itself no longer renders any media. When the tract has
+ * no polygon boundaries (so there isn't even a satellite thumbnail), this
+ * renders null and the header stays at the very top exactly as before.
+ */
+// True when TractMediaSlot will render a media block for this tract (the
+// slide-out shell overlays its header on the media only in that case).
+export function tractHasMedia(tract: TractSaleData): boolean {
+  return !!(tract.polygonCoordinates && tract.polygonCoordinates.length > 0) && !!(tract.tractId || tract.id)
+}
+
+export function TractMediaSlot({ tract }: { tract: TractSaleData }) {
+  const hasBoundaries = !!(tract.polygonCoordinates && tract.polygonCoordinates.length > 0)
+  const mediaTractId = tract.tractId || tract.id
+
+  // Fetched once per tract id; until it resolves (or if the tract has
+  // neither), the slot falls through to the tract satellite image so the
+  // pane never pops content in late.
+  const [media, setMedia] = useState<TractMedia | null>(null)
+  const [videoFailed, setVideoFailed] = useState(false)
+  const [marketingFailed, setMarketingFailed] = useState(false)
+  const [manualPlay, setManualPlay] = useState(false)
+  const videoRef = useRef<HTMLVideoElement>(null)
+
+  useEffect(() => {
+    setMedia(null)
+    setVideoFailed(false)
+    setMarketingFailed(false)
+    setManualPlay(false)
+    if (!mediaTractId) return
+    const controller = new AbortController()
+    fetchWithAuth(`${API_URL}/api/tracts/${mediaTractId}`, { signal: controller.signal })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (!data) return
+        setMedia({
+          video_url: data.video_url ?? null,
+          marketing_image_url: data.marketing_image_url ?? null,
+        })
+      })
+      .catch(() => {}) // aborted (tract changed) or network error — stay on the image fallback
+    return () => controller.abort()
+  }, [mediaTractId])
+
+  if (!hasBoundaries || !mediaTractId) return null
+
+  const tractImageUrl = `${API_URL}/api/tracts/${mediaTractId}/image?w=600&q=80`
+  const videoUrl = media?.video_url || null
+  const wideUrl = wideMarketingImage(media?.marketing_image_url)
+  const showVideo = !!videoUrl && !videoFailed
+  const showMarketing = !showVideo && !!wideUrl && !marketingFailed
+  const posterUrl = wideUrl || tractImageUrl
+  const reduceMotion = prefersReducedMotion()
+
+  return (
+    <div className="relative w-full aspect-video overflow-hidden bg-gg-gray-900 shrink-0">
+      {showVideo ? (
+        <>
+          <video
+            key={`video-${mediaTractId}`}
+            ref={videoRef}
+            src={videoUrl as string}
+            poster={posterUrl}
+            autoPlay={!reduceMotion}
+            muted
+            loop
+            playsInline
+            preload="metadata"
+            className="w-full h-full object-cover block"
+            onError={() => setVideoFailed(true)}
+          />
+          {reduceMotion && !manualPlay && (
+            <button
+              onClick={() => {
+                setManualPlay(true)
+                videoRef.current?.play().catch(() => {})
+              }}
+              aria-label="Play fly-over video"
+              className="absolute inset-0 w-full h-full flex items-center justify-center bg-black/25 hover:bg-black/10 transition-colors"
+            >
+              <span className="w-14 h-14 rounded-full bg-gg-pink text-black flex items-center justify-center shadow-2xl">
+                <Play size={24} className="ml-1" fill="currentColor" />
+              </span>
+            </button>
+          )}
+          <button
+            onClick={() => { videoRef.current?.requestFullscreen?.().catch(() => {}) }}
+            aria-label="Full screen"
+            className="absolute top-2 right-2 w-8 h-8 rounded-lg bg-black/50 hover:bg-black/70 text-white flex items-center justify-center transition-colors"
+          >
+            <Maximize2 size={16} />
+          </button>
+        </>
+      ) : showMarketing ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={wideUrl as string}
+          alt="Tract marketing view"
+          className="w-full h-full object-cover block"
+          loading="lazy"
+          onError={() => setMarketingFailed(true)}
+        />
+      ) : (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={tractImageUrl}
+          alt="Tract satellite view with boundary outline"
+          className="w-full h-full object-cover block"
+          loading="lazy"
+        />
+      )}
+    </div>
+  )
 }
 
 export default function PortalTractDetail({ tract, onBack, onViewListing, onView3DTerrain, onToggleReport, isInReport, onShowNeighbors, onNeighborsLoadingChange, showNeighborsButton = false, onFindComparables }: PortalTractDetailProps) {
@@ -266,30 +412,6 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
           ))
         })()}
       </div>
-
-      {/* Tract satellite image with pink boundary overlay. Only renders
-          when the tract has polygon_coordinates (so we know there's a
-          rendered thumbnail in tracts.image_base64). 480-wide JPEG via
-          the existing /api/tracts/{id}/image resize endpoint. */}
-      {hasBoundaries && (tract.tractId || tract.id) && (
-        <div className="rounded-xl overflow-hidden border border-white/10">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            // Marketing card art (landscape twin) when the tract has one; the
-            // backend answers 404 until then, and onError swaps in today's
-            // boundary image so the panel never shows blank.
-            src={`${API_URL}/api/tracts/${tract.tractId || tract.id}/marketing-image?wide=1`}
-            alt="Tract satellite view with boundary outline"
-            className="w-full h-auto block bg-gg-gray-900"
-            loading="lazy"
-            onError={(e) => {
-              const el = e.target as HTMLImageElement
-              const fallback = `${API_URL}/api/tracts/${tract.tractId || tract.id}/image?w=600&q=80`
-              if (el.src !== fallback) el.src = fallback
-            }}
-          />
-        </div>
-      )}
 
       {/* Price/Acre highlight */}
       {tract.pricePerAcre ? (
