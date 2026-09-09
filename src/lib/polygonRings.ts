@@ -1,23 +1,29 @@
 // Shared helpers for tract boundaries that may be a SINGLE ring
-// [[lng,lat], ...] (legacy) or a LIST OF RINGS [[[lng,lat],...], ...] for a
-// tract made of multiple disjoint pieces (multi-polygon).
+// [[lng,lat], ...] (legacy), a LIST OF RINGS [[[lng,lat],...], ...] for a
+// tract made of multiple disjoint pieces (multi-polygon), or a full GeoJSON
+// MultiPolygon.coordinates shape.
+//
+// The actual shape-detection + degenerate-ring filtering lives in
+// ./tractPolygon.ts (normalizeRings) — see that file's header for why a
+// degenerate ring must be dropped before it ever reaches MapLibre (owner
+// bug 2026-09-09: a multi-piece tract's real outline failed to render
+// because a few-metres-across digitization sliver rode along in the same
+// MultiPolygon feature). Mirrors the backend to_rings and the mobile app's
+// src/utils/polygonRings.js.
+
+import { normalizeRings } from './tractPolygon'
 
 export type Ring = [number, number][]
 
-/** Normalize a boundary (single ring OR list of rings) to a list of rings.
+/** Normalize a boundary (single ring, list of rings, or GeoJSON
+ *  MultiPolygon.coordinates) to a list of closed, non-degenerate rings.
  *  A single ring → a one-element list. Empty/invalid → []. */
 export function toRings(coords: any): Ring[] {
-  if (!Array.isArray(coords) || coords.length === 0) return []
-  const first = coords[0]
-  // Single ring: first element is a coordinate pair [lng, lat].
-  if (Array.isArray(first) && typeof first[0] === 'number' && typeof first[1] === 'number') {
-    return [coords as Ring]
-  }
-  // Multipolygon: each element is itself a ring.
-  return (coords as any[]).filter((r) => Array.isArray(r) && r.length >= 3) as Ring[]
+  return normalizeRings(coords)
 }
 
-/** Close a ring (first === last) if it isn't already. */
+/** Close a ring (first === last) if it isn't already. Rings returned by
+ *  toRings are already closed — kept for callers building rings by hand. */
 export function closeRing(ring: Ring): Ring {
   if (ring.length < 3) return ring
   const f = ring[0]
@@ -26,14 +32,15 @@ export function closeRing(ring: Ring): Ring {
 }
 
 /** GeoJSON geometry for a boundary: Polygon for one ring, MultiPolygon for
- *  multiple. Returns null if there are no usable rings. */
+ *  multiple (each ring closed, degenerate slivers already dropped by
+ *  toRings). Returns null if there are no usable rings. */
 export function ringsToGeometry(
   coords: any,
 ):
   | { type: 'Polygon'; coordinates: Ring[] }
   | { type: 'MultiPolygon'; coordinates: Ring[][] }
   | null {
-  const rings = toRings(coords).filter((r) => r.length >= 3).map(closeRing)
+  const rings = toRings(coords)
   if (rings.length === 0) return null
   if (rings.length === 1) return { type: 'Polygon', coordinates: [rings[0]] }
   return { type: 'MultiPolygon', coordinates: rings.map((r) => [r]) }
