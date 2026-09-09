@@ -2896,14 +2896,15 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       const lngs = drawPoints.map(p => p.lng)
       const minLat = Math.min(...lats), maxLat = Math.max(...lats)
       const minLng = Math.min(...lngs), maxLng = Math.max(...lngs)
-      // 380 (panel width per spec) + 24, NOT the panel's actual current
-      // CSS width of 360 — the spec calls out 380+24 explicitly, so it's
-      // used as written rather than "corrected" to 360+24. One-shot
-      // padding on this call only; MapLibre doesn't persist padding as a
-      // sticky camera inset the way the native mobile SDK does, so this
-      // is not carried into any later easeTo/flyTo/fitBounds call.
+      // Keep the polygon clear of the right-hand Utilities panel (360px CSS
+      // width + gutter). On narrow screens the panel is full-width and
+      // overlays the map, so a 384px right pad would exceed the map width
+      // (MapLibre then refuses to compute a zoom) — pad symmetrically there.
+      // One-shot padding on this call only; MapLibre GL JS doesn't persist
+      // padding as a sticky camera inset the way the native mobile SDK does.
+      const narrow = typeof window !== 'undefined' && window.innerWidth <= 640
       map.fitBounds([[minLng, minLat], [maxLng, maxLat]], {
-        padding: { top: 96, right: 380 + 24, bottom: 48, left: 48 },
+        padding: { top: 96, right: narrow ? 48 : 360 + 24, bottom: 48, left: 48 },
         duration: 700,
       })
     }
