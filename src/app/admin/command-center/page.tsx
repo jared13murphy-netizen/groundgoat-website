@@ -42,6 +42,7 @@ import { useRouter } from 'next/navigation'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import fetchWithAuth from '@/lib/fetchWithAuth'
+import { formatTillable } from '@/lib/tillable'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.groundgoat.com'
 
@@ -3572,7 +3573,10 @@ function LiveMap({ points, full, onToggleFull }: {
                 month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—'} />
               {picked.acres != null && <Row label="Acres" value={num(picked.acres, 1)} />}
               {picked.tillable_acres != null &&
-                <Row label="Tillable acres" value={num(picked.tillable_acres, 1)} />}
+                <Row label="Tillable acres" value={(() => {
+                  const pctText = formatTillable(picked.acres, picked.tillable_acres, null).pctText
+                  return <>{num(picked.tillable_acres, 1)}{pctText ? <span className="dim"> · {pctText}</span> : null}</>
+                })()} />}
               {picked.soil_rating != null &&
                 <Row label="Soil rating" value={num(picked.soil_rating, 1)} />}
               <Row label="Coordinates"

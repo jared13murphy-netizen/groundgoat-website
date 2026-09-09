@@ -7,6 +7,7 @@ import fetchWithAuth from '@/lib/fetchWithAuth'
 import reportJobEnqueue from '@/lib/reportJobs'
 import { formatAcres, toNum } from '@/lib/format'
 import { computeCompAverages } from '@/lib/compAverages'
+import { formatTillable } from '@/lib/tillable'
 import { formatAuctionDateTime } from '@/lib/auctionTime'
 import SubjectStrip from './SubjectStrip'
 import type { TractSaleData } from './PortalTractDetail'
@@ -291,7 +292,7 @@ export default function PortalComparablesReportPanel({ subjectInfo, reportTracts
               <div className="text-[10px] text-gg-gray-400 mt-0.5">Avg Acres</div>
             </div>
             <div className="bg-white/[0.03] rounded-xl p-3 border border-white/5">
-              <div className="text-lg font-bold">{stats.avgTillable ? formatAcres(stats.avgTillable) : '—'}</div>
+              <div className="text-lg font-bold">{formatTillable(stats.avgAcres, stats.avgTillable, null).inlineText}</div>
               <div className="text-[10px] text-gg-gray-400 mt-0.5">Avg Tillable</div>
             </div>
             <div className="bg-white/[0.03] rounded-xl p-3 border border-white/5">

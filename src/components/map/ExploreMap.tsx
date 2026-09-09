@@ -27,6 +27,7 @@ import {
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import reportJobFetch from '@/lib/reportJobs'
 import { formatAcres } from '@/lib/format'
+import { formatTillable } from '@/lib/tillable'
 import { SOIL_FILTER_ENABLED, TILLABLE_FILTER_ENABLED } from '@/lib/featureFlags'
 import { shouldHideParcelDotsForFilters } from '@/lib/parcelDotsFilterGate'
 import { toRings as toTractRings, ringsToGeometry, pointInBoundary } from '@/lib/polygonRings'
@@ -10850,7 +10851,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               {selectedSale.tillableAcres ? (
                 <div className="sale-modal-row">
                   <span className="sale-modal-label">Tillable Acres</span>
-                  <span className="sale-modal-value">{formatAcres(selectedSale.tillableAcres)} ac</span>
+                  <span className="sale-modal-value">{formatTillable(selectedSale.totalAcres, selectedSale.tillableAcres, selectedSale.pctTillable).inlineText}</span>
                 </div>
               ) : null}
               {selectedSale.tillableAcres && selectedSale.pricePerAcre && selectedSale.totalAcres ? (
