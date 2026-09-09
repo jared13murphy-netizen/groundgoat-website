@@ -10552,15 +10552,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           just no longer opened from here. See utilitiesToggleSignal
           effect above for the nav-bar wiring. */}
 
-      {/* Utilities click-catcher — semi-transparent (not a heavy dim), sits
-          over the map and closes the panel on click. */}
-      {utilitiesOpen && !drawMode && (
-        <div
-          onClick={() => setUtilitiesOpen(false)}
-          aria-hidden="true"
-          style={{ position: 'absolute', inset: 0, zIndex: 399, background: 'rgba(0,0,0,0.15)' }}
-        />
-      )}
+      {/* No click-catcher behind the Utilities panel (owner 2026-09-08:
+          the map must stay fully usable — pan/zoom/click — while the
+          panel is open). The panel closes via its X or Escape. */}
 
       {/* Utilities Panel — slides in from the right (owner 2026-09-08:
           mirrors the mobile app's Utilities sheet). Holds Layers, Map
