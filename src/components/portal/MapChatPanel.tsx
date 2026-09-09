@@ -11,6 +11,7 @@ import {
   XAxis, YAxis, Tooltip, CartesianGrid,
 } from 'recharts'
 import fetchWithAuth from '@/lib/fetchWithAuth'
+import { computeTypedChars, typewriterRate } from '@/lib/typewriterProgress'
 import type { OwnerParcelsResponse } from '@/components/map/exploreMapTypes'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
@@ -242,30 +243,63 @@ export default function MapChatPanel({ onApplyFilters, onChatReportResult, curre
       answer. No auto-dismiss — stays until the user taps a chip or
       closes it. */
   const [outOfScope, setOutOfScope] = useState<OutOfScopeResponse | null>(null)
-  /** Typewriter — incrementally reveals the analytics answer text.
-      Step size is dynamic (not a fixed +2/tick) so the worst case is
-      bounded: a large uncapped comparison (n up to 50, several
-      thousand chars) still finishes in ~2s instead of the ~20s a fixed
-      rate would take — HARD RULE, no user-facing loading state may
-      exceed 5s. Short answers still get the original slow, readable
-      reveal since the floor of 2 chars/tick only kicks in below ~320
-      chars. */
+  /** Typewriter — incrementally reveals the analytics answer text. See
+      src/lib/typewriterProgress.ts for the pure progress math and the
+      full writeup of the bug this fixes (owner incident 2026-09-09,
+      first caught on mobile: an answer stopped typing mid-word with the
+      cursor still showing and never finished, even though the backend's
+      response was complete).
+      Fixed root cause: the OLD version counted a fixed step per FIRED
+      12ms setInterval tick, with no elapsed-time correction — so any
+      tick that got delayed or dropped (the browser's timers are not
+      guaranteed a fixed cadence under JS-thread contention) was lost
+      progress, permanently. A heavy synchronous map filter reload
+      firing off the same response that populates `analytics` is exactly
+      that kind of contention. The effect was also keyed on `analytics`
+      (object identity), which reset+restarted the reveal on any
+      re-render that produced a new object even when the rendered text
+      was unchanged — fixed here by keying only on the derived
+      `fullAnswer` string.
+      Fix: every tick recomputes typedChars from ACTUAL ELAPSED TIME
+      against the answer's CURRENT length (computeTypedChars), not from
+      an accumulated step count — a late tick just jumps straight to the
+      correct position instead of resuming one step past wherever a lost
+      tick left off. Worst case is still bounded to the same ~4s budget
+      as before (HARD RULE, no user-facing loading state may exceed 5s);
+      short answers still get the original slow, readable reveal via the
+      same 2-chars/12ms floor. */
   const [typedChars, setTypedChars] = useState(0)
   const fullAnswer = buildAnalyticsAnswer(analytics)
   useEffect(() => {
     setTypedChars(0)
-    if (!analytics) return
     const total = fullAnswer.length
     if (total === 0) return
-    const step = Math.max(2, Math.ceil(total / 160))
+    const startedAt = Date.now()
+    const TICK_MS = 12
     const id = window.setInterval(() => {
-      setTypedChars((prev) => {
-        if (prev >= total) { window.clearInterval(id); return prev }
-        return Math.min(total, prev + step)
-      })
-    }, 12)
+      const next = computeTypedChars(Date.now() - startedAt, total)
+      setTypedChars((prev) => (next > prev ? next : prev))
+      if (next >= total) window.clearInterval(id)
+    }, TICK_MS)
     return () => window.clearInterval(id)
-  }, [analytics, fullAnswer])
+  }, [fullAnswer])
+
+  // Defense-in-depth guard: even with the elapsed-time fix above, force-
+  // finish the reveal a beat after its own worst-case duration if
+  // typedChars still hasn't caught up — e.g. the interval itself died
+  // early for some other reason. Never leave the cursor blinking on half
+  // a word forever; a same-value setTypedChars call once already done is
+  // a no-op (React bails via Object.is), so this is a harmless backstop
+  // on the normal path.
+  useEffect(() => {
+    const total = fullAnswer.length
+    if (total === 0) return
+    const worstCaseMs = Math.ceil(total / typewriterRate(total)) + 500
+    const guard = window.setTimeout(() => {
+      setTypedChars((prev) => (prev < total ? total : prev))
+    }, worstCaseMs)
+    return () => window.clearTimeout(guard)
+  }, [fullAnswer])
   const inputRef = useRef<HTMLInputElement>(null)
   const formRef = useRef<HTMLFormElement>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
