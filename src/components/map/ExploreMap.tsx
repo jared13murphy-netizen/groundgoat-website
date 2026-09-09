@@ -58,6 +58,8 @@ import {
   Share as ShareIcon,
   Navigation as DirectionsIcon,
   Trash as TrashIcon,
+  Map as MapDrawIcon,
+  Plus as PlusIcon,
 } from 'lucide-react'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
@@ -256,6 +258,48 @@ const VEIL_DIP_STEP_MS = 75
 function veilPrefersReducedMotion(): boolean {
   return typeof window !== 'undefined'
     && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+}
+
+// ── Draw Area (2026-09-08) — web version of the mobile app's Draw Area
+// tile. Source/layer ids modeled on VEIL_SOURCE_ID/SELECT_SOURCE_ID above.
+const DRAW_AREA_SOURCE_ID = 'draw-area-src'
+const DRAW_AREA_FILL_LAYER = 'draw-area-fill'
+const DRAW_AREA_LINE_LAYER = 'draw-area-line'
+const DRAW_AREA_POINTS_LAYER = 'draw-area-points'
+const DRAW_AREA_COLOR = '#E91E8C'
+
+// Spherical excess / shoelace-on-sphere area for a closed lng/lat ring —
+// no @turf dependency in this repo (checked package.json). Returns
+// square meters. Standard formula: convert each point to radians, sum
+// (lng[i+1] - lng[i]) * (2 + sin(lat[i]) + sin(lat[i+1])), multiply by
+// R^2/2, take abs(). R = 6371008.8 m (WGS84 mean radius).
+function ringAreaSqMeters(ring: { lat: number; lng: number }[]): number {
+  if (ring.length < 3) return 0
+  const R = 6371008.8
+  const toRad = (d: number) => (d * Math.PI) / 180
+  let total = 0
+  for (let i = 0; i < ring.length; i++) {
+    const p1 = ring[i]
+    const p2 = ring[(i + 1) % ring.length]
+    const lng1 = toRad(p1.lng)
+    const lng2 = toRad(p2.lng)
+    const lat1 = toRad(p1.lat)
+    const lat2 = toRad(p2.lat)
+    total += (lng2 - lng1) * (2 + Math.sin(lat1) + Math.sin(lat2))
+  }
+  return Math.abs((total * R * R) / 2)
+}
+function acresFromRing(ring: { lat: number; lng: number }[]): number {
+  return ringAreaSqMeters(ring) / 4046.8564224 // m² per acre
+}
+// Differs from @/lib/format's formatAcres (always 3 decimals) per spec:
+// 3 decimals under 100 acres, 1 decimal at/above, both with thousands
+// separators.
+function formatDrawAcres(n: number): string {
+  const opts = n < 100
+    ? { minimumFractionDigits: 3, maximumFractionDigits: 3 }
+    : { minimumFractionDigits: 1, maximumFractionDigits: 1 }
+  return n.toLocaleString('en-US', opts)
 }
 
 // Generalized 2026-08-17 (Tract Spotlight, extending the shipped Parcel
@@ -2455,7 +2499,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // Utilities control (map-outline icon + wrench badge). Replaces the old
   // separate bottom-left Layers button/panel and Aerial-year button/popup.
   const [utilitiesOpen, setUtilitiesOpen] = useState(false)
-  const [utilitiesView, setUtilitiesView] = useState<'menu' | 'layers' | 'year' | 'pin'>('menu')
+  const [utilitiesView, setUtilitiesView] = useState<'menu' | 'layers' | 'year' | 'pin' | 'drawArea'>('menu')
 
   // Nav-bar trigger (owner ruling 2026-09-08): PortalNavBar's "Utilities"
   // item bumps utilitiesToggleSignal; this mirrors the removed floating
@@ -2576,6 +2620,24 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     setUtilitiesView('menu')
   }, [])
 
+  // ── Draw Area (2026-09-08) ───────────────────────────────────────────
+  // Web version of the mobile app's Draw Area tile: click to drop dots,
+  // a live polygon/line/points overlay tracks them, Finish locks it in
+  // and shows acres/points/center/township/county — same shape as the
+  // Pin view. drawMode mirrors pinMode's lifecycle (see drawModeActiveRef
+  // / mapInteractionSuspendedRef below, and the cursor/click effects
+  // further down modeled directly on the pin ones).
+  const [drawMode, setDrawMode] = useState(false)
+  const [drawPoints, setDrawPoints] = useState<{ lat: number; lng: number }[]>([])
+  const [drawGeo, setDrawGeo] = useState<{
+    state_name?: string | null
+    county?: string | null
+    civil_township?: string | null
+    plss?: { label: string } | null
+  } | null>(null)
+  const [drawGeoLoading, setDrawGeoLoading] = useState(false)
+  const [drawCopyStatus, setDrawCopyStatus] = useState<'idle' | 'copied'>('idle')
+
   // ── Set Pin placement mode (2026-09-08, web-only click-to-place —
   // owner ruling: the mobile app keeps its centre-crosshair, that's a
   // finger UI; web gets a real click-to-place cursor instead) ─────────
@@ -2584,7 +2646,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // layer-scoped click handlers elsewhere in this file (parcel fill,
   // tract pins/polygons, durable sale dots, CSB fields, soils, today
   // pins, county-count circles — search this file for
-  // `pinPlacementActiveRef.current) return` to find every guarded
+  // `mapInteractionSuspendedRef.current) return` to find every guarded
   // handler) can bail out synchronously. MapLibre has no real
   // stopPropagation across independently-registered 'click' listeners
   // (see clickClaimedByLayers above for the same constraint, and its
@@ -2593,8 +2655,25 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // placement mode starts would in any case fire AFTER the handlers
   // bound at mount, not before, so a shared ref every handler checks is
   // the only ordering-independent fix.
+  //
+  // drawModeActiveRef is the same idea for Draw Area (added 2026-09-08):
+  // while the user is dropping vertices, map clicks must append a point
+  // instead of opening a parcel/tract/dot panel, exactly like pin
+  // placement. mapInteractionSuspendedRef ORs the two together — every
+  // hover/click handler in this file checks this ONE combined ref (not
+  // the two individual ones) so a single guard line covers both
+  // "suspend normal map interaction" cases. This also fixes a bug where
+  // hover handlers (mouseenter/mousemove/mouseleave — which stomp the
+  // placement cursor by unconditionally setting canvas.style.cursor)
+  // never checked pinPlacementActiveRef at all; they now check the
+  // combined ref too. Search this file for
+  // `mapInteractionSuspendedRef.current` to find every guarded site.
   const pinPlacementActiveRef = useRef(false)
   useEffect(() => { pinPlacementActiveRef.current = pinMode }, [pinMode])
+  const drawModeActiveRef = useRef(false)
+  useEffect(() => { drawModeActiveRef.current = drawMode }, [drawMode])
+  const mapInteractionSuspendedRef = useRef(false)
+  useEffect(() => { mapInteractionSuspendedRef.current = pinMode || drawMode }, [pinMode, drawMode])
 
   // Cursor + Escape-to-cancel while in placement mode. The hint pill
   // itself is rendered in JSX below (top-center, under the nav).
@@ -2636,6 +2715,233 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     return () => { map.off('click', handlePlacementClick) }
   }, [mapLoaded])
 
+  // ── Draw Area effects (2026-09-08) — modeled directly on the pin
+  // placement cursor/click effects immediately above. ─────────────────
+
+  // Cursor + Escape/Enter/Backspace while drawing. Escape cancels
+  // (clears drawPoints, exits draw mode); Enter finishes (needs >= 3
+  // points); Backspace undoes the last dot. drawPoints is in the dep
+  // array (not a ref) so the Enter/Backspace checks always see the
+  // current point count — a fresh closure per point added is cheap here.
+  const finishDrawAreaRef = useRef<() => void>(() => {})
+  useEffect(() => {
+    const map = mapRef.current
+    if (!drawMode || !map) return
+    const canvas = map.getCanvas()
+    const prevCursor = canvas.style.cursor
+    canvas.style.cursor = 'crosshair'
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setDrawPoints([])
+        setDrawMode(false)
+      } else if (e.key === 'Enter') {
+        if (drawPoints.length >= 3) finishDrawAreaRef.current()
+      } else if (e.key === 'Backspace') {
+        setDrawPoints(pts => pts.slice(0, -1))
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown)
+      canvas.style.cursor = prevCursor
+    }
+  }, [drawMode, drawPoints])
+
+  // The actual draw click — registered once, self-gated on
+  // drawModeActiveRef, same ordering rationale as the pin's placement
+  // click effect above. Appends a dot instead of setting-and-exiting.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+    const handleDrawClick = (e: maplibregl.MapMouseEvent) => {
+      if (!drawModeActiveRef.current) return
+      const { lat, lng } = e.lngLat
+      setDrawPoints(pts => [...pts, { lat, lng }])
+    }
+    map.on('click', handleDrawClick)
+    return () => { map.off('click', handleDrawClick) }
+  }, [mapLoaded])
+
+  // Derived GeoJSON for the live overlay: points, an (open) line through
+  // them in order, and — only once there are >= 3 — a closed polygon
+  // fill. Recomputed only when drawPoints changes, then pushed into the
+  // source via setData (source/layers created once below, never
+  // recreated), same idiom as DURABLE_DOT_SOURCE/VEIL_SOURCE_ID.
+  const drawAreaFC = useMemo<GeoJSON.FeatureCollection>(() => {
+    const features: GeoJSON.Feature[] = drawPoints.map((p, i) => ({
+      type: 'Feature',
+      properties: { index: i },
+      geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
+    }))
+    if (drawPoints.length >= 2) {
+      features.push({
+        type: 'Feature',
+        properties: {},
+        geometry: { type: 'LineString', coordinates: drawPoints.map(p => [p.lng, p.lat]) },
+      })
+    }
+    if (drawPoints.length >= 3) {
+      const ring = drawPoints.map(p => [p.lng, p.lat] as [number, number])
+      ring.push(ring[0])
+      features.push({
+        type: 'Feature',
+        properties: {},
+        geometry: { type: 'Polygon', coordinates: [ring] },
+      })
+    }
+    return { type: 'FeatureCollection', features }
+  }, [drawPoints])
+
+  // Source + layers — created once (gated on mapLoaded + !getSource, like
+  // the VEIL_SOURCE_ID effect above) and torn down on unmount. Layer
+  // order: above the parcel line layer (same beforeId trick as the veil)
+  // so the drawn shape is visible while drawing, not hidden under a
+  // parcel fill.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+    if (map.getSource(DRAW_AREA_SOURCE_ID)) return // already set up
+
+    const beforeId = map.getLayer('regrid-parcels-line') ? 'regrid-parcels-line' : firstSymbolLayerId(map)
+
+    map.addSource(DRAW_AREA_SOURCE_ID, { type: 'geojson', data: EMPTY_FC })
+    map.addLayer({
+      id: DRAW_AREA_FILL_LAYER,
+      type: 'fill',
+      source: DRAW_AREA_SOURCE_ID,
+      filter: ['==', ['geometry-type'], 'Polygon'],
+      paint: { 'fill-color': DRAW_AREA_COLOR, 'fill-opacity': 0.18 },
+    }, beforeId)
+    map.addLayer({
+      id: DRAW_AREA_LINE_LAYER,
+      type: 'line',
+      source: DRAW_AREA_SOURCE_ID,
+      filter: ['==', ['geometry-type'], 'LineString'],
+      paint: { 'line-color': DRAW_AREA_COLOR, 'line-width': 2 },
+    }, beforeId)
+    map.addLayer({
+      id: DRAW_AREA_POINTS_LAYER,
+      type: 'circle',
+      source: DRAW_AREA_SOURCE_ID,
+      filter: ['==', ['geometry-type'], 'Point'],
+      paint: {
+        'circle-radius': 6,
+        'circle-color': DRAW_AREA_COLOR,
+        'circle-stroke-color': '#fff',
+        'circle-stroke-width': 2,
+      },
+    }, beforeId)
+
+    return () => {
+      try {
+        if (!map.getStyle()) return
+        for (const id of [DRAW_AREA_POINTS_LAYER, DRAW_AREA_LINE_LAYER, DRAW_AREA_FILL_LAYER]) {
+          if (map.getLayer(id)) map.removeLayer(id)
+        }
+        if (map.getSource(DRAW_AREA_SOURCE_ID)) map.removeSource(DRAW_AREA_SOURCE_ID)
+      } catch {
+        // map already torn down
+      }
+    }
+  }, [mapLoaded])
+
+  // Keep the source's data live as drawPoints changes — never recreates
+  // the source/layers, only calls setData, same as other dynamic sources
+  // in this file (e.g. DURABLE_DOT_SOURCE, VEIL_SOURCE_ID).
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !map.getSource(DRAW_AREA_SOURCE_ID)) return
+    ;(map.getSource(DRAW_AREA_SOURCE_ID) as maplibregl.GeoJSONSource).setData(drawAreaFC)
+  }, [drawAreaFC])
+
+  // Township/County lookup for the draw-area centroid (simple arithmetic
+  // mean of the dot lat/lngs — not the true polygon centroid; simpler,
+  // and fine for "which township/county is this area in"). Mirrors the
+  // pin's fetch effect: debounced 600ms, deduped on the 4-decimal-place
+  // centroid string so it doesn't refire on every added dot if the
+  // centroid barely moved.
+  const drawGeoKeyRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (drawPoints.length < 3) {
+      drawGeoKeyRef.current = null
+      setDrawGeo(null)
+      return
+    }
+    const lat = drawPoints.reduce((s, p) => s + p.lat, 0) / drawPoints.length
+    const lng = drawPoints.reduce((s, p) => s + p.lng, 0) / drawPoints.length
+    const key = `${lat.toFixed(4)},${lng.toFixed(4)}`
+    if (drawGeoKeyRef.current === key) return
+    const t = setTimeout(() => {
+      drawGeoKeyRef.current = key
+      setDrawGeoLoading(true)
+      fetchWithAuth(`${API_URL}/api/geo/locate?lat=${lat}&lng=${lng}`)
+        .then(r => (r.ok ? r.json() : null))
+        .catch(() => null)
+        .then(body => setDrawGeo(body))
+        .finally(() => setDrawGeoLoading(false))
+    }, 600)
+    return () => clearTimeout(t)
+  }, [drawPoints])
+
+  // Finish: stop adding dots (cursor effect's cleanup restores the
+  // previous cursor), keep drawPoints so the shape stays drawn, and fit
+  // the map to the drawn area. Kept in a ref (finishDrawAreaRef, wired
+  // above) so the Enter-key handler can call the CURRENT version without
+  // adding drawPoints-derived callbacks to that effect's deps twice over.
+  const handleFinishDrawArea = useCallback(() => {
+    setDrawMode(false)
+    const map = mapRef.current
+    if (map && drawPoints.length >= 3) {
+      const lats = drawPoints.map(p => p.lat)
+      const lngs = drawPoints.map(p => p.lng)
+      const minLat = Math.min(...lats), maxLat = Math.max(...lats)
+      const minLng = Math.min(...lngs), maxLng = Math.max(...lngs)
+      // 380 (panel width per spec) + 24, NOT the panel's actual current
+      // CSS width of 360 — the spec calls out 380+24 explicitly, so it's
+      // used as written rather than "corrected" to 360+24. One-shot
+      // padding on this call only; MapLibre doesn't persist padding as a
+      // sticky camera inset the way the native mobile SDK does, so this
+      // is not carried into any later easeTo/flyTo/fitBounds call.
+      map.fitBounds([[minLng, minLat], [maxLng, maxLat]], {
+        padding: { top: 96, right: 380 + 24, bottom: 48, left: 48 },
+        duration: 700,
+      })
+    }
+  }, [drawPoints])
+  useEffect(() => { finishDrawAreaRef.current = handleFinishDrawArea }, [handleFinishDrawArea])
+
+  const drawCentroid = drawPoints.length > 0
+    ? {
+        lat: drawPoints.reduce((s, p) => s + p.lat, 0) / drawPoints.length,
+        lng: drawPoints.reduce((s, p) => s + p.lng, 0) / drawPoints.length,
+      }
+    : null
+  const drawAcres = drawPoints.length >= 3 ? acresFromRing(drawPoints) : 0
+
+  const handleCopyDrawStats = useCallback(async () => {
+    if (drawPoints.length < 3 || !drawCentroid) return
+    const lines = [
+      `Acres: ${formatDrawAcres(drawAcres)}`,
+      `Points: ${drawPoints.length}`,
+      `Center: ${drawCentroid.lat.toFixed(6)}, ${drawCentroid.lng.toFixed(6)}`,
+    ]
+    if (drawGeo?.civil_township) lines.push(`Township: ${drawGeo.civil_township}${drawGeo.plss ? ` · ${drawGeo.plss.label}` : ''}`)
+    if (drawGeo?.county) lines.push(`County: ${drawGeo.county} County${drawGeo.state_name ? `, ${drawGeo.state_name}` : ''}`)
+    try {
+      await navigator.clipboard.writeText(lines.join('\n'))
+      setDrawCopyStatus('copied')
+      setTimeout(() => setDrawCopyStatus('idle'), 1500)
+    } catch {
+      // clipboard permission denied or unavailable — silently no-op,
+      // same as the rest of this file's best-effort clipboard calls.
+    }
+  }, [drawPoints, drawCentroid, drawAcres, drawGeo])
+
+  const handleClearDrawArea = useCallback(() => {
+    setDrawPoints([])
+    setDrawGeo(null)
+  }, [])
+
   // Marker for the pin (shared-link OR user-set — same marker either
   // way). Clicking it reopens the Pin view. Extends the pre-9/8
   // sharedPin-only marker effect.
@@ -2671,7 +2977,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   }, [pin, mapLoaded])
 
   // "while a pin exists or a non-default layer/year is active" — owner spec.
-  const utilitiesActive = pin !== null || baseOverlay !== null || terrain3DOn || aerialYear !== null
+  const utilitiesActive = pin !== null || baseOverlay !== null || terrain3DOn || aerialYear !== null || drawPoints.length > 0
 
   // Mirrors utilitiesOpen/utilitiesActive up to the nav bar (owner ruling
   // 2026-09-08: the trigger button now lives in PortalNavBar, which has
@@ -4774,6 +5080,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     })
 
     const onMouseMove = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
+      if (mapInteractionSuspendedRef.current) return
       if (!e.features?.length) return
       const props = e.features[0].properties
       map.getCanvas().style.cursor = 'pointer'
@@ -4811,6 +5118,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
 
     const onMouseLeave = () => {
+      if (mapInteractionSuspendedRef.current) return
       map.getCanvas().style.cursor = ''
       popup.remove()
     }
@@ -4968,6 +5276,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // through without an id — promoteId on the source helps but isn't
     // a guarantee, so we treat hover-color as best-effort.)
     const onMove = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
+      if (mapInteractionSuspendedRef.current) return
       if (!e.features?.length) return
       const f = e.features[0]
       const props: any = f.properties || {}
@@ -5019,6 +5328,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         .addTo(map)
     }
     const onLeave = () => {
+      if (mapInteractionSuspendedRef.current) return
       map.getCanvas().style.cursor = ''
       if (hoveredKey) {
         const [prevSid, prevIdStr] = hoveredKey.split(':')
@@ -5519,6 +5829,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // instant a selection opens — see that effect near the bottom of the
     // component.
     const onMove = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
+      if (mapInteractionSuspendedRef.current) return
       if (!e.features?.length) return
       map.getCanvas().style.cursor = 'pointer'
       // Parcel Spotlight active: the pink selection layers replace this
@@ -5539,6 +5850,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       )
     }
     const onLeave = () => {
+      if (mapInteractionSuspendedRef.current) return
       map.getCanvas().style.cursor = ''
       if (hoveredParcelPathRef.current) {
         map.setFeatureState(
@@ -5553,11 +5865,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // at the click point so the panel can show soil + crop data alongside
     // the parcel data without a competing anchored Popup.
     const onClick = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
-      // Set Pin placement mode (2026-09-08): this click places a pin
-      // instead — see pinPlacementActiveRef's declaration for why every
-      // click handler in this file checks it rather than relying on
-      // listener registration order.
-      if (pinPlacementActiveRef.current) return
+      // Set Pin placement / Draw Area mode (2026-09-08): this click places
+      // a pin or a draw-area dot instead — see mapInteractionSuspendedRef's
+      // declaration for why every click handler in this file checks it
+      // rather than relying on listener registration order.
+      if (mapInteractionSuspendedRef.current) return
       const f = e.features?.[0]
       if (!f) return
       // If the click also landed on a top-of-stack pin, that layer's own
@@ -5891,8 +6203,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // default popup box and looked broken.
     let activePopup: maplibregl.Popup | null = null
     const onPinClick = async (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
-      // Set Pin placement mode (2026-09-08) — see pinPlacementActiveRef.
-      if (pinPlacementActiveRef.current) return
+      // Set Pin placement / Draw Area mode (2026-09-08) — see
+      // mapInteractionSuspendedRef.
+      if (mapInteractionSuspendedRef.current) return
       const f = e.features?.[0]
       if (!f) return
       // A tract ALWAYS wins over the sale-dot underneath it (task #26
@@ -5962,8 +6275,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         tileGeometry,
       })
     }
-    const setPointer = () => { map.getCanvas().style.cursor = 'pointer' }
-    const clearPointer = () => { map.getCanvas().style.cursor = '' }
+    const setPointer = () => { if (mapInteractionSuspendedRef.current) return; map.getCanvas().style.cursor = 'pointer' }
+    const clearPointer = () => { if (mapInteractionSuspendedRef.current) return; map.getCanvas().style.cursor = '' }
     map.on('mouseenter', PARCEL_SALE_PLUS_LAYER, setPointer)
     map.on('mouseleave', PARCEL_SALE_PLUS_LAYER, clearPointer)
     map.on('click', PARCEL_SALE_PLUS_LAYER, onPinClick)
@@ -6242,8 +6555,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     if (isFirstMount) {
       let activePopup: maplibregl.Popup | null = null
       const onClick = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
-        // Set Pin placement mode (2026-09-08) — see pinPlacementActiveRef.
-        if (pinPlacementActiveRef.current) return
+        // Set Pin placement / Draw Area mode (2026-09-08) — see
+        // mapInteractionSuspendedRef.
+        if (mapInteractionSuspendedRef.current) return
         const f = e.features?.[0]
         if (!f || f.geometry.type !== 'Point') return
         // Task #26: this layer's minzoom (9) overlaps tract-pin-circles'
@@ -6306,8 +6620,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         // (not either/or) — z14.5 puts the parcel + its labels on screen.
         map.easeTo({ center: [lng, lat], zoom: 14.5, duration: 900 })
       }
-      const setPointer = () => { map.getCanvas().style.cursor = 'pointer' }
-      const clearPointer = () => { map.getCanvas().style.cursor = '' }
+      const setPointer = () => { if (mapInteractionSuspendedRef.current) return; map.getCanvas().style.cursor = 'pointer' }
+      const clearPointer = () => { if (mapInteractionSuspendedRef.current) return; map.getCanvas().style.cursor = '' }
       map.on('click', DURABLE_DOT_LAYER, onClick)
       map.on('mouseenter', DURABLE_DOT_LAYER, setPointer)
       map.on('mouseleave', DURABLE_DOT_LAYER, clearPointer)
@@ -7896,8 +8210,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // can safely skip. We use the same "query regrid to check for
     // parcel" approach as onSoilsFullClick.
     const onCsbFieldClick = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
-      // Set Pin placement mode (2026-09-08) — see pinPlacementActiveRef.
-      if (pinPlacementActiveRef.current) return
+      // Set Pin placement / Draw Area mode (2026-09-08) — see
+      // mapInteractionSuspendedRef.
+      if (mapInteractionSuspendedRef.current) return
       if (!e.features?.length) return
       const csbProps: any = e.features[0].properties || {}
       // Task #26: CSB (minzoom 10, uncapped) overlaps tract layers
@@ -7937,8 +8252,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       })
     }
     map.on('click', LYR_CSB_FIELDS_FILL, onCsbFieldClick)
-    map.on('mouseenter', LYR_CSB_FIELDS_FILL, () => { map.getCanvas().style.cursor = 'pointer' })
-    map.on('mouseleave', LYR_CSB_FIELDS_FILL, () => { map.getCanvas().style.cursor = '' })
+    map.on('mouseenter', LYR_CSB_FIELDS_FILL, () => { if (mapInteractionSuspendedRef.current) return; map.getCanvas().style.cursor = 'pointer' })
+    map.on('mouseleave', LYR_CSB_FIELDS_FILL, () => { if (mapInteractionSuspendedRef.current) return; map.getCanvas().style.cursor = '' })
 
     // FSA 2008 Common Land Unit field outlines.
     // Kept as an invisible layer so the source data stays loaded for any
@@ -8030,8 +8345,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // polygon is hit (no Regrid parcel), we open the panel with soil
     // context only so the user still gets the muname/musym info.
     const onSoilsFullClick = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
-      // Set Pin placement mode (2026-09-08) — see pinPlacementActiveRef.
-      if (pinPlacementActiveRef.current) return
+      // Set Pin placement / Draw Area mode (2026-09-08) — see
+      // mapInteractionSuspendedRef.
+      if (mapInteractionSuspendedRef.current) return
       if (!e.features?.length) return
       const soilProps: any = e.features[0].properties || {}
       // Query whether the Regrid fill also underlies this point. If so,
@@ -8072,8 +8388,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // Bind the soilsFullClick handler to every per-state fill layer.
     for (const fillId of soilsFullFillLayerIds) {
       map.on('click', fillId, onSoilsFullClick)
-      map.on('mouseenter', fillId, () => { map.getCanvas().style.cursor = 'pointer' })
-      map.on('mouseleave', fillId, () => { map.getCanvas().style.cursor = '' })
+      map.on('mouseenter', fillId, () => { if (mapInteractionSuspendedRef.current) return; map.getCanvas().style.cursor = 'pointer' })
+      map.on('mouseleave', fillId, () => { if (mapInteractionSuspendedRef.current) return; map.getCanvas().style.cursor = '' })
     }
 
     return () => {
@@ -8777,8 +9093,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     if (!map || !mapLoaded) return
 
     const onClick = (e: maplibregl.MapLayerMouseEvent) => {
-      // Set Pin placement mode (2026-09-08) — see pinPlacementActiveRef.
-      if (pinPlacementActiveRef.current) return
+      // Set Pin placement / Draw Area mode (2026-09-08) — see
+      // mapInteractionSuspendedRef.
+      if (mapInteractionSuspendedRef.current) return
       const f = e.features?.[0]
       if (!f) return
       const tractId = (f.properties?.tractId as string) || ''
@@ -8859,8 +9176,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       }
     }
 
-    const onEnter = () => { map.getCanvas().style.cursor = 'pointer' }
-    const onLeave = () => { map.getCanvas().style.cursor = '' }
+    const onEnter = () => { if (mapInteractionSuspendedRef.current) return; map.getCanvas().style.cursor = 'pointer' }
+    const onLeave = () => { if (mapInteractionSuspendedRef.current) return; map.getCanvas().style.cursor = '' }
 
     map.on('click', 'tract-pin-circles', onClick)
     map.on('mouseenter', 'tract-pin-circles', onEnter)
@@ -9002,16 +9319,17 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     if (!map || !mapLoaded) return
 
     const onClick = (e: maplibregl.MapLayerMouseEvent) => {
-      // Set Pin placement mode (2026-09-08) — see pinPlacementActiveRef.
-      if (pinPlacementActiveRef.current) return
+      // Set Pin placement / Draw Area mode (2026-09-08) — see
+      // mapInteractionSuspendedRef.
+      if (mapInteractionSuspendedRef.current) return
       const f = e.features?.[0]
       if (!f) return
       const tractId = (f.properties?.tractId as string) || ''
       handleTodayPinClick(tractId)
     }
 
-    const onEnter = () => { map.getCanvas().style.cursor = 'pointer' }
-    const onLeave = () => { map.getCanvas().style.cursor = '' }
+    const onEnter = () => { if (mapInteractionSuspendedRef.current) return; map.getCanvas().style.cursor = 'pointer' }
+    const onLeave = () => { if (mapInteractionSuspendedRef.current) return; map.getCanvas().style.cursor = '' }
 
     map.on('click', 'today-pin-core', onClick)
     map.on('mouseenter', 'today-pin-core', onEnter)
@@ -9063,8 +9381,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // (via the shared handleTodayPinClick callback) so switching between
       // 2D DOM markers and 3D GL circles never changes what a click does.
       el.addEventListener('click', () => handleTodayPinClick(tractId))
-      el.addEventListener('mouseenter', () => { map.getCanvas().style.cursor = 'pointer' })
-      el.addEventListener('mouseleave', () => { map.getCanvas().style.cursor = '' })
+      el.addEventListener('mouseenter', () => { if (mapInteractionSuspendedRef.current) return; map.getCanvas().style.cursor = 'pointer' })
+      el.addEventListener('mouseleave', () => { if (mapInteractionSuspendedRef.current) return; map.getCanvas().style.cursor = '' })
 
       const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
         .setLngLat([lng, lat])
@@ -9457,15 +9775,16 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const map = mapRef.current
     if (!map || !mapLoaded) return
     const onClick = (e: maplibregl.MapLayerMouseEvent) => {
-      // Set Pin placement mode (2026-09-08) — see pinPlacementActiveRef.
-      if (pinPlacementActiveRef.current) return
+      // Set Pin placement / Draw Area mode (2026-09-08) — see
+      // mapInteractionSuspendedRef.
+      if (mapInteractionSuspendedRef.current) return
       const f = e.features?.[0]
       if (!f) return
       const geom = f.geometry as GeoJSON.Point
       map.easeTo({ center: geom.coordinates as [number, number], zoom: 10, duration: 800 })
     }
-    const onEnter = () => { map.getCanvas().style.cursor = 'pointer' }
-    const onLeave = () => { map.getCanvas().style.cursor = '' }
+    const onEnter = () => { if (mapInteractionSuspendedRef.current) return; map.getCanvas().style.cursor = 'pointer' }
+    const onLeave = () => { if (mapInteractionSuspendedRef.current) return; map.getCanvas().style.cursor = '' }
     map.on('click', 'county-count-circles', onClick)
     map.on('mouseenter', 'county-count-circles', onEnter)
     map.on('mouseleave', 'county-count-circles', onLeave)
@@ -10292,7 +10611,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               </button>
             )}
             <span style={{ color: '#fff', fontSize: 16, fontWeight: 700 }}>
-              {utilitiesView === 'layers' ? 'Layers' : utilitiesView === 'year' ? 'Map Year' : utilitiesView === 'pin' ? 'Pin' : 'Utilities'}
+              {utilitiesView === 'layers' ? 'Layers' : utilitiesView === 'year' ? 'Map Year' : utilitiesView === 'pin' ? 'Pin' : utilitiesView === 'drawArea' ? 'Draw Area' : 'Utilities'}
             </span>
           </div>
           <button
@@ -10327,7 +10646,30 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                   icon={<MapPinIcon size={20} />}
                   label="Set Pin"
                   active={pin !== null}
-                  onClick={() => { setUtilitiesOpen(false); setPinMode(true) }}
+                  onClick={() => { setUtilitiesOpen(false); setDrawMode(false); setPinMode(true) }}
+                />
+                <UtilityTile
+                  icon={(
+                    <div style={{ position: 'relative' }}>
+                      <MapDrawIcon size={20} />
+                      <PlusIcon size={10} style={{ position: 'absolute', bottom: -2, right: -4 }} />
+                    </div>
+                  )}
+                  label="Draw Area"
+                  active={drawMode || drawPoints.length > 0}
+                  onClick={() => {
+                    setPinMode(false)
+                    if (drawPoints.length > 0) {
+                      // An area already exists (finished or mid-draw) —
+                      // reopen straight to its stats/controls instead of
+                      // restarting. "Clear" (in that view) then this tile
+                      // again is how you start a new one.
+                      setUtilitiesView('drawArea')
+                    } else {
+                      setUtilitiesOpen(false)
+                      setDrawMode(true)
+                    }
+                  }}
                 />
                 <UtilityTile
                   icon={<Box3DIcon size={20} />}
@@ -10678,6 +11020,79 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               </div>
             </div>
           )}
+
+          {utilitiesView === 'drawArea' && drawPoints.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div>
+                <div style={{ color: 'rgba(255,255,255,0.40)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 }}>Acres</div>
+                <div style={{ color: '#fff', fontSize: 24, fontWeight: 700 }}>
+                  {drawPoints.length >= 3 ? formatDrawAcres(drawAcres) : '—'}
+                </div>
+              </div>
+
+              <div>
+                <div style={{ color: 'rgba(255,255,255,0.40)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 }}>Points</div>
+                <div style={{ color: '#fff', fontSize: 13 }}>{drawPoints.length}</div>
+              </div>
+
+              {drawCentroid && (
+                <div>
+                  <div style={{ color: 'rgba(255,255,255,0.40)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 }}>Center</div>
+                  <div style={{ color: '#fff', fontSize: 13 }}>{drawCentroid.lat.toFixed(6)}, {drawCentroid.lng.toFixed(6)}</div>
+                </div>
+              )}
+
+              {drawGeoLoading && (
+                <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13 }}>Loading…</div>
+              )}
+
+              {!drawGeoLoading && drawGeo?.civil_township && (
+                <div>
+                  <div style={{ color: 'rgba(255,255,255,0.40)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 }}>Township</div>
+                  <div style={{ color: '#fff', fontSize: 13 }}>{drawGeo.civil_township}{drawGeo.plss ? ` · ${drawGeo.plss.label}` : ''}</div>
+                </div>
+              )}
+
+              {!drawGeoLoading && drawGeo?.county && (
+                <div>
+                  <div style={{ color: 'rgba(255,255,255,0.40)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 }}>County</div>
+                  <div style={{ color: '#fff', fontSize: 13 }}>{drawGeo.county} County{drawGeo.state_name ? `, ${drawGeo.state_name}` : ''}</div>
+                </div>
+              )}
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
+                {drawMode ? (
+                  <>
+                    <button onClick={() => setDrawPoints(pts => pts.slice(0, -1))} disabled={drawPoints.length === 0} style={pinActionButtonStyle}>
+                      Undo
+                    </button>
+                    <button
+                      onClick={handleFinishDrawArea}
+                      disabled={drawPoints.length < 3}
+                      style={drawPoints.length < 3 ? { ...pinActionButtonStyle, opacity: 0.4, cursor: 'not-allowed' } : pinActionButtonStyle}
+                    >
+                      Finish
+                    </button>
+                    <button
+                      onClick={() => { setDrawPoints([]); setDrawMode(false) }}
+                      style={{ ...pinActionButtonStyle, color: '#f87171', borderColor: 'rgba(248,113,113,0.4)' }}
+                    >
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button onClick={handleCopyDrawStats} style={pinActionButtonStyle}>
+                      <CopyIcon size={14} /> {drawCopyStatus === 'copied' ? 'Copied' : 'Copy stats'}
+                    </button>
+                    <button onClick={handleClearDrawArea} style={{ ...pinActionButtonStyle, color: '#f87171', borderColor: 'rgba(248,113,113,0.4)' }}>
+                      <TrashIcon size={14} /> Clear
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -10711,6 +11126,34 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           }}
         >
           Click the map to place your pin · Esc to cancel
+        </div>
+      )}
+
+      {/* Draw Area mode (2026-09-08) — modeled directly on the Set Pin
+          hint pill above. Clicks are kept from also opening a
+          parcel/tract/dot panel via mapInteractionSuspendedRef, the same
+          combined ref pin placement uses. */}
+      {drawMode && (
+        <div
+          role="status"
+          style={{
+            position: 'absolute',
+            top: 64,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 500,
+            background: 'rgba(0,0,0,0.75)',
+            backdropFilter: 'blur(4px)',
+            color: '#fff',
+            fontSize: 12,
+            fontWeight: 500,
+            padding: '8px 14px',
+            borderRadius: 999,
+            boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
+            pointerEvents: 'none',
+          }}
+        >
+          Click the map to add dots · Enter or Finish when done · Esc to cancel
         </div>
       )}
 
