@@ -4,6 +4,7 @@ import { useState, useMemo, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { X, Loader2, MapPin, Calendar, Building2, ArrowUpDown, SlidersHorizontal } from 'lucide-react'
 import { formatAcres } from '@/lib/format'
+import { formatTillable } from '@/lib/tillable'
 import { SOIL_FILTER_ENABLED } from '@/lib/featureFlags'
 import { formatAuctionDateTime } from '@/lib/auctionTime'
 import SubjectStrip from './SubjectStrip'
@@ -415,7 +416,7 @@ export default function PortalComparablesPanel({ data, loading, onClose, onSelec
                         </div>
                         <div>
                           <div className="text-[10px] text-gg-gray-500">Tillable</div>
-                          <div className="text-sm font-medium">{comp.pct_tillable ? Math.round(comp.pct_tillable) + '%' : '—'}</div>
+                          <div className="text-sm font-medium">{formatTillable(comp.total_acres, comp.tillable_acres, comp.pct_tillable).inlineText}</div>
                         </div>
                         <div>
                           <div className="text-[10px] text-gg-gray-500">{getSoilLabel(comp.soil_rating_type, comp.state)}</div>

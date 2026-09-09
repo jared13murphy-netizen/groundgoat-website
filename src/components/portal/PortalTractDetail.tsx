@@ -6,6 +6,7 @@ import { Loader2, Mountain, BarChart3, FileText, Mail, Download, Check, Play, Ma
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import reportJobEnqueue from '@/lib/reportJobs'
 import { formatAcres } from '@/lib/format'
+import { formatTillable } from '@/lib/tillable'
 import { formatAuctionDate } from '@/lib/auctionTime'
 import GroundTruthPanel from './GroundTruthPanel'
 import NdviPanel from './NdviPanel'
@@ -447,12 +448,18 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
           }
           return null
         })()}
-        {tract.tillableAcres ? (
-          <div className="bg-white/[0.03] rounded-xl p-4 border border-white/5">
-            <div className="text-[10px] text-gg-gray-300 uppercase tracking-wider">Tillable</div>
-            <div className="text-lg font-bold mt-1">{formatAcres(tract.tillableAcres)} ac</div>
-          </div>
-        ) : null}
+        {tract.tillableAcres ? (() => {
+          const tillableFmt = formatTillable(tract.totalAcres, tract.tillableAcres, tract.pctTillable)
+          return (
+            <div className="bg-white/[0.03] rounded-xl p-4 border border-white/5">
+              <div className="text-[10px] text-gg-gray-300 uppercase tracking-wider">Tillable</div>
+              <div className="text-lg font-bold mt-1">{tillableFmt.acresText}</div>
+              {tillableFmt.pctText ? (
+                <div className="text-[10px] text-gg-gray-300 mt-0.5">{tillableFmt.pctText} tillable</div>
+              ) : null}
+            </div>
+          )
+        })() : null}
         {tract.soilRating ? (
           <div className="bg-white/[0.03] rounded-xl p-4 border border-white/5">
             <div className="text-[10px] text-gg-gray-300 uppercase tracking-wider">Soil Rating</div>

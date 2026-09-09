@@ -34,6 +34,7 @@ import {
 } from 'lucide-react'
 import fetchWithAuth, { fetchScraperProxy } from '@/lib/fetchWithAuth'
 import { formatAcres } from '@/lib/format'
+import { formatTillable } from '@/lib/tillable'
 import CompanyLinkEditor, { type CompanyOption } from '@/components/admin/CompanyLinkEditor'
 import openListingReport from '@/lib/openListingReport'
 import NassStagingPreview from '@/components/admin/NassStagingPreview'
@@ -3246,7 +3247,13 @@ export default function AdminStagingPage() {
                           />
                         </div>
                         <div>
-                          <label className="block text-xs text-gg-gray-400 mb-1">Tillable Acres</label>
+                          <label className="block text-xs text-gg-gray-400 mb-1">
+                            Tillable Acres
+                            {(() => {
+                              const pctText = formatTillable(tract.acres, tract.tillable_acres, null).pctText
+                              return pctText ? <span className="text-gg-gray-500"> ({pctText})</span> : null
+                            })()}
+                          </label>
                           <input
                             type="number"
                             step="0.01"

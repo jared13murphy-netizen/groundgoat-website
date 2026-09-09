@@ -8,6 +8,7 @@ import Link from 'next/link'
 import PortalListingDetail from './PortalListingDetail'
 import { getStatusBadge } from '@/lib/listingStatusBadge'
 import { formatAcres, toNum } from '@/lib/format'
+import { formatTillable } from '@/lib/tillable'
 import { listingMatchesSearch } from '@/lib/listingSearch'
 
 type TabType = 'auctions' | 'private_treaty' | 'results'
@@ -262,7 +263,18 @@ function ListingCard({ listing, activeTab, onClick, isWatchlisted, onToggleWatch
             <>
               <div>
                 <div className="text-[10px] text-gg-gray-300">Tillable</div>
-                <div className="text-sm font-semibold text-white">{listing.is_incomplete ? '—' : (getListingTillableAcres(listing.tracts) ? formatAcres(getListingTillableAcres(listing.tracts)!) + ' ac' : '—')}</div>
+                {(() => {
+                  if (listing.is_incomplete) return <div className="text-sm font-semibold text-white">—</div>
+                  const tillableFmt = formatTillable(listing.total_acres, getListingTillableAcres(listing.tracts), null)
+                  return (
+                    <>
+                      <div className="text-sm font-semibold text-white">{tillableFmt.acresText}</div>
+                      {tillableFmt.pctText ? (
+                        <div className="text-[10px] text-gg-gray-300">{tillableFmt.pctText}</div>
+                      ) : null}
+                    </>
+                  )
+                })()}
               </div>
               <div>
                 <div className="text-[10px] text-gg-gray-300">{getSoilLabel(listing.state)}</div>

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { formatAcres, toNum } from '@/lib/format'
+import { formatTillable } from '@/lib/tillable'
 import {
   Loader2, ArrowLeft, MapPin, Calendar, Clock, Building2,
   DollarSign, ExternalLink, Share2, BarChart3
@@ -480,12 +481,15 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
                       <div className="text-white font-medium">{formatAcres(tract.total_acres)}</div>
                       <div className="text-gg-gray-500 text-xs">Acres</div>
                     </div>
-                    {tract.tillable_acres && (
-                      <div>
-                        <div className="text-white font-medium">{formatAcres(tract.tillable_acres)}</div>
-                        <div className="text-gg-gray-500 text-xs">Tillable</div>
-                      </div>
-                    )}
+                    {tract.tillable_acres && (() => {
+                      const tillableFmt = formatTillable(tract.total_acres, tract.tillable_acres, null)
+                      return (
+                        <div>
+                          <div className="text-white font-medium">{tillableFmt.acresText}</div>
+                          <div className="text-gg-gray-500 text-xs">Tillable{tillableFmt.pctText ? ` · ${tillableFmt.pctText}` : ''}</div>
+                        </div>
+                      )
+                    })()}
                     {tract.soil_rating && (
                       <div>
                         <div className="text-white font-medium">{tract.soil_rating}</div>

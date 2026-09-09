@@ -7,6 +7,7 @@ import Link from 'next/link'
 import { ArrowLeft, Save, Loader2, Trash2, ExternalLink, Pencil, Plus, CheckCircle, ChevronDown, ChevronUp } from 'lucide-react'
 import { getCountiesForState } from '@/data/counties'
 import ListingTractCard from '@/components/admin/ListingTractCard'
+import { formatTillable } from '@/lib/tillable'
 import SwapTractsPanel from '@/components/admin/SwapTractsPanel'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
@@ -985,7 +986,13 @@ export default function EditListingPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-gg-gray-400 text-sm mb-1">Tillable Acres</label>
+                    <label className="block text-gg-gray-400 text-sm mb-1">
+                      Tillable Acres
+                      {(() => {
+                        const pctText = formatTillable(newTract.total_acres, newTract.tillable_acres, null).pctText
+                        return pctText ? <span className="text-gg-gray-500"> ({pctText})</span> : null
+                      })()}
+                    </label>
                     <input
                       type="number"
                       step="0.01"

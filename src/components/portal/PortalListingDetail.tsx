@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { formatAcres, toNum } from '@/lib/format'
+import { formatTillable } from '@/lib/tillable'
 import { getStatusBadge } from '@/lib/listingStatusBadge'
 import { getListingTillableAcres, getListingSoilRating, getSoilLabel } from './PortalListPanel'
 
@@ -300,12 +301,15 @@ export default function PortalListingDetail({ listingId, onBack, onTractSelected
             <div className="text-[10px] text-gg-gray-500 uppercase">$/Acre</div>
           </div>
         )}
-        {!listing.is_incomplete && tillableAcres != null && (
-          <div className="text-center">
-            <div className="text-lg font-bold">{formatAcres(tillableAcres)} ac</div>
-            <div className="text-[10px] text-gg-gray-500 uppercase">Tillable</div>
-          </div>
-        )}
+        {!listing.is_incomplete && tillableAcres != null && (() => {
+          const tillableFmt = formatTillable(getTotalAcres(), tillableAcres, null)
+          return (
+            <div className="text-center">
+              <div className="text-lg font-bold">{tillableFmt.acresText}</div>
+              <div className="text-[10px] text-gg-gray-500 uppercase">Tillable{tillableFmt.pctText ? ` · ${tillableFmt.pctText}` : ''}</div>
+            </div>
+          )
+        })()}
         {!listing.is_incomplete && soilRating != null && (
           <div className="text-center">
             <div className="text-lg font-bold">{soilRating}</div>
@@ -532,12 +536,15 @@ export default function PortalListingDetail({ listingId, onBack, onTractSelected
                         <div className="text-sm font-semibold text-white">{formatAcres(tract.total_acres)}</div>
                         <div className="text-[10px] text-gg-gray-300">Acres</div>
                       </div>
-                      {tract.tillable_acres ? (
-                        <div>
-                          <div className="text-sm font-semibold text-white">{formatAcres(tract.tillable_acres)}</div>
-                          <div className="text-[10px] text-gg-gray-300">Tillable</div>
-                        </div>
-                      ) : null}
+                      {tract.tillable_acres ? (() => {
+                        const tillableFmt = formatTillable(tract.total_acres, tract.tillable_acres, tract.pct_tillable)
+                        return (
+                          <div>
+                            <div className="text-sm font-semibold text-white">{tillableFmt.acresText}</div>
+                            <div className="text-[10px] text-gg-gray-300">Tillable{tillableFmt.pctText ? ` · ${tillableFmt.pctText}` : ''}</div>
+                          </div>
+                        )
+                      })() : null}
                       {tract.soil_rating ? (
                         <div>
                           <div className="text-sm font-semibold text-white">{tract.soil_rating}</div>

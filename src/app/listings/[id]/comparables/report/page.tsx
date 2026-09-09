@@ -7,6 +7,7 @@ import { fetchWithAuth } from '@/lib/fetchWithAuth'
 import reportJobEnqueue from '@/lib/reportJobs'
 import { formatAcres, toNum } from '@/lib/format'
 import { computeCompAverages } from '@/lib/compAverages'
+import { formatTillable } from '@/lib/tillable'
 import { formatAuctionDateTime } from '@/lib/auctionTime'
 import SubjectStrip from '@/components/portal/SubjectStrip'
 
@@ -232,7 +233,7 @@ export default function ComparablesReportPage({ params }: { params: { id: string
             </div>
             <div className="bg-gg-gray-900 rounded-lg p-3">
               <p className="text-xs text-gray-400 uppercase">Avg Tillable Acres</p>
-              <p className="text-xl font-bold">{formatAcres(avgTillable)}</p>
+              <p className="text-xl font-bold">{formatTillable(avgAcres, avgTillable, null).inlineText}</p>
             </div>
             <div className="bg-gg-gray-900 rounded-lg p-3">
               <p className="text-xs text-gray-400 uppercase">Avg Soil Rating</p>
