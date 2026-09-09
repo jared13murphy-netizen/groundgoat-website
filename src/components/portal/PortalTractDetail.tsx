@@ -193,6 +193,12 @@ const STATUS_COLORS: Record<string, string> = {
  * no polygon boundaries (so there isn't even a satellite thumbnail), this
  * renders null and the header stays at the very top exactly as before.
  */
+// True when TractMediaSlot will render a media block for this tract (the
+// slide-out shell overlays its header on the media only in that case).
+export function tractHasMedia(tract: TractSaleData): boolean {
+  return !!(tract.polygonCoordinates && tract.polygonCoordinates.length > 0) && !!(tract.tractId || tract.id)
+}
+
 export function TractMediaSlot({ tract }: { tract: TractSaleData }) {
   const hasBoundaries = !!(tract.polygonCoordinates && tract.polygonCoordinates.length > 0)
   const mediaTractId = tract.tractId || tract.id

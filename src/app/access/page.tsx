@@ -16,7 +16,7 @@ import PortalKPICards from '@/components/portal/PortalKPICards'
 import PortalListPanel from '@/components/portal/PortalListPanel'
 import PortalAnalyticsPanel from '@/components/portal/PortalAnalyticsPanel'
 import PortalListingDetail from '@/components/portal/PortalListingDetail'
-import PortalTractDetail, { TractDetailActionBar, TractMediaSlot } from '@/components/portal/PortalTractDetail'
+import PortalTractDetail, { TractDetailActionBar, TractMediaSlot, tractHasMedia } from '@/components/portal/PortalTractDetail'
 import { canUseReportsFor } from '@/lib/reportAccess'
 import PortalComparablesReportPanel from '@/components/portal/PortalComparablesReportPanel'
 import PortalReportPanel from '@/components/portal/PortalReportPanel'
@@ -931,27 +931,39 @@ function AccessPortalPageInner() {
                 panes above/below). When the tract has no media at all,
                 TractMediaSlot renders null and the header below sits at
                 the very top exactly as before. */}
-            <TractMediaSlot tract={selectedTract} />
-            {/* Header: [← Back]  Tract Detail
-                              <County> County, <ST>
-                Back button sits on the same row as the title (left of
-                the bold pane name), with the situs location on its own
-                line right beneath in white for visibility. */}
-            <div className="pt-8 px-5 pb-4 border-b border-white/5 shrink-0">
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => setSelectedTract(null)}
-                  aria-label="Back"
-                  className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center text-gg-gray-300 hover:text-white transition shrink-0"
-                >
-                  <ArrowLeft size={16} />
-                </button>
-                <h2 className="text-lg font-bold text-white">Tract Detail</h2>
-              </div>
-              <p className="text-sm text-white mt-1 ml-11">
-                {selectedTract.county} County{selectedTract.state ? `, ${selectedTract.state}` : ''}
-              </p>
-            </div>
+            {/* Owner 9/9: the header (back, "Tract Detail", county/state)
+                sits ON TOP of the media, top-left, over a soft dark
+                gradient so it stays readable on bright imagery. When the
+                tract has no media the same header renders in flow at the
+                top of the pane exactly as before. pointer-events-none on
+                the overlay keeps the media's fullscreen button clickable. */}
+            {(() => {
+              const overlay = tractHasMedia(selectedTract)
+              return (
+                <div className="relative shrink-0">
+                  <TractMediaSlot tract={selectedTract} />
+                  <div
+                    className={overlay
+                      ? 'absolute inset-x-0 top-0 px-5 pt-4 pb-8 bg-gradient-to-b from-black/75 via-black/35 to-transparent pointer-events-none'
+                      : 'pt-8 px-5 pb-4 border-b border-white/5'}
+                  >
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => setSelectedTract(null)}
+                        aria-label="Back"
+                        className={`w-8 h-8 rounded-lg flex items-center justify-center transition shrink-0 pointer-events-auto ${overlay ? 'bg-black/45 hover:bg-black/65 text-white' : 'bg-white/5 hover:bg-white/10 text-gg-gray-300 hover:text-white'}`}
+                      >
+                        <ArrowLeft size={16} />
+                      </button>
+                      <h2 className={`text-lg font-bold text-white ${overlay ? 'drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]' : ''}`}>Tract Detail</h2>
+                    </div>
+                    <p className={`text-sm text-white mt-0.5 ml-11 ${overlay ? 'drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]' : ''}`}>
+                      {selectedTract.county} County{selectedTract.state ? `, ${selectedTract.state}` : ''}
+                    </p>
+                  </div>
+                </div>
+              )
+            })()}
             {/* Scrollable content. pb-0 lets the action-bar's gradient
                 overlay reach right to the buttons without an extra gap. */}
             <div className="flex-1 overflow-y-auto px-5 pt-4 pb-0">
