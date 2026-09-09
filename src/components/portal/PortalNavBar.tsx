@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Map, Calendar, Building2, BarChart3, LogOut, User, Users, Settings, Filter, Bookmark, UserCircle } from 'lucide-react'
+import { Map, Calendar, Building2, BarChart3, LogOut, User, Users, Settings, Filter, Bookmark, UserCircle, Wrench, Search } from 'lucide-react'
 import GoToSandboxButton, { isGroundGoatStaff } from '@/components/GoToSandboxButton'
 import { SHOW_PRIVATE_TREATY } from '@/lib/featureFlags'
 
@@ -21,6 +21,19 @@ interface PortalNavBarProps {
   onWatchlistToggle?: () => void
   watchlistOpen?: boolean
   watchlistCount?: number
+  /** Goat Search nav item (owner ruling 2026-09-08: moved out of its own
+      floating bottom-center pill — that pill's COLLAPSED state no longer
+      renders on the map at all, see MapChatPanel.tsx — immediately left
+      of Utilities). Presence-gated: undefined hides the button, same
+      idiom as onWatchlistToggle above. The box it opens still appears
+      bottom-center on the map once open. */
+  onGoatSearchToggle?: () => void
+  /** Utilities nav item (owner ruling 2026-09-08: moved from a floating
+      map button to sit immediately right of Watchlist in this pill).
+      The panel it opens lives inside ExploreMap — this is just the
+      toggle + the active-state ExploreMap reports back for styling. */
+  onUtilitiesToggle?: () => void
+  utilitiesActive?: boolean
   user: {
     first_name: string
     last_name: string
@@ -29,7 +42,7 @@ interface PortalNavBarProps {
   }
 }
 
-export default function PortalNavBar({ activeTab, onTabChange, onFilterToggle, filterOpen, onAnalyticsToggle, analyticsOpen, onWatchlistToggle, watchlistOpen, watchlistCount = 0, user }: PortalNavBarProps) {
+export default function PortalNavBar({ activeTab, onTabChange, onFilterToggle, filterOpen, onAnalyticsToggle, analyticsOpen, onWatchlistToggle, watchlistOpen, watchlistCount = 0, onGoatSearchToggle, onUtilitiesToggle, utilitiesActive = false, user }: PortalNavBarProps) {
   const router = useRouter()
   const [showUserMenu, setShowUserMenu] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -140,6 +153,52 @@ export default function PortalNavBar({ activeTab, onTabChange, onFilterToggle, f
                   {watchlistCount > 9 ? '9+' : watchlistCount}
                 </span>
               )}
+            </button>
+          )}
+
+          {/* Goat Search nav item (owner ruling 2026-09-08: moved out of
+              its own floating bottom-center pill — that pill's COLLAPSED
+              state no longer renders on the map at all, see the
+              AnimatePresence gate around the morphing form in
+              MapChatPanel.tsx. This item reuses that pill's exact
+              pink→magenta gradient so it still stands out from its
+              neutral siblings here; clicking it bumps the same
+              openSignal the box already listens for.) */}
+          {onGoatSearchToggle && (
+            <button
+              onClick={onGoatSearchToggle}
+              className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-white/30 text-white flex items-center gap-1.5 transition-all hover:brightness-110"
+              style={{ background: 'linear-gradient(135deg, #F58CDE 0%, #EC4899 100%)' }}
+            >
+              <Search size={14} />
+              <span className="hidden md:inline">Goat Search</span>
+            </button>
+          )}
+
+          {/* Utilities button (owner ruling 2026-09-08: replaces the
+              floating map-outline+wrench button that used to sit at
+              bottom-left on the map — this is now the only trigger for
+              that slide-out panel). Same icon: outline map glyph with a
+              small solid wrench badge on its bottom-right corner. */}
+          {onUtilitiesToggle && (
+            <button
+              onClick={onUtilitiesToggle}
+              className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-all flex items-center gap-1.5 ${
+                utilitiesActive
+                  ? 'bg-gg-pink/15 text-gg-pink border-gg-pink/30'
+                  : 'border-transparent text-white/60 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <span className="relative inline-flex" style={{ width: 15, height: 15 }}>
+                <Map size={15} />
+                <span
+                  className="absolute flex items-center justify-center rounded-full"
+                  style={{ bottom: -4, right: -4, width: 11, height: 11, background: '#111' }}
+                >
+                  <Wrench size={7} strokeWidth={2.5} />
+                </span>
+              </span>
+              <span className="hidden md:inline">Utilities</span>
             </button>
           )}
 

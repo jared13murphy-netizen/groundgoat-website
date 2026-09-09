@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef, Suspense } from 'react'
+import { useState, useEffect, useMemo, useRef, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import Image from 'next/image'
@@ -142,6 +142,25 @@ function AccessPortalPageInner() {
     setZoomToLocation({ lat, lng, zoom: Number.isFinite(zoom) ? zoom : 15 })
     setTimeout(() => setZoomToLocation(null), 10000)
   }, [user, searchParams])
+  // Shared pin: mobile app share links add &pin=1 onto the same
+  // focusLat/focusLng shape above (e.g. https://groundgoat.com/access?
+  // focusLat=..&focusLng=..&focusZoom=..&pin=1). Unlike zoomToLocation
+  // (a one-shot camera signal that self-clears), this stays put — it's
+  // just what ExploreMap draws once the camera gets there, so it's a
+  // plain memo off the query string rather than the focusHandledRef gate.
+  const sharedPin = useMemo(() => {
+    if (searchParams.get('pin') !== '1') return null
+    const latStr = searchParams.get('focusLat')
+    const lngStr = searchParams.get('focusLng')
+    if (!latStr || !lngStr) return null
+    const lat = parseFloat(latStr)
+    const lng = parseFloat(lngStr)
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
+    // Lower-48 bbox sanity check so a malformed/garbage link can't drop a
+    // pin off in the ocean or off the map entirely.
+    if (lat < 24 || lat > 50 || lng < -125 || lng > -66) return null
+    return { lat, lng }
+  }, [searchParams])
   const zoomToFirstTractWithBoundary = (listing: any) => {
     // Also capture county/state for the pane header subtitle.
     if (listing?.county || listing?.state) {
@@ -289,6 +308,16 @@ function AccessPortalPageInner() {
   // non-empty applied_filters) — never for analytics/out-of-scope/error,
   // which leave no map state for the bubble's X to clear.
   const [activeSearchQuery, setActiveSearchQuery] = useState<string | null>(null)
+  // Utilities panel "Goat Search" tile (2026-09-08): bumped to open +
+  // focus MapChatPanel's pill, which lives as a sibling of ExploreMap so
+  // it can't be reached directly from inside the map component.
+  const [goatSearchOpenSignal, setGoatSearchOpenSignal] = useState(0)
+  // Utilities nav-bar item (owner ruling 2026-09-08: moved out of a
+  // floating map button into PortalNavBar, next to Watchlist). The panel
+  // state itself still lives inside ExploreMap — this is only the
+  // toggle-in signal + the active-state mirrored back out for styling.
+  const [utilitiesToggleSignal, setUtilitiesToggleSignal] = useState(0)
+  const [utilitiesActive, setUtilitiesActive] = useState(false)
   // Bubble's X button: clears the bubble AND resets the map's
   // chat-applied filters. handleChatApplyFilters({}, true) bumps
   // chatAppliedFilters' nonce, which ExploreMap's applyExternalFilters
@@ -781,6 +810,7 @@ function AccessPortalPageInner() {
           reportIds={reportIds}
           onFiltersApplied={handleFiltersApplied}
           zoomToLocation={zoomToLocation}
+          sharedPin={sharedPin}
           zoomToBoundsSignal={zoomToBoundsSignal}
           pinnedTractPolygon={pinnedTractPolygon}
           subjectTractId={subjectTractId}
@@ -795,6 +825,9 @@ function AccessPortalPageInner() {
           comparableVisibleIds={null}
           neighborParcels={neighborParcels}
           neighborsLoading={neighborsLoading}
+          onOpenGoatSearch={() => setGoatSearchOpenSignal(n => n + 1)}
+          utilitiesToggleSignal={utilitiesToggleSignal}
+          onUtilitiesActiveChange={setUtilitiesActive}
         />
       </div>
 
@@ -817,6 +850,17 @@ function AccessPortalPageInner() {
         onWatchlistToggle={() => setShowWatchlistPanel(!showWatchlistPanel)}
         watchlistOpen={showWatchlistPanel}
         watchlistCount={watchlistIds.size}
+        // Same gate as the Goat Search box itself just below (comp mode
+        // hides it — owner ruling 2026-08-06 — and the can_use_goat_search/
+        // admin gate matches it exactly). Passed as the callback's
+        // presence, same idiom as onWatchlistToggle above.
+        onGoatSearchToggle={
+          !subjectTractId && (user?.can_use_goat_search || user?.account_type === 'groundgoat_admin')
+            ? () => setGoatSearchOpenSignal(n => n + 1)
+            : undefined
+        }
+        onUtilitiesToggle={() => setUtilitiesToggleSignal(n => n + 1)}
+        utilitiesActive={utilitiesActive}
         user={user}
       />
 
@@ -1128,6 +1172,7 @@ function AccessPortalPageInner() {
       {!subjectTractId &&
         (user?.can_use_goat_search || user?.account_type === 'groundgoat_admin') && (
         <MapChatPanel
+          openSignal={goatSearchOpenSignal}
           onApplyFilters={handleChatApplyFilters}
           onChatReportResult={handleChatReportResult}
           onSearchStart={handleChatSearchStart}

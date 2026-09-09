@@ -86,6 +86,12 @@ interface MapChatPanelProps {
       (which, via ExploreMap's applyExternalFilters effect, also clears
       any owner-parcels dots) — the bubble's X button. */
   clearActiveSearch?: () => void
+  /** Bumped by the parent (access/page.tsx) when the Explore map's
+      Utilities panel "Goat Search" tile is tapped — opens this pill and
+      focuses the input, the same way clicking the pill itself does.
+      A nonce rather than a boolean so tapping the tile again while
+      already open still re-focuses. */
+  openSignal?: number
 }
 
 interface OutOfScopeResponse {
@@ -167,7 +173,7 @@ const SPINNER_DOTS = 8
 const SPINNER_RADIUS = 12   // px — sits just inside the 36px (w-9) button
 const SPINNER_DOT_SIZE = 3
 
-function SearchSpinner() {
+function SearchSpinner({ dotClassName = 'bg-white' }: { dotClassName?: string }) {
   return (
     <span
       aria-hidden="true"
@@ -179,7 +185,7 @@ function SearchSpinner() {
         return (
           <span
             key={i}
-            className="absolute rounded-full bg-white"
+            className={`absolute rounded-full ${dotClassName}`}
             style={{
               width: SPINNER_DOT_SIZE,
               height: SPINNER_DOT_SIZE,
@@ -194,7 +200,7 @@ function SearchSpinner() {
   )
 }
 
-export default function MapChatPanel({ onApplyFilters, onChatReportResult, currentFilters, hasActiveFilters, onSearchStart, onSearchEnd, mapSearchError, onOwnerParcels, onSearchQueryStart, activeSearchQuery, clearActiveSearch }: MapChatPanelProps) {
+export default function MapChatPanel({ onApplyFilters, onChatReportResult, currentFilters, hasActiveFilters, onSearchStart, onSearchEnd, mapSearchError, onOwnerParcels, onSearchQueryStart, activeSearchQuery, clearActiveSearch, openSignal }: MapChatPanelProps) {
   const [open, setOpen] = useState(false)
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -304,6 +310,24 @@ export default function MapChatPanel({ onApplyFilters, onChatReportResult, curre
     scheduleToastDismiss(mapSearchError.kind, mapSearchError.message)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapSearchError?.nonce])
+
+  // Utilities panel "Goat Search" tile: open + focus, same as clicking
+  // the pill. Skips the initial mount (openSignal starts at 0 in the
+  // parent and this effect must not fire before a real tap bumps it).
+  const openSignalMountedRef = useRef(false)
+  useEffect(() => {
+    if (!openSignalMountedRef.current) {
+      openSignalMountedRef.current = true
+      return
+    }
+    if (openSignal === undefined) return
+    setOpen(true)
+    // Already-open case: the focus effect below only fires on open's
+    // false→true transition, so nudge focus directly here too.
+    const t = setTimeout(() => inputRef.current?.focus(), 250)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openSignal])
 
   // Focus input when the pill opens; close on Esc
   useEffect(() => {
@@ -634,105 +658,81 @@ export default function MapChatPanel({ onApplyFilters, onChatReportResult, curre
         )}
       </AnimatePresence>
 
-      {/* Morphing pill — single consistent layout. Width animates
-          smoothly between two numeric values; padding stays constant
-          so the spring never "catches" mid-animation. Inner content
-          (label vs input + send) crossfades in place. */}
+      {/* Morphing pill (owner ruling 2026-09-08: the COLLAPSED pill no
+          longer renders on the map at all — Goat Search's only trigger
+          now is the "Goat Search" item in the top pill nav, which bumps
+          openSignal below. This box still appears here, bottom-center,
+          but only once `open` is true, mirroring the mobile app's
+          pillVisible-style gating). Width animates smoothly between two
+          numeric values; padding stays constant so the spring never
+          "catches" mid-animation. Inner content (label vs input + send)
+          crossfades in place — the label path is now unreachable since
+          the form only mounts while open, but left as-is (harmless,
+          minimal diff) rather than stripped. */}
+      <AnimatePresence>
+      {open && (
       <motion.form
         ref={formRef}
         onSubmit={(e) => { e.preventDefault(); submit(input) }}
+        initial={{ opacity: 0, scale: 0.92 }}
         animate={{
-          width: open
-            ? Math.min(620, typeof window !== 'undefined' ? window.innerWidth - 32 : 620)
-            : 168,
+          opacity: 1,
+          scale: 1,
+          width: Math.min(620, typeof window !== 'undefined' ? window.innerWidth - 32 : 620),
         }}
+        exit={{ opacity: 0, scale: 0.92 }}
         transition={{ type: 'spring', damping: 28, stiffness: 240 }}
         style={{
           filter: 'drop-shadow(0 3px 12px rgba(0,0,0,0.7)) drop-shadow(0 1px 4px rgba(0,0,0,0.5))',
-          // Collapsed state gets the brand pink→magenta gradient (same
-          // family as the Goat Analysis pane's gradient) instead of a
-          // flat fill. Expanded state keeps its dark glass look.
-          ...(!open && {
-            background: 'linear-gradient(135deg, #F58CDE 0%, #EC4899 100%)',
-            borderColor: 'rgba(255,255,255,0.35)',
-          }),
         }}
-        className={`group relative rounded-full flex items-center gap-2 pl-5 pr-1.5 py-1.5 overflow-hidden transition-colors duration-300 ${
-          open
-            ? 'bg-black/75 backdrop-blur-xl border border-white/15 focus-within:border-gg-pink/70'
-            : 'border cursor-pointer hover:brightness-110'
-        }`}
-        onClick={!open ? () => setOpen(true) : undefined}
+        className="group relative rounded-full flex items-center gap-2 pl-5 pr-1.5 py-1.5 overflow-hidden bg-white border border-black/10"
       >
-        {/* Shiny sheen — a soft top highlight over the gradient so the
-            collapsed pill reads as glossy rather than a flat fill.
-            Pointer-events-none so it never blocks the click-to-open
-            handler on the form above. */}
-        {!open && (
-          <span
-            className="absolute inset-0 rounded-full pointer-events-none"
-            style={{
-              background:
-                'linear-gradient(180deg, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0.08) 32%, rgba(255,255,255,0) 58%)',
-            }}
-          />
-        )}
-        <Sparkles
-          size={18}
-          className={`flex-shrink-0 transition-colors duration-300 ${
-            open ? 'text-gg-pink' : 'text-white'
-          }`}
-        />
+        <Sparkles size={18} className="flex-shrink-0 text-gg-pink" />
 
-        {/* Crossfade label vs input. Both rendered, only one visible/
-            interactive at a time. Stays in the same flex slot so the
-            width animation has nothing to fight with. */}
         <div className="relative flex-1 min-w-0 h-9 flex items-center">
-          <motion.span
-            animate={{ opacity: open ? 0 : 1 }}
-            transition={{ duration: 0.18 }}
-            className="absolute inset-0 flex items-center text-sm font-semibold text-black whitespace-nowrap pointer-events-none"
-          >
-            Goat Search
-          </motion.span>
-          <motion.input
+          <input
             ref={inputRef}
-            animate={{ opacity: open ? 1 : 0 }}
-            transition={{ duration: 0.18, delay: open ? 0.12 : 0 }}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder="Ask the map…  e.g. Iowa CSR2 75+ upcoming auctions"
-            disabled={loading || !open}
-            tabIndex={open ? 0 : -1}
-            className="absolute inset-0 w-full bg-transparent outline-none text-sm text-white placeholder-gg-gray-400 px-1"
-            style={{ pointerEvents: open ? 'auto' : 'none' }}
+            disabled={loading}
+            className="absolute inset-0 w-full bg-white outline-none text-sm text-[#111] placeholder-gray-500 px-1"
           />
         </div>
 
-        {/* Send button — fades + scales in once expanded */}
-        <motion.button
-          animate={{
-            opacity: open ? 1 : 0,
-            scale: open ? 1 : 0.4,
-          }}
-          transition={{ duration: 0.18, delay: open ? 0.15 : 0 }}
-          style={{ pointerEvents: open ? 'auto' : 'none' }}
+        {/* Send button. Owner ruling 2026-09-08 (box turned white): idle
+            state stays the brand pink (#E91E8C, exact hex — the gg-pink
+            Tailwind token is a lighter shade used elsewhere and isn't
+            what was asked for here) with a white arrow; the STOP state
+            (search in flight) switches to dark-grey-on-white instead of
+            staying pink, since pink no longer reads as "quiet neutral
+            action" against the now-white box the way it did on black. */}
+        <button
           type={loading ? 'button' : 'submit'}
           onClick={loading ? (e) => { e.preventDefault(); cancelSearch() } : undefined}
           disabled={loading ? false : !input.trim()}
           aria-label={loading ? 'Stop search' : 'Submit'}
           title={loading ? 'Stop search' : undefined}
-          className="relative bg-gg-pink hover:bg-gg-pink-light disabled:opacity-40 disabled:hover:bg-gg-pink text-white rounded-full w-9 h-9 flex items-center justify-center transition-colors flex-shrink-0"
+          className={`relative rounded-full w-9 h-9 flex items-center justify-center transition-colors flex-shrink-0 ${
+            loading
+              ? 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+              : 'bg-[#E91E8C] hover:bg-[#d41a7d] disabled:opacity-40 disabled:hover:bg-[#E91E8C] text-white'
+          }`}
         >
           {/* While a search is in flight this becomes a STOP button (owner
               2026-07-28: a slow query had no way out and looked hung). Same
               affordance as the send button so the control never moves.
               The orbiting ring around it is the loading indicator (owner
-              2026-08-13) — matches the phone/iPad apps. */}
-          {loading && <SearchSpinner />}
+              2026-08-13) — matches the phone/iPad apps. Dots switch to
+              dark grey in this state too — see the button's className
+              above for why white dots would vanish on the (now light)
+              stop button. */}
+          {loading && <SearchSpinner dotClassName="bg-gray-500" />}
           {loading ? <Square size={12} fill="currentColor" /> : <Send size={15} />}
-        </motion.button>
+        </button>
       </motion.form>
+      )}
+      </AnimatePresence>
 
       {/* Analytics RIGHT-SIDE slide-out pane — PORTALED to document.body
           because the chat-panel wrapper above has CSS transform

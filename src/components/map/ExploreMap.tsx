@@ -34,7 +34,7 @@ import Tract3DModal from '@/components/Tract3DModal'
 import GroundTruthPanel from '@/components/portal/GroundTruthPanel'
 import NdviPanel from '@/components/portal/NdviPanel'
 import LandDetailPanel, { type LandDetailClickData, LAND_DETAIL_PANEL_WIDTH } from './LandDetailPanel'
-import { deriveParcelDetail, ParcelDetailSections, LandTypeBadges, PARCEL_DISCLAIMER_TEXT } from './parcelDetailFields'
+import { deriveParcelDetail, ParcelDetailSections, LandTypeBadges, PARCEL_DISCLAIMER_TEXT, titleCase } from './parcelDetailFields'
 import { countyCentroids } from '@/data/countyCentroids'
 import { getCountiesForState } from '@/data/counties'
 import { STATE_ABBR, STATE_BOUNDS } from './mapConstants'
@@ -42,6 +42,25 @@ import { STATE_ABBR, STATE_BOUNDS } from './mapConstants'
 // the Regrid parcel layers are unfiltered by design as of 2026-07-30 (see
 // the setFilter effect below). Only the layer-id list is still needed.
 import { REGRID_PARCEL_LAYER_IDS } from '@/lib/regridParcelFilter'
+// Utilities panel icons (2026-09-08). The map-outline + wrench trigger
+// icon itself now lives in PortalNavBar (top pill nav, owner ruling
+// 2026-09-08 moved it out of this file) — only the panel's own tile/action
+// icons are still imported here. `Navigation` is aliased for clarity at
+// the call site (the Directions button, not the browser Navigation API).
+import {
+  Layers as LayersIcon,
+  Calendar as CalendarIcon,
+  MapPin as MapPinIcon,
+  Box as Box3DIcon,
+  Search as SearchIcon,
+  ArrowLeft,
+  Copy as CopyIcon,
+  Share as ShareIcon,
+  Navigation as DirectionsIcon,
+  Trash as TrashIcon,
+  Map as MapDrawIcon,
+  Plus as PlusIcon,
+} from 'lucide-react'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -239,6 +258,48 @@ const VEIL_DIP_STEP_MS = 75
 function veilPrefersReducedMotion(): boolean {
   return typeof window !== 'undefined'
     && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+}
+
+// ── Draw Area (2026-09-08) — web version of the mobile app's Draw Area
+// tile. Source/layer ids modeled on VEIL_SOURCE_ID/SELECT_SOURCE_ID above.
+const DRAW_AREA_SOURCE_ID = 'draw-area-src'
+const DRAW_AREA_FILL_LAYER = 'draw-area-fill'
+const DRAW_AREA_LINE_LAYER = 'draw-area-line'
+const DRAW_AREA_POINTS_LAYER = 'draw-area-points'
+const DRAW_AREA_COLOR = '#E91E8C'
+
+// Spherical excess / shoelace-on-sphere area for a closed lng/lat ring —
+// no @turf dependency in this repo (checked package.json). Returns
+// square meters. Standard formula: convert each point to radians, sum
+// (lng[i+1] - lng[i]) * (2 + sin(lat[i]) + sin(lat[i+1])), multiply by
+// R^2/2, take abs(). R = 6371008.8 m (WGS84 mean radius).
+function ringAreaSqMeters(ring: { lat: number; lng: number }[]): number {
+  if (ring.length < 3) return 0
+  const R = 6371008.8
+  const toRad = (d: number) => (d * Math.PI) / 180
+  let total = 0
+  for (let i = 0; i < ring.length; i++) {
+    const p1 = ring[i]
+    const p2 = ring[(i + 1) % ring.length]
+    const lng1 = toRad(p1.lng)
+    const lng2 = toRad(p2.lng)
+    const lat1 = toRad(p1.lat)
+    const lat2 = toRad(p2.lat)
+    total += (lng2 - lng1) * (2 + Math.sin(lat1) + Math.sin(lat2))
+  }
+  return Math.abs((total * R * R) / 2)
+}
+function acresFromRing(ring: { lat: number; lng: number }[]): number {
+  return ringAreaSqMeters(ring) / 4046.8564224 // m² per acre
+}
+// Differs from @/lib/format's formatAcres (always 3 decimals) per spec:
+// 3 decimals under 100 acres, 1 decimal at/above, both with thousands
+// separators.
+function formatDrawAcres(n: number): string {
+  const opts = n < 100
+    ? { minimumFractionDigits: 3, maximumFractionDigits: 3 }
+    : { minimumFractionDigits: 1, maximumFractionDigits: 1 }
+  return n.toLocaleString('en-US', opts)
 }
 
 // Generalized 2026-08-17 (Tract Spotlight, extending the shipped Parcel
@@ -1263,9 +1324,13 @@ function resolveDateWindow(filters: FilterState): {
 // recorded sales are the entire point of the comparables flow — a 6-year cap
 // would gut it. Swapping the default sentinel for an explicit 'all' makes
 // resolveDateWindow return an unbounded window, exactly as before this change.
-function saleDotFilters(f: FilterState, inCompMode: boolean): FilterState {
-  if (!inCompMode || f.dateRange !== DEFAULT_DATE_RANGE) return f
-  return { ...f, dateRange: 'all' }
+// 2026-09-08: the swap above is GONE. It made the panel say "Last 6 years"
+// while the comp map showed every sale (owner bug report, mobile had the
+// same). The comp map now STARTS at 'all' (see modeInitialFilters), which is
+// what it always showed, so the label is true — and an explicit "Last 6
+// years" pick filters like every other preset.
+function saleDotFilters(f: FilterState, _inCompMode: boolean): FilterState {
+  return f
 }
 
 // Parcel-DATA filters (PI range, % tillable, tillable acres, land types)
@@ -1582,6 +1647,30 @@ interface ExploreMapProps {
     zoning?: string | null
   }[] | null
   neighborsLoading?: boolean
+  /** Shared-link pin (2026-09-08): mobile app share links carry
+      ?focusLat&focusLng&focusZoom&pin=1 (see access/page.tsx). When set,
+      seeds the Utilities panel's pin (see the pin state below) at the
+      coords — the camera fly-to is already handled by the existing
+      zoomToLocation prop, this just draws the pin once the camera gets
+      there. Pass null/undefined to remove it. */
+  sharedPin?: { lat: number; lng: number } | null
+  /** Utilities panel "Goat Search" tile (2026-09-08): the panel closes
+      itself and calls this so the parent (access/page.tsx) can open/focus
+      its own MapChatPanel pill — that component lives as a sibling of
+      ExploreMap, not a child, so it can't be opened directly from here. */
+  onOpenGoatSearch?: () => void
+  /** Utilities panel open/close trigger (2026-09-08 owner ruling: the
+      trigger moved from a floating map button into the top pill nav,
+      PortalNavBar's "Utilities" item next to Watchlist — see
+      access/page.tsx). The panel's own state (open/view/pin/etc.) still
+      lives inside this component; the parent only bumps this nonce to
+      toggle it, same pattern as onOpenGoatSearch/openSignal. */
+  utilitiesToggleSignal?: number
+  /** Reports whether the nav-bar item should render pink: true while the
+      panel is open, or a pin exists, or a non-default layer/year is
+      active. The parent mirrors this into PortalNavBar's active styling
+      since that state lives inside this component. */
+  onUtilitiesActiveChange?: (active: boolean) => void
 }
 
 // ── CDL_PALETTE — USDA Cropland Data Layer code → {name, color} ─────────────
@@ -1758,7 +1847,94 @@ function OverlayButton({
   )
 }
 
-export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onLandDetailOpen, externalTractSelection, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, chatSearchEndSignal, onChatSearchError, ownerParcelsResult, onShowOwnedGround, comparableVisibleIds, neighborParcels, neighborsLoading }: ExploreMapProps) {
+// ── UtilityTile — one 3-per-row tile in the Utilities panel (owner
+// 2026-09-08: same look as the mobile app — #111 tile, 1px #333 border,
+// radius 12, icon over a 12px regular-weight label, pink #E91E8C when
+// active) ────────────────────────────────────────────────────────────────
+function UtilityTile({
+  icon,
+  label,
+  active = false,
+  onClick,
+}: {
+  icon: React.ReactNode
+  label: string
+  active?: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      onClick={onClick}
+      aria-pressed={active}
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 6,
+        height: 72,
+        borderRadius: 12,
+        background: '#111',
+        border: `1px solid ${active ? '#E91E8C' : '#333'}`,
+        color: active ? '#E91E8C' : '#fff',
+        cursor: 'pointer',
+      }}
+    >
+      {icon}
+      <span style={{ fontSize: 12, fontWeight: 400 }}>{label}</span>
+    </button>
+  )
+}
+
+// ── Pin card text helpers — same placeholder-string filtering as
+// parcelDetailFields.deriveParcelDetail (Regrid signals "no situs
+// address" with a literal string like "NOT AVAILABLE", not null), kept
+// local here since deriveParcelDetail's version isn't exported. Operate
+// on the /api/regrid/parcel `parcel` record. ─────────────────────────────
+const PIN_ADDRESS_PLACEHOLDER = /^(n\/?a|not\s*available|not\s*provided|not\s*applicable|unavailable|unknown|none|null|nil|-+|\.+)$/i
+function cleanPinText(v: unknown): string {
+  const str = (v == null ? '' : String(v)).trim()
+  return (!str || PIN_ADDRESS_PLACEHOLDER.test(str)) ? '' : str
+}
+function pinAddressLine(parcel: any): string {
+  return cleanPinText(parcel?.address)
+}
+function pinCityLine(parcel: any): string {
+  return [
+    titleCase(cleanPinText(parcel?.scity) || cleanPinText(parcel?.city)),
+    [cleanPinText(parcel?.state2) || cleanPinText(parcel?.state), cleanPinText(parcel?.szip5) || cleanPinText(parcel?.szip)]
+      .filter(Boolean)
+      .join(' '),
+  ].filter(Boolean).join(', ')
+}
+
+const pinActionButtonStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 8,
+  height: 40,
+  borderRadius: 8,
+  border: '1px solid #333',
+  background: '#111',
+  color: '#fff',
+  fontSize: 13,
+  fontWeight: 600,
+  cursor: 'pointer',
+}
+
+// ── Set Pin placement cursor (2026-09-08, web-only) — a small pink
+// map-pin, 24x32, dark outline so it reads on both light and dark
+// basemap imagery. Hotspot (12, 30) points at the pin's tip. Falls back
+// to a plain crosshair if the data URI ever fails to load. ─────────────
+const SET_PIN_CURSOR_SVG =
+  "<svg xmlns='http://www.w3.org/2000/svg' width='24' height='32' viewBox='0 0 24 32'>" +
+  "<path d='M12 0C5.373 0 0 5.373 0 12c0 9 12 20 12 20s12-11 12-20C24 5.373 18.627 0 12 0z' fill='#E91E8C' stroke='#000' stroke-width='1.5'/>" +
+  "<circle cx='12' cy='12' r='4.5' fill='#fff'/>" +
+  "</svg>"
+const SET_PIN_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(SET_PIN_CURSOR_SVG)}") 12 30, crosshair`
+
+export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onLandDetailOpen, externalTractSelection, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, chatSearchEndSignal, onChatSearchError, ownerParcelsResult, onShowOwnedGround, comparableVisibleIds, neighborParcels, neighborsLoading, sharedPin, onOpenGoatSearch, utilitiesToggleSignal, onUtilitiesActiveChange }: ExploreMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const stateMarkersRef = useRef<maplibregl.Marker[]>([])
@@ -2262,18 +2438,39 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const [elevationData, setElevationData] = useState<{ min_ft: number; max_ft: number; relief_ft: number; avg_slope_pct: number } | null>(null)
   const [soilLoading, setSoilLoading] = useState(false)
 
-  // ── Layer control panel state ──────────────────────────────────────
-  // layerPanelOpen: whether the layers panel is visible.
+  // ── Layer control state ─────────────────────────────────────────────
   // baseOverlay: radio-exclusive base overlay ('crops' = Crops by Year CDL,
   //   'ssurgo' = soil types SSURGO, 'nccpi' = NCCPI productivity overlay,
-  //   'fsa' = FSA coverage + CLU field lines, null = none).
+  //   'fsa' = FSA coverage + CLU field lines, 'precip' = PRISM annual
+  //   precipitation raster, null = none).
   //   Toggling one off turns the others off.
   // terrain3DOn: independent 3D pitch toggle.
-  const [layerPanelOpen, setLayerPanelOpen] = useState(false)
-  const [baseOverlay, setBaseOverlay] = useState<'crops' | 'csb' | 'ssurgo' | 'nccpi' | 'fsa' | 'engine' | null>(null)
+  // Both are now surfaced as tiles inside the Utilities panel (below)
+  // rather than their own bottom-left button/popup.
+  const [baseOverlay, setBaseOverlay] = useState<'crops' | 'csb' | 'ssurgo' | 'nccpi' | 'fsa' | 'engine' | 'precip' | null>(null)
   const [selectedCropYear, setSelectedCropYear] = useState<number>(2024)
   const [terrain3DOn, setTerrain3DOn] = useState(false)
   const [terrainExaggeration, setTerrainExaggeration] = useState(1.3)
+
+  // ── Annual Precipitation overlay (PRISM, via /api/tiles/overlay-config)
+  // overlayConfig is fetched once (see the effect near regridConfig below)
+  // and gates the "Annual Precipitation" row: it's only shown when the
+  // caller is entitled AND the backend has minted a tiles.precip template.
+  // selectedPrecipYear defaults to the newest year in precip_years the
+  // first time the config arrives (see the effect that sets it).
+  const [overlayConfig, setOverlayConfig] = useState<{
+    entitled?: boolean
+    tiles?: { precip?: string }
+    precip_years?: number[]
+    precip_attribution?: string
+  } | null>(null)
+  const [selectedPrecipYear, setSelectedPrecipYear] = useState<number | null>(null)
+  useEffect(() => {
+    const years = overlayConfig?.precip_years
+    if (selectedPrecipYear === null && years && years.length > 0) {
+      setSelectedPrecipYear(Math.max(...years))
+    }
+  }, [overlayConfig, selectedPrecipYear])
 
   // ── Aerial imagery year (Esri Wayback archive) ─────────────────────
   // aerialYear: null = "Latest" (the default, current mosaic via TILE_URL).
@@ -2281,9 +2478,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // AERIAL_YEARS/aerialTileUrl. Component state only — no persistence,
   // so every page load starts back on Latest (owner rule).
   const [aerialYear, setAerialYear] = useState<number | null>(null)
-  const [aerialPanelOpen, setAerialPanelOpen] = useState(false)
-  const aerialPanelRef = useRef<HTMLDivElement>(null)
-  const aerialButtonRef = useRef<HTMLButtonElement | null>(null)
 
   // Swaps the base imagery source's tiles in place (MapLibre GL JS 5:
   // setTiles reloads tiles without touching any other layer/source), then
@@ -2301,36 +2495,502 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       }
     }
     setAerialYear(year)
-    setAerialPanelOpen(false)
   }, [])
 
-  // Close the aerial popup on outside click / Escape, and whenever the
-  // Layers panel opens (only one bottom-left panel open at a time).
+  // ── Utilities panel (2026-09-08) ────────────────────────────────────
+  // Consolidates Layers, Map Year, Set Pin, 3D Map and Goat Search into
+  // one slide-out-from-the-right panel, mirroring the mobile app's
+  // Utilities control (map-outline icon + wrench badge). Replaces the old
+  // separate bottom-left Layers button/panel and Aerial-year button/popup.
+  const [utilitiesOpen, setUtilitiesOpen] = useState(false)
+  const [utilitiesView, setUtilitiesView] = useState<'menu' | 'layers' | 'year' | 'pin' | 'drawArea'>('menu')
+
+  // Nav-bar trigger (owner ruling 2026-09-08): PortalNavBar's "Utilities"
+  // item bumps utilitiesToggleSignal; this mirrors the removed floating
+  // button's own onClick exactly (reset to the menu view, toggle open).
+  // Skips the initial mount, same pattern as MapChatPanel's openSignal.
+  const utilitiesToggleMountedRef = useRef(false)
   useEffect(() => {
-    if (!aerialPanelOpen) return
-    const handlePointerDown = (e: MouseEvent) => {
-      const t = e.target as Node
-      // The toggle button is NOT "outside": its mousedown would close the
-      // popup here and its click would immediately reopen it.
-      if (aerialButtonRef.current?.contains(t)) return
-      if (aerialPanelRef.current && !aerialPanelRef.current.contains(t)) {
-        setAerialPanelOpen(false)
-      }
+    if (!utilitiesToggleMountedRef.current) {
+      utilitiesToggleMountedRef.current = true
+      return
     }
+    if (utilitiesToggleSignal === undefined) return
+    setUtilitiesView('menu')
+    setUtilitiesOpen(v => !v)
+  }, [utilitiesToggleSignal])
+
+  // Escape closes the panel. The click-catcher (rendered with the panel
+  // below) handles the click-outside case.
+  useEffect(() => {
+    if (!utilitiesOpen) return
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setAerialPanelOpen(false)
+      if (e.key === 'Escape') setUtilitiesOpen(false)
     }
-    document.addEventListener('mousedown', handlePointerDown)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [utilitiesOpen])
+
+  // ── Pin (2026-09-08) ─────────────────────────────────────────────────
+  // Unifies the mobile-share-link pin (sharedPin prop) and a user-dropped
+  // pin (the "Set Pin" tile) into one marker/panel — same shape either
+  // way, so clicking either kind of pin reopens the same Pin view.
+  const [pinMode, setPinMode] = useState(false)
+  const [pin, setPin] = useState<{ lat: number; lng: number } | null>(null)
+  const [pinParcel, setPinParcel] = useState<any>(null)
+  const [pinGeo, setPinGeo] = useState<{
+    state?: string | null
+    state_name?: string | null
+    county?: string | null
+    civil_township?: string | null
+    plss?: { label: string } | null
+    city?: string | null
+  } | null>(null)
+  const [pinLoading, setPinLoading] = useState(false)
+  const [pinCopyStatus, setPinCopyStatus] = useState<'idle' | 'copied'>('idle')
+
+  // Seed the pin from a shared link once per distinct coordinate — a
+  // fresh link (new lat/lng) always re-seeds even if the user had since
+  // cleared/moved a previous pin.
+  const seededSharedPinRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!sharedPin) return
+    const key = `${sharedPin.lat},${sharedPin.lng}`
+    if (seededSharedPinRef.current === key) return
+    seededSharedPinRef.current = key
+    setPin(sharedPin)
+  }, [sharedPin])
+
+  // Fetch the pin's address (existing /api/regrid/parcel by-point lookup)
+  // and Town/Township/County (new /api/geo/locate) whenever the pin
+  // coordinate changes. Cleared immediately so a stale prior pin's data
+  // never flashes under the new coordinate.
+  useEffect(() => {
+    if (!pin) {
+      setPinParcel(null)
+      setPinGeo(null)
+      setPinLoading(false)
+      return
+    }
+    let cancelled = false
+    setPinParcel(null)
+    setPinGeo(null)
+    setPinLoading(true)
+    const qs = `lat=${pin.lat}&lng=${pin.lng}`
+    Promise.all([
+      fetchWithAuth(`${API_URL}/api/regrid/parcel?${qs}`).then(r => (r.ok ? r.json() : null)).catch(() => null),
+      fetchWithAuth(`${API_URL}/api/geo/locate?${qs}`).then(r => (r.ok ? r.json() : null)).catch(() => null),
+    ]).then(([parcelBody, geoBody]) => {
+      if (cancelled) return
+      setPinParcel(parcelBody?.parcel || null)
+      setPinGeo(geoBody || null)
+    }).finally(() => {
+      if (!cancelled) setPinLoading(false)
+    })
+    return () => { cancelled = true }
+  }, [pin])
+
+  const pinLink = pin
+    ? `https://www.groundgoat.com/access?focusLat=${pin.lat.toFixed(6)}&focusLng=${pin.lng.toFixed(6)}&focusZoom=16&pin=1`
+    : ''
+
+  const handleCopyPinLink = useCallback(async () => {
+    if (!pin) return
+    try {
+      await navigator.clipboard.writeText(pinLink)
+      setPinCopyStatus('copied')
+      setTimeout(() => setPinCopyStatus('idle'), 1500)
+    } catch {
+      // clipboard permission denied or unavailable — silently no-op,
+      // same as the rest of this file's best-effort clipboard calls.
+    }
+  }, [pin, pinLink])
+
+  const handleSharePin = useCallback(async () => {
+    if (!pin || typeof navigator === 'undefined' || !navigator.share) return
+    const addressLine = pinAddressLine(pinParcel) || pinCityLine(pinParcel)
+    const countyLine = pinGeo?.county ? `${pinGeo.county} County${pinGeo.state_name ? `, ${pinGeo.state_name}` : ''}` : ''
+    const text = [`${pin.lat.toFixed(6)}, ${pin.lng.toFixed(6)}`, addressLine || countyLine].filter(Boolean).join(' — ')
+    try {
+      await navigator.share({ title: 'Ground Goat pin', text, url: pinLink })
+    } catch {
+      // user canceled the share sheet — nothing to do
+    }
+  }, [pin, pinParcel, pinGeo, pinLink])
+
+  const handleRemovePin = useCallback(() => {
+    setPin(null)
+    setUtilitiesOpen(false)
+    setUtilitiesView('menu')
+  }, [])
+
+  // ── Draw Area (2026-09-08) ───────────────────────────────────────────
+  // Web version of the mobile app's Draw Area tile: click to drop dots,
+  // a live polygon/line/points overlay tracks them, Finish locks it in
+  // and shows acres/points/center/township/county — same shape as the
+  // Pin view. drawMode mirrors pinMode's lifecycle (see drawModeActiveRef
+  // / mapInteractionSuspendedRef below, and the cursor/click effects
+  // further down modeled directly on the pin ones).
+  const [drawMode, setDrawMode] = useState(false)
+  const [drawPoints, setDrawPoints] = useState<{ lat: number; lng: number }[]>([])
+  const [drawGeo, setDrawGeo] = useState<{
+    state_name?: string | null
+    county?: string | null
+    civil_township?: string | null
+    plss?: { label: string } | null
+  } | null>(null)
+  const [drawGeoLoading, setDrawGeoLoading] = useState(false)
+  const [drawCopyStatus, setDrawCopyStatus] = useState<'idle' | 'copied'>('idle')
+
+  // ── Set Pin placement mode (2026-09-08, web-only click-to-place —
+  // owner ruling: the mobile app keeps its centre-crosshair, that's a
+  // finger UI; web gets a real click-to-place cursor instead) ─────────
+  //
+  // pinPlacementActiveRef mirrors pinMode into a ref so the many
+  // layer-scoped click handlers elsewhere in this file (parcel fill,
+  // tract pins/polygons, durable sale dots, CSB fields, soils, today
+  // pins, county-count circles — search this file for
+  // `mapInteractionSuspendedRef.current) return` to find every guarded
+  // handler) can bail out synchronously. MapLibre has no real
+  // stopPropagation across independently-registered 'click' listeners
+  // (see clickClaimedByLayers above for the same constraint, and its
+  // callers for the established "each handler checks a shared flag and
+  // returns" pattern this reuses) — a listener added only once
+  // placement mode starts would in any case fire AFTER the handlers
+  // bound at mount, not before, so a shared ref every handler checks is
+  // the only ordering-independent fix.
+  //
+  // drawModeActiveRef is the same idea for Draw Area (added 2026-09-08):
+  // while the user is dropping vertices, map clicks must append a point
+  // instead of opening a parcel/tract/dot panel, exactly like pin
+  // placement. mapInteractionSuspendedRef ORs the two together — every
+  // hover/click handler in this file checks this ONE combined ref (not
+  // the two individual ones) so a single guard line covers both
+  // "suspend normal map interaction" cases. This also fixes a bug where
+  // hover handlers (mouseenter/mousemove/mouseleave — which stomp the
+  // placement cursor by unconditionally setting canvas.style.cursor)
+  // never checked pinPlacementActiveRef at all; they now check the
+  // combined ref too. Search this file for
+  // `mapInteractionSuspendedRef.current` to find every guarded site.
+  const pinPlacementActiveRef = useRef(false)
+  useEffect(() => { pinPlacementActiveRef.current = pinMode }, [pinMode])
+  const drawModeActiveRef = useRef(false)
+  useEffect(() => { drawModeActiveRef.current = drawMode }, [drawMode])
+  const mapInteractionSuspendedRef = useRef(false)
+  useEffect(() => { mapInteractionSuspendedRef.current = pinMode || drawMode }, [pinMode, drawMode])
+
+  // Cursor + Escape-to-cancel while in placement mode. The hint pill
+  // itself is rendered in JSX below (top-center, under the nav).
+  useEffect(() => {
+    const map = mapRef.current
+    if (!pinMode || !map) return
+    const canvas = map.getCanvas()
+    const prevCursor = canvas.style.cursor
+    canvas.style.cursor = SET_PIN_CURSOR
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setPinMode(false)
+    }
     document.addEventListener('keydown', handleKeyDown)
     return () => {
-      document.removeEventListener('mousedown', handlePointerDown)
       document.removeEventListener('keydown', handleKeyDown)
+      canvas.style.cursor = prevCursor
     }
-  }, [aerialPanelOpen])
+  }, [pinMode])
 
+  // The actual placement click — registered once (persistent, not
+  // map.once: a fresh once-listener added when placement mode starts
+  // would still fire after the already-bound layer handlers below, per
+  // the ordering note above) and self-gated on pinPlacementActiveRef so
+  // it only acts while placement mode is on. Global (no layer filter)
+  // so clicking anywhere — including empty space, water, whatever —
+  // places the pin, matching "click the map to place your pin".
   useEffect(() => {
-    if (layerPanelOpen) setAerialPanelOpen(false)
-  }, [layerPanelOpen])
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+    const handlePlacementClick = (e: maplibregl.MapMouseEvent) => {
+      if (!pinPlacementActiveRef.current) return
+      const { lat, lng } = e.lngLat
+      setPin({ lat, lng })
+      setPinMode(false)
+      setUtilitiesView('pin')
+      setUtilitiesOpen(true)
+    }
+    map.on('click', handlePlacementClick)
+    return () => { map.off('click', handlePlacementClick) }
+  }, [mapLoaded])
+
+  // ── Draw Area effects (2026-09-08) — modeled directly on the pin
+  // placement cursor/click effects immediately above. ─────────────────
+
+  // Cursor + Escape/Enter/Backspace while drawing. Escape cancels
+  // (clears drawPoints, exits draw mode); Enter finishes (needs >= 3
+  // points); Backspace undoes the last dot. drawPoints is in the dep
+  // array (not a ref) so the Enter/Backspace checks always see the
+  // current point count — a fresh closure per point added is cheap here.
+  const finishDrawAreaRef = useRef<() => void>(() => {})
+  useEffect(() => {
+    const map = mapRef.current
+    if (!drawMode || !map) return
+    const canvas = map.getCanvas()
+    const prevCursor = canvas.style.cursor
+    canvas.style.cursor = 'crosshair'
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setDrawPoints([])
+        setDrawMode(false)
+      } else if (e.key === 'Enter') {
+        if (drawPoints.length >= 3) finishDrawAreaRef.current()
+      } else if (e.key === 'Backspace') {
+        setDrawPoints(pts => pts.slice(0, -1))
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown)
+      canvas.style.cursor = prevCursor
+    }
+  }, [drawMode, drawPoints])
+
+  // The actual draw click — registered once, self-gated on
+  // drawModeActiveRef, same ordering rationale as the pin's placement
+  // click effect above. Appends a dot instead of setting-and-exiting.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+    const handleDrawClick = (e: maplibregl.MapMouseEvent) => {
+      if (!drawModeActiveRef.current) return
+      const { lat, lng } = e.lngLat
+      setDrawPoints(pts => [...pts, { lat, lng }])
+    }
+    map.on('click', handleDrawClick)
+    return () => { map.off('click', handleDrawClick) }
+  }, [mapLoaded])
+
+  // Derived GeoJSON for the live overlay: points, an (open) line through
+  // them in order, and — only once there are >= 3 — a closed polygon
+  // fill. Recomputed only when drawPoints changes, then pushed into the
+  // source via setData (source/layers created once below, never
+  // recreated), same idiom as DURABLE_DOT_SOURCE/VEIL_SOURCE_ID.
+  const drawAreaFC = useMemo<GeoJSON.FeatureCollection>(() => {
+    const features: GeoJSON.Feature[] = drawPoints.map((p, i) => ({
+      type: 'Feature',
+      properties: { index: i },
+      geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
+    }))
+    if (drawPoints.length >= 2) {
+      features.push({
+        type: 'Feature',
+        properties: {},
+        geometry: { type: 'LineString', coordinates: drawPoints.map(p => [p.lng, p.lat]) },
+      })
+    }
+    if (drawPoints.length >= 3) {
+      const ring = drawPoints.map(p => [p.lng, p.lat] as [number, number])
+      ring.push(ring[0])
+      features.push({
+        type: 'Feature',
+        properties: {},
+        geometry: { type: 'Polygon', coordinates: [ring] },
+      })
+    }
+    return { type: 'FeatureCollection', features }
+  }, [drawPoints])
+
+  // Source + layers — created once (gated on mapLoaded + !getSource, like
+  // the VEIL_SOURCE_ID effect above) and torn down on unmount. Layer
+  // order: above the parcel line layer (same beforeId trick as the veil)
+  // so the drawn shape is visible while drawing, not hidden under a
+  // parcel fill.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+    if (map.getSource(DRAW_AREA_SOURCE_ID)) return // already set up
+
+    const beforeId = map.getLayer('regrid-parcels-line') ? 'regrid-parcels-line' : firstSymbolLayerId(map)
+
+    map.addSource(DRAW_AREA_SOURCE_ID, { type: 'geojson', data: EMPTY_FC })
+    map.addLayer({
+      id: DRAW_AREA_FILL_LAYER,
+      type: 'fill',
+      source: DRAW_AREA_SOURCE_ID,
+      filter: ['==', ['geometry-type'], 'Polygon'],
+      paint: { 'fill-color': DRAW_AREA_COLOR, 'fill-opacity': 0.18 },
+    }, beforeId)
+    map.addLayer({
+      id: DRAW_AREA_LINE_LAYER,
+      type: 'line',
+      source: DRAW_AREA_SOURCE_ID,
+      filter: ['==', ['geometry-type'], 'LineString'],
+      paint: { 'line-color': DRAW_AREA_COLOR, 'line-width': 2 },
+    }, beforeId)
+    map.addLayer({
+      id: DRAW_AREA_POINTS_LAYER,
+      type: 'circle',
+      source: DRAW_AREA_SOURCE_ID,
+      filter: ['==', ['geometry-type'], 'Point'],
+      paint: {
+        'circle-radius': 6,
+        'circle-color': DRAW_AREA_COLOR,
+        'circle-stroke-color': '#fff',
+        'circle-stroke-width': 2,
+      },
+    }, beforeId)
+
+    return () => {
+      try {
+        if (!map.getStyle()) return
+        for (const id of [DRAW_AREA_POINTS_LAYER, DRAW_AREA_LINE_LAYER, DRAW_AREA_FILL_LAYER]) {
+          if (map.getLayer(id)) map.removeLayer(id)
+        }
+        if (map.getSource(DRAW_AREA_SOURCE_ID)) map.removeSource(DRAW_AREA_SOURCE_ID)
+      } catch {
+        // map already torn down
+      }
+    }
+  }, [mapLoaded])
+
+  // Keep the source's data live as drawPoints changes — never recreates
+  // the source/layers, only calls setData, same as other dynamic sources
+  // in this file (e.g. DURABLE_DOT_SOURCE, VEIL_SOURCE_ID).
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !map.getSource(DRAW_AREA_SOURCE_ID)) return
+    ;(map.getSource(DRAW_AREA_SOURCE_ID) as maplibregl.GeoJSONSource).setData(drawAreaFC)
+  }, [drawAreaFC])
+
+  // Township/County lookup for the draw-area centroid (simple arithmetic
+  // mean of the dot lat/lngs — not the true polygon centroid; simpler,
+  // and fine for "which township/county is this area in"). Mirrors the
+  // pin's fetch effect: debounced 600ms, deduped on the 4-decimal-place
+  // centroid string so it doesn't refire on every added dot if the
+  // centroid barely moved.
+  const drawGeoKeyRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (drawPoints.length < 3) {
+      drawGeoKeyRef.current = null
+      setDrawGeo(null)
+      return
+    }
+    const lat = drawPoints.reduce((s, p) => s + p.lat, 0) / drawPoints.length
+    const lng = drawPoints.reduce((s, p) => s + p.lng, 0) / drawPoints.length
+    const key = `${lat.toFixed(4)},${lng.toFixed(4)}`
+    if (drawGeoKeyRef.current === key) return
+    const t = setTimeout(() => {
+      drawGeoKeyRef.current = key
+      setDrawGeoLoading(true)
+      fetchWithAuth(`${API_URL}/api/geo/locate?lat=${lat}&lng=${lng}`)
+        .then(r => (r.ok ? r.json() : null))
+        .catch(() => null)
+        .then(body => setDrawGeo(body))
+        .finally(() => setDrawGeoLoading(false))
+    }, 600)
+    return () => clearTimeout(t)
+  }, [drawPoints])
+
+  // Finish: stop adding dots (cursor effect's cleanup restores the
+  // previous cursor), keep drawPoints so the shape stays drawn, and fit
+  // the map to the drawn area. Kept in a ref (finishDrawAreaRef, wired
+  // above) so the Enter-key handler can call the CURRENT version without
+  // adding drawPoints-derived callbacks to that effect's deps twice over.
+  const handleFinishDrawArea = useCallback(() => {
+    setDrawMode(false)
+    const map = mapRef.current
+    if (map && drawPoints.length >= 3) {
+      const lats = drawPoints.map(p => p.lat)
+      const lngs = drawPoints.map(p => p.lng)
+      const minLat = Math.min(...lats), maxLat = Math.max(...lats)
+      const minLng = Math.min(...lngs), maxLng = Math.max(...lngs)
+      // Keep the polygon clear of the right-hand Utilities panel (360px CSS
+      // width + gutter). On narrow screens the panel is full-width and
+      // overlays the map, so a 384px right pad would exceed the map width
+      // (MapLibre then refuses to compute a zoom) — pad symmetrically there.
+      // One-shot padding on this call only; MapLibre GL JS doesn't persist
+      // padding as a sticky camera inset the way the native mobile SDK does.
+      const narrow = typeof window !== 'undefined' && window.innerWidth <= 640
+      map.fitBounds([[minLng, minLat], [maxLng, maxLat]], {
+        padding: { top: 96, right: narrow ? 48 : 360 + 24, bottom: 48, left: 48 },
+        duration: 700,
+      })
+    }
+  }, [drawPoints])
+  useEffect(() => { finishDrawAreaRef.current = handleFinishDrawArea }, [handleFinishDrawArea])
+
+  const drawCentroid = drawPoints.length > 0
+    ? {
+        lat: drawPoints.reduce((s, p) => s + p.lat, 0) / drawPoints.length,
+        lng: drawPoints.reduce((s, p) => s + p.lng, 0) / drawPoints.length,
+      }
+    : null
+  const drawAcres = drawPoints.length >= 3 ? acresFromRing(drawPoints) : 0
+
+  const handleCopyDrawStats = useCallback(async () => {
+    if (drawPoints.length < 3 || !drawCentroid) return
+    const lines = [
+      `Acres: ${formatDrawAcres(drawAcres)}`,
+      `Points: ${drawPoints.length}`,
+      `Center: ${drawCentroid.lat.toFixed(6)}, ${drawCentroid.lng.toFixed(6)}`,
+    ]
+    if (drawGeo?.civil_township) lines.push(`Township: ${drawGeo.civil_township}${drawGeo.plss ? ` · ${drawGeo.plss.label}` : ''}`)
+    if (drawGeo?.county) lines.push(`County: ${drawGeo.county} County${drawGeo.state_name ? `, ${drawGeo.state_name}` : ''}`)
+    try {
+      await navigator.clipboard.writeText(lines.join('\n'))
+      setDrawCopyStatus('copied')
+      setTimeout(() => setDrawCopyStatus('idle'), 1500)
+    } catch {
+      // clipboard permission denied or unavailable — silently no-op,
+      // same as the rest of this file's best-effort clipboard calls.
+    }
+  }, [drawPoints, drawCentroid, drawAcres, drawGeo])
+
+  const handleClearDrawArea = useCallback(() => {
+    setDrawPoints([])
+    setDrawGeo(null)
+  }, [])
+
+  // Marker for the pin (shared-link OR user-set — same marker either
+  // way). Clicking it reopens the Pin view. Extends the pre-9/8
+  // sharedPin-only marker effect.
+  const pinMarkerRef = useRef<maplibregl.Marker | null>(null)
+  useEffect(() => {
+    const map = mapRef.current
+    if (pinMarkerRef.current) {
+      pinMarkerRef.current.remove()
+      pinMarkerRef.current = null
+    }
+    if (!pin || !map || !mapLoaded) return
+
+    const marker = new maplibregl.Marker({ color: '#E91E8C', anchor: 'bottom' })
+      .setLngLat([pin.lng, pin.lat])
+      .addTo(map)
+
+    const el = marker.getElement()
+    el.setAttribute('role', 'img')
+    el.setAttribute('aria-label', `Pin at ${pin.lat}, ${pin.lng} — click to view details`)
+    el.style.cursor = 'pointer'
+    el.addEventListener('click', (e) => {
+      e.stopPropagation()
+      setUtilitiesView('pin')
+      setUtilitiesOpen(true)
+    })
+
+    pinMarkerRef.current = marker
+
+    return () => {
+      marker.remove()
+      pinMarkerRef.current = null
+    }
+  }, [pin, mapLoaded])
+
+  // "while a pin exists or a non-default layer/year is active" — owner spec.
+  const utilitiesActive = pin !== null || baseOverlay !== null || terrain3DOn || aerialYear !== null || drawPoints.length > 0
+
+  // Mirrors utilitiesOpen/utilitiesActive up to the nav bar (owner ruling
+  // 2026-09-08: the trigger button now lives in PortalNavBar, which has
+  // no other way to see this component's internal panel/pin/layer state).
+  useEffect(() => {
+    onUtilitiesActiveChange?.(utilitiesOpen || utilitiesActive)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [utilitiesOpen, utilitiesActive])
 
   // Filter options — fetched once on mount, always shows ALL available states/counties
   const [filterOptions, setFilterOptions] = useState<{ states: string[]; counties_by_state: Record<string, string[]>; townships_by_county: Record<string, string[]> }>({ states: [], counties_by_state: {}, townships_by_county: {} })
@@ -2348,13 +3008,21 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // closure/dep-array must already be initialized by the time that
   // effect statement runs during the component's render pass, or React
   // throws a TDZ "Cannot access before initialization" error.
-  const [filters, setFilters] = useState<FilterState>(INITIAL_FILTERS)
+  // Comp report map (subjectTractId set) opens at "All time" — old recorded
+  // sales are the whole point of comparables (owner 2026-08-13) — and its
+  // panel must SAY so (owner 2026-09-08). Explore keeps the 6-year default.
+  const modeInitialFilters = useMemo<FilterState>(
+    () => (subjectTractId ? { ...INITIAL_FILTERS, dateRange: 'all' } : INITIAL_FILTERS),
+    [subjectTractId],
+  )
+  const modeDefaultDateRange = subjectTractId ? 'all' : DEFAULT_DATE_RANGE
+  const [filters, setFilters] = useState<FilterState>(modeInitialFilters)
   const [filterOpen, setFilterOpenInternal] = useState(false)
   // Filters to layer on top of appliedFilters the next time the panel
   // opens — see the re-seed effect below. Set by the state badge's
   // "Filter" link so the panel opens with that state already selected.
   const pendingFilterSeedRef = useRef<Partial<FilterState> | null>(null)
-  const filtersRef = useRef<FilterState>(INITIAL_FILTERS)
+  const filtersRef = useRef<FilterState>(modeInitialFilters)
   // Apply-atomic model: `filters` is the DRAFT the panel edits live;
   // `appliedFilters` is the committed snapshot that drives every
   // indicator (count bubbles, Filter-button dot, durable-dot refetch).
@@ -2362,7 +3030,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // filtersRef.current is assigned today (Apply, Reset, chat-search
   // commit, external reset) — see each site below. Editing the panel
   // must NEVER touch this.
-  const [appliedFilters, setAppliedFilters] = useState<FilterState>(INITIAL_FILTERS)
+  const [appliedFilters, setAppliedFilters] = useState<FilterState>(modeInitialFilters)
   // Registry-gated map filters (step 3, 2026-08-15): parcel_data_states off
   // GET /api/regrid/config, mirrored into its OWN early state for the exact
   // TDZ reason documented above `filters`/`appliedFilters` — filterParamString
@@ -2406,7 +3074,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
   // Mutable ref so the unified map-click handler always reads the
   // current overlay without being torn down/re-created on every change.
-  const baseOverlayRef = useRef<'crops' | 'csb' | 'ssurgo' | 'nccpi' | 'fsa' | 'engine' | null>(null)
+  const baseOverlayRef = useRef<'crops' | 'csb' | 'ssurgo' | 'nccpi' | 'fsa' | 'engine' | 'precip' | null>(null)
   // Keep baseOverlayRef in sync with baseOverlay state.
   useEffect(() => { baseOverlayRef.current = baseOverlay }, [baseOverlay])
 
@@ -2682,9 +3350,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // Reset filters from parent (e.g. when launching Find Comparables)
   useEffect(() => {
     if (resetFiltersSignal && resetFiltersSignal > 0) {
-      setFilters(INITIAL_FILTERS)
-      filtersRef.current = INITIAL_FILTERS
-      setAppliedFilters(INITIAL_FILTERS)
+      setFilters(modeInitialFilters)
+      filtersRef.current = modeInitialFilters
+      setAppliedFilters(modeInitialFilters)
       loadedCellsRef.current = new Set()
       tractMapRef.current = new Map()
       tractsGenRef.current++
@@ -2732,7 +3400,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // don't linger under an unrelated result set.
     clearOwnerParcels()
 
-    const base = clearUnspecified ? INITIAL_FILTERS : filtersRef.current
+    const base = clearUnspecified ? modeInitialFilters : filtersRef.current
     // If this chat filter set changes the state selection without itself
     // specifying the registry-gated fields (soil rating, % tillable, land
     // types), clear those out of `base` too — otherwise a value carried
@@ -3417,9 +4085,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
   const resetFilters = () => {
     clearOwnerParcels()
-    setFilters(INITIAL_FILTERS)
-    filtersRef.current = INITIAL_FILTERS
-    setAppliedFilters(INITIAL_FILTERS)
+    setFilters(modeInitialFilters)
+    filtersRef.current = modeInitialFilters
+    setAppliedFilters(modeInitialFilters)
     // Clear cached data so it refetches without filters
     loadedCellsRef.current = new Set()
     tractMapRef.current = new Map()
@@ -3462,7 +4130,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // Compared against the DEFAULT sentinel, not 'all' — otherwise the map
   // reports active filters on a cold load, before the user has touched
   // anything. Explicitly choosing All time IS an active filter.
-  const hasActiveFilters = appliedFilters.dateRange !== DEFAULT_DATE_RANGE || appliedFilters.stateFilter !== '' ||
+  const hasActiveFilters = appliedFilters.dateRange !== modeDefaultDateRange || appliedFilters.stateFilter !== '' ||
     appliedFilters.countyFilters.length > 0 ||
     appliedFilters.townshipFilters.length > 0 ||
     (SOIL_FILTER_ENABLED && (appliedFilters.soilRatingMin !== '' || appliedFilters.soilRatingMax !== '' ||
@@ -4425,6 +5093,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     })
 
     const onMouseMove = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
+      if (mapInteractionSuspendedRef.current) return
       if (!e.features?.length) return
       const props = e.features[0].properties
       map.getCanvas().style.cursor = 'pointer'
@@ -4462,6 +5131,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
 
     const onMouseLeave = () => {
+      if (mapInteractionSuspendedRef.current) return
       map.getCanvas().style.cursor = ''
       popup.remove()
     }
@@ -4619,6 +5289,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // through without an id — promoteId on the source helps but isn't
     // a guarantee, so we treat hover-color as best-effort.)
     const onMove = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
+      if (mapInteractionSuspendedRef.current) return
       if (!e.features?.length) return
       const f = e.features[0]
       const props: any = f.properties || {}
@@ -4670,6 +5341,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         .addTo(map)
     }
     const onLeave = () => {
+      if (mapInteractionSuspendedRef.current) return
       map.getCanvas().style.cursor = ''
       if (hoveredKey) {
         const [prevSid, prevIdStr] = hoveredKey.split(':')
@@ -4834,6 +5506,27 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       }
     }
     fetchConfig()
+    return () => { cancelled = true }
+  }, [])
+
+  // Overlay tile config (soils/csb/nccpi/fsa/precip bootstrap) — mirrors
+  // the regridConfig fetch above. entitled=false (non-premium/basic_state
+  // callers) still returns 200 with an empty tiles object, so the
+  // "Annual Precipitation" row simply never renders rather than the map
+  // erroring — same fail-quiet posture as the Regrid fetch's catch below.
+  useEffect(() => {
+    let cancelled = false
+    const fetchOverlayConfig = async () => {
+      try {
+        const res = await fetchWithAuth(`${API_URL}/api/tiles/overlay-config`)
+        if (!res.ok) return
+        const data = await res.json()
+        if (!cancelled) setOverlayConfig(data)
+      } catch {
+        // Silent — precipitation is enrichment, not required for the map.
+      }
+    }
+    fetchOverlayConfig()
     return () => { cancelled = true }
   }, [])
 
@@ -5149,6 +5842,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // instant a selection opens — see that effect near the bottom of the
     // component.
     const onMove = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
+      if (mapInteractionSuspendedRef.current) return
       if (!e.features?.length) return
       map.getCanvas().style.cursor = 'pointer'
       // Parcel Spotlight active: the pink selection layers replace this
@@ -5169,6 +5863,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       )
     }
     const onLeave = () => {
+      if (mapInteractionSuspendedRef.current) return
       map.getCanvas().style.cursor = ''
       if (hoveredParcelPathRef.current) {
         map.setFeatureState(
@@ -5183,6 +5878,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // at the click point so the panel can show soil + crop data alongside
     // the parcel data without a competing anchored Popup.
     const onClick = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
+      // Set Pin placement / Draw Area mode (2026-09-08): this click places
+      // a pin or a draw-area dot instead — see mapInteractionSuspendedRef's
+      // declaration for why every click handler in this file checks it
+      // rather than relying on listener registration order.
+      if (mapInteractionSuspendedRef.current) return
       const f = e.features?.[0]
       if (!f) return
       // If the click also landed on a top-of-stack pin, that layer's own
@@ -5516,6 +6216,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // default popup box and looked broken.
     let activePopup: maplibregl.Popup | null = null
     const onPinClick = async (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
+      // Set Pin placement / Draw Area mode (2026-09-08) — see
+      // mapInteractionSuspendedRef.
+      if (mapInteractionSuspendedRef.current) return
       const f = e.features?.[0]
       if (!f) return
       // A tract ALWAYS wins over the sale-dot underneath it (task #26
@@ -5585,8 +6288,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         tileGeometry,
       })
     }
-    const setPointer = () => { map.getCanvas().style.cursor = 'pointer' }
-    const clearPointer = () => { map.getCanvas().style.cursor = '' }
+    const setPointer = () => { if (mapInteractionSuspendedRef.current) return; map.getCanvas().style.cursor = 'pointer' }
+    const clearPointer = () => { if (mapInteractionSuspendedRef.current) return; map.getCanvas().style.cursor = '' }
     map.on('mouseenter', PARCEL_SALE_PLUS_LAYER, setPointer)
     map.on('mouseleave', PARCEL_SALE_PLUS_LAYER, clearPointer)
     map.on('click', PARCEL_SALE_PLUS_LAYER, onPinClick)
@@ -5865,6 +6568,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     if (isFirstMount) {
       let activePopup: maplibregl.Popup | null = null
       const onClick = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
+        // Set Pin placement / Draw Area mode (2026-09-08) — see
+        // mapInteractionSuspendedRef.
+        if (mapInteractionSuspendedRef.current) return
         const f = e.features?.[0]
         if (!f || f.geometry.type !== 'Point') return
         // Task #26: this layer's minzoom (9) overlaps tract-pin-circles'
@@ -5927,8 +6633,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         // (not either/or) — z14.5 puts the parcel + its labels on screen.
         map.easeTo({ center: [lng, lat], zoom: 14.5, duration: 900 })
       }
-      const setPointer = () => { map.getCanvas().style.cursor = 'pointer' }
-      const clearPointer = () => { map.getCanvas().style.cursor = '' }
+      const setPointer = () => { if (mapInteractionSuspendedRef.current) return; map.getCanvas().style.cursor = 'pointer' }
+      const clearPointer = () => { if (mapInteractionSuspendedRef.current) return; map.getCanvas().style.cursor = '' }
       map.on('click', DURABLE_DOT_LAYER, onClick)
       map.on('mouseenter', DURABLE_DOT_LAYER, setPointer)
       map.on('mouseleave', DURABLE_DOT_LAYER, clearPointer)
@@ -6876,6 +7582,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         case 'nccpi': return SOIL_PMTILES_STATES.map(st => `explore-nccpi-${st}`)
         case 'fsa': return FSA_PMTILES_STATES.map(st => `explore-fsa-${st}`)
         case 'engine': return ENGINE_PMTILES_STATES.map(st => `explore-engine-${st}`)
+        case 'precip': return ['precip-src']
         default: return []
       }
     })()
@@ -6887,6 +7594,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         case 'nccpi': return 'NCCPI'
         case 'fsa': return 'FSA'
         case 'crops': return 'Crops'
+        case 'precip': return 'Precipitation'
         default: return 'Overlay'
       }
     })()
@@ -7515,6 +8223,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // can safely skip. We use the same "query regrid to check for
     // parcel" approach as onSoilsFullClick.
     const onCsbFieldClick = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
+      // Set Pin placement / Draw Area mode (2026-09-08) — see
+      // mapInteractionSuspendedRef.
+      if (mapInteractionSuspendedRef.current) return
       if (!e.features?.length) return
       const csbProps: any = e.features[0].properties || {}
       // Task #26: CSB (minzoom 10, uncapped) overlaps tract layers
@@ -7554,8 +8265,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       })
     }
     map.on('click', LYR_CSB_FIELDS_FILL, onCsbFieldClick)
-    map.on('mouseenter', LYR_CSB_FIELDS_FILL, () => { map.getCanvas().style.cursor = 'pointer' })
-    map.on('mouseleave', LYR_CSB_FIELDS_FILL, () => { map.getCanvas().style.cursor = '' })
+    map.on('mouseenter', LYR_CSB_FIELDS_FILL, () => { if (mapInteractionSuspendedRef.current) return; map.getCanvas().style.cursor = 'pointer' })
+    map.on('mouseleave', LYR_CSB_FIELDS_FILL, () => { if (mapInteractionSuspendedRef.current) return; map.getCanvas().style.cursor = '' })
 
     // FSA 2008 Common Land Unit field outlines.
     // Kept as an invisible layer so the source data stays loaded for any
@@ -7647,6 +8358,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // polygon is hit (no Regrid parcel), we open the panel with soil
     // context only so the user still gets the muname/musym info.
     const onSoilsFullClick = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
+      // Set Pin placement / Draw Area mode (2026-09-08) — see
+      // mapInteractionSuspendedRef.
+      if (mapInteractionSuspendedRef.current) return
       if (!e.features?.length) return
       const soilProps: any = e.features[0].properties || {}
       // Query whether the Regrid fill also underlies this point. If so,
@@ -7687,8 +8401,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // Bind the soilsFullClick handler to every per-state fill layer.
     for (const fillId of soilsFullFillLayerIds) {
       map.on('click', fillId, onSoilsFullClick)
-      map.on('mouseenter', fillId, () => { map.getCanvas().style.cursor = 'pointer' })
-      map.on('mouseleave', fillId, () => { map.getCanvas().style.cursor = '' })
+      map.on('mouseenter', fillId, () => { if (mapInteractionSuspendedRef.current) return; map.getCanvas().style.cursor = 'pointer' })
+      map.on('mouseleave', fillId, () => { if (mapInteractionSuspendedRef.current) return; map.getCanvas().style.cursor = '' })
     }
 
     return () => {
@@ -7866,6 +8580,57 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     } catch {/* layer not ready */}
   }, [selectedCropYear, mapLoaded])
 
+  // ── Annual Precipitation (PRISM) raster overlay ─────────────────────
+  // Public PNG raster tiles (z3-10, 256px) from overlayConfig.tiles.precip,
+  // a URL template containing a literal "{year}" placeholder swapped for
+  // selectedPrecipYear. Mounts precip-src/precip-tiles when baseOverlay
+  // becomes 'precip'; tears both down when the overlay is deselected
+  // (mirrors every other baseOverlay's on/off effect in this file).
+  // On a year change while already active, reuses the existing source and
+  // calls setTiles — same in-place-swap technique as selectAerialYear
+  // above — rather than removing/re-adding the layer.
+  // No dedicated unmount cleanup: like the soils/nccpi/fsa/csb sources,
+  // this source+layer live until the whole map is torn down elsewhere.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+    const SRC = 'precip-src'
+    const LAYER = 'precip-tiles'
+    const template = overlayConfig?.tiles?.precip
+    const active = baseOverlay === 'precip' && !!template && selectedPrecipYear !== null
+
+    if (!active) {
+      if (map.getLayer(LAYER)) map.removeLayer(LAYER)
+      if (map.getSource(SRC)) map.removeSource(SRC)
+      return
+    }
+
+    const url = template!.replace('{year}', String(selectedPrecipYear))
+    const existingSource = map.getSource(SRC) as maplibregl.RasterTileSource | undefined
+    if (existingSource) {
+      existingSource.setTiles([url])
+    } else {
+      map.addSource(SRC, {
+        type: 'raster',
+        tiles: [url],
+        tileSize: 256,
+        minzoom: 3,
+        maxzoom: 10,
+        // Surfaces automatically in the built-in attribution control,
+        // same mechanism as the Regrid parcel-source credit above.
+        attribution: `Rainfall &copy; ${overlayConfig?.precip_attribution || 'PRISM Group, Oregon State University'}`,
+      } as any)
+    }
+    if (!map.getLayer(LAYER)) {
+      map.addLayer({
+        id: LAYER,
+        type: 'raster',
+        source: SRC,
+        paint: { 'raster-opacity': 0.72, 'raster-resampling': 'linear' },
+      })
+    }
+  }, [mapLoaded, baseOverlay, overlayConfig, selectedPrecipYear])
+
   // ── 3D Terrain — all-zoom implementation ────────────────────────────
   //
   // Design goals:
@@ -8032,6 +8797,15 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // i.e. just below tracts — which is exactly Regrid Parcel
       // Labels per the spec above.
       const desiredBottomToTop = [
+        // Annual Precipitation (PRISM) raster — sits directly above the
+        // satellite/Wayback imagery + terrain (which aren't in this list;
+        // they're the implicit bottom of the stack) and below every other
+        // overlay/parcel/tract layer below. Mutually exclusive with the
+        // soils/nccpi/csb/fsa overlays via baseOverlay, so its exact
+        // position relative to them never matters in practice — it's
+        // listed first purely so it never floats above them if that ever
+        // changes.
+        'precip-tiles',
         // SSURGO soil polygons (Land ID-style) — fill + outline
         // share the same z-slot as the green tillable; only one
         // is visible at a time depending on the data-source toggle.
@@ -8332,6 +9106,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     if (!map || !mapLoaded) return
 
     const onClick = (e: maplibregl.MapLayerMouseEvent) => {
+      // Set Pin placement / Draw Area mode (2026-09-08) — see
+      // mapInteractionSuspendedRef.
+      if (mapInteractionSuspendedRef.current) return
       const f = e.features?.[0]
       if (!f) return
       const tractId = (f.properties?.tractId as string) || ''
@@ -8412,8 +9189,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       }
     }
 
-    const onEnter = () => { map.getCanvas().style.cursor = 'pointer' }
-    const onLeave = () => { map.getCanvas().style.cursor = '' }
+    const onEnter = () => { if (mapInteractionSuspendedRef.current) return; map.getCanvas().style.cursor = 'pointer' }
+    const onLeave = () => { if (mapInteractionSuspendedRef.current) return; map.getCanvas().style.cursor = '' }
 
     map.on('click', 'tract-pin-circles', onClick)
     map.on('mouseenter', 'tract-pin-circles', onEnter)
@@ -8555,14 +9332,17 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     if (!map || !mapLoaded) return
 
     const onClick = (e: maplibregl.MapLayerMouseEvent) => {
+      // Set Pin placement / Draw Area mode (2026-09-08) — see
+      // mapInteractionSuspendedRef.
+      if (mapInteractionSuspendedRef.current) return
       const f = e.features?.[0]
       if (!f) return
       const tractId = (f.properties?.tractId as string) || ''
       handleTodayPinClick(tractId)
     }
 
-    const onEnter = () => { map.getCanvas().style.cursor = 'pointer' }
-    const onLeave = () => { map.getCanvas().style.cursor = '' }
+    const onEnter = () => { if (mapInteractionSuspendedRef.current) return; map.getCanvas().style.cursor = 'pointer' }
+    const onLeave = () => { if (mapInteractionSuspendedRef.current) return; map.getCanvas().style.cursor = '' }
 
     map.on('click', 'today-pin-core', onClick)
     map.on('mouseenter', 'today-pin-core', onEnter)
@@ -8614,8 +9394,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // (via the shared handleTodayPinClick callback) so switching between
       // 2D DOM markers and 3D GL circles never changes what a click does.
       el.addEventListener('click', () => handleTodayPinClick(tractId))
-      el.addEventListener('mouseenter', () => { map.getCanvas().style.cursor = 'pointer' })
-      el.addEventListener('mouseleave', () => { map.getCanvas().style.cursor = '' })
+      el.addEventListener('mouseenter', () => { if (mapInteractionSuspendedRef.current) return; map.getCanvas().style.cursor = 'pointer' })
+      el.addEventListener('mouseleave', () => { if (mapInteractionSuspendedRef.current) return; map.getCanvas().style.cursor = '' })
 
       const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
         .setLngLat([lng, lat])
@@ -8768,6 +9548,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       subjectMarkerRef.current = null
     }
   }, [portalMode, subjectTractLocation])
+
+  // Shared-link pin marker: see the unified `pin` marker effect declared
+  // alongside the pin/Utilities-panel state above (it now covers both a
+  // shared-link pin and a user-dropped "Set Pin" pin with one marker).
 
   // ─────────────────────────────────────────────────────────────
   // 3-tier zoom system: state silhouettes → county squares → tract
@@ -9004,13 +9788,16 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const map = mapRef.current
     if (!map || !mapLoaded) return
     const onClick = (e: maplibregl.MapLayerMouseEvent) => {
+      // Set Pin placement / Draw Area mode (2026-09-08) — see
+      // mapInteractionSuspendedRef.
+      if (mapInteractionSuspendedRef.current) return
       const f = e.features?.[0]
       if (!f) return
       const geom = f.geometry as GeoJSON.Point
       map.easeTo({ center: geom.coordinates as [number, number], zoom: 10, duration: 800 })
     }
-    const onEnter = () => { map.getCanvas().style.cursor = 'pointer' }
-    const onLeave = () => { map.getCanvas().style.cursor = '' }
+    const onEnter = () => { if (mapInteractionSuspendedRef.current) return; map.getCanvas().style.cursor = 'pointer' }
+    const onLeave = () => { if (mapInteractionSuspendedRef.current) return; map.getCanvas().style.cursor = '' }
     map.on('click', 'county-count-circles', onClick)
     map.on('mouseenter', 'county-count-circles', onEnter)
     map.on('mouseleave', 'county-count-circles', onLeave)
@@ -9770,257 +10557,615 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
       {/* Soil overlay toggles are in the in-map Layer Panel below. */}
 
-      {/* Layers Button */}
-      {layersEnabled && (
-        <button
-          onClick={() => {
-            setAerialPanelOpen(false)
-            setLayerPanelOpen(v => !v)
-          }}
-          title="Layers"
-          style={{
-            position: 'absolute',
-            bottom: 60,
-            left: 16,
-            zIndex: 400, // above the fixed logo (z-[390] in access/page.tsx) so the toggle stays clickable above it
-            width: 36,
-            height: 36,
-            borderRadius: 6,
-            border: 'none',
-            backgroundColor: (baseOverlay !== null || terrain3DOn)
-              ? '#E91E8C'
-              : 'rgba(0,0,0,0.75)',
-            color: '#fff',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
-          }}
-        >
-          {/* Layers stack icon */}
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <polygon points="12 2 2 7 12 12 22 7 12 2" />
-            <polyline points="2 17 12 22 22 17" />
-            <polyline points="2 12 12 17 22 12" />
-          </svg>
-        </button>
-      )}
+      {/* Utilities trigger now lives in the top pill nav (PortalNavBar,
+          "Utilities" item next to Watchlist — owner ruling 2026-09-08).
+          This floating map button was removed so there is exactly one
+          trigger; the panel/click-catcher/pin-mode UI below are unchanged,
+          just no longer opened from here. See utilitiesToggleSignal
+          effect above for the nav-bar wiring. */}
 
-      {/* Layer Control Panel */}
-      {layersEnabled && layerPanelOpen && (
-        <div style={{
+      {/* No click-catcher behind the Utilities panel (owner 2026-09-08:
+          the map must stay fully usable — pan/zoom/click — while the
+          panel is open). The panel closes via its X or Escape. */}
+
+      {/* Utilities Panel — slides in from the right (owner 2026-09-08:
+          mirrors the mobile app's Utilities sheet). Holds Layers, Map
+          Year, Set Pin, 3D Map and Goat Search, replacing the old
+          separate bottom-left Layers button/panel and Aerial-year
+          button/popup. 360px wide, 100% on narrow screens (see the
+          gg-utilities-panel media query below). */}
+      <style>{`
+        .gg-utilities-panel { width: 360px; }
+        @media (max-width: 640px) { .gg-utilities-panel { width: 100%; } }
+      `}</style>
+      <div
+        role="dialog"
+        aria-label="Utilities"
+        className="gg-utilities-panel"
+        style={{
           position: 'absolute',
-          bottom: 100,
-          left: 16,
-          zIndex: 401, // above the fixed Ground Goat logo (z-[390] in access/page.tsx) so the panel never renders behind it
-          background: 'linear-gradient(175deg, #2a2a2a 0%, #1a1a1a 35%, #111111 70%, #0a0a0a 100%)',
-          boxShadow: '0 0 0 0.5px rgba(255,255,255,0.06) inset, 0 1px 0 rgba(255,255,255,0.10) inset, 0 20px 60px rgba(0,0,0,0.85), 0 8px 24px rgba(0,0,0,0.70), 0 2px 8px rgba(0,0,0,0.50)',
-          border: '0.5px solid rgba(255,255,255,0.14)',
-          backdropFilter: 'blur(16px)',
-          WebkitBackdropFilter: 'blur(16px)',
-          borderRadius: 12,
-          width: 220,
-          padding: '12px 0 8px',
+          top: 0,
+          right: 0,
+          bottom: 0,
+          zIndex: 400,
+          background: '#000',
+          display: 'flex',
+          flexDirection: 'column',
+          transform: utilitiesOpen ? 'translateX(0)' : 'translateX(100%)',
+          transition: 'transform 220ms ease',
+          pointerEvents: utilitiesOpen ? 'auto' : 'none',
+          boxShadow: '-4px 0 24px rgba(0,0,0,0.5)',
+        }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div style={{
+          flexShrink: 0,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '16px 16px 12px',
+          borderBottom: '1px solid #222',
         }}>
-          {/* ── Overlays (mutually-exclusive buttons) ── */}
-          <div style={{ padding: '0 10px 6px', color: 'rgba(255,255,255,0.40)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8 }}>
-            Overlays
-          </div>
-          <div style={{ padding: '0 10px 4px', display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {([
-              {
-                key: 'ssurgo' as const,
-                label: 'Soil Types',
-                swatchGradient: 'linear-gradient(to right,#c94040,#c4b030,#29a068,#2878c8,#b03890)',
-              },
-              {
-                key: 'crops' as const,
-                label: 'Crops by Year',
-                swatchGradient: 'linear-gradient(to right,#FFD400,#267000,#A87000,#FFA8E3)',
-              },
-              {
-                key: 'nccpi' as const,
-                label: 'NCCPI',
-                swatchGradient: 'linear-gradient(to right,#d73027,#fee08b,#1a9850)',
-              },
-              {
-                key: 'fsa' as const,
-                label: 'FSA',
-                swatchColor: '#22d3ee',
-              },
-              {
-                key: 'engine' as const,
-                label: 'Tillable Map',
-                swatchGradient: 'linear-gradient(to right,#3caa28,#eb9620,#e12d23,#d73cc8,#3c6edc)',
-              },
-            ] as Array<{ key: 'crops' | 'ssurgo' | 'csb' | 'nccpi' | 'fsa' | 'engine'; label: string; swatchGradient?: string; swatchColor?: string }>).map(({ key, label, swatchGradient, swatchColor }) => {
-              const active = baseOverlay === key
-              return (
-                <OverlayButton
-                  key={key}
-                  active={active}
-                  label={label}
-                  swatchGradient={swatchGradient}
-                  swatchColor={swatchColor}
-                  onClick={() => {
-                    setBaseOverlay(active ? null : key)
-                    // The persistent zoomTooFar toast handles all overlay
-                    // zoom-gate messaging — no duplicate showZoomToast here.
-                  }}
-                />
-              )
-            })}
-          </div>
-
-          {/* NCCPI legend — shown only when nccpi overlay is active */}
-          {baseOverlay === 'nccpi' && (
-            <div style={{ padding: '2px 10px 4px' }}>
-              <div style={{ display: 'flex', gap: 2, marginBottom: 2 }}>
-                {[['#d73027','0'],['#fc8d59','25'],['#fee08b','50'],['#91cf60','75'],['#1a9850','100']].map(([c, l]) => (
-                  <div key={l} style={{ flex: 1, textAlign: 'center' }}>
-                    <div style={{ height: 5, background: c, borderRadius: 2 }} />
-                    <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 8 }}>{l}</span>
-                  </div>
-                ))}
-              </div>
-              <div style={{ color: 'rgba(255,255,255,0.35)', fontSize: 8, textAlign: 'center' }}>Low → High productivity</div>
-            </div>
-          )}
-
-          {/* FSA legend — shown only when fsa overlay is active */}
-          {baseOverlay === 'fsa' && (
-            <div style={{ padding: '2px 10px 6px', display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <div style={{ width: 12, height: 3, borderRadius: 1, background: '#22d3ee', flexShrink: 0, marginTop: 1 }} />
-                <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 10 }}>FSA field boundary</span>
-              </div>
-              <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 9, marginTop: 2 }}>2008 snapshot · Not available in AL, FL, AK</span>
-            </div>
-          )}
-
-          {/* ── CSB year selector + crop legend — Crops by Year only ── */}
-          <div style={{
-            maxHeight: (baseOverlay === 'crops' || baseOverlay === 'csb') ? 300 : 0,
-            opacity: (baseOverlay === 'crops' || baseOverlay === 'csb') ? 1 : 0,
-            overflow: 'hidden',
-            transition: 'max-height 0.18s ease, opacity 0.18s ease',
-          }}>
-            {/* Year chip row — subordinate to Tillable Ground button */}
-            <div style={{ padding: '4px 10px 0', display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-              {[2017,2018,2019,2020,2021,2022,2023,2024].map(yr => {
-                const sel = selectedCropYear === yr
-                return (
-                  <div
-                    key={yr}
-                    onClick={() => setSelectedCropYear(yr)}
-                    style={{
-                      height: 22,
-                      padding: '0 6px',
-                      borderRadius: 5,
-                      fontSize: 10,
-                      fontWeight: 500,
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      background: sel ? 'rgba(233,30,140,0.25)' : 'rgba(255,255,255,0.05)',
-                      border: sel ? '1px solid rgba(233,30,140,0.70)' : '1px solid rgba(255,255,255,0.15)',
-                      color: sel ? '#f9a8d4' : 'rgba(255,255,255,0.50)',
-                      transition: 'background 0.12s, border-color 0.12s, color 0.12s',
-                    }}
-                    onMouseEnter={e => {
-                      if (!sel) {
-                        (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.10)'
-                        ;(e.currentTarget as HTMLElement).style.borderColor = 'rgba(255,255,255,0.22)'
-                        ;(e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,0.80)'
-                      }
-                    }}
-                    onMouseLeave={e => {
-                      if (!sel) {
-                        (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.05)'
-                        ;(e.currentTarget as HTMLElement).style.borderColor = 'rgba(255,255,255,0.15)'
-                        ;(e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,0.50)'
-                      }
-                    }}
-                  >
-                    {yr}
-                  </div>
-                )
-              })}
-            </div>
-            {/* Divider */}
-            <div style={{ height: 1, background: 'rgba(255,255,255,0.07)', margin: '6px 0' }} />
-            {/* Crop legend header */}
-            <div style={{ padding: '0 10px 6px', color: 'rgba(255,255,255,0.40)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8 }}>
-              Crop Types
-            </div>
-            {/* Crop legend rows */}
-            {CDL_LEGEND_ROWS.map(({ code, name, color }) => (
-              <div key={code} style={{ display: 'flex', alignItems: 'center', height: 22, padding: '0 10px', gap: 8 }}>
-                <span style={{ width: 12, height: 12, borderRadius: 3, flexShrink: 0, backgroundColor: color, border: '1px solid rgba(255,255,255,0.20)' }} />
-                <span style={{ color: 'rgba(255,255,255,0.72)', fontSize: 10, fontWeight: 500 }}>{name}</span>
-              </div>
-            ))}
-            <div style={{ height: 4 }} />
-          </div>
-
-          <div style={{ height: 1, background: 'rgba(255,255,255,0.07)', margin: '6px 0' }} />
-
-          {/* ── Terrain (independent) ── */}
-          <div style={{ padding: '0 10px 6px', color: 'rgba(255,255,255,0.40)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8 }}>
-            Terrain
-          </div>
-          <div
-            onClick={() => setTerrain3DOn(v => !v)}
-            style={{ display: 'flex', alignItems: 'center', height: 36, padding: '0 12px', cursor: 'pointer', gap: 8 }}
-          >
-            <span style={{ width: 14, height: 14, borderRadius: 2, flexShrink: 0, backgroundColor: '#60a5fa', border: '1px solid rgba(255,255,255,0.2)' }} />
-            <span style={{ flex: 1, color: 'rgba(255,255,255,0.75)', fontSize: 11 }}>3D Terrain</span>
-            <span style={{
-              width: 28, height: 16, borderRadius: 8, flexShrink: 0,
-              background: terrain3DOn ? '#E91E8C' : 'rgba(255,255,255,0.18)',
-              position: 'relative', transition: 'background 0.15s',
-            }}>
-              <span style={{
-                position: 'absolute', top: 2, left: terrain3DOn ? 12 : 2, width: 12, height: 12,
-                borderRadius: '50%', background: '#fff', transition: 'left 0.15s',
-              }} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {utilitiesView !== 'menu' && (
+              <button
+                onClick={() => setUtilitiesView('menu')}
+                aria-label="Back"
+                style={{ width: 28, height: 28, borderRadius: '50%', border: 'none', background: 'rgba(255,255,255,0.08)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+              >
+                <ArrowLeft size={16} />
+              </button>
+            )}
+            <span style={{ color: '#fff', fontSize: 16, fontWeight: 700 }}>
+              {utilitiesView === 'layers' ? 'Layers' : utilitiesView === 'year' ? 'Map Year' : utilitiesView === 'pin' ? 'Pin' : utilitiesView === 'drawArea' ? 'Draw Area' : 'Utilities'}
             </span>
           </div>
-          {terrain3DOn && (
-            <div style={{ display: 'flex', alignItems: 'center', height: 32, padding: '0 12px', gap: 6 }}>
-              <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 9, flexShrink: 0 }}>Flat</span>
-              <input
-                type="range"
-                min={1.0}
-                max={3.0}
-                step={0.1}
-                value={terrainExaggeration}
-                onChange={e => setTerrainExaggeration(Number(e.target.value))}
-                style={{ flex: 1, accentColor: '#60a5fa', cursor: 'pointer' }}
-              />
-              <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: 9, flexShrink: 0, minWidth: 28, textAlign: 'right' }}>{terrainExaggeration.toFixed(1)}×</span>
+          <button
+            onClick={() => setUtilitiesOpen(false)}
+            aria-label="Close"
+            style={{ width: 28, height: 28, borderRadius: '50%', border: 'none', background: 'rgba(255,255,255,0.08)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: 14 }}
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* Body */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: 16 }}>
+          {utilitiesView === 'menu' && (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+                {layersEnabled && (
+                  <UtilityTile
+                    icon={<LayersIcon size={20} />}
+                    label="Layers"
+                    active={baseOverlay !== null}
+                    onClick={() => setUtilitiesView('layers')}
+                  />
+                )}
+                <UtilityTile
+                  icon={<CalendarIcon size={20} />}
+                  label="Map Year"
+                  active={aerialYear !== null}
+                  onClick={() => setUtilitiesView('year')}
+                />
+                <UtilityTile
+                  icon={<MapPinIcon size={20} />}
+                  label="Set Pin"
+                  active={pin !== null}
+                  onClick={() => { setUtilitiesOpen(false); setDrawMode(false); setPinMode(true) }}
+                />
+                <UtilityTile
+                  icon={(
+                    <div style={{ position: 'relative' }}>
+                      <MapDrawIcon size={20} />
+                      <PlusIcon size={10} style={{ position: 'absolute', bottom: -2, right: -4 }} />
+                    </div>
+                  )}
+                  label="Draw Area"
+                  active={drawMode || drawPoints.length > 0}
+                  onClick={() => {
+                    setPinMode(false)
+                    // Owner 2026-09-08: the panel STAYS OPEN while drawing —
+                    // it shows the instructions, then live stats, then the
+                    // Finish button once there are 3 dots. (An existing
+                    // area reopens straight to its stats; "Clear" there
+                    // then this tile again starts a new one.)
+                    setUtilitiesView('drawArea')
+                    if (drawPoints.length === 0) setDrawMode(true)
+                  }}
+                />
+                <UtilityTile
+                  icon={<Box3DIcon size={20} />}
+                  label="3D Map"
+                  active={terrain3DOn}
+                  onClick={() => setTerrain3DOn(v => !v)}
+                />
+                <UtilityTile
+                  icon={<SearchIcon size={20} />}
+                  label="Goat Search"
+                  onClick={() => { setUtilitiesOpen(false); onOpenGoatSearch?.() }}
+                />
+              </div>
+              {terrain3DOn && (
+                <div style={{ display: 'flex', alignItems: 'center', height: 40, gap: 8, marginTop: 14 }}>
+                  <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 9, flexShrink: 0 }}>Flat</span>
+                  <input
+                    type="range"
+                    min={1.0}
+                    max={3.0}
+                    step={0.1}
+                    value={terrainExaggeration}
+                    onChange={e => setTerrainExaggeration(Number(e.target.value))}
+                    style={{ flex: 1, accentColor: '#E91E8C', cursor: 'pointer' }}
+                  />
+                  <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: 9, flexShrink: 0, minWidth: 28, textAlign: 'right' }}>{terrainExaggeration.toFixed(1)}×</span>
+                </div>
+              )}
+            </>
+          )}
+
+          {utilitiesView === 'layers' && layersEnabled && (
+            <>
+              {/* ── Overlays (mutually-exclusive buttons) ── */}
+              <div style={{ padding: '0 0 6px', color: 'rgba(255,255,255,0.40)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8 }}>
+                Overlays
+              </div>
+              <div style={{ padding: '0 0 4px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {([
+                  {
+                    key: 'ssurgo' as const,
+                    label: 'Soil Types',
+                    swatchGradient: 'linear-gradient(to right,#c94040,#c4b030,#29a068,#2878c8,#b03890)',
+                  },
+                  {
+                    key: 'crops' as const,
+                    label: 'Crops by Year',
+                    swatchGradient: 'linear-gradient(to right,#FFD400,#267000,#A87000,#FFA8E3)',
+                  },
+                  {
+                    key: 'nccpi' as const,
+                    label: 'NCCPI',
+                    swatchGradient: 'linear-gradient(to right,#d73027,#fee08b,#1a9850)',
+                  },
+                  {
+                    key: 'fsa' as const,
+                    label: 'FSA',
+                    swatchColor: '#22d3ee',
+                  },
+                  {
+                    key: 'engine' as const,
+                    label: 'Tillable Map',
+                    swatchGradient: 'linear-gradient(to right,#3caa28,#eb9620,#e12d23,#d73cc8,#3c6edc)',
+                  },
+                  // Only shown once the overlay-config fetch confirms this
+                  // caller is entitled to precipitation tiles (backend
+                  // omits tiles.precip entirely for non-entitled callers).
+                  ...(overlayConfig?.tiles?.precip ? [{
+                    key: 'precip' as const,
+                    label: 'Annual Precipitation',
+                    swatchGradient: 'linear-gradient(to right,#f7f4ec,#e6e0b4,#cfe2a0,#9fd3a3,#5fbfb0,#2f9fc6,#1f6fb5,#14468f,#0b2560)',
+                  }] : []),
+                ] as Array<{ key: 'crops' | 'ssurgo' | 'csb' | 'nccpi' | 'fsa' | 'engine' | 'precip'; label: string; swatchGradient?: string; swatchColor?: string }>).map(({ key, label, swatchGradient, swatchColor }) => {
+                  const active = baseOverlay === key
+                  return (
+                    <OverlayButton
+                      key={key}
+                      active={active}
+                      label={label}
+                      swatchGradient={swatchGradient}
+                      swatchColor={swatchColor}
+                      onClick={() => {
+                        setBaseOverlay(active ? null : key)
+                        // The persistent zoomTooFar toast handles all overlay
+                        // zoom-gate messaging — no duplicate showZoomToast here.
+                      }}
+                    />
+                  )
+                })}
+              </div>
+
+              {/* NCCPI legend — shown only when nccpi overlay is active */}
+              {baseOverlay === 'nccpi' && (
+                <div style={{ padding: '2px 0 4px' }}>
+                  <div style={{ display: 'flex', gap: 2, marginBottom: 2 }}>
+                    {[['#d73027','0'],['#fc8d59','25'],['#fee08b','50'],['#91cf60','75'],['#1a9850','100']].map(([c, l]) => (
+                      <div key={l} style={{ flex: 1, textAlign: 'center' }}>
+                        <div style={{ height: 5, background: c, borderRadius: 2 }} />
+                        <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 8 }}>{l}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ color: 'rgba(255,255,255,0.35)', fontSize: 8, textAlign: 'center' }}>Low → High productivity</div>
+                </div>
+              )}
+
+              {/* FSA legend — shown only when fsa overlay is active */}
+              {baseOverlay === 'fsa' && (
+                <div style={{ padding: '2px 0 6px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div style={{ width: 12, height: 3, borderRadius: 1, background: '#22d3ee', flexShrink: 0, marginTop: 1 }} />
+                    <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 10 }}>FSA field boundary</span>
+                  </div>
+                  <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 9, marginTop: 2 }}>2008 snapshot · Not available in AL, FL, AK</span>
+                </div>
+              )}
+
+              {/* Annual Precipitation legend + year picker — shown only when the precip overlay is active */}
+              {baseOverlay === 'precip' && (
+                <div style={{ padding: '2px 0 6px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 10 }}>PRISM rainfall by year, inches</span>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                    {(overlayConfig?.precip_years ?? []).map(yr => {
+                      const sel = selectedPrecipYear === yr
+                      return (
+                        <div
+                          key={yr}
+                          onClick={() => setSelectedPrecipYear(yr)}
+                          style={{
+                            height: 22,
+                            padding: '0 6px',
+                            borderRadius: 5,
+                            fontSize: 10,
+                            fontWeight: 500,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            background: sel ? 'rgba(233,30,140,0.25)' : 'rgba(255,255,255,0.05)',
+                            border: sel ? '1px solid rgba(233,30,140,0.70)' : '1px solid rgba(255,255,255,0.15)',
+                            color: sel ? '#f9a8d4' : 'rgba(255,255,255,0.50)',
+                            transition: 'background 0.12s, border-color 0.12s, color 0.12s',
+                          }}
+                        >
+                          {yr}
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <div>
+                    <div style={{
+                      height: 8,
+                      borderRadius: 3,
+                      background: 'linear-gradient(to right,#f7f4ec,#e6e0b4,#cfe2a0,#9fd3a3,#5fbfb0,#2f9fc6,#1f6fb5,#14468f,#0b2560)',
+                    }} />
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 2 }}>
+                      {['0', '20', '40', '60', '80+'].map(l => (
+                        <span key={l} style={{ color: 'rgba(255,255,255,0.4)', fontSize: 8 }}>{l}</span>
+                      ))}
+                    </div>
+                  </div>
+                  <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 8, textAlign: 'center' }}>
+                    Annual precipitation, inches · {overlayConfig?.precip_attribution || 'PRISM Group, Oregon State University'}
+                  </span>
+                </div>
+              )}
+
+              {/* ── CSB year selector + crop legend — Crops by Year only ── */}
+              <div style={{
+                maxHeight: (baseOverlay === 'crops' || baseOverlay === 'csb') ? 400 : 0,
+                opacity: (baseOverlay === 'crops' || baseOverlay === 'csb') ? 1 : 0,
+                overflow: 'hidden',
+                transition: 'max-height 0.18s ease, opacity 0.18s ease',
+              }}>
+                {/* Year chip row — subordinate to Tillable Ground button */}
+                <div style={{ padding: '4px 0 0', display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                  {[2017,2018,2019,2020,2021,2022,2023,2024].map(yr => {
+                    const sel = selectedCropYear === yr
+                    return (
+                      <div
+                        key={yr}
+                        onClick={() => setSelectedCropYear(yr)}
+                        style={{
+                          height: 22,
+                          padding: '0 6px',
+                          borderRadius: 5,
+                          fontSize: 10,
+                          fontWeight: 500,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          background: sel ? 'rgba(233,30,140,0.25)' : 'rgba(255,255,255,0.05)',
+                          border: sel ? '1px solid rgba(233,30,140,0.70)' : '1px solid rgba(255,255,255,0.15)',
+                          color: sel ? '#f9a8d4' : 'rgba(255,255,255,0.50)',
+                          transition: 'background 0.12s, border-color 0.12s, color 0.12s',
+                        }}
+                        onMouseEnter={e => {
+                          if (!sel) {
+                            (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.10)'
+                            ;(e.currentTarget as HTMLElement).style.borderColor = 'rgba(255,255,255,0.22)'
+                            ;(e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,0.80)'
+                          }
+                        }}
+                        onMouseLeave={e => {
+                          if (!sel) {
+                            (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.05)'
+                            ;(e.currentTarget as HTMLElement).style.borderColor = 'rgba(255,255,255,0.15)'
+                            ;(e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,0.50)'
+                          }
+                        }}
+                      >
+                        {yr}
+                      </div>
+                    )
+                  })}
+                </div>
+                {/* Divider */}
+                <div style={{ height: 1, background: 'rgba(255,255,255,0.07)', margin: '6px 0' }} />
+                {/* Crop legend header */}
+                <div style={{ padding: '0 0 6px', color: 'rgba(255,255,255,0.40)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8 }}>
+                  Crop Types
+                </div>
+                {/* Crop legend rows */}
+                {CDL_LEGEND_ROWS.map(({ code, name, color }) => (
+                  <div key={code} style={{ display: 'flex', alignItems: 'center', height: 22, padding: '0 0', gap: 8 }}>
+                    <span style={{ width: 12, height: 12, borderRadius: 3, flexShrink: 0, backgroundColor: color, border: '1px solid rgba(255,255,255,0.20)' }} />
+                    <span style={{ color: 'rgba(255,255,255,0.72)', fontSize: 10, fontWeight: 500 }}>{name}</span>
+                  </div>
+                ))}
+                <div style={{ height: 4 }} />
+              </div>
+
+              <div style={{ height: 1, background: 'rgba(255,255,255,0.07)', margin: '6px 0' }} />
+
+              {/* ── Tract Status Legend (non-togglable) ── */}
+              <div style={{ padding: '0 0 6px', color: 'rgba(255,255,255,0.40)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8 }}>
+                Tract Status
+              </div>
+              {[
+                { label: 'Sold',            color: '#f58cde' },
+                { label: 'Auction',         color: '#2563eb' },
+                { label: 'Listed',          color: '#eab308' },
+                { label: "Today's Auctions", color: '#22c55e' },
+                { label: 'No Sale',         color: '#9ca3af' },
+              ].map(({ label, color }) => (
+                <div key={label} style={{ display: 'flex', alignItems: 'center', height: 36, padding: '0 0', gap: 8 }}>
+                  <span style={{ width: 14, height: 14, borderRadius: '50%', backgroundColor: color, flexShrink: 0, border: '1.5px solid rgba(255,255,255,0.5)' }} />
+                  <span style={{ color: 'rgba(255,255,255,0.75)', fontSize: 11 }}>{label}</span>
+                </div>
+              ))}
+            </>
+          )}
+
+          {utilitiesView === 'year' && (
+            <>
+              <div style={{ color: '#fff', fontSize: 13, fontWeight: 700, marginBottom: 4 }}>
+                Aerial imagery year
+              </div>
+              <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11, marginBottom: 10 }}>
+                Esri archive. Rural ground is re-flown every year or two, so nearby years can look the same.
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
+                {([{ year: null as number | null, label: 'Latest' }, ...AERIAL_YEARS.map(y => ({ year: y.year as number | null, label: String(y.year) }))]).map(({ year, label }) => {
+                  const selected = aerialYear === year
+                  return (
+                    <button
+                      key={label}
+                      onClick={() => { selectAerialYear(year); setUtilitiesView('menu') }}
+                      aria-pressed={selected}
+                      style={{
+                        height: 34,
+                        borderRadius: 6,
+                        border: 'none',
+                        backgroundColor: selected ? '#E91E8C' : 'rgba(255,255,255,0.08)',
+                        color: selected ? '#fff' : 'rgba(255,255,255,0.85)',
+                        fontSize: 12,
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {label}
+                    </button>
+                  )
+                })}
+              </div>
+            </>
+          )}
+
+          {utilitiesView === 'pin' && pin && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div>
+                <div style={{ color: 'rgba(255,255,255,0.40)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 }}>Coordinates</div>
+                <div style={{ color: '#fff', fontSize: 14, fontWeight: 600 }}>{pin.lat.toFixed(6)}, {pin.lng.toFixed(6)}</div>
+              </div>
+
+              <div>
+                <div style={{ color: 'rgba(255,255,255,0.40)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 }}>Address</div>
+                {pinLoading ? (
+                  <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13 }}>Loading…</div>
+                ) : (
+                  <>
+                    <div style={{ color: '#fff', fontSize: 13 }}>{pinAddressLine(pinParcel) || 'No street address on record'}</div>
+                    {pinCityLine(pinParcel) && (
+                      <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12, marginTop: 2 }}>{pinCityLine(pinParcel)}</div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              {!pinLoading && pinGeo?.city && (
+                <div>
+                  <div style={{ color: 'rgba(255,255,255,0.40)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 }}>Town</div>
+                  <div style={{ color: '#fff', fontSize: 13 }}>{pinGeo.city}</div>
+                </div>
+              )}
+
+              {!pinLoading && pinGeo?.civil_township && (
+                <div>
+                  <div style={{ color: 'rgba(255,255,255,0.40)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 }}>Township</div>
+                  <div style={{ color: '#fff', fontSize: 13 }}>{pinGeo.civil_township}{pinGeo.plss ? ` · ${pinGeo.plss.label}` : ''}</div>
+                </div>
+              )}
+
+              {!pinLoading && pinGeo?.county && (
+                <div>
+                  <div style={{ color: 'rgba(255,255,255,0.40)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 }}>County</div>
+                  <div style={{ color: '#fff', fontSize: 13 }}>{pinGeo.county} County{pinGeo.state_name ? `, ${pinGeo.state_name}` : ''}</div>
+                </div>
+              )}
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
+                <button onClick={handleCopyPinLink} style={pinActionButtonStyle}>
+                  <CopyIcon size={14} /> {pinCopyStatus === 'copied' ? 'Copied' : 'Copy link'}
+                </button>
+                {typeof navigator !== 'undefined' && !!navigator.share && (
+                  <button onClick={handleSharePin} style={pinActionButtonStyle}>
+                    <ShareIcon size={14} /> Share
+                  </button>
+                )}
+                <button
+                  onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${pin.lat},${pin.lng}`, '_blank', 'noopener,noreferrer')}
+                  style={pinActionButtonStyle}
+                >
+                  <DirectionsIcon size={14} /> Directions
+                </button>
+                <button onClick={handleRemovePin} style={{ ...pinActionButtonStyle, color: '#f87171', borderColor: 'rgba(248,113,113,0.4)' }}>
+                  <TrashIcon size={14} /> Remove
+                </button>
+              </div>
             </div>
           )}
 
-          <div style={{ height: 1, background: 'rgba(255,255,255,0.07)', margin: '6px 0' }} />
+          {utilitiesView === 'drawArea' && (drawMode || drawPoints.length > 0) && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {drawMode && (
+                <div style={{ color: 'rgba(255,255,255,0.7)', fontSize: 13, lineHeight: 1.45 }}>
+                  {drawPoints.length < 3
+                    ? `Click the map to add dots. ${3 - drawPoints.length} more to make an area.`
+                    : 'Keep adding dots, or tap Finish.'}
+                </div>
+              )}
+              <div>
+                <div style={{ color: 'rgba(255,255,255,0.40)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 }}>Acres</div>
+                <div style={{ color: '#fff', fontSize: 24, fontWeight: 700 }}>
+                  {drawPoints.length >= 3 ? formatDrawAcres(drawAcres) : '—'}
+                </div>
+              </div>
 
-          {/* ── Tract Status Legend (non-togglable) ── */}
-          <div style={{ padding: '0 10px 6px', color: 'rgba(255,255,255,0.40)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8 }}>
-            Tract Status
-          </div>
-          {[
-            { label: 'Sold',            color: '#f58cde' },
-            { label: 'Auction',         color: '#2563eb' },
-            { label: 'Listed',          color: '#eab308' },
-            { label: "Today's Auctions", color: '#22c55e' },
-            { label: 'No Sale',         color: '#9ca3af' },
-          ].map(({ label, color }) => (
-            <div key={label} style={{ display: 'flex', alignItems: 'center', height: 36, padding: '0 10px', gap: 8 }}>
-              <span style={{ width: 14, height: 14, borderRadius: '50%', backgroundColor: color, flexShrink: 0, border: '1.5px solid rgba(255,255,255,0.5)' }} />
-              <span style={{ color: 'rgba(255,255,255,0.75)', fontSize: 11 }}>{label}</span>
+              <div>
+                <div style={{ color: 'rgba(255,255,255,0.40)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 }}>Points</div>
+                <div style={{ color: '#fff', fontSize: 13 }}>{drawPoints.length}</div>
+              </div>
+
+              {drawCentroid && (
+                <div>
+                  <div style={{ color: 'rgba(255,255,255,0.40)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 }}>Center</div>
+                  <div style={{ color: '#fff', fontSize: 13 }}>{drawCentroid.lat.toFixed(6)}, {drawCentroid.lng.toFixed(6)}</div>
+                </div>
+              )}
+
+              {drawGeoLoading && (
+                <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13 }}>Loading…</div>
+              )}
+
+              {!drawGeoLoading && drawGeo?.civil_township && (
+                <div>
+                  <div style={{ color: 'rgba(255,255,255,0.40)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 }}>Township</div>
+                  <div style={{ color: '#fff', fontSize: 13 }}>{drawGeo.civil_township}{drawGeo.plss ? ` · ${drawGeo.plss.label}` : ''}</div>
+                </div>
+              )}
+
+              {!drawGeoLoading && drawGeo?.county && (
+                <div>
+                  <div style={{ color: 'rgba(255,255,255,0.40)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 }}>County</div>
+                  <div style={{ color: '#fff', fontSize: 13 }}>{drawGeo.county} County{drawGeo.state_name ? `, ${drawGeo.state_name}` : ''}</div>
+                </div>
+              )}
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
+                {drawMode ? (
+                  <>
+                    <button onClick={() => setDrawPoints(pts => pts.slice(0, -1))} disabled={drawPoints.length === 0} style={pinActionButtonStyle}>
+                      Undo
+                    </button>
+                    {drawPoints.length >= 3 && (
+                      <button
+                        onClick={handleFinishDrawArea}
+                        style={{ ...pinActionButtonStyle, background: '#E91E8C', borderColor: '#E91E8C', color: '#fff', fontWeight: 700 }}
+                      >
+                        Finish
+                      </button>
+                    )}
+                    <button
+                      onClick={() => { setDrawPoints([]); setDrawMode(false); setUtilitiesView('menu') }}
+                      style={{ ...pinActionButtonStyle, color: '#f87171', borderColor: 'rgba(248,113,113,0.4)' }}
+                    >
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button onClick={handleCopyDrawStats} style={pinActionButtonStyle}>
+                      <CopyIcon size={14} /> {drawCopyStatus === 'copied' ? 'Copied' : 'Copy stats'}
+                    </button>
+                    <button onClick={handleClearDrawArea} style={{ ...pinActionButtonStyle, color: '#f87171', borderColor: 'rgba(248,113,113,0.4)' }}>
+                      <TrashIcon size={14} /> Clear
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
-          ))}
+          )}
+        </div>
+      </div>
+
+      {/* Set Pin placement mode (owner ruling 2026-09-08: click-to-place
+          on web, NOT the mobile app's centre-crosshair — that's a
+          finger-based UI and stays untouched on mobile). The cursor
+          becomes a pin (see the pinMode cursor/click effects declared
+          alongside the pin state above) and the next click on the map
+          places the pin — that click is kept from also opening a
+          parcel/tract/dot panel via pinPlacementActiveRef, which every
+          other click handler in this file checks first. This hint pill
+          is the only visible placement-mode UI left on the map. */}
+      {pinMode && (
+        <div
+          role="status"
+          style={{
+            position: 'absolute',
+            top: 64,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 500,
+            background: 'rgba(0,0,0,0.75)',
+            backdropFilter: 'blur(4px)',
+            color: '#fff',
+            fontSize: 12,
+            fontWeight: 500,
+            padding: '8px 14px',
+            borderRadius: 999,
+            boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
+            pointerEvents: 'none',
+          }}
+        >
+          Click the map to place your pin · Esc to cancel
+        </div>
+      )}
+
+      {/* Draw Area mode (2026-09-08) — modeled directly on the Set Pin
+          hint pill above. Clicks are kept from also opening a
+          parcel/tract/dot panel via mapInteractionSuspendedRef, the same
+          combined ref pin placement uses. */}
+      {drawMode && (
+        <div
+          role="status"
+          style={{
+            position: 'absolute',
+            top: 64,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 500,
+            background: 'rgba(0,0,0,0.75)',
+            backdropFilter: 'blur(4px)',
+            color: '#fff',
+            fontSize: 12,
+            fontWeight: 500,
+            padding: '8px 14px',
+            borderRadius: 999,
+            boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
+            pointerEvents: 'none',
+          }}
+        >
+          Click the map to add dots · Enter or Finish when done · Esc to cancel
         </div>
       )}
 
@@ -10537,102 +11682,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         </div>
       )}
 
-      {/* Aerial Imagery Year Button — bottom-left, always shown (unlike the
-          Layers button, which is entitlement-gated). Anchored at bottom:16
-          left:16 in every mode; when the Layers button is also showing
-          (layersEnabled) it sits at bottom:60, so this stays clear of it. */}
-      <button
-        ref={aerialButtonRef}
-        onClick={() => {
-          setLayerPanelOpen(false)
-          setAerialPanelOpen(v => !v)
-        }}
-        title="Change aerial imagery year"
-        aria-haspopup="true"
-        aria-expanded={aerialPanelOpen}
-        style={{
-          position: 'absolute',
-          bottom: 16,
-          left: 16,
-          zIndex: 400,
-          height: 36,
-          padding: '0 12px',
-          borderRadius: 6,
-          border: 'none',
-          backgroundColor: aerialYear !== null ? '#E91E8C' : 'rgba(0,0,0,0.75)',
-          color: '#fff',
-          cursor: 'pointer',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-          fontSize: 13,
-          fontWeight: 600,
-          boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
-        }}
-      >
-        {/* Calendar/clock icon, same 18px stroke style as the Layers icon */}
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <rect x="3" y="4" width="18" height="18" rx="2" />
-          <line x1="16" y1="2" x2="16" y2="6" />
-          <line x1="8" y1="2" x2="8" y2="6" />
-          <line x1="3" y1="10" x2="21" y2="10" />
-          <path d="M12 14v3l2 1.5" />
-        </svg>
-        Aerial: {aerialYear !== null ? aerialYear : 'Latest'}
-      </button>
-
-      {/* Aerial Imagery Year Popup */}
-      {aerialPanelOpen && (
-        <div
-          ref={aerialPanelRef}
-          style={{
-            position: 'absolute',
-            bottom: layersEnabled ? 104 : 60,
-            left: 16,
-            zIndex: 401,
-            background: 'linear-gradient(175deg, #2a2a2a 0%, #1a1a1a 35%, #111111 70%, #0a0a0a 100%)',
-            boxShadow: '0 0 0 0.5px rgba(255,255,255,0.06) inset, 0 1px 0 rgba(255,255,255,0.10) inset, 0 20px 60px rgba(0,0,0,0.85), 0 8px 24px rgba(0,0,0,0.70), 0 2px 8px rgba(0,0,0,0.50)',
-            border: '0.5px solid rgba(255,255,255,0.14)',
-            backdropFilter: 'blur(16px)',
-            WebkitBackdropFilter: 'blur(16px)',
-            borderRadius: 12,
-            width: 260,
-            padding: '12px 10px 10px',
-          }}
-        >
-          <div style={{ color: '#fff', fontSize: 13, fontWeight: 700, marginBottom: 4 }}>
-            Aerial imagery year
-          </div>
-          <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11, marginBottom: 10 }}>
-            Esri archive. Rural ground is re-flown every year or two, so nearby years can look the same.
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
-            {([{ year: null as number | null, label: 'Latest' }, ...AERIAL_YEARS.map(y => ({ year: y.year as number | null, label: String(y.year) }))]).map(({ year, label }) => {
-              const selected = aerialYear === year
-              return (
-                <button
-                  key={label}
-                  onClick={() => selectAerialYear(year)}
-                  aria-pressed={selected}
-                  style={{
-                    height: 30,
-                    borderRadius: 6,
-                    border: 'none',
-                    backgroundColor: selected ? '#E91E8C' : 'rgba(255,255,255,0.08)',
-                    color: selected ? '#fff' : 'rgba(255,255,255,0.85)',
-                    fontSize: 12,
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                  }}
-                >
-                  {label}
-                </button>
-              )
-            })}
-          </div>
-        </div>
-      )}
-
       {/* Tract count */}
       {!portalMode && (
         <div style={{
@@ -10651,14 +11700,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         </div>
       )}
 
-      {/* Legend — migrated into the Layer Control Panel above.
-          A compact fallback dot-legend is shown when the panel is
-          closed AND the pilot overlay is not available, so non-pilot
-          users still see the tract status key. Sits at bottom:60 (not 16)
-          because the Aerial button now always occupies bottom:16 left:16. */}
-      {/* Hidden while the aerial-year popup is open: the popup anchors at
-          the same bottom-left spot and would otherwise sit on top of it. */}
-      {!layersEnabled && !aerialPanelOpen && (
+      {/* Legend — migrated into the Layers view of the Utilities panel
+          above. A compact fallback dot-legend is shown for non-pilot
+          users (no Layers tile, so no other way to see the tract status
+          key). Sits at bottom:60 (not 16) because the Utilities button
+          always occupies bottom:16 left:16. */}
+      {!layersEnabled && (
         <div style={{
           position: 'absolute',
           bottom: 60,

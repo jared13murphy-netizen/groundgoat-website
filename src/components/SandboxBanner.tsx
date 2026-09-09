@@ -1,9 +1,9 @@
-// Sandbox environment banner (owner 2026-09-01). Renders ONLY when this
-// build is the sandbox site — gated by NEXT_PUBLIC_IS_SANDBOX, set as a
-// build arg on the sandbox-web image and unset on production, so it can
-// never appear on the live site. Fixed to the top; the app's own top
-// chrome is offset by the body padding added in globals.css under the
-// same flag.
+// Sandbox environment badge (owner 2026-09-01; reshaped 2026-09-08 — the
+// full-width bar "was in the way", so it is now a small pill pinned to the
+// top-left corner). Renders ONLY when this build is the sandbox site —
+// gated by NEXT_PUBLIC_IS_SANDBOX, set as a build arg on the sandbox-web
+// image and unset on production, so it can never appear on the live site.
+// No layout offset: nothing is pushed down any more.
 
 const IS_SANDBOX = process.env.NEXT_PUBLIC_IS_SANDBOX === 'true'
 const LIVE_URL = process.env.NEXT_PUBLIC_LIVE_URL || 'https://www.groundgoat.com'
@@ -11,17 +11,15 @@ const LIVE_URL = process.env.NEXT_PUBLIC_LIVE_URL || 'https://www.groundgoat.com
 export default function SandboxBanner() {
   if (!IS_SANDBOX) return null
   return (
-    <div
+    <a
+      href={LIVE_URL}
       role="status"
-      className="fixed top-0 left-0 right-0 z-[10000] flex items-center justify-center gap-3 bg-amber-500 px-4 py-1.5 text-center text-sm font-semibold text-black"
+      title="You're in the Ground Goat Sandbox — test data only. Click to switch to the live site."
+      aria-label="Sandbox — test data only. Switch to the live site"
+      className="fixed left-3 top-3 z-[10000] inline-flex items-center gap-1.5 rounded-full bg-amber-500/95 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-black shadow-md hover:bg-amber-400"
     >
-      <span>🧪 You're in the Ground Goat Sandbox — test data only.</span>
-      <a
-        href={LIVE_URL}
-        className="underline underline-offset-2 hover:no-underline"
-      >
-        Switch to the live site →
-      </a>
-    </div>
+      <span aria-hidden="true">🧪</span>
+      <span>Sandbox</span>
+    </a>
   )
 }
