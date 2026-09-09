@@ -10554,7 +10554,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
       {/* Utilities click-catcher — semi-transparent (not a heavy dim), sits
           over the map and closes the panel on click. */}
-      {utilitiesOpen && (
+      {utilitiesOpen && !drawMode && (
         <div
           onClick={() => setUtilitiesOpen(false)}
           aria-hidden="true"
@@ -10660,16 +10660,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                   active={drawMode || drawPoints.length > 0}
                   onClick={() => {
                     setPinMode(false)
-                    if (drawPoints.length > 0) {
-                      // An area already exists (finished or mid-draw) —
-                      // reopen straight to its stats/controls instead of
-                      // restarting. "Clear" (in that view) then this tile
-                      // again is how you start a new one.
-                      setUtilitiesView('drawArea')
-                    } else {
-                      setUtilitiesOpen(false)
-                      setDrawMode(true)
-                    }
+                    // Owner 2026-09-08: the panel STAYS OPEN while drawing —
+                    // it shows the instructions, then live stats, then the
+                    // Finish button once there are 3 dots. (An existing
+                    // area reopens straight to its stats; "Clear" there
+                    // then this tile again starts a new one.)
+                    setUtilitiesView('drawArea')
+                    if (drawPoints.length === 0) setDrawMode(true)
                   }}
                 />
                 <UtilityTile
@@ -11022,8 +11019,15 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             </div>
           )}
 
-          {utilitiesView === 'drawArea' && drawPoints.length > 0 && (
+          {utilitiesView === 'drawArea' && (drawMode || drawPoints.length > 0) && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {drawMode && (
+                <div style={{ color: 'rgba(255,255,255,0.7)', fontSize: 13, lineHeight: 1.45 }}>
+                  {drawPoints.length < 3
+                    ? `Click the map to add dots. ${3 - drawPoints.length} more to make an area.`
+                    : 'Keep adding dots, or tap Finish.'}
+                </div>
+              )}
               <div>
                 <div style={{ color: 'rgba(255,255,255,0.40)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 }}>Acres</div>
                 <div style={{ color: '#fff', fontSize: 24, fontWeight: 700 }}>
@@ -11067,15 +11071,16 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                     <button onClick={() => setDrawPoints(pts => pts.slice(0, -1))} disabled={drawPoints.length === 0} style={pinActionButtonStyle}>
                       Undo
                     </button>
+                    {drawPoints.length >= 3 && (
+                      <button
+                        onClick={handleFinishDrawArea}
+                        style={{ ...pinActionButtonStyle, background: '#E91E8C', borderColor: '#E91E8C', color: '#fff', fontWeight: 700 }}
+                      >
+                        Finish
+                      </button>
+                    )}
                     <button
-                      onClick={handleFinishDrawArea}
-                      disabled={drawPoints.length < 3}
-                      style={drawPoints.length < 3 ? { ...pinActionButtonStyle, opacity: 0.4, cursor: 'not-allowed' } : pinActionButtonStyle}
-                    >
-                      Finish
-                    </button>
-                    <button
-                      onClick={() => { setDrawPoints([]); setDrawMode(false) }}
+                      onClick={() => { setDrawPoints([]); setDrawMode(false); setUtilitiesView('menu') }}
                       style={{ ...pinActionButtonStyle, color: '#f87171', borderColor: 'rgba(248,113,113,0.4)' }}
                     >
                       Cancel
