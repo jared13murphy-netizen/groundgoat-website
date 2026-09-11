@@ -5,7 +5,7 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { motion } from 'framer-motion'
 import {
-  MapPin, Calendar, Clock, Building2,
+  MapPin, Calendar, Hourglass, Clock, Building2,
   DollarSign, ExternalLink, Share2, BarChart3, Loader2, RefreshCw, Bookmark
 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
@@ -13,6 +13,7 @@ import { formatAcres, toNum } from '@/lib/format'
 import { formatTillable } from '@/lib/tillable'
 import { getStatusBadge } from '@/lib/listingStatusBadge'
 import { getListingTillableAcres, getListingSoilRating, getSoilLabel } from './PortalListPanel'
+import AuctionCountdown from '../AuctionCountdown'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=600'
@@ -329,6 +330,17 @@ export default function PortalListingDetail({ listingId, onBack, onTractSelected
               <div className="text-sm">{formatDate(listing.auction_datetime || listing.auction_date)}</div>
             </div>
           </div>
+          {listing.status?.toLowerCase() !== 'live' && (
+            <AuctionCountdown
+              variant="row"
+              stacked
+              icon={<Hourglass size={16} className="text-gg-pink shrink-0" />}
+              value={listing.auction_datetime || listing.auction_date}
+              className="flex items-center gap-3"
+              labelClassName="text-[10px] text-gg-gray-500"
+              valueClassName="text-sm"
+            />
+          )}
           {formatTime(listing) && (
             <div className="flex items-center gap-3">
               <Clock size={16} className="text-gg-pink shrink-0" />

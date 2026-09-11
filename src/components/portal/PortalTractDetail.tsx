@@ -10,6 +10,7 @@ import { formatTillable } from '@/lib/tillable'
 import { formatAuctionDate } from '@/lib/auctionTime'
 import GroundTruthPanel from './GroundTruthPanel'
 import NdviPanel from './NdviPanel'
+import AuctionCountdown from '../AuctionCountdown'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -485,6 +486,15 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
               <DetailRow
                 label={(tract.saleStatus || '').toLowerCase() === 'sold' ? 'Sale Date' : 'Auction Date'}
                 value={formatAuctionDate(tract.auctionDate, tract.state)}
+              />
+            )}
+            {tract.auctionDate && getStatusLabel(tract.saleStatus) !== 'Live' && (
+              <AuctionCountdown
+                variant="row"
+                value={tract.auctionDate}
+                className="flex items-center justify-between px-4 py-3"
+                labelClassName="text-xs text-gg-gray-300"
+                valueClassName="text-sm font-medium"
               />
             )}
             {/* Price rows — labels reflect the tract's sale_status:
