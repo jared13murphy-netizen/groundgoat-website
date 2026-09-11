@@ -1,0 +1,90 @@
+/* AuctionCountdown — odometer digits + urgent pulse (item 12, 2026-09-11). */
+
+.gg-countdown {
+  /* no display/alignment here: the caller's Tailwind classes lay the row out */
+  font-variant-numeric: tabular-nums;
+  transition: opacity 400ms ease-out;
+}
+
+.gg-countdown--fading {
+  opacity: 0;
+}
+
+.gg-countdown-part {
+  display: inline-flex;
+}
+
+.gg-countdown-digit {
+  position: relative;
+  display: inline-block;
+  overflow: hidden;
+  width: 0.62em;
+  height: 1.2em;
+  line-height: 1.2em;
+  text-align: center;
+}
+
+.gg-countdown-glyph {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  transform: translateY(0);
+  opacity: 1;
+  transition: transform 220ms cubic-bezier(0.33, 1, 0.68, 1), opacity 220ms cubic-bezier(0.33, 1, 0.68, 1);
+}
+
+.gg-countdown-glyph--leaving {
+  transform: translateY(-1.1em);
+  opacity: 0;
+}
+
+.gg-countdown-glyph--entering-from {
+  transform: translateY(1.1em);
+  opacity: 0;
+}
+
+.gg-countdown-suffix {
+  font-weight: 400;
+  color: #9a9a9a; /* unit letters light gray, digits stay bold — owner 9/11 */
+  white-space: pre; /* keeps the ' d, ' / ' h, ' spacing the odometer parts carry */
+  display: inline-block;
+}
+
+.gg-countdown--urgent .gg-countdown-value {
+  color: #ef4444;
+  animation: gg-countdown-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes gg-countdown-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .4; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gg-countdown {
+    transition: none;
+  }
+  .gg-countdown-glyph {
+    transition: none;
+  }
+  .gg-countdown-glyph--leaving,
+  .gg-countdown-glyph--entering-from {
+    transform: none;
+    opacity: 0;
+  }
+  .gg-countdown--urgent .gg-countdown-value {
+    animation: none;
+  }
+}
+
+/* modal variant value colour — light/dark */
+.gg-countdown-modal-value {
+  color: #1a1a1a;
+}
+
+@media (prefers-color-scheme: dark) {
+  .gg-countdown-modal-value {
+    color: #f5f5f5;
+  }
+}
