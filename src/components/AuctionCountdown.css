@@ -45,6 +45,7 @@
 }
 
 .gg-countdown-suffix {
+  white-space: pre; /* keeps the ' d, ' / ' h, ' spacing the odometer parts carry */
   display: inline-block;
 }
 
