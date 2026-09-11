@@ -6,17 +6,28 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { getCountdownState, parseAuctionInstant, type CountdownState } from '../lib/auctionCountdown';
 
 const subscribers = new Set<(now: number) => void>();
-let timer: ReturnType<typeof setTimeout> | null = null;
+let timer: ReturnType<typeof setInterval> | null = null;
 
-function tick() { const now = Date.now(); subscribers.forEach((fn) => fn(now)); }
+// Poll 4x per second and notify only when the wall-clock second changes.
+// A single 1 s timeout aligned to the second was fragile on the Explore page:
+// map tile work can delay a timeout by hundreds of ms, so two ticks landed
+// ~1.9 s apart and the display visibly skipped a second (owner 9/11).
+let lastSecond = -1;
+function tick() {
+  const now = Date.now();
+  const sec = Math.floor(now / 1000);
+  if (sec === lastSecond) return;
+  lastSecond = sec;
+  subscribers.forEach((fn) => fn(now));
+}
 function visible() { return typeof document === 'undefined' || document.visibilityState !== 'hidden'; }
 function schedule() {
   if (timer || subscribers.size === 0 || !visible()) return;
-  timer = setTimeout(() => { timer = null; tick(); schedule(); }, 1000 - (Date.now() % 1000));
+  timer = setInterval(tick, 250);
 }
-function stop() { if (timer) { clearTimeout(timer); timer = null; } }
+function stop() { if (timer) { clearInterval(timer); timer = null; } }
 if (typeof document !== 'undefined') {
-  document.addEventListener('visibilitychange', () => { if (visible()) { tick(); schedule(); } else { stop(); } });
+  document.addEventListener('visibilitychange', () => { if (visible()) { lastSecond = -1; tick(); schedule(); } else { stop(); } });
 }
 export function subscribeTicker(fn: (now: number) => void) {
   subscribers.add(fn); schedule();

@@ -3,6 +3,7 @@
 import { useState, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import Image from 'next/image'
+import AuctionCountdown from '@/components/AuctionCountdown'
 import { X, Calendar, Building2, DollarSign, Loader2, MapPin, Bookmark, Pencil, Search } from 'lucide-react'
 import Link from 'next/link'
 import PortalListingDetail from './PortalListingDetail'
@@ -183,6 +184,9 @@ function ListingCard({ listing, activeTab, onClick, isWatchlisted, onToggleWatch
           <span className="absolute top-2 left-2 text-[10px] px-2 py-1 rounded-full font-bold uppercase bg-orange-500/90 text-white shadow-lg">
             Details Coming Soon
           </span>
+        )}
+        {listing.status?.toLowerCase() !== 'live' && (
+          <AuctionCountdown variant="card" value={listing.auction_datetime || listing.auction_date} />
         )}
         {(() => {
           // Always show a status badge so card and detail-page badges
