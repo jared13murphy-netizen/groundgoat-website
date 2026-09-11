@@ -48,7 +48,7 @@ export function getCountdownState(instant: string | Date | null | undefined, now
 
 const two = (n: number) => String(n).padStart(2, '0');
 
-// Digit groups for the odometer, owner format 2026-09-11: "x d, xx h, xx m, xx s".
+// Digit groups for the odometer, owner format 2026-09-11: "x d xx h xx m xx s" (no commas; digits bold, unit letters light gray).
 // Leading zero units are dropped: days when 0; hours when 0 and no days;
 // minutes when 0 and no hours. Seconds always show.
 export function formatCountdownParts(state: CountdownState): CountdownPart[] {
@@ -56,9 +56,9 @@ export function formatCountdownParts(state: CountdownState): CountdownPart[] {
   const showDays = state.days > 0;
   const showHours = showDays || state.hours > 0;
   const showMinutes = showHours || state.minutes > 0;
-  if (showDays) parts.push({ key: 'd', text: String(state.days), suffix: ' d, ' });
-  if (showHours) parts.push({ key: 'h', text: two(state.hours), suffix: ' h, ' });
-  if (showMinutes) parts.push({ key: 'm', text: two(state.minutes), suffix: ' m, ' });
+  if (showDays) parts.push({ key: 'd', text: String(state.days), suffix: ' d ' });
+  if (showHours) parts.push({ key: 'h', text: two(state.hours), suffix: ' h ' });
+  if (showMinutes) parts.push({ key: 'm', text: two(state.minutes), suffix: ' m ' });
   parts.push({ key: 's', text: two(state.seconds), suffix: ' s' });
   return parts;
 }

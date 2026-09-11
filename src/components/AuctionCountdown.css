@@ -45,6 +45,8 @@
 }
 
 .gg-countdown-suffix {
+  font-weight: 400;
+  color: #9a9a9a; /* unit letters light gray, digits stay bold — owner 9/11 */
   white-space: pre; /* keeps the ' d, ' / ' h, ' spacing the odometer parts carry */
   display: inline-block;
 }
