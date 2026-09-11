@@ -36,43 +36,38 @@ function useReducedMotion(): boolean {
   return reduced
 }
 
-/** One character slot. Old glyph slides out to -1.1em while the new one
- *  enters from +1.1em, opposite directions so it reads as a roll. Only
- *  fires when this slot's own character actually changes. */
+/** One character slot. Pure CSS keyframes keyed on the character: when the
+ *  char changes, the new glyph mounts (new key) and plays the enter animation
+ *  while the previous glyph plays the leave animation and unmounts on
+ *  animationend. No timeouts, no rAF — a tick arriving mid-roll simply
+ *  re-keys the glyphs, so nothing can lag or skip (owner 9/11: "skips
+ *  seconds"). Only fires when this slot's own character actually changes. */
 function OdometerDigit({ char, reduceMotion }: { char: string; reduceMotion: boolean }) {
-  const [displayChar, setDisplayChar] = useState(char)
-  const [incoming, setIncoming] = useState<string | null>(null)
-  const [animate, setAnimate] = useState(false)
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const prevRef = useRef(char)
+  const seqRef = useRef(0)
+  const [leaving, setLeaving] = useState<{ ch: string; id: number } | null>(null)
 
   useEffect(() => {
-    if (char === displayChar) return
-    if (reduceMotion) { setDisplayChar(char); return }
-    setIncoming(char)
-    setAnimate(false)
-    const raf = requestAnimationFrame(() => setAnimate(true))
-    if (timeoutRef.current) clearTimeout(timeoutRef.current)
-    timeoutRef.current = setTimeout(() => {
-      setDisplayChar(char)
-      setIncoming(null)
-      setAnimate(false)
-    }, 220)
-    return () => cancelAnimationFrame(raf)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (prevRef.current === char) return
+    const from = prevRef.current
+    prevRef.current = char
+    if (!reduceMotion) setLeaving({ ch: from, id: ++seqRef.current })
   }, [char, reduceMotion])
-
-  useEffect(() => () => { if (timeoutRef.current) clearTimeout(timeoutRef.current) }, [])
 
   return (
     <span className="gg-countdown-digit">
-      <span className={`gg-countdown-glyph${animate && incoming ? ' gg-countdown-glyph--leaving' : ''}`}>
-        {displayChar}
-      </span>
-      {incoming !== null && (
-        <span className={`gg-countdown-glyph${animate ? '' : ' gg-countdown-glyph--entering-from'}`}>
-          {incoming}
+      {leaving && (
+        <span
+          key={`l${leaving.id}`}
+          className="gg-countdown-glyph gg-countdown-glyph--leave"
+          onAnimationEnd={() => setLeaving((l) => (l && l.id === leaving.id ? null : l))}
+        >
+          {leaving.ch}
         </span>
       )}
+      <span key={`c${char}`} className={`gg-countdown-glyph${leaving ? ' gg-countdown-glyph--enter' : ''}`}>
+        {char}
+      </span>
     </span>
   )
 }
@@ -94,7 +89,7 @@ function CountdownValue({ parts, reduceMotion }: { parts: CountdownPart[]; reduc
 
 export interface AuctionCountdownProps {
   value: string | Date | null | undefined
-  variant: 'modal' | 'row'
+  variant: 'modal' | 'row' | 'card'
   className?: string
   labelClassName?: string
   valueClassName?: string
@@ -114,6 +109,11 @@ export default function AuctionCountdown({ value, variant, className, labelClass
   // auction has started.
   const partsRef = useRef<CountdownPart[]>(formatCountdownParts(state))
   if (state.phase !== 'started') partsRef.current = formatCountdownParts(state)
+  // Only an auction we were actually counting down gets the fade-out. One
+  // that was already over when the card mounted (sold / past listings on
+  // the same list) must never flash "00 s" (reviewer catch 9/11).
+  const wasCountingRef = useRef(false)
+  if (state.phase === 'counting' || state.phase === 'urgent') wasCountingRef.current = true
 
   const [fading, setFading] = useState(false)
   const [gone, setGone] = useState(false)
@@ -132,10 +132,21 @@ export default function AuctionCountdown({ value, variant, className, labelClass
   }, [state.phase, fading, gone, reduceMotion])
 
   if (!mounted || state.phase === 'hidden' || gone) return null
+  if (state.phase === 'started' && !wasCountingRef.current) return null
 
   const urgent = state.phase === 'urgent'
   const timer = <CountdownValue parts={partsRef.current} reduceMotion={reduceMotion} />
   const stateClasses = `gg-countdown${fading ? ' gg-countdown--fading' : ''}${urgent ? ' gg-countdown--urgent' : ''}`
+
+  if (variant === 'card') {
+    // Auction list card: bottom-left of the image, no pill, bold white digits,
+    // gray unit letters, text shadow — mirrors the app's Auctions cards.
+    return (
+      <div ref={ref} className={`${stateClasses} gg-countdown-card${className ? ' ' + className : ''}`}>
+        {timer}
+      </div>
+    )
+  }
 
   if (variant === 'modal') {
     return (
