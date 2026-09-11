@@ -109,6 +109,11 @@ export default function AuctionCountdown({ value, variant, className, labelClass
   // auction has started.
   const partsRef = useRef<CountdownPart[]>(formatCountdownParts(state))
   if (state.phase !== 'started') partsRef.current = formatCountdownParts(state)
+  // Only an auction we were actually counting down gets the fade-out. One
+  // that was already over when the card mounted (sold / past listings on
+  // the same list) must never flash "00 s" (reviewer catch 9/11).
+  const wasCountingRef = useRef(false)
+  if (state.phase === 'counting' || state.phase === 'urgent') wasCountingRef.current = true
 
   const [fading, setFading] = useState(false)
   const [gone, setGone] = useState(false)
@@ -127,6 +132,7 @@ export default function AuctionCountdown({ value, variant, className, labelClass
   }, [state.phase, fading, gone, reduceMotion])
 
   if (!mounted || state.phase === 'hidden' || gone) return null
+  if (state.phase === 'started' && !wasCountingRef.current) return null
 
   const urgent = state.phase === 'urgent'
   const timer = <CountdownValue parts={partsRef.current} reduceMotion={reduceMotion} />
