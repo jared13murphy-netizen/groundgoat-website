@@ -34,6 +34,7 @@ interface Listing {
   tracts?: { id: string; tillable_acres?: number; soil_rating?: number; csr2?: number; total_acres?: number; price_per_acre?: number }[]
   is_incomplete?: boolean
   incomplete_reason?: string
+  watch_count?: number
 }
 
 interface PortalListPanelProps {
@@ -222,6 +223,14 @@ function ListingCard({ listing, activeTab, onClick, isWatchlisted, onToggleWatch
           <div className="text-xs text-gg-gray-300 flex items-center gap-1 mt-2">
             <Building2 size={11} />
             {listing.company?.name || listing.company_name}
+          </div>
+        )}
+
+        {/* Watch count */}
+        {!!listing.watch_count && listing.watch_count >= 1 && (
+          <div className="text-xs text-gg-gray-400 font-medium flex items-center gap-1 mt-2">
+            <Bookmark size={12} className="text-gg-pink fill-gg-pink" />
+            {listing.watch_count} watching
           </div>
         )}
 
