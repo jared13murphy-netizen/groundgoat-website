@@ -443,7 +443,7 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
               Tracts ({listing.tracts.length})
             </h2>
             <div className="space-y-4">
-              {listing.tracts.map((tract, index) => (
+              {[...listing.tracts].sort((a, b) => (a.tract_number || 0) - (b.tract_number || 0)).map((tract, index) => (
                 <div key={tract.id || index} className="bg-gg-gray-800 rounded-lg p-4">
                   {/* Tract Header */}
                   <div className="flex items-center justify-between mb-3">
