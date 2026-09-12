@@ -1964,7 +1964,7 @@ export default function AdminPrivateTreatyStagingPage() {
                           <div className="mb-4">
                             <p className="text-xs text-gg-gray-400 mb-2 font-medium uppercase tracking-wider">Tract Details</p>
                             <div className="space-y-4">
-                              {info.tracts.map((tract: any, idx: number) => {
+                              {[...info.tracts].sort((a: any, b: any) => (Number(a.tract_number) || 0) - (Number(b.tract_number) || 0)).map((tract: any, idx: number) => {
                                 const tractKey = `${listing.id}-${idx}`
                                 const showTill = tract.tillable_polygon != null && !tillableHidden.has(tractKey)
                                 // Kick off source-image fetch on first

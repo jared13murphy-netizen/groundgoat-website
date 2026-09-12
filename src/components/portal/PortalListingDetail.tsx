@@ -461,7 +461,9 @@ export default function PortalListingDetail({ listingId, onBack, onTractSelected
             Tracts ({listing.tracts.length})
           </h3>
           <div className="space-y-3">
-            {listing.tracts.map((tract, index) => {
+            {/* Always numerical order, Tract 1 first (owner 9/11): the API now
+                orders them too, but never trust payload order for this. */}
+            {[...listing.tracts].sort((a, b) => (a.tract_number || 0) - (b.tract_number || 0)).map((tract, index) => {
               const handleTractClick = () => {
                 if (onTractSelected) {
                   // Mirror the field shape that ExploreMap.createMarker
