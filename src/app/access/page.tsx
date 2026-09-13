@@ -471,6 +471,13 @@ function AccessPortalPageInner() {
       wasWatched ? next.delete(listingId) : next.add(listingId)
       return next
     })
+    // Owner 9/13: the card's "x watching" must move the instant the bookmark
+    // is tapped, not on the next fetch. Floor at 0; undone below on failure.
+    const bumpWatchCount = (delta: number) =>
+      setListings(prev => prev.map(l => l.id === listingId
+        ? { ...l, watch_count: Math.max(0, (l.watch_count || 0) + delta) }
+        : l))
+    bumpWatchCount(wasWatched ? -1 : 1)
 
     try {
       if (wasWatched) {
@@ -501,6 +508,7 @@ function AccessPortalPageInner() {
         await fetchWatchlist()
       }
     } catch (err) {
+      bumpWatchCount(wasWatched ? 1 : -1)
       console.error('Watchlist toggle error:', err)
       // Rollback
       setWatchlistIds(prev => {
