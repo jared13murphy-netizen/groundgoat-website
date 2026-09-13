@@ -34,6 +34,7 @@ interface Listing {
   tracts?: { id: string; tillable_acres?: number; soil_rating?: number; csr2?: number; total_acres?: number; price_per_acre?: number }[]
   is_incomplete?: boolean
   incomplete_reason?: string
+  watch_count?: number
 }
 
 interface PortalListPanelProps {
@@ -180,6 +181,12 @@ function ListingCard({ listing, activeTab, onClick, isWatchlisted, onToggleWatch
             <Bookmark size={14} className={isWatchlisted ? 'text-gg-pink fill-gg-pink' : 'text-white'} />
           </button>
         )}
+        {/* "x watching" attached to the watchlist button (owner 9/13): same row, right of it */}
+        {!!listing.watch_count && (
+          <span className="absolute top-2 left-12 z-10 h-[30px] flex items-center px-2 rounded-lg bg-black/40 backdrop-blur-sm text-white text-xs font-semibold pointer-events-none">
+            {listing.watch_count} watching
+          </span>
+        )}
         {listing.is_incomplete && (
           <span className="absolute top-2 left-2 text-[10px] px-2 py-1 rounded-full font-bold uppercase bg-orange-500/90 text-white shadow-lg">
             Details Coming Soon
@@ -224,6 +231,8 @@ function ListingCard({ listing, activeTab, onClick, isWatchlisted, onToggleWatch
             {listing.company?.name || listing.company_name}
           </div>
         )}
+
+        {/* Watch count */}
 
         {/* Admin: Edit Listing shortcut */}
         {isAdmin && (

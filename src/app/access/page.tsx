@@ -66,6 +66,7 @@ interface Listing {
   tracts?: { id: string; township?: string; total_acres?: number }[]
   created_at?: string
   _distance?: number
+  watch_count?: number
 }
 
 interface AnalyticsData {
