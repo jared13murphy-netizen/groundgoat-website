@@ -385,7 +385,7 @@ function AccessPortalPageInner() {
     })
     const onVisible = () => { if (document.visibilityState === 'visible') liveEvents.connect() }
     document.addEventListener('visibilitychange', onVisible)
-    return () => { off(); document.removeEventListener('visibilitychange', onVisible) }
+    return () => { off(); document.removeEventListener('visibilitychange', onVisible); liveEvents.disconnect() }
   }, [user])
 
   const checkAuth = async () => {
