@@ -82,6 +82,8 @@ function AccessPortalPageInner() {
   const [user, setUser] = useState<User | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<TabType>('map')
+  const activeTabRef = useRef<TabType>('map')
+  activeTabRef.current = activeTab
   const [showListPanel, setShowListPanel] = useState(false)
   const [showAnalyticsPanel, setShowAnalyticsPanel] = useState(false)
   const [filterOpen, setFilterOpen] = useState(false)
@@ -383,9 +385,16 @@ function AccessPortalPageInner() {
         fetchWatchlist() // pulls the full listing row into the watchlist panel
       }
     })
+    // A dropped connection can miss events: when it comes back, reload the
+    // open tab's list so every count is exact again.
+    let wasConnected = liveEvents.isConnected
+    const offConn = liveEvents.on('connection_status', ({ connected }: { connected: boolean }) => {
+      if (connected && !wasConnected) fetchListings(activeTabRef.current)
+      wasConnected = connected
+    })
     const onVisible = () => { if (document.visibilityState === 'visible') liveEvents.connect() }
     document.addEventListener('visibilitychange', onVisible)
-    return () => { off(); document.removeEventListener('visibilitychange', onVisible); liveEvents.disconnect() }
+    return () => { off(); offConn(); document.removeEventListener('visibilitychange', onVisible); liveEvents.disconnect() }
   }, [user])
 
   const checkAuth = async () => {
