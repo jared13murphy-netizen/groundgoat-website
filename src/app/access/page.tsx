@@ -8,6 +8,7 @@ import Link from 'next/link'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Loader2, BarChart3, ArrowLeft } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
+import liveEvents from '@/lib/liveEvents'
 import { SHOW_PRIVATE_TREATY } from '@/lib/featureFlags'
 import { toRings as toTractRings } from '@/lib/polygonRings'
 import { getDistanceToCounty, getCountyCoordinates } from '@/data/countyCoordinates'
@@ -81,6 +82,8 @@ function AccessPortalPageInner() {
   const [user, setUser] = useState<User | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<TabType>('map')
+  const activeTabRef = useRef<TabType>('map')
+  activeTabRef.current = activeTab
   const [showListPanel, setShowListPanel] = useState(false)
   const [showAnalyticsPanel, setShowAnalyticsPanel] = useState(false)
   const [filterOpen, setFilterOpen] = useState(false)
@@ -357,6 +360,41 @@ function AccessPortalPageInner() {
       }
       fetchWatchlist()
     }
+  }, [user])
+
+  // Live updates (owner 9/13, item 13): a watch/unwatch anywhere — phone,
+  // another browser, another person — moves the card's "x watching" here
+  // the moment it happens. When it was my own account on another device,
+  // the bookmark flips too (unless a click here is still in flight).
+  useEffect(() => {
+    if (!user) return
+    liveEvents.connect()
+    const off = liveEvents.on('watch_count_changed', (data: any) => {
+      const id = String(data.listing_id)
+      const count = Math.max(0, Number(data.watch_count) || 0)
+      const mine = String(data.user_id) === String(user.id)
+      const inFlight = watchTogglePendingRef.current.has(id)
+      setListings(prev => prev.map(l => (l.id === id ? { ...l, watch_count: count } : l)))
+      setWatchlistListings(prev => prev.map(l => (l.id === id ? { ...l, watch_count: count } : l)))
+      if (mine && !inFlight) {
+        setWatchlistIds(prev => {
+          const next = new Set(prev)
+          data.watched ? next.add(id) : next.delete(id)
+          return next
+        })
+        fetchWatchlist() // pulls the full listing row into the watchlist panel
+      }
+    })
+    // A dropped connection can miss events: when it comes back, reload the
+    // open tab's list so every count is exact again.
+    let wasConnected = liveEvents.isConnected
+    const offConn = liveEvents.on('connection_status', ({ connected }: { connected: boolean }) => {
+      if (connected && !wasConnected) fetchListings(activeTabRef.current)
+      wasConnected = connected
+    })
+    const onVisible = () => { if (document.visibilityState === 'visible') liveEvents.connect() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => { off(); offConn(); document.removeEventListener('visibilitychange', onVisible); liveEvents.disconnect() }
   }, [user])
 
   const checkAuth = async () => {
