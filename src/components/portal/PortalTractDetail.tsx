@@ -8,6 +8,7 @@ import reportJobEnqueue from '@/lib/reportJobs'
 import { formatAcres } from '@/lib/format'
 import { formatTillable } from '@/lib/tillable'
 import { formatAuctionDate } from '@/lib/auctionTime'
+import { soilRatingLabel, perSoilRatingLabel } from '@/lib/soilRatingLabel'
 import GroundTruthPanel from './GroundTruthPanel'
 import NdviPanel from './NdviPanel'
 import AuctionCountdown from '../AuctionCountdown'
@@ -43,6 +44,9 @@ export interface TractSaleData {
   state: string
   township?: string | null
   soilRating?: number | null
+  /** Names the rating (PI / CSR2 / NCCPI / ...) — sent by the API on the
+   *  record itself, never guessed from state. See src/lib/soilRatingLabel.ts. */
+  soilRatingType?: string | null
   polygonCoordinates?: [number, number][] | null
   saleStatus?: string | null
   listingType?: string | null
@@ -463,7 +467,7 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
         })() : null}
         {tract.soilRating ? (
           <div className="bg-white/[0.03] rounded-xl p-4 border border-white/5">
-            <div className="text-[10px] text-gg-gray-300 uppercase tracking-wider">Soil Rating</div>
+            <div className="text-[10px] text-gg-gray-300 uppercase tracking-wider">{soilRatingLabel(tract)}</div>
             <div className="text-lg font-bold mt-1">{tract.soilRating}</div>
           </div>
         ) : null}
@@ -556,7 +560,7 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
             ) : null}
             {tract.soilRating && (askingPpa || tract.pricePerAcre) ? (
               <DetailRow
-                label="$/Soil Rating"
+                label={perSoilRatingLabel(tract)}
                 value={formatCurrency((askingPpa || tract.pricePerAcre || 0) / tract.soilRating)}
               />
             ) : null}

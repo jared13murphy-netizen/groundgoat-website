@@ -9,34 +9,11 @@ import { formatAcres, toNum } from '@/lib/format'
 import { computeCompAverages } from '@/lib/compAverages'
 import { formatTillable } from '@/lib/tillable'
 import { formatAuctionDateTime } from '@/lib/auctionTime'
+import { soilRatingLabel, perSoilRatingLabel, avgSoilRatingLabel } from '@/lib/soilRatingLabel'
 import SubjectStrip from './SubjectStrip'
 import type { TractSaleData } from './PortalTractDetail'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
-
-// getSoilLabel(t.state) below (used for each comp tract, not the subject)
-// keeps this panel's own state->label lookup — subjectStats' getSoilRatingLabel
-// only handles 2-letter codes, whereas comp tract rows have been seen with a
-// full state name; the subject tile row now goes through SubjectStrip, which
-// uses getSoilRatingLabel directly per the owner's PDF-parity spec.
-const STATE_SOIL_LABELS: Record<string, string> = {
-  IL: 'PI', IA: 'CSR2', IN: 'WAPI', MO: 'NCCPI', MN: 'CPI',
-  NE: 'NCCPI', SD: 'PI', ND: 'PI', KS: 'NCCPI', OH: 'NCCPI',
-  MI: 'NCCPI', WI: 'PI', KY: 'NCCPI', TN: 'NCCPI', WV: 'NCCPI', VA: 'NCCPI',
-}
-
-const STATE_NAME_TO_ABBR: Record<string, string> = {
-  'ILLINOIS': 'IL', 'IOWA': 'IA', 'INDIANA': 'IN', 'MISSOURI': 'MO', 'MINNESOTA': 'MN',
-  'NEBRASKA': 'NE', 'SOUTH DAKOTA': 'SD', 'NORTH DAKOTA': 'ND', 'KANSAS': 'KS', 'OHIO': 'OH',
-  'MICHIGAN': 'MI', 'WISCONSIN': 'WI', 'KENTUCKY': 'KY', 'TENNESSEE': 'TN', 'WEST VIRGINIA': 'WV', 'VIRGINIA': 'VA',
-}
-
-function getSoilLabel(state?: string): string {
-  if (!state) return 'Soil'
-  const upper = state.toUpperCase()
-  const abbr = STATE_NAME_TO_ABBR[upper] || upper
-  return STATE_SOIL_LABELS[abbr] || 'Soil'
-}
 
 function fmt(val?: number | null): string {
   if (!val) return '—'
@@ -297,7 +274,7 @@ export default function PortalComparablesReportPanel({ subjectInfo, reportTracts
             </div>
             <div className="bg-white/[0.03] rounded-xl p-3 border border-white/5">
               <div className="text-lg font-bold">{stats.avgSoilRating ? fmtNum(stats.avgSoilRating) : '—'}</div>
-              <div className="text-[10px] text-gg-gray-400 mt-0.5">Avg Soil Rating</div>
+              <div className="text-[10px] text-gg-gray-400 mt-0.5">{avgSoilRatingLabel({ soil_rating_type: subjectInfo?.subject_soil_rating_type }, reportTracts)}</div>
             </div>
           </div>
         </div>
@@ -344,7 +321,7 @@ export default function PortalComparablesReportPanel({ subjectInfo, reportTracts
                       </div>
                     </div>
                     <div>
-                      <div className="text-[10px] text-gg-gray-500">{getSoilLabel(t.state)}</div>
+                      <div className="text-[10px] text-gg-gray-500">{soilRatingLabel(t)}</div>
                       <div className="text-sm font-medium">{t.soilRating ? fmtNum(t.soilRating) : '—'}</div>
                     </div>
                   </div>
@@ -364,7 +341,7 @@ export default function PortalComparablesReportPanel({ subjectInfo, reportTracts
                       )}
                       {getPricePerSoil(t) && (
                         <div className="text-[10px]">
-                          <span className="text-gg-gray-500">$/{getSoilLabel(t.state)}: </span>
+                          <span className="text-gg-gray-500">{perSoilRatingLabel(t)}: </span>
                           <span className="text-white font-medium">{fmt(getPricePerSoil(t))}</span>
                         </div>
                       )}

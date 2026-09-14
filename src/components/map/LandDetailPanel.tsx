@@ -869,9 +869,9 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
               <StatCard label="Tillable"
                         value={tillableAcres != null ? fmtAcres(Number(tillableAcres))! : '—'}
                         sub={pctTillable != null ? `${Math.round(Number(pctTillable))}% of parcel` : undefined} />
-              <StatCard label="Soil Rating"
+              <StatCard label={ratingLabel}
                         value={soilRating != null ? String(soilRating) : '—'}
-                        sub={soilRating != null ? `${ratingLabel}${state ? ' · ' + state : ''}` : undefined} />
+                        sub={soilRating != null ? (state || undefined) : undefined} />
               <StatCard label="Timber"
                         value={timberAcres != null ? fmtAcres(Number(timberAcres))! : '—'}
                         sub={pctOf(timberAcres)} />

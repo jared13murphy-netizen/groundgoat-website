@@ -29,6 +29,7 @@ import reportJobFetch from '@/lib/reportJobs'
 import { formatAcres } from '@/lib/format'
 import { formatTillable } from '@/lib/tillable'
 import { SOIL_FILTER_ENABLED, TILLABLE_FILTER_ENABLED } from '@/lib/featureFlags'
+import { soilRatingLabel, perSoilRatingLabel } from '@/lib/soilRatingLabel'
 import { shouldHideParcelDotsForFilters } from '@/lib/parcelDotsFilterGate'
 import { toRings as toTractRings, ringsToGeometry, pointInBoundary } from '@/lib/polygonRings'
 import Tract3DModal from '@/components/Tract3DModal'
@@ -10503,10 +10504,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               // of that flag, only for a single applied state the backend has
               // confirmed it understands (GET /api/regrid/config's
               // parcel_data_states). Either condition shows the control.
+              // Label used to say "PI Rating" / "WAPI" / "CSR2" by guessing
+              // from the applied state — an owner-confirmed wrong guess
+              // (some IN parcels are NCCPI, not WAPI). No single record
+              // backs this state-wide filter control, so it stays generic
+              // rather than repeat that guess. See src/lib/soilRatingLabel.ts.
               ...(SOIL_FILTER_ENABLED && filters.stateFilter || parcelDataScope ? [{
-                label: (parcelDataScope || filters.stateFilter) === 'IL' ? 'PI Rating' :
-                       (parcelDataScope || filters.stateFilter) === 'IN' ? 'WAPI' :
-                       (parcelDataScope || filters.stateFilter) === 'IA' ? 'CSR2' : 'Soil Rating',
+                label: 'Soil Rating',
                 minKey: 'soilRatingMin' as keyof FilterState,
                 maxKey: 'soilRatingMax' as keyof FilterState
               }] : []),
@@ -10870,7 +10874,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               {selectedSale.soilRating && selectedSale.pricePerAcre ? (
                 <div className="sale-modal-row">
                   <span className="sale-modal-label">
-                    $/Soil Rating
+                    {perSoilRatingLabel(selectedSale)}
                     {selectedSale.priceBasis && (
                       <span className={`ml-1 text-[9px] font-semibold uppercase px-1 py-0.5 rounded ${selectedSale.priceBasis === 'sold' ? 'bg-green-500/15 text-green-600' : 'bg-amber-500/15 text-amber-600'}`}>
                         {selectedSale.priceBasis === 'sold' ? 'Sold' : 'Asking'}
@@ -11054,6 +11058,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                   total_acres: t.totalAcres,
                   tillable_acres: t.tillableAcres,
                   soil_rating: t.soilRating,
+                  soil_rating_type: t.soilRatingType,
                   price_per_acre: t.pricePerAcre,
                   sale_price: t.salePrice,
                   auction_date: t.auctionDate,
@@ -11280,7 +11285,9 @@ function _section(title: string, rows: string[]): string {
 function _enrichmentPopupSection(enrich: any): string {
   if (!SOIL_FILTER_ENABLED) return ''
   if (!enrich || typeof enrich !== 'object') return ''
-  const ratingType = (enrich.soil_rating_type || 'PI').toUpperCase()
+  // Never default to a guessed type ('PI' was a fixed, not even state-based,
+  // guess) — use the record's own soil_rating_type or the generic fallback.
+  const ratingType = soilRatingLabel({ soil_rating_type: enrich.soil_rating_type })
   const rating = enrich.soil_rating
   const tillable = enrich.tillable_acres
   const pct = enrich.pct_tillable

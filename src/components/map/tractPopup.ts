@@ -1,5 +1,6 @@
 import { STATUS_COLORS } from './mapConstants'
 import { formatAcres } from '@/lib/format'
+import { soilRatingLabel } from '@/lib/soilRatingLabel'
 
 function formatDate(dateStr: string): string {
   if (!dateStr) return 'TBD'
@@ -129,6 +130,7 @@ export function buildExplorePopupHTML(props: Record<string, unknown>): string {
   const township = rawTownship ? (rawTownship.replace(/\s+(Township|CCD|Precinct)\s*$/i, '').replace(/\s+No\.?\s*\d+\s*$/i, '').replace(/^(in|of)\s+/i, '').trim() || rawTownship) : ''
   const listingId = props.listingId as string
   const soilRating = props.soilRating as number
+  const soilRatingType = props.soilRatingType as string
   const pctTillable = props.pctTillable as number
 
   const rateRows = buildRateRows(props)
@@ -167,7 +169,7 @@ export function buildExplorePopupHTML(props: Record<string, unknown>): string {
     ${rateRows}
     ${soilRating ? `
     <div class="tract-popup-row">
-      <span class="tract-popup-label">Soil Rating</span>
+      <span class="tract-popup-label">${soilRatingLabel({ soil_rating_type: soilRatingType })}</span>
       <span class="tract-popup-value">${soilRating}</span>
     </div>` : ''}
     ${township ? `

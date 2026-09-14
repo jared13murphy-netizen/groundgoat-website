@@ -7,6 +7,7 @@ import { formatAcres } from '@/lib/format'
 import { formatTillable } from '@/lib/tillable'
 import { SOIL_FILTER_ENABLED } from '@/lib/featureFlags'
 import { formatAuctionDateTime } from '@/lib/auctionTime'
+import { soilRatingLabel, perSoilRatingLabel } from '@/lib/soilRatingLabel'
 import SubjectStrip from './SubjectStrip'
 
 interface Comparable {
@@ -77,19 +78,6 @@ interface PortalComparablesPanelProps {
 }
 
 type SortOption = 'similarity' | 'distance' | 'price_asc' | 'price_desc' | 'acres' | 'soil_rating' | 'date'
-
-// State-based soil rating label defaults
-const STATE_SOIL_LABELS: Record<string, string> = {
-  IL: 'PI', IA: 'CSR2', IN: 'WAPI', MO: 'NCCPI', MN: 'CPI',
-  NE: 'NCCPI', SD: 'PI', ND: 'PI', KS: 'NCCPI', OH: 'NCCPI',
-  MI: 'NCCPI', WI: 'PI', KY: 'NCCPI', TN: 'NCCPI', WV: 'NCCPI', VA: 'NCCPI',
-}
-
-function getSoilLabel(soilRatingType?: string | null, state?: string): string {
-  if (soilRatingType) return soilRatingType.toUpperCase()
-  if (state) return STATE_SOIL_LABELS[state.toUpperCase()] || 'Soil'
-  return 'Soil'
-}
 
 function getSoilValue(comp: { soil_rating?: number; csr2?: number; soil_rating_type?: string | null; state?: string }): number | null {
   // Use the appropriate field based on type
@@ -281,7 +269,9 @@ export default function PortalComparablesPanel({ data, loading, onClose, onSelec
                   className="bg-transparent text-xs text-gg-gray-300 outline-none flex-1 cursor-pointer"
                 >
                   {SORT_OPTIONS.map(opt => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    <option key={opt.value} value={opt.value}>
+                      {opt.value === 'soil_rating' ? soilRatingLabel(null, data?.comparables) : opt.label}
+                    </option>
                   ))}
                 </select>
               </div>
@@ -326,7 +316,7 @@ export default function PortalComparablesPanel({ data, loading, onClose, onSelec
                   </div>
                   {SOIL_FILTER_ENABLED && (
                     <div>
-                      <label className="text-[10px] text-gg-gray-400 uppercase tracking-wider">Soil Rating</label>
+                      <label className="text-[10px] text-gg-gray-400 uppercase tracking-wider">{soilRatingLabel(null, data?.comparables)}</label>
                       <div className="flex gap-1 mt-1">
                         <input type="number" value={filterMinSoil} onChange={e => setFilterMinSoil(e.target.value)} placeholder="Min" className="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-gg-gray-300 outline-none" />
                         <input type="number" value={filterMaxSoil} onChange={e => setFilterMaxSoil(e.target.value)} placeholder="Max" className="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-gg-gray-300 outline-none" />
@@ -419,7 +409,7 @@ export default function PortalComparablesPanel({ data, loading, onClose, onSelec
                           <div className="text-sm font-medium">{formatTillable(comp.total_acres, comp.tillable_acres, comp.pct_tillable).inlineText}</div>
                         </div>
                         <div>
-                          <div className="text-[10px] text-gg-gray-500">{getSoilLabel(comp.soil_rating_type, comp.state)}</div>
+                          <div className="text-[10px] text-gg-gray-500">{soilRatingLabel(comp)}</div>
                           <div className="text-sm font-medium">{getSoilValue(comp) ?? '—'}</div>
                         </div>
                         <div>
@@ -449,7 +439,7 @@ export default function PortalComparablesPanel({ data, loading, onClose, onSelec
                           })()}
                           {getSoilValue(comp) && comp.price_per_acre ? (
                             <div className="text-[10px]">
-                              <span className="text-gg-gray-500">$/{getSoilLabel(comp.soil_rating_type, comp.state)}: </span>
+                              <span className="text-gg-gray-500">{perSoilRatingLabel(comp)}: </span>
                               <span className="text-white font-medium">{formatCurrency(comp.price_per_acre / getSoilValue(comp)!)}</span>
                             </div>
                           ) : null}

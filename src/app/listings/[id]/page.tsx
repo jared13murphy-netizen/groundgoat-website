@@ -6,6 +6,7 @@ import Link from 'next/link'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { formatAcres, toNum } from '@/lib/format'
 import { formatTillable } from '@/lib/tillable'
+import { soilRatingLabel } from '@/lib/soilRatingLabel'
 import {
   Loader2, ArrowLeft, MapPin, Calendar, Clock, Building2,
   DollarSign, ExternalLink, Share2, BarChart3
@@ -33,6 +34,7 @@ interface Tract {
   total_acres?: number
   tillable_acres?: number
   soil_rating?: number
+  soil_rating_type?: string | null
   land_type?: string
   land_types?: string[]
   sale_status?: string
@@ -493,7 +495,7 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
                     {tract.soil_rating && (
                       <div>
                         <div className="text-white font-medium">{tract.soil_rating}</div>
-                        <div className="text-gg-gray-500 text-xs">Soil Rating</div>
+                        <div className="text-gg-gray-500 text-xs">{soilRatingLabel(tract)}</div>
                       </div>
                     )}
                     {(tract.display_price_per_acre ?? (tract.sale_price && tract.total_acres ? tract.sale_price / tract.total_acres : null)) != null && (
