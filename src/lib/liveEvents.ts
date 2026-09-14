@@ -34,16 +34,19 @@ class LiveEvents {
     try {
       const ws = new WebSocket(`${WS_URL}?token=${encodeURIComponent(token)}`)
       this.ws = ws
-      ws.onopen = () => { this.delay = INITIAL_DELAY; this.resetPingTimer(); this.emit('connection_status', { connected: true }) }
+      ws.onopen = () => { console.debug('[liveEvents] open'); this.delay = INITIAL_DELAY; this.resetPingTimer(); this.emit('connection_status', { connected: true }) }
       ws.onmessage = (ev) => {
         let data: any
         try { data = JSON.parse(ev.data) } catch { return }
         if (data.type === 'ping') { this.send({ type: 'pong' }); this.resetPingTimer(); return }
+        console.debug('[liveEvents] event', data.type, data.listing_id, data.watch_count)
         if (data.type === 'connected') { this.userId = data.user_id ? String(data.user_id) : null; this.resetPingTimer(); return }
         if (data.type === 'auth_error') { ws.close(); return } // fetchWithAuth refreshes the token; next reconnect picks it up
         this.emit(data.type, data)
       }
-      ws.onclose = () => {
+      ws.onclose = (ev) => {
+        console.debug('[liveEvents] closed', ev.code, this.closedOnPurpose ? 'on purpose' : 'unexpected')
+        if (this.ws !== ws) return // a stale socket closing must not touch the live one
         this.clearPingTimer()
         this.emit('connection_status', { connected: false })
         if (!this.closedOnPurpose) this.scheduleReconnect()
