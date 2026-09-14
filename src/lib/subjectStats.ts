@@ -1,7 +1,7 @@
 /**
  * Pure helpers for the "Subject Tract" strip on comp reports (the strip
  * that must be pixel-identical, in content and order, to the owner-approved
- * PDF: Total Acres, Tillable Acres, % Tillable, then the state's native
+ * PDF: Total Acres, Tillable Acres, % Tillable, then the record's own
  * soil-rating tile).
  *
  * Kept dependency-free of React/formatting on purpose — callers decide how
@@ -49,19 +49,6 @@ export function subjectTillableAcres(
   return totalNum * (pctNum / 100)
 }
 
-/**
- * State -> native soil-rating index label (PI / CSR2 / WAPI / NCCPI / CPI),
- * mirroring STATE_SOIL_LABELS in PortalReportPanel.tsx / PortalComparablesReportPanel.tsx.
- * Falls back to the generic "Soil Rating" label used on the PDF and the
- * existing report page when the state isn't mapped.
- */
-const STATE_SOIL_LABELS: Record<string, string> = {
-  IL: 'PI', IA: 'CSR2', IN: 'WAPI', MO: 'NCCPI', MN: 'CPI',
-  NE: 'NCCPI', SD: 'PI', ND: 'PI', KS: 'NCCPI', OH: 'NCCPI',
-  MI: 'NCCPI', WI: 'PI', KY: 'NCCPI', TN: 'NCCPI', WV: 'NCCPI', VA: 'NCCPI',
-}
-
-export function getSoilRatingLabel(state?: string | null): string {
-  if (!state) return 'Soil Rating'
-  return STATE_SOIL_LABELS[state.toUpperCase()] || 'Soil Rating'
-}
+// Soil-rating index labels (PI / CSR2 / WAPI / NCCPI / CPI) now come from
+// each record's own `soil_rating_type` field via src/lib/soilRatingLabel.ts
+// — never from a state guess. See that file's header for why.

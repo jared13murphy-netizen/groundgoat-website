@@ -11,6 +11,7 @@ import { getStatusBadge } from '@/lib/listingStatusBadge'
 import { formatAcres, toNum } from '@/lib/format'
 import { formatTillable } from '@/lib/tillable'
 import { listingMatchesSearch } from '@/lib/listingSearch'
+import { soilRatingLabel } from '@/lib/soilRatingLabel'
 
 type TabType = 'auctions' | 'private_treaty' | 'results'
 
@@ -31,7 +32,7 @@ interface Listing {
   company?: { id: string; name: string }
   company_name?: string
   tract_count?: number
-  tracts?: { id: string; tillable_acres?: number; soil_rating?: number; csr2?: number; total_acres?: number; price_per_acre?: number }[]
+  tracts?: { id: string; tillable_acres?: number; soil_rating?: number; csr2?: number; total_acres?: number; price_per_acre?: number; soil_rating_type?: string | null }[]
   is_incomplete?: boolean
   incomplete_reason?: string
   watch_count?: number
@@ -95,17 +96,6 @@ function formatTime(listing: Listing): string {
 function formatPrice(price?: number): string {
   if (!price) return '—'
   return '$' + Math.round(price).toLocaleString()
-}
-
-const STATE_SOIL_LABELS: Record<string, string> = {
-  IL: 'PI', IA: 'CSR2', IN: 'WAPI', MO: 'NCCPI', MN: 'CPI',
-  NE: 'NCCPI', SD: 'PI', ND: 'PI', KS: 'NCCPI', OH: 'NCCPI',
-  MI: 'NCCPI', WI: 'PI', KY: 'NCCPI', TN: 'NCCPI', WV: 'NCCPI', VA: 'NCCPI',
-}
-
-export function getSoilLabel(state?: string): string {
-  if (state) return STATE_SOIL_LABELS[state.toUpperCase()] || 'Soil'
-  return 'Soil'
 }
 
 export function getListingTillableAcres(tracts?: { tillable_acres?: number; total_acres?: number }[]): number | null {
@@ -290,7 +280,7 @@ function ListingCard({ listing, activeTab, onClick, isWatchlisted, onToggleWatch
                 })()}
               </div>
               <div>
-                <div className="text-[10px] text-gg-gray-300">{getSoilLabel(listing.state)}</div>
+                <div className="text-[10px] text-gg-gray-300">{soilRatingLabel(null, listing.tracts)}</div>
                 <div className="text-sm font-semibold text-white">{listing.is_incomplete ? '—' : (getListingSoilRating(listing.tracts) ?? '—')}</div>
               </div>
             </>

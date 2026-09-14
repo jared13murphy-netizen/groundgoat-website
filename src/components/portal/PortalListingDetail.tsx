@@ -12,7 +12,8 @@ import fetchWithAuth from '@/lib/fetchWithAuth'
 import { formatAcres, toNum } from '@/lib/format'
 import { formatTillable } from '@/lib/tillable'
 import { getStatusBadge } from '@/lib/listingStatusBadge'
-import { getListingTillableAcres, getListingSoilRating, getSoilLabel } from './PortalListPanel'
+import { getListingTillableAcres, getListingSoilRating } from './PortalListPanel'
+import { soilRatingLabel } from '@/lib/soilRatingLabel'
 import AuctionCountdown from '../AuctionCountdown'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
@@ -38,6 +39,7 @@ interface Tract {
   tillable_acres?: number
   pct_tillable?: number
   soil_rating?: number
+  soil_rating_type?: string | null
   csr2?: number
   land_type?: string
   land_types?: string[]
@@ -314,7 +316,7 @@ export default function PortalListingDetail({ listingId, onBack, onTractSelected
         {!listing.is_incomplete && soilRating != null && (
           <div className="text-center">
             <div className="text-lg font-bold">{soilRating}</div>
-            <div className="text-[10px] text-gg-gray-500 uppercase">{getSoilLabel(listing.state)}</div>
+            <div className="text-[10px] text-gg-gray-500 uppercase">{soilRatingLabel(null, listing.tracts)}</div>
           </div>
         )}
       </div>
@@ -491,6 +493,7 @@ export default function PortalListingDetail({ listingId, onBack, onTractSelected
                     state: listing.state,
                     township: tract.township,
                     soilRating: tract.soil_rating,
+                    soilRatingType: tract.soil_rating_type,
                     landType: tract.land_type,
                     landTypes: tract.land_types,
                     polygonCoordinates: tract.polygon_coordinates,
@@ -562,7 +565,7 @@ export default function PortalListingDetail({ listingId, onBack, onTractSelected
                       {tract.soil_rating ? (
                         <div>
                           <div className="text-sm font-semibold text-white">{tract.soil_rating}</div>
-                          <div className="text-[10px] text-gg-gray-300">Soil Rating</div>
+                          <div className="text-[10px] text-gg-gray-300">{soilRatingLabel(tract)}</div>
                         </div>
                       ) : null}
                       {tract.sale_price && tract.total_acres ? (

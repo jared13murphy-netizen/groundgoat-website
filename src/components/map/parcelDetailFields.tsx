@@ -24,6 +24,8 @@
  * regardless of caller).
  */
 
+import { soilRatingLabel } from '@/lib/soilRatingLabel'
+
 // ─── Formatters ──────────────────────────────────────────────────────────
 
 export function fmtMoney(n: any): string | null {
@@ -107,18 +109,13 @@ export function extractTownship(record: any): string {
  * before enrichment resolves).
  */
 export function deriveRatingLabel(soilRatingType: string | null | undefined, state: string | null | undefined): string {
-  if (soilRatingType) return soilRatingType.toUpperCase()
-  const s = (state || '').toUpperCase()
-  // Mirrors the backend's soil_rating_registry (the source of truth):
-  // every state with a native index gets its own label; NCCPI only for
-  // states that genuinely display NCCPI. Owner bug 2026-09-01: an Indiana
-  // parcel showed "NCCPI · IN" with a 141 value — WAPI is a 0-200
-  // bushels-based scale, and labeling it NCCPI (0-100) reads as broken.
-  const NATIVE: Record<string, string> = {
-    IA: 'CSR2', IL: 'PI', MN: 'CPI', IN: 'WAPI', OH: 'WAPI',
-    SD: 'PI', ND: 'PI',
-  }
-  return NATIVE[s] || 'NCCPI'
+  // Never guess a rating type from state (owner rule, 2026-09-13): a state
+  // guess can be WRONG (owner bug 2026-09-01: an Indiana parcel showed
+  // "NCCPI · IN" for a WAPI value — a 0-200 bushels-based scale mislabeled
+  // as 0-100 NCCPI). Always use the record's own soil_rating_type; `state`
+  // is accepted only to keep this function's existing call sites working
+  // and is otherwise unused. See src/lib/soilRatingLabel.ts.
+  return soilRatingLabel({ soil_rating_type: soilRatingType })
 }
 
 // Disclaimer — owner-requested (2026-08-14), verbatim text, do not edit.
@@ -479,7 +476,7 @@ export function ParcelDetailSections({ d, afterSoilRating, hideComposition = fal
           whenever both halves of the combined "PI 128.0"-style value
           are present. */}
       {!hideComposition && d.hasSoilRatingRow && (
-        <Section title="Soil Rating">
+        <Section title={d.ratingLabel}>
           <DetailRow label="Rating" value={`${d.soilRatingType} ${fmtRating1(d.soilRating)}`} />
         </Section>
       )}
