@@ -1114,7 +1114,7 @@ function resolveParcelDataScope(stateFilter: string, parcelDataStates?: string[]
   return registry.has(selected[0]) ? selected[0] : null
 }
 
-function buildFilterParams(filters: FilterState, parcelDataStates?: string[] | null) {
+function buildFilterParams(filters: FilterState, parcelDataStates?: string[] | null, allowedStates?: string[] | null) {
   const params: Record<string, string> = {}
   // Registry-gated scope for THIS call's filter state (see
   // resolveParcelDataScope above) — soil_rating_min/max and
@@ -1156,7 +1156,14 @@ function buildFilterParams(filters: FilterState, parcelDataStates?: string[] | n
     params.date_to = new Date().toISOString().split('T')[0]
   }
   if (filters.statuses?.length > 0) params.sale_status = filters.statuses.flatMap(s => s.split(',')).join(',')
+  // Restricted user, no state chip picked (spec §3, owner 2026-09-15 item
+  // 18): default state_abbr to the whole allowed list instead of leaving
+  // it unsent — the server already withholds out-of-plan data regardless,
+  // but sending it here keeps this fetch's own results (and any count it
+  // drives) consistent with what the state chips/badges now show. An
+  // explicit chip pick always wins outright.
   if (filters.stateFilter) params.state_abbr = filters.stateFilter
+  else if (allowedStates && allowedStates.length > 0) params.state_abbr = allowedStates.join(',')
   if (filters.countyFilters?.length > 0) params.county_name = filters.countyFilters.join(',')
   if (filters.townshipFilters?.length > 0) params.township = filters.townshipFilters.join(',')
   if ((SOIL_FILTER_ENABLED || registryScoped) && filters.soilRatingMin) params.soil_rating_min = filters.soilRatingMin
@@ -2441,8 +2448,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // without needing another Apply — same reason the dots/counts must never
   // disagree (see DEFAULT_PARCEL_SALE_WINDOW_YEARS above).
   const filterParamString = useMemo(() => {
-    return new URLSearchParams(buildFilterParams(appliedFilters, parcelDataStates)).toString()
-  }, [appliedFilters, parcelDataStates])
+    return new URLSearchParams(buildFilterParams(appliedFilters, parcelDataStates, allowedStates)).toString()
+  }, [appliedFilters, parcelDataStates, allowedStates])
 
   // Load nationwide county centroids ONCE so the county-tier badges
   // can render for every U.S. county.
@@ -2966,7 +2973,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // result is silently dropped and the user sees zero pins — even
     // though the count badges (which come from a different endpoint)
     // claim matches exist.
-    const filterParams = buildFilterParams(nextFilters, regridConfigRef.current?.parcel_data_states)
+    const filterParams = buildFilterParams(nextFilters, regridConfigRef.current?.parcel_data_states, allowedStates)
     const extra = Object.entries(filterParams)
       .map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&')
     const url = `${API_URL}/api/map/tracts?min_lat=${qSouth}&max_lat=${qNorth}&min_lng=${qWest}&max_lng=${qEast}&include_polygons=true${extra ? '&' + extra : ''}`
@@ -3753,7 +3760,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     let cellComplete = false
     try {
       setLoading(true)
-      const filterParams = buildFilterParams(filtersRef.current, regridConfigRef.current?.parcel_data_states)
+      const filterParams = buildFilterParams(filtersRef.current, regridConfigRef.current?.parcel_data_states, allowedStates)
       // In comparables mode, only show sold tracts. Force this
       // unconditionally (not just when unset) — comp mode is an
       // invariant, not a default: a Live/Listed status pill left active
@@ -6608,7 +6615,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // produces the same location/status/acreage/price/date params
       // the tract fetch sends; the backend now understands them for
       // this endpoint too (see get_map_parcel_sale_dots in main.py).
-      const filterParams = buildFilterParams(filtersRef.current, regridConfigRef.current?.parcel_data_states)
+      const filterParams = buildFilterParams(filtersRef.current, regridConfigRef.current?.parcel_data_states, allowedStates)
       const qs = new URLSearchParams({
         min_lat: String(bounds.south),
         max_lat: String(bounds.north),
@@ -8990,7 +8997,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       ...Object.keys(stateCentroids),
       ...stateCounts.map(s => s.state),
     ]))
-    for (const state of allStates) {
+    // Restricted user (spec §3, owner 2026-09-15 item 18): this badge's
+    // "Filter" link is itself a quick state-filter (seeds stateFilter to
+    // the clicked state and zooms in) — nationwide badges here would let
+    // a restricted user "quick-filter" into a state their plan doesn't
+    // cover. Scope the badge grid to allowedStates the same way the
+    // Filter Panel's state chips are scoped below.
+    const scopedStates = allowedStates ? allStates.filter(s => allowedStates.includes(s)) : allStates
+    for (const state of scopedStates) {
       let lng: number | undefined
       let lat: number | undefined
       const c = stateCentroids[state]
@@ -9144,7 +9158,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       stateMarkersRef.current = []
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stateCounts, mapLoaded, currentTier, stateSilhouettes, stateBboxes, hasActiveFilters])
+  }, [stateCounts, mapLoaded, currentTier, stateSilhouettes, stateBboxes, hasActiveFilters, allowedStates])
 
   // ── County COUNT bubbles (filter-active): setData + click. Visibility
   // is toggled by the hasActiveFilters effect below (setLayoutProperty),
@@ -10424,9 +10438,15 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               )}
             </div>
 
-            {/* State Filter — from API (all states with boundary data) */}
+            {/* State Filter — from API (all states with boundary data).
+                Restricted user (spec §3): narrow to allowed_states — no
+                separate "All" affordance exists to remove, each state is
+                already an independent toggle, so restricting this array
+                is sufficient. */}
             {(() => {
-              const states = filterOptions.states
+              const states = allowedStates
+                ? filterOptions.states.filter(st => allowedStates.includes(st))
+                : filterOptions.states
               if (states.length === 0) return null
               return (
                 <div style={{ marginBottom: 24 }}>
