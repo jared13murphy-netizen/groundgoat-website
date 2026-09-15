@@ -2052,11 +2052,18 @@ export default function ConfigureMap() {
    *  when nothing is unsaved, otherwise ask — and there OK SAVES and
    *  switches rather than throwing the work away. Tries the LOCAL list
    *  first (Stage 2/3's own tracts), then falls back to fetching a
-   *  saved tract that is not in this session's list. */
+   *  saved tract that is not in this session's list.
+   *
+   *  Stage 2 is exempt entirely: every tract there is a draft by design
+   *  (the owner's process builds the whole list before land types), so
+   *  selecting a row — or a tract's outline/badge on the map — just
+   *  switches, no matter what `dirty` says. The guard only matters in
+   *  Stage 3, where opening another tract's land types can discard
+   *  edits to the one on screen. */
   const requestOpen = useCallback((id: string) => {
     if (id === selectedTractIdRef.current) return
     const doOpen = () => { if (!openLocalTract(id)) void openSavedTractRef.current?.(id) }
-    if (!dirtyRef.current) { doOpen(); return }
+    if (stageRef.current !== 'landtypes' || !dirtyRef.current) { doOpen(); return }
     setPendingOpen(id)
     setConfirmWhat('switch')
   }, [openLocalTract])
