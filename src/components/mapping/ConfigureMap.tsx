@@ -671,6 +671,19 @@ export default function ConfigureMap() {
     forceHist((t) => t + 1)
   }, [])
 
+  /** AUDIT HIGH: this shape-level stack belongs to whichever tract is
+   *  open, and used to only be cleared on SOME of the paths that change
+   *  `selectedTractId` (a fresh parcel load, a re-classify) — not
+   *  `openLocalTract` (switching to an existing tract already in the
+   *  session) or the save-and-switch confirm, both of which go through
+   *  it. Undo on tract B could then pop an entry pushed while tract A
+   *  was open, overwriting B's shapes with A's. One place, keyed on the
+   *  tract itself, catches every switch regardless of path. */
+  useEffect(() => {
+    undoRef.current = []; redoRef.current = []
+    forceHist((t) => t + 1)
+  }, [selectedTractId])
+
   // ── load a parcel ─────────────────────────────────────────────────
   /** ADDS a tract to Stage 2's list — the common path (owner process:
    *  "click a parcel on the map"). Appending onto an empty list is the
