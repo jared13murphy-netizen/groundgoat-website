@@ -1905,6 +1905,27 @@ export default function ConfigureMap() {
   }, [])
   const toggleFrameParcelRef = useRef(toggleFrameParcel); toggleFrameParcelRef.current = toggleFrameParcel
 
+  /** 'Select frame parcels' → Done. The frame is a WHOLE-PROJECT
+   *  boundary — `snapTracts` below fits EVERY tract to it, not just
+   *  ones added since — so finishing frame selection with parcels
+   *  chosen means no tract still sourced from a single old assessor
+   *  parcel will keep that shape (owner, re: the Hiland scenario: "none
+   *  of the current parcels will be the same shape"). Those drop
+   *  automatically here, in one Stage 2 undo entry, so Undo restores
+   *  them. A hand-drawn tract has no parcel behind it to go stale and
+   *  is always kept. No-op if nothing was picked (tool just disarms). */
+  const finishFrameSelection = useCallback(() => {
+    setTool(null)
+    const n = frameParcelsRef.current.length
+    if (!n) return
+    const stale = tractsRef.current.filter((t) => t.source.kind === 'parcel')
+    if (!stale.length) return
+    snapshotTracts(tractsRef.current)
+    setTracts((prev) => prev.filter((t) => t.source.kind !== 'parcel'))
+    setSelectedTractId((cur) => (stale.some((t) => t.id === cur) ? null : cur))
+    setSavedMsg(`Frame set from ${n} parcel${n === 1 ? '' : 's'} — draw your tracts inside it.`)
+  }, [snapshotTracts])
+
   /** 'Snap tracts' / 'Snap to Parcel' (design spec §2, §4). Builds the
    *  FRAME — the picked frame parcels combined, or (no frame picked) a
    *  single tract's own source parcel, or (neither) every tract's own
@@ -2805,7 +2826,7 @@ export default function ConfigureMap() {
         {stage === 'tracts' && (
           <div style={toolbarBar}>
             <button
-              onClick={() => { setTool(tool === 'frame' ? null : 'frame') }}
+              onClick={() => (tool === 'frame' ? finishFrameSelection() : setTool('frame'))}
               style={{ ...btn, outline: tool === 'frame' ? '2px solid #ffffff' : 'none',
                        outlineOffset: tool === 'frame' ? 1 : 0 }}>
               {tool === 'frame' ? <><Check size={13} /> Done</> : <><LayoutGrid size={13} /> Select frame parcels</>}
