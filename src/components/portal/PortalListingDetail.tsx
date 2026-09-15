@@ -5,13 +5,16 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { motion } from 'framer-motion'
 import {
-  MapPin, Calendar, Clock, Building2,
+  MapPin, Calendar, Hourglass, Clock, Building2,
   DollarSign, ExternalLink, Share2, BarChart3, Loader2, RefreshCw, Bookmark
 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { formatAcres, toNum } from '@/lib/format'
+import { formatTillable } from '@/lib/tillable'
 import { getStatusBadge } from '@/lib/listingStatusBadge'
-import { getListingTillableAcres, getListingSoilRating, getSoilLabel } from './PortalListPanel'
+import { getListingTillableAcres, getListingSoilRating } from './PortalListPanel'
+import { soilRatingLabel } from '@/lib/soilRatingLabel'
+import AuctionCountdown from '../AuctionCountdown'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=600'
@@ -36,6 +39,7 @@ interface Tract {
   tillable_acres?: number
   pct_tillable?: number
   soil_rating?: number
+  soil_rating_type?: string | null
   csr2?: number
   land_type?: string
   land_types?: string[]
@@ -300,16 +304,19 @@ export default function PortalListingDetail({ listingId, onBack, onTractSelected
             <div className="text-[10px] text-gg-gray-500 uppercase">$/Acre</div>
           </div>
         )}
-        {!listing.is_incomplete && tillableAcres != null && (
-          <div className="text-center">
-            <div className="text-lg font-bold">{formatAcres(tillableAcres)} ac</div>
-            <div className="text-[10px] text-gg-gray-500 uppercase">Tillable</div>
-          </div>
-        )}
+        {!listing.is_incomplete && tillableAcres != null && (() => {
+          const tillableFmt = formatTillable(getTotalAcres(), tillableAcres, null)
+          return (
+            <div className="text-center">
+              <div className="text-lg font-bold">{tillableFmt.acresText}</div>
+              <div className="text-[10px] text-gg-gray-500 uppercase">Tillable{tillableFmt.pctText ? ` · ${tillableFmt.pctText}` : ''}</div>
+            </div>
+          )
+        })()}
         {!listing.is_incomplete && soilRating != null && (
           <div className="text-center">
             <div className="text-lg font-bold">{soilRating}</div>
-            <div className="text-[10px] text-gg-gray-500 uppercase">{getSoilLabel(listing.state)}</div>
+            <div className="text-[10px] text-gg-gray-500 uppercase">{soilRatingLabel(null, listing.tracts)}</div>
           </div>
         )}
       </div>
@@ -325,6 +332,17 @@ export default function PortalListingDetail({ listingId, onBack, onTractSelected
               <div className="text-sm">{formatDate(listing.auction_datetime || listing.auction_date)}</div>
             </div>
           </div>
+          {listing.status?.toLowerCase() !== 'live' && (
+            <AuctionCountdown
+              variant="row"
+              stacked
+              icon={<Hourglass size={16} className="text-gg-pink shrink-0" />}
+              value={listing.auction_datetime || listing.auction_date}
+              className="flex items-center gap-3"
+              labelClassName="text-[10px] text-gg-gray-500"
+              valueClassName="text-sm"
+            />
+          )}
           {formatTime(listing) && (
             <div className="flex items-center gap-3">
               <Clock size={16} className="text-gg-pink shrink-0" />
@@ -445,7 +463,9 @@ export default function PortalListingDetail({ listingId, onBack, onTractSelected
             Tracts ({listing.tracts.length})
           </h3>
           <div className="space-y-3">
-            {listing.tracts.map((tract, index) => {
+            {/* Always numerical order, Tract 1 first (owner 9/11): the API now
+                orders them too, but never trust payload order for this. */}
+            {[...listing.tracts].sort((a, b) => (a.tract_number || 0) - (b.tract_number || 0)).map((tract, index) => {
               const handleTractClick = () => {
                 if (onTractSelected) {
                   // Mirror the field shape that ExploreMap.createMarker
@@ -473,6 +493,7 @@ export default function PortalListingDetail({ listingId, onBack, onTractSelected
                     state: listing.state,
                     township: tract.township,
                     soilRating: tract.soil_rating,
+                    soilRatingType: tract.soil_rating_type,
                     landType: tract.land_type,
                     landTypes: tract.land_types,
                     polygonCoordinates: tract.polygon_coordinates,
@@ -532,16 +553,19 @@ export default function PortalListingDetail({ listingId, onBack, onTractSelected
                         <div className="text-sm font-semibold text-white">{formatAcres(tract.total_acres)}</div>
                         <div className="text-[10px] text-gg-gray-300">Acres</div>
                       </div>
-                      {tract.tillable_acres ? (
-                        <div>
-                          <div className="text-sm font-semibold text-white">{formatAcres(tract.tillable_acres)}</div>
-                          <div className="text-[10px] text-gg-gray-300">Tillable</div>
-                        </div>
-                      ) : null}
+                      {tract.tillable_acres ? (() => {
+                        const tillableFmt = formatTillable(tract.total_acres, tract.tillable_acres, tract.pct_tillable)
+                        return (
+                          <div>
+                            <div className="text-sm font-semibold text-white">{tillableFmt.acresText}</div>
+                            <div className="text-[10px] text-gg-gray-300">Tillable{tillableFmt.pctText ? ` · ${tillableFmt.pctText}` : ''}</div>
+                          </div>
+                        )
+                      })() : null}
                       {tract.soil_rating ? (
                         <div>
                           <div className="text-sm font-semibold text-white">{tract.soil_rating}</div>
-                          <div className="text-[10px] text-gg-gray-300">Soil Rating</div>
+                          <div className="text-[10px] text-gg-gray-300">{soilRatingLabel(tract)}</div>
                         </div>
                       ) : null}
                       {tract.sale_price && tract.total_acres ? (

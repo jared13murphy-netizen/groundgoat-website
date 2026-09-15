@@ -32,6 +32,7 @@ import {
 } from 'lucide-react'
 import fetchWithAuth, { fetchScraperProxy } from '@/lib/fetchWithAuth'
 import { formatAcres } from '@/lib/format'
+import { formatTillable } from '@/lib/tillable'
 import CompanyLinkEditor, { type CompanyOption } from '@/components/admin/CompanyLinkEditor'
 import openListingReport from '@/lib/openListingReport'
 import TractMapEditor from '@/components/admin/TractMapEditor'
@@ -1963,7 +1964,7 @@ export default function AdminPrivateTreatyStagingPage() {
                           <div className="mb-4">
                             <p className="text-xs text-gg-gray-400 mb-2 font-medium uppercase tracking-wider">Tract Details</p>
                             <div className="space-y-4">
-                              {info.tracts.map((tract: any, idx: number) => {
+                              {[...info.tracts].sort((a: any, b: any) => (Number(a.tract_number) || 0) - (Number(b.tract_number) || 0)).map((tract: any, idx: number) => {
                                 const tractKey = `${listing.id}-${idx}`
                                 const showTill = tract.tillable_polygon != null && !tillableHidden.has(tractKey)
                                 // Kick off source-image fetch on first
@@ -2732,7 +2733,13 @@ export default function AdminPrivateTreatyStagingPage() {
                           />
                         </div>
                         <div>
-                          <label className="block text-xs text-gg-gray-400 mb-1">Tillable Acres</label>
+                          <label className="block text-xs text-gg-gray-400 mb-1">
+                            Tillable Acres
+                            {(() => {
+                              const pctText = formatTillable(tract.acres, tract.tillable_acres, null).pctText
+                              return pctText ? <span className="text-gg-gray-500"> ({pctText})</span> : null
+                            })()}
+                          </label>
                           <input
                             type="number"
                             step="0.01"

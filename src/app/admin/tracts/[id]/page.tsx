@@ -6,6 +6,7 @@ import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Save, Loader2, Trash2 } from 'lucide-react'
 import ConfirmDeleteTractModal from '@/components/admin/ConfirmDeleteTractModal'
+import { formatTillable } from '@/lib/tillable'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -432,7 +433,13 @@ export default function EditTractPage() {
                 />
               </div>
               <div>
-                <label className="block text-gg-gray-400 text-sm mb-1">Tillable</label>
+                <label className="block text-gg-gray-400 text-sm mb-1">
+                  Tillable
+                  {(() => {
+                    const pctText = formatTillable(formData.total_acres, formData.tillable_acres, null).pctText
+                    return pctText ? <span className="text-gg-gray-500"> ({pctText})</span> : null
+                  })()}
+                </label>
                 <input
                   type="number"
                   name="tillable_acres"

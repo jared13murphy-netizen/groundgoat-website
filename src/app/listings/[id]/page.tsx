@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { formatAcres, toNum } from '@/lib/format'
+import { formatTillable } from '@/lib/tillable'
+import { soilRatingLabel } from '@/lib/soilRatingLabel'
 import {
   Loader2, ArrowLeft, MapPin, Calendar, Clock, Building2,
   DollarSign, ExternalLink, Share2, BarChart3
@@ -32,6 +34,7 @@ interface Tract {
   total_acres?: number
   tillable_acres?: number
   soil_rating?: number
+  soil_rating_type?: string | null
   land_type?: string
   land_types?: string[]
   sale_status?: string
@@ -442,7 +445,7 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
               Tracts ({listing.tracts.length})
             </h2>
             <div className="space-y-4">
-              {listing.tracts.map((tract, index) => (
+              {[...listing.tracts].sort((a, b) => (a.tract_number || 0) - (b.tract_number || 0)).map((tract, index) => (
                 <div key={tract.id || index} className="bg-gg-gray-800 rounded-lg p-4">
                   {/* Tract Header */}
                   <div className="flex items-center justify-between mb-3">
@@ -480,16 +483,19 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
                       <div className="text-white font-medium">{formatAcres(tract.total_acres)}</div>
                       <div className="text-gg-gray-500 text-xs">Acres</div>
                     </div>
-                    {tract.tillable_acres && (
-                      <div>
-                        <div className="text-white font-medium">{formatAcres(tract.tillable_acres)}</div>
-                        <div className="text-gg-gray-500 text-xs">Tillable</div>
-                      </div>
-                    )}
+                    {tract.tillable_acres && (() => {
+                      const tillableFmt = formatTillable(tract.total_acres, tract.tillable_acres, null)
+                      return (
+                        <div>
+                          <div className="text-white font-medium">{tillableFmt.acresText}</div>
+                          <div className="text-gg-gray-500 text-xs">Tillable{tillableFmt.pctText ? ` · ${tillableFmt.pctText}` : ''}</div>
+                        </div>
+                      )
+                    })()}
                     {tract.soil_rating && (
                       <div>
                         <div className="text-white font-medium">{tract.soil_rating}</div>
-                        <div className="text-gg-gray-500 text-xs">Soil Rating</div>
+                        <div className="text-gg-gray-500 text-xs">{soilRatingLabel(tract)}</div>
                       </div>
                     )}
                     {(tract.display_price_per_acre ?? (tract.sale_price && tract.total_acres ? tract.sale_price / tract.total_acres : null)) != null && (

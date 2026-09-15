@@ -3,6 +3,7 @@ import type { StateAggregate } from './mapTypes'
 import { STATE_ABBR, STATE_BOUNDS, STATE_CENTERS, STATE_NAMES, derivePinStatus } from './mapConstants'
 import { formatAcres } from '@/lib/format'
 import { resolveTractDotLngLat } from '@/lib/polygonCentroid'
+import { toRings } from '@/lib/polygonRings'
 
 function getStateAbbr(state: string): string {
   return STATE_ABBR[state] || state
@@ -20,21 +21,16 @@ function fmtAcres(acres: number | null | undefined): string {
   return formatAcres(acres)
 }
 
-// A tract boundary is one ring [[lng,lat],...] (legacy) or a list of rings
-// [[[lng,lat],...],...] for a multi-piece tract. toRings normalizes either to a
-// list of rings (a single ring → one-element list).
-type Ring = [number, number][]
-function toRings(coords: any): Ring[] {
-  if (!Array.isArray(coords) || coords.length === 0) return []
-  const first = coords[0]
-  if (Array.isArray(first) && typeof first[0] === 'number') return [coords as Ring]
-  return (coords as any[]).filter((r) => Array.isArray(r) && r.length >= 3) as Ring[]
-}
-function closeRing(ring: Ring): Ring {
-  if (ring.length < 3) return ring
-  const f = ring[0]; const l = ring[ring.length - 1]
-  return (f[0] !== l[0] || f[1] !== l[1]) ? [...ring, [f[0], f[1]]] : ring
-}
+// A tract boundary is one ring [[lng,lat],...] (legacy), a list of rings
+// [[[lng,lat],...],...] for a multi-piece tract, or a GeoJSON MultiPolygon
+// shape. toRings (src/lib/polygonRings.ts, delegating to src/lib/
+// tractPolygon.ts normalizeRings) normalizes any of those to a flat list of
+// closed, non-degenerate rings — dropping digitization slivers that would
+// otherwise sit alongside a tract's real outline in the same MultiPolygon
+// feature and fail native tessellation for the whole thing (owner bug
+// 2026-09-09). This used to be an independent, unguarded copy of toRings —
+// now delegates to the shared implementation so this map never regresses
+// separately from the rest of the app.
 
 // Multi-tract listings often share ONE geocoded lat/lng across all their tract
 // rows. Left un-offset, co-located tracts stack pixel-perfectly and a click
@@ -79,7 +75,7 @@ export function buildExplorePointGeoJSON(tracts: ApiMapTract[]): GeoJSON.Feature
     features: resolved.map(({ t, pt }) => {
       let [lng, lat] = pt
 
-      const rings = toRings(t.polygon_coordinates).filter(r => r.length >= 3)
+      const rings = toRings(t.polygon_coordinates)
 
       // Offset co-located points
       ;[lng, lat] = applyColocationOffset(lat, lng, coordCounts)
@@ -185,14 +181,15 @@ export function buildTodayPointGeoJSON(tracts: ApiMapTract[]): GeoJSON.FeatureCo
 
 export function buildExplorePolygonGeoJSON(tracts: ApiMapTract[]): GeoJSON.FeatureCollection {
   const polygonTracts = tracts.filter(
-    t => toRings(t.polygon_coordinates).some(r => r.length >= 3)
+    t => toRings(t.polygon_coordinates).length > 0
   )
 
   return {
     type: 'FeatureCollection',
     features: polygonTracts.map(t => {
-      // All rings (each closed). One ring → Polygon; multiple → MultiPolygon.
-      const rings = toRings(t.polygon_coordinates).filter(r => r.length >= 3).map(closeRing)
+      // All rings (each closed, degenerate slivers already dropped by
+      // toRings). One ring → Polygon; multiple → MultiPolygon.
+      const rings = toRings(t.polygon_coordinates)
       const geometry = rings.length <= 1
         ? { type: 'Polygon' as const, coordinates: [rings[0]] }
         : { type: 'MultiPolygon' as const, coordinates: rings.map(r => [r]) }

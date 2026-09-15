@@ -8,6 +8,7 @@ import Link from 'next/link'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Loader2, BarChart3, ArrowLeft } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
+import liveEvents from '@/lib/liveEvents'
 import { SHOW_PRIVATE_TREATY } from '@/lib/featureFlags'
 import { toRings as toTractRings } from '@/lib/polygonRings'
 import { getDistanceToCounty, getCountyCoordinates } from '@/data/countyCoordinates'
@@ -18,6 +19,7 @@ import PortalAnalyticsPanel from '@/components/portal/PortalAnalyticsPanel'
 import PortalListingDetail from '@/components/portal/PortalListingDetail'
 import PortalTractDetail, { TractDetailActionBar, TractMediaSlot, tractHasMedia } from '@/components/portal/PortalTractDetail'
 import { canUseReportsFor } from '@/lib/reportAccess'
+import { decodeArea } from '@/lib/shareLink'
 import PortalComparablesReportPanel from '@/components/portal/PortalComparablesReportPanel'
 import PortalReportPanel from '@/components/portal/PortalReportPanel'
 import MapChatPanel from '@/components/portal/MapChatPanel'
@@ -65,6 +67,7 @@ interface Listing {
   tracts?: { id: string; township?: string; total_acres?: number }[]
   created_at?: string
   _distance?: number
+  watch_count?: number
 }
 
 interface AnalyticsData {
@@ -79,6 +82,8 @@ function AccessPortalPageInner() {
   const [user, setUser] = useState<User | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<TabType>('map')
+  const activeTabRef = useRef<TabType>('map')
+  activeTabRef.current = activeTab
   const [showListPanel, setShowListPanel] = useState(false)
   const [showAnalyticsPanel, setShowAnalyticsPanel] = useState(false)
   const [filterOpen, setFilterOpen] = useState(false)
@@ -108,6 +113,12 @@ function AccessPortalPageInner() {
   // `coords` is a single flat ring OR a list of rings (multi-piece tract) —
   // see toRings in @/lib/polygonRings. ExploreMap normalizes either shape.
   const [zoomToBoundsSignal, setZoomToBoundsSignal] = useState<{ coords: [number, number][] | [number, number][][]; nonce: number } | null>(null)
+  // Shared-link pin/area (from /go — Quick Draw or Set Pin share). At most
+  // one of these is set at a time (a share link is either a pin or an
+  // area, never both — see shareLink.ts's buildGoLink). [lng, lat] ring,
+  // same convention as everything else that feeds ExploreMap's map layers.
+  const [sharedPin, setSharedPin] = useState<{ lat: number; lng: number } | null>(null)
+  const [sharedArea, setSharedArea] = useState<[number, number][] | null>(null)
   // Most-recently-clicked tract polygon. Force-rendered on the map even
   // if the tract's status would otherwise be filtered out by the
   // current view (e.g. a sold tract inside an upcoming-auction listing).
@@ -141,6 +152,27 @@ function AccessPortalPageInner() {
     // covers a slow first map-load, so panning away later isn't yanked back.
     setZoomToLocation({ lat, lng, zoom: Number.isFinite(zoom) ? zoom : 15 })
     setTimeout(() => setZoomToLocation(null), 10000)
+
+    // /go share-link extras (Quick Draw or Set Pin) — at most one of these
+    // is present. `area` wins if a link somehow carried both, matching
+    // buildGoLink's own precedence. Neither ever clears itself: unlike the
+    // camera fly-to, the pin/area is the whole point of a shared link and
+    // should stay on the map until the user does something that would
+    // naturally replace it (there's no such action here yet).
+    const areaParam = searchParams.get('area')
+    if (areaParam) {
+      try {
+        // shareLink's wire format is [lat, lng] pairs (Google polyline
+        // convention); ExploreMap's ring convention is [lng, lat].
+        const ring = decodeArea(areaParam).map(([plat, plng]) => [plng, plat] as [number, number])
+        if (ring.length >= 3) setSharedArea(ring)
+      } catch {
+        // Malformed/truncated area param (e.g. a link cut short by a
+        // messaging app) — fail quietly and just show the pin/camera zoom.
+      }
+    } else if (searchParams.get('pin') === '1') {
+      setSharedPin({ lat, lng })
+    }
   }, [user, searchParams])
   // Shared pin: mobile app share links add &pin=1 onto the same
   // focusLat/focusLng shape above (e.g. https://groundgoat.com/access?
@@ -359,6 +391,41 @@ function AccessPortalPageInner() {
     }
   }, [user])
 
+  // Live updates (owner 9/13, item 13): a watch/unwatch anywhere — phone,
+  // another browser, another person — moves the card's "x watching" here
+  // the moment it happens. When it was my own account on another device,
+  // the bookmark flips too (unless a click here is still in flight).
+  useEffect(() => {
+    if (!user) return
+    liveEvents.connect()
+    const off = liveEvents.on('watch_count_changed', (data: any) => {
+      const id = String(data.listing_id)
+      const count = Math.max(0, Number(data.watch_count) || 0)
+      const mine = String(data.user_id) === String(user.id)
+      const inFlight = watchTogglePendingRef.current.has(id)
+      setListings(prev => prev.map(l => (l.id === id ? { ...l, watch_count: count } : l)))
+      setWatchlistListings(prev => prev.map(l => (l.id === id ? { ...l, watch_count: count } : l)))
+      if (mine && !inFlight) {
+        setWatchlistIds(prev => {
+          const next = new Set(prev)
+          data.watched ? next.add(id) : next.delete(id)
+          return next
+        })
+        fetchWatchlist() // pulls the full listing row into the watchlist panel
+      }
+    })
+    // A dropped connection can miss events: when it comes back, reload the
+    // open tab's list so every count is exact again.
+    let wasConnected = liveEvents.isConnected
+    const offConn = liveEvents.on('connection_status', ({ connected }: { connected: boolean }) => {
+      if (connected && !wasConnected) fetchListings(activeTabRef.current)
+      wasConnected = connected
+    })
+    const onVisible = () => { if (document.visibilityState === 'visible') liveEvents.connect() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => { off(); offConn(); document.removeEventListener('visibilitychange', onVisible); liveEvents.disconnect() }
+  }, [user])
+
   const checkAuth = async () => {
     try {
       const token = localStorage.getItem('auth_token')
@@ -471,6 +538,13 @@ function AccessPortalPageInner() {
       wasWatched ? next.delete(listingId) : next.add(listingId)
       return next
     })
+    // Owner 9/13: the card's "x watching" must move the instant the bookmark
+    // is tapped, not on the next fetch. Floor at 0; undone below on failure.
+    const bumpWatchCount = (delta: number) =>
+      setListings(prev => prev.map(l => l.id === listingId
+        ? { ...l, watch_count: Math.max(0, (l.watch_count || 0) + delta) }
+        : l))
+    bumpWatchCount(wasWatched ? -1 : 1)
 
     try {
       if (wasWatched) {
@@ -501,6 +575,7 @@ function AccessPortalPageInner() {
         await fetchWatchlist()
       }
     } catch (err) {
+      bumpWatchCount(wasWatched ? 1 : -1)
       console.error('Watchlist toggle error:', err)
       // Rollback
       setWatchlistIds(prev => {
@@ -813,6 +888,8 @@ function AccessPortalPageInner() {
           sharedPin={sharedPin}
           zoomToBoundsSignal={zoomToBoundsSignal}
           pinnedTractPolygon={pinnedTractPolygon}
+          sharedPin={sharedPin}
+          sharedArea={sharedArea}
           subjectTractId={subjectTractId}
           subjectTractLocation={subjectTractLocation}
           resetFiltersSignal={resetFiltersSignal}

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Pencil, Check, X, Loader2, Save, CheckCircle2, Trash2, AlertTriangle } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { formatAcres } from '@/lib/format'
+import { formatTillable } from '@/lib/tillable'
 import TractMapEditor from '@/components/admin/TractMapEditor'
 import TillableCluWorkshop from '@/components/admin/TillableCluWorkshop'
 import LandTypeButtons from '@/components/admin/LandTypeButtons'
@@ -383,7 +384,13 @@ export default function ListingTractCard({ tract, listing, onChanged, onDeleted,
           <input type="number" step="0.01" className={inputCls} value={form.total_acres} onChange={(e) => set('total_acres', e.target.value)} />
         </div>
         <div>
-          <label className={labelCls}>Tillable acres</label>
+          <label className={labelCls}>
+            Tillable acres
+            {(() => {
+              const pctText = formatTillable(form.total_acres, form.tillable_acres, null).pctText
+              return pctText ? <span className="text-gg-gray-500"> ({pctText})</span> : null
+            })()}
+          </label>
           <input type="number" step="0.01" className={inputCls} value={form.tillable_acres} onChange={(e) => set('tillable_acres', e.target.value)} />
         </div>
         <div>

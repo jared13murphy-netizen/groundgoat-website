@@ -37,6 +37,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Check } from 'lucide-react'
 import LandTypeButtons from '@/components/admin/LandTypeButtons'
 import { fetchScraperProxy } from '@/lib/fetchWithAuth'
+import { formatTillable } from '@/lib/tillable'
 
 interface ScrapedComputed {
   acres?: number | null
@@ -396,7 +397,10 @@ export default function TractDataCompare({
           </span>
         )}
         <span className="mr-3">Acres: {fmtAcres(t.acres)}</span>
-        <span className="mr-3">Tillable: {fmtAcres(t.tillable_acres)}</span>
+        <span className="mr-3">Tillable: {fmtAcres(t.tillable_acres)}{(() => {
+          const pctText = formatTillable(t.acres, t.tillable_acres, null).pctText
+          return pctText ? ` (${pctText})` : ''
+        })()}</span>
         <span>Soil: {fmtSoil(t.soil_rating, t.soil_rating_type)}</span>
         <HouseCheckbox />
         <BuildingCheckbox />

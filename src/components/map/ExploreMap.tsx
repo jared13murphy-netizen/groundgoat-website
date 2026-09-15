@@ -27,7 +27,9 @@ import {
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import reportJobFetch from '@/lib/reportJobs'
 import { formatAcres } from '@/lib/format'
+import { formatTillable } from '@/lib/tillable'
 import { SOIL_FILTER_ENABLED, TILLABLE_FILTER_ENABLED } from '@/lib/featureFlags'
+import { soilRatingLabel, perSoilRatingLabel } from '@/lib/soilRatingLabel'
 import { shouldHideParcelDotsForFilters } from '@/lib/parcelDotsFilterGate'
 import { toRings as toTractRings, ringsToGeometry, pointInBoundary } from '@/lib/polygonRings'
 import Tract3DModal from '@/components/Tract3DModal'
@@ -1679,6 +1681,11 @@ interface ExploreMapProps {
       active. The parent mirrors this into PortalNavBar's active styling
       since that state lives inside this component. */
   onUtilitiesActiveChange?: (active: boolean) => void
+  /** /go Quick-Draw share: outlines this ring on the map and fits the
+      camera to it. [lng, lat] pairs, same convention as
+      zoomToBoundsSignal/pinnedTractPolygon's coords. Does not need to be
+      closed (first === last) — the render effect closes it. */
+  sharedArea?: [number, number][] | null
 }
 
 // ── CDL_PALETTE — USDA Cropland Data Layer code → {name, color} ─────────────
@@ -1943,6 +1950,7 @@ const SET_PIN_CURSOR_SVG =
 const SET_PIN_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(SET_PIN_CURSOR_SVG)}") 12 30, crosshair`
 
 export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onLandDetailOpen, externalTractSelection, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, chatSearchEndSignal, onChatSearchError, ownerParcelsResult, onShowOwnedGround, comparableVisibleIds, neighborParcels, neighborsLoading, sharedPin, onOpenGoatSearch, utilitiesToggleSignal, onUtilitiesActiveChange }: ExploreMapProps) {
+export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onLandDetailOpen, externalTractSelection, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, chatSearchEndSignal, onChatSearchError, ownerParcelsResult, onShowOwnedGround, comparableVisibleIds, neighborParcels, neighborsLoading, sharedPin, sharedArea }: ExploreMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const stateMarkersRef = useRef<maplibregl.Marker[]>([])
@@ -3949,6 +3957,93 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       { padding: 80, duration: 1200, maxZoom: 16 },
     )
   }, [zoomToBoundsSignal?.nonce])
+
+  // Shared-pin marker (/go Set-Pin share, sharedPin prop) — a DOM Marker,
+  // same visual treatment as the mobile app's own "dropped pin" (white
+  // outline behind a pink glyph, anchor bottom) so a shared pin reads the
+  // same on both surfaces. No interaction beyond showing where the sender
+  // meant — this isn't the tract-pin click system, just a marker.
+  const sharedPinMarkerRef = useRef<maplibregl.Marker | null>(null)
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+
+    sharedPinMarkerRef.current?.remove()
+    sharedPinMarkerRef.current = null
+    if (!sharedPin) return
+
+    const el = document.createElement('div')
+    el.className = 'gg-shared-pin'
+    el.innerHTML = `
+      <svg width="40" height="40" viewBox="0 0 24 24" style="position:absolute;top:-3px;left:-3px">
+        <path fill="#fff" d="M12 2C7.6 2 4 5.6 4 10c0 5.4 6.6 11.2 7.2 11.7a1.2 1.2 0 0 0 1.6 0C13.4 21.2 20 15.4 20 10c0-4.4-3.6-8-8-8z"/>
+      </svg>
+      <svg width="34" height="34" viewBox="0 0 24 24">
+        <path fill="#E91E8C" d="M12 2C7.6 2 4 5.6 4 10c0 5.4 6.6 11.2 7.2 11.7a1.2 1.2 0 0 0 1.6 0C13.4 21.2 20 15.4 20 10c0-4.4-3.6-8-8-8z"/>
+      </svg>
+    `
+    el.style.position = 'relative'
+    el.style.width = '34px'
+    el.style.height = '34px'
+
+    const marker = new maplibregl.Marker({ element: el, anchor: 'bottom' })
+      .setLngLat([sharedPin.lng, sharedPin.lat])
+      .addTo(map)
+    sharedPinMarkerRef.current = marker
+
+    return () => {
+      marker.remove()
+      if (sharedPinMarkerRef.current === marker) sharedPinMarkerRef.current = null
+    }
+  }, [mapLoaded, sharedPin])
+
+  // Shared-area outline (/go Quick-Draw share, sharedArea prop). Lazily
+  // creates the source/layers on first use (mirrors the tract-polygons
+  // effect above) rather than adding them in the mount-time 'load' handler
+  // — keeps this feature fully self-contained. Same #E91E8C fill/line the
+  // mobile app's own Draw Area layer uses (ExploreMapView.js), so a shared
+  // area reads the same on both surfaces.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+
+    const geometry = sharedArea && sharedArea.length >= 3 ? ringsToGeometry(sharedArea) : null
+    const data: GeoJSON.FeatureCollection = geometry
+      ? { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: geometry as GeoJSON.Geometry }] }
+      : EMPTY_FC
+
+    const src = map.getSource('shared-area') as maplibregl.GeoJSONSource
+    if (src) {
+      src.setData(data)
+    } else {
+      map.addSource('shared-area', { type: 'geojson', data })
+      map.addLayer({
+        id: 'shared-area-fill',
+        type: 'fill',
+        source: 'shared-area',
+        paint: { 'fill-color': '#E91E8C', 'fill-opacity': 0.18 },
+      })
+      map.addLayer({
+        id: 'shared-area-line',
+        type: 'line',
+        source: 'shared-area',
+        paint: { 'line-color': '#E91E8C', 'line-width': 3 },
+      })
+    }
+
+    if (sharedArea && sharedArea.length >= 3) {
+      let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity
+      for (const [lng, lat] of sharedArea) {
+        if (lng < minLng) minLng = lng
+        if (lng > maxLng) maxLng = lng
+        if (lat < minLat) minLat = lat
+        if (lat > maxLat) maxLat = lat
+      }
+      if (Number.isFinite(minLng)) {
+        map.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 80, duration: 1200, maxZoom: 17 })
+      }
+    }
+  }, [mapLoaded, sharedArea])
 
   const setFilterOpen = (open: boolean) => {
     setFilterOpenInternal(open)
@@ -11907,10 +12002,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               // of that flag, only for a single applied state the backend has
               // confirmed it understands (GET /api/regrid/config's
               // parcel_data_states). Either condition shows the control.
+              // Label used to say "PI Rating" / "WAPI" / "CSR2" by guessing
+              // from the applied state — an owner-confirmed wrong guess
+              // (some IN parcels are NCCPI, not WAPI). No single record
+              // backs this state-wide filter control, so it stays generic
+              // rather than repeat that guess. See src/lib/soilRatingLabel.ts.
               ...(SOIL_FILTER_ENABLED && filters.stateFilter || parcelDataScope ? [{
-                label: (parcelDataScope || filters.stateFilter) === 'IL' ? 'PI Rating' :
-                       (parcelDataScope || filters.stateFilter) === 'IN' ? 'WAPI' :
-                       (parcelDataScope || filters.stateFilter) === 'IA' ? 'CSR2' : 'Soil Rating',
+                label: 'Soil Rating',
                 minKey: 'soilRatingMin' as keyof FilterState,
                 maxKey: 'soilRatingMax' as keyof FilterState
               }] : []),
@@ -12157,7 +12255,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               {selectedSale.tillableAcres ? (
                 <div className="sale-modal-row">
                   <span className="sale-modal-label">Tillable Acres</span>
-                  <span className="sale-modal-value">{formatAcres(selectedSale.tillableAcres)} ac</span>
+                  <span className="sale-modal-value">{formatTillable(selectedSale.totalAcres, selectedSale.tillableAcres, selectedSale.pctTillable).inlineText}</span>
                 </div>
               ) : null}
               {selectedSale.tillableAcres && selectedSale.pricePerAcre && selectedSale.totalAcres ? (
@@ -12176,7 +12274,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               {selectedSale.soilRating && selectedSale.pricePerAcre ? (
                 <div className="sale-modal-row">
                   <span className="sale-modal-label">
-                    $/Soil Rating
+                    {perSoilRatingLabel(selectedSale)}
                     {selectedSale.priceBasis && (
                       <span className={`ml-1 text-[9px] font-semibold uppercase px-1 py-0.5 rounded ${selectedSale.priceBasis === 'sold' ? 'bg-green-500/15 text-green-600' : 'bg-amber-500/15 text-amber-600'}`}>
                         {selectedSale.priceBasis === 'sold' ? 'Sold' : 'Asking'}
@@ -12360,6 +12458,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                   total_acres: t.totalAcres,
                   tillable_acres: t.tillableAcres,
                   soil_rating: t.soilRating,
+                  soil_rating_type: t.soilRatingType,
                   price_per_acre: t.pricePerAcre,
                   sale_price: t.salePrice,
                   auction_date: t.auctionDate,
@@ -12586,7 +12685,9 @@ function _section(title: string, rows: string[]): string {
 function _enrichmentPopupSection(enrich: any): string {
   if (!SOIL_FILTER_ENABLED) return ''
   if (!enrich || typeof enrich !== 'object') return ''
-  const ratingType = (enrich.soil_rating_type || 'PI').toUpperCase()
+  // Never default to a guessed type ('PI' was a fixed, not even state-based,
+  // guess) — use the record's own soil_rating_type or the generic fallback.
+  const ratingType = soilRatingLabel({ soil_rating_type: enrich.soil_rating_type })
   const rating = enrich.soil_rating
   const tillable = enrich.tillable_acres
   const pct = enrich.pct_tillable

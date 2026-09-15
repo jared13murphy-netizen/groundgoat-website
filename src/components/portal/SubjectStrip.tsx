@@ -1,8 +1,9 @@
 /**
  * Shared "Subject Tract" tile row — FOUR tiles, fixed order, matching the
  * owner-approved PDF strip exactly: Total Acres, Tillable Acres,
- * % Tillable, then the state's native soil-rating tile (PI/CSR2/WAPI/
- * NCCPI/CPI, or `subject_soil_rating_type` when the backend supplies one).
+ * % Tillable, then the subject's own soil-rating tile — labeled from
+ * `soilRatingType` (PI/CSR2/WAPI/NCCPI/CPI/...), never guessed from state.
+ * See src/lib/soilRatingLabel.ts.
  *
  * Used by PortalComparablesReportPanel, PortalReportPanel,
  * PortalComparablesPanel, and the listings comp-report page
@@ -14,7 +15,8 @@
  * not truthiness checks. See src/lib/subjectStats.ts for why that matters.
  */
 import { toNum } from '@/lib/format'
-import { subjectTillableAcres, getSoilRatingLabel } from '@/lib/subjectStats'
+import { subjectTillableAcres } from '@/lib/subjectStats'
+import { soilRatingLabel } from '@/lib/soilRatingLabel'
 
 interface SubjectStripProps {
   totalAcres?: number | string | null
@@ -55,7 +57,7 @@ export default function SubjectStrip({
   const pct = explicitPct != null ? Math.round(explicitPct) : derivedPct
 
   const soil = toNum(soilRating)
-  const soilLabel = soilRatingType || getSoilRatingLabel(state)
+  const soilLabel = soilRatingLabel({ soil_rating_type: soilRatingType })
 
   const tiles: [string, string][] = [
     ['Total Acres', fmtDecimal(toNum(totalAcres))],  // one decimal, same as the PDF and the app

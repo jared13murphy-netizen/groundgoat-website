@@ -3,12 +3,15 @@
 import { useState, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import Image from 'next/image'
+import AuctionCountdown from '@/components/AuctionCountdown'
 import { X, Calendar, Building2, DollarSign, Loader2, MapPin, Bookmark, Pencil, Search } from 'lucide-react'
 import Link from 'next/link'
 import PortalListingDetail from './PortalListingDetail'
 import { getStatusBadge } from '@/lib/listingStatusBadge'
 import { formatAcres, toNum } from '@/lib/format'
+import { formatTillable } from '@/lib/tillable'
 import { listingMatchesSearch } from '@/lib/listingSearch'
+import { soilRatingLabel } from '@/lib/soilRatingLabel'
 
 type TabType = 'auctions' | 'private_treaty' | 'results'
 
@@ -29,9 +32,10 @@ interface Listing {
   company?: { id: string; name: string }
   company_name?: string
   tract_count?: number
-  tracts?: { id: string; tillable_acres?: number; soil_rating?: number; csr2?: number; total_acres?: number; price_per_acre?: number }[]
+  tracts?: { id: string; tillable_acres?: number; soil_rating?: number; csr2?: number; total_acres?: number; price_per_acre?: number; soil_rating_type?: string | null }[]
   is_incomplete?: boolean
   incomplete_reason?: string
+  watch_count?: number
 }
 
 interface PortalListPanelProps {
@@ -92,17 +96,6 @@ function formatTime(listing: Listing): string {
 function formatPrice(price?: number): string {
   if (!price) return '—'
   return '$' + Math.round(price).toLocaleString()
-}
-
-const STATE_SOIL_LABELS: Record<string, string> = {
-  IL: 'PI', IA: 'CSR2', IN: 'WAPI', MO: 'NCCPI', MN: 'CPI',
-  NE: 'NCCPI', SD: 'PI', ND: 'PI', KS: 'NCCPI', OH: 'NCCPI',
-  MI: 'NCCPI', WI: 'PI', KY: 'NCCPI', TN: 'NCCPI', WV: 'NCCPI', VA: 'NCCPI',
-}
-
-export function getSoilLabel(state?: string): string {
-  if (state) return STATE_SOIL_LABELS[state.toUpperCase()] || 'Soil'
-  return 'Soil'
 }
 
 export function getListingTillableAcres(tracts?: { tillable_acres?: number; total_acres?: number }[]): number | null {
@@ -178,10 +171,19 @@ function ListingCard({ listing, activeTab, onClick, isWatchlisted, onToggleWatch
             <Bookmark size={14} className={isWatchlisted ? 'text-gg-pink fill-gg-pink' : 'text-white'} />
           </button>
         )}
+        {/* "x watching" attached to the watchlist button (owner 9/13): same row, right of it */}
+        {!!listing.watch_count && (
+          <span className="absolute top-2 left-12 z-10 h-[30px] flex items-center px-2 rounded-lg bg-black/40 backdrop-blur-sm text-white text-xs font-semibold pointer-events-none">
+            {listing.watch_count} watching
+          </span>
+        )}
         {listing.is_incomplete && (
           <span className="absolute top-2 left-2 text-[10px] px-2 py-1 rounded-full font-bold uppercase bg-orange-500/90 text-white shadow-lg">
             Details Coming Soon
           </span>
+        )}
+        {listing.status?.toLowerCase() !== 'live' && (
+          <AuctionCountdown variant="card" value={listing.auction_datetime || listing.auction_date} />
         )}
         {(() => {
           // Always show a status badge so card and detail-page badges
@@ -219,6 +221,8 @@ function ListingCard({ listing, activeTab, onClick, isWatchlisted, onToggleWatch
             {listing.company?.name || listing.company_name}
           </div>
         )}
+
+        {/* Watch count */}
 
         {/* Admin: Edit Listing shortcut */}
         {isAdmin && (
@@ -262,10 +266,21 @@ function ListingCard({ listing, activeTab, onClick, isWatchlisted, onToggleWatch
             <>
               <div>
                 <div className="text-[10px] text-gg-gray-300">Tillable</div>
-                <div className="text-sm font-semibold text-white">{listing.is_incomplete ? '—' : (getListingTillableAcres(listing.tracts) ? formatAcres(getListingTillableAcres(listing.tracts)!) + ' ac' : '—')}</div>
+                {(() => {
+                  if (listing.is_incomplete) return <div className="text-sm font-semibold text-white">—</div>
+                  const tillableFmt = formatTillable(listing.total_acres, getListingTillableAcres(listing.tracts), null)
+                  return (
+                    <>
+                      <div className="text-sm font-semibold text-white">{tillableFmt.acresText}</div>
+                      {tillableFmt.pctText ? (
+                        <div className="text-[10px] text-gg-gray-300">{tillableFmt.pctText}</div>
+                      ) : null}
+                    </>
+                  )
+                })()}
               </div>
               <div>
-                <div className="text-[10px] text-gg-gray-300">{getSoilLabel(listing.state)}</div>
+                <div className="text-[10px] text-gg-gray-300">{soilRatingLabel(null, listing.tracts)}</div>
                 <div className="text-sm font-semibold text-white">{listing.is_incomplete ? '—' : (getListingSoilRating(listing.tracts) ?? '—')}</div>
               </div>
             </>
