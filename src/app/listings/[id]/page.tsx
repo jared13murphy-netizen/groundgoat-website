@@ -7,6 +7,7 @@ import fetchWithAuth from '@/lib/fetchWithAuth'
 import { formatAcres, toNum } from '@/lib/format'
 import { formatTillable } from '@/lib/tillable'
 import { soilRatingLabel } from '@/lib/soilRatingLabel'
+import { isAllowedForExplore } from '@/lib/stateAccess'
 import {
   Loader2, ArrowLeft, MapPin, Calendar, Clock, Building2,
   DollarSign, ExternalLink, Share2, BarChart3
@@ -78,9 +79,9 @@ interface Listing {
 
 interface User {
   account_type: string
+  // Premium_state gate (owner 2026-09-15, item 18) — see @/lib/stateAccess.
+  allowed_states?: string[] | null
 }
-
-const ALLOWED_ROLES = ['groundgoat_admin', 'groundgoat_sales', 'firm_admin', 'firm_user']
 
 const LAND_TYPE_COLORS: Record<string, string> = {
   'Farm': 'bg-green-500',
@@ -134,7 +135,7 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
 
       const userData = await response.json()
 
-      if (!ALLOWED_ROLES.includes(userData.account_type)) {
+      if (!isAllowedForExplore(userData)) {
         router.push('/account')
         return
       }

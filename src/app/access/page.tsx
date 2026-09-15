@@ -26,13 +26,12 @@ import MapChatPanel from '@/components/portal/MapChatPanel'
 import PortalWatchlistPanel from '@/components/portal/PortalWatchlistPanel'
 import type { TractSaleData } from '@/components/portal/PortalTractDetail'
 import type { OwnerParcelsResponse } from '@/components/map/exploreMapTypes'
+import { isAllowedForExplore, getAllowedStates, formatStateList } from '@/lib/stateAccess'
 
 const ExploreMap = dynamic(() => import('@/components/map/ExploreMap'), { ssr: false })
 const Tract3DModal = dynamic(() => import('@/components/Tract3DModal'), { ssr: false })
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
-
-const ALLOWED_ROLES = ['groundgoat_admin', 'groundgoat_sales', 'firm_admin', 'firm_user']
 
 type TabType = 'map' | 'auctions' | 'private_treaty' | 'results'
 
@@ -45,6 +44,11 @@ interface User {
   home_county?: string
   home_state?: string
   can_use_goat_search?: boolean
+  // Premium_state gate (owner 2026-09-15, item 18): 2-letter state
+  // abbrevs this account is subscribed to, or null for staff/firms
+  // (unlimited — see @/lib/stateAccess). See isAllowedForExplore for
+  // the gate that decides who reaches this page at all.
+  allowed_states?: string[] | null
 }
 
 interface Listing {
@@ -131,6 +135,26 @@ function AccessPortalPageInner() {
   // listing's load.
   const [mapListingMeta, setMapListingMeta] = useState<{ county: string; state: string } | null>(null)
   useEffect(() => { setMapListingMeta(null) }, [mapListingId])
+  // Premium_state gate (owner 2026-09-15, item 18): null = unlimited
+  // (staff/firms), a non-empty array = the states this account may see.
+  // See @/lib/stateAccess — this is the ONE place allowed_states is read
+  // off `user`; every child panel below receives it as a prop.
+  const allowedStates = getAllowedStates(user)
+  // /go's out-of-plan redirect (see app/go/page.tsx): a shared pin outside
+  // the user's subscribed state(s) lands here with ?outOfPlan=1 instead of
+  // focusLat/focusLng — the map falls back to its normal homeState
+  // centering (below) and this shows a one-time toast explaining why the
+  // shared spot didn't appear. Fires once, same ref pattern as the focus
+  // effect above.
+  const [outOfPlanToast, setOutOfPlanToast] = useState(false)
+  const outOfPlanHandledRef = useRef(false)
+  useEffect(() => {
+    if (outOfPlanHandledRef.current || !user) return
+    if (searchParams.get('outOfPlan') !== '1') return
+    outOfPlanHandledRef.current = true
+    setOutOfPlanToast(true)
+    setTimeout(() => setOutOfPlanToast(false), 6000)
+  }, [user, searchParams])
   // Deep-link focus: when the Explore map is opened with
   // ?focusLat=&focusLng=&focusZoom= (e.g. the "View on Map" button on
   // the staging screen), zoom there once the map is mounted. Fires a
@@ -410,7 +434,12 @@ function AccessPortalPageInner() {
 
       const userData = await response.json()
 
-      if (!ALLOWED_ROLES.includes(userData.account_type)) {
+      // Fail closed: an individual only gets past this gate with a
+      // non-empty allowed_states array (isAllowedForExplore) — a
+      // failed /me call above already hits the catch below and
+      // redirects home, so there's no path where a restricted
+      // individual is admitted without a real allowed_states value.
+      if (!isAllowedForExplore(userData)) {
         router.replace('/')
         return
       }
@@ -841,8 +870,13 @@ function AccessPortalPageInner() {
       <div className="absolute inset-0">
         <ExploreMap
           height="100vh"
-          homeState={user.home_state}
-          homeCounty={user.home_county}
+          // Restricted user: always center on their first subscribed
+          // state (spec §8) — home_state/home_county may sit outside
+          // their plan, so don't pass a county without a matching
+          // state alongside it. Unrestricted: unchanged.
+          homeState={allowedStates ? allowedStates[0] : user.home_state}
+          homeCounty={allowedStates ? undefined : user.home_county}
+          allowedStates={allowedStates}
           portalMode={true}
           externalFilterOpen={filterOpen}
           onFilterOpenChange={setFilterOpen}
@@ -922,6 +956,7 @@ function AccessPortalPageInner() {
             userAccountType={user?.account_type}
             watchlistIds={watchlistIds}
             onToggleWatchlist={handleToggleWatchlist}
+            allowedStates={allowedStates}
           />
         )}
       </AnimatePresence>
@@ -1140,6 +1175,7 @@ function AccessPortalPageInner() {
               closeAllLeftPanels()
               setMapListingId(listingId)
             }}
+            allowedStates={allowedStates}
           />
         )}
       </AnimatePresence>
@@ -1174,6 +1210,39 @@ function AccessPortalPageInner() {
             onView3DTerrain={handleView3DTerrain}
             onViewListing={(listingId) => setMapListingId(listingId)}
           />
+        )}
+      </AnimatePresence>
+
+      {/* /go out-of-plan toast (spec §7): sits below the map's own
+          persistent state-gate banner (ExploreMap.tsx, top:16) so the
+          two never overlap. One-time, auto-dismisses. */}
+      <AnimatePresence>
+        {outOfPlanToast && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            style={{
+              position: 'fixed',
+              top: 70,
+              left: '50%',
+              transform: 'translateX(-50%)',
+              zIndex: 600,
+              backgroundColor: 'rgba(0,0,0,0.85)',
+              border: '1px solid rgba(233,30,140,0.35)',
+              borderRadius: 8,
+              padding: '8px 16px',
+              color: '#fff',
+              fontSize: 13,
+              boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+              maxWidth: '90vw',
+              textAlign: 'center',
+            }}
+          >
+            {/* Singular — the redirect lands on allowedStates[0] specifically
+                (spec §7's example), not the full plan list. */}
+            That spot isn&apos;t in your plan — showing {allowedStates && allowedStates.length ? formatStateList([allowedStates[0]]) : 'your area'} instead.
+          </motion.div>
         )}
       </AnimatePresence>
 

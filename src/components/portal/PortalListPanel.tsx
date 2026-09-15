@@ -12,6 +12,7 @@ import { formatAcres, toNum } from '@/lib/format'
 import { formatTillable } from '@/lib/tillable'
 import { listingMatchesSearch } from '@/lib/listingSearch'
 import { soilRatingLabel } from '@/lib/soilRatingLabel'
+import { formatStateList } from '@/lib/stateAccess'
 
 type TabType = 'auctions' | 'private_treaty' | 'results'
 
@@ -54,6 +55,11 @@ interface PortalListPanelProps {
   userAccountType?: string
   watchlistIds?: Set<string>
   onToggleWatchlist?: (listingId: string) => void
+  /** Premium_state gate (owner 2026-09-15, item 18): non-null = this
+      user only sees these states — drives the scope line under the
+      tab title and the restricted empty-state copy. null = unlimited
+      (staff/firms). See @/lib/stateAccess. */
+  allowedStates?: string[] | null
 }
 
 const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=600'
@@ -70,6 +76,14 @@ const TAB_TITLES: Record<TabType, string> = {
   auctions: 'Upcoming Auctions',
   private_treaty: 'Private Treaty',
   results: 'Recent Results',
+}
+
+// Tab-appropriate noun for the restricted scope line / empty-state copy
+// (spec §4): "Illinois auctions", "No results in Illinois right now...".
+const TAB_NOUNS: Record<TabType, string> = {
+  auctions: 'auctions',
+  private_treaty: 'listings',
+  results: 'results',
 }
 
 function formatDate(listing: Listing): string {
@@ -340,7 +354,7 @@ function ListingCard({ listing, activeTab, onClick, isWatchlisted, onToggleWatch
   )
 }
 
-export default function PortalListPanel({ listings, loading, activeTab, onClose, onTractSelected, onListingLoaded, onFindComparables, activeFilters, onClearFilters, userAccountType, watchlistIds, onToggleWatchlist }: PortalListPanelProps) {
+export default function PortalListPanel({ listings, loading, activeTab, onClose, onTractSelected, onListingLoaded, onFindComparables, activeFilters, onClearFilters, userAccountType, watchlistIds, onToggleWatchlist, allowedStates }: PortalListPanelProps) {
   const [selectedListingId, setSelectedListingId] = useState<string | null>(null)
   // Free-text search over the panel's listings (owner ask 2026-07-28 — parity
   // with the mobile Auctions/Results screens). Filters CLIENT-SIDE over the
@@ -380,6 +394,18 @@ export default function PortalListPanel({ listings, loading, activeTab, onClose,
             <X size={16} className="text-gg-gray-400" />
           </button>
         </div>
+        {/* Restricted-user scope line (spec §4): "Illinois auctions" /
+            "Illinois & Iowa auctions" — only for a premium_state
+            subscriber, and only on the list view (the detail view has
+            its own listing's county/state subtitle already). */}
+        {!selectedListingId && allowedStates && allowedStates.length > 0 && (
+          <p className="text-[11px] text-gg-gray-500 uppercase tracking-wide mt-1">
+            {allowedStates.length === 1
+              ? formatStateList(allowedStates)
+              : allowedStates.map((a) => formatStateList([a])).join(' & ')}{' '}
+            {TAB_NOUNS[activeTab]}
+          </p>
+        )}
         {/* Free-text search (owner ask 2026-07-28, mobile parity). Hidden in
             the listing-detail view, where there's no list to filter. */}
         {!selectedListingId && (
@@ -463,6 +489,8 @@ export default function PortalListPanel({ listings, loading, activeTab, onClose,
                   Clear search
                 </button>
               </>
+            ) : allowedStates && allowedStates.length > 0 && listings.length === 0 ? (
+              <p className="text-sm">No {TAB_NOUNS[activeTab]} in {formatStateList(allowedStates)} right now — check back soon.</p>
             ) : (
               <p className="text-sm">No listings found</p>
             )}
