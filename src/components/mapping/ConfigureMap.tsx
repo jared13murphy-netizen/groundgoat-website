@@ -496,20 +496,6 @@ export default function ConfigureMap() {
       t.id === selectedTractIdRef.current ? fn(t) : t))
   }, [])
 
-  /** Replace the whole tract list with ONE new tract and select it.
-   *
-   *  Step-1 scope: this mirrors today's single-parcel-at-a-time
-   *  behaviour exactly (loading a parcel replaces whatever was open) so
-   *  the screen keeps working while only the state underneath it moves.
-   *  The Stage 2 multi-tract pass changes this to ADD a tract instead of
-   *  replacing the list. */
-  const openTract = useCallback((overrides: Partial<Tract> = {}) => {
-    const t = newTract(overrides)
-    setTracts([t])
-    setSelectedTractId(t.id)
-    return t
-  }, [])
-
   /** Stage 2: ADD a tract to the list rather than replacing it — a
    *  parcel click or a free-hand draw builds the list one tract at a
    *  time (owner process). Appending onto an empty list is exactly
@@ -775,6 +761,16 @@ export default function ConfigureMap() {
   /** Open a saved tract into the editor. Extracted from the ?parcel=
    *  boot path so clicking another tract on the map can reuse it. */
   const openSavedTract = useCallback(async (saved: string, startEditing = false) => {
+    // Already in the session's local list (e.g. a peer badge on the map
+    // for a tract that was itself opened earlier this session) — select
+    // it rather than fetching and re-adding it. Without this dedupe,
+    // requestOpen's fallback (a peer whose id is not a LOCAL tract id,
+    // because it is keyed by the server's savedId) landed here every
+    // time, and this used to hand the result to openTract, which
+    // REPLACED the whole Stage 2 list — silently discarding every other
+    // tract, saved or not.
+    const already = tractsRef.current.find((t) => t.savedId === saved)
+    if (already) { setSelectedTractId(already.id); return }
     let cancelled = false
     await (async () => {
       setBusy('Opening saved parcel…')
@@ -790,13 +786,15 @@ export default function ConfigureMap() {
         }
         const loadedShapes = simplifyShapes(explodeShapes(rec.polygons as any))
         const loadedRings = geometryToPolys(rec.boundary)
-        // Every field goes into ONE openTract call rather than a
+        // Every field goes into ONE addTract call rather than a
         // sequence of setDetail/setShapes/setName calls — those write
         // through a ref (updateActiveTract reads selectedTractIdRef) that
         // only catches up on the NEXT render, so chaining them right
         // after the tract that ref is about to point at is created would
-        // silently miss the brand-new tract and write nothing.
-        openTract({
+        // silently miss the brand-new tract and write nothing. addTract
+        // APPENDS to the list (and snapshots it for undo) — this used to
+        // go through openTract, which replaced the whole list.
+        addTract({
           savedId: rec.id,
           name: rec.name,
           source: { kind: 'parcel', ll_uuids: rec.source_ll_uuids || [] },
@@ -843,7 +841,7 @@ export default function ConfigureMap() {
         setError(e?.message || 'Could not open that saved parcel.')
       } finally { setBusy(null) }
     })()
-  }, [openTract])
+  }, [addTract])
   const openSavedTractRef = useRef(openSavedTract); openSavedTractRef.current = openSavedTract
 
   // ── map ───────────────────────────────────────────────────────────
