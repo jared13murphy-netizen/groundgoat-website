@@ -538,10 +538,17 @@ export default function ConfigureMap() {
   const loadParcelRef = useRef(loadParcel); loadParcelRef.current = loadParcel
 
   // ── open from the Map Portfolio (?parcel= / ?project=) ────────────
+  // or from Explore's "Configure Map" button (?ll_uuid=&stage=tracts) ─
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const proj = params.get('project')
     const saved = params.get('parcel')
+    // ?ll_uuid= is a REGRID parcel, not a saved tract id — ?parcel=
+    // keeps meaning the latter, so a saved-tract link still wins if both
+    // somehow show up. Goes through the exact same /api/mapping/parcel
+    // fetch a map click does (loadParcel), so this is not a separate
+    // boot path to keep in sync — just a second way to kick it off.
+    const llUuid = params.get('ll_uuid')
     if (proj) setProjectId(proj)
     // 'Add tract' passes new=1: stay on a blank canvas inside this
     // project instead of reopening the tract that is already there.
@@ -564,6 +571,7 @@ export default function ConfigureMap() {
       })()
       return () => { stop = true }
     }
+    if (!saved && llUuid) { void loadParcelRef.current?.(llUuid); return }
     if (!saved) return
     void openSavedTractRef.current?.(saved, params.get('edit') === '1')
   }, [ready])
