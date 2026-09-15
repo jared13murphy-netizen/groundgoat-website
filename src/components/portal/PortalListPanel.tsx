@@ -400,9 +400,7 @@ export default function PortalListPanel({ listings, loading, activeTab, onClose,
             its own listing's county/state subtitle already). */}
         {!selectedListingId && allowedStates && allowedStates.length > 0 && (
           <p className="text-[11px] text-gg-gray-500 uppercase tracking-wide mt-1">
-            {allowedStates.length === 1
-              ? formatStateList(allowedStates)
-              : allowedStates.map((a) => formatStateList([a])).join(' & ')}{' '}
+            {formatStateList(allowedStates)}{' '}
             {TAB_NOUNS[activeTab]}
           </p>
         )}
