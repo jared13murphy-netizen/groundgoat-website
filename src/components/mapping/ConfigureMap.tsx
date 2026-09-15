@@ -783,6 +783,7 @@ export default function ConfigureMap() {
 
   /** Open a saved tract into the editor. Extracted from the ?parcel=
    *  boot path so clicking another tract on the map can reuse it. */
+  const openLocalTractRef = useRef<((id: string) => boolean) | null>(null)
   const openSavedTract = useCallback(async (saved: string, startEditing = false) => {
     // Already in the session's local list (e.g. a peer badge on the map
     // for a tract that was itself opened earlier this session) — select
@@ -793,7 +794,10 @@ export default function ConfigureMap() {
     // REPLACED the whole Stage 2 list — silently discarding every other
     // tract, saved or not.
     const already = tractsRef.current.find((t) => t.savedId === saved)
-    if (already) { setSelectedTractId(already.id); return }
+    // Already in this session's list: open it the way any local tract is
+    // opened (clean fingerprint, classification, recentre) — a bare select
+    // left it looking "unsaved" and unclassified (auditor 2026-09-15).
+    if (already) { openLocalTractRef.current?.(already.id); return }
     let cancelled = false
     await (async () => {
       setBusy('Opening saved parcel…')
@@ -2183,6 +2187,7 @@ export default function ConfigureMap() {
     if (bb && mapRef.current) mapRef.current.fitBounds(bb, { padding: 90, duration: 700 })
     return true
   }, [ensureClassified])
+  openLocalTractRef.current = openLocalTract
 
   /** Switching to another tract behaves like Cancel: straight through
    *  when nothing is unsaved, otherwise ask — and there OK SAVES and
