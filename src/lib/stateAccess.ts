@@ -49,14 +49,13 @@ export function isAllowedForExplore(me: any): boolean {
   return ALLOWED_ROLES.includes(me?.account_type) || isRestrictedIndividual(me)
 }
 
-/** Shared "restricted" definition for UI surfaces that already have an
- *  `allowedStates` value in hand (not a raw /me payload): non-null. A
- *  user reaches gated UI with a non-null array only via
- *  isRestrictedIndividual above — staff/firms always carry null — so
- *  this is equivalent to "state-limited" for anyone past the gate. */
-export function isRestrictedToStates(allowedStates: string[] | null | undefined): boolean {
-  return allowedStates != null
-}
+// Shared "restricted" definition for UI surfaces that already have an
+// `allowedStates` value in hand (not a raw /me payload): every call site
+// below just checks `allowedStates != null` inline rather than through a
+// helper — a user reaches gated UI with a non-null array only via
+// isRestrictedIndividual above (staff/firms always carry null), so a
+// plain non-null check is already equivalent to "state-limited" for
+// anyone past the gate.
 
 /** "Illinois" / "Illinois and Iowa" / "Illinois, Iowa, and Missouri" —
  *  shared copy for the map banner, panel scope lines, and the /go
