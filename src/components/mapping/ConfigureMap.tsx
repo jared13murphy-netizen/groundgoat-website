@@ -2083,15 +2083,29 @@ export default function ConfigureMap() {
     void ensureClassified(openId)
   }, [tracts, selectedTractId, ensureClassified])
 
+  /** Guards `saveAllTracts` against firing twice for one click. The
+   *  footer button already disables on `busy`, but that disables the
+   *  DOM node on the NEXT render — a second click (or a stray second
+   *  event for the same click) arriving before that commit paints would
+   *  otherwise start a second pass through the loop below with the same
+   *  stale `tracts` closure (every tract's `savedId` still null), racing
+   *  its own POSTs against the first pass's and creating duplicate
+   *  records for tracts that were about to get one. A plain ref is
+   *  checked and set synchronously, before any `await`, so there is no
+   *  gap for a second call to slip through. */
+  const savingAllRef = useRef(false)
+
   /** Save EVERY named tract as its own record, all in the same project —
    *  the tracts-first equivalent of `savePieces` above, generalised to
    *  the whole list rather than one split's leftover pieces. */
   const saveAllTracts = useCallback(async (): Promise<boolean> => {
+    if (savingAllRef.current) return false
     if (!tracts.length) return false
     if (tracts.some((t) => !t.name.trim())) {
       setError('Name every tract before saving.')
       return false
     }
+    savingAllRef.current = true
     setBusy('Saving…'); setError(null); setSavedMsg(null)
     try {
       let pid = projectId
@@ -2126,7 +2140,7 @@ export default function ConfigureMap() {
     } catch (e: any) {
       setError(e?.message || 'Save failed.')
       return false
-    } finally { setBusy(null) }
+    } finally { setBusy(null); savingAllRef.current = false }
   }, [tracts, projectId, projectName, shapes, boundaryRings])
 
   const fingerprint = useCallback((sh: Shape[], b: Pt[][][]) => JSON.stringify([
