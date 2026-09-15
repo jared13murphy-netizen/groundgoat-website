@@ -26,7 +26,7 @@ import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import {
   Loader2, Plus, Trash2, RotateCcw, RotateCw, Save, Search, X, Layers,
-  Scissors, FileText, Download, BarChart3, Eraser, PenLine, PaintBucket, Check, Spline,
+  Scissors, FileText, Download, BarChart3, Eraser, PenLine, PaintBucket, Check,
   ArrowRight, ArrowLeft,
 } from 'lucide-react'
 import {
@@ -145,6 +145,38 @@ function explodeShapes(polys: { cls: LandClass; geometry: any }[]): Shape[] {
     }
   }
   return out
+}
+
+/** Fewer dots, same shape — run once at LOAD time so a freshly-traced
+ *  engine polygon (which follows the painted raster contour and comes
+ *  back with far more vertices than the corner actually needs) does not
+ *  put a wall of drag handles on screen before anyone has touched it.
+ *
+ *  This used to be a manual "Simplify polygon" button the user pressed
+ *  per shape; the owner's process assumes it already happened, so it now
+ *  runs automatically wherever a shape is first built from server
+ *  geometry — never on the result of a user's own edit (enforceNoOverlap
+ *  re-normalizes after every drag and must NOT run this, or a shape
+ *  would quietly lose precision on every single move).
+ *
+ *  Identical maths to the old button: Douglas-Peucker at 0.5% of the
+ *  ring's own bbox diagonal, so it behaves the same at any acreage or
+ *  zoom. Every ring is done, holes included; a ring too small to thin is
+ *  left alone. */
+function simplifyShapes(shapes: Shape[]): Shape[] {
+  return shapes.map((sh) => ({
+    ...sh,
+    polys: sh.polys.map((rings) => rings.map((ring) => {
+      if (ring.length < 5) return ring
+      const lngs = ring.map((pt) => pt[0])
+      const lats = ring.map((pt) => pt[1])
+      const diag = Math.hypot(
+        Math.max(...lngs) - Math.min(...lngs),
+        Math.max(...lats) - Math.min(...lats),
+      )
+      return simplifyRing(ring, diag * 0.005)
+    })),
+  }))
 }
 
 /** Mean of a shape's outer ring — a cheap, stable fingerprint used to
@@ -552,7 +584,7 @@ export default function ConfigureMap() {
             .then((r) => { if (!cancelled && r.project?.name) setProjectName(r.project.name) })
             .catch(() => { /* the name is a label, not load-bearing */ })
         }
-        const loadedShapes = explodeShapes(rec.polygons as any)
+        const loadedShapes = simplifyShapes(explodeShapes(rec.polygons as any))
         const loadedRings = geometryToPolys(rec.boundary)
         // Every field goes into ONE openTract call rather than a
         // sequence of setDetail/setShapes/setName calls — those write
@@ -1309,7 +1341,7 @@ export default function ConfigureMap() {
         setError('Part of this boundary is outside the mapped area — '
                + 'the land types there have not been filled in.')
       }
-      const loaded = explodeShapes(res.polygons as any)
+      const loaded = simplifyShapes(explodeShapes(res.polygons as any))
       setShapes(loaded)
       markCleanRef.current?.(loaded, boundaryRings)
       setEditingTypes(true)
@@ -1938,43 +1970,6 @@ export default function ConfigureMap() {
     } finally { setBusy(null) }
   }, [editingId, name, projectId, loadPeers])
 
-  /** Fewer dots on the SELECTED polygon, same shape.
-   *
-   *  Identical maths and tolerance to the Simplify on the auction
-   *  staging editor (TractMapEditor): Douglas-Peucker at 0.5% of the
-   *  ring's own bbox diagonal, so it behaves the same at any acreage or
-   *  zoom, and pressing it again takes a little more off. Every ring is
-   *  done, holes included; a ring too small to thin is left alone. */
-  const simplifySelected = useCallback((id: string) => {
-    const target = shapesRef.current.find((sh) => sh.id === id)
-    if (!target) return
-    let before = 0, after = 0
-    const next = shapesRef.current.map((sh) => sh.id !== id ? sh : {
-      ...sh,
-      polys: sh.polys.map((rings) => rings.map((ring) => {
-        before += ring.length
-        if (ring.length < 5) { after += ring.length; return ring }
-        const lngs = ring.map((pt) => pt[0])
-        const lats = ring.map((pt) => pt[1])
-        const diag = Math.hypot(
-          Math.max(...lngs) - Math.min(...lngs),
-          Math.max(...lats) - Math.min(...lats),
-        )
-        const out = simplifyRing(ring, diag * 0.005)
-        after += out.length
-        return out
-      })),
-    })
-    if (after >= before) {
-      setError('That polygon is already as simple as it gets — '
-             + 'erase points by hand for finer control.')
-      return
-    }
-    setError(null)
-    mutate(() => next)
-    setSavedMsg(`Simplified ${before} points down to ${after}.`)
-  }, [mutate])
-
   const deleteShape = useCallback((id: string) => {
     const gone = shapesRef.current.find((s) => s.id === id)
     const rest = shapesRef.current.filter((s) => s.id !== id)
@@ -2013,7 +2008,7 @@ export default function ConfigureMap() {
 
   const resetToEngine = useCallback(() => {
     if (!detail) return
-    mutate(() => explodeShapes(detail.polygons as any))
+    mutate(() => simplifyShapes(explodeShapes(detail.polygons as any)))
     setSelectedId(null)
   }, [detail, mutate])
 
@@ -2137,13 +2132,13 @@ export default function ConfigureMap() {
       setBusy('Reloading saved version…')
       try {
         const rec = await getSavedParcel(editingId)
-        setShapes(explodeShapes(rec.polygons as any))
+        setShapes(simplifyShapes(explodeShapes(rec.polygons as any)))
         setName(rec.name); setSavedName(rec.name)
       } catch (e: any) {
         setError(e?.message || 'Could not reload the saved version.')
       } finally { setBusy(null) }
     } else if (detail) {
-      setShapes(explodeShapes(detail.polygons as any))
+      setShapes(simplifyShapes(explodeShapes(detail.polygons as any)))
     }
     undoRef.current = []; redoRef.current = []
   }, [editingId, detail])
@@ -2577,13 +2572,6 @@ export default function ConfigureMap() {
                 style={btn}>
                 <PaintBucket size={13} /> Fill holes
                 {holesOnSelected > 0 ? ` (${holesOnSelected})` : ''}
-              </button>
-              <button
-                onClick={() => selectedId && simplifySelected(selectedId)}
-                disabled={!selectedId}
-                title="Thin out the points on the selected polygon"
-                style={btn}>
-                <Spline size={13} /> Simplify polygon
               </button>
             </div>
             {tool === 'cutpoly' && (
