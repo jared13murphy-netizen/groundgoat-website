@@ -94,8 +94,18 @@ interface Tract {
   classified: boolean
 }
 
-let tractIdSeq = 0
-const nextTractId = () => `tract${++tractIdSeq}`
+// A module-level counter here (`tract${++seq}`) produced duplicate ids —
+// and duplicate React keys, both in Stage 2/3's lists and in the map
+// source features — the moment two tracts were created across separate
+// renders that both read the same pre-increment value (seen in the
+// console as two "tract1"s after a fit/undo/hot reload). crypto.randomUUID
+// has no shared counter to race on; the timestamp+random fallback is for
+// an http:// context (or a very old browser) where it is unavailable.
+const nextTractId = () => (
+  typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `tract-${Date.now()}-${Math.random().toString(36).slice(2)}`
+)
 
 function newTract(overrides: Partial<Tract> = {}): Tract {
   return {
