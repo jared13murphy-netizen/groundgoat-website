@@ -73,6 +73,76 @@ export function nearestVertexIndex(
   return best
 }
 
+// ── magnet snapping (Configurable Mapping, Stage 2 free-draw) ──────────
+// The owner's tracts-first process free-draws a tract with a ~30 ft
+// magnet: a corner dropped near another tract's edge, or near a Regrid
+// parcel line, should land ON it rather than a few feet off and leave a
+// sliver gap between two tracts that are supposed to share a fence.
+// Not wired into ConfigureMap.tsx's draw tool yet — this is the pure
+// geometry half, landing ahead of the map-handler wiring so that piece
+// can be reviewed and tested on its own.
+
+/** Web Mercator's standard meters-per-pixel at a latitude/zoom. Turns
+ *  the owner's "~30 ft" into the same screen-pixel units
+ *  nearestSegmentIndex/nearestVertexIndex already work in, so this reuses
+ *  them instead of a second, geodesic distance check. */
+function metersPerPixel(map: maplibregl.Map, lat: number): number {
+  return (156543.03392 * Math.cos((lat * Math.PI) / 180)) / Math.pow(2, map.getZoom())
+}
+
+export interface SnapTarget { ring: Pt[] }
+
+export interface SnapResult { point: Pt; snapped: boolean }
+
+/** Magnet-snap `point` onto the nearest vertex or edge of any ring in
+ *  `targets` — other tracts' boundaries, plus a Regrid parcel edge
+ *  queried live off the map (`map.queryRenderedFeatures` on the regrid
+ *  line layer) — within `feet` (owner spec: ~30 ft). A vertex snap wins
+ *  over an edge snap at the same point: landing exactly on a shared
+ *  corner is more useful than a hair off it on the edge between two
+ *  corners. Returns the point unchanged with `snapped: false` when
+ *  nothing in `targets` is close enough — the caller draws the point the
+ *  user actually placed. */
+export function snapPoint(
+  map: maplibregl.Map, point: Pt, targets: SnapTarget[], feet = 30,
+): SnapResult {
+  const maxPx = (feet * 0.3048) / metersPerPixel(map, point[1])
+  const screenPt = map.project(point)
+  let bestVertex: { d: number; pt: Pt } | null = null
+  let bestEdge: { d: number; pt: Pt } | null = null
+  for (const { ring } of targets) {
+    if (ring.length < 2) continue
+    const vi = nearestVertexIndex(map, ring, screenPt, maxPx)
+    if (vi != null) {
+      const s = map.project(ring[vi] as [number, number])
+      const d = Math.hypot(screenPt.x - s.x, screenPt.y - s.y)
+      if (!bestVertex || d < bestVertex.d) bestVertex = { d, pt: ring[vi] }
+    }
+    const seg = nearestSegmentIndex(map, ring, screenPt)
+    const a = map.project(ring[seg] as [number, number])
+    const b = map.project(ring[(seg + 1) % ring.length] as [number, number])
+    const d = segDistPx(screenPt, a, b)
+    if (d <= maxPx && (!bestEdge || d < bestEdge.d)) {
+      // Project screenPt onto the segment in screen space, then carry
+      // that fraction back onto the ring's own lng/lat endpoints —
+      // planar-enough over a ~30 ft radius.
+      const dx = b.x - a.x, dy = b.y - a.y
+      const len2 = dx * dx + dy * dy || 1e-9
+      let t = ((screenPt.x - a.x) * dx + (screenPt.y - a.y) * dy) / len2
+      t = Math.max(0, Math.min(1, t))
+      const ra = ring[seg] as Pt
+      const rb = ring[(seg + 1) % ring.length] as Pt
+      bestEdge = { d, pt: [ra[0] + t * (rb[0] - ra[0]), ra[1] + t * (rb[1] - ra[1])] }
+    }
+  }
+  // A vertex match is inherently also within snap range of its two
+  // adjacent edges, so preferring it here is enough — no tie-break
+  // needed against bestEdge.d.
+  if (bestVertex) return { point: bestVertex.pt, snapped: true }
+  if (bestEdge) return { point: bestEdge.pt, snapped: true }
+  return { point, snapped: false }
+}
+
 // ── Douglas–Peucker simplification ──────────────────────────────────
 // A traced boundary follows the painted contour and emits many vertices
 // on gentle curves, so corners read as "rounded". Dropping vertices that

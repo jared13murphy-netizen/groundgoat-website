@@ -357,6 +357,34 @@ export function splitGeometry(geometry: any, line: any) {
   })
 }
 
+export interface FitTractsResult {
+  tracts: { id: string; geometry: any; acres: number }[]
+  frame_acres: number
+  /** Sketch ids that ended with no ground after the fit — tell the
+   *  user; never drop their tract without saying so. */
+  dropped: string[]
+}
+
+/** 'Snap tracts' / 'Snap to Parcel' (owner spec 2026-09-15): fit a set
+ *  of drawn tract sketches to a FRAME — a combined multi-parcel
+ *  boundary for a reshape, or a single parcel for 'Snap to Parcel' on
+ *  one drawn tract — and to each other, so shared edges align and
+ *  acreage reconciles to the frame's true area rather than the sum of
+ *  independently-drawn sketches (which double-counts or leaves gaps on
+ *  any tile-overlap boundary — never sum client acres for a frame
+ *  total; read it off this response instead).
+ *
+ *  NEW backend endpoint (POST /api/mapping/geometry/fit-tracts) — not
+ *  called from the UI yet; this is the client half only, landing ahead
+ *  of the map-handler wiring so it can be reviewed on its own. */
+export function fitTracts(frame: any, tracts: { id: string; geometry: any }[]) {
+  return j<FitTractsResult>('/api/mapping/geometry/fit-tracts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ frame, tracts }),
+  })
+}
+
 // ── Reports ─────────────────────────────────────────────────────────
 // The API only queues; a worker renders. The UI polls until a report
 // reports itself done, then downloads it through the API — the storage
