@@ -985,6 +985,16 @@ export default function ConfigureMap() {
       removePlaceLabelsRef.current = addPlaceLabels(map)
 
       const cfg = await fetchRegridConfig()
+      // React 18 double-mounts this effect in development: the FIRST
+      // mount's map can be .remove()'d (cleanup below) while this is
+      // still awaiting the config fetch. Every maplibre call after this
+      // point — addLayer, getLayer, addImage, getSource in the effects
+      // further down that this 'load' handler unblocks via `ready` —
+      // throws "Cannot read properties of undefined" once the map is
+      // removed, because .remove() tears down its internal style. Bail
+      // out before touching `map` again; the newer mount's own 'load'
+      // handler runs this same setup for the live map.
+      if (mapRef.current !== map) return
       if (cfg) {
         addRegridLayer(map, cfg, { minZoom: 11, labelMinZoom: 14, interactive: false })
         const f = buildRegridStateFilter(cfg)
