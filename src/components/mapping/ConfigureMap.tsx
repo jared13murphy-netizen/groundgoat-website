@@ -265,6 +265,66 @@ function TractName({ value, onCommit, busy, placeholder }: {
   )
 }
 
+/** One row of the tract list — the source dot, name, and live acres,
+ *  shared by Stage 2's editable list (rename + remove) and Stage 3's
+ *  compact "pick your next tract" list (name only, no controls) so
+ *  there is exactly one place that draws a tract row. `compact` drops
+ *  the rename/remove affordances and renders the name as plain text. */
+function TractRow({ t, selected, compact, busy, onSelect, onCommitName, onRemove }: {
+  t: Tract
+  selected: boolean
+  compact?: boolean
+  busy?: boolean
+  onSelect: () => void
+  onCommitName?: (next: string) => void
+  onRemove?: () => void
+}) {
+  return (
+    <div onClick={onSelect}
+         style={{
+           display: 'grid',
+           gridTemplateColumns: compact ? 'auto 1fr auto' : 'auto 1fr auto auto',
+           gap: 8, alignItems: 'center', cursor: 'pointer',
+           padding: '8px 6px', borderBottom: '1px solid rgba(255,255,255,0.06)',
+           borderRadius: selected ? 7 : 0,
+           background: selected ? 'rgba(245,140,222,0.14)' : 'transparent',
+         }}>
+      <span title={t.source.kind === 'drawn' ? 'Hand-drawn' : 'From a parcel'}
+            style={{
+              width: 8, height: 8, borderRadius: '50%', flex: 'none',
+              background: t.source.kind === 'drawn' ? GG_PINK : '#93c5fd',
+            }} />
+      {compact ? (
+        <span style={{
+          minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          opacity: t.name.trim() ? 1 : 0.5,
+        }}>
+          {t.name.trim() || 'Unnamed tract'}
+        </span>
+      ) : (
+        <span onClick={(e) => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+          <TractName value={t.name} busy={!!busy}
+                     onCommit={(n) => onCommitName?.(n)} />
+          {!t.name.trim() && (
+            <span title="Unnamed tract"
+                  style={{ width: 6, height: 6, borderRadius: '50%', background: '#ef4444', flex: 'none' }} />
+          )}
+        </span>
+      )}
+      <span style={{ opacity: 0.7, fontSize: 12 }}>
+        {(t.acres ?? boundaryAcresOf(t.boundary)).toFixed(1)} ac
+      </span>
+      {!compact && (
+        <button onClick={(e) => { e.stopPropagation(); onRemove?.() }}
+                title="Remove this tract" aria-label="Remove this tract"
+                style={{ ...dangerBtn, flex: 'none', padding: '4px 7px' }}>
+          <Trash2 size={13} />
+        </button>
+      )}
+    </div>
+  )
+}
+
 /** Ray cast. Rings here are open — first point is not repeated. */
 function pointInRing(pt: Pt, ring: Pt[]): boolean {
   let inside = false
@@ -3076,37 +3136,10 @@ export default function ConfigureMap() {
               </div>
             )}
             {tracts.map((t) => (
-              <div key={t.id}
-                   onClick={() => requestOpen(t.id)}
-                   style={{
-                     display: 'grid', gridTemplateColumns: 'auto 1fr auto auto', gap: 8,
-                     alignItems: 'center', cursor: 'pointer',
-                     padding: '8px 6px', borderBottom: '1px solid rgba(255,255,255,0.06)',
-                     borderRadius: t.id === selectedTractId ? 7 : 0,
-                     background: t.id === selectedTractId ? 'rgba(245,140,222,0.14)' : 'transparent',
-                   }}>
-                <span title={t.source.kind === 'drawn' ? 'Hand-drawn' : 'From a parcel'}
-                      style={{
-                        width: 8, height: 8, borderRadius: '50%', flex: 'none',
-                        background: t.source.kind === 'drawn' ? GG_PINK : '#93c5fd',
-                      }} />
-                <span onClick={(e) => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
-                  <TractName value={t.name} busy={!!busy}
-                             onCommit={(n) => setTracts((prev) => prev.map((x) => x.id === t.id ? { ...x, name: n } : x))} />
-                  {!t.name.trim() && (
-                    <span title="Unnamed tract"
-                          style={{ width: 6, height: 6, borderRadius: '50%', background: '#ef4444', flex: 'none' }} />
-                  )}
-                </span>
-                <span style={{ opacity: 0.7, fontSize: 12 }}>
-                  {(t.acres ?? boundaryAcresOf(t.boundary)).toFixed(1)} ac
-                </span>
-                <button onClick={(e) => { e.stopPropagation(); removeTract(t.id) }}
-                        title="Remove this tract" aria-label="Remove this tract"
-                        style={{ ...dangerBtn, flex: 'none', padding: '4px 7px' }}>
-                  <Trash2 size={13} />
-                </button>
-              </div>
+              <TractRow key={t.id} t={t} selected={t.id === selectedTractId} busy={!!busy}
+                        onSelect={() => requestOpen(t.id)}
+                        onCommitName={(n) => setTracts((prev) => prev.map((x) => x.id === t.id ? { ...x, name: n } : x))}
+                        onRemove={() => removeTract(t.id)} />
             ))}
           </div>
         )}
@@ -3150,6 +3183,21 @@ export default function ConfigureMap() {
                 <TractName value={name} busy={!!busy}
                            onCommit={(n) => { setName(n); void doRename(n) }} />
               </div>
+            </div>
+
+            {/* Tract list, compact — lets the owner pick the next tract
+                to edit one at a time ("pick a tract from the list and
+                edit its land types one tract at a time") without
+                dropping back to Stage 2. Same row component as Stage 2,
+                just without rename/remove. Clicking a row goes through
+                the ordinary requestOpen guard, so Stage 3's unsaved-
+                changes confirm still fires. */}
+            <div style={card}>
+              <div style={sectionLabel}>Tracts ({tracts.length})</div>
+              {tracts.map((t) => (
+                <TractRow key={t.id} t={t} selected={t.id === selectedTractId} compact
+                          onSelect={() => requestOpen(t.id)} />
+              ))}
             </div>
 
             {/* Legend & Acres — moved to the TOP of Stage 3 (design spec
