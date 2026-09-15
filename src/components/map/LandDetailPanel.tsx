@@ -17,7 +17,7 @@
  */
 
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { Mail, Download, Check, Loader2, Map as MapIcon } from 'lucide-react'
+import { Mail, Download, Check, Loader2, Layers } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import reportJobEnqueue from '@/lib/reportJobs'
 import { formatAcres } from '@/lib/format'
@@ -1079,6 +1079,39 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
             point in the first place. */}
         {(llUuid || reportPoint) && (
           <div style={{ flexShrink: 0, borderTop: '1px solid rgba(0,0,0,0.06)', padding: '16px', background: '#fff' }}>
+            {/* Configure Map — opens this parcel straight into Configurable
+                Mapping's tract editor as Stage 2's first tract. Sits ABOVE
+                the +Report/Download/Email row (design spec §6): a different
+                feature (drawing your own tracts, not a PDF of the one
+                Regrid parcel) and it makes sense for anyone signed in, not
+                only the report-entitled. /configure-map gates entitlement
+                itself (page.tsx's fetchMappingAccessState) so a
+                not-entitled click lands on an explanation, not a broken
+                map — no need to duplicate that check here. Secondary,
+                outlined pink so it never competes with Email Parcel's
+                filled pink. */}
+            {llUuid && !compMode && (
+              <a
+                href={`/configure-map?ll_uuid=${encodeURIComponent(llUuid)}&stage=tracts`}
+                style={{
+                  marginBottom: 8,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                  padding: '11px 10px',
+                  borderRadius: 12,
+                  fontSize: 13,
+                  fontWeight: 700,
+                  border: '1.5px solid #E91E8C',
+                  background: '#fff',
+                  color: '#E91E8C',
+                  textDecoration: 'none',
+                }}
+              >
+                <Layers size={14} /> Configure Map
+              </a>
+            )}
             <div style={{ display: 'flex', gap: 8 }}>
               {/* + Report — to the LEFT of Download/Email (owner
                   2026-08-17). Same toggle look as TractDetailActionBar's
@@ -1192,39 +1225,6 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
                 </>
               )}
             </div>
-            {/* Configure Map — opens this parcel straight into Configurable
-                Mapping's tract editor as Stage 2's first tract. Own row
-                below Download/Email rather than crowded into theirs: this
-                is a different feature (drawing your own tracts, not a PDF
-                of the one Regrid parcel), and it makes sense for anyone
-                signed in, not only the report-entitled. /configure-map
-                gates entitlement itself (page.tsx's fetchMappingAccessState)
-                so a not-entitled click lands on an explanation, not a
-                broken map — no need to duplicate that check here. Plain
-                secondary style matching Download Parcel's, for now; a
-                design pass may give this its own look later. */}
-            {llUuid && !compMode && (
-              <a
-                href={`/configure-map?ll_uuid=${encodeURIComponent(llUuid)}&stage=tracts`}
-                style={{
-                  marginTop: 8,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 6,
-                  padding: '11px 10px',
-                  borderRadius: 12,
-                  fontSize: 12,
-                  fontWeight: 600,
-                  border: '1px solid rgba(0,0,0,0.12)',
-                  background: '#fff',
-                  color: '#1a1a1a',
-                  textDecoration: 'none',
-                }}
-              >
-                <MapIcon size={14} /> Configure Map
-              </a>
-            )}
             {/* Success is no longer reported here: the job is only queued
                 at this point, so the floating ReportJobsIndicator (root
                 layout) shows the real "sent" confirmation once it's
