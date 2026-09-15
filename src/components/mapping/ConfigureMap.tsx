@@ -232,7 +232,17 @@ function TractName({ value, onCommit, busy, placeholder }: {
     )
   }
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+    // A <form> rather than a plain div: Enter-to-submit is then the
+    // browser's own native behavior for a single text input, so it
+    // commits even in cases a raw onKeyDown Enter check alone misses
+    // (autofill, an IME composition tail) — same reason a login field's
+    // Enter key works even though nobody wired a keydown handler for
+    // it. The explicit keydown check stays too, belt and suspenders,
+    // since it's the one that fires for a JS-dispatched keydown that
+    // never reaches the browser's native submit machinery at all. The
+    // check button stays as the same submit action; Escape cancels.
+    <form onSubmit={(e) => { e.preventDefault(); commit() }}
+          style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
       <input
         autoFocus value={draft}
         onChange={(e) => setDraft(e.target.value)}
@@ -242,16 +252,16 @@ function TractName({ value, onCommit, busy, placeholder }: {
         }}
         placeholder={placeholder || 'e.g. Tract 1, Home Place, North 80'}
         style={inputStyle} />
-      <button onClick={cancel} title="Cancel" aria-label="Cancel rename"
+      <button type="button" onClick={cancel} title="Cancel" aria-label="Cancel rename"
               style={{ ...dangerBtn, flex: 'none', padding: '4px 7px' }}>
         <X size={13} />
       </button>
-      <button onClick={commit} disabled={busy || !draft.trim()}
+      <button type="submit" disabled={busy || !draft.trim()}
               title="Save this name" aria-label="Save this name"
               style={{ ...goBtn, flex: 'none', padding: '4px 7px' }}>
         <Check size={13} />
       </button>
-    </div>
+    </form>
   )
 }
 
