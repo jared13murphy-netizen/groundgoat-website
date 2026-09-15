@@ -525,6 +525,7 @@ export default function ConfigureMap() {
   // blank makes the server create a project named after the parcel.
   const [projectId, setProjectId] = useState<string | null>(null)
   const [projectName, setProjectName] = useState('')
+  const projectNameRef = useRef(''); projectNameRef.current = projectName
   const [reports, setReports] = useState<ReportRow[]>([])
   const [deletingReport, setDeletingReport] = useState<string | null>(null)
   /** ?reports=1 (the portfolio's Reports button) opens the tract in
@@ -620,6 +621,11 @@ export default function ConfigureMap() {
    *  same thing as starting it, so the very first parcel and every one
    *  after it go through the same call. */
   const loadParcel = useCallback(async (llUuid: string) => {
+    // Same parcel twice (a double click, or React re-running the URL boot)
+    // must not become two tracts — select the one already in the list.
+    const dup = tractsRef.current.find((x) =>
+      x.source.kind === 'parcel' && x.source.ll_uuids.length === 1 && x.source.ll_uuids[0] === llUuid)
+    if (dup) { setSelectedTractId(dup.id); return dup }
     setBusy('Loading parcel…'); setError(null); setSavedMsg(null)
     try {
       const d = await fetchParcel(llUuid)
@@ -630,7 +636,10 @@ export default function ConfigureMap() {
         name: d.parcel?.parcelnumb ? `Parcel ${d.parcel.parcelnumb}` : '',
       })
       undoRef.current = []; redoRef.current = []
-      setStage('tracts')
+      // Owner (9/15): the project is NAMED before tracts are built. A parcel
+      // arriving with no project name yet lands on Stage 1 with the parcel
+      // already on the map; once named, every later parcel stays in Stage 2.
+      setStage(projectNameRef.current.trim() ? 'tracts' : 'project')
       markCleanRef.current?.([], rings)
       setSelectedId(null)
       setSavedName('')
@@ -647,7 +656,10 @@ export default function ConfigureMap() {
 
   // ── open from the Map Portfolio (?parcel= / ?project=) ────────────
   // or from Explore's "Configure Map" button (?ll_uuid=&stage=tracts) ─
+  const bootedRef = useRef(false)
   useEffect(() => {
+    if (!ready || bootedRef.current) return   // once per page load, not per effect re-run
+    bootedRef.current = true
     const params = new URLSearchParams(window.location.search)
     const proj = params.get('project')
     const saved = params.get('parcel')
