@@ -58,6 +58,56 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-p
  *  that field, not a separate shape. Rings are stored OPEN. */
 interface Shape { id: string; cls: LandClass; polys: Pt[][][] }
 
+/** One tract: the owner's Stage 2/3 unit of ground. A project holds
+ *  many; Stage 3 (land types) edits one at a time via `shapes`.
+ *
+ *  `source` records where the outline came from: a click on a Regrid
+ *  parcel (one or more `ll_uuids` once a multi-parcel FRAME is combined
+ *  into a reshape) or a free-hand draw with no parcel behind it.
+ *  `boundary`/`shapes` are exactly the shape the old top-level
+ *  `boundaryRings`/`shapes` state used to be — one tract's worth of
+ *  what used to be the whole screen's state.
+ *
+ *  `savedId` is the server row id once this tract has been saved via
+ *  /api/mapping/parcels (the old top-level `editingId`, now scoped to
+ *  the tract it belongs to). `detail` is the parcel metadata + engine
+ *  polygons the old top-level `detail` held, and `editingTypes` is the
+ *  old top-level view/edit toggle — both now per tract so a saved tract
+ *  opened to look at does not put every OTHER tract into edit mode. */
+interface Tract {
+  id: string
+  name: string
+  source: { kind: 'parcel'; ll_uuids: string[] } | { kind: 'drawn' }
+  boundary: Pt[][][]
+  shapes: Shape[]
+  acres: number | null
+  dirty: boolean
+  saved: boolean
+  savedId: string | null
+  detail: ParcelDetail | null
+  editingTypes: boolean
+}
+
+let tractIdSeq = 0
+const nextTractId = () => `tract${++tractIdSeq}`
+
+function newTract(overrides: Partial<Tract> = {}): Tract {
+  return {
+    id: nextTractId(),
+    name: '',
+    source: { kind: 'drawn' },
+    boundary: [],
+    shapes: [],
+    acres: null,
+    dirty: false,
+    saved: false,
+    savedId: null,
+    detail: null,
+    editingTypes: true,
+    ...overrides,
+  }
+}
+
 const SRC = {
   boundary: 'cm-boundary', shapes: 'cm-shapes', verts: 'cm-verts',
   dots: 'cm-dots', draft: 'cm-draft', comps: 'cm-comps',
@@ -227,13 +277,90 @@ export default function ConfigureMap() {
   const mapRef = useRef<maplibregl.Map | null>(null)
   const [ready, setReady] = useState(false)
 
-  const [detail, setDetail] = useState<ParcelDetail | null>(null)
-  const [shapes, setShapes] = useState<Shape[]>([])
-  // Owner's model: outline the parcel FIRST and confirm it, and only then
-  // do the land-type polygons appear inside it.
-  const [step, setStep] = useState<'boundary' | 'landtypes'>('boundary')
+  // ── Tracts: the owner's Stage 2/3 unit of ground ───────────────────
+  // Stage 2 will hold many; Stage 3 edits one at a time via
+  // `selectedTractId`. `detail`/`shapes`/`boundaryRings`/`editingTypes`/
+  // `editingId`/`name`/`sources` below are DERIVED from the selected
+  // tract so the rest of this file (mutate, the map handlers registered
+  // once on load, the JSX) reads them exactly as it always has — only
+  // where the value COMES FROM moved, not its shape or its call sites.
+  const [stage, setStage] = useState<'project' | 'tracts' | 'landtypes'>('tracts')
+  const [tracts, setTracts] = useState<Tract[]>([])
+  const [selectedTractId, setSelectedTractId] = useState<string | null>(null)
+  // A multi-parcel FRAME a set of tracts gets fit to ('Snap tracts' /
+  // 'Snap to Parcel'). Not wired up yet — the fit-tracts step is next.
+  const [frame, setFrame] = useState<{ ll_uuids: string[]; boundary: Pt[][][] } | null>(null)
+  const selectedTractIdRef = useRef(selectedTractId); selectedTractIdRef.current = selectedTractId
+  const tractsRef = useRef(tracts); tractsRef.current = tracts
+  const stageRef = useRef(stage); stageRef.current = stage
+  const frameRef = useRef(frame); frameRef.current = frame
+
+  /** Update the OPEN tract only, reading which one that is from a ref —
+   *  the map handlers below are registered once (`map.on(..., [])`) and
+   *  can never close over a fresh `selectedTractId`, so every write here
+   *  has to go through `selectedTractIdRef` the same way the rest of
+   *  this file reads current state from inside those handlers. */
+  const updateActiveTract = useCallback((fn: (t: Tract) => Tract) => {
+    setTracts((prev) => prev.map((t) =>
+      t.id === selectedTractIdRef.current ? fn(t) : t))
+  }, [])
+
+  /** Replace the whole tract list with ONE new tract and select it.
+   *
+   *  Step-1 scope: this mirrors today's single-parcel-at-a-time
+   *  behaviour exactly (loading a parcel replaces whatever was open) so
+   *  the screen keeps working while only the state underneath it moves.
+   *  The Stage 2 multi-tract pass changes this to ADD a tract instead of
+   *  replacing the list. */
+  const openTract = useCallback((overrides: Partial<Tract> = {}) => {
+    const t = newTract(overrides)
+    setTracts([t])
+    setSelectedTractId(t.id)
+    return t
+  }, [])
+
+  const activeTract = useMemo(
+    () => tracts.find((t) => t.id === selectedTractId) ?? null,
+    [tracts, selectedTractId])
+
+  const detail = activeTract?.detail ?? null
+  const shapes = activeTract?.shapes ?? []
   // The parcel outline while it is still editable. Rings, like a shape.
-  const [boundaryRings, setBoundaryRings] = useState<Pt[][][]>([])
+  const boundaryRings = activeTract?.boundary ?? []
+  const editingTypes = activeTract?.editingTypes ?? true
+  const editingId = activeTract?.savedId ?? null
+  const name = activeTract?.name ?? ''
+  // Every Regrid parcel folded into this tract, for provenance. Empty
+  // for a hand-drawn tract — there is no parcel to attribute it to.
+  const sources = activeTract?.source.kind === 'parcel' ? activeTract.source.ll_uuids : []
+
+  const setDetail = useCallback((d: ParcelDetail | null) => {
+    updateActiveTract((t) => ({ ...t, detail: d }))
+  }, [updateActiveTract])
+  const setShapes = useCallback((v: Shape[] | ((prev: Shape[]) => Shape[])) => {
+    updateActiveTract((t) => ({
+      ...t, shapes: typeof v === 'function' ? (v as (p: Shape[]) => Shape[])(t.shapes) : v,
+    }))
+  }, [updateActiveTract])
+  const setBoundaryRings = useCallback((v: Pt[][][] | ((prev: Pt[][][]) => Pt[][][])) => {
+    updateActiveTract((t) => ({
+      ...t, boundary: typeof v === 'function' ? (v as (p: Pt[][][]) => Pt[][][])(t.boundary) : v,
+    }))
+  }, [updateActiveTract])
+  const setEditingTypes = useCallback((v: boolean) => {
+    updateActiveTract((t) => ({ ...t, editingTypes: v }))
+  }, [updateActiveTract])
+  const setEditingId = useCallback((v: string | null) => {
+    updateActiveTract((t) => ({ ...t, savedId: v }))
+  }, [updateActiveTract])
+  const setName = useCallback((v: string) => {
+    updateActiveTract((t) => ({ ...t, name: v }))
+  }, [updateActiveTract])
+  const setSources = useCallback((v: string[]) => {
+    updateActiveTract((t) => (
+      t.source.kind === 'parcel' ? { ...t, source: { kind: 'parcel', ll_uuids: v } } : t))
+  }, [updateActiveTract])
+
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [drawClass, setDrawClass] = useState<LandClass>('tillable')
   const [drawing, setDrawing] = useState(false)
@@ -245,9 +372,6 @@ export default function ConfigureMap() {
   const [cutPts, setCutPts] = useState<Pt[]>([])
   // Rubber-band box for erasing many points at once.
   const [marq, setMarq] = useState<[Pt, Pt] | null>(null)
-  // After a save the parcel is finished, so the editing tools come down
-  // until the user asks for them again.
-  const [editingTypes, setEditingTypes] = useState(true)
   // Which report kind is being queued right now. The spinner then hands
   // over to the row's own queued/running status, so the button keeps
   // spinning until the file is actually built rather than stopping the
@@ -258,14 +382,10 @@ export default function ConfigureMap() {
   const [confirmWhat, setConfirmWhat] = useState<null | 'cancel' | 'outline' | 'switch' | 'leave'>(null)
   const [draft, setDraft] = useState<Pt[]>([])
 
-  const [name, setName] = useState('')
   // Project context. A single-parcel user never sees this: leaving it
   // blank makes the server create a project named after the parcel.
   const [projectId, setProjectId] = useState<string | null>(null)
   const [projectName, setProjectName] = useState('')
-  const [editingId, setEditingId] = useState<string | null>(null)
-  // Every Regrid parcel folded into this subject, for provenance.
-  const [sources, setSources] = useState<string[]>([])
   const [reports, setReports] = useState<ReportRow[]>([])
   const [deletingReport, setDeletingReport] = useState<string | null>(null)
   /** ?reports=1 (the portfolio's Reports button) opens the tract in
@@ -322,7 +442,6 @@ export default function ConfigureMap() {
   const selectedRef = useRef(selectedId); selectedRef.current = selectedId
   const drawingRef = useRef(drawing); drawingRef.current = drawing
   const toolRef = useRef(tool); toolRef.current = tool
-  const stepRef = useRef(step); stepRef.current = step
   const boundaryRef = useRef(boundaryRings); boundaryRef.current = boundaryRings
   const detailRef = useRef(detail); detailRef.current = detail
   const draftRef = useRef(draft); draftRef.current = draft
@@ -361,24 +480,29 @@ export default function ConfigureMap() {
     setBusy('Loading parcel…'); setError(null); setSavedMsg(null)
     try {
       const d = await fetchParcel(llUuid)
-      setDetail(d)
       undoRef.current = []; redoRef.current = []
-      // Step 1 is the OUTLINE. Interior polygons stay hidden until the
-      // boundary is confirmed, so there is one thing to work on at a time.
-      setStep('boundary')
       const rings = geometryToPolys(d.boundary)
-      setBoundaryRings(rings)
-      setShapes([])
+      // A fresh tract, replacing whatever was open — step-1 scope keeps
+      // this a single-tract world; a later pass changes openTract to ADD
+      // instead, for Stage 2's "click a parcel to add a tract".
+      openTract({
+        detail: d, boundary: rings, shapes: [],
+        source: { kind: 'parcel', ll_uuids: [llUuid] },
+        name: d.parcel?.parcelnumb ? `Parcel ${d.parcel.parcelnumb}` : '',
+      })
+      // Stage 2 is the OUTLINE. Interior polygons stay hidden until the
+      // boundary is confirmed, so there is one thing to work on at a time.
+      setStage('tracts')
       markCleanRef.current?.([], rings)
       setSelectedId(null)
-      setName(d.parcel?.parcelnumb ? `Parcel ${d.parcel.parcelnumb}` : ''); setSavedName('')
+      setSavedName('')
       setHits([])
       const bb = bboxOf(d.boundary?.coordinates)
       if (bb && mapRef.current) mapRef.current.fitBounds(bb, { padding: 90, duration: 700 })
     } catch (e: any) {
       setError(e?.message || 'Could not load that parcel.')
     } finally { setBusy(null) }
-  }, [])
+  }, [openTract])
   const loadParcelRef = useRef(loadParcel); loadParcelRef.current = loadParcel
 
   // ── open from the Map Portfolio (?parcel= / ?project=) ────────────
@@ -421,49 +545,60 @@ export default function ConfigureMap() {
       try {
         const rec = await getSavedParcel(saved)
         if (cancelled) return
-        setEditingId(rec.id)
         setProjectId(rec.project_id)
-        setName(rec.name); setSavedName(rec.name)
+        setSavedName(rec.name)
         if (rec.project_id) {
           getProject(rec.project_id)
             .then((r) => { if (!cancelled && r.project?.name) setProjectName(r.project.name) })
             .catch(() => { /* the name is a label, not load-bearing */ })
         }
-        setSources(rec.source_ll_uuids || [])
-        setDetail({
-          // A saved parcel's stats use `buildings`; the live-parcel path
-          // uses Regrid's `ll_bldg_count`. Map it across so a reopened
-          // parcel doesn't report zero buildings.
-          parcel: {
-            ...rec.stats,
-            acres: rec.stats?.acres ?? 0,
-            ll_bldg_count: rec.stats?.buildings ?? 0,
-            county: rec.stats?.county ?? null,
-            state: rec.stats?.state ?? null,
-            ll_uuid: null,
-          },
-          boundary: rec.boundary,
-          polygons: rec.polygons as any,
-          source: 'engine',
-          unclassified_acres: rec.stats?.unclassified_acres ?? 0,
-        })
         const loadedShapes = explodeShapes(rec.polygons as any)
         const loadedRings = geometryToPolys(rec.boundary)
-        setShapes(loadedShapes)
-        // The outline has to come across too. Without this it kept the
-        // PREVIOUS tract's rings: the panel then read as having unsaved
-        // changes the moment a tract opened, and 'Edit outline' would
-        // have handed you the wrong tract's boundary to drag.
-        setBoundaryRings(loadedRings)
+        // Every field goes into ONE openTract call rather than a
+        // sequence of setDetail/setShapes/setName calls — those write
+        // through a ref (updateActiveTract reads selectedTractIdRef) that
+        // only catches up on the NEXT render, so chaining them right
+        // after the tract that ref is about to point at is created would
+        // silently miss the brand-new tract and write nothing.
+        openTract({
+          savedId: rec.id,
+          name: rec.name,
+          source: { kind: 'parcel', ll_uuids: rec.source_ll_uuids || [] },
+          saved: true,
+          acres: rec.stats?.acres ?? null,
+          shapes: loadedShapes,
+          boundary: loadedRings,
+          // The outline has to come across too. Without this it kept the
+          // PREVIOUS tract's rings: the panel then read as having unsaved
+          // changes the moment a tract opened, and 'Edit outline' would
+          // have handed you the wrong tract's boundary to drag.
+          detail: {
+            // A saved parcel's stats use `buildings`; the live-parcel path
+            // uses Regrid's `ll_bldg_count`. Map it across so a reopened
+            // parcel doesn't report zero buildings.
+            parcel: {
+              ...rec.stats,
+              acres: rec.stats?.acres ?? 0,
+              ll_bldg_count: rec.stats?.buildings ?? 0,
+              county: rec.stats?.county ?? null,
+              state: rec.stats?.state ?? null,
+              ll_uuid: null,
+            },
+            boundary: rec.boundary,
+            polygons: rec.polygons as any,
+            source: 'engine',
+            unclassified_acres: rec.stats?.unclassified_acres ?? 0,
+          },
+          // Opened to LOOK at by default; the portfolio's Edit button asks
+          // for the tools up front so it does not take two clicks to get
+          // to the thing you pressed Edit for.
+          editingTypes: startEditing,
+        })
         markCleanRef.current?.(loadedShapes, loadedRings)
         // Opened from the portfolio to LOOK at, not to edit: show the
         // land types straight away and keep the editing tools away until
         // the user asks for them.
-        setStep('landtypes')
-        // Opened to LOOK at by default; the portfolio's Edit button asks
-        // for the tools up front so it does not take two clicks to get
-        // to the thing you pressed Edit for.
-        setEditingTypes(startEditing)
+        setStage('landtypes')
         setSelectedId(null)
         const bb = bboxOf(rec.boundary?.coordinates)
         if (bb && mapRef.current) mapRef.current.fitBounds(bb, { padding: 90, duration: 700 })
@@ -471,7 +606,7 @@ export default function ConfigureMap() {
         setError(e?.message || 'Could not open that saved parcel.')
       } finally { setBusy(null) }
     })()
-  }, [])
+  }, [openTract])
   const openSavedTractRef = useRef(openSavedTract); openSavedTractRef.current = openSavedTract
 
   // ── map ───────────────────────────────────────────────────────────
@@ -849,7 +984,7 @@ export default function ConfigureMap() {
       let took = false
       map.on('mousedown', LYR_VERTS, (e) => {
         // Belt and braces with the layer being empty in view mode.
-        if (stepRef.current !== 'boundary' && !editingTypesRef.current) return
+        if (stageRef.current !== 'tracts' && !editingTypesRef.current) return
         const f = e.features?.[0]
         if (!f) return
         e.preventDefault()
@@ -862,7 +997,7 @@ export default function ConfigureMap() {
         // that menu). Alt-click is the fallback for anyone whose mouse
         // or trackpad makes right-click awkward.
         const oe = e.originalEvent as MouseEvent
-        if (owner === '__boundary__' && stepRef.current === 'boundary'
+        if (owner === '__boundary__' && stageRef.current === 'tracts'
             && (oe.button === 2 || oe.altKey)) {
           const pi = Number(f.properties!.pi)
           const ri = Number(f.properties!.ri)
@@ -950,7 +1085,7 @@ export default function ConfigureMap() {
       // right-click a handle to take it out. Both refuse to leave fewer
       // than three points, which would stop being a polygon.
       map.on('click', 'cm-boundary-line', (e) => {
-        if (stepRef.current !== 'boundary') return
+        if (stageRef.current !== 'tracts') return
         e.preventDefault()
         const pt = [e.lngLat.lng, e.lngLat.lat] as Pt
         setBoundaryRings((prev) => {
@@ -972,7 +1107,7 @@ export default function ConfigureMap() {
         })
       })
       map.on('mouseenter', 'cm-boundary-line', () => {
-        if (stepRef.current === 'boundary') map.getCanvas().style.cursor = 'copy'
+        if (stageRef.current === 'tracts') map.getCanvas().style.cursor = 'copy'
       })
       map.on('mouseleave', 'cm-boundary-line', () => { map.getCanvas().style.cursor = '' })
 
@@ -1026,7 +1161,7 @@ export default function ConfigureMap() {
         // A click on the outline during step 1 means "add a handle here"
         // and is handled by the layer listener above; letting it fall
         // through would also try to select a parcel underneath.
-        if (stepRef.current === 'boundary'
+        if (stageRef.current === 'tracts'
             && map.queryRenderedFeatures(e.point, { layers: ['cm-boundary-line'] }).length) return
         // Cutting the selected polygon: two clicks, one either side, and
         // the second one performs the cut immediately.
@@ -1183,7 +1318,7 @@ export default function ConfigureMap() {
       setSelectedId(loaded.length
         ? loaded.reduce((a, b) => (shapeAcres(b) > shapeAcres(a) ? b : a)).id
         : null)
-      setStep('landtypes')
+      setStage('landtypes')
     } catch (e: any) {
       setError(e?.message || 'Could not fit the land types to that boundary.')
     } finally { setBusy(null) }
@@ -1331,7 +1466,7 @@ export default function ConfigureMap() {
   const runCut = useCallback(async (line: Pt[]) => {
     // Step 1 cuts the PARCEL into tracts; step 2 cuts the selected land
     // type polygon. Same two-click gesture either way.
-    const onBoundary = stepRef.current === 'boundary'
+    const onBoundary = stageRef.current === 'tracts'
     const id = selectedRef.current
     const target = onBoundary ? null : shapesRef.current.find((sh) => sh.id === id)
     if (!onBoundary && !target) { setError('Select a polygon first, then cut it.'); return }
@@ -1385,7 +1520,7 @@ export default function ConfigureMap() {
     }
     let removed = 0
     const count = (before: Pt[], after: Pt[]) => { removed += before.length - after.length }
-    if (stepRef.current === 'boundary') {
+    if (stageRef.current === 'tracts') {
       setBoundaryRings((prev) => prev.map((rings) => dropDegenerateHoles(
         rings.map((ring, ri) => { const t = trim(ring, ri); count(ring, t); return t }))))
     } else {
@@ -1454,7 +1589,15 @@ export default function ConfigureMap() {
   useEffect(() => {
     const d = fingerprint(shapes, boundaryRings) !== cleanRef.current
     setDirty(d); dirtyRef.current = d
-  }, [shapes, boundaryRings, fingerprint])
+    // Mirrored onto the tract itself too — Stage 2's tract LIST will read
+    // this per tract (an unsaved-work indicator next to its name) instead
+    // of the single top-level `dirty`, which only ever describes whichever
+    // tract happens to be open.
+    if (selectedTractId) {
+      setTracts((prev) => prev.map((t) =>
+        t.id === selectedTractId && t.dirty !== d ? { ...t, dirty: d } : t))
+    }
+  }, [shapes, boundaryRings, fingerprint, selectedTractId])
 
   /** Switching to another saved tract behaves like Cancel: straight
    *  through when nothing is unsaved, otherwise ask — and there OK
@@ -1551,7 +1694,7 @@ export default function ConfigureMap() {
     const map = mapRef.current
     if (!map || !ready) return
     const feats: any[] = []
-    for (const s of (step === 'boundary' ? [] : shapes)) {
+    for (const s of (stage === 'tracts' ? [] : shapes)) {
       const g = polysToGeometry(s.polys)
       if (g) feats.push({
         type: 'Feature', geometry: g,
@@ -1564,7 +1707,7 @@ export default function ConfigureMap() {
     // Handles on EVERY polygon so it is visible that they can be
     // reshaped — small on the others, full size on the one being edited.
     const verts: any[] = []
-    if (step === 'boundary') {
+    if (stage === 'tracts') {
       // Step 1: the outline itself is what you drag.
       boundaryRings.forEach((rings, pi) => rings.forEach((ring, ri) =>
         ring.forEach((pt, vi) => verts.push({
@@ -1585,14 +1728,14 @@ export default function ConfigureMap() {
     }
     ;(map.getSource(SRC.verts) as maplibregl.GeoJSONSource)?.setData(
       { type: 'FeatureCollection', features: verts } as any)
-  }, [shapes, selectedId, step, boundaryRings, ready])
+  }, [shapes, selectedId, stage, boundaryRings, ready])
 
   useEffect(() => {
     const map = mapRef.current
     if (!map || !ready) return
     // While the outline is being edited it comes from boundaryRings; once
     // confirmed it is the saved geometry and is drawn as a locked line.
-    const geom = step === 'boundary' ? polysToGeometry(boundaryRings) : detail?.boundary
+    const geom = stage === 'tracts' ? polysToGeometry(boundaryRings) : detail?.boundary
     ;(map.getSource(SRC.boundary) as maplibregl.GeoJSONSource)?.setData({
       type: 'FeatureCollection',
       features: geom ? [{ type: 'Feature', geometry: geom, properties: {} }] : [],
@@ -1604,9 +1747,9 @@ export default function ConfigureMap() {
     // outline itself stays visible in both steps.
     if (map.getLayer('cm-boundary-fill')) {
       map.setLayoutProperty('cm-boundary-fill', 'visibility',
-        step === 'boundary' ? 'visible' : 'none')
+        stage === 'tracts' ? 'visible' : 'none')
     }
-  }, [detail, boundaryRings, step, ready])
+  }, [detail, boundaryRings, stage, ready])
 
   useEffect(() => {
     const map = mapRef.current
@@ -1903,13 +2046,14 @@ export default function ConfigureMap() {
       setSavedName(res.name)
       markCleanRef.current?.(shapes, boundaryRings)
       setEditingTypes(false)
+      updateActiveTract((t) => ({ ...t, saved: true, acres: Number(st.acres ?? t.acres ?? 0) || t.acres }))
       setTool(null); setDrawing(false); setDraft([]); setCutPts([]); setSelectedId(null)
       return true
     } catch (e: any) {
       setError(e?.message || 'Save failed.')
       return false
     } finally { setBusy(null) }
-  }, [detail, name, shapes, sources, projectId, projectName, editingId])
+  }, [detail, name, shapes, boundaryRings, sources, projectId, projectName, editingId, updateActiveTract])
 
   useEffect(() => {
     if (!editingId) return
@@ -2010,9 +2154,11 @@ export default function ConfigureMap() {
     setConfirmWhat(null)
     setError(null); setSavedMsg(null); setPieces([]); setTool(null)
     setDrawing(false); setDraft([]); setCutPts([]); setMarq(null)
-    setSelectedId(null); setShapes([]); setBoundaryRings([])
-    setDetail(null); setEditingId(null); setName(''); setSavedName(''); setSources([])
-    setStep('boundary'); setEditingTypes(true)
+    setSelectedId(null); setSavedName('')
+    // No active tract left, not a blanked-out one — closing empties the
+    // whole list rather than routing through updateActiveTract, which
+    // would just leave a lone tract sitting there with every field wiped.
+    setTracts([]); setSelectedTractId(null); setStage('tracts')
     // Leave the project as well. Keeping projectId meant the next parcel
     // you drew was silently filed into the project you had just
     // cancelled out of — and ?project= in the URL put it straight back
@@ -2033,9 +2179,8 @@ export default function ConfigureMap() {
     setConfirmWhat(null)
     setError(null); setSavedMsg(null); setPieces([]); setTool(null)
     setDrawing(false); setDraft([]); setCutPts([]); setMarq(null)
-    setSelectedId(null); setShapes([]); setBoundaryRings([])
-    setDetail(null); setEditingId(null); setName(''); setSavedName(''); setSources([])
-    setStep('boundary'); setEditingTypes(true)
+    setSelectedId(null); setSavedName('')
+    setTracts([]); setSelectedTractId(null); setStage('tracts')
     try {
       window.history.replaceState(
         {}, '', `/configure-map?project=${encodeURIComponent(projectId)}&new=1`)
@@ -2065,7 +2210,7 @@ export default function ConfigureMap() {
     [shapes])
 
   useEffect(() => {
-    if (step !== 'landtypes' || !detail) { setSoil(null); return }
+    if (stage !== 'landtypes' || !detail) { setSoil(null); return }
     const tillable = shapes.filter((sh) => sh.cls === 'tillable')
       .map((sh) => polysToGeometry(sh.polys)).filter(Boolean)
     if (!tillable.length) { setSoil(null); return }
@@ -2085,7 +2230,7 @@ export default function ConfigureMap() {
     }, 700)
     return () => { cancelled = true; clearTimeout(t); setSoilBusy(false) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tillableKey, step, detail?.boundary])
+  }, [tillableKey, stage, detail?.boundary])
 
   // Live totals by class for the panel.
   const totals = useMemo(() => {
@@ -2294,7 +2439,7 @@ export default function ConfigureMap() {
               </div>
             </div>
 
-            {step === 'boundary' ? (
+            {stage === 'tracts' ? (
               <>
                 <div style={stepCard}>
                   <div style={stepLabel}>Step 1 — the parcel outline</div>
@@ -2514,7 +2659,7 @@ export default function ConfigureMap() {
                 "Other / Unclassified" — which states something false
                 about the ground rather than saying "not computed yet".
                 The live acreage is on the parcel card above either way. */}
-            {step === 'landtypes' && (
+            {stage === 'landtypes' && (
             <div style={card}>
               <div style={sectionLabel}>Legend &amp; acres</div>
               {LAND_CLASSES.map((c) => (
@@ -2721,7 +2866,7 @@ export default function ConfigureMap() {
             boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)',
             display: 'flex', flexDirection: 'column', gap: 8,
           }}>
-            {step === 'landtypes' && !editingTypes ? (
+            {stage === 'landtypes' && !editingTypes ? (
               // View mode hid Save and Cancel, which left no way off this
               // screen at all — no route back to the portfolio and no way
               // to start a fresh map without editing the URL.
@@ -2749,7 +2894,7 @@ export default function ConfigureMap() {
                   written here. It confirms the outline and moves to step
                   2, where the land types fill in — so it names where it
                   is taking you. */}
-              {step === 'boundary' ? (
+              {stage === 'tracts' ? (
                 <button onClick={() => void confirmBoundary()} disabled={!!busy}
                         style={{ ...primaryBtn, flex: 1, justifyContent: 'center', padding: '9px 10px' }}>
                   <ArrowRight size={14} /> Continue to Land Types
@@ -2765,9 +2910,9 @@ export default function ConfigureMap() {
                   // Only ask when there is something to lose. A
                   // "discard your changes?" over a tract nobody has
                   // touched is pure noise (owner).
-                  if (step === 'landtypes') {
+                  if (stage === 'landtypes') {
                     if (dirty) { setConfirmWhat('outline'); return }
-                    setTool(null); setSelectedId(null); setStep('boundary')
+                    setTool(null); setSelectedId(null); setStage('tracts')
                     return
                   }
                   if (dirty) { setConfirmWhat('cancel'); return }
@@ -2775,7 +2920,7 @@ export default function ConfigureMap() {
                 }}
                 disabled={!!busy}
                 style={{ ...btn, flex: 1, justifyContent: 'center', padding: '9px 10px' }}>
-                <X size={14} /> {step === 'landtypes' ? 'Edit outline' : 'Cancel'}
+                <X size={14} /> {stage === 'landtypes' ? 'Edit outline' : 'Cancel'}
               </button>
             </div>
             )}
@@ -2819,7 +2964,7 @@ export default function ConfigureMap() {
                 <button onClick={() => {
                           if (confirmWhat === 'outline') {
                             setConfirmWhat(null); setTool(null); setSelectedId(null)
-                            setStep('boundary')
+                            setStage('tracts')
                           } else if (confirmWhat === 'leave') {
                             setConfirmWhat(null)
                             window.location.href = '/access'
