@@ -2238,13 +2238,13 @@ export default function ConfigureMap() {
    *  only after a confirm, since that side is not undoable from here
    *  (Stage 2's own undo stack only ever restores the LOCAL list). A
    *  tract never saved just drops straight out. */
+  // Always asks first (owner 9/16: deleting a tract polygon needs a
+  // confirmation pop-up) — a saved tract also loses its server record.
   const removeTract = useCallback((id: string) => {
-    const t = tractsRef.current.find((x) => x.id === id)
-    if (t?.savedId) {
-      setPendingRemoveId(id)
-      setConfirmWhat('removeTract')
-      return
-    }
+    setPendingRemoveId(id)
+    setConfirmWhat('removeTract')
+  }, [])
+  const removeLocalTract = useCallback((id: string) => {
     snapshotTracts(tractsRef.current)
     setTracts((prev) => prev.filter((x) => x.id !== id))
     setSelectedTractId((cur) => (cur === id ? null : cur))
@@ -3277,6 +3277,13 @@ export default function ConfigureMap() {
                               : !activeTract.name.trim() ? 'Name this tract before saving.'
                               : 'Saves this tract to the project. You stay here.'}
                             onClick={() => { if (selectedTractId) void saveAllTracts([selectedTractId]) }} />
+                {/* Owner 9/16: a way to throw a tract polygon away and start
+                    over, on the map with the other tract tools; it always
+                    confirms first. */}
+                <ToolButton icon={Trash2} label="Delete Tract"
+                            disabled={!!busy || !activeTract}
+                            title={!activeTract ? 'Open a tract to delete it.' : 'Removes this tract. You will be asked first.'}
+                            onClick={() => { if (selectedTractId) removeTract(selectedTractId) }} />
                 <ToolButton icon={RotateCcw} label="Undo" disabled={undoDisabled} onClick={handleUndo} />
                 <ToolButton icon={RotateCw} label="Redo" disabled={redoDisabled} onClick={handleRedo} />
                 {/* The deliberate "next step" once a tract is open — filled
@@ -3874,8 +3881,11 @@ export default function ConfigureMap() {
                   + 'boundary. This cannot be undone with Redo once you navigate away.'
                 : confirmWhat === 'discardFooter'
                 ? 'Anything not saved with Save Tract or Finish will be lost.'
-                : 'This tract is already saved. OK removes it here and deletes '
-                  + 'its saved record too — that part cannot be undone.'}
+                : (pendingRemoveId && tracts.find((x) => x.id === pendingRemoveId)?.savedId)
+                ? 'This tract is already saved. OK removes it here and deletes '
+                  + 'its saved record too — that part cannot be undone.'
+                : 'This tract comes off the map. You can Undo right away, but '
+                  + 'not after you leave this screen.'}
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
               <button onClick={() => {
@@ -3911,7 +3921,10 @@ export default function ConfigureMap() {
                         } else {
                           const target = pendingRemoveId
                           setConfirmWhat(null); setPendingRemoveId(null)
-                          if (target) void removeSavedTract(target)
+                          if (!target) return
+                          const t = tractsRef.current.find((x) => x.id === target)
+                          if (t?.savedId) void removeSavedTract(target)
+                          else removeLocalTract(target)
                         }
                       }}
                       style={{
