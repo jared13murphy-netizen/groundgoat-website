@@ -2285,7 +2285,11 @@ export default function ConfigureMap() {
     const map = mapRef.current
     if (!map || !ready) return
     peersRef.current = peers
-    const localIds = new Set(tracts.map((t) => t.id))
+    // A local tract that has been SAVED comes back from the server under
+    // its record id (savedId), not its session id — match both, or the
+    // saved copy draws a second badge with the pre-rename name (owner
+    // 9/16: "both the old AND the new name show up").
+    const localIds = new Set(tracts.flatMap((t) => (t.savedId ? [t.id, t.savedId] : [t.id])))
     const extraPeers = peers.filter((t) => !localIds.has(t.id))
     const fills: any[] = []
     const bounds: any[] = []
