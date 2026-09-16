@@ -3048,7 +3048,8 @@ export default function ConfigureMap() {
             separate steps. Replaces the old floating "Done Erasing"/
             "Cancel Cut"/"Save Polygon" pill: an armed tool swaps its OWN
             toolbar button to its done label in place instead. */}
-        {toolbarHint && <div style={toolbarHintPill}>{toolbarHint}</div>}
+        {/* Only on the build screen — Step 1 has its own card. */}
+        {stage === 'build' && toolbarHint && <div style={toolbarHintPill}>{toolbarHint}</div>}
         {stage === 'build' && (
           <div style={toolbarStack}>
             {activeTract && (
@@ -3360,7 +3361,9 @@ export default function ConfigureMap() {
                 <div style={sectionLabel}>Tract data</div>
                 <div style={{ fontWeight: 600 }}>{detail.parcel?.owner || 'Parcel'}</div>
                 <div style={{ opacity: 0.65 }}>
-                  {sources.length ? sources.join(', ') : (detail.parcel?.parcelnumb || 'No parcel number')}
+                  {/* The parcel NUMBER — the ids in `sources` are internal
+                      and mean nothing to a farmer (sandbox 9/16). */}
+                  {detail.parcel?.parcelnumb ? `Parcel ${detail.parcel.parcelnumb}` : 'No parcel number'}
                   {' · '}{niceCounty(detail.parcel?.county)} County {detail.parcel?.state}
                 </div>
                 {!!detail.parcel?.township && (
@@ -3620,7 +3623,6 @@ export default function ConfigureMap() {
             </div>
 
             <div>
-              <div style={sectionLabel}>Project</div>
               {projectId ? (
                 // Already inside a project: name it, don't offer a dead
                 // input. The greyed box with placeholder text said
