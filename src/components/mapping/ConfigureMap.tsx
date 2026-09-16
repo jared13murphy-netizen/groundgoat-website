@@ -22,6 +22,7 @@
  * against PostGIS, so stored figures never depend on this approximation.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import {
@@ -519,6 +520,41 @@ function ToolButton({ icon: Icon, dot, label, onClick, active, disabled, primary
         {label}
       </span>
     </button>
+  )
+}
+
+/** One floating glass bubble over the map (owner redesign 2026-09-16:
+ *  the fixed right panel is gone — the map spans the full surface and
+ *  every panel section floats over it as its own near-black card).
+ *
+ *  The bubble container this sits in (`bubbleContainer`, defined below
+ *  the component) is right-anchored with `direction: 'rtl'` so a second
+ *  column of overflow bubbles grows LEFTWARD, into the map, instead of
+ *  off the right edge — `flexWrap` itself stays plain 'wrap', never
+ *  'wrap-reverse'. `direction: 'ltr'` here un-flips that for the
+ *  bubble's own content, so text and button order read normally. */
+function Bubble({ animKey, children }: { animKey: string; children: React.ReactNode }) {
+  return (
+    <motion.div
+      key={animKey}
+      layout
+      initial={{ opacity: 0, scale: 0.85, y: 12 }}
+      animate={{
+        opacity: 1, scale: 1, y: 0,
+        transition: { type: 'spring', stiffness: 420, damping: 24, mass: 0.8 },
+      }}
+      exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.15 } }}
+      style={{
+        direction: 'ltr', pointerEvents: 'auto', flex: 'none',
+        background: 'rgba(8,8,10,0.78)',
+        backdropFilter: 'blur(14px)',
+        border: '1px solid rgba(255,255,255,0.10)',
+        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.12), 0 10px 30px rgba(0,0,0,0.55)',
+        borderRadius: 16, padding: 14, width: 340, color: '#ffffff',
+        display: 'flex', flexDirection: 'column', gap: 10, fontSize: 13,
+      }}>
+      {children}
+    </motion.div>
   )
 }
 
@@ -3160,8 +3196,10 @@ export default function ConfigureMap() {
             OWN button's icon/label to its done state in place (Save
             Polygon, Cancel Cut, Done Erasing) instead of a separate
             floating pill. */}
-        {/* Only on the build screen — Step 1 has its own card. */}
-        {stage === 'build' && toolbarHint && <div style={toolbarHintPill}>{toolbarHint}</div>}
+        {/* The top-of-map banner is gone (owner redesign 2026-09-16,
+            floating bubbles) — `toolbarHint`'s value now shows as the
+            "What To Do" bubble's body instead (same variable, same
+            priority chain, just a different piece of JSX reading it). */}
         {stage === 'build' && (
           <div style={toolbarRow}>
             {tractMode === 'landtypes' && activeTract ? (
@@ -3254,718 +3292,677 @@ export default function ConfigureMap() {
         )}
       </div>
 
-      <aside style={{
-        width: 360, flexShrink: 0, color: '#e5e7eb', position: 'relative',
-        // Two stacked gradients: a sheen that falls off in the top fifth
-        // (the gloss), over a dark-grey-to-black body. The inset
-        // highlight is the lit top edge that makes it read as a surface
-        // rather than a flat fill.
-        background:
-          'linear-gradient(180deg, rgba(255,255,255,0.10) 0%,'
-          + ' rgba(255,255,255,0.035) 7%, rgba(255,255,255,0) 20%),'
-          + ' linear-gradient(180deg, #23262b 0%, #131519 14%,'
-          + ' #0a0a0a 44%, #050505 100%)',
-        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.16)',
-        borderLeft: '1px solid rgba(255,255,255,0.10)',
-        display: 'flex', flexDirection: 'column', fontSize: 13,
-      }}>
-        {/* Scrolling body. Save / Cancel live in the pinned footer below —
-            the panel is taller than most windows, and burying the two
-            buttons that commit or discard the work at the bottom of a
-            scroll meant people could not find them at all. */}
-        <div style={{
-          flex: 1, minHeight: 0, overflowY: 'auto',
-          display: 'flex', flexDirection: 'column', gap: 14, padding: 16,
-        }}>
-        {/* Owner redesign 2026-09-16: after Step 1 there is ONE working
-            screen (the stepper above only shows where you are). Item 1 of
-            the new panel replaces the plain "Configure Map" title there:
-            the project's own name,
-            renameable in place (same pencil gesture as a tract name),
-            plus a way back to the portfolio without leaving via the map
-            corner button. */}
-        {/* Owner 9/16 ("I liked the steps 1, 2 and 3 at the top"): the
-            row is back as a WHERE-AM-I indicator, not a screen switch —
-            AND, per the owner's later correction, a real (if secondary)
-            way to move between the two tract-editing modes. 1 while
-            naming, 2 while no tract is open OR one is open in 'outline'
-            mode, 3 once a tract is open in 'landtypes' mode.
-            "2. Tracts" clicked from 'landtypes' returns that SAME tract
-            to 'outline' — it does not close it (closing is Add Another
-            Tract / picking a different row). "3. Land Types" clicked
-            with a tract open switches it to 'landtypes' (classifying it
-            once, same as the round "Land Types" toolbar button). */}
-        {(() => {
-          const cur = stage === 'project' ? 0 : (activeTract && tractMode === 'landtypes') ? 2 : 1
-          const labels = ['1. Project', '2. Tracts', '3. Land Types']
-          return (
-            <div style={{ display: 'flex', gap: 4 }}>
-              {labels.map((label, i) => {
-                const state = i === cur ? 'current' : i < cur ? 'done' : 'future'
-                const canJump = (i === 1 && cur === 2) || (i === 2 && !!activeTract && cur !== 2)
-                return (
-                  <button key={label}
-                    onClick={() => {
-                      if (!canJump) return
-                      if (i === 1) setTractMode('outline')
-                      else if (i === 2) setTractMode('landtypes')
-                    }}
-                    disabled={!canJump}
-                    style={{
-                      border: 'none', cursor: canJump ? 'pointer' : 'default',
-                      background: state === 'current' ? GG_PINK : 'transparent',
-                      color: state === 'current' ? '#0b0b0b' : '#ffffff',
-                      opacity: state === 'current' ? 1 : state === 'done' ? 0.4 : 0.25,
-                      display: 'inline-flex', alignItems: 'center', gap: 4,
-                      padding: '4px 10px', borderRadius: 999, fontSize: 11, fontWeight: 600,
-                    }}>
-                    {state === 'done' && <Check size={12} />}
-                    {label}
-                  </button>
-                )
-              })}
-            </div>
-          )
-        })()}
-        {stage === 'project' ? (
-          <div style={{ fontWeight: 700, fontSize: 15, letterSpacing: 0.2 }}>Configure Map</div>
-        ) : (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0, flex: 1,
-                          fontSize: 15, fontWeight: 700 }}>
-              <TractName value={projectName} busy={!!busy} placeholder="Untitled project"
-                         onCommit={(n) => setProjectName(n)} />
-            </div>
-            <a href="/map-portfolio"
-               style={{ fontSize: 12, color: '#f58cde', textDecoration: 'none', flex: 'none' }}>
-              Map Portfolio
-            </a>
-          </div>
-        )}
-
-        {stage === 'project' ? (
-          <div style={stepCard}>
-            <div style={stepLabel}>Step 1 — Name this project.</div>
-            <div style={{ lineHeight: 1.5 }}>
-              Give this project a name before adding tracts — it&rsquo;s how
-              you&rsquo;ll find it in Map Portfolio.
-            </div>
-            <input
-              autoFocus
-              value={projectName}
-              onChange={(e) => setProjectName(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter' && projectName.trim()) setStage('build') }}
-              placeholder="e.g. Smith Estate Auction"
-              style={{
-                ...inputStyle, width: '100%', fontSize: 16, fontWeight: 600, marginTop: 4,
-                border: projectName.trim() ? inputStyle.border : '1px solid #ef4444',
-              }}
-            />
-          </div>
-        ) : (
-        <>
-        {/* Search */}
-        <div>
-          <div style={{ display: 'flex', gap: 6 }}>
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') void runSearch() }}
-              placeholder="Town, township, county, owner, parcel #, or lat/lng"
-              style={inputStyle}
-            />
-            <select value={searchState} onChange={(e) => setSearchState(e.target.value)}
-                    aria-label="State"
-                    style={{ ...inputStyle, width: 84, flex: 'none' }}>
-              {/* Owner 9/16: say what the dropdown is, not "--". */}
-              <option value="">State</option>
-              {['IL', 'IA', 'MO', 'NE', 'KS', 'IN', 'MN', 'WI', 'OH', 'SD', 'ND'].map((s) => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-            </select>
-          </div>
-          {/* Only once a state is chosen: county names repeat across
-              states, so one without the other narrows nothing. */}
-          {searchState && counties.length > 0 && (
-            <select value={searchCounty} onChange={(e) => setSearchCounty(e.target.value)}
-                    style={{ ...inputStyle, width: '100%', marginTop: 6 }}>
-              <option value="">All counties in {searchState}</option>
-              {counties.map((c) => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
-          )}
-          <button onClick={() => void runSearch()} style={{ ...btn, width: '100%', marginTop: 6 }}>
-            <Search size={13} /> Submit
-          </button>
-          {note && <div style={hint}>{note}</div>}
-        </div>
-
-        {hits.length > 0 && (
-          <div style={{ maxHeight: 170, overflowY: 'auto', ...card }}>
-            {hits.slice(0, 60).map((h) => (
-              <button key={h.ll_uuid} onClick={() => void loadParcel(h.ll_uuid)} style={rowBtn}>
-                <span style={{ color: '#93c5fd' }}>{h.parcelnumb || '(no number)'}</span>
-                <span style={{ opacity: 0.7 }}>{h.owner || ''}</span>
-                <span style={{ opacity: 0.5 }}>{h.acres ? `${Number(h.acres).toFixed(1)} ac` : ''}</span>
-              </button>
-            ))}
-          </div>
-        )}
-
-        {busy && <div style={hint}><Loader2 size={12} className="animate-spin" /> {busy}</div>}
-        {error && <div style={{ ...hint, color: '#fca5a5' }}>{error}</div>}
-        {savedMsg && <div style={{ ...hint, color: '#f8daf1' }}>{savedMsg}</div>}
-
-        {/* Stage 2: the whole tract list, built before any land type is
-            touched (owner process). No parcel-detail card, no per-tract
-            outline tools here — those either happen on the map directly
-            (drag a boundary vertex, click the line to add one) or moved
-            to the bottom toolbar (Draw a tract / Snap tracts). */}
-        {/* Owner 9/16: tell the user how to get started, in the same
-            white card Step 1 uses, until the first tract exists. */}
-        {stage === 'build' && (tracts.length === 0 || addingTract) && (
-          <div style={stepCard}>
-            <div style={stepLabel}>
-              {tracts.length === 0 ? 'Build your tracts.' : 'Adding another tract.'}
-            </div>
-            <div style={{ lineHeight: 1.5 }}>
-              {tracts.length === 0 ? 'To get started, ' : 'Now '}
-              <strong>click a parcel</strong> on the map to use its boundary, or
-              press <strong>Draw a Tract</strong> at the bottom of the map and click
-              the corners of your own shape.
-              {tracts.length === 0
-                ? ' Add as many tracts as you need, then press Finish.'
-                : ' Clicking a parcel you have already used fills in what is left of it.'}
-            </div>
-          </div>
-        )}
-        {/* The one tract list (item 4): every tract, its acres, its
-            tillable acres and soil rating once known, and a rename
-            pencil / trash can right on the row. Clicking a row opens it
-            for BOTH boundary and land-type editing — there is no
-            separate "pick a tract to see its land types" list any more. */}
-        {stage === 'build' && (
-          <div style={card}>
-            <div style={sectionLabel}>Tracts ({tracts.length})</div>
-            {tracts.map((t) => (
-              <TractRow key={t.id} t={t} selected={t.id === selectedTractId} busy={!!busy}
-                        soilRating={t.id === selectedTractId ? (soil?.rating ?? null) : null}
-                        onSelect={() => requestOpen(t.id)}
-                        onCommitName={(n) => {
-                          setTracts((prev) => prev.map((x) => x.id === t.id ? { ...x, name: n } : x))
-                          // The tract you have OPEN persists its rename right
-                          // away (doRename), same as the removed standalone
-                          // name card used to — any other row's rename rides
-                          // along with that tract's next Save/Finish, same as
-                          // every other edit made to a tract that is not open.
-                          if (t.id === selectedTractId) void doRename(n)
+      {/* Floating glass bubbles replace the fixed right panel (owner
+          redesign 2026-09-16) — the map above now spans the full
+          surface. Every bubble below is a straight re-housing of
+          content/handlers/state that used to live in the `<aside>`;
+          nothing here is new functionality. `bubbleContainer` (defined
+          near the bottom of the file, by the other style consts) is
+          right-anchored with the RTL trick that makes overflow bubbles
+          stack a new column to the LEFT — see the comment on `Bubble`
+          above for why. */}
+      <div style={bubbleContainer}>
+        <AnimatePresence>
+          {/* Bubble 1 — What To Do. Header is the 1/2/3 step row
+              (unchanged: same `cur`/`canJump` logic, same click
+              handlers). On Step 1 this is the ONLY bubble and its body
+              becomes the "name this project" card, footer becomes the
+              single Continue button. On Steps 2/3 the body is
+              `toolbarHint` — the same variable, same priority chain,
+              that used to feed the top-of-map banner pill (now
+              removed) — and the footer is Cancel + Finish, exactly as
+              the old pinned panel footer. */}
+          <Bubble key="what-to-do" animKey="what-to-do">
+            {(() => {
+              const cur = stage === 'project' ? 0 : (activeTract && tractMode === 'landtypes') ? 2 : 1
+              const labels = ['1. Project', '2. Tracts', '3. Land Types']
+              return (
+                <div style={{ display: 'flex', gap: 4 }}>
+                  {labels.map((label, i) => {
+                    const state = i === cur ? 'current' : i < cur ? 'done' : 'future'
+                    const canJump = (i === 1 && cur === 2) || (i === 2 && !!activeTract && cur !== 2)
+                    return (
+                      <button key={label}
+                        onClick={() => {
+                          if (!canJump) return
+                          if (i === 1) setTractMode('outline')
+                          else if (i === 2) setTractMode('landtypes')
                         }}
-                        onRemove={() => removeTract(t.id)} />
-            ))}
-            {/* Re-arms "adding" mode explicitly rather than relying on
-                the ambient state — a deliberate click, not a side effect
-                of clearing the selection some other way. */}
-            <button
-              onClick={() => {
-                setSelectedTractId(null)
-                setAddingTract(true)
-                setTool(null); setDrawing(false); setDraft([])
-              }}
-              // Nothing to add "another" to until the first tract exists,
-              // and nothing to do while adding is already armed (owner 9/16).
-              disabled={!!busy || tracts.length === 0 || addingTract}
-              style={{ ...btn, width: '100%', justifyContent: 'center', marginTop: 8 }}>
-              <Plus size={13} /> Add Another Tract
-            </button>
-          </div>
-        )}
-
-        {stage === 'build' && activeTract && (
-          <>
-            {/* Tract data (item 7) — where this outline came from and
-                where it sits, replacing the old parcel-only card so a
-                hand-drawn tract gets a row here too. */}
-            {detail ? (
-              <div style={card}>
-                <div style={sectionLabel}>Tract data</div>
-                <div style={{ fontWeight: 600 }}>{detail.parcel?.owner || 'Parcel'}</div>
-                <div style={{ opacity: 0.65 }}>
-                  {/* The parcel NUMBER — the ids in `sources` are internal
-                      and mean nothing to a farmer (sandbox 9/16). */}
-                  {detail.parcel?.parcelnumb ? `Parcel ${detail.parcel.parcelnumb}` : 'No parcel number'}
-                  {' · '}{niceCounty(detail.parcel?.county)} County {detail.parcel?.state}
+                        disabled={!canJump}
+                        style={{
+                          border: 'none', cursor: canJump ? 'pointer' : 'default',
+                          background: state === 'current' ? GG_PINK : 'transparent',
+                          color: state === 'current' ? '#0b0b0b' : '#ffffff',
+                          opacity: state === 'current' ? 1 : state === 'done' ? 0.4 : 0.25,
+                          display: 'inline-flex', alignItems: 'center', gap: 4,
+                          padding: '4px 10px', borderRadius: 999, fontSize: 11, fontWeight: 600,
+                        }}>
+                        {state === 'done' && <Check size={12} />}
+                        {label}
+                      </button>
+                    )
+                  })}
                 </div>
-                {!!detail.parcel?.township && (
-                  <div style={statRow}>
-                    <span style={{ opacity: 0.65 }}>Township</span><span>{detail.parcel.township}</span>
-                  </div>
-                )}
-                {!!detail.parcel?.section && (
-                  <div style={statRow}>
-                    <span style={{ opacity: 0.65 }}>Section</span><span>{detail.parcel.section}</span>
-                  </div>
-                )}
-                {tractCentre && (
-                  <div style={statRow}>
-                    <span style={{ opacity: 0.65 }}>Centre</span>
-                    <span>{tractCentre[1].toFixed(5)}, {tractCentre[0].toFixed(5)}</span>
-                  </div>
-                )}
-                {detail.parcel?.acreage_mismatch && (
-                  <div style={{ ...hint, color: '#fcd34d' }}>
-                    Deed acreage ({detail.parcel.acres_of_record}) differs from the mapped shape.
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div style={card}>
-                <div style={sectionLabel}>Tract data</div>
-                <div style={{ fontWeight: 600 }}>Hand-drawn</div>
-                {tractCentre && (
-                  <div style={statRow}>
-                    <span style={{ opacity: 0.65 }}>Centre</span>
-                    <span>{tractCentre[1].toFixed(5)}, {tractCentre[0].toFixed(5)}</span>
-                  </div>
-                )}
-              </div>
-            )}
+              )
+            })()}
 
-            {/* Renaming now happens on the tract's own row in the list
-                above (item 4's pencil) — this used to be its own big-font
-                card down here, which is exactly the kind of duplicate
-                control the redesign moved off the panel. */}
-
-            {/* Acres & land types (item 6) — the live totals this tract
-                is actually built around, not a footnote under the tools.
-                'outline' mode has no land types to show yet (none are
-                even classified) — just the total, plus where to go next;
-                showing every class at a blank 0.0 there would read as
-                the engine having failed rather than not having run yet. */}
-            <div style={card}>
-              <div style={sectionLabel}>Acres &amp; land types</div>
-              {tractMode === 'outline' ? (
-                <>
-                  <div style={{
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                    fontSize: 22, fontWeight: 800,
-                  }}>
-                    <span>Total</span><span>{parcelAcres.toFixed(1)}</span>
-                  </div>
-                  <div style={hint}>
-                    Press 3. Land Types to see tillable, timber and water.
-                  </div>
-                </>
-              ) : (
-                <>
-                  {LAND_CLASSES.map((c) => (
-                    <div key={c} style={{
-                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                      padding: '3px 4px', borderRadius: 5,
-                      background: flashClasses.has(c) ? 'rgba(245,140,222,0.25)' : 'transparent',
-                      transition: 'background-color 300ms',
-                    }}>
-                      <span style={{ display: 'flex', alignItems: 'center' }}>
-                        <span style={{ display: 'inline-block', width: 14, height: 14, borderRadius: 3, background: CLASS_COLOR[c], marginRight: 8 }} />
-                        {CLASS_LABEL[c]}
-                      </span>
-                      <span style={{ fontSize: 20, fontWeight: 800 }}>{totals[c].toFixed(1)}</span>
-                    </div>
-                  ))}
-                  <div style={{ ...statRow, opacity: 0.6 }}>
-                    <span>Other / Unclassified</span>
-                    <span>{Math.max(parcelAcres - classified, 0).toFixed(1)}</span>
-                  </div>
-                  <div style={{
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                    fontSize: 22, fontWeight: 800, borderTop: '2px solid rgba(255,255,255,0.16)', paddingTop: 8, marginTop: 2,
-                  }}>
-                    <span>Total</span><span>{parcelAcres.toFixed(1)}</span>
-                  </div>
-                  <div style={statRow}>
-                    <span style={{ opacity: 0.65 }}>Buildings</span>
-                    <span>{detail?.parcel?.ll_bldg_count ?? 0}</span>
-                  </div>
-                  <div style={{ ...statRow, borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: 6 }}>
-                    <span style={{ opacity: 0.65 }}>
-                      Soil rating{soil?.rating_type ? ` (${soil.rating_type})` : ''}
-                    </span>
-                    <span style={{ opacity: soilBusy ? 0.45 : 1 }}>
-                      {soilBusy ? 'updating…' : (soil?.rating ?? '—')}
-                    </span>
-                  </div>
-                  <div style={hint}>
-                    Acres update as you edit; the soil rating follows a moment later.
-                    Both are recomputed exactly when you save.
-                  </div>
-                </>
-              )}
-            </div>
-
-            <>
-            {/* Land-type chips and every polygon tool (Add Polygon,
-                Delete, Split Polygon, Erase Points, Fill Holes, Undo,
-                Redo, Clear Polygons, Start Over) live in the bottom
-                toolbar now (design spec §2) — no duplicate controls
-                here (owner). There is no "Edit this tract" unlock any
-                more either: opening a tract on this screen opens it
-                fully interactive, full stop (owner ruling 2026-09-16). */}
-
-            {/* See what is under a polygon without deleting it. */}
-            <div>
-              <div style={{ ...statRow, marginBottom: 2 }}>
-                <span style={{ opacity: 0.65 }}>Polygon fill</span>
-                <span>{Math.round(fillOpacity * 100)}%</span>
-              </div>
-              <input
-                type="range" min={0} max={1} step={0.05} value={fillOpacity}
-                onChange={(e) => setFillOpacity(parseFloat(e.target.value))}
-                style={{ width: '100%' }} />
-              <div style={hint}>
-                Slide to 0 to see the bare imagery. The outlines stay put, so
-                nothing gets lost — and nothing is changed or saved.
-              </div>
-            </div>
-
+            {stage === 'project' ? (
+              <>
+                <div style={stepLabel}>Step 1 — Name this project.</div>
+                <div style={{ lineHeight: 1.5 }}>
+                  Give this project a name before adding tracts — it&rsquo;s how
+                  you&rsquo;ll find it in Map Portfolio.
+                </div>
+                <input
+                  autoFocus
+                  value={projectName}
+                  onChange={(e) => setProjectName(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && projectName.trim()) setStage('build') }}
+                  placeholder="e.g. Smith Estate Auction"
+                  style={{
+                    ...inputStyle, width: '100%', fontSize: 16, fontWeight: 600, marginTop: 4,
+                    border: projectName.trim() ? inputStyle.border : '1px solid #ef4444',
+                  }}
+                />
+                <button onClick={() => setStage('build')} disabled={!projectName.trim()}
+                        style={{ ...primaryBtn, width: '100%', justifyContent: 'center', padding: '9px 10px' }}>
+                  <ArrowRight size={14} /> Continue to the Map
+                </button>
               </>
-
-            {/* This card only ever fills in via the (removed) Stage 2
-                "Split parcel" boundary-cut tool — dead in the new
-                tracts-first flow, since Stage 2 no longer offers that
-                button, but left in place rather than torn out along with
-                its `pieces`/`savePieces` plumbing. */}
-            {pieces.length > 0 && (
-              <div style={card}>
-                <div style={sectionLabel}>Split into {pieces.length} tracts</div>
-                {pieces.map((pc, i) => (
-                  <div key={i} style={statRow}>
-                    <span>Tract {i + 1}</span><span>{pc.acres.toFixed(1)} ac</span>
-                  </div>
-                ))}
-                <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-                  <button onClick={() => void savePieces()} disabled={!!busy}
-                          style={primaryBtn}>
-                    <Save size={13} /> Save all as tracts
-                  </button>
-                  <button onClick={() => setPieces([])} style={btn}>Discard</button>
-                </div>
-              </div>
-            )}
-
-            {/* Name + save */}
-            {cma && (
-              <div style={card}>
-                <div style={sectionLabel}>Market analysis</div>
-                <div style={{ fontWeight: 600 }}>{cma.name}</div>
-                {cma.subjects.map((sub) => (
-                  <button
-                    key={sub.parcel_id}
-                    onClick={() => { setCmaSubject(sub.parcel_id); void loadCandidates(cma, sub.parcel_id) }}
-                    style={{
-                      ...btn, width: '100%', justifyContent: 'space-between', marginTop: 5,
-                      borderColor: cmaSubject === sub.parcel_id ? '#ffffff' : undefined,
-                    }}>
-                    <span>{sub.name || 'Tract'}</span>
-                    <span style={{ opacity: 0.7 }}>
-                      {(sub.comps || []).length} comp{(sub.comps || []).length === 1 ? '' : 's'}
-                    </span>
-                  </button>
-                ))}
-                {cmaSubject && (
-                  <div style={hint}>
-                    {candidates.length
-                      ? 'Click a + pin on the map to use that sale, − to drop it.'
-                      : 'No comparable sales found near this tract.'}
-                  </div>
+            ) : (
+              <>
+                {toolbarHint && (
+                  <div style={{ fontSize: 15, fontWeight: 600, lineHeight: 1.4 }}>{toolbarHint}</div>
                 )}
-                {editingId && !cma.subjects.some((x) => x.parcel_id === editingId) && (
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    onClick={() => {
+                      // "Any changes" includes a tract that exists only in this
+                      // session — a parcel just clicked has no savedId yet and
+                      // leaving would silently drop it (owner 9/16).
+                      const unsaved = dirty || tracts.some((t) => !t.savedId || !t.saved)
+                      if (unsaved) { setConfirmWhat('discardFooter'); return }
+                      window.location.href = '/map-portfolio'
+                    }}
+                    disabled={!!busy}
+                    style={{ ...btn, flex: 1, justifyContent: 'center', padding: '9px 10px' }}>
+                    <X size={14} /> Cancel
+                  </button>
                   <button
                     onClick={() => void (async () => {
-                      try {
-                        await updateCma(cma.id, {
-                          parcel_ids: [...cma.subjects.map((x) => x.parcel_id), editingId],
-                        })
-                        setCma(await getCma(cma.id))
-                      } catch (e: any) { setError(e?.message || 'Could not add this tract.') }
+                      const ok = await saveAllTracts()
+                      if (ok) window.location.href = '/map-portfolio'
                     })()}
-                    style={{ ...btn, marginTop: 6 }}>
-                    <Plus size={13} /> Add this tract as a subject
+                    disabled={!!busy || !tracts.length}
+                    style={{ ...primaryBtn, flex: 1, justifyContent: 'center', padding: '9px 10px' }}>
+                    <Save size={14} /> Finish
                   </button>
+                </div>
+              </>
+            )}
+          </Bubble>
+
+          {/* Bubble 2 — Project: name (top bubble already has the step
+              row, this is the project's own renameable name + portfolio
+              link), the parcel search block, the getting-started card,
+              and the tract list. Never on Step 1 — bubble 1 is the only
+              one shown there. */}
+          {stage === 'build' && (
+            <Bubble key="project" animKey="project">
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0, flex: 1,
+                              fontSize: 15, fontWeight: 700 }}>
+                  <TractName value={projectName} busy={!!busy} placeholder="Untitled project"
+                             onCommit={(n) => setProjectName(n)} />
+                </div>
+                <a href="/map-portfolio"
+                   style={{ fontSize: 12, color: '#f58cde', textDecoration: 'none', flex: 'none' }}>
+                  Map Portfolio
+                </a>
+              </div>
+
+              {/* Search */}
+              <div>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <input
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') void runSearch() }}
+                    placeholder="Town, township, county, owner, parcel #, or lat/lng"
+                    style={inputStyle}
+                  />
+                  <select value={searchState} onChange={(e) => setSearchState(e.target.value)}
+                          aria-label="State"
+                          style={{ ...inputStyle, width: 84, flex: 'none' }}>
+                    {/* Owner 9/16: say what the dropdown is, not "--". */}
+                    <option value="">State</option>
+                    {['IL', 'IA', 'MO', 'NE', 'KS', 'IN', 'MN', 'WI', 'OH', 'SD', 'ND'].map((s) => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
+                </div>
+                {/* Only once a state is chosen: county names repeat across
+                    states, so one without the other narrows nothing. */}
+                {searchState && counties.length > 0 && (
+                  <select value={searchCounty} onChange={(e) => setSearchCounty(e.target.value)}
+                          style={{ ...inputStyle, width: '100%', marginTop: 6 }}>
+                    <option value="">All counties in {searchState}</option>
+                    {counties.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
                 )}
-                <button onClick={() => void buildCmaReport()} disabled={!!busy}
-                        style={{ ...primaryBtn, marginTop: 8 }}>
-                  <FileText size={13} /> Build the analysis
+                <button onClick={() => void runSearch()} style={{ ...btn, width: '100%', marginTop: 6 }}>
+                  <Search size={13} /> Submit
+                </button>
+                {note && <div style={hint}>{note}</div>}
+              </div>
+
+              {hits.length > 0 && (
+                <div style={{ maxHeight: 170, overflowY: 'auto', ...card }}>
+                  {hits.slice(0, 60).map((h) => (
+                    <button key={h.ll_uuid} onClick={() => void loadParcel(h.ll_uuid)} style={rowBtn}>
+                      <span style={{ color: '#93c5fd' }}>{h.parcelnumb || '(no number)'}</span>
+                      <span style={{ opacity: 0.7 }}>{h.owner || ''}</span>
+                      <span style={{ opacity: 0.5 }}>{h.acres ? `${Number(h.acres).toFixed(1)} ac` : ''}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {busy && <div style={hint}><Loader2 size={12} className="animate-spin" /> {busy}</div>}
+              {error && <div style={{ ...hint, color: '#fca5a5' }}>{error}</div>}
+              {savedMsg && <div style={{ ...hint, color: '#f8daf1' }}>{savedMsg}</div>}
+
+              {/* Owner 9/16: tell the user how to get started, in the same
+                  white card Step 1 uses, until the first tract exists. */}
+              {(tracts.length === 0 || addingTract) && (
+                <div style={stepCard}>
+                  <div style={stepLabel}>
+                    {tracts.length === 0 ? 'Build your tracts.' : 'Adding another tract.'}
+                  </div>
+                  <div style={{ lineHeight: 1.5 }}>
+                    {tracts.length === 0 ? 'To get started, ' : 'Now '}
+                    <strong>click a parcel</strong> on the map to use its boundary, or
+                    press <strong>Draw a Tract</strong> at the bottom of the map and click
+                    the corners of your own shape.
+                    {tracts.length === 0
+                      ? ' Add as many tracts as you need, then press Finish.'
+                      : ' Clicking a parcel you have already used fills in what is left of it.'}
+                  </div>
+                </div>
+              )}
+              {/* The one tract list: every tract, its acres, its tillable
+                  acres and soil rating once known, and a rename pencil /
+                  trash can right on the row. Clicking a row opens it for
+                  BOTH boundary and land-type editing. */}
+              <div style={card}>
+                <div style={sectionLabel}>Tracts ({tracts.length})</div>
+                {tracts.map((t) => (
+                  <TractRow key={t.id} t={t} selected={t.id === selectedTractId} busy={!!busy}
+                            soilRating={t.id === selectedTractId ? (soil?.rating ?? null) : null}
+                            onSelect={() => requestOpen(t.id)}
+                            onCommitName={(n) => {
+                              setTracts((prev) => prev.map((x) => x.id === t.id ? { ...x, name: n } : x))
+                              // The tract you have OPEN persists its rename right
+                              // away (doRename), same as the removed standalone
+                              // name card used to — any other row's rename rides
+                              // along with that tract's next Save/Finish, same as
+                              // every other edit made to a tract that is not open.
+                              if (t.id === selectedTractId) void doRename(n)
+                            }}
+                            onRemove={() => removeTract(t.id)} />
+                ))}
+                {/* Re-arms "adding" mode explicitly rather than relying on
+                    the ambient state — a deliberate click, not a side effect
+                    of clearing the selection some other way. */}
+                <button
+                  onClick={() => {
+                    setSelectedTractId(null)
+                    setAddingTract(true)
+                    setTool(null); setDrawing(false); setDraft([])
+                  }}
+                  // Nothing to add "another" to until the first tract exists,
+                  // and nothing to do while adding is already armed (owner 9/16).
+                  disabled={!!busy || tracts.length === 0 || addingTract}
+                  style={{ ...btn, width: '100%', justifyContent: 'center', marginTop: 8 }}>
+                  <Plus size={13} /> Add Another Tract
                 </button>
               </div>
-            )}
+            </Bubble>
+          )}
 
-            <div style={card} ref={reportsRef}>
-              <div style={sectionLabel}>Reports</div>
-              {!editingId && (
-                <div style={hint}>Save this parcel first, then build reports from it.</div>
-              )}
-              {editingId && (
-                <>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                    {REPORT_KINDS.map((k) => {
-                      const working = queuing === k || reports.some(
-                        (r) => r.kind === k && (r.status === 'queued' || r.status === 'running'))
-                      return (
-                        <button key={k} onClick={() => void makeReport(k)}
-                                disabled={working} style={btn}>
-                          {working
-                            ? <Loader2 size={13} className="animate-spin" />
-                            : <FileText size={13} />}
-                          {working ? (REPORT_BUSY_LABEL[k] || 'Working…') : REPORT_LABEL[k]}
-                        </button>
-                      )
-                    })}
+          {/* Bubble 3 — Tract: today's "Tract data" card verbatim, plus
+              two sections that had no named bubble in the spec and are
+              gated the same way Tract data always was (activeTract only,
+              no savedId requirement) — the per-tract "which project"
+              card, and the dormant post-split `pieces` card. Both moved
+              here rather than into Reports (gated on savedId) since
+              neither of them requires a saved tract to show. */}
+          {stage === 'build' && activeTract && (
+            <Bubble key="tract" animKey="tract">
+              {detail ? (
+                <div style={card}>
+                  <div style={sectionLabel}>Tract data</div>
+                  <div style={{ fontWeight: 600 }}>{detail.parcel?.owner || 'Parcel'}</div>
+                  <div style={{ opacity: 0.65 }}>
+                    {/* The parcel NUMBER — the ids in `sources` are internal
+                        and mean nothing to a farmer (sandbox 9/16). */}
+                    {detail.parcel?.parcelnumb ? `Parcel ${detail.parcel.parcelnumb}` : 'No parcel number'}
+                    {' · '}{niceCounty(detail.parcel?.county)} County {detail.parcel?.state}
                   </div>
-                  <button onClick={() => void startCma()} style={{ ...btn, marginTop: 8 }}>
-                    <BarChart3 size={13} /> {cma ? 'Market analysis' : 'Start market analysis'}
-                  </button>
-                  <div style={{ marginTop: 10 }}>
-                    <div style={{ ...statRow, marginBottom: 2 }}>
-                      <span style={{ opacity: 0.65 }}>Elevation on 3D &amp; topography</span>
-                      <span>{exaggeration.toFixed(1)}x</span>
+                  {!!detail.parcel?.township && (
+                    <div style={statRow}>
+                      <span style={{ opacity: 0.65 }}>Township</span><span>{detail.parcel.township}</span>
                     </div>
-                    <input
-                      type="range" min={1} max={4} step={0.5} value={exaggeration}
-                      onChange={(e) => setExaggeration(parseFloat(e.target.value))}
-                      style={{ width: '100%' }} />
-                    <div style={hint}>
-                      1x is true scale. The report always prints the real
-                      elevation change in feet alongside it.
+                  )}
+                  {!!detail.parcel?.section && (
+                    <div style={statRow}>
+                      <span style={{ opacity: 0.65 }}>Section</span><span>{detail.parcel.section}</span>
                     </div>
-                  </div>
-                </>
-              )}
-              {reports.map((r) => (
-                <div key={r.id} style={statRow}>
-                  <span style={{ opacity: 0.8 }}>{REPORT_LABEL[r.kind] || r.kind}</span>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                    {r.status === 'done' ? (
-                      <button
-                        onClick={() => void downloadReport(
-                          r.id, `${name || 'parcel'} ${REPORT_LABEL[r.kind] || r.kind}.pdf`)}
-                        style={{ ...btn, padding: '2px 8px', fontSize: 11 }}>
-                        <Download size={11} /> Download
-                      </button>
-                    ) : (
-                      <span style={{ fontSize: 11, opacity: 0.6,
-                                     color: r.status === 'failed' ? '#fca5a5' : undefined }}>
-                        {r.status === 'failed' ? (r.error || 'failed') : 'building…'}
-                      </span>
-                    )}
-                    {/* Removes this one report. A failed or stale build
-                        otherwise sat in the list for good. */}
-                    <button
-                      onClick={() => void removeReport(r.id)}
-                      disabled={deletingReport === r.id}
-                      title="Delete this report"
-                      aria-label="Delete this report"
-                      style={{ ...dangerBtn, padding: '2px 5px', fontSize: 11 }}>
-                      <X size={12} />
-                    </button>
-                  </span>
+                  )}
+                  {tractCentre && (
+                    <div style={statRow}>
+                      <span style={{ opacity: 0.65 }}>Centre</span>
+                      <span>{tractCentre[1].toFixed(5)}, {tractCentre[0].toFixed(5)}</span>
+                    </div>
+                  )}
+                  {detail.parcel?.acreage_mismatch && (
+                    <div style={{ ...hint, color: '#fcd34d' }}>
+                      Deed acreage ({detail.parcel.acres_of_record}) differs from the mapped shape.
+                    </div>
+                  )}
                 </div>
-              ))}
-            </div>
+              ) : (
+                <div style={card}>
+                  <div style={sectionLabel}>Tract data</div>
+                  <div style={{ fontWeight: 600 }}>Hand-drawn</div>
+                  {tractCentre && (
+                    <div style={statRow}>
+                      <span style={{ opacity: 0.65 }}>Centre</span>
+                      <span>{tractCentre[1].toFixed(5)}, {tractCentre[0].toFixed(5)}</span>
+                    </div>
+                  )}
+                </div>
+              )}
 
-            <div>
-              {projectId ? (
-                // Already inside a project: name it, don't offer a dead
-                // input. The greyed box with placeholder text said
-                // nothing about WHICH project this tract belongs to.
-                <>
-                  <div style={{ ...statRow, opacity: 0.85 }}>
-                    <span>{projectName || 'Open project'}</span>
-                    <a href="/map-portfolio"
-                       style={{ fontSize: 12, color: '#f58cde', textDecoration: 'none' }}>
-                      All tracts
-                    </a>
+              {/* This card only ever fills in via the (removed) Stage 2
+                  "Split parcel" boundary-cut tool — dead in the new
+                  tracts-first flow, since Stage 2 no longer offers that
+                  button, but left in place rather than torn out along with
+                  its `pieces`/`savePieces` plumbing. */}
+              {pieces.length > 0 && (
+                <div style={card}>
+                  <div style={sectionLabel}>Split into {pieces.length} tracts</div>
+                  {pieces.map((pc, i) => (
+                    <div key={i} style={statRow}>
+                      <span>Tract {i + 1}</span><span>{pc.acres.toFixed(1)} ac</span>
+                    </div>
+                  ))}
+                  <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                    <button onClick={() => void savePieces()} disabled={!!busy}
+                            style={primaryBtn}>
+                      <Save size={13} /> Save all as tracts
+                    </button>
+                    <button onClick={() => setPieces([])} style={btn}>Discard</button>
                   </div>
-                  <div style={{ ...hint, marginTop: 4 }}>
-                    This tract will be saved into that project.
-                  </div>
-                  {/* Only while the tract is UNSAVED. Once it is saved,
-                      leaving the project here changed nothing that
-                      lasted — Update does not move a saved tract between
-                      projects — so the button promised a re-file it
-                      could not do. On a saved tract the way to a fresh
-                      project is "New map" in the footer. */}
-                  {!editingId && (
+                </div>
+              )}
+
+              <div>
+                {projectId ? (
+                  // Already inside a project: name it, don't offer a dead
+                  // input. The greyed box with placeholder text said
+                  // nothing about WHICH project this tract belongs to.
+                  <>
+                    <div style={{ ...statRow, opacity: 0.85 }}>
+                      <span>{projectName || 'Open project'}</span>
+                      <a href="/map-portfolio"
+                         style={{ fontSize: 12, color: '#f58cde', textDecoration: 'none' }}>
+                        All tracts
+                      </a>
+                    </div>
+                    <div style={{ ...hint, marginTop: 4 }}>
+                      This tract will be saved into that project.
+                    </div>
+                    {/* Only while the tract is UNSAVED. Once it is saved,
+                        leaving the project here changed nothing that
+                        lasted — Update does not move a saved tract between
+                        projects — so the button promised a re-file it
+                        could not do. On a saved tract the way to a fresh
+                        project is "New map" in the footer. */}
+                    {!editingId && (
+                      <button
+                        onClick={() => {
+                          setProjectId(null); setProjectName('')
+                          try { window.history.replaceState({}, '', '/configure-map') } catch {}
+                        }}
+                        style={{ ...btn, marginTop: 6, width: '100%', justifyContent: 'center' }}>
+                        <Plus size={13} /> Save into a new project
+                      </button>
+                    )}
+                  </>
+                ) : (
+                  <input value={projectName} onChange={(e) => setProjectName(e.target.value)}
+                         placeholder="e.g. Smith Estate Auction (optional)"
+                         style={inputStyle} />
+                )}
+              </div>
+            </Bubble>
+          )}
+
+          {/* Bubble 4 — Data: today's "Acres & land types" card verbatim,
+              plus the polygon-fill-opacity slider (moved here from
+              directly below that card, same relative position it always
+              had). Gated on activeTract only, same as the card was. */}
+          {stage === 'build' && activeTract && (
+            <Bubble key="data" animKey="data">
+              <div style={card}>
+                <div style={sectionLabel}>Acres &amp; land types</div>
+                {tractMode === 'outline' ? (
+                  <>
+                    <div style={{
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                      fontSize: 22, fontWeight: 800,
+                    }}>
+                      <span>Total</span><span>{parcelAcres.toFixed(1)}</span>
+                    </div>
+                    <div style={hint}>
+                      Press 3. Land Types to see tillable, timber and water.
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    {LAND_CLASSES.map((c) => (
+                      <div key={c} style={{
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                        padding: '3px 4px', borderRadius: 5,
+                        background: flashClasses.has(c) ? 'rgba(245,140,222,0.25)' : 'transparent',
+                        transition: 'background-color 300ms',
+                      }}>
+                        <span style={{ display: 'flex', alignItems: 'center' }}>
+                          <span style={{ display: 'inline-block', width: 14, height: 14, borderRadius: 3, background: CLASS_COLOR[c], marginRight: 8 }} />
+                          {CLASS_LABEL[c]}
+                        </span>
+                        <span style={{ fontSize: 20, fontWeight: 800 }}>{totals[c].toFixed(1)}</span>
+                      </div>
+                    ))}
+                    <div style={{ ...statRow, opacity: 0.6 }}>
+                      <span>Other / Unclassified</span>
+                      <span>{Math.max(parcelAcres - classified, 0).toFixed(1)}</span>
+                    </div>
+                    <div style={{
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                      fontSize: 22, fontWeight: 800, borderTop: '2px solid rgba(255,255,255,0.16)', paddingTop: 8, marginTop: 2,
+                    }}>
+                      <span>Total</span><span>{parcelAcres.toFixed(1)}</span>
+                    </div>
+                    <div style={statRow}>
+                      <span style={{ opacity: 0.65 }}>Buildings</span>
+                      <span>{detail?.parcel?.ll_bldg_count ?? 0}</span>
+                    </div>
+                    <div style={{ ...statRow, borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: 6 }}>
+                      <span style={{ opacity: 0.65 }}>
+                        Soil rating{soil?.rating_type ? ` (${soil.rating_type})` : ''}
+                      </span>
+                      <span style={{ opacity: soilBusy ? 0.45 : 1 }}>
+                        {soilBusy ? 'updating…' : (soil?.rating ?? '—')}
+                      </span>
+                    </div>
+                    <div style={hint}>
+                      Acres update as you edit; the soil rating follows a moment later.
+                      Both are recomputed exactly when you save.
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* Land-type chips and every polygon tool (Add Polygon,
+                  Delete, Split Polygon, Erase Points, Fill Holes, Undo,
+                  Redo, Clear Polygons, Start Over) live in the bottom
+                  toolbar now (design spec §2) — no duplicate controls
+                  here (owner). There is no "Edit this tract" unlock any
+                  more either: opening a tract on this screen opens it
+                  fully interactive, full stop (owner ruling 2026-09-16). */}
+
+              {/* See what is under a polygon without deleting it. */}
+              <div>
+                <div style={{ ...statRow, marginBottom: 2 }}>
+                  <span style={{ opacity: 0.65 }}>Polygon fill</span>
+                  <span>{Math.round(fillOpacity * 100)}%</span>
+                </div>
+                <input
+                  type="range" min={0} max={1} step={0.05} value={fillOpacity}
+                  onChange={(e) => setFillOpacity(parseFloat(e.target.value))}
+                  style={{ width: '100%' }} />
+                <div style={hint}>
+                  Slide to 0 to see the bare imagery. The outlines stay put, so
+                  nothing gets lost — and nothing is changed or saved.
+                </div>
+              </div>
+            </Bubble>
+          )}
+
+          {/* Bubble 5 — Reports: market analysis + the reports section,
+              shown ONLY once this tract has a savedId (`editingId`) — the
+              old "Save this parcel first" placeholder is dropped
+              entirely rather than shown as an empty bubble. CMA had no
+              named bubble in the spec either; it lives here because
+              `cma` can only ever be set after `startCma` succeeds, which
+              itself requires `editingId` — same gate as Reports. */}
+          {stage === 'build' && activeTract && editingId && (
+            <Bubble key="reports" animKey="reports">
+              {cma && (
+                <div style={card}>
+                  <div style={sectionLabel}>Market analysis</div>
+                  <div style={{ fontWeight: 600 }}>{cma.name}</div>
+                  {cma.subjects.map((sub) => (
                     <button
-                      onClick={() => {
-                        setProjectId(null); setProjectName('')
-                        try { window.history.replaceState({}, '', '/configure-map') } catch {}
-                      }}
-                      style={{ ...btn, marginTop: 6, width: '100%', justifyContent: 'center' }}>
-                      <Plus size={13} /> Save into a new project
+                      key={sub.parcel_id}
+                      onClick={() => { setCmaSubject(sub.parcel_id); void loadCandidates(cma, sub.parcel_id) }}
+                      style={{
+                        ...btn, width: '100%', justifyContent: 'space-between', marginTop: 5,
+                        borderColor: cmaSubject === sub.parcel_id ? '#ffffff' : undefined,
+                      }}>
+                      <span>{sub.name || 'Tract'}</span>
+                      <span style={{ opacity: 0.7 }}>
+                        {(sub.comps || []).length} comp{(sub.comps || []).length === 1 ? '' : 's'}
+                      </span>
+                    </button>
+                  ))}
+                  {cmaSubject && (
+                    <div style={hint}>
+                      {candidates.length
+                        ? 'Click a + pin on the map to use that sale, − to drop it.'
+                        : 'No comparable sales found near this tract.'}
+                    </div>
+                  )}
+                  {editingId && !cma.subjects.some((x) => x.parcel_id === editingId) && (
+                    <button
+                      onClick={() => void (async () => {
+                        try {
+                          await updateCma(cma.id, {
+                            parcel_ids: [...cma.subjects.map((x) => x.parcel_id), editingId],
+                          })
+                          setCma(await getCma(cma.id))
+                        } catch (e: any) { setError(e?.message || 'Could not add this tract.') }
+                      })()}
+                      style={{ ...btn, marginTop: 6 }}>
+                      <Plus size={13} /> Add this tract as a subject
                     </button>
                   )}
-                </>
-              ) : (
-                <input value={projectName} onChange={(e) => setProjectName(e.target.value)}
-                       placeholder="e.g. Smith Estate Auction (optional)"
-                       style={inputStyle} />
+                  <button onClick={() => void buildCmaReport()} disabled={!!busy}
+                          style={{ ...primaryBtn, marginTop: 8 }}>
+                    <FileText size={13} /> Build the analysis
+                  </button>
+                </div>
               )}
-            </div>
-          </>
-        )}
-        </>
-        )}
-        </div>
 
-        {/* Pinned footer — always on screen. */}
-        {stage === 'project' && (
-          <div style={{
-            borderTop: '1px solid rgba(255,255,255,0.10)', padding: 12,
-            background: 'linear-gradient(180deg, #0a0a0a 0%, #050505 100%)',
-            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)',
-          }}>
-            <button onClick={() => setStage('build')} disabled={!projectName.trim()}
-                    style={{ ...primaryBtn, width: '100%', justifyContent: 'center', padding: '9px 10px' }}>
-              <ArrowRight size={14} /> Continue to the Map
-            </button>
-          </div>
-        )}
-        {/* Item 8, footer: Finish is the one commit. Saving surfaces its
-            own validation error (every tract must be named) rather than
-            pre-disabling for it, so the user finds out why from the
-            same message Save always gave, not from a greyed-out button.
-            Owner brought Cancel back alongside it (it had been dropped
-            in favour of "Back to Map" alone) — same dirty check as Back
-            to Map, but its own confirm-dialog copy and its own
-            destination (the portfolio, not Explore) since the two exits
-            mean different things: Back to Map is "leave the tool",
-            Cancel is "abandon this tract-building session". */}
-        {stage === 'build' && (
-          <div style={{
-            borderTop: '1px solid rgba(255,255,255,0.10)', padding: 12,
-            background: 'linear-gradient(180deg, #0a0a0a 0%, #050505 100%)',
-            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)',
-            display: 'flex', gap: 8,
-          }}>
-            <button
-              onClick={() => {
-                // "Any changes" includes a tract that exists only in this
-                // session — a parcel just clicked has no savedId yet and
-                // leaving would silently drop it (owner 9/16).
-                const unsaved = dirty || tracts.some((t) => !t.savedId || !t.saved)
-                if (unsaved) { setConfirmWhat('discardFooter'); return }
-                window.location.href = '/map-portfolio'
-              }}
-              disabled={!!busy}
-              style={{ ...btn, flex: 1, justifyContent: 'center', padding: '9px 10px' }}>
-              <X size={14} /> Cancel
-            </button>
-            <button
-              onClick={() => void (async () => {
-                const ok = await saveAllTracts()
-                if (ok) window.location.href = '/map-portfolio'
-              })()}
-              disabled={!!busy || !tracts.length}
-              style={{ ...primaryBtn, flex: 1, justifyContent: 'center', padding: '9px 10px' }}>
-              <Save size={14} /> Finish
-            </button>
-          </div>
-        )}
-        {/* Cancel throws away every unsaved edit and closes the parcel,
-            so it confirms first. Sits inside the panel, over it. */}
-        {confirmWhat && (
-          <div style={{
-            position: 'absolute', inset: 0, zIndex: 40,
-            background: 'rgba(0,0,0,0.66)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 18,
-          }}>
-            <div style={{
-              width: '100%',
-              background: 'linear-gradient(180deg, #1b1e23 0%, #0a0a0a 100%)',
-              border: '1px solid rgba(255,255,255,0.14)',
-              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.14), 0 10px 30px rgba(0,0,0,0.6)',
-              borderRadius: 11, padding: 16,
-            }}>
-              <div style={{ fontWeight: 600, marginBottom: 6 }}>
-                {confirmWhat === 'switch' ? 'Save before switching tracts?'
-                  : confirmWhat === 'leave' ? 'Leave without saving?'
-                  : confirmWhat === 'clearPolygons' ? 'Clear every polygon?'
-                  : confirmWhat === 'startOver' ? 'Start over from the engine?'
-                  : confirmWhat === 'discardFooter' ? 'Discard your changes?'
-                  : 'Remove this tract?'}
-              </div>
-              <div style={{ ...hint, marginTop: 0, marginBottom: 14, display: 'block' }}>
-                {confirmWhat === 'switch'
-                  ? 'This tract has changes you have not saved. OK saves them and '
-                    + 'opens the tract you clicked. Cancel stays on this one.'
-                  : confirmWhat === 'leave'
-                  ? 'This tract has changes you have not saved. OK leaves for the '
-                    + 'Explore map and throws them away. Cancel stays here.'
-                  : confirmWhat === 'clearPolygons'
-                  ? 'Every land-type polygon on this tract will be removed. This '
-                    + 'cannot be undone with Redo once you navigate away.'
-                  : confirmWhat === 'startOver'
-                  ? 'Every polygon edit you have made will be thrown away and '
-                    + 'replaced with the engine’s own land types for this '
-                    + 'boundary. This cannot be undone with Redo once you navigate away.'
-                  : confirmWhat === 'discardFooter'
-                  ? 'Anything not saved with Save Tract or Finish will be lost.'
-                  : 'This tract is already saved. OK removes it here and deletes '
-                    + 'its saved record too — that part cannot be undone.'}
-              </div>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button onClick={() => {
-                          if (confirmWhat === 'leave') {
-                            setConfirmWhat(null)
-                            window.location.href = '/access'
-                          } else if (confirmWhat === 'discardFooter') {
-                            // Same discard-without-saving destination as
-                            // Back to Map's own 'leave' confirm — only
-                            // the destination page differs (the footer
-                            // Cancel button always meant "back to the
-                            // portfolio", never "back to Explore").
-                            setConfirmWhat(null)
-                            window.location.href = '/map-portfolio'
-                          } else if (confirmWhat === 'switch') {
-                            // Save FIRST, and only switch if it worked —
-                            // switching on a failed save would lose the
-                            // very work the dialog promised to keep.
-                            const target = pendingOpen
-                            setConfirmWhat(null); setPendingOpen(null)
-                            void (async () => {
-                              const ok = await doSave()
-                              if (ok && target && !openLocalTract(target)) {
-                                void openSavedTractRef.current?.(target)
-                              }
-                            })()
-                          } else if (confirmWhat === 'clearPolygons') {
-                            setConfirmWhat(null)
-                            clearAll()
-                          } else if (confirmWhat === 'startOver') {
-                            setConfirmWhat(null)
-                            resetToEngine()
-                          } else {
-                            const target = pendingRemoveId
-                            setConfirmWhat(null); setPendingRemoveId(null)
-                            if (target) void removeSavedTract(target)
-                          }
-                        }}
-                        style={{
-                          ...(confirmWhat === 'discardFooter' ? dangerBtn : primaryBtn),
-                          flex: 1, justifyContent: 'center', padding: '9px 10px',
-                        }}>
-                  {confirmWhat === 'discardFooter' ? 'Discard' : 'OK'}
+              <div style={card} ref={reportsRef}>
+                <div style={sectionLabel}>Reports</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {REPORT_KINDS.map((k) => {
+                    const working = queuing === k || reports.some(
+                      (r) => r.kind === k && (r.status === 'queued' || r.status === 'running'))
+                    return (
+                      <button key={k} onClick={() => void makeReport(k)}
+                              disabled={working} style={btn}>
+                        {working
+                          ? <Loader2 size={13} className="animate-spin" />
+                          : <FileText size={13} />}
+                        {working ? (REPORT_BUSY_LABEL[k] || 'Working…') : REPORT_LABEL[k]}
+                      </button>
+                    )
+                  })}
+                </div>
+                <button onClick={() => void startCma()} style={{ ...btn, marginTop: 8 }}>
+                  <BarChart3 size={13} /> {cma ? 'Market analysis' : 'Start market analysis'}
                 </button>
-                <button onClick={() => { setConfirmWhat(null); setPendingOpen(null); setPendingRemoveId(null) }}
-                        style={{ ...btn, flex: 1, justifyContent: 'center',
-                                 padding: '9px 10px' }}>
-                  {confirmWhat === 'discardFooter' ? 'Keep editing' : 'Cancel'}
-                </button>
+                <div style={{ marginTop: 10 }}>
+                  <div style={{ ...statRow, marginBottom: 2 }}>
+                    <span style={{ opacity: 0.65 }}>Elevation on 3D &amp; topography</span>
+                    <span>{exaggeration.toFixed(1)}x</span>
+                  </div>
+                  <input
+                    type="range" min={1} max={4} step={0.5} value={exaggeration}
+                    onChange={(e) => setExaggeration(parseFloat(e.target.value))}
+                    style={{ width: '100%' }} />
+                  <div style={hint}>
+                    1x is true scale. The report always prints the real
+                    elevation change in feet alongside it.
+                  </div>
+                </div>
+                {reports.map((r) => (
+                  <div key={r.id} style={statRow}>
+                    <span style={{ opacity: 0.8 }}>{REPORT_LABEL[r.kind] || r.kind}</span>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                      {r.status === 'done' ? (
+                        <button
+                          onClick={() => void downloadReport(
+                            r.id, `${name || 'parcel'} ${REPORT_LABEL[r.kind] || r.kind}.pdf`)}
+                          style={{ ...btn, padding: '2px 8px', fontSize: 11 }}>
+                          <Download size={11} /> Download
+                        </button>
+                      ) : (
+                        <span style={{ fontSize: 11, opacity: 0.6,
+                                       color: r.status === 'failed' ? '#fca5a5' : undefined }}>
+                          {r.status === 'failed' ? (r.error || 'failed') : 'building…'}
+                        </span>
+                      )}
+                      {/* Removes this one report. A failed or stale build
+                          otherwise sat in the list for good. */}
+                      <button
+                        onClick={() => void removeReport(r.id)}
+                        disabled={deletingReport === r.id}
+                        title="Delete this report"
+                        aria-label="Delete this report"
+                        style={{ ...dangerBtn, padding: '2px 5px', fontSize: 11 }}>
+                        <X size={12} />
+                      </button>
+                    </span>
+                  </div>
+                ))}
               </div>
+            </Bubble>
+          )}
+        </AnimatePresence>
+      </div>
+
+      {/* Cancel throws away every unsaved edit and closes the parcel, so
+          it confirms first. Was "sits inside the panel, over it" — now
+          just a fixed overlay over the whole map, unchanged otherwise. */}
+      {confirmWhat && (
+        <div style={{
+          position: 'absolute', inset: 0, zIndex: 40,
+          background: 'rgba(0,0,0,0.66)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 18,
+        }}>
+          <div style={{
+            width: '100%', maxWidth: 360,
+            background: 'linear-gradient(180deg, #1b1e23 0%, #0a0a0a 100%)',
+            border: '1px solid rgba(255,255,255,0.14)',
+            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.14), 0 10px 30px rgba(0,0,0,0.6)',
+            borderRadius: 11, padding: 16,
+          }}>
+            <div style={{ fontWeight: 600, marginBottom: 6 }}>
+              {confirmWhat === 'switch' ? 'Save before switching tracts?'
+                : confirmWhat === 'leave' ? 'Leave without saving?'
+                : confirmWhat === 'clearPolygons' ? 'Clear every polygon?'
+                : confirmWhat === 'startOver' ? 'Start over from the engine?'
+                : confirmWhat === 'discardFooter' ? 'Discard your changes?'
+                : 'Remove this tract?'}
+            </div>
+            <div style={{ ...hint, marginTop: 0, marginBottom: 14, display: 'block' }}>
+              {confirmWhat === 'switch'
+                ? 'This tract has changes you have not saved. OK saves them and '
+                  + 'opens the tract you clicked. Cancel stays on this one.'
+                : confirmWhat === 'leave'
+                ? 'This tract has changes you have not saved. OK leaves for the '
+                  + 'Explore map and throws them away. Cancel stays here.'
+                : confirmWhat === 'clearPolygons'
+                ? 'Every land-type polygon on this tract will be removed. This '
+                  + 'cannot be undone with Redo once you navigate away.'
+                : confirmWhat === 'startOver'
+                ? 'Every polygon edit you have made will be thrown away and '
+                  + 'replaced with the engine’s own land types for this '
+                  + 'boundary. This cannot be undone with Redo once you navigate away.'
+                : confirmWhat === 'discardFooter'
+                ? 'Anything not saved with Save Tract or Finish will be lost.'
+                : 'This tract is already saved. OK removes it here and deletes '
+                  + 'its saved record too — that part cannot be undone.'}
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => {
+                        if (confirmWhat === 'leave') {
+                          setConfirmWhat(null)
+                          window.location.href = '/access'
+                        } else if (confirmWhat === 'discardFooter') {
+                          // Same discard-without-saving destination as
+                          // Back to Map's own 'leave' confirm — only
+                          // the destination page differs (the footer
+                          // Cancel button always meant "back to the
+                          // portfolio", never "back to Explore").
+                          setConfirmWhat(null)
+                          window.location.href = '/map-portfolio'
+                        } else if (confirmWhat === 'switch') {
+                          // Save FIRST, and only switch if it worked —
+                          // switching on a failed save would lose the
+                          // very work the dialog promised to keep.
+                          const target = pendingOpen
+                          setConfirmWhat(null); setPendingOpen(null)
+                          void (async () => {
+                            const ok = await doSave()
+                            if (ok && target && !openLocalTract(target)) {
+                              void openSavedTractRef.current?.(target)
+                            }
+                          })()
+                        } else if (confirmWhat === 'clearPolygons') {
+                          setConfirmWhat(null)
+                          clearAll()
+                        } else if (confirmWhat === 'startOver') {
+                          setConfirmWhat(null)
+                          resetToEngine()
+                        } else {
+                          const target = pendingRemoveId
+                          setConfirmWhat(null); setPendingRemoveId(null)
+                          if (target) void removeSavedTract(target)
+                        }
+                      }}
+                      style={{
+                        ...(confirmWhat === 'discardFooter' ? dangerBtn : primaryBtn),
+                        flex: 1, justifyContent: 'center', padding: '9px 10px',
+                      }}>
+                {confirmWhat === 'discardFooter' ? 'Discard' : 'OK'}
+              </button>
+              <button onClick={() => { setConfirmWhat(null); setPendingOpen(null); setPendingRemoveId(null) }}
+                      style={{ ...btn, flex: 1, justifyContent: 'center',
+                               padding: '9px 10px' }}>
+                {confirmWhat === 'discardFooter' ? 'Keep editing' : 'Cancel'}
+              </button>
             </div>
           </div>
-        )}
-      </aside>
+        </div>
+      )}
     </div>
   )
 }
@@ -4020,18 +4017,27 @@ const toolbarRow: React.CSSProperties = {
   display: 'flex', flexWrap: 'nowrap', alignItems: 'flex-start', justifyContent: 'center',
   gap: 14, maxWidth: 'calc(100% - 32px)', overflowX: 'auto', padding: '4px 2px',
 }
-// The armed-tool hint, one line above the bar (design spec §2, §7) —
-// shown only while a tool is armed; everything else on the bar carries
-// its own explanation as a plain title tooltip instead.
-/** The instruction banner over the map. Owner 9/16: the old 11px pill
- *  "no one will notice" — the user must ALWAYS know exactly what to do,
- *  so this is a white card, big type, top-centre of the map, the same
- *  surface as the panel's step cards. */
-const toolbarHintPill: React.CSSProperties = {
-  position: 'absolute', top: 14, left: '50%', transform: 'translateX(-50%)', zIndex: 30,
-  padding: '12px 18px', borderRadius: 10, background: '#ffffff', color: '#0b0b0b',
-  border: '2px solid #E91E8C', boxShadow: '0 4px 16px rgba(0,0,0,0.45)',
-  fontSize: 15, fontWeight: 600, textAlign: 'center', maxWidth: 560, lineHeight: 1.4,
+// The floating-bubble panel (owner redesign 2026-09-16, replacing the
+// fixed right `<aside>`). Right-anchored, clearing the bottom toolbar
+// (`bottom: 90` vs. the toolbar's own `bottom: 16` + ~70px of button
+// height — a structural check, not a rendered one; flagged in the
+// report). `pointerEvents: 'none'` here (each `Bubble` sets its own
+// 'auto') so empty space between bubbles lets map drags/clicks through.
+//
+// `direction: 'rtl'` is the trick that makes a second, overflowing
+// column of bubbles grow LEFTWARD into the map instead of off the right
+// edge — `flexWrap` itself is plain 'wrap' (never 'wrap-reverse', per
+// spec); in RTL, 'wrap's normal cross-axis order runs right-to-left, so
+// the first bubble's column sits at the right (flush with this
+// container's own right edge) and any overflow column lands to its
+// left. `Bubble` flips back to `direction: 'ltr'` so its own content
+// reads normally.
+const bubbleContainer: React.CSSProperties = {
+  position: 'absolute', top: 14, right: 14, bottom: 90, zIndex: 25,
+  pointerEvents: 'none',
+  display: 'flex', flexDirection: 'column', flexWrap: 'wrap',
+  direction: 'rtl',
+  columnGap: 12, rowGap: 12, alignContent: 'flex-end',
 }
 const card: React.CSSProperties = {
   background: 'linear-gradient(180deg, rgba(255,255,255,0.055) 0%, rgba(255,255,255,0.02) 100%)',
