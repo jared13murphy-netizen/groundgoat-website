@@ -385,6 +385,35 @@ export function fitTracts(frame: any, tracts: { id: string; geometry: any }[]) {
   })
 }
 
+export interface ParcelUnder { ll_uuid: string; geometry: any; acres: number }
+
+/** Every Regrid parcel actually underneath a set of tract boundaries —
+ *  the automatic replacement for the old "Select frame parcels" pick
+ *  (owner 2026-09-16: the manual tool read as confusing). `snapTracts`
+ *  calls this to build the fit-tracts FRAME without making the user
+ *  click every parcel first; zero parcels back means fall through to
+ *  the tracts' own boundaries. */
+export function parcelsUnder(geometries: any[]) {
+  return j<{ parcels: ParcelUnder[] }>('/api/mapping/geometry/parcels-under', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ geometries }),
+  })
+}
+
+/** A parcel's ground not already covered by this project's OTHER
+ *  tracts — lets a second click on the same parcel fill in what a
+ *  first tract left over instead of re-selecting the whole parcel
+ *  (owner spec 2026-09-16, "remainder fill"). Null geometry means
+ *  nothing is left uncovered. */
+export function differenceGeometry(geometry: any, subtract: any[]) {
+  return j<{ geometry: any | null; acres: number }>('/api/mapping/geometry/difference', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ geometry, subtract }),
+  })
+}
+
 // ── Reports ─────────────────────────────────────────────────────────
 // The API only queues; a worker renders. The UI polls until a report
 // reports itself done, then downloads it through the API — the storage
