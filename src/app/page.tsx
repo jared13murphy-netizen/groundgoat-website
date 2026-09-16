@@ -169,18 +169,28 @@ export default function Home() {
     setCurrentSlide((prev) => (prev - 1 + listings.length) % listings.length)
   }, [listings.length])
 
+  // Hero date/time are prerendered at BUILD time (this page is static) and
+  // then hydrated in the visitor's browser. Without a fixed time zone the
+  // build box (GitHub Actions, UTC) and a Central-time visitor produce
+  // different text for the same instant → React hydration errors #425/#418/
+  // #423 on every home-page load (found 9/4, owner 9/16: no console errors
+  // allowed). Pin the zone: every auction we serve is in the Central zone.
+  const HERO_TZ = 'America/Chicago'
   const formatDateTime = (dateString: string) => {
     if (!dateString) return { date: '', time: '' }
     const date = new Date(dateString)
+    if (isNaN(date.getTime())) return { date: '', time: '' }
     const dateFormatted = date.toLocaleDateString('en-US', {
       weekday: 'short',
       month: 'short',
-      day: 'numeric'
+      day: 'numeric',
+      timeZone: HERO_TZ,
     })
     const timeFormatted = date.toLocaleTimeString('en-US', {
       hour: 'numeric',
       minute: '2-digit',
-      hour12: true
+      hour12: true,
+      timeZone: HERO_TZ,
     }).toLowerCase()
     return { date: dateFormatted, time: timeFormatted }
   }

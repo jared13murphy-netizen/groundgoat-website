@@ -2590,9 +2590,16 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
   // Engine tillable-map overlay (owner 8/25): per-state PMTiles of the
   // classification engine's polygons (layer 'classes', cls property).
-  // Kansas first — add states here as their archives land on the tiles
-  // service (built from the S3 engine export, never from postgis-soils).
-  const ENGINE_PMTILES_STATES = ['ks_state']
+  // Add states here ONLY once their archive is on the tiles service
+  // (built from the S3 engine export, never from postgis-soils).
+  // 9/16: EMPTY on purpose — ks_state.pmtiles (6.97 GB) lived on the old
+  // Railway tiles host and was not carried to AWS on 9/1, so every
+  // Explore load was fetching a missing file (console 404 on every
+  // visit; owner 9/16: no console errors). MapLibre fetches a pmtiles
+  // header the moment a source is added, so an entry here must exist
+  // on the server. The Layers-panel "Tillable Map" button hides itself
+  // while this list is empty.
+  const ENGINE_PMTILES_STATES: string[] = []
   const [isAdmin, setIsAdmin] = useState(false)
   // Layers-panel entitlement, from /api/auth/me's can_use_layers —
   // firm_admin / firm_user / premium_state / staff, NOT basic_state
@@ -10071,11 +10078,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                 label: 'FSA',
                 swatchColor: '#22d3ee',
               },
-              {
+              ...(ENGINE_PMTILES_STATES.length > 0 ? [{
                 key: 'engine' as const,
                 label: 'Tillable Map',
                 swatchGradient: 'linear-gradient(to right,#3caa28,#eb9620,#e12d23,#d73cc8,#3c6edc)',
-              },
+              }] : []),
             ] as Array<{ key: 'crops' | 'ssurgo' | 'csb' | 'nccpi' | 'fsa' | 'engine'; label: string; swatchGradient?: string; swatchColor?: string }>).map(({ key, label, swatchGradient, swatchColor }) => {
               const active = baseOverlay === key
               return (
