@@ -10618,7 +10618,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           role="status"
           style={{
             position: 'absolute',
-            top: 16,
+            // Portal (/access) draws its own top-centre toolbar at top 16,
+            // 48px tall — proven on the sandbox 9/16: the banner was hidden
+            // behind it. Sit just below it there; 16 elsewhere.
+            top: portalMode ? 76 : 16,
             left: '50%',
             transform: 'translateX(-50%)',
             zIndex: 15,
