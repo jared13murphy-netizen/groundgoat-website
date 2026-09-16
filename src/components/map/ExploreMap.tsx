@@ -70,7 +70,6 @@ import {
   Trash as TrashIcon,
   Map as MapDrawIcon,
   Plus as PlusIcon,
-  PenLine as MapProjectIcon,
   FolderOpen as MapPortfolioIcon,
 } from 'lucide-react'
 
@@ -11210,19 +11209,15 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                     nav-dropdown links; they now live here instead. Gated
                     by canUseProjectMaps — see its declaration above for
                     exactly what it checks. */}
+                {/* Owner 9/16: only Map Portfolio here — a new project
+                    starts from the pink "New Project" button on that
+                    screen, not from a second tile. */}
                 {canUseProjectMaps && (
-                  <>
-                    <UtilityTile
-                      icon={<MapProjectIcon size={20} />}
-                      label="Map Project"
-                      onClick={() => { window.location.href = '/configure-map' }}
-                    />
-                    <UtilityTile
-                      icon={<MapPortfolioIcon size={20} />}
-                      label="Map Portfolio"
-                      onClick={() => { window.location.href = '/map-portfolio' }}
-                    />
-                  </>
+                  <UtilityTile
+                    icon={<MapPortfolioIcon size={20} />}
+                    label="Map Portfolio"
+                    onClick={() => { window.location.href = '/map-portfolio' }}
+                  />
                 )}
               </div>
               {/* ── Show My Project Maps — restored from history (commits

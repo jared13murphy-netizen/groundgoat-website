@@ -216,7 +216,10 @@ export default function MapPortfolioPage() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <h1 style={h1}>Map Portfolio</h1>
           <div style={{ flex: 1 }} />
-          <Link href="/configure-map" style={{ ...btn, borderColor: '#22c55e', color: '#86efac' }}>
+          {/* Owner 9/16: pink filled — this is THE way to start a new
+              project (the Utilities "Map Project" tile is gone). */}
+          <Link href="/configure-map"
+                style={{ ...btn, background: '#E91E8C', borderColor: '#E91E8C', color: '#0b0b0b', fontWeight: 700 }}>
             <Plus size={14} /> New Project
           </Link>
         </div>

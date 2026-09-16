@@ -3078,7 +3078,7 @@ export default function ConfigureMap() {
             const order = ['project', 'tracts', 'landtypes'] as const
             const stageIdx = order.indexOf(stage)
             const state = i === stageIdx ? 'current' : i < stageIdx ? 'done' : 'future'
-            const label = s === 'project' ? '1 Project' : s === 'tracts' ? '2 Tracts' : '3 Land Types'
+            const label = s === 'project' ? '1. Project' : s === 'tracts' ? '2. Tracts' : '3. Land Types'
             const canJump = state === 'done'
             return (
               <button key={s}
