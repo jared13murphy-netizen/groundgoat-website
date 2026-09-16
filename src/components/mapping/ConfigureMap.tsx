@@ -1065,7 +1065,10 @@ export default function ConfigureMap() {
           name: rec.name,
           source: { kind: 'parcel', ll_uuids: rec.source_ll_uuids || [] },
           saved: true,
-          classified: true,
+          // A saved tract with NO polygons yet has never been classified —
+          // Land Types must still ask the engine for it (owner 9/16:
+          // "clicked Land Types, it never created the polygons").
+          classified: loadedShapes.length > 0,
           acres: rec.stats?.acres ?? null,
           shapes: loadedShapes,
           boundary: loadedRings,
