@@ -719,6 +719,11 @@ export default function ConfigureMap() {
       const d = await fetchParcel(llUuid)
       const rings = geometryToPolys(d.boundary)
       const existing = tractsRef.current
+      // A map click identifies a parcel by its tile `path`, a search hit
+      // by its ll_uuid; the server accepts either. Store the REAL id:
+      // saving a tract casts source ll_uuids to uuid[] and a path in
+      // there was a 500 on 'Save tracts' (sandbox 9/16).
+      const uid = String(d.parcel?.ll_uuid || llUuid)
 
       // Remainder fill: ground under this parcel not already covered by
       // another tract in this project — lets a second click on the same
@@ -736,7 +741,7 @@ export default function ConfigureMap() {
           const t = addTract({
             detail: d, boundary: geometryToPolys(diff.geometry), shapes: [],
             acres: diff.acres,
-            source: { kind: 'parcel', ll_uuids: [llUuid] },
+            source: { kind: 'parcel', ll_uuids: [uid] },
             name: d.parcel?.parcelnumb ? `Parcel ${d.parcel.parcelnumb} (remaining)` : '',
           })
           undoRef.current = []; redoRef.current = []
@@ -758,12 +763,13 @@ export default function ConfigureMap() {
       // rather than becoming a second one; otherwise load the whole
       // parcel as a new tract.
       const dup = existing.find((x) =>
-        x.source.kind === 'parcel' && x.source.ll_uuids.length === 1 && x.source.ll_uuids[0] === llUuid)
+        x.source.kind === 'parcel' && x.source.ll_uuids.length === 1
+        && (x.source.ll_uuids[0] === uid || x.source.ll_uuids[0] === llUuid))
       if (dup) { setSelectedTractId(dup.id); return dup }
 
       const t = addTract({
         detail: d, boundary: rings, shapes: [],
-        source: { kind: 'parcel', ll_uuids: [llUuid] },
+        source: { kind: 'parcel', ll_uuids: [uid] },
         name: d.parcel?.parcelnumb ? `Parcel ${d.parcel.parcelnumb}` : '',
       })
       undoRef.current = []; redoRef.current = []
