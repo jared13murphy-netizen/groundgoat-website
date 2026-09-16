@@ -27,7 +27,7 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import {
   Loader2, Plus, Trash2, RotateCcw, RotateCw, Save, Search, X, Layers,
   Scissors, FileText, Download, BarChart3, Eraser, PenLine, PaintBucket, Check,
-  ArrowRight, ArrowLeft, PenTool, Magnet,
+  ArrowRight, ArrowLeft, PenTool, Magnet, type LucideIcon,
 } from 'lucide-react'
 import {
   CLASS_COLOR, CLASS_LABEL, LAND_CLASSES, PARCEL_LINE, SEARCH_DOT, VERTEX_LINE,
@@ -449,6 +449,75 @@ function snapTargetsNear(
   return targets
 }
 
+/** One button on the bottom-of-map toolbar (owner redesign 2026-09-16:
+ *  round icon buttons, no dark bar behind them, so the map itself reads
+ *  through). A 48px circle — transparent by default, filled solid pink
+ *  for `primary` (the one button that is the deliberate next step, not
+ *  a peer of the rest) — with a capitalised label underneath. Icon and
+ *  label both carry a strong drop shadow so they hold up against any
+ *  aerial imagery underneath, since there is no dark backing any more.
+ *  `active` rings the circle in pink (an armed tool / the selected land
+ *  type); unring/unfilled buttons show a subtle white ring on hover. */
+function ToolButton({ icon: Icon, dot, label, onClick, active, disabled, primary, title }: {
+  icon?: LucideIcon
+  /** A filled colour dot instead of an icon — the land-type chips, which
+   *  show their class colour rather than a symbol (owner spec). */
+  dot?: string
+  label: string
+  onClick: () => void
+  active?: boolean
+  disabled?: boolean
+  primary?: boolean
+  title?: string
+}) {
+  const [hover, setHover] = useState(false)
+  const ringColor = disabled ? 'transparent'
+    : (active || primary) ? GG_PINK
+    : hover ? 'rgba(255,255,255,0.55)'
+    : 'transparent'
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title || label}
+      aria-label={title || label}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
+        background: 'none', border: 'none', padding: 0, flex: 'none',
+        cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.4 : 1,
+      }}>
+      <span style={{
+        width: 48, height: 48, borderRadius: '50%', flex: 'none',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        background: primary ? GG_PINK : 'transparent',
+        border: `2px solid ${ringColor}`,
+        boxShadow: primary
+          ? 'inset 0 1px 0 rgba(255,255,255,0.45), 0 2px 8px rgba(0,0,0,0.5)' : undefined,
+        transition: 'border-color 120ms ease',
+      }}>
+        {dot ? (
+          <span style={{
+            width: 22, height: 22, borderRadius: '50%', background: dot,
+            filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.8))',
+          }} />
+        ) : Icon ? (
+          <Icon size={22} style={{ filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.8))' }} />
+        ) : null}
+      </span>
+      <span style={{
+        fontSize: 11, fontWeight: (active || primary) ? 700 : 500,
+        color: (active || primary) ? GG_PINK : '#ffffff',
+        textShadow: '0 1px 3px rgba(0,0,0,0.9)', whiteSpace: 'nowrap',
+      }}>
+        {label}
+      </span>
+    </button>
+  )
+}
+
 export default function ConfigureMap() {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
@@ -578,6 +647,21 @@ export default function ConfigureMap() {
     () => tracts.find((t) => t.id === selectedTractId) ?? null,
     [tracts, selectedTractId])
 
+  // Owner 9/16: a parcel click used to open straight into land types —
+  // engine polygons and vertex dots drawn immediately, no chance to fix
+  // the outline first. A tract that is open now has its own per-screen
+  // mode: 'outline' (Step 2 — boundary handles live, no classification,
+  // no shapes drawn) or 'landtypes' (Step 3 — shapes drawn and editable,
+  // boundary handles hidden). Every tract-opening path (a parcel click,
+  // a remainder fill, a finished free-hand draw, or picking a row from
+  // the list) lands in 'outline'; only pressing "3. Land Types" in the
+  // step row moves it to 'landtypes'. Reset below whenever the OPEN
+  // tract itself changes — switching mode does not touch selectedTractId,
+  // so this never fires just from toggling 2/3.
+  const [tractMode, setTractMode] = useState<'outline' | 'landtypes'>('outline')
+  const tractModeRef = useRef(tractMode); tractModeRef.current = tractMode
+  useEffect(() => { setTractMode('outline') }, [selectedTractId])
+
   const detail = activeTract?.detail ?? null
   const shapes = activeTract?.shapes ?? []
   // The parcel outline while it is still editable. Rings, like a shape.
@@ -631,13 +715,14 @@ export default function ConfigureMap() {
   const [queuing, setQueuing] = useState<string | null>(null)
   // Cancel throws away work, so it asks first.
   // Both of these throw away work, so both ask first.
-  // 'cancel' and 'outline' are gone with the footer Cancel/"Edit
-  // outline" button (item 8: one Finish button, no Cancel) — only
-  // 'switch' (opening another tract with edits pending), 'leave'
-  // (Back to Map, dirty), 'removeTract', and the Row 2 'clearPolygons'/
-  // 'startOver' one-shot wipes still have a trigger.
+  // 'switch' (opening another tract with edits pending), 'leave' (Back
+  // to Map, dirty), 'removeTract', the Row 2 'clearPolygons'/'startOver'
+  // one-shot wipes, and the footer's own 'discardFooter' (Cancel,
+  // brought back by the owner — same dirty check as Back to Map, its
+  // own "Discard"/"Keep editing" buttons instead of OK/Cancel) all have
+  // a trigger.
   const [confirmWhat, setConfirmWhat] = useState<
-    null | 'switch' | 'leave' | 'removeTract' | 'clearPolygons' | 'startOver'
+    null | 'switch' | 'leave' | 'removeTract' | 'clearPolygons' | 'startOver' | 'discardFooter'
   >(null)
   /** The tract `removeTract` is waiting on a 'removeTract' confirm for —
    *  set only when that tract is already saved server-side. */
@@ -1391,7 +1476,7 @@ export default function ConfigureMap() {
         // that menu). Alt-click is the fallback for anyone whose mouse
         // or trackpad makes right-click awkward.
         const oe = e.originalEvent as MouseEvent
-        if (owner === '__boundary__' && selectedTractIdRef.current
+        if (owner === '__boundary__' && tractModeRef.current === 'outline'
             && (oe.button === 2 || oe.altKey)) {
           const pi = Number(f.properties!.pi)
           const ri = Number(f.properties!.ri)
@@ -1413,7 +1498,8 @@ export default function ConfigureMap() {
         // Same gesture on a land-type point. This only ever worked on the
         // boundary, which is why removing a point inside a polygon looked
         // broken.
-        if (owner !== '__boundary__' && (oe.button === 2 || oe.altKey)) {
+        if (owner !== '__boundary__' && tractModeRef.current === 'landtypes'
+            && (oe.button === 2 || oe.altKey)) {
           const pi = Number(f.properties!.pi)
           const ri = Number(f.properties!.ri)
           const vi = Number(f.properties!.vi)
@@ -1530,7 +1616,7 @@ export default function ConfigureMap() {
       // right-click a handle to take it out. Both refuse to leave fewer
       // than three points, which would stop being a polygon.
       map.on('click', 'cm-boundary-line', (e) => {
-        if (!selectedTractIdRef.current) return
+        if (tractModeRef.current !== 'outline') return
         e.preventDefault()
         const pt = [e.lngLat.lng, e.lngLat.lat] as Pt
         setBoundaryRings((prev) => {
@@ -1553,7 +1639,7 @@ export default function ConfigureMap() {
         reclassifyOnBoundaryEdit(selectedTractIdRef.current!)
       })
       map.on('mouseenter', 'cm-boundary-line', () => {
-        if (selectedTractIdRef.current) map.getCanvas().style.cursor = 'copy'
+        if (tractModeRef.current === 'outline') map.getCanvas().style.cursor = 'copy'
       })
       map.on('mouseleave', 'cm-boundary-line', () => { map.getCanvas().style.cursor = '' })
 
@@ -1604,10 +1690,11 @@ export default function ConfigureMap() {
             return
           }
         }
-        // A click on the outline of an open tract means "add a handle
-        // here" and is handled by the layer listener above; letting it
-        // fall through would also try to select a parcel underneath.
-        if (selectedTractIdRef.current
+        // A click on the outline of an open tract IN OUTLINE MODE means
+        // "add a handle here" and is handled by the layer listener
+        // above; letting it fall through would also try to select a
+        // parcel underneath.
+        if (tractModeRef.current === 'outline'
             && map.queryRenderedFeatures(e.point, { layers: ['cm-boundary-line'] }).length) return
         // Cutting the selected polygon: two clicks, one either side, and
         // the second one performs the cut immediately.
@@ -1824,19 +1911,22 @@ export default function ConfigureMap() {
     } finally { setBusy(null) }
   }, [])
 
-  /** Land types are shown the moment a tract is open now, not behind a
-   *  separate "Continue to Land Types" step — so THIS is what actually
-   *  triggers the lazy classify for a brand-new tract (a parcel click or
-   *  a free-hand draw), not just `openLocalTract`'s explicit call for a
-   *  tract someone switches back to. Runs off `activeTract` itself
-   *  rather than being called right inside `addTract` because `addTract`
-   *  calls `setTracts`/`setSelectedTractId` and then reads back through
+  /** Land types classify ONLY on entering 'landtypes' mode now (pressing
+   *  "3. Land Types" in the step row) — opening a tract, however it got
+   *  opened (a parcel click, a remainder fill, a finished free-hand
+   *  draw, or a row in the list), lands in 'outline' and must not spend
+   *  an engine call before the owner has even looked at the boundary.
+   *  Runs off `activeTract`/`tractMode` themselves rather than being
+   *  called right inside `addTract` because `addTract` calls
+   *  `setTracts`/`setSelectedTractId` and then reads back through
    *  `tractsRef` — a ref that, like every ref mirroring state in this
    *  file, only catches up on the NEXT render, so an immediate call
    *  there would find nothing yet and silently no-op. */
   useEffect(() => {
-    if (activeTract && !activeTract.classified) void ensureClassified(activeTract.id)
-  }, [activeTract, ensureClassified])
+    if (activeTract && tractMode === 'landtypes' && !activeTract.classified) {
+      void ensureClassified(activeTract.id)
+    }
+  }, [activeTract, tractMode, ensureClassified])
 
   /** Enforce the owner's rule after every hand-drawn shape: polygons
    *  cannot overlap, and cannot leave the parcel. Later drawing wins. */
@@ -1979,10 +2069,11 @@ export default function ConfigureMap() {
    *  instead of failing with "that line did not cut". */
   const runCut = useCallback(async (line: Pt[]) => {
     // `onBoundary` (cutting the parcel itself into tracts) is always
-    // false now — Row 1 has no cut control, only Row 2's "Split polygon"
-    // arms `cutpoly`, and that always targets the selected land-type
-    // shape. Left as a live branch (and `pieces`/`savePieces` below it)
-    // rather than torn out, same as the removed Stage 2 "Split parcel"
+    // false now — the outline-mode toolbar has no cut control, only
+    // 'landtypes' mode's "Split Polygon" button arms `cutpoly`, and that
+    // always targets the selected land-type shape. Left as a live
+    // branch (and `pieces`/`savePieces` below it) rather than torn out,
+    // same as the removed Stage 2 "Split parcel"
     // button's leftover plumbing further down this file.
     const onBoundary = false
     const id = selectedRef.current
@@ -2039,8 +2130,8 @@ export default function ConfigureMap() {
     let removed = 0
     const count = (before: Pt[], after: Pt[]) => { removed += before.length - after.length }
     // The boundary branch below is unreachable the same way runCut's is —
-    // 'erase' only ever arms from Row 2's "Erase points" button, which
-    // always targets the selected land-type shape.
+    // 'erase' only ever arms from 'landtypes' mode's "Erase Points"
+    // button, which always targets the selected land-type shape.
     if (false as boolean) {
       setBoundaryRings((prev) => prev.map((rings) => dropDegenerateHoles(
         rings.map((ring, ri) => { const t = trim(ring, ri); count(ring, t); return t }))))
@@ -2291,12 +2382,12 @@ export default function ConfigureMap() {
 
   /** Switch to a tract already sitting in LOCAL state (this session's
    *  list, maybe never saved) — no server round trip, since a brand-new
-   *  or drawn tract does not exist there to fetch. Always lazily
-   *  classifies it if it has not been already — land types are shown
-   *  the moment a tract opens now, there is no separate step to defer
-   *  the engine call to. Returns false when `id` is not a local tract,
-   *  so the caller can fall back to the server-fetch path for a peer
-   *  from a previously-saved project that was never loaded into this
+   *  or drawn tract does not exist there to fetch. Opens into 'outline'
+   *  mode (the `selectedTractId` effect above resets it) — no classify
+   *  call here; that only happens once "3. Land Types" is pressed.
+   *  Returns false when `id` is not a local tract, so the caller can
+   *  fall back to the server-fetch path for a peer from a
+   *  previously-saved project that was never loaded into this
    *  session's list. */
   const openLocalTract = useCallback((id: string) => {
     const t = tractsRef.current.find((x) => x.id === id)
@@ -2304,12 +2395,11 @@ export default function ConfigureMap() {
     setSelectedTractId(id)
     setSelectedId(null)
     markCleanRef.current?.(t.shapes, t.boundary)
-    void ensureClassified(id)
     const geom = polysToGeometry(t.boundary)
     const bb = geom ? bboxOf(geom.coordinates) : null
     if (bb && mapRef.current) mapRef.current.fitBounds(bb, { padding: 90, duration: 700 })
     return true
-  }, [ensureClassified])
+  }, [])
   openLocalTractRef.current = openLocalTract
 
   /** Switching to another tract behaves like Cancel: straight through
@@ -2440,68 +2530,69 @@ export default function ConfigureMap() {
   useEffect(() => {
     const map = mapRef.current
     if (!map || !ready) return
+    // Land-type shapes are drawn ONLY in 'landtypes' mode — 'outline'
+    // mode is boundary-only, no classification triggered, nothing to
+    // show or edit here yet (owner 9/16).
     const feats: any[] = []
-    for (const s of shapes) {
-      const g = polysToGeometry(s.polys)
-      if (g) feats.push({
-        type: 'Feature', geometry: g,
-        properties: { id: s.id, color: CLASS_COLOR[s.cls], selected: s.id === selectedId },
-      })
+    if (tractMode === 'landtypes') {
+      for (const s of shapes) {
+        const g = polysToGeometry(s.polys)
+        if (g) feats.push({
+          type: 'Feature', geometry: g,
+          properties: { id: s.id, color: CLASS_COLOR[s.cls], selected: s.id === selectedId },
+        })
+      }
     }
     ;(map.getSource(SRC.shapes) as maplibregl.GeoJSONSource)?.setData(
       { type: 'FeatureCollection', features: feats } as any)
 
-    // Handles for BOTH the tract outline and the selected land-type
-    // shape can be on screen at once now — Row 1 (boundary) and Row 2
-    // (land types) are no longer separate modes, so both toolbars, and
-    // both sets of drag handles, are live together whenever a tract is
-    // open. Small on every un-selected shape, full size on the one
-    // being edited and on every boundary point.
+    // Handles for the tract outline OR the selected land-type shape —
+    // never both: 'outline' mode (Step 2) shows every boundary point,
+    // draggable; 'landtypes' mode (Step 3) shows the selected shape's
+    // points instead and hides the boundary entirely, since the
+    // outline isn't edited there.
     const verts: any[] = []
-    if (activeTract) {
+    if (activeTract && tractMode === 'outline') {
       boundaryRings.forEach((rings, pi) => rings.forEach((ring, ri) =>
         ring.forEach((pt, vi) => verts.push({
           type: 'Feature', geometry: { type: 'Point', coordinates: pt },
           properties: { shapeId: '__boundary__', pi, ri, vi, active: true },
         }))))
+    } else if (tractMode === 'landtypes') {
+      const sel = shapes.find((sh) => sh.id === selectedId)
+      sel?.polys.forEach((rings, pi) => rings.forEach((ring, ri) =>
+        ring.forEach((pt, vi) => verts.push({
+          type: 'Feature', geometry: { type: 'Point', coordinates: pt },
+          properties: { shapeId: sel.id, pi, ri, vi, active: true },
+        }))))
     }
-    // The selected land-type shape's own handles. Opening a tract means
-    // editing it (owner ruling 2026-09-16) — there is no read-only mode
-    // any more, so this is unconditional now.
-    const sel = shapes.find((sh) => sh.id === selectedId)
-    sel?.polys.forEach((rings, pi) => rings.forEach((ring, ri) =>
-      ring.forEach((pt, vi) => verts.push({
-        type: 'Feature', geometry: { type: 'Point', coordinates: pt },
-        properties: { shapeId: sel.id, pi, ri, vi, active: true },
-      }))))
     ;(map.getSource(SRC.verts) as maplibregl.GeoJSONSource)?.setData(
       { type: 'FeatureCollection', features: verts } as any)
-  }, [shapes, selectedId, activeTract, boundaryRings, ready])
+  }, [shapes, selectedId, activeTract, tractMode, boundaryRings, ready])
 
   useEffect(() => {
     const map = mapRef.current
     if (!map || !ready) return
     // The outline is always live now — boundaryRings, not a locked
-    // snapshot from `detail` — since Row 1's boundary tools stay on
-    // screen alongside Row 2's land-type ones rather than handing off
-    // to a separate step. Falls back to the last-fetched detail only
-    // for the instant before a fresh tract's rings have loaded.
+    // snapshot from `detail` — since 'outline' mode keeps dragging it
+    // right up until "3. Land Types" is pressed. Falls back to the
+    // last-fetched detail only for the instant before a fresh tract's
+    // rings have loaded.
     const geom = polysToGeometry(boundaryRings) || detail?.boundary
     ;(map.getSource(SRC.boundary) as maplibregl.GeoJSONSource)?.setData({
       type: 'FeatureCollection',
       features: geom ? [{ type: 'Feature', geometry: geom, properties: {} }] : [],
     } as any)
 
-    // The pink wash is for a tract with no land types drawn yet —
-    // shown over every land-type shape at 22% it lies over the colours
-    // like a muddy brown, so correct engine output would read as
-    // nonsense. Once shapes exist the outline itself still stays
-    // visible, just without the wash.
+    // The pink wash is 'outline' mode's own look — once in 'landtypes'
+    // it would lie over every land-type shape at 22% and read as a
+    // muddy brown over correct engine output. The outline LINE itself
+    // still stays visible in both modes, just without the wash.
     if (map.getLayer('cm-boundary-fill')) {
       map.setLayoutProperty('cm-boundary-fill', 'visibility',
-        shapes.length ? 'none' : 'visible')
+        tractMode === 'outline' ? 'visible' : 'none')
     }
-  }, [detail, boundaryRings, shapes.length, ready])
+  }, [detail, boundaryRings, tractMode, ready])
 
   useEffect(() => {
     const map = mapRef.current
@@ -2895,7 +2986,10 @@ export default function ConfigureMap() {
     [shapes])
 
   useEffect(() => {
-    if (!activeTract || !detail) { setSoil(null); return }
+    // 'outline' mode never shows the soil rating (the Acres & Land Types
+    // card hides that whole section there) — skip the query rather than
+    // spend it on a number nobody sees yet.
+    if (!activeTract || !detail || tractMode !== 'landtypes') { setSoil(null); return }
     const tillable = shapes.filter((sh) => sh.cls === 'tillable')
       .map((sh) => polysToGeometry(sh.polys)).filter(Boolean)
     if (!tillable.length) { setSoil(null); return }
@@ -2915,7 +3009,7 @@ export default function ConfigureMap() {
     }, 700)
     return () => { cancelled = true; clearTimeout(t); setSoilBusy(false) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tillableKey, selectedTractId, detail?.boundary])
+  }, [tillableKey, selectedTractId, tractMode, detail?.boundary])
 
   // Live totals by class for the panel.
   const totals = useMemo(() => {
@@ -2970,14 +3064,14 @@ export default function ConfigureMap() {
   const parcelAcres = liveBoundaryAcres > 0 ? liveBoundaryAcres : storedAcres
   const classified = LAND_CLASSES.reduce((s, c) => s + totals[c], 0)
 
-  // The bottom toolbar's hint pill (design spec §2, §7): copy for
-  // whichever tool is currently ARMED, shown only while it is armed —
-  // an idle toolbar, or a one-shot action like Snap tracts/Fill holes,
-  // gets no pill; those get a plain title tooltip instead, like the
-  // rest of this screen's buttons. Row 1 (tract) and Row 2 (land type)
-  // tools can both be on screen at once now, so this is one priority
-  // chain instead of a per-stage switch — whichever tool is actually
-  // armed wins.
+  // The bottom toolbar's hint pill: copy for whichever tool is currently
+  // ARMED, shown only while it is armed — an idle toolbar, or a one-shot
+  // action like Snap Tracts/Fill Holes, gets no pill; those get a plain
+  // title tooltip instead, like the rest of this screen's buttons.
+  // 'outline' and 'landtypes' modes each have their OWN toolbar row now
+  // (never both at once), so this is one priority chain covering every
+  // tool from either row — whichever is actually armed wins — plus a
+  // default per-mode instruction when nothing is.
   const toolbarHint =
     (tool === 'drawtract' && drawing) ? 'Click to place corners. Enter or double-click closes '
       + 'the shape; edges and other tracts snap automatically.'
@@ -2989,10 +3083,15 @@ export default function ConfigureMap() {
     : addingTract ? (tracts.length === 0
       ? 'To start your first tract: click a parcel on the map, or press Draw a Tract below.'
       : 'Adding a tract: click a parcel on the map, or press Draw a Tract below.')
-    // Default instruction for an open tract with no tool armed — the
-    // banner must never sit empty while there is a tract to work on.
-    : activeTract ? 'Pick a land type below, then press Add Polygon to draw it. '
-      + 'Drag a corner to reshape the tract.'
+    // Default instruction for an open tract with no tool armed — one
+    // copy per mode now, the banner must never sit empty while there is
+    // a tract to work on. 'outline': the round "Land Types" toolbar
+    // button and the "3. Land Types" step button are the same handler,
+    // so either phrase points at a real, reachable control.
+    : (activeTract && tractMode === 'outline')
+      ? 'Drag a corner to reshape the tract, or press Snap to Parcel to fit it exactly. '
+        + 'When the outline is right, press Land Types.'
+    : activeTract ? 'Pick a land type below, then press Add Polygon to draw it.'
     // Tracts exist but none is open (e.g. "2. Tracts" was clicked):
     // still say what to do — the banner is never blank on this screen.
     : tracts.length > 0 ? 'Click a tract in the list to open it, or press Add Another Tract.'
@@ -3041,130 +3140,109 @@ export default function ConfigureMap() {
           }}>
           <ArrowLeft size={14} /> Back to Map
         </button>
-        {/* Bottom-of-map toolbar (design spec §2, redesigned 2026-09-16):
-            every tool that touches a tract's polygons — boundary OR land
-            type — lives HERE, not in the right panel (owner: "the panel
-            informs, the map edits"). Two stacked bars instead of one:
-            Row 1 (tract tools — draw/snap/save/undo/redo) is always
-            here; Row 2 (land-type chips + polygon tools) rides above it
-            the moment a tract is open, since the two are no longer
-            separate steps. Replaces the old floating "Done Erasing"/
-            "Cancel Cut"/"Save Polygon" pill: an armed tool swaps its OWN
-            toolbar button to its done label in place instead. */}
+        {/* Bottom-of-map toolbar (owner redesign 2026-09-16): every tool
+            that touches a tract's polygons — boundary OR land type —
+            lives HERE, not in the right panel ("the panel informs, the
+            map edits"). Round icon buttons now, no dark bar behind them
+            (a later owner pass), and ONE row whose content is whichever
+            mode the open tract is in: 'outline' (Draw a Tract / Snap /
+            Save Tract / Undo / Redo, plus a primary "Land Types" button
+            at the end once a tract is open) or 'landtypes' (an "Outline"
+            button back to the other mode, the land-type chips, every
+            polygon tool, and Undo/Redo/Save Tract) — never both at
+            once, since the two modes are mutually exclusive now (an
+            outline edit invalidates classified land types; see
+            `reclassifyOnBoundaryEdit`). An armed tool still swaps its
+            OWN button's icon/label to its done state in place (Save
+            Polygon, Cancel Cut, Done Erasing) instead of a separate
+            floating pill. */}
         {/* Only on the build screen — Step 1 has its own card. */}
         {stage === 'build' && toolbarHint && <div style={toolbarHintPill}>{toolbarHint}</div>}
         {stage === 'build' && (
-          <div style={toolbarStack}>
-            {activeTract && (
-              <div style={toolbarBar}>
+          <div style={toolbarRow}>
+            {tractMode === 'landtypes' && activeTract ? (
+              <>
+                {/* Mirrors "2. Tracts" clicked from Step 3 — same
+                    handler, just closer to hand (owner correction). */}
+                <ToolButton icon={PenTool} label="Outline"
+                            onClick={() => setTractMode('outline')} />
                 {LAND_CLASSES.map((c) => (
-                  <button
-                    key={c}
-                    onClick={() => { setDrawClass(c); if (selectedId) setClassOf(selectedId, c) }}
-                    title={CLASS_LABEL[c]}
-                    style={{
-                      ...chip,
-                      outline: drawClass === c ? '2px solid #ffffff' : 'none',
-                      outlineOffset: drawClass === c ? 1 : 0,
-                      opacity: drawClass === c ? 1 : 0.72,
-                    }}>
-                    <span style={{ width: 9, height: 9, borderRadius: 2, background: CLASS_COLOR[c] }} />
-                    {CLASS_LABEL[c]}
-                  </button>
+                  <ToolButton key={c} dot={CLASS_COLOR[c]} label={CLASS_LABEL[c]}
+                              active={drawClass === c} title={CLASS_LABEL[c]}
+                              onClick={() => { setDrawClass(c); if (selectedId) setClassOf(selectedId, c) }} />
                 ))}
-                <div style={toolbarDivider} />
-                <button
-                  onClick={() => {
-                    if (tool === 'draw' && drawing) { finishDraft(); return }
-                    setTool('draw'); setDrawing(true); setDraft([])
-                  }}
-                  style={{ ...btn, outline: (tool === 'draw' && drawing) ? '2px solid #ffffff' : 'none',
-                           outlineOffset: (tool === 'draw' && drawing) ? 1 : 0 }}>
-                  {(tool === 'draw' && drawing)
-                    ? <><Plus size={13} /> Save Polygon</>
-                    : <><Plus size={13} /> Add Polygon</>}
-                </button>
-                <button onClick={() => selectedId && deleteShape(selectedId)} disabled={!selectedId} style={btn}>
-                  <Trash2 size={13} /> Delete
-                </button>
-                <button
-                  onClick={() => {
-                    if (tool === 'cutpoly') { setTool(null); setCutPts([]); return }
-                    setTool('cutpoly'); setCutPts([]); setDrawing(false); setDraft([])
-                  }}
-                  disabled={!selectedId && tool !== 'cutpoly'}
-                  style={{ ...btn, outline: tool === 'cutpoly' ? '2px solid #ffffff' : 'none',
-                           outlineOffset: tool === 'cutpoly' ? 1 : 0 }}>
-                  {tool === 'cutpoly' ? <><X size={13} /> Cancel Cut</> : <><Scissors size={13} /> Split Polygon</>}
-                </button>
-                <button
-                  onClick={() => { setTool(tool === 'erase' ? null : 'erase'); setMarq(null) }}
-                  disabled={!selectedId && tool !== 'erase'}
-                  style={{ ...btn, outline: tool === 'erase' ? '2px solid #ffffff' : 'none',
-                           outlineOffset: tool === 'erase' ? 1 : 0 }}>
-                  {tool === 'erase' ? <><Check size={13} /> Done Erasing</> : <><Eraser size={13} /> Erase Points</>}
-                </button>
-                <button
-                  onClick={() => selectedId && fillHoles(selectedId)}
-                  disabled={!selectedId || holesOnSelected === 0}
-                  title="Remove every hole inside the selected polygon"
-                  style={btn}>
-                  <PaintBucket size={13} /> Fill Holes{holesOnSelected > 0 ? ` (${holesOnSelected})` : ''}
-                </button>
-                <div style={toolbarDivider} />
-                <button
-                  onClick={() => { if (shapes.length) setConfirmWhat('clearPolygons') }}
-                  disabled={!shapes.length} style={btn}>
-                  <X size={13} /> Clear Polygons
-                </button>
-                <button
-                  onClick={() => { if (detail?.polygons.length) setConfirmWhat('startOver') }}
-                  disabled={!detail?.polygons.length} style={btn}>
-                  <Layers size={13} /> Start Over
-                </button>
-              </div>
+                <ToolButton icon={Plus} active={tool === 'draw' && drawing}
+                            label={(tool === 'draw' && drawing) ? 'Save Polygon' : 'Add Polygon'}
+                            onClick={() => {
+                              if (tool === 'draw' && drawing) { finishDraft(); return }
+                              setTool('draw'); setDrawing(true); setDraft([])
+                            }} />
+                <ToolButton icon={Trash2} label="Delete" disabled={!selectedId}
+                            onClick={() => selectedId && deleteShape(selectedId)} />
+                <ToolButton icon={tool === 'cutpoly' ? X : Scissors} active={tool === 'cutpoly'}
+                            label={tool === 'cutpoly' ? 'Cancel Cut' : 'Split Polygon'}
+                            disabled={!selectedId && tool !== 'cutpoly'}
+                            onClick={() => {
+                              if (tool === 'cutpoly') { setTool(null); setCutPts([]); return }
+                              setTool('cutpoly'); setCutPts([]); setDrawing(false); setDraft([])
+                            }} />
+                <ToolButton icon={tool === 'erase' ? Check : Eraser} active={tool === 'erase'}
+                            label={tool === 'erase' ? 'Done Erasing' : 'Erase Points'}
+                            disabled={!selectedId && tool !== 'erase'}
+                            onClick={() => { setTool(tool === 'erase' ? null : 'erase'); setMarq(null) }} />
+                <ToolButton icon={PaintBucket}
+                            label={`Fill Holes${holesOnSelected > 0 ? ` (${holesOnSelected})` : ''}`}
+                            disabled={!selectedId || holesOnSelected === 0}
+                            title="Remove every hole inside the selected polygon"
+                            onClick={() => selectedId && fillHoles(selectedId)} />
+                <ToolButton icon={X} label="Clear Polygons" disabled={!shapes.length}
+                            onClick={() => { if (shapes.length) setConfirmWhat('clearPolygons') }} />
+                <ToolButton icon={Layers} label="Start Over" disabled={!detail?.polygons.length}
+                            onClick={() => { if (detail?.polygons.length) setConfirmWhat('startOver') }} />
+                <ToolButton icon={RotateCcw} label="Undo" disabled={undoDisabled} onClick={handleUndo} />
+                <ToolButton icon={RotateCw} label="Redo" disabled={redoDisabled} onClick={handleRedo} />
+                <ToolButton icon={Save} label="Save Tract"
+                            disabled={!!busy || !activeTract.name.trim()}
+                            title={!activeTract.name.trim() ? 'Name this tract before saving.'
+                              : 'Saves this tract to the project. You stay here.'}
+                            onClick={() => { if (selectedTractId) void saveAllTracts([selectedTractId]) }} />
+              </>
+            ) : (
+              <>
+                <ToolButton icon={PenTool} active={tool === 'drawtract' && drawing}
+                            label={(tool === 'drawtract' && drawing) ? 'Save Polygon' : 'Draw a Tract'}
+                            disabled={!(addingTract || (tool === 'drawtract' && drawing))}
+                            onClick={() => {
+                              if (tool === 'drawtract' && drawing) { finishDraft(); return }
+                              setTool('drawtract'); setDrawing(true); setDraft([])
+                            }} />
+                <ToolButton icon={Magnet} label={tracts.length <= 1 ? 'Snap to Parcel' : 'Snap Tracts'}
+                            disabled={!!busy || (tracts.length < 2
+                              && !(tracts.length === 1 && tracts[0].source.kind === 'parcel'))}
+                            title={tracts.length <= 1
+                              ? 'Fits this tract to its own parcel boundary so the acres are exact.'
+                              : 'Fits every drawn tract to the frame and to each other so acres add up.'}
+                            onClick={() => void snapTracts()} />
+                <ToolButton icon={Save} label="Save Tract"
+                            disabled={!!busy || !activeTract || !activeTract.name.trim()}
+                            title={!activeTract ? 'Open a tract to save it.'
+                              : !activeTract.name.trim() ? 'Name this tract before saving.'
+                              : 'Saves this tract to the project. You stay here.'}
+                            onClick={() => { if (selectedTractId) void saveAllTracts([selectedTractId]) }} />
+                <ToolButton icon={RotateCcw} label="Undo" disabled={undoDisabled} onClick={handleUndo} />
+                <ToolButton icon={RotateCw} label="Redo" disabled={redoDisabled} onClick={handleRedo} />
+                {/* The deliberate "next step" once a tract is open — filled
+                    pink rather than a peer of the rest (owner correction).
+                    Only ever rendered with a tract open (this branch also
+                    covers the empty-list/adding-a-tract states, which have
+                    no tract to switch), so there is no reachable disabled
+                    state worth building for it. */}
+                {activeTract && (
+                  <ToolButton icon={Layers} label="Land Types" primary
+                              onClick={() => setTractMode('landtypes')} />
+                )}
+              </>
             )}
-            <div style={toolbarBar}>
-              <button
-                onClick={() => {
-                  if (tool === 'drawtract' && drawing) { finishDraft(); return }
-                  setTool('drawtract'); setDrawing(true); setDraft([])
-                }}
-                disabled={!(addingTract || (tool === 'drawtract' && drawing))}
-                style={{ ...btn, outline: (tool === 'drawtract' && drawing) ? '2px solid #ffffff' : 'none',
-                         outlineOffset: (tool === 'drawtract' && drawing) ? 1 : 0 }}>
-                {(tool === 'drawtract' && drawing)
-                  ? <><Plus size={13} /> Save Polygon</>
-                  : <><PenTool size={13} /> Draw a Tract</>}
-              </button>
-              <div style={toolbarDivider} />
-              <button
-                onClick={() => void snapTracts()}
-                disabled={!!busy || (tracts.length < 2
-                  && !(tracts.length === 1 && tracts[0].source.kind === 'parcel'))}
-                title={tracts.length <= 1
-                  ? 'Fits this tract to its own parcel boundary so the acres are exact.'
-                  : 'Fits every drawn tract to the frame and to each other so acres add up.'}
-                style={primaryBtn}>
-                <Magnet size={13} /> {tracts.length <= 1 ? 'Snap to Parcel' : 'Snap Tracts'}
-              </button>
-              <button
-                onClick={() => { if (selectedTractId) void saveAllTracts([selectedTractId]) }}
-                disabled={!!busy || !activeTract || !activeTract.name.trim()}
-                title={!activeTract ? 'Open a tract to save it.'
-                  : !activeTract.name.trim() ? 'Name this tract before saving.'
-                  : 'Saves this tract to the project. You stay here.'}
-                style={goBtn}>
-                <Save size={13} /> Save Tract
-              </button>
-              <div style={toolbarDivider} />
-              <button onClick={handleUndo} disabled={undoDisabled} style={btn}>
-                <RotateCcw size={13} /> Undo
-              </button>
-              <button onClick={handleRedo} disabled={redoDisabled} style={btn}>
-                <RotateCw size={13} /> Redo
-              </button>
-            </div>
           </div>
         )}
       </div>
@@ -3200,21 +3278,31 @@ export default function ConfigureMap() {
             plus a way back to the portfolio without leaving via the map
             corner button. */}
         {/* Owner 9/16 ("I liked the steps 1, 2 and 3 at the top"): the
-            row is back as a WHERE-AM-I indicator, not a screen switch.
-            1 while naming, 2 while no tract is open (building the list),
-            3 once a tract is open (its land types). Clicking 2 closes the
-            open tract; 3 needs a tract open and does nothing otherwise. */}
+            row is back as a WHERE-AM-I indicator, not a screen switch —
+            AND, per the owner's later correction, a real (if secondary)
+            way to move between the two tract-editing modes. 1 while
+            naming, 2 while no tract is open OR one is open in 'outline'
+            mode, 3 once a tract is open in 'landtypes' mode.
+            "2. Tracts" clicked from 'landtypes' returns that SAME tract
+            to 'outline' — it does not close it (closing is Add Another
+            Tract / picking a different row). "3. Land Types" clicked
+            with a tract open switches it to 'landtypes' (classifying it
+            once, same as the round "Land Types" toolbar button). */}
         {(() => {
-          const cur = stage === 'project' ? 0 : activeTract ? 2 : 1
+          const cur = stage === 'project' ? 0 : (activeTract && tractMode === 'landtypes') ? 2 : 1
           const labels = ['1. Project', '2. Tracts', '3. Land Types']
           return (
             <div style={{ display: 'flex', gap: 4 }}>
               {labels.map((label, i) => {
                 const state = i === cur ? 'current' : i < cur ? 'done' : 'future'
-                const canJump = i === 1 && cur === 2
+                const canJump = (i === 1 && cur === 2) || (i === 2 && !!activeTract && cur !== 2)
                 return (
                   <button key={label}
-                    onClick={() => { if (canJump) setSelectedTractId(null) }}
+                    onClick={() => {
+                      if (!canJump) return
+                      if (i === 1) setTractMode('outline')
+                      else if (i === 2) setTractMode('landtypes')
+                    }}
                     disabled={!canJump}
                     style={{
                       border: 'none', cursor: canJump ? 'pointer' : 'default',
@@ -3442,49 +3530,69 @@ export default function ConfigureMap() {
                 control the redesign moved off the panel. */}
 
             {/* Acres & land types (item 6) — the live totals this tract
-                is actually built around, not a footnote under the tools. */}
+                is actually built around, not a footnote under the tools.
+                'outline' mode has no land types to show yet (none are
+                even classified) — just the total, plus where to go next;
+                showing every class at a blank 0.0 there would read as
+                the engine having failed rather than not having run yet. */}
             <div style={card}>
               <div style={sectionLabel}>Acres &amp; land types</div>
-              {LAND_CLASSES.map((c) => (
-                <div key={c} style={{
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                  padding: '3px 4px', borderRadius: 5,
-                  background: flashClasses.has(c) ? 'rgba(245,140,222,0.25)' : 'transparent',
-                  transition: 'background-color 300ms',
-                }}>
-                  <span style={{ display: 'flex', alignItems: 'center' }}>
-                    <span style={{ display: 'inline-block', width: 14, height: 14, borderRadius: 3, background: CLASS_COLOR[c], marginRight: 8 }} />
-                    {CLASS_LABEL[c]}
-                  </span>
-                  <span style={{ fontSize: 20, fontWeight: 800 }}>{totals[c].toFixed(1)}</span>
-                </div>
-              ))}
-              <div style={{ ...statRow, opacity: 0.6 }}>
-                <span>Other / Unclassified</span>
-                <span>{Math.max(parcelAcres - classified, 0).toFixed(1)}</span>
-              </div>
-              <div style={{
-                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                fontSize: 22, fontWeight: 800, borderTop: '2px solid rgba(255,255,255,0.16)', paddingTop: 8, marginTop: 2,
-              }}>
-                <span>Total</span><span>{parcelAcres.toFixed(1)}</span>
-              </div>
-              <div style={statRow}>
-                <span style={{ opacity: 0.65 }}>Buildings</span>
-                <span>{detail?.parcel?.ll_bldg_count ?? 0}</span>
-              </div>
-              <div style={{ ...statRow, borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: 6 }}>
-                <span style={{ opacity: 0.65 }}>
-                  Soil rating{soil?.rating_type ? ` (${soil.rating_type})` : ''}
-                </span>
-                <span style={{ opacity: soilBusy ? 0.45 : 1 }}>
-                  {soilBusy ? 'updating…' : (soil?.rating ?? '—')}
-                </span>
-              </div>
-              <div style={hint}>
-                Acres update as you edit; the soil rating follows a moment later.
-                Both are recomputed exactly when you save.
-              </div>
+              {tractMode === 'outline' ? (
+                <>
+                  <div style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    fontSize: 22, fontWeight: 800,
+                  }}>
+                    <span>Total</span><span>{parcelAcres.toFixed(1)}</span>
+                  </div>
+                  <div style={hint}>
+                    Press 3. Land Types to see tillable, timber and water.
+                  </div>
+                </>
+              ) : (
+                <>
+                  {LAND_CLASSES.map((c) => (
+                    <div key={c} style={{
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                      padding: '3px 4px', borderRadius: 5,
+                      background: flashClasses.has(c) ? 'rgba(245,140,222,0.25)' : 'transparent',
+                      transition: 'background-color 300ms',
+                    }}>
+                      <span style={{ display: 'flex', alignItems: 'center' }}>
+                        <span style={{ display: 'inline-block', width: 14, height: 14, borderRadius: 3, background: CLASS_COLOR[c], marginRight: 8 }} />
+                        {CLASS_LABEL[c]}
+                      </span>
+                      <span style={{ fontSize: 20, fontWeight: 800 }}>{totals[c].toFixed(1)}</span>
+                    </div>
+                  ))}
+                  <div style={{ ...statRow, opacity: 0.6 }}>
+                    <span>Other / Unclassified</span>
+                    <span>{Math.max(parcelAcres - classified, 0).toFixed(1)}</span>
+                  </div>
+                  <div style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    fontSize: 22, fontWeight: 800, borderTop: '2px solid rgba(255,255,255,0.16)', paddingTop: 8, marginTop: 2,
+                  }}>
+                    <span>Total</span><span>{parcelAcres.toFixed(1)}</span>
+                  </div>
+                  <div style={statRow}>
+                    <span style={{ opacity: 0.65 }}>Buildings</span>
+                    <span>{detail?.parcel?.ll_bldg_count ?? 0}</span>
+                  </div>
+                  <div style={{ ...statRow, borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: 6 }}>
+                    <span style={{ opacity: 0.65 }}>
+                      Soil rating{soil?.rating_type ? ` (${soil.rating_type})` : ''}
+                    </span>
+                    <span style={{ opacity: soilBusy ? 0.45 : 1 }}>
+                      {soilBusy ? 'updating…' : (soil?.rating ?? '—')}
+                    </span>
+                  </div>
+                  <div style={hint}>
+                    Acres update as you edit; the soil rating follows a moment later.
+                    Both are recomputed exactly when you save.
+                  </div>
+                </>
+              )}
             </div>
 
             <>
@@ -3715,25 +3823,39 @@ export default function ConfigureMap() {
             </button>
           </div>
         )}
-        {/* Item 8 — one Finish button, no Cancel. "Back to Map" (top-left
-            of the map, dirty-confirmed) is the only exit now; this button
-            is the only commit. Saving surfaces its own validation error
-            (every tract must be named) rather than pre-disabling for it,
-            so the user finds out why from the same message Save always
-            gave, not from a greyed-out button. */}
+        {/* Item 8, footer: Finish is the one commit. Saving surfaces its
+            own validation error (every tract must be named) rather than
+            pre-disabling for it, so the user finds out why from the
+            same message Save always gave, not from a greyed-out button.
+            Owner brought Cancel back alongside it (it had been dropped
+            in favour of "Back to Map" alone) — same dirty check as Back
+            to Map, but its own confirm-dialog copy and its own
+            destination (the portfolio, not Explore) since the two exits
+            mean different things: Back to Map is "leave the tool",
+            Cancel is "abandon this tract-building session". */}
         {stage === 'build' && (
           <div style={{
             borderTop: '1px solid rgba(255,255,255,0.10)', padding: 12,
             background: 'linear-gradient(180deg, #0a0a0a 0%, #050505 100%)',
             boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)',
+            display: 'flex', gap: 8,
           }}>
+            <button
+              onClick={() => {
+                if (dirty) { setConfirmWhat('discardFooter'); return }
+                window.location.href = '/map-portfolio'
+              }}
+              disabled={!!busy}
+              style={{ ...btn, flex: 1, justifyContent: 'center', padding: '9px 10px' }}>
+              <X size={14} /> Cancel
+            </button>
             <button
               onClick={() => void (async () => {
                 const ok = await saveAllTracts()
                 if (ok) window.location.href = '/map-portfolio'
               })()}
               disabled={!!busy || !tracts.length}
-              style={{ ...primaryBtn, width: '100%', justifyContent: 'center', padding: '9px 10px' }}>
+              style={{ ...primaryBtn, flex: 1, justifyContent: 'center', padding: '9px 10px' }}>
               <Save size={14} /> Finish
             </button>
           </div>
@@ -3758,6 +3880,7 @@ export default function ConfigureMap() {
                   : confirmWhat === 'leave' ? 'Leave without saving?'
                   : confirmWhat === 'clearPolygons' ? 'Clear every polygon?'
                   : confirmWhat === 'startOver' ? 'Start over from the engine?'
+                  : confirmWhat === 'discardFooter' ? 'Discard your changes?'
                   : 'Remove this tract?'}
               </div>
               <div style={{ ...hint, marginTop: 0, marginBottom: 14, display: 'block' }}>
@@ -3774,6 +3897,8 @@ export default function ConfigureMap() {
                   ? 'Every polygon edit you have made will be thrown away and '
                     + 'replaced with the engine’s own land types for this '
                     + 'boundary. This cannot be undone with Redo once you navigate away.'
+                  : confirmWhat === 'discardFooter'
+                  ? 'Anything not saved with Save Tract or Finish will be lost.'
                   : 'This tract is already saved. OK removes it here and deletes '
                     + 'its saved record too — that part cannot be undone.'}
               </div>
@@ -3782,6 +3907,14 @@ export default function ConfigureMap() {
                           if (confirmWhat === 'leave') {
                             setConfirmWhat(null)
                             window.location.href = '/access'
+                          } else if (confirmWhat === 'discardFooter') {
+                            // Same discard-without-saving destination as
+                            // Back to Map's own 'leave' confirm — only
+                            // the destination page differs (the footer
+                            // Cancel button always meant "back to the
+                            // portfolio", never "back to Explore").
+                            setConfirmWhat(null)
+                            window.location.href = '/map-portfolio'
                           } else if (confirmWhat === 'switch') {
                             // Save FIRST, and only switch if it worked —
                             // switching on a failed save would lose the
@@ -3806,14 +3939,16 @@ export default function ConfigureMap() {
                             if (target) void removeSavedTract(target)
                           }
                         }}
-                        style={{ ...primaryBtn, flex: 1, justifyContent: 'center',
-                                 padding: '9px 10px' }}>
-                  OK
+                        style={{
+                          ...(confirmWhat === 'discardFooter' ? dangerBtn : primaryBtn),
+                          flex: 1, justifyContent: 'center', padding: '9px 10px',
+                        }}>
+                  {confirmWhat === 'discardFooter' ? 'Discard' : 'OK'}
                 </button>
                 <button onClick={() => { setConfirmWhat(null); setPendingOpen(null); setPendingRemoveId(null) }}
                         style={{ ...btn, flex: 1, justifyContent: 'center',
                                  padding: '9px 10px' }}>
-                  Cancel
+                  {confirmWhat === 'discardFooter' ? 'Keep editing' : 'Cancel'}
                 </button>
               </div>
             </div>
@@ -3862,33 +3997,17 @@ const primaryBtn: React.CSSProperties = {
   fontWeight: 700,
   boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.55), 0 2px 6px rgba(0,0,0,0.55)',
 }
-const chip: React.CSSProperties = { ...btn, padding: '5px 9px' }
-// Bottom-of-map toolbar (design spec §2) — the tract tools (draw a
-// tract, snap, save, undo/redo) and the land-type chips + polygon tools,
-// consolidated here instead of the right panel. Same surface treatment
-// (gradient, border, inset+drop shadow) as the confirm dialog, so every
-// floating black-on-map chrome on this screen reads as one family.
-//
-// `toolbarStack` positions the pair of bars as ONE unit at bottom-center
-// (Row 2 — land types — stacked above Row 1 — tract tools, closest to
-// the map's own edge, since Row 1 is the one always present); `toolbarBar`
-// is now just the bar's own look, unpositioned, so either row can sit
-// inside the stack without fighting over `position: absolute`.
-const toolbarStack: React.CSSProperties = {
+// Bottom-of-map toolbar (owner redesign 2026-09-16): ONE row of round
+// `ToolButton`s (see that component, defined above `ConfigureMap`), no
+// dark bar behind them any more — the map itself should read through.
+// `flexWrap: 'nowrap'` plus `overflowX: 'auto'` is the width contract:
+// the owner's longest row (every landtypes-mode button, all full labels)
+// measures well inside 1400px, so it never needs to wrap there; auto-
+// scroll is the fallback for a narrower window rather than a silent clip.
+const toolbarRow: React.CSSProperties = {
   position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)', zIndex: 30,
-  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
-  maxWidth: 'calc(100% - 32px)',
-}
-const toolbarBar: React.CSSProperties = {
-  display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'center',
-  maxWidth: '100%',
-  borderRadius: 14, padding: '8px 10px',
-  background: 'linear-gradient(180deg, #1b1e23 0%, #0a0a0a 100%)',
-  border: '1px solid rgba(255,255,255,0.14)',
-  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.14), 0 10px 30px rgba(0,0,0,0.6)',
-}
-const toolbarDivider: React.CSSProperties = {
-  width: 1, height: 24, background: 'rgba(255,255,255,0.14)', flex: 'none',
+  display: 'flex', flexWrap: 'nowrap', alignItems: 'flex-start', justifyContent: 'center',
+  gap: 14, maxWidth: 'calc(100% - 32px)', overflowX: 'auto', padding: '4px 2px',
 }
 // The armed-tool hint, one line above the bar (design spec §2, §7) —
 // shown only while a tool is armed; everything else on the bar carries
