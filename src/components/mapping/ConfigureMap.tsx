@@ -3131,8 +3131,10 @@ export default function ConfigureMap() {
               style={inputStyle}
             />
             <select value={searchState} onChange={(e) => setSearchState(e.target.value)}
-                    style={{ ...inputStyle, width: 68, flex: 'none' }}>
-              <option value="">--</option>
+                    aria-label="State"
+                    style={{ ...inputStyle, width: 84, flex: 'none' }}>
+              {/* Owner 9/16: say what the dropdown is, not "--". */}
+              <option value="">State</option>
               {['IL', 'IA', 'MO', 'NE', 'KS', 'IN', 'MN', 'WI', 'OH', 'SD', 'ND'].map((s) => (
                 <option key={s} value={s}>{s}</option>
               ))}
