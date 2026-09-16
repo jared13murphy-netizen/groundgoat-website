@@ -3189,14 +3189,46 @@ export default function ConfigureMap() {
           flex: 1, minHeight: 0, overflowY: 'auto',
           display: 'flex', flexDirection: 'column', gap: 14, padding: 16,
         }}>
-        {/* Owner redesign 2026-09-16: the old 1/2/3 stepper is gone — Step
-            1 (name the project) is still its own screen below, but after
-            that there is only ONE working screen, so there is nothing
-            left to jump between. Item 1 of the new panel replaces the
-            plain "Configure Map" title there: the project's own name,
+        {/* Owner redesign 2026-09-16: after Step 1 there is ONE working
+            screen (the stepper above only shows where you are). Item 1 of
+            the new panel replaces the plain "Configure Map" title there:
+            the project's own name,
             renameable in place (same pencil gesture as a tract name),
             plus a way back to the portfolio without leaving via the map
             corner button. */}
+        {/* Owner 9/16 ("I liked the steps 1, 2 and 3 at the top"): the
+            row is back as a WHERE-AM-I indicator, not a screen switch.
+            1 while naming, 2 while no tract is open (building the list),
+            3 once a tract is open (its land types). Clicking 2 closes the
+            open tract; 3 needs a tract open and does nothing otherwise. */}
+        {(() => {
+          const cur = stage === 'project' ? 0 : activeTract ? 2 : 1
+          const labels = ['1. Project', '2. Tracts', '3. Land Types']
+          return (
+            <div style={{ display: 'flex', gap: 4 }}>
+              {labels.map((label, i) => {
+                const state = i === cur ? 'current' : i < cur ? 'done' : 'future'
+                const canJump = i === 1 && cur === 2
+                return (
+                  <button key={label}
+                    onClick={() => { if (canJump) setSelectedTractId(null) }}
+                    disabled={!canJump}
+                    style={{
+                      border: 'none', cursor: canJump ? 'pointer' : 'default',
+                      background: state === 'current' ? GG_PINK : 'transparent',
+                      color: state === 'current' ? '#0b0b0b' : '#ffffff',
+                      opacity: state === 'current' ? 1 : state === 'done' ? 0.4 : 0.25,
+                      display: 'inline-flex', alignItems: 'center', gap: 4,
+                      padding: '4px 10px', borderRadius: 999, fontSize: 11, fontWeight: 600,
+                    }}>
+                    {state === 'done' && <Check size={12} />}
+                    {label}
+                  </button>
+                )
+              })}
+            </div>
+          )
+        })()}
         {stage === 'project' ? (
           <div style={{ fontWeight: 700, fontSize: 15, letterSpacing: 0.2 }}>Configure Map</div>
         ) : (
