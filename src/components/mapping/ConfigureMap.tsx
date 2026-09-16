@@ -4051,11 +4051,16 @@ const toolbarRow: React.CSSProperties = {
 // left. `Bubble` flips back to `direction: 'ltr'` so its own content
 // reads normally.
 const bubbleContainer: React.CSSProperties = {
-  position: 'absolute', top: 92, right: 14, bottom: 110, zIndex: 25, transformOrigin: 'top right',
+  position: 'absolute', top: 92, right: 14, bottom: 110, left: 14, zIndex: 25,
+  transformOrigin: 'top right',
   pointerEvents: 'none',
   display: 'flex', flexDirection: 'column', flexWrap: 'wrap',
+  // rtl makes the FIRST column the right-hand one; flex-start then packs
+  // every column against the right edge no matter how wide the box is
+  // measured. (flex-end packed them to the LEFT of an over-wide box —
+  // owner 9/16: "shifts the cards left and leaves a huge gap on the right".)
   direction: 'rtl',
-  columnGap: 12, rowGap: 12, alignContent: 'flex-end',
+  columnGap: 12, rowGap: 12, alignContent: 'flex-start',
 }
 const card: React.CSSProperties = {
   background: 'linear-gradient(180deg, rgba(255,255,255,0.055) 0%, rgba(255,255,255,0.02) 100%)',
