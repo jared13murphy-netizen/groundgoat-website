@@ -27,6 +27,7 @@ import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import {
   Loader2, Plus, Trash2, RotateCcw, RotateCw, Save, Search, X, Layers,
+  Eye, EyeOff,
   Scissors, FileText, Download, BarChart3, Eraser, PenLine, PaintBucket, Check,
   ArrowRight, ArrowLeft, PenTool, Magnet, type LucideIcon,
 } from 'lucide-react'
@@ -582,6 +583,9 @@ export default function ConfigureMap() {
   // collapsed the old separate 'tracts' / 'landtypes' stages: the panel
   // informs, the map edits, and both toolbars can be on screen at once).
   const [stage, setStage] = useState<'project' | 'build'>('project')
+  // Owner 9/16: the cards can be tucked away while drawing polygons and
+  // brought back with the same bounce they arrive with.
+  const [bubblesHidden, setBubblesHidden] = useState(false)
   const [tracts, setTracts] = useState<Tract[]>([])
   const [selectedTractId, setSelectedTractId] = useState<string | null>(null)
   // A multi-parcel FRAME a set of tracts gets fit to ('Snap tracts' /
@@ -3327,7 +3331,21 @@ export default function ConfigureMap() {
           right-anchored with the RTL trick that makes overflow bubbles
           stack a new column to the LEFT — see the comment on `Bubble`
           above for why. */}
-      <div style={bubbleContainer}>
+      {stage === 'build' && (
+        <div style={{ position: 'absolute', top: 14, right: 14, zIndex: 26 }}>
+          <ToolButton icon={bubblesHidden ? Eye : EyeOff}
+                      label={bubblesHidden ? 'Show Cards' : 'Hide Cards'}
+                      title={bubblesHidden ? 'Bring the cards back' : 'Tuck the cards away while you draw'}
+                      onClick={() => setBubblesHidden((v) => !v)} />
+        </div>
+      )}
+      <motion.div
+        style={bubbleContainer}
+        initial={false}
+        animate={bubblesHidden
+          ? { opacity: 0, scale: 0.85, y: 12, transition: { duration: 0.18 }, transitionEnd: { visibility: 'hidden' } }
+          : { opacity: 1, scale: 1, y: 0, visibility: 'visible',
+              transition: { type: 'spring', stiffness: 420, damping: 24, mass: 0.8 } }}>
         <AnimatePresence>
           {/* Bubble 1 — What To Do. Header is the 1/2/3 step row
               (unchanged: same `cur`/`canJump` logic, same click
@@ -3855,7 +3873,7 @@ export default function ConfigureMap() {
             </Bubble>
           )}
         </AnimatePresence>
-      </div>
+      </motion.div>
 
       {/* Cancel throws away every unsaved edit and closes the parcel, so
           it confirms first. Was "sits inside the panel, over it" — now
@@ -4028,7 +4046,7 @@ const toolbarRow: React.CSSProperties = {
 // left. `Bubble` flips back to `direction: 'ltr'` so its own content
 // reads normally.
 const bubbleContainer: React.CSSProperties = {
-  position: 'absolute', top: 14, right: 14, bottom: 110, zIndex: 25,
+  position: 'absolute', top: 92, right: 14, bottom: 110, zIndex: 25, transformOrigin: 'top right',
   pointerEvents: 'none',
   display: 'flex', flexDirection: 'column', flexWrap: 'wrap',
   direction: 'rtl',
