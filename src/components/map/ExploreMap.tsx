@@ -3355,9 +3355,16 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
   // Engine tillable-map overlay (owner 8/25): per-state PMTiles of the
   // classification engine's polygons (layer 'classes', cls property).
-  // Kansas first — add states here as their archives land on the tiles
-  // service (built from the S3 engine export, never from postgis-soils).
-  const ENGINE_PMTILES_STATES = ['ks_state']
+  // Add states here ONLY once their archive is on the tiles service
+  // (built from the S3 engine export, never from postgis-soils).
+  // 9/16: EMPTY on purpose — ks_state.pmtiles (6.97 GB) lived on the old
+  // Railway tiles host and was not carried to AWS on 9/1, so every
+  // Explore load was fetching a missing file (console 404 on every
+  // visit; owner 9/16: no console errors). MapLibre fetches a pmtiles
+  // header the moment a source is added, so an entry here must exist
+  // on the server. The Layers-panel "Tillable Map" button hides itself
+  // while this list is empty.
+  const ENGINE_PMTILES_STATES: string[] = []
   const [isAdmin, setIsAdmin] = useState(false)
   // Layers-panel entitlement, from /api/auth/me's can_use_layers —
   // firm_admin / firm_user / premium_state / staff, NOT basic_state
@@ -11116,6 +11123,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           padding: '16px 16px 12px',
           borderBottom: '1px solid #222',
         }}>
+<<<<<<< HEAD
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             {utilitiesView !== 'menu' && (
               <button
@@ -11128,6 +11136,170 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             )}
             <span style={{ color: '#fff', fontSize: 16, fontWeight: 700 }}>
               {utilitiesView === 'layers' ? 'Layers' : utilitiesView === 'year' ? 'Map Year' : utilitiesView === 'pin' ? 'Pin' : utilitiesView === 'drawArea' ? 'Quick Draw' : 'Utilities'}
+=======
+          {/* ── Overlays (mutually-exclusive buttons) ── */}
+          <div style={{ padding: '0 10px 6px', color: 'rgba(255,255,255,0.40)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8 }}>
+            Overlays
+          </div>
+          <div style={{ padding: '0 10px 4px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {([
+              {
+                key: 'ssurgo' as const,
+                label: 'Soil Types',
+                swatchGradient: 'linear-gradient(to right,#c94040,#c4b030,#29a068,#2878c8,#b03890)',
+              },
+              {
+                key: 'crops' as const,
+                label: 'Crops by Year',
+                swatchGradient: 'linear-gradient(to right,#FFD400,#267000,#A87000,#FFA8E3)',
+              },
+              {
+                key: 'nccpi' as const,
+                label: 'NCCPI',
+                swatchGradient: 'linear-gradient(to right,#d73027,#fee08b,#1a9850)',
+              },
+              {
+                key: 'fsa' as const,
+                label: 'FSA',
+                swatchColor: '#22d3ee',
+              },
+              ...(ENGINE_PMTILES_STATES.length > 0 ? [{
+                key: 'engine' as const,
+                label: 'Tillable Map',
+                swatchGradient: 'linear-gradient(to right,#3caa28,#eb9620,#e12d23,#d73cc8,#3c6edc)',
+              }] : []),
+            ] as Array<{ key: 'crops' | 'ssurgo' | 'csb' | 'nccpi' | 'fsa' | 'engine'; label: string; swatchGradient?: string; swatchColor?: string }>).map(({ key, label, swatchGradient, swatchColor }) => {
+              const active = baseOverlay === key
+              return (
+                <OverlayButton
+                  key={key}
+                  active={active}
+                  label={label}
+                  swatchGradient={swatchGradient}
+                  swatchColor={swatchColor}
+                  onClick={() => {
+                    setBaseOverlay(active ? null : key)
+                    // The persistent zoomTooFar toast handles all overlay
+                    // zoom-gate messaging — no duplicate showZoomToast here.
+                  }}
+                />
+              )
+            })}
+          </div>
+
+          {/* NCCPI legend — shown only when nccpi overlay is active */}
+          {baseOverlay === 'nccpi' && (
+            <div style={{ padding: '2px 10px 4px' }}>
+              <div style={{ display: 'flex', gap: 2, marginBottom: 2 }}>
+                {[['#d73027','0'],['#fc8d59','25'],['#fee08b','50'],['#91cf60','75'],['#1a9850','100']].map(([c, l]) => (
+                  <div key={l} style={{ flex: 1, textAlign: 'center' }}>
+                    <div style={{ height: 5, background: c, borderRadius: 2 }} />
+                    <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 8 }}>{l}</span>
+                  </div>
+                ))}
+              </div>
+              <div style={{ color: 'rgba(255,255,255,0.35)', fontSize: 8, textAlign: 'center' }}>Low → High productivity</div>
+            </div>
+          )}
+
+          {/* FSA legend — shown only when fsa overlay is active */}
+          {baseOverlay === 'fsa' && (
+            <div style={{ padding: '2px 10px 6px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div style={{ width: 12, height: 3, borderRadius: 1, background: '#22d3ee', flexShrink: 0, marginTop: 1 }} />
+                <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 10 }}>FSA field boundary</span>
+              </div>
+              <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 9, marginTop: 2 }}>2008 snapshot · Not available in AL, FL, AK</span>
+            </div>
+          )}
+
+          {/* ── CSB year selector + crop legend — Crops by Year only ── */}
+          <div style={{
+            maxHeight: (baseOverlay === 'crops' || baseOverlay === 'csb') ? 300 : 0,
+            opacity: (baseOverlay === 'crops' || baseOverlay === 'csb') ? 1 : 0,
+            overflow: 'hidden',
+            transition: 'max-height 0.18s ease, opacity 0.18s ease',
+          }}>
+            {/* Year chip row — subordinate to Tillable Ground button */}
+            <div style={{ padding: '4px 10px 0', display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+              {[2017,2018,2019,2020,2021,2022,2023,2024].map(yr => {
+                const sel = selectedCropYear === yr
+                return (
+                  <div
+                    key={yr}
+                    onClick={() => setSelectedCropYear(yr)}
+                    style={{
+                      height: 22,
+                      padding: '0 6px',
+                      borderRadius: 5,
+                      fontSize: 10,
+                      fontWeight: 500,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      background: sel ? 'rgba(233,30,140,0.25)' : 'rgba(255,255,255,0.05)',
+                      border: sel ? '1px solid rgba(233,30,140,0.70)' : '1px solid rgba(255,255,255,0.15)',
+                      color: sel ? '#f9a8d4' : 'rgba(255,255,255,0.50)',
+                      transition: 'background 0.12s, border-color 0.12s, color 0.12s',
+                    }}
+                    onMouseEnter={e => {
+                      if (!sel) {
+                        (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.10)'
+                        ;(e.currentTarget as HTMLElement).style.borderColor = 'rgba(255,255,255,0.22)'
+                        ;(e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,0.80)'
+                      }
+                    }}
+                    onMouseLeave={e => {
+                      if (!sel) {
+                        (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.05)'
+                        ;(e.currentTarget as HTMLElement).style.borderColor = 'rgba(255,255,255,0.15)'
+                        ;(e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,0.50)'
+                      }
+                    }}
+                  >
+                    {yr}
+                  </div>
+                )
+              })}
+            </div>
+            {/* Divider */}
+            <div style={{ height: 1, background: 'rgba(255,255,255,0.07)', margin: '6px 0' }} />
+            {/* Crop legend header */}
+            <div style={{ padding: '0 10px 6px', color: 'rgba(255,255,255,0.40)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8 }}>
+              Crop Types
+            </div>
+            {/* Crop legend rows */}
+            {CDL_LEGEND_ROWS.map(({ code, name, color }) => (
+              <div key={code} style={{ display: 'flex', alignItems: 'center', height: 22, padding: '0 10px', gap: 8 }}>
+                <span style={{ width: 12, height: 12, borderRadius: 3, flexShrink: 0, backgroundColor: color, border: '1px solid rgba(255,255,255,0.20)' }} />
+                <span style={{ color: 'rgba(255,255,255,0.72)', fontSize: 10, fontWeight: 500 }}>{name}</span>
+              </div>
+            ))}
+            <div style={{ height: 4 }} />
+          </div>
+
+          <div style={{ height: 1, background: 'rgba(255,255,255,0.07)', margin: '6px 0' }} />
+
+          {/* ── Terrain (independent) ── */}
+          <div style={{ padding: '0 10px 6px', color: 'rgba(255,255,255,0.40)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8 }}>
+            Terrain
+          </div>
+          <div
+            onClick={() => setTerrain3DOn(v => !v)}
+            style={{ display: 'flex', alignItems: 'center', height: 36, padding: '0 12px', cursor: 'pointer', gap: 8 }}
+          >
+            <span style={{ width: 14, height: 14, borderRadius: 2, flexShrink: 0, backgroundColor: '#60a5fa', border: '1px solid rgba(255,255,255,0.2)' }} />
+            <span style={{ flex: 1, color: 'rgba(255,255,255,0.75)', fontSize: 11 }}>3D Terrain</span>
+            <span style={{
+              width: 28, height: 16, borderRadius: 8, flexShrink: 0,
+              background: terrain3DOn ? '#E91E8C' : 'rgba(255,255,255,0.18)',
+              position: 'relative', transition: 'background 0.15s',
+            }}>
+              <span style={{
+                position: 'absolute', top: 2, left: terrain3DOn ? 12 : 2, width: 12, height: 12,
+                borderRadius: '50%', background: '#fff', transition: 'left 0.15s',
+              }} />
+>>>>>>> 84bcdd8 (Zero console errors on the website (owner 9/16))
             </span>
           </div>
           <button

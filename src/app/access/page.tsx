@@ -386,10 +386,13 @@ function AccessPortalPageInner() {
     checkAuth()
   }, [])
 
-  // Fetch analytics for home county on load + watchlist
+  // Fetch analytics for home county on load + watchlist. The county
+  // analytics endpoint is admin-only on the server, so only ask for it as
+  // staff — every other user got a 403 in the console on every portal
+  // load (owner 9/16: no console errors allowed).
   useEffect(() => {
     if (user) {
-      if (user.home_county && user.home_state) {
+      if (user.home_county && user.home_state && user.account_type === 'groundgoat_admin') {
         fetchAnalytics(user.home_county, user.home_state)
       }
       fetchWatchlist()
