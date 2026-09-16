@@ -3216,7 +3216,7 @@ export default function ConfigureMap() {
                               active={drawClass === c} title={CLASS_LABEL[c]}
                               onClick={() => { setDrawClass(c); if (selectedId) setClassOf(selectedId, c) }} />
                 ))}
-                <ToolButton icon={Plus} active={tool === 'draw' && drawing}
+                <ToolButton icon={(tool === 'draw' && drawing) ? Save : Plus} active={tool === 'draw' && drawing}
                             label={(tool === 'draw' && drawing) ? 'Save Polygon' : 'Add Polygon'}
                             onClick={() => {
                               if (tool === 'draw' && drawing) { finishDraft(); return }
@@ -3254,7 +3254,8 @@ export default function ConfigureMap() {
               </>
             ) : (
               <>
-                <ToolButton icon={PenTool} active={tool === 'drawtract' && drawing}
+                {/* The icon follows the label: a save icon while it says Save Polygon (owner 9/16). */}
+                <ToolButton icon={(tool === 'drawtract' && drawing) ? Save : PenTool} active={tool === 'drawtract' && drawing}
                             // The call to action while adding: pink so it is
                             // the obvious thing to press.
                             primary={addingTract && !(tool === 'drawtract' && drawing)}
