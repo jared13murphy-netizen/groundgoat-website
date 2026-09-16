@@ -471,10 +471,13 @@ function ToolButton({ icon: Icon, dot, label, onClick, active, disabled, primary
   title?: string
 }) {
   const [hover, setHover] = useState(false)
-  const ringColor = disabled ? 'transparent'
+  // Every enabled button wears a visible white ring: a bare icon on
+  // imagery read as decoration, not a button (owner 9/16: "there's not a
+  // Draw Tract button"). No fill — the ring + shadow is what says "press".
+  const ringColor = disabled ? 'rgba(255,255,255,0.35)'
     : (active || primary) ? GG_PINK
-    : hover ? 'rgba(255,255,255,0.55)'
-    : 'transparent'
+    : hover ? '#ffffff'
+    : 'rgba(255,255,255,0.9)'
   return (
     <button
       type="button"
@@ -492,10 +495,11 @@ function ToolButton({ icon: Icon, dot, label, onClick, active, disabled, primary
       <span style={{
         width: 48, height: 48, borderRadius: '50%', flex: 'none',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        background: primary ? GG_PINK : 'transparent',
+        background: primary ? GG_PINK : 'rgba(0,0,0,0.18)',
         border: `2px solid ${ringColor}`,
         boxShadow: primary
-          ? 'inset 0 1px 0 rgba(255,255,255,0.45), 0 2px 8px rgba(0,0,0,0.5)' : undefined,
+          ? 'inset 0 1px 0 rgba(255,255,255,0.45), 0 3px 10px rgba(0,0,0,0.6)'
+          : '0 3px 10px rgba(0,0,0,0.6)',
         transition: 'border-color 120ms ease',
       }}>
         {dot ? (
@@ -504,13 +508,13 @@ function ToolButton({ icon: Icon, dot, label, onClick, active, disabled, primary
             filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.8))',
           }} />
         ) : Icon ? (
-          <Icon size={22} style={{ filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.8))' }} />
+          <Icon size={24} style={{ filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.8))' }} />
         ) : null}
       </span>
       <span style={{
-        fontSize: 11, fontWeight: (active || primary) ? 700 : 500,
+        fontSize: 12, fontWeight: (active || primary) ? 700 : 600,
         color: (active || primary) ? GG_PINK : '#ffffff',
-        textShadow: '0 1px 3px rgba(0,0,0,0.9)', whiteSpace: 'nowrap',
+        textShadow: '0 1px 3px rgba(0,0,0,0.95), 0 0 6px rgba(0,0,0,0.7)', whiteSpace: 'nowrap',
       }}>
         {label}
       </span>
@@ -3210,6 +3214,9 @@ export default function ConfigureMap() {
             ) : (
               <>
                 <ToolButton icon={PenTool} active={tool === 'drawtract' && drawing}
+                            // The call to action while adding: pink so it is
+                            // the obvious thing to press.
+                            primary={addingTract && !(tool === 'drawtract' && drawing)}
                             label={(tool === 'drawtract' && drawing) ? 'Save Polygon' : 'Draw a Tract'}
                             disabled={!(addingTract || (tool === 'drawtract' && drawing))}
                             onClick={() => {
