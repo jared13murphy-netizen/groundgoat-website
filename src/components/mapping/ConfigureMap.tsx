@@ -3215,14 +3215,22 @@ export default function ConfigureMap() {
             outline tools here — those either happen on the map directly
             (drag a boundary vertex, click the line to add one) or moved
             to the bottom toolbar (Draw a tract / Snap tracts). */}
+        {/* Owner 9/16: tell the user how to get started, in the same
+            white card Step 1 uses, until the first tract exists. */}
+        {stage === 'tracts' && tracts.length === 0 && (
+          <div style={stepCard}>
+            <div style={stepLabel}>Step 2 — Build your tracts.</div>
+            <div style={{ lineHeight: 1.5 }}>
+              To get started, <strong>click a parcel</strong> on the map to use its
+              boundary, or press <strong>Draw a tract</strong> at the bottom of the
+              map and click the corners of your own shape. Add as many tracts as
+              you need, then continue to Land Types.
+            </div>
+          </div>
+        )}
         {stage === 'tracts' && (
           <div style={card}>
             <div style={sectionLabel}>Tracts ({tracts.length})</div>
-            {tracts.length === 0 && (
-              <div style={hint}>
-                Click a parcel on the map, or draw one with the toolbar below, to add your first tract.
-              </div>
-            )}
             {tracts.map((t) => (
               <TractRow key={t.id} t={t} selected={t.id === selectedTractId} busy={!!busy}
                         onSelect={() => requestOpen(t.id)}
