@@ -267,7 +267,7 @@ export default function PortfolioMap({
         const cur = byProject.get(t.project_id)
         if (!cur || (t.acres ?? 0) > (cur.acres ?? 0)) byProject.set(t.project_id, t)
       }
-      for (const t of byProject.values()) {
+      for (const t of Array.from(byProject.values())) {
         labels.push({
           type: 'Feature', geometry: t.label_point,
           properties: { kind: 'project', projectId: t.project_id, tractId: t.id,
