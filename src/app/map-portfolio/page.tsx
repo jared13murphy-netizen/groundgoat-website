@@ -427,7 +427,10 @@ export default function MapPortfolioPage() {
                          style={{
                            ...parcelRow,
                            ...(focusTract === x.id ? {
-                             background: 'rgba(245,140,222,0.14)',
+                             // Bright enough to spot at a glance (owner 9/16:
+                             // the old 14% wash read as "very faint").
+                             background: 'rgba(245,140,222,0.42)',
+                             border: '1px solid #f58cde',
                              borderRadius: 7,
                              padding: '5px 7px',
                              animation: 'pf-pulse 1.6s ease-out 2',
