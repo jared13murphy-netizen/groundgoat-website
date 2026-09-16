@@ -551,6 +551,9 @@ function Bubble({ animKey, children }: { animKey: string; children: React.ReactN
         border: '1px solid rgba(255,255,255,0.10)',
         boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.12), 0 10px 30px rgba(0,0,0,0.55)',
         borderRadius: 16, padding: 14, width: 340, color: '#ffffff',
+        // A bubble never grows past the column: it scrolls inside instead
+        // of burying the toolbar (auditor 9/16).
+        maxHeight: 'calc(100vh - 220px)', overflowY: 'auto',
         display: 'flex', flexDirection: 'column', gap: 10, fontSize: 13,
       }}>
       {children}
@@ -1151,7 +1154,7 @@ export default function ConfigureMap() {
       },
     })
     mapRef.current = map
-    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right')
+    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-left')
 
     // The canvas is sized when the map is constructed, which happens
     // before the fixed-position layout has settled — without this the
@@ -3609,45 +3612,8 @@ export default function ConfigureMap() {
                 </div>
               )}
 
-              <div>
-                {projectId ? (
-                  // Already inside a project: name it, don't offer a dead
-                  // input. The greyed box with placeholder text said
-                  // nothing about WHICH project this tract belongs to.
-                  <>
-                    <div style={{ ...statRow, opacity: 0.85 }}>
-                      <span>{projectName || 'Open project'}</span>
-                      <a href="/map-portfolio"
-                         style={{ fontSize: 12, color: '#f58cde', textDecoration: 'none' }}>
-                        All tracts
-                      </a>
-                    </div>
-                    <div style={{ ...hint, marginTop: 4 }}>
-                      This tract will be saved into that project.
-                    </div>
-                    {/* Only while the tract is UNSAVED. Once it is saved,
-                        leaving the project here changed nothing that
-                        lasted — Update does not move a saved tract between
-                        projects — so the button promised a re-file it
-                        could not do. On a saved tract the way to a fresh
-                        project is "New map" in the footer. */}
-                    {!editingId && (
-                      <button
-                        onClick={() => {
-                          setProjectId(null); setProjectName('')
-                          try { window.history.replaceState({}, '', '/configure-map') } catch {}
-                        }}
-                        style={{ ...btn, marginTop: 6, width: '100%', justifyContent: 'center' }}>
-                        <Plus size={13} /> Save into a new project
-                      </button>
-                    )}
-                  </>
-                ) : (
-                  <input value={projectName} onChange={(e) => setProjectName(e.target.value)}
-                         placeholder="e.g. Smith Estate Auction (optional)"
-                         style={inputStyle} />
-                )}
-              </div>
+              {/* The project this tract files into is the Project bubble —
+                  no second copy here (owner 9/16). */}
             </Bubble>
           )}
 
@@ -4033,7 +3999,7 @@ const toolbarRow: React.CSSProperties = {
 // left. `Bubble` flips back to `direction: 'ltr'` so its own content
 // reads normally.
 const bubbleContainer: React.CSSProperties = {
-  position: 'absolute', top: 14, right: 14, bottom: 90, zIndex: 25,
+  position: 'absolute', top: 14, right: 14, bottom: 110, zIndex: 25,
   pointerEvents: 'none',
   display: 'flex', flexDirection: 'column', flexWrap: 'wrap',
   direction: 'rtl',
