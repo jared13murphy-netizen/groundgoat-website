@@ -5,16 +5,17 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import Image from 'next/image'
 import Link from 'next/link'
 import fetchWithAuth from '@/lib/fetchWithAuth'
+import { isAllowedForExplore, getAllowedStates } from '@/lib/stateAccess'
+import { isPointInStateBounds } from '@/components/map/mapConstants'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
-// Same gate /access itself uses (src/app/access/page.tsx ALLOWED_ROLES) —
-// only these account types have an Explore map on the website at all.
-// Individual mobile subscribers ('individual' etc.) don't get a web Explore
-// map today, so they fall through to the "get the app" page below even when
-// signed in — that's correct, not a bug: there's nowhere on groundgoat.com
-// to send them yet.
-const ALLOWED_ROLES = ['groundgoat_admin', 'groundgoat_sales', 'firm_admin', 'firm_user']
+// Same gate /access itself uses (@/lib/stateAccess's isAllowedForExplore) —
+// only these account types (plus a premium_state individual with a
+// non-empty allowed_states, owner 2026-09-15 item 18) have an Explore map
+// on the website at all. basic_state ('individual' with no allowed_states)
+// still falls through to the "get the app" page below even when signed
+// in — that's correct, not a bug.
 
 // The app's real custom URL scheme, per ios/GroundGoat/Info.plist
 // CFBundleURLTypes (NOT the Expo OTA scheme "exp+ground-goat-mobile", and
@@ -59,9 +60,30 @@ function GoPageInner() {
         const response = await fetchWithAuth(`${API_URL}/api/auth/me`)
         if (!response.ok) throw new Error('not authenticated')
         const userData = await response.json()
-        if (!ALLOWED_ROLES.includes(userData.account_type)) throw new Error('not entitled')
+        if (!isAllowedForExplore(userData)) throw new Error('not entitled')
 
-        // Signed in + entitled: hand off to the Explore map. /access reads
+        // Restricted individual (premium_state, owner 2026-09-15 item 18):
+        // a shared pin outside every subscribed state doesn't exist for
+        // this account per the server's state gate — land on /access's
+        // normal homeState centering (allowed_states[0]) instead of the
+        // pin's own coordinates, with a one-time toast explaining why.
+        // isPointInStateBounds is a bounding-BOX check (imprecise near
+        // state lines) — acceptable here since it only steers camera
+        // copy, never actual data access (the server enforces that).
+        const allowedStates = getAllowedStates(userData)
+        if (allowedStates) {
+          const latNum = parseFloat(lat)
+          const lngNum = parseFloat(lng)
+          const inPlan = Number.isFinite(latNum) && Number.isFinite(lngNum) &&
+            allowedStates.some((abbr) => isPointInStateBounds(latNum, lngNum, abbr))
+          if (!inPlan) {
+            if (!cancelled) router.replace('/access?outOfPlan=1')
+            return
+          }
+        }
+
+        // Signed in + entitled (+ in-plan for a restricted individual):
+        // hand off to the Explore map. /access reads
         // focusLat/focusLng/focusZoom (see PinCardSheet.js's existing share
         // link) — z maps onto focusZoom, pin/area pass through unchanged so
         // /access can drop a pin marker or draw the shared area.

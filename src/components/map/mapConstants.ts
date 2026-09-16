@@ -139,3 +139,19 @@ export const STATE_NAMES: Record<string, string> = {
   SD: 'South Dakota',
   ND: 'North Dakota',
 }
+
+// Coarse client-side "is this point roughly in this state" check, used
+// ONLY where there's no server round-trip to ask authoritatively (the
+// /go share-link redirect's premium_state gate — see app/go/page.tsx).
+// STATE_BOUNDS is a bounding BOX, not the state's real shape, so this
+// can misclassify a point near a state line (e.g. an IL point a few
+// miles east of the IA border reads as "in IA" too, since bboxes
+// overlap). Acceptable here: worst case is a shared pin from just
+// outside the plan showing up as if it were just inside it, or vice
+// versa — never a security boundary, just camera-centering copy.
+export function isPointInStateBounds(lat: number, lng: number, stateAbbr: string): boolean {
+  const bounds = STATE_BOUNDS[stateAbbr]
+  if (!bounds) return false
+  const [[swLng, swLat], [neLng, neLat]] = bounds
+  return lng >= swLng && lng <= neLng && lat >= swLat && lat <= neLat
+}
