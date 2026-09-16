@@ -228,7 +228,10 @@ function TractName({ value, onCommit, busy, placeholder }: {
 
   if (!editing) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      // minWidth 0 so a long name ("Parcel 25-36-000-380 (remaining)")
+      // ellipsises inside its grid cell instead of running under the
+      // pencil and the acres (sandbox 9/16).
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flex: 1 }}>
         <span style={{ flex: 1, minWidth: 0, overflow: 'hidden',
                        textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                        opacity: value ? 1 : 0.5 }}>
