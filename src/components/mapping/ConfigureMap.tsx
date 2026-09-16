@@ -3238,7 +3238,9 @@ export default function ConfigureMap() {
                 setAddingTract(true)
                 setTool(null); setDrawing(false); setDraft([])
               }}
-              disabled={!!busy}
+              // Nothing to add "another" to until the first tract exists,
+              // and nothing to do while adding is already armed (owner 9/16).
+              disabled={!!busy || tracts.length === 0 || addingTract}
               style={{ ...btn, width: '100%', justifyContent: 'center', marginTop: 8 }}>
               <Plus size={13} /> Add Another Tract
             </button>
