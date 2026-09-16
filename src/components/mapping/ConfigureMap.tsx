@@ -2934,7 +2934,9 @@ export default function ConfigureMap() {
   const toolbarHint = stage === 'tracts'
     ? ((tool === 'drawtract' && drawing) ? 'Click to place corners. Enter or double-click closes '
         + 'the shape; edges and other tracts snap automatically.'
-      : addingTract ? 'Click a parcel on the map, or Draw a Tract.'
+      : addingTract ? (tracts.length === 0
+        ? 'To start your first tract: click a parcel on the map, or press Draw a Tract below.'
+        : 'Adding a tract: click a parcel on the map, or press Draw a Tract below.')
       : null)
     : stage === 'landtypes'
     ? ((tool === 'draw' && drawing) ? 'Click to place corners. Save Polygon, Enter or double-click '
@@ -3235,14 +3237,19 @@ export default function ConfigureMap() {
             to the bottom toolbar (Draw a tract / Snap tracts). */}
         {/* Owner 9/16: tell the user how to get started, in the same
             white card Step 1 uses, until the first tract exists. */}
-        {stage === 'tracts' && tracts.length === 0 && (
+        {stage === 'tracts' && (tracts.length === 0 || addingTract) && (
           <div style={stepCard}>
-            <div style={stepLabel}>Step 2 — Build your tracts.</div>
+            <div style={stepLabel}>
+              {tracts.length === 0 ? 'Step 2 — Build your tracts.' : 'Adding another tract.'}
+            </div>
             <div style={{ lineHeight: 1.5 }}>
-              To get started, <strong>click a parcel</strong> on the map to use its
-              boundary, or press <strong>Draw a Tract</strong> at the bottom of the
-              map and click the corners of your own shape. Add as many tracts as
-              you need, then continue to Land Types.
+              {tracts.length === 0 ? 'To get started, ' : 'Now '}
+              <strong>click a parcel</strong> on the map to use its boundary, or
+              press <strong>Draw a Tract</strong> at the bottom of the map and click
+              the corners of your own shape.
+              {tracts.length === 0
+                ? ' Add as many tracts as you need, then continue to Land Types.'
+                : ' Clicking a parcel you have already used fills in what is left of it.'}
             </div>
           </div>
         )}
@@ -3826,10 +3833,15 @@ const toolbarDivider: React.CSSProperties = {
 // The armed-tool hint, one line above the bar (design spec §2, §7) —
 // shown only while a tool is armed; everything else on the bar carries
 // its own explanation as a plain title tooltip instead.
+/** The instruction banner over the map. Owner 9/16: the old 11px pill
+ *  "no one will notice" — the user must ALWAYS know exactly what to do,
+ *  so this is a white card, big type, top-centre of the map, the same
+ *  surface as the panel's step cards. */
 const toolbarHintPill: React.CSSProperties = {
-  position: 'absolute', bottom: 72, left: '50%', transform: 'translateX(-50%)', zIndex: 30,
-  padding: '5px 10px', borderRadius: 8, background: 'rgba(0,0,0,0.7)',
-  fontSize: 11, opacity: 0.85, color: '#e5e7eb', textAlign: 'center', maxWidth: 320,
+  position: 'absolute', top: 14, left: '50%', transform: 'translateX(-50%)', zIndex: 30,
+  padding: '12px 18px', borderRadius: 10, background: '#ffffff', color: '#0b0b0b',
+  border: '2px solid #E91E8C', boxShadow: '0 4px 16px rgba(0,0,0,0.45)',
+  fontSize: 15, fontWeight: 600, textAlign: 'center', maxWidth: 560, lineHeight: 1.4,
 }
 const card: React.CSSProperties = {
   background: 'linear-gradient(180deg, rgba(255,255,255,0.055) 0%, rgba(255,255,255,0.02) 100%)',
