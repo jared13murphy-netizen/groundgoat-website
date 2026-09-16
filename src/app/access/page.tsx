@@ -1274,6 +1274,7 @@ function AccessPortalPageInner() {
       {!subjectTractId &&
         (user?.can_use_goat_search || user?.account_type === 'groundgoat_admin') && (
         <MapChatPanel
+          allowedStates={allowedStates}
           onApplyFilters={handleChatApplyFilters}
           onChatReportResult={handleChatReportResult}
           onSearchStart={handleChatSearchStart}

@@ -13,6 +13,7 @@ import {
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { computeTypedChars, typewriterRate } from '@/lib/typewriterProgress'
 import type { OwnerParcelsResponse } from '@/components/map/exploreMapTypes'
+import { STATE_NAMES } from '@/components/map/mapConstants'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -28,6 +29,10 @@ const TOAST_ACCENT: Record<ToastKind, string> = {
 }
 
 interface MapChatPanelProps {
+  /** Item 18 (owner 9/16): a state-restricted user's placeholder names
+      their own state — "Iowa CSR2 75+" read as a dead end to an
+      Illinois-only subscriber on the sandbox. null/undefined = unlimited. */
+  allowedStates?: string[] | null
   /** Called when the model returns filter args. Frontend should merge
       them into the map's FilterState (using clearUnspecified to decide
       whether unrelated filters get reset). */
@@ -195,7 +200,7 @@ function SearchSpinner() {
   )
 }
 
-export default function MapChatPanel({ onApplyFilters, onChatReportResult, currentFilters, hasActiveFilters, onSearchStart, onSearchEnd, mapSearchError, onOwnerParcels, onSearchQueryStart, activeSearchQuery, clearActiveSearch }: MapChatPanelProps) {
+export default function MapChatPanel({ allowedStates, onApplyFilters, onChatReportResult, currentFilters, hasActiveFilters, onSearchStart, onSearchEnd, mapSearchError, onOwnerParcels, onSearchQueryStart, activeSearchQuery, clearActiveSearch }: MapChatPanelProps) {
   const [open, setOpen] = useState(false)
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -735,7 +740,11 @@ export default function MapChatPanel({ onApplyFilters, onChatReportResult, curre
             transition={{ duration: 0.18, delay: open ? 0.12 : 0 }}
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Ask the map…  e.g. Iowa CSR2 75+ upcoming auctions"
+            placeholder={
+              allowedStates && allowedStates.length > 0
+                ? `Ask the map…  e.g. ${STATE_NAMES[allowedStates[0]] || allowedStates[0]} upcoming auctions over 80 acres`
+                : 'Ask the map…  e.g. Iowa CSR2 75+ upcoming auctions'
+            }
             disabled={loading || !open}
             tabIndex={open ? 0 : -1}
             className="absolute inset-0 w-full bg-transparent outline-none text-sm text-white placeholder-gg-gray-400 px-1"
