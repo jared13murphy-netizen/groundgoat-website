@@ -2395,6 +2395,14 @@ export default function ConfigureMap() {
         ? `Saved ${toSave[0].name.trim()}.`
         : `Saved ${toSave.length} tract${toSave.length === 1 ? '' : 's'}.`)
       markCleanRef.current?.(shapes, boundaryRings)
+      // Belt and braces: once the setTracts above has landed, mark clean
+      // from what the OPEN tract actually holds now, so a save can never
+      // leave "unsaved changes" behind (owner 9/16: a false "Save before
+      // switching?" right after Save Tract).
+      setTimeout(() => {
+        const cur = tractsRef.current.find((x) => x.id === selectedTractIdRef.current)
+        if (cur && toSave.some((t) => t.id === cur.id)) markCleanRef.current?.(cur.shapes, cur.boundary)
+      }, 0)
       return true
     } catch (e: any) {
       setError(e?.message || 'Save failed.')
@@ -3144,6 +3152,10 @@ export default function ConfigureMap() {
   // the user's most recent edit: the shape-level stack (undoRef/redoRef)
   // while a tract is open and it has entries, otherwise the tract-level
   // stack (tractUndoRef/tractRedoRef) for boundary/list edits.
+  // The open tract has work not on the server: edits since the last
+  // save, or never saved at all. Drives the pink Save Tract button (owner
+  // 9/16) and is what the switch/leave prompts should mean.
+  const activeUnsaved = !!activeTract && (dirty || !activeTract.saved)
   const shapeCanUndo = !!activeTract && undoRef.current.length > 0
   const shapeCanRedo = !!activeTract && redoRef.current.length > 0
   const handleUndo = () => { if (shapeCanUndo) undo(); else undoTracts() }
@@ -3246,7 +3258,7 @@ export default function ConfigureMap() {
                             onClick={() => { if (detail?.polygons.length) setConfirmWhat('startOver') }} />
                 <ToolButton icon={RotateCcw} label="Undo" disabled={undoDisabled} onClick={handleUndo} />
                 <ToolButton icon={RotateCw} label="Redo" disabled={redoDisabled} onClick={handleRedo} />
-                <ToolButton icon={Save} label="Save Tract"
+                <ToolButton icon={Save} label="Save Tract" primary={activeUnsaved && !!activeTract?.name.trim()}
                             disabled={!!busy || !activeTract.name.trim()}
                             title={!activeTract.name.trim() ? 'Name this tract before saving.'
                               : 'Saves this tract to the project. You stay here.'}
@@ -3272,7 +3284,7 @@ export default function ConfigureMap() {
                               ? 'Fits this tract to its own parcel boundary so the acres are exact.'
                               : 'Fits every drawn tract to the frame and to each other so acres add up.'}
                             onClick={() => void snapTracts()} />
-                <ToolButton icon={Save} label="Save Tract"
+                <ToolButton icon={Save} label="Save Tract" primary={activeUnsaved && !!activeTract?.name.trim()}
                             disabled={!!busy || !activeTract || !activeTract.name.trim()}
                             title={!activeTract ? 'Open a tract to save it.'
                               : !activeTract.name.trim() ? 'Name this tract before saving.'
