@@ -73,9 +73,14 @@ interface Shape { id: string; cls: LandClass; polys: Pt[][][] }
  *  `savedId` is the server row id once this tract has been saved via
  *  /api/mapping/parcels (the old top-level `editingId`, now scoped to
  *  the tract it belongs to). `detail` is the parcel metadata + engine
- *  polygons the old top-level `detail` held, and `editingTypes` is the
- *  old top-level view/edit toggle — both now per tract so a saved tract
- *  opened to look at does not put every OTHER tract into edit mode. */
+ *  polygons the old top-level `detail` held.
+ *
+ *  There used to be a per-tract `editingTypes` view/edit toggle here — a
+ *  tract opened from the portfolio without `&edit=1` opened read-only,
+ *  land types visible but not draggable, with an "Edit this tract"
+ *  button to unlock them. Owner ruling 2026-09-16: opening a tract on
+ *  the build screen means editing it, full stop — every boot path opens
+ *  fully interactive now, so that field is gone. */
 interface Tract {
   id: string
   name: string
@@ -87,7 +92,6 @@ interface Tract {
   saved: boolean
   savedId: string | null
   detail: ParcelDetail | null
-  editingTypes: boolean
   /** Has this tract's `shapes` been fitted against the engine for its
    *  CURRENT boundary? False for a brand-new tract and again after any
    *  boundary change ('Snap tracts' rewrites `boundary`) — Stage 3
@@ -120,7 +124,6 @@ function newTract(overrides: Partial<Tract> = {}): Tract {
     saved: false,
     savedId: null,
     detail: null,
-    editingTypes: true,
     classified: false,
     ...overrides,
   }
@@ -453,8 +456,8 @@ export default function ConfigureMap() {
 
   // ── Tracts: the owner's Stage 2/3 unit of ground ───────────────────
   // Stage 2 will hold many; Stage 3 edits one at a time via
-  // `selectedTractId`. `detail`/`shapes`/`boundaryRings`/`editingTypes`/
-  // `editingId`/`name`/`sources` below are DERIVED from the selected
+  // `selectedTractId`. `detail`/`shapes`/`boundaryRings`/`editingId`/
+  // `name`/`sources` below are DERIVED from the selected
   // tract so the rest of this file (mutate, the map handlers registered
   // once on load, the JSX) reads them exactly as it always has — only
   // where the value COMES FROM moved, not its shape or its call sites.
@@ -522,6 +525,29 @@ export default function ConfigureMap() {
     forceTractHist((t) => t + 1)
   }, [])
 
+  /** A manual boundary edit (drag a vertex, click the line to insert
+   *  one, right-click/Alt-click to remove one) invalidates any land
+   *  types already classified for the OLD outline — exactly the same
+   *  reason 'Snap tracts' clears `shapes` and resets `classified`, so
+   *  this does exactly what that does: the effect that watches
+   *  `activeTract` for an unclassified tract re-reads the engine for
+   *  the new shape on its own.
+   *
+   *  `snapshot`: false for a vertex DRAG, which already took its own
+   *  tract-level undo snapshot at drag START (see `tookTract` below) —
+   *  covering both the boundary move and this clear in one entry.
+   *  True (the default) for the click-to-insert / right-click-delete
+   *  gestures, which are a single instantaneous edit with no snapshot
+   *  of their own yet. */
+  const reclassifyOnBoundaryEdit = useCallback((tractId: string, opts: { snapshot?: boolean } = {}) => {
+    const t = tractsRef.current.find((x) => x.id === tractId)
+    if (!t || !t.shapes.length) return
+    if (opts.snapshot !== false) snapshotTracts(tractsRef.current)
+    setTracts((prev) => prev.map((x) => x.id === tractId
+      ? { ...x, shapes: [], classified: false } : x))
+    setSavedMsg('Outline changed — land types re-read for the new shape.')
+  }, [snapshotTracts])
+
   /** Update the OPEN tract only, reading which one that is from a ref —
    *  the map handlers below are registered once (`map.on(..., [])`) and
    *  can never close over a fresh `selectedTractId`, so every write here
@@ -556,7 +582,6 @@ export default function ConfigureMap() {
   const shapes = activeTract?.shapes ?? []
   // The parcel outline while it is still editable. Rings, like a shape.
   const boundaryRings = activeTract?.boundary ?? []
-  const editingTypes = activeTract?.editingTypes ?? true
   const editingId = activeTract?.savedId ?? null
   const name = activeTract?.name ?? ''
   // Every Regrid parcel folded into this tract, for provenance. Empty
@@ -575,9 +600,6 @@ export default function ConfigureMap() {
     updateActiveTract((t) => ({
       ...t, boundary: typeof v === 'function' ? (v as (p: Pt[][][]) => Pt[][][])(t.boundary) : v,
     }))
-  }, [updateActiveTract])
-  const setEditingTypes = useCallback((v: boolean) => {
-    updateActiveTract((t) => ({ ...t, editingTypes: v }))
   }, [updateActiveTract])
   const setEditingId = useCallback((v: string | null) => {
     updateActiveTract((t) => ({ ...t, savedId: v }))
@@ -612,8 +634,11 @@ export default function ConfigureMap() {
   // 'cancel' and 'outline' are gone with the footer Cancel/"Edit
   // outline" button (item 8: one Finish button, no Cancel) — only
   // 'switch' (opening another tract with edits pending), 'leave'
-  // (Back to Map, dirty) and 'removeTract' still have a trigger.
-  const [confirmWhat, setConfirmWhat] = useState<null | 'switch' | 'leave' | 'removeTract'>(null)
+  // (Back to Map, dirty), 'removeTract', and the Row 2 'clearPolygons'/
+  // 'startOver' one-shot wipes still have a trigger.
+  const [confirmWhat, setConfirmWhat] = useState<
+    null | 'switch' | 'leave' | 'removeTract' | 'clearPolygons' | 'startOver'
+  >(null)
   /** The tract `removeTract` is waiting on a 'removeTract' confirm for —
    *  set only when that tract is already saved server-side. */
   const [pendingRemoveId, setPendingRemoveId] = useState<string | null>(null)
@@ -860,13 +885,17 @@ export default function ConfigureMap() {
     // if it is never given one before Save.
     if (!saved && llUuid) { void loadParcelRef.current?.(llUuid); return }
     if (!saved) return
-    void openSavedTractRef.current?.(saved, params.get('edit') === '1')
+    // `?edit=1` used to pick between opening read-only and opening for
+    // editing — every boot path opens fully interactive now (owner
+    // ruling 2026-09-16: opening a tract means editing it), so that
+    // param is no longer read here.
+    void openSavedTractRef.current?.(saved)
   }, [ready])
 
   /** Open a saved tract into the editor. Extracted from the ?parcel=
    *  boot path so clicking another tract on the map can reuse it. */
   const openLocalTractRef = useRef<((id: string) => boolean) | null>(null)
-  const openSavedTract = useCallback(async (saved: string, startEditing = false) => {
+  const openSavedTract = useCallback(async (saved: string) => {
     // Already in the session's local list (e.g. a peer badge on the map
     // for a tract that was itself opened earlier this session) — select
     // it rather than fetching and re-adding it. Without this dedupe,
@@ -933,15 +962,10 @@ export default function ConfigureMap() {
             source: 'engine',
             unclassified_acres: rec.stats?.unclassified_acres ?? 0,
           },
-          // Opened to LOOK at by default; the portfolio's Edit button asks
-          // for the tools up front so it does not take two clicks to get
-          // to the thing you pressed Edit for.
-          editingTypes: startEditing,
         })
         markCleanRef.current?.(loadedShapes, loadedRings)
-        // Opened from the portfolio to LOOK at, not to edit: show the
-        // land types straight away and keep the editing tools away until
-        // the user asks for them.
+        // Opened for editing straight away — boundary and land-type
+        // handles both live the moment this tract is on screen.
         setStage('build')
         setSelectedId(null)
         const bb = bboxOf(rec.boundary?.coordinates)
@@ -1352,9 +1376,9 @@ export default function ConfigureMap() {
       // per mousemove, same discipline as `took` below for shapes.
       let tookTract = false
       map.on('mousedown', LYR_VERTS, (e) => {
-        // Belt and braces with the layer being empty: no tract open (no
-        // boundary to drag) and view mode (no shape to drag either).
-        if (!selectedTractIdRef.current && !editingTypesRef.current) return
+        // Belt and braces with the layer being empty: nothing to drag
+        // with no tract open (no boundary, no shapes).
+        if (!selectedTractIdRef.current) return
         const f = e.features?.[0]
         if (!f) return
         e.preventDefault()
@@ -1382,6 +1406,7 @@ export default function ConfigureMap() {
               if (ring.length <= 3) return ri === 0 ? ring : []
               return ring.filter((_, v) => v !== vi)
             }))))
+          reclassifyOnBoundaryEdit(selectedTractIdRef.current!)
           return
         }
 
@@ -1473,15 +1498,27 @@ export default function ConfigureMap() {
       // i.e. when a NEW shape was drawn. That let an edited polygon be
       // dragged straight over its neighbour. Re-run the check when the
       // drag ENDS -- not on mousemove, which would fire a round trip per
-      // frame. Boundary drags are excluded: step 1 is the outline, and
-      // the land types are not on screen yet.
+      // frame. Boundary drags take the other branch below instead: they
+      // reclassify the tract's land types rather than re-checking shape
+      // overlap, since dragging the OUTLINE is what invalidates them.
       const endDrag = () => {
         if (!drag) return
         const wasShape = drag.id !== '__boundary__'
         const draggedId = drag.id
+        const movedBoundary = !wasShape && tookTract
         drag = null
         map.dragPan.enable()
         if (wasShape) void enforceNoOverlapRef.current(shapesRef.current, draggedId)
+        // `draggedId` is '__boundary__' here, not a tract id — the tract
+        // being dragged is whichever one is open. `snapshot: false`:
+        // `tookTract`'s own snapshotTracts call above already captured
+        // the tract as it stood BEFORE this drag moved it (shapes
+        // included), so one Undo reverts the boundary AND restores the
+        // shapes in a single step; a second snapshot here would only
+        // split that into two.
+        if (movedBoundary && selectedTractIdRef.current) {
+          reclassifyOnBoundaryEdit(selectedTractIdRef.current, { snapshot: false })
+        }
       }
       map.on('mouseup', endDrag)
       map.on('mouseout', endDrag)
@@ -1513,6 +1550,7 @@ export default function ConfigureMap() {
             : rings.map((ring, ri) => ri !== best.ri ? ring
               : [...ring.slice(0, best.seg + 1), pt, ...ring.slice(best.seg + 1)]))
         })
+        reclassifyOnBoundaryEdit(selectedTractIdRef.current!)
       })
       map.on('mouseenter', 'cm-boundary-line', () => {
         if (selectedTractIdRef.current) map.getCanvas().style.cursor = 'copy'
@@ -1776,7 +1814,6 @@ export default function ConfigureMap() {
       }))
       if (tractId === selectedTractIdRef.current) {
         markCleanRef.current?.(loaded, t.boundary)
-        setEditingTypes(true)
         undoRef.current = []; redoRef.current = []
         setSelectedId(loaded.length
           ? loaded.reduce((a, b) => (shapeAcres(b) > shapeAcres(a) ? b : a)).id
@@ -2020,7 +2057,6 @@ export default function ConfigureMap() {
   }, [mutate])
   const eraseInBoxRef = useRef(eraseInBox); eraseInBoxRef.current = eraseInBox
   const marqRef = useRef(marq); marqRef.current = marq
-  const editingTypesRef = useRef(editingTypes); editingTypesRef.current = editingTypes
   const enforceNoOverlapRef = useRef(enforceNoOverlap); enforceNoOverlapRef.current = enforceNoOverlap
 
   /** Save every split piece as its own named tract in one project —
@@ -2429,23 +2465,18 @@ export default function ConfigureMap() {
           properties: { shapeId: '__boundary__', pi, ri, vi, active: true },
         }))))
     }
-    if (editingTypes) {
-      // `editingTypes` is false only for a tract opened from the
-      // portfolio to just look at (not this screen's own tract list,
-      // which always opens for editing) — then no shape handles are
-      // drawn at all. They used to still appear and be draggable with
-      // the tools hidden, so a tract opened just to look at could be
-      // reshaped by a stray drag.
-      const sel = shapes.find((sh) => sh.id === selectedId)
-      sel?.polys.forEach((rings, pi) => rings.forEach((ring, ri) =>
-        ring.forEach((pt, vi) => verts.push({
-          type: 'Feature', geometry: { type: 'Point', coordinates: pt },
-          properties: { shapeId: sel.id, pi, ri, vi, active: true },
-        }))))
-    }
+    // The selected land-type shape's own handles. Opening a tract means
+    // editing it (owner ruling 2026-09-16) — there is no read-only mode
+    // any more, so this is unconditional now.
+    const sel = shapes.find((sh) => sh.id === selectedId)
+    sel?.polys.forEach((rings, pi) => rings.forEach((ring, ri) =>
+      ring.forEach((pt, vi) => verts.push({
+        type: 'Feature', geometry: { type: 'Point', coordinates: pt },
+        properties: { shapeId: sel.id, pi, ri, vi, active: true },
+      }))))
     ;(map.getSource(SRC.verts) as maplibregl.GeoJSONSource)?.setData(
       { type: 'FeatureCollection', features: verts } as any)
-  }, [shapes, selectedId, activeTract, editingTypes, boundaryRings, ready])
+  }, [shapes, selectedId, activeTract, boundaryRings, ready])
 
   useEffect(() => {
     const map = mapRef.current
@@ -2733,7 +2764,6 @@ export default function ConfigureMap() {
       setSavedMsg(`Saved "${res.name}" — ${st.acres ?? '?'} ac total, ${st.tillable_acres ?? 0} ac tillable.`)
       setSavedName(res.name)
       markCleanRef.current?.(shapes, boundaryRings)
-      setEditingTypes(false)
       updateActiveTract((t) => ({ ...t, saved: true, acres: Number(st.acres ?? t.acres ?? 0) || t.acres }))
       setTool(null); setDrawing(false); setDraft([]); setCutPts([]); setSelectedId(null)
       return true
@@ -2959,6 +2989,10 @@ export default function ConfigureMap() {
     : addingTract ? (tracts.length === 0
       ? 'To start your first tract: click a parcel on the map, or press Draw a Tract below.'
       : 'Adding a tract: click a parcel on the map, or press Draw a Tract below.')
+    // Default instruction for an open tract with no tool armed — the
+    // banner must never sit empty while there is a tract to work on.
+    : activeTract ? 'Pick a land type below, then press Add Polygon to draw it. '
+      + 'Drag a corner to reshape the tract.'
     : null
 
   // Row 1's single Undo/Redo now routes to whichever stack actually has
@@ -3011,8 +3045,8 @@ export default function ConfigureMap() {
             Row 1 (tract tools — draw/snap/save/undo/redo) is always
             here; Row 2 (land-type chips + polygon tools) rides above it
             the moment a tract is open, since the two are no longer
-            separate steps. Replaces the old floating "Done erasing"/
-            "Cancel cut"/"Save Polygon" pill: an armed tool swaps its OWN
+            separate steps. Replaces the old floating "Done Erasing"/
+            "Cancel Cut"/"Save Polygon" pill: an armed tool swaps its OWN
             toolbar button to its done label in place instead. */}
         {toolbarHint && <div style={toolbarHintPill}>{toolbarHint}</div>}
         {stage === 'build' && (
@@ -3044,7 +3078,7 @@ export default function ConfigureMap() {
                            outlineOffset: (tool === 'draw' && drawing) ? 1 : 0 }}>
                   {(tool === 'draw' && drawing)
                     ? <><Plus size={13} /> Save Polygon</>
-                    : <><Plus size={13} /> Add polygon</>}
+                    : <><Plus size={13} /> Add Polygon</>}
                 </button>
                 <button onClick={() => selectedId && deleteShape(selectedId)} disabled={!selectedId} style={btn}>
                   <Trash2 size={13} /> Delete
@@ -3057,28 +3091,32 @@ export default function ConfigureMap() {
                   disabled={!selectedId && tool !== 'cutpoly'}
                   style={{ ...btn, outline: tool === 'cutpoly' ? '2px solid #ffffff' : 'none',
                            outlineOffset: tool === 'cutpoly' ? 1 : 0 }}>
-                  {tool === 'cutpoly' ? <><X size={13} /> Cancel cut</> : <><Scissors size={13} /> Split polygon</>}
+                  {tool === 'cutpoly' ? <><X size={13} /> Cancel Cut</> : <><Scissors size={13} /> Split Polygon</>}
                 </button>
                 <button
                   onClick={() => { setTool(tool === 'erase' ? null : 'erase'); setMarq(null) }}
                   disabled={!selectedId && tool !== 'erase'}
                   style={{ ...btn, outline: tool === 'erase' ? '2px solid #ffffff' : 'none',
                            outlineOffset: tool === 'erase' ? 1 : 0 }}>
-                  {tool === 'erase' ? <><Check size={13} /> Done erasing</> : <><Eraser size={13} /> Erase points</>}
+                  {tool === 'erase' ? <><Check size={13} /> Done Erasing</> : <><Eraser size={13} /> Erase Points</>}
                 </button>
                 <button
                   onClick={() => selectedId && fillHoles(selectedId)}
                   disabled={!selectedId || holesOnSelected === 0}
                   title="Remove every hole inside the selected polygon"
                   style={btn}>
-                  <PaintBucket size={13} /> Fill holes{holesOnSelected > 0 ? ` (${holesOnSelected})` : ''}
+                  <PaintBucket size={13} /> Fill Holes{holesOnSelected > 0 ? ` (${holesOnSelected})` : ''}
                 </button>
                 <div style={toolbarDivider} />
-                <button onClick={clearAll} disabled={!shapes.length} style={btn}>
-                  <X size={13} /> Clear polygons
+                <button
+                  onClick={() => { if (shapes.length) setConfirmWhat('clearPolygons') }}
+                  disabled={!shapes.length} style={btn}>
+                  <X size={13} /> Clear Polygons
                 </button>
-                <button onClick={resetToEngine} disabled={!detail?.polygons.length} style={btn}>
-                  <Layers size={13} /> Start over
+                <button
+                  onClick={() => { if (detail?.polygons.length) setConfirmWhat('startOver') }}
+                  disabled={!detail?.polygons.length} style={btn}>
+                  <Layers size={13} /> Start Over
                 </button>
               </div>
             )}
@@ -3412,18 +3450,13 @@ export default function ConfigureMap() {
             </div>
 
             <>
-            {!editingTypes && (
-              <button onClick={() => setEditingTypes(true)}
-                      style={{ ...primaryBtn, width: '100%', justifyContent: 'center' }}>
-                <PenLine size={13} /> Edit this tract
-              </button>
-            )}
-
-            {/* Land-type chips and every polygon tool (Add polygon,
-                Delete, Split polygon, Erase points, Fill holes, Undo,
-                Redo, Clear polygons, Start over) live in the bottom
+            {/* Land-type chips and every polygon tool (Add Polygon,
+                Delete, Split Polygon, Erase Points, Fill Holes, Undo,
+                Redo, Clear Polygons, Start Over) live in the bottom
                 toolbar now (design spec §2) — no duplicate controls
-                here (owner). */}
+                here (owner). There is no "Edit this tract" unlock any
+                more either: opening a tract on this screen opens it
+                fully interactive, full stop (owner ruling 2026-09-16). */}
 
             {/* See what is under a polygon without deleting it. */}
             <div>
@@ -3641,7 +3674,7 @@ export default function ConfigureMap() {
           }}>
             <button onClick={() => setStage('build')} disabled={!projectName.trim()}
                     style={{ ...primaryBtn, width: '100%', justifyContent: 'center', padding: '9px 10px' }}>
-              <ArrowRight size={14} /> Continue to Tracts
+              <ArrowRight size={14} /> Continue to the Map
             </button>
           </div>
         )}
@@ -3686,6 +3719,8 @@ export default function ConfigureMap() {
               <div style={{ fontWeight: 600, marginBottom: 6 }}>
                 {confirmWhat === 'switch' ? 'Save before switching tracts?'
                   : confirmWhat === 'leave' ? 'Leave without saving?'
+                  : confirmWhat === 'clearPolygons' ? 'Clear every polygon?'
+                  : confirmWhat === 'startOver' ? 'Start over from the engine?'
                   : 'Remove this tract?'}
               </div>
               <div style={{ ...hint, marginTop: 0, marginBottom: 14, display: 'block' }}>
@@ -3695,6 +3730,13 @@ export default function ConfigureMap() {
                   : confirmWhat === 'leave'
                   ? 'This tract has changes you have not saved. OK leaves for the '
                     + 'Explore map and throws them away. Cancel stays here.'
+                  : confirmWhat === 'clearPolygons'
+                  ? 'Every land-type polygon on this tract will be removed. This '
+                    + 'cannot be undone with Redo once you navigate away.'
+                  : confirmWhat === 'startOver'
+                  ? 'Every polygon edit you have made will be thrown away and '
+                    + 'replaced with the engine’s own land types for this '
+                    + 'boundary. This cannot be undone with Redo once you navigate away.'
                   : 'This tract is already saved. OK removes it here and deletes '
                     + 'its saved record too — that part cannot be undone.'}
               </div>
@@ -3715,6 +3757,12 @@ export default function ConfigureMap() {
                                 void openSavedTractRef.current?.(target)
                               }
                             })()
+                          } else if (confirmWhat === 'clearPolygons') {
+                            setConfirmWhat(null)
+                            clearAll()
+                          } else if (confirmWhat === 'startOver') {
+                            setConfirmWhat(null)
+                            resetToEngine()
                           } else {
                             const target = pendingRemoveId
                             setConfirmWhat(null); setPendingRemoveId(null)
