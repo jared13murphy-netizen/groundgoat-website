@@ -1299,6 +1299,7 @@ function AccessPortalPageInner() {
         (user?.can_use_goat_search || user?.account_type === 'groundgoat_admin') && (
         <MapChatPanel
           openSignal={goatSearchOpenSignal}
+          allowedStates={allowedStates}
           onApplyFilters={handleChatApplyFilters}
           onChatReportResult={handleChatReportResult}
           onSearchStart={handleChatSearchStart}
