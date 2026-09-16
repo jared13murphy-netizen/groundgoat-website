@@ -2993,6 +2993,9 @@ export default function ConfigureMap() {
     // banner must never sit empty while there is a tract to work on.
     : activeTract ? 'Pick a land type below, then press Add Polygon to draw it. '
       + 'Drag a corner to reshape the tract.'
+    // Tracts exist but none is open (e.g. "2. Tracts" was clicked):
+    // still say what to do — the banner is never blank on this screen.
+    : tracts.length > 0 ? 'Click a tract in the list to open it, or press Add Another Tract.'
     : null
 
   // Row 1's single Undo/Redo now routes to whichever stack actually has
