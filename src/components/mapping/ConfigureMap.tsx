@@ -3336,13 +3336,16 @@ export default function ConfigureMap() {
           right-anchored with the RTL trick that makes overflow bubbles
           stack a new column to the LEFT — see the comment on `Bubble`
           above for why. */}
+      {/* Owner 9/16: the usual pink button, not a round eye icon. */}
       {stage === 'build' && (
-        <div style={{ position: 'absolute', top: 14, right: 14, zIndex: 26 }}>
-          <ToolButton icon={bubblesHidden ? Eye : EyeOff}
-                      label={bubblesHidden ? 'Show Cards' : 'Hide Cards'}
-                      title={bubblesHidden ? 'Bring the cards back' : 'Tuck the cards away while you draw'}
-                      onClick={() => setBubblesHidden((v) => !v)} />
-        </div>
+        <button
+          onClick={() => setBubblesHidden((v) => !v)}
+          title={bubblesHidden ? 'Bring the cards back' : 'Tuck the cards away while you draw'}
+          style={{ ...btn, position: 'absolute', top: 14, right: 14, zIndex: 26,
+                   padding: '8px 13px', fontSize: 13, fontWeight: 600,
+                   boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.45), 0 2px 8px rgba(0,0,0,0.5)' }}>
+          {bubblesHidden ? <><Eye size={14} /> Show Cards</> : <><EyeOff size={14} /> Hide Cards</>}
+        </button>
       )}
       <motion.div
         style={bubbleContainer}
@@ -4051,7 +4054,7 @@ const toolbarRow: React.CSSProperties = {
 // left. `Bubble` flips back to `direction: 'ltr'` so its own content
 // reads normally.
 const bubbleContainer: React.CSSProperties = {
-  position: 'absolute', top: 92, right: 14, bottom: 110, left: 14, zIndex: 25,
+  position: 'absolute', top: 62, right: 14, bottom: 110, left: 14, zIndex: 25,
   transformOrigin: 'top right',
   pointerEvents: 'none',
   display: 'flex', flexDirection: 'column', flexWrap: 'wrap',
