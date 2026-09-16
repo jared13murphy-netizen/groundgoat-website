@@ -2149,18 +2149,21 @@ export default function ConfigureMap() {
   /** Save EVERY named tract as its own record, all in the same project —
    *  the tracts-first equivalent of `savePieces` above, generalised to
    *  the whole list rather than one split's leftover pieces. */
-  const saveAllTracts = useCallback(async (): Promise<boolean> => {
+  const saveAllTracts = useCallback(async (only?: string[]): Promise<boolean> => {
     if (savingAllRef.current) return false
-    if (!tracts.length) return false
-    if (tracts.some((t) => !t.name.trim())) {
-      setError('Name every tract before saving.')
+    // `only`: the Stage 2 "Save Tract" button saves ONE tract — the one
+    // that is open — the user saves a tract at a time (owner 9/16).
+    const toSave = only ? tracts.filter((t) => only.includes(t.id)) : tracts
+    if (!toSave.length) return false
+    if (toSave.some((t) => !t.name.trim())) {
+      setError(only ? 'Name this tract before saving.' : 'Name every tract before saving.')
       return false
     }
     savingAllRef.current = true
     setBusy('Saving…'); setError(null); setSavedMsg(null)
     try {
       let pid = projectId
-      for (const t of tracts) {
+      for (const t of toSave) {
         const boundaryGeom = polysToGeometry(t.boundary) || t.detail?.boundary
         const payload = {
           name: t.name.trim(),
@@ -2185,7 +2188,9 @@ export default function ConfigureMap() {
         })))
       }
       setProjectId(pid)
-      setSavedMsg(`Saved ${tracts.length} tract${tracts.length === 1 ? '' : 's'}.`)
+      setSavedMsg(toSave.length === 1 && only
+        ? `Saved ${toSave[0].name.trim()}.`
+        : `Saved ${toSave.length} tract${toSave.length === 1 ? '' : 's'}.`)
       markCleanRef.current?.(shapes, boundaryRings)
       return true
     } catch (e: any) {
@@ -2925,7 +2930,7 @@ export default function ConfigureMap() {
   const toolbarHint = stage === 'tracts'
     ? ((tool === 'drawtract' && drawing) ? 'Click to place corners. Enter or double-click closes '
         + 'the shape; edges and other tracts snap automatically.'
-      : addingTract ? 'Click a parcel on the map, or Draw a tract.'
+      : addingTract ? 'Click a parcel on the map, or Draw a Tract.'
       : null)
     : stage === 'landtypes'
     ? ((tool === 'draw' && drawing) ? 'Click to place corners. Save Polygon, Enter or double-click '
@@ -2987,7 +2992,7 @@ export default function ConfigureMap() {
                        outlineOffset: (tool === 'drawtract' && drawing) ? 1 : 0 }}>
               {(tool === 'drawtract' && drawing)
                 ? <><Plus size={13} /> Save Polygon</>
-                : <><PenTool size={13} /> Draw a tract</>}
+                : <><PenTool size={13} /> Draw a Tract</>}
             </button>
             <div style={toolbarDivider} />
             <button
@@ -2998,7 +3003,16 @@ export default function ConfigureMap() {
                 ? 'Fits this tract to its own parcel boundary so the acres are exact.'
                 : 'Fits every drawn tract to the frame and to each other so acres add up.'}
               style={primaryBtn}>
-              <Magnet size={13} /> {tracts.length <= 1 ? 'Snap to Parcel' : 'Snap tracts'}
+              <Magnet size={13} /> {tracts.length <= 1 ? 'Snap to Parcel' : 'Snap Tracts'}
+            </button>
+            <button
+              onClick={() => { if (selectedTractId) void saveAllTracts([selectedTractId]) }}
+              disabled={!!busy || !activeTract || !activeTract.name.trim()}
+              title={!activeTract ? 'Open a tract to save it.'
+                : !activeTract.name.trim() ? 'Name this tract before saving.'
+                : 'Saves this tract to the project. You stay here.'}
+              style={goBtn}>
+              <Save size={13} /> Save Tract
             </button>
             <div style={toolbarDivider} />
             <button onClick={undoTracts} disabled={!tractUndoRef.current.length} style={btn}>
@@ -3222,7 +3236,7 @@ export default function ConfigureMap() {
             <div style={stepLabel}>Step 2 — Build your tracts.</div>
             <div style={{ lineHeight: 1.5 }}>
               To get started, <strong>click a parcel</strong> on the map to use its
-              boundary, or press <strong>Draw a tract</strong> at the bottom of the
+              boundary, or press <strong>Draw a Tract</strong> at the bottom of the
               map and click the corners of your own shape. Add as many tracts as
               you need, then continue to Land Types.
             </div>
@@ -3630,11 +3644,6 @@ export default function ConfigureMap() {
                   (design spec §4). */}
               {stage === 'tracts' ? (
                 <>
-                  <button onClick={() => void saveAllTracts()}
-                          disabled={!!busy || !tracts.length || tracts.some((t) => !t.name.trim())}
-                          style={{ ...btn, flex: 1, justifyContent: 'center', padding: '9px 10px' }}>
-                    <Save size={14} /> Save tracts
-                  </button>
                   <button onClick={continueToLandTypes}
                           disabled={!!busy || !tracts.length || tracts.some((t) => !t.name.trim())}
                           style={{ ...primaryBtn, flex: 1, justifyContent: 'center', padding: '9px 10px' }}>
