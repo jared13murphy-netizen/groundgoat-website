@@ -738,11 +738,17 @@ export default function ConfigureMap() {
         const subtract = existing.map((x) => polysToGeometry(x.boundary)).filter(Boolean)
         const diff = await differenceGeometry(d.boundary, subtract)
         if (diff.geometry && diff.acres >= 0.25) {
+          // "(remaining)" only when ground was actually taken out of this
+          // parcel — a neighbour that merely shares an edge with an
+          // existing tract is still the whole parcel (sandbox 9/16).
+          const parcelAc = Number(d.parcel?.acres) || boundaryAcresOf(rings)
+          const carved = parcelAc - diff.acres >= 0.25
           const t = addTract({
             detail: d, boundary: geometryToPolys(diff.geometry), shapes: [],
             acres: diff.acres,
             source: { kind: 'parcel', ll_uuids: [uid] },
-            name: d.parcel?.parcelnumb ? `Parcel ${d.parcel.parcelnumb} (remaining)` : '',
+            name: d.parcel?.parcelnumb
+              ? `Parcel ${d.parcel.parcelnumb}${carved ? ' (remaining)' : ''}` : '',
           })
           undoRef.current = []; redoRef.current = []
           setStage(projectNameRef.current.trim() ? 'tracts' : 'project')
