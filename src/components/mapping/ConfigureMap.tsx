@@ -2423,6 +2423,11 @@ export default function ConfigureMap() {
   const markClean = useCallback((sh: Shape[], b: Pt[][][]) => {
     cleanRef.current = fingerprint(sh, b)
     setDirty(false)
+    // The ref is what requestOpen / Back to Map read synchronously; it
+    // only used to refresh in the fingerprint effect, i.e. on the NEXT
+    // edit — so a save followed by a tract switch still asked "Save
+    // before switching?" (owner 9/16, twice).
+    dirtyRef.current = false
   }, [fingerprint])
   markCleanRef.current = markClean
   useEffect(() => {
