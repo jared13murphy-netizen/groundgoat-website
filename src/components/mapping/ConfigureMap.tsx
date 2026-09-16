@@ -1599,6 +1599,17 @@ export default function ConfigureMap() {
           // armed (or the list is empty — nothing to protect yet). A
           // parcel that already has a tract still routes through so the
           // existing select/remainder-fill behaviour in loadParcel runs.
+          // Not adding: a click selects the tract UNDER the cursor. Once a
+          // parcel has been split into two tracts they share a source
+          // parcel, so matching by parcel alone would always pick the
+          // first one in the list (auditor 9/16).
+          if (!addingTractRef.current && tractsRef.current.length) {
+            const at: Pt = [e.lngLat.lng, e.lngLat.lat]
+            const under = tractsRef.current.find((x) =>
+              x.boundary.some((rings) => rings[0] && pointInRing(at, rings[0])
+                && !rings.slice(1).some((h) => pointInRing(at, h))))
+            if (under) { setSelectedTractId(under.id); return }
+          }
           const isDup = tractsRef.current.some((x) =>
             x.source.kind === 'parcel' && x.source.ll_uuids.length === 1 && x.source.ll_uuids[0] === String(pid))
           if (addingTractRef.current || tractsRef.current.length === 0 || isDup) {
