@@ -2240,7 +2240,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // tract's land-type polygons (owner fix 9/9, restored from dd69aed) —
   // the Explore map colours them exactly as Configure Map does.
   useEffect(() => {
-    if (!myTractsOn || myTractsLoaded) return
+    // canUseProjectMaps starts false and flips true only after
+    // fetchMappingAccess() says so — fetching before that gave every
+    // non-firm user a 403 in the console on each Explore load (9/16).
+    if (!myTractsOn || myTractsLoaded || !canUseProjectMaps) return
     let stale = false
     ;(async () => {
       try {
@@ -2251,7 +2254,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       }
     })()
     return () => { stale = true }
-  }, [myTractsOn, myTractsLoaded])
+  }, [myTractsOn, myTractsLoaded, canUseProjectMaps])
 
   // Paint them, and show or hide the layers together. Restored from
   // commit dd69aed (owner fix 9/9 — the plain pink wash was wrong): a
