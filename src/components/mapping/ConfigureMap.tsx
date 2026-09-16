@@ -710,7 +710,7 @@ export default function ConfigureMap() {
    *  "click a parcel on the map"). Appending onto an empty list is the
    *  same thing as starting it, so the very first parcel and every one
    *  after it go through the same call. */
-  const loadParcel = useCallback(async (llUuid: string) => {
+  const loadParcel = useCallback(async (llUuid: string, opts: { remainder?: boolean } = {}) => {
     setBusy('Loading parcel…'); setError(null); setSavedMsg(null)
     try {
       const d = await fetchParcel(llUuid)
@@ -723,7 +723,10 @@ export default function ConfigureMap() {
       // of just re-selecting the whole thing (owner spec 2026-09-16). No
       // existing tracts means nothing to subtract — skip the call, same
       // as before this existed.
-      if (existing.length) {
+      // Only while ADDING a tract (owner: "Add Another Tract", then click
+      // the parcel you cut). A plain click on a parcel that already has a
+      // tract selects that tract — it must not quietly grow the list.
+      if (opts.remainder && existing.length) {
         const subtract = existing.map((x) => polysToGeometry(x.boundary)).filter(Boolean)
         const diff = await differenceGeometry(d.boundary, subtract)
         if (diff.geometry && diff.acres >= 0.25) {
@@ -1599,7 +1602,7 @@ export default function ConfigureMap() {
           const isDup = tractsRef.current.some((x) =>
             x.source.kind === 'parcel' && x.source.ll_uuids.length === 1 && x.source.ll_uuids[0] === String(pid))
           if (addingTractRef.current || tractsRef.current.length === 0 || isDup) {
-            void loadParcelRef.current(String(pid))
+            void loadParcelRef.current(String(pid), { remainder: addingTractRef.current })
           }
           return
         }
