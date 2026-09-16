@@ -10,6 +10,8 @@ import { SHOW_PRIVATE_TREATY } from '@/lib/featureFlags'
 import { Loader2, MapPin, Calendar, DollarSign, Building2, Filter, X, ChevronLeft, ChevronRight, Map } from 'lucide-react'
 import { getCountiesForState, getStateAbbreviation, US_STATES } from '@/data/counties'
 import { getDistanceToCounty } from '@/data/countyCoordinates'
+import { isAllowedForExplore, getAllowedStates } from '@/lib/stateAccess'
+import { STATE_NAMES } from '@/components/map/mapConstants'
 
 const ExploreMap = dynamic(() => import('@/components/map/ExploreMap'), { ssr: false })
 
@@ -73,11 +75,11 @@ interface User {
   account_type: string
   home_county?: string
   home_state?: string
+  // Premium_state gate (owner 2026-09-15, item 18) — see @/lib/stateAccess.
+  allowed_states?: string[] | null
 }
 
 type TabType = 'auctions' | 'private_treaty' | 'results' | 'map'
-
-const ALLOWED_ROLES = ['groundgoat_admin', 'groundgoat_sales', 'firm_admin', 'firm_user']
 
 function ListingsPageContent() {
   const router = useRouter()
@@ -100,6 +102,15 @@ function ListingsPageContent() {
   // Pagination
   const [page, setPage] = useState(1)
   const itemsPerPage = 50
+
+  // Premium_state gate (owner 2026-09-15, item 18) — see @/lib/stateAccess.
+  const allowedStates = getAllowedStates(user)
+  // State-filter dropdown options: restricted users only ever offer their
+  // subscribed state(s) (spec §3) — full names, since filterState/US_STATES
+  // both store the full name (getStateAbbreviation converts on fetch).
+  const stateFilterOptions = allowedStates
+    ? allowedStates.map((abbr) => STATE_NAMES[abbr] || abbr).sort()
+    : US_STATES
 
   // Derive available counties from data
   const dataCounties = useMemo(() => {
@@ -162,7 +173,7 @@ function ListingsPageContent() {
 
       const userData = await response.json()
 
-      if (!ALLOWED_ROLES.includes(userData.account_type)) {
+      if (!isAllowedForExplore(userData)) {
         router.push('/account')
         return
       }
@@ -454,7 +465,11 @@ function ListingsPageContent() {
 
         {/* Map View */}
         {activeTab === 'map' && (
-          <ExploreMap homeState={user?.home_state} homeCounty={user?.home_county} />
+          <ExploreMap
+            homeState={allowedStates ? allowedStates[0] : user?.home_state}
+            homeCounty={allowedStates ? undefined : user?.home_county}
+            allowedStates={allowedStates}
+          />
         )}
 
         {/* Filters */}
@@ -475,7 +490,7 @@ function ListingsPageContent() {
                   className="w-full bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-3 py-2 text-white text-sm"
                 >
                   <option value="">All States</option>
-                  {US_STATES.map(s => <option key={s} value={s}>{s}</option>)}
+                  {stateFilterOptions.map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
               </div>
 

@@ -5,6 +5,7 @@ import { motion } from 'framer-motion'
 import Image from 'next/image'
 import { X, Bookmark, Loader2, Calendar, Building2, MapPin } from 'lucide-react'
 import { formatAcres } from '@/lib/format'
+import { formatStateList } from '@/lib/stateAccess'
 
 const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=600'
 
@@ -39,6 +40,10 @@ interface PortalWatchlistPanelProps {
   onClose: () => void
   onRemoveListing: (listingId: string) => void
   onSelectListing: (listingId: string) => void
+  /** Premium_state gate (owner 2026-09-15, item 18): non-null = this
+      user only sees these states — drives the scope line under the
+      header. null = unlimited (staff/firms). See @/lib/stateAccess. */
+  allowedStates?: string[] | null
 }
 
 function formatDate(listing: WatchlistListing): string {
@@ -122,7 +127,7 @@ function WatchlistCard({ listing, onRemove, onSelect }: {
   )
 }
 
-export default function PortalWatchlistPanel({ listings, loading, onClose, onRemoveListing, onSelectListing }: PortalWatchlistPanelProps) {
+export default function PortalWatchlistPanel({ listings, loading, onClose, onRemoveListing, onSelectListing, allowedStates }: PortalWatchlistPanelProps) {
   return (
     <motion.div
       initial={{ x: -480 }}
@@ -138,6 +143,14 @@ export default function PortalWatchlistPanel({ listings, loading, onClose, onRem
           <p className="text-xs text-gg-gray-400 mt-0.5">
             {listings.length} listing{listings.length !== 1 ? 's' : ''} saved
           </p>
+          {/* Restricted-user scope line (spec §4). Watchlisted listings are
+              already in-state (the user could only have watched one they
+              could see) — this is informational, not a filter. */}
+          {allowedStates && allowedStates.length > 0 && (
+            <p className="text-[11px] text-gg-gray-500 uppercase tracking-wide mt-1">
+              {formatStateList(allowedStates)} watchlist
+            </p>
+          )}
         </div>
         <button
           onClick={onClose}

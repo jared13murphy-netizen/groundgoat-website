@@ -1,6 +1,7 @@
 'use client'
 
 import { useRef, useEffect, useState, useCallback, useMemo, type MutableRefObject } from 'react'
+import Link from 'next/link'
 import maplibregl from 'maplibre-gl'
 import { Protocol as PMTilesProtocol } from 'pmtiles'
 import 'maplibre-gl/dist/maplibre-gl.css'
@@ -40,6 +41,7 @@ import { deriveParcelDetail, ParcelDetailSections, LandTypeBadges, PARCEL_DISCLA
 import { countyCentroids } from '@/data/countyCentroids'
 import { getCountiesForState } from '@/data/counties'
 import { STATE_ABBR, STATE_BOUNDS } from './mapConstants'
+import { formatStateList } from '@/lib/stateAccess'
 // buildRegridParcelFilter / RegridFilterInput are no longer imported here:
 // the Regrid parcel layers are unfiltered by design as of 2026-07-30 (see
 // the setFilter effect below). Only the layer-id list is still needed.
@@ -1112,7 +1114,7 @@ function resolveParcelDataScope(stateFilter: string, parcelDataStates?: string[]
   return registry.has(selected[0]) ? selected[0] : null
 }
 
-function buildFilterParams(filters: FilterState, parcelDataStates?: string[] | null) {
+function buildFilterParams(filters: FilterState, parcelDataStates?: string[] | null, allowedStates?: string[] | null) {
   const params: Record<string, string> = {}
   // Registry-gated scope for THIS call's filter state (see
   // resolveParcelDataScope above) — soil_rating_min/max and
@@ -1154,7 +1156,14 @@ function buildFilterParams(filters: FilterState, parcelDataStates?: string[] | n
     params.date_to = new Date().toISOString().split('T')[0]
   }
   if (filters.statuses?.length > 0) params.sale_status = filters.statuses.flatMap(s => s.split(',')).join(',')
+  // Restricted user, no state chip picked (spec §3, owner 2026-09-15 item
+  // 18): default state_abbr to the whole allowed list instead of leaving
+  // it unsent — the server already withholds out-of-plan data regardless,
+  // but sending it here keeps this fetch's own results (and any count it
+  // drives) consistent with what the state chips/badges now show. An
+  // explicit chip pick always wins outright.
   if (filters.stateFilter) params.state_abbr = filters.stateFilter
+  else if (allowedStates && allowedStates.length > 0) params.state_abbr = allowedStates.join(',')
   if (filters.countyFilters?.length > 0) params.county_name = filters.countyFilters.join(',')
   if (filters.townshipFilters?.length > 0) params.township = filters.townshipFilters.join(',')
   if ((SOIL_FILTER_ENABLED || registryScoped) && filters.soilRatingMin) params.soil_rating_min = filters.soilRatingMin
@@ -1481,6 +1490,13 @@ interface ExploreMapProps {
   height?: string
   homeState?: string
   homeCounty?: string
+  /** Premium_state gate (owner 2026-09-15, item 18): 2-letter state
+      abbrevs this account is subscribed to, or null for staff/firms
+      (unlimited) — see @/lib/stateAccess, the source of truth this is
+      read from in the parent (access/page.tsx, listings/page.tsx).
+      Drives the state-gate banner, out-of-state dimming on the Regrid
+      parcel layers, and the state-chip/county-list restriction below. */
+  allowedStates?: string[] | null
   portalMode?: boolean
   externalFilterOpen?: boolean
   onFilterOpenChange?: (open: boolean) => void
@@ -1769,7 +1785,7 @@ function OverlayButton({
   )
 }
 
-export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onLandDetailOpen, externalTractSelection, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, chatSearchEndSignal, onChatSearchError, ownerParcelsResult, onShowOwnedGround, comparableVisibleIds, neighborParcels, neighborsLoading, sharedPin, sharedArea }: ExploreMapProps) {
+export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, allowedStates, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onLandDetailOpen, externalTractSelection, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, chatSearchEndSignal, onChatSearchError, ownerParcelsResult, onShowOwnedGround, comparableVisibleIds, neighborParcels, neighborsLoading, sharedPin, sharedArea }: ExploreMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const stateMarkersRef = useRef<maplibregl.Marker[]>([])
@@ -2432,8 +2448,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // without needing another Apply — same reason the dots/counts must never
   // disagree (see DEFAULT_PARCEL_SALE_WINDOW_YEARS above).
   const filterParamString = useMemo(() => {
-    return new URLSearchParams(buildFilterParams(appliedFilters, parcelDataStates)).toString()
-  }, [appliedFilters, parcelDataStates])
+    return new URLSearchParams(buildFilterParams(appliedFilters, parcelDataStates, allowedStates)).toString()
+  }, [appliedFilters, parcelDataStates, allowedStates])
 
   // Load nationwide county centroids ONCE so the county-tier badges
   // can render for every U.S. county.
@@ -2957,7 +2973,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // result is silently dropped and the user sees zero pins — even
     // though the count badges (which come from a different endpoint)
     // claim matches exist.
-    const filterParams = buildFilterParams(nextFilters, regridConfigRef.current?.parcel_data_states)
+    const filterParams = buildFilterParams(nextFilters, regridConfigRef.current?.parcel_data_states, allowedStates)
     const extra = Object.entries(filterParams)
       .map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&')
     const url = `${API_URL}/api/map/tracts?min_lat=${qSouth}&max_lat=${qNorth}&min_lng=${qWest}&max_lng=${qEast}&include_polygons=true${extra ? '&' + extra : ''}`
@@ -3744,7 +3760,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     let cellComplete = false
     try {
       setLoading(true)
-      const filterParams = buildFilterParams(filtersRef.current, regridConfigRef.current?.parcel_data_states)
+      const filterParams = buildFilterParams(filtersRef.current, regridConfigRef.current?.parcel_data_states, allowedStates)
       // In comparables mode, only show sold tracts. Force this
       // unconditionally (not just when unset) — comp mode is an
       // invariant, not a default: a Live/Listed status pill left active
@@ -4897,6 +4913,22 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     return ['in', ['slice', ['get', 'path'], 4, 6], ['literal', states]]
   }, [regridConfig])
 
+  // Plain-JS mirror of regridStateFilter's ['slice',['get','path'],4,6]
+  // membership test — click handlers on the Regrid fill/dot layers use
+  // this (not the MapLibre expression) to no-op a click on a dimmed
+  // out-of-state feature (spec §1's follow-through note, §6): those
+  // layers no longer hard-`filter` those features out, so a click still
+  // fires and must be rejected here instead of opening LandDetailPanel
+  // for land the subscription doesn't cover.
+  const isRegridPropsInAllowedState = (props: any): boolean => {
+    if (!regridConfig || regridConfig.unlimited) return true
+    const states = regridConfig.subscribed_state_abbrevs
+    if (!states || states.length === 0) return true
+    const path = String(props?.path || '')
+    const seg = path.slice(4, 6).toLowerCase()
+    return states.some((s) => s.toLowerCase() === seg)
+  }
+
   // Registry-gated map filters (step 3, 2026-08-15): resolved from the
   // DRAFT `filters.stateFilter` (not appliedFilters) — same convention the
   // SOIL_FILTER_ENABLED range-filter condition below already uses — so the
@@ -4986,20 +5018,25 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
     // Fill: nearly-invisible, exists purely so clicks register on the
     // parcel polygon. State_parcels uses pink @ 6%; we'll match.
+    //
+    // State-gate DIMMING, not filtering (spec §1, owner 2026-09-15 item
+    // 18): a restricted user (regridStateFilter non-null) used to have
+    // out-of-state parcels hard-`filter`ed out entirely. Now they stay
+    // rendered, just paint-dimmed near-invisible — the source is
+    // nationwide, so "outside" data already exists client-side, it was
+    // only ever hidden. Unlimited users (regridStateFilter null, no
+    // restriction) keep the exact old expressions, unchanged.
     map.addLayer({
       id: FILL_LAYER,
       type: 'fill',
       source: SOURCE_ID,
       'source-layer': sourceLayer,
       minzoom: REGRID_MIN_ZOOM,
-      ...(regridStateFilter ? { filter: regridStateFilter } : {}),
       paint: {
         'fill-color': '#EC4899',
-        'fill-opacity': [
-          'case',
-          ['boolean', ['feature-state', 'hover'], false], 0.22,
-          0.06,
-        ],
+        'fill-opacity': regridStateFilter
+          ? ['case', regridStateFilter, ['case', ['boolean', ['feature-state', 'hover'], false], 0.22, 0.06], 0.02]
+          : ['case', ['boolean', ['feature-state', 'hover'], false], 0.22, 0.06],
       },
     }, beforeId)
 
@@ -5011,11 +5048,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       source: SOURCE_ID,
       'source-layer': sourceLayer,
       minzoom: REGRID_MIN_ZOOM,
-      ...(regridStateFilter ? { filter: regridStateFilter } : {}),
       paint: {
         'line-color': '#000000',
         'line-width': 2.2,
-        'line-opacity': 0.85,
+        // Dimmed, not hidden, out-of-state (see FILL_LAYER's comment above).
+        'line-opacity': regridStateFilter ? ['case', regridStateFilter, 0.85, 0.12] : 0.85,
       },
     }, beforeId)
 
@@ -5031,7 +5068,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       source: SOURCE_ID,
       'source-layer': sourceLayer,
       minzoom: REGRID_OWNER_LABEL_MIN_ZOOM,
-      ...(regridStateFilter ? { filter: regridStateFilter } : {}),
       layout: {
         // Four segments: owner (bold) → acres → $/acre → sale date.
         // Total sale price was removed 2026-05-26 — the per-acre
@@ -5165,7 +5201,16 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         // which is an accepted trade-off: the tract's own pink polygon
         // already visually dominates that spot, so it's very unlikely to
         // be the label that would've won the space anyway.
-        'text-opacity': [
+        // Dimmed (not hidden) out-of-state, same state-gate treatment as
+        // FILL_LAYER/LINE_LAYER above — dotSuppressed still wins outright
+        // (0) since that's an unrelated coincident-dot rule, not the
+        // state gate.
+        'text-opacity': regridStateFilter ? [
+          'case',
+          ['boolean', ['feature-state', 'dotSuppressed'], false], 0,
+          regridStateFilter, 1,
+          0.15,
+        ] : [
           'case',
           ['boolean', ['feature-state', 'dotSuppressed'], false], 0,
           1,
@@ -5295,6 +5340,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       const topPinLayers = [...SALE_DOT_LAYERS, 'tract-pin-circles', 'tract-polygon-fill']
       if (clickClaimedByLayers(map, e.point, topPinLayers)) return
       const parcelProps: any = f.properties || {}
+      // State-gate click guard (spec §6): this fill layer no longer hard-
+      // filters out-of-state parcels (see the paint-opacity dimming
+      // above), so a click on a dimmed feature still fires here — treat
+      // it the same as a disabled control, not a valid parcel click.
+      if (!isRegridPropsInAllowedState(parcelProps)) return
       const ll_uuid = (parcelProps.ll_uuid as string | undefined) || null
       // Parcel Spotlight veil: this IS the tile-clipped geometry (see the
       // interface comment on LandDetailClickData.tileGeometry) — the only
@@ -5508,12 +5558,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       ensureParcelSaleDotSelectedImage(map)
       const inCompModeNow = !!subjectTractIdRef.current
       if (!map.getLayer(PARCEL_SALE_PLUS_LAYER)) {
-        // Compose the sale filter with the state-plan gate so basic_state
-        // / premium_state subscribers don't see sale dots outside their
-        // states either.
-        const composedFilter: any = regridStateFilter
-          ? ['all', filterExpr, regridStateFilter]
-          : filterExpr
+        // State-gate DIMMING, not filtering (spec §1, owner 2026-09-15
+        // item 18): filterExpr (the real sale/date/price/acreage filters)
+        // stays a hard `filter` — regridStateFilter no longer joins it
+        // here. Out-of-state dots stay rendered, just paint-dimmed near-
+        // invisible below (icon-opacity/text-opacity), same treatment as
+        // the parcel fill/line/label layers above.
         map.addLayer({
           id: PARCEL_SALE_PLUS_LAYER,
           // RESTORED 2026-07-26 (owner: "pink dots come from what's on the
@@ -5547,7 +5597,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           source: REGRID_SOURCE,
           'source-layer': sourceLayer,
           minzoom: REGRID_MIN_ZOOM,
-          filter: composedFilter,
+          filter: filterExpr,
           layout: {
             'icon-image': buildParcelSaleDotIconExpr(reportIds),
             'icon-size': inCompModeNow ? PARCEL_COMP_ICON_SIZE : PARCEL_DOT_ICON_SIZE,
@@ -5584,12 +5634,24 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             // subjectTractIdRef is set (comp mode), and clears it all on
             // comp-mode exit (clearAllDeedSuppression), so every
             // standalone sold-parcel dot in explore mode keeps opacity 1.
-            'icon-opacity': [
+            // Dimmed (not hidden) out-of-state — dotSuppressed still wins
+            // outright (0), same as LABEL_LAYER's text-opacity above.
+            'icon-opacity': regridStateFilter ? [
+              'case',
+              ['boolean', ['feature-state', 'dotSuppressed'], false], 0,
+              regridStateFilter, 1,
+              0.15,
+            ] : [
               'case',
               ['boolean', ['feature-state', 'dotSuppressed'], false], 0,
               1,
             ],
-            'text-opacity': [
+            'text-opacity': regridStateFilter ? [
+              'case',
+              ['boolean', ['feature-state', 'dotSuppressed'], false], 0,
+              regridStateFilter, 1,
+              0.15,
+            ] : [
               'case',
               ['boolean', ['feature-state', 'dotSuppressed'], false], 0,
               1,
@@ -5623,6 +5685,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // open the parcel/comp popup here.
       if (clickClaimedByLayers(map, e.point, ['tract-pin-circles', 'tract-polygon-fill'])) return
       const props: any = f.properties || {}
+      // State-gate click guard (spec §6) — same reasoning as FILL_LAYER's
+      // onClick above: this dot is dimmed, not filtered out, for an
+      // out-of-state parcel, so a click still fires and must no-op here.
+      if (!isRegridPropsInAllowedState(props)) return
       const ll_uuid = props.ll_uuid as string | undefined
       const lng = e.lngLat.lng
       const lat = e.lngLat.lat
@@ -5716,13 +5782,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // boundary/fill/label filter effect below. (Layer is currently always
     // hidden, but keep it consistent so a future re-enable can't leak.)
     const saleExpr: any = buildRegridSaleDotFilter(saleDotFilters(appliedFilters, !!subjectTractIdRef.current), PARCEL_MIN_SALE_ACRES)
-    // Compose the state-plan gate so sale dots also respect the
-    // subscriber's allowed state(s).
-    const expr: any = regridStateFilter ? ['all', saleExpr, regridStateFilter] : saleExpr
+    // State gate is a paint-opacity dim now (spec §1), not a hard filter —
+    // see the addLayer mount effect above. Only the real sale/date/price/
+    // acreage filter goes through setFilter here.
     if (map.getLayer(PARCEL_SALE_PLUS_LAYER)) {
-      try { map.setFilter(PARCEL_SALE_PLUS_LAYER, expr) } catch {/* layer torn down */}
+      try { map.setFilter(PARCEL_SALE_PLUS_LAYER, saleExpr) } catch {/* layer torn down */}
     }
-  }, [mapLoaded, regridStateFilter, appliedFilters.dateRange, appliedFilters.dateFrom, appliedFilters.dateTo, appliedFilters.salePriceMin, appliedFilters.salePriceMax, appliedFilters.acreageMin, appliedFilters.acreageMax])
+  }, [mapLoaded, appliedFilters.dateRange, appliedFilters.dateFrom, appliedFilters.dateTo, appliedFilters.salePriceMin, appliedFilters.salePriceMax, appliedFilters.acreageMin, appliedFilters.acreageMax])
 
   // RESTORED 2026-07-26 (audit fix — see PARCEL_SALE_PLUS_LAYER's addLayer
   // above, reverted back to a 'symbol' layer): this layer's icon-size and
@@ -6549,7 +6615,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // produces the same location/status/acreage/price/date params
       // the tract fetch sends; the backend now understands them for
       // this endpoint too (see get_map_parcel_sale_dots in main.py).
-      const filterParams = buildFilterParams(filtersRef.current, regridConfigRef.current?.parcel_data_states)
+      const filterParams = buildFilterParams(filtersRef.current, regridConfigRef.current?.parcel_data_states, allowedStates)
       const qs = new URLSearchParams({
         min_lat: String(bounds.south),
         max_lat: String(bounds.north),
@@ -8931,7 +8997,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       ...Object.keys(stateCentroids),
       ...stateCounts.map(s => s.state),
     ]))
-    for (const state of allStates) {
+    // Restricted user (spec §3, owner 2026-09-15 item 18): this badge's
+    // "Filter" link is itself a quick state-filter (seeds stateFilter to
+    // the clicked state and zooms in) — nationwide badges here would let
+    // a restricted user "quick-filter" into a state their plan doesn't
+    // cover. Scope the badge grid to allowedStates the same way the
+    // Filter Panel's state chips are scoped below.
+    const scopedStates = allowedStates ? allStates.filter(s => allowedStates.includes(s)) : allStates
+    for (const state of scopedStates) {
       let lng: number | undefined
       let lat: number | undefined
       const c = stateCentroids[state]
@@ -9085,7 +9158,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       stateMarkersRef.current = []
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stateCounts, mapLoaded, currentTier, stateSilhouettes, stateBboxes, hasActiveFilters])
+  }, [stateCounts, mapLoaded, currentTier, stateSilhouettes, stateBboxes, hasActiveFilters, allowedStates])
 
   // ── County COUNT bubbles (filter-active): setData + click. Visibility
   // is toggled by the hasActiveFilters effect below (setLayoutProperty),
@@ -9457,6 +9530,57 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   return (
     <div className="comparables-map-container" style={{ height }}>
       <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+
+      {/* State-gate banner (spec §2, owner 2026-09-15 item 18): always
+          visible for any restricted user (non-null allowedStates), never
+          viewport-triggered — a restricted user should never wonder why
+          the map looks sparse the instant they land, and a banner that
+          flickers in/out while panning near a state line would be worse
+          than one that's just always there. Top-center is the only free
+          overlay slot: Goat Search owns bottom-center
+          (MapChatPanel.tsx), the legend owns bottom-left, the filter
+          button owns top-right. zIndex 15 sits below the "Loading
+          Ground" pill/zoom toast just below (zIndex 20) and every side
+          panel (z-390+), but above the map canvas itself. */}
+      {allowedStates != null && allowedStates.length > 0 && (
+        <div
+          role="status"
+          style={{
+            position: 'absolute',
+            // Portal (/access) draws its own top-centre toolbar at top 16,
+            // 48px tall — proven on the sandbox 9/16: the banner was hidden
+            // behind it. Sit just below it there; 16 elsewhere.
+            top: portalMode ? 76 : 16,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 15,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            backgroundColor: 'rgba(0,0,0,0.78)',
+            border: '1px solid rgba(233,30,140,0.35)',
+            borderRadius: 8,
+            padding: '8px 16px',
+            color: '#fff',
+            fontSize: 13,
+            boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+            maxWidth: '92vw',
+          }}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="#E91E8C" style={{ flexShrink: 0 }}>
+            <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z" />
+          </svg>
+          <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            Your plan covers {formatStateList(allowedStates)}.
+            <Link
+              href="/account/subscription"
+              style={{ color: '#f58cde', textDecoration: 'underline', marginLeft: 8 }}
+            >
+              Add a state
+            </Link>
+          </span>
+        </div>
+      )}
 
       {/* "Loading Ground" pill — owner-approved restyle 2026-08-04, widened
           2026-08-04 to also cover the county/state count-badge fetch. Shown
@@ -10317,9 +10441,15 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               )}
             </div>
 
-            {/* State Filter — from API (all states with boundary data) */}
+            {/* State Filter — from API (all states with boundary data).
+                Restricted user (spec §3): narrow to allowed_states — no
+                separate "All" affordance exists to remove, each state is
+                already an independent toggle, so restricting this array
+                is sufficient. */}
             {(() => {
-              const states = filterOptions.states
+              const states = allowedStates
+                ? filterOptions.states.filter(st => allowedStates.includes(st))
+                : filterOptions.states
               if (states.length === 0) return null
               return (
                 <div style={{ marginBottom: 24 }}>
