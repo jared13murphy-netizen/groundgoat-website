@@ -170,8 +170,28 @@ export default function PortfolioMap({
           content: [R - 2, 5, W - R + 2, H - 5],
         })
       }
+      // Owner 9/16: zoomed out, ONE badge per project (its name) sitting
+      // on one of its tracts; zoomed in, the individual tract badges.
+      const PROJECT_BADGE_MAX_ZOOM = 13
+      map.addLayer({
+        id: 'pf-project-label', type: 'symbol', source: SRC_LABEL,
+        maxzoom: PROJECT_BADGE_MAX_ZOOM,
+        filter: ['==', ['get', 'kind'], 'project'],
+        layout: {
+          'icon-image': 'pf-badge',
+          'icon-text-fit': 'both',
+          'icon-text-fit-padding': [4, 10, 4, 10],
+          'text-field': ['get', 'name'],
+          'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'],
+          'text-size': 13,
+          'text-max-width': 14,
+        },
+        paint: { 'text-color': '#f58cde' },
+      })
       map.addLayer({
         id: 'pf-label', type: 'symbol', source: SRC_LABEL,
+        minzoom: PROJECT_BADGE_MAX_ZOOM,
+        filter: ['==', ['get', 'kind'], 'tract'],
         layout: {
           'icon-image': 'pf-badge',
           'icon-text-fit': 'both',
@@ -200,7 +220,8 @@ export default function PortfolioMap({
       }
       map.on('click', 'pf-fill', pick)
       map.on('click', 'pf-label', pick)
-      for (const l of ['pf-fill', 'pf-label']) {
+      map.on('click', 'pf-project-label', pick)
+      for (const l of ['pf-fill', 'pf-label', 'pf-project-label']) {
         map.on('mouseenter', l, () => { map.getCanvas().style.cursor = 'pointer' })
         map.on('mouseleave', l, () => { map.getCanvas().style.cursor = '' })
       }
@@ -232,13 +253,27 @@ export default function PortfolioMap({
           focus: t.id === selectedTract,
         },
       }))
-      const labels = shown.filter((t) => t.label_point).map((t) => ({
+      const labels: any[] = shown.filter((t) => t.label_point).map((t) => ({
         type: 'Feature', geometry: t.label_point,
         properties: {
-          projectId: t.project_id, tractId: t.id,
+          kind: 'tract', projectId: t.project_id, tractId: t.id,
           name: t.name || 'Untitled', focus: t.id === selectedTract,
         },
       }))
+      // One project badge per project, on its largest tract's label point.
+      const byProject = new Map<string, PortfolioTract>()
+      for (const t of shown) {
+        if (!t.label_point) continue
+        const cur = byProject.get(t.project_id)
+        if (!cur || (t.acres ?? 0) > (cur.acres ?? 0)) byProject.set(t.project_id, t)
+      }
+      for (const t of byProject.values()) {
+        labels.push({
+          type: 'Feature', geometry: t.label_point,
+          properties: { kind: 'project', projectId: t.project_id, tractId: t.id,
+                        name: t.project_name || 'Untitled project', focus: false },
+        })
+      }
       ;(map.getSource(SRC) as maplibregl.GeoJSONSource)?.setData(
         { type: 'FeatureCollection', features: feats } as any)
       ;(map.getSource(SRC_LABEL) as maplibregl.GeoJSONSource)?.setData(

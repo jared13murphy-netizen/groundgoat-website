@@ -412,7 +412,9 @@ export default function MapPortfolioPage() {
                       No tracts in this project yet — use “Add tract” to draw one.
                     </p>
                   )}
-                  {openParcels.map((x) => (
+                  {/* Alphabetical, numbers in natural order ("Tract 2" before
+                      "Tract 10") — owner 9/16. */}
+                  {openParcels.slice().sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { numeric: true, sensitivity: 'base' })).map((x) => (
                     <div key={x.id}
                          ref={(el) => {
                            // Bring it into view: a project with twenty
