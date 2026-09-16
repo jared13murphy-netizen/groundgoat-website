@@ -219,7 +219,13 @@ export default function MapPortfolioPage() {
           {/* Owner 9/16: pink filled — this is THE way to start a new
               project (the Utilities "Map Project" tile is gone). */}
           <Link href="/configure-map"
-                style={{ ...btn, background: '#E91E8C', borderColor: '#E91E8C', color: '#0b0b0b', fontWeight: 700 }}>
+                style={{
+                  ...btn, fontWeight: 700, color: '#0b0b0b',
+                  // Same pink as every other pink button on the site (owner 9/16).
+                  background: 'linear-gradient(180deg, #f9a8e6 0%, #f58cde 48%, #e072c8 100%)',
+                  borderColor: '#f58cde',
+                  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.40), 0 1px 3px rgba(0,0,0,0.45)',
+                }}>
             <Plus size={14} /> New Project
           </Link>
         </div>
@@ -646,8 +652,10 @@ const input: React.CSSProperties = {
 }
 const muted: React.CSSProperties = { opacity: 0.6, fontSize: 12, display: 'inline-flex', gap: 5, alignItems: 'center' }
 const link: React.CSSProperties = { color: '#93c5fd', textDecoration: 'none' }
+// Pink project names so the cards read as separate projects instead of
+// one grey run (owner 9/16).
 const nameBtn: React.CSSProperties = {
-  background: 'none', border: 'none', color: '#e5e7eb', fontSize: 15, fontWeight: 600,
+  background: 'none', border: 'none', color: '#f58cde', fontSize: 16, fontWeight: 700,
   cursor: 'pointer', padding: 0, textAlign: 'left',
 }
 const SECTIONS = [
