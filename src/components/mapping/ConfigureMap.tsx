@@ -3126,7 +3126,7 @@ export default function ConfigureMap() {
             where a back control belongs — the panel is for the tract. */}
         <button
           onClick={() => {
-            if (dirty) { setConfirmWhat('leave'); return }
+            if (dirty || tracts.some((t) => !t.savedId || !t.saved)) { setConfirmWhat('leave'); return }
             window.location.href = '/access'
           }}
           style={{
@@ -3842,7 +3842,11 @@ export default function ConfigureMap() {
           }}>
             <button
               onClick={() => {
-                if (dirty) { setConfirmWhat('discardFooter'); return }
+                // "Any changes" includes a tract that exists only in this
+                // session — a parcel just clicked has no savedId yet and
+                // leaving would silently drop it (owner 9/16).
+                const unsaved = dirty || tracts.some((t) => !t.savedId || !t.saved)
+                if (unsaved) { setConfirmWhat('discardFooter'); return }
                 window.location.href = '/map-portfolio'
               }}
               disabled={!!busy}
