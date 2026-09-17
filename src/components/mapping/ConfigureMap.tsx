@@ -2292,14 +2292,17 @@ export default function ConfigureMap() {
     setBusy('Snapping tracts…'); setError(null)
     try {
       let frameGeom: any = null
+      let frameParts: any[] = []
       let frameMeta: { ll_uuids: string[]; boundary: Pt[][][] } | null = null
       const ownGeoms = tracts.map((t) => polysToGeometry(t.boundary)).filter(Boolean)
       if (tracts.length === 1 && tracts[0].source.kind === 'parcel' && tracts[0].detail?.boundary) {
         // 'Snap to Parcel': the lone tract's own source parcel IS the frame.
         frameGeom = tracts[0].detail.boundary
+        frameParts = [frameGeom]
         frameMeta = { ll_uuids: tracts[0].source.ll_uuids, boundary: geometryToPolys(frameGeom) }
       } else {
         const under = ownGeoms.length ? (await parcelsUnder(ownGeoms)).parcels : []
+        frameParts = under.map((p) => p.geometry)
         if (under.length === 1) {
           frameGeom = under[0].geometry
           frameMeta = { ll_uuids: [under[0].ll_uuid], boundary: geometryToPolys(frameGeom) }
@@ -2320,7 +2323,7 @@ export default function ConfigureMap() {
       setFrame(frameMeta)
       const payload = tracts.map((t) => ({ id: t.id, geometry: polysToGeometry(t.boundary) }))
         .filter((x) => x.geometry) as { id: string; geometry: any }[]
-      const res = await fitTracts(frameGeom, payload)
+      const res = await fitTracts(frameGeom, payload, frameParts)
       snapshotTracts(tractsRef.current)
       setTracts((prev) => prev.map((t) => {
         const hit = res.tracts.find((r) => r.id === t.id)
@@ -2330,6 +2333,14 @@ export default function ConfigureMap() {
       if (res.dropped.length) {
         setError(`${res.dropped.length} tract${res.dropped.length === 1 ? '' : 's'} `
           + 'had no ground left after fitting to the frame — check the list.')
+      } else if (res.unassigned_acres >= 0.5) {
+        // The fit lines the DRAWN tract up with the parcel — it never
+        // grows a half-parcel sketch into the whole parcel — so say how
+        // much of the parcel is still not in any tract (owner 9/16).
+        setSavedMsg(`Snapped ${res.tracts.length} tract${res.tracts.length === 1 ? '' : 's'} `
+          + `to the parcel lines — ${res.unassigned_acres.toFixed(1)} ac of the `
+          + `${res.frame_acres.toFixed(1)} ac parcel is not in a tract yet. `
+          + 'Use Add Another Tract and click the parcel to fill the rest.')
       } else {
         setSavedMsg(`Fit ${res.tracts.length} tract${res.tracts.length === 1 ? '' : 's'} `
           + `to ${res.frame_acres.toFixed(1)} ac.`)

@@ -360,6 +360,10 @@ export function splitGeometry(geometry: any, line: any) {
 export interface FitTractsResult {
   tracts: { id: string; geometry: any; acres: number }[]
   frame_acres: number
+  /** Ground inside the frame no sketch drew (a tract drawn over half a
+   *  parcel stays half a parcel — the fit only absorbs THIN gaps between
+   *  a rough edge and the parcel line, owner 9/16). Tell the user. */
+  unassigned_acres: number
   /** Sketch ids that ended with no ground after the fit — tell the
    *  user; never drop their tract without saying so. */
   dropped: string[]
@@ -377,11 +381,14 @@ export interface FitTractsResult {
  *  NEW backend endpoint (POST /api/mapping/geometry/fit-tracts) — not
  *  called from the UI yet; this is the client half only, landing ahead
  *  of the map-handler wiring so it can be reviewed on its own. */
-export function fitTracts(frame: any, tracts: { id: string; geometry: any }[]) {
+export function fitTracts(frame: any, tracts: { id: string; geometry: any }[], parts: any[] = []) {
+  // `parts`: the individual parcels the frame was combined from, so the
+  // server can judge each sketch's claim on EACH parcel (a strip that
+  // strayed over the line into the neighbour is drawing slop, not a claim).
   return j<FitTractsResult>('/api/mapping/geometry/fit-tracts', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ frame, tracts }),
+    body: JSON.stringify({ frame, tracts, parts }),
   })
 }
 
