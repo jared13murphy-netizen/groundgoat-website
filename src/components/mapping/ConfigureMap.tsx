@@ -94,6 +94,13 @@ interface Tract {
   saved: boolean
   savedId: string | null
   detail: ParcelDetail | null
+  /** Soil rating for the tract's tillable ground, in the state's native
+   *  index — from the saved record's stats, the save response, or the
+   *  live query while the tract is open, whichever is newest (owner
+   *  9/16: the tract rows showed a dash for every tract but the open
+   *  one). */
+  soilRating: number | null
+  soilRatingType: string | null
   /** Has this tract's `shapes` been fitted against the engine for its
    *  CURRENT boundary? False for a brand-new tract and again after any
    *  boundary change ('Snap tracts' rewrites `boundary`) — Stage 3
@@ -122,6 +129,8 @@ function newTract(overrides: Partial<Tract> = {}): Tract {
     boundary: [],
     shapes: [],
     acres: null,
+    soilRating: null,
+    soilRatingType: null,
     dirty: false,
     saved: false,
     savedId: null,
@@ -297,7 +306,10 @@ function TractName({ value, onCommit, busy, placeholder }: {
  *  SSURGO query kept for whichever tract is actually open (`soil` at
  *  the top of the component), so only that row can show one — the
  *  others read as unknown until you open them, same as their tillable
- *  acres read as unknown before they are classified at all. */
+ *  acres read as unknown before they are classified at all — except
+ *  that a tract carries its last known rating (`soilRating`: from its
+ *  saved record, its save, or the live query while it was open), so a
+ *  row is a dash only until the tract has been opened or saved once. */
 function TractRow({ t, selected, busy, soilRating, onSelect, onCommitName, onRemove }: {
   t: Tract
   selected: boolean
@@ -554,7 +566,7 @@ function Bubble({ animKey, children }: { animKey: string; children: React.ReactN
         borderRadius: 16, padding: 14, width: 340, color: '#ffffff',
         // A bubble never grows past the column: it scrolls inside instead
         // of burying the toolbar (auditor 9/16).
-        maxHeight: 'calc(100vh - 220px)', overflowY: 'auto',
+        maxHeight: 'calc(100vh - 175px)', overflowY: 'auto',
         display: 'flex', flexDirection: 'column', gap: 10, fontSize: 13,
       }}>
       {children}
@@ -1074,6 +1086,8 @@ export default function ConfigureMap() {
           // "clicked Land Types, it never created the polygons").
           classified: loadedShapes.length > 0,
           acres: rec.stats?.acres ?? null,
+          soilRating: rec.stats?.soil?.rating ?? null,
+          soilRatingType: rec.stats?.soil?.rating_type ?? null,
           shapes: loadedShapes,
           boundary: loadedRings,
           // The outline has to come across too. Without this it kept the
@@ -2406,6 +2420,8 @@ export default function ConfigureMap() {
           saved: true,
           savedId: 'id' in res ? res.id : x.savedId,
           acres: Number(st.acres ?? x.acres ?? 0) || x.acres,
+          soilRating: st.soil?.rating ?? x.soilRating,
+          soilRatingType: st.soil?.rating_type ?? x.soilRatingType,
         })))
       }
       setProjectId(pid)
@@ -3060,10 +3076,9 @@ export default function ConfigureMap() {
     [shapes])
 
   useEffect(() => {
-    // 'outline' mode never shows the soil rating (the Acres & Land Types
-    // card hides that whole section there) — skip the query rather than
-    // spend it on a number nobody sees yet.
-    if (!activeTract || !detail || tractMode !== 'landtypes') { setSoil(null); return }
+    // Runs in 'outline' mode too: the tract row in the Tracts card shows
+    // the rating in every mode (owner 9/16), not only the Acres card.
+    if (!activeTract || !detail) { setSoil(null); return }
     const tillable = shapes.filter((sh) => sh.cls === 'tillable')
       .map((sh) => polysToGeometry(sh.polys)).filter(Boolean)
     if (!tillable.length) { setSoil(null); return }
@@ -3074,7 +3089,16 @@ export default function ConfigureMap() {
     const t = setTimeout(async () => {
       try {
         const r = await previewSoil(tillable, st, detail.boundary)
-        if (!cancelled) setSoil({ rating: r.rating, rating_type: r.rating_type })
+        if (!cancelled) {
+          setSoil({ rating: r.rating, rating_type: r.rating_type })
+          // Keep it on the tract itself so the row still shows it after
+          // you switch to another tract.
+          const tid = selectedTractIdRef.current
+          if (r.rating != null && tid) {
+            setTracts((prev) => prev.map((x) => x.id === tid
+              ? { ...x, soilRating: r.rating, soilRatingType: r.rating_type } : x))
+          }
+        }
       } catch {
         if (!cancelled) setSoil(null)
       } finally {
@@ -3334,6 +3358,10 @@ export default function ConfigureMap() {
                 )}
               </>
             )}
+            <ToolButton icon={bubblesHidden ? Eye : EyeOff}
+                        label={bubblesHidden ? 'Show Cards' : 'Hide Cards'}
+                        title={bubblesHidden ? 'Bring the cards back' : 'Tuck the cards away while you draw'}
+                        onClick={() => setBubblesHidden((v) => !v)} />
           </div>
         )}
       </div>
@@ -3347,17 +3375,9 @@ export default function ConfigureMap() {
           right-anchored with the RTL trick that makes overflow bubbles
           stack a new column to the LEFT — see the comment on `Bubble`
           above for why. */}
-      {/* Owner 9/16: the usual pink button, not a round eye icon. */}
-      {stage === 'build' && (
-        <button
-          onClick={() => setBubblesHidden((v) => !v)}
-          title={bubblesHidden ? 'Bring the cards back' : 'Tuck the cards away while you draw'}
-          style={{ ...btn, position: 'absolute', top: 14, right: 14, zIndex: 26,
-                   padding: '8px 13px', fontSize: 13, fontWeight: 600,
-                   boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.45), 0 2px 8px rgba(0,0,0,0.5)' }}>
-          {bubblesHidden ? <><Eye size={14} /> Show Cards</> : <><EyeOff size={14} /> Hide Cards</>}
-        </button>
-      )}
+      {/* The Hide/Show Cards toggle lives in the bottom toolbar row now
+          (owner 9/16, third pass: a round icon button in line with the
+          others, text below), so the cards start at the very top. */}
       <motion.div
         style={bubbleContainer}
         initial={false}
@@ -3563,7 +3583,7 @@ export default function ConfigureMap() {
                 <div style={sectionLabel}>Tracts ({tracts.length})</div>
                 {tracts.map((t) => (
                   <TractRow key={t.id} t={t} selected={t.id === selectedTractId} busy={!!busy}
-                            soilRating={t.id === selectedTractId ? (soil?.rating ?? null) : null}
+                            soilRating={t.id === selectedTractId && soil?.rating != null ? soil.rating : t.soilRating}
                             onSelect={() => requestOpen(t.id)}
                             onCommitName={(n) => {
                               setTracts((prev) => prev.map((x) => x.id === t.id ? { ...x, name: n } : x))
@@ -4065,7 +4085,7 @@ const toolbarRow: React.CSSProperties = {
 // left. `Bubble` flips back to `direction: 'ltr'` so its own content
 // reads normally.
 const bubbleContainer: React.CSSProperties = {
-  position: 'absolute', top: 62, right: 14, bottom: 110, left: 14, zIndex: 25,
+  position: 'absolute', top: 14, right: 14, bottom: 110, left: 14, zIndex: 25,
   transformOrigin: 'top right',
   pointerEvents: 'none',
   display: 'flex', flexDirection: 'column', flexWrap: 'wrap',
