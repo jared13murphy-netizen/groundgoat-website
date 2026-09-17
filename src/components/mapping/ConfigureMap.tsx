@@ -1025,7 +1025,19 @@ export default function ConfigureMap() {
     // 'Add tract' passes new=1: stay on a blank canvas inside this
     // project instead of reopening the tract that is already there — a
     // project is already named, so Stage 1 has nothing left to ask.
-    if (!saved && proj && params.get('new') === '1') { setStage('build'); return }
+    if (!saved && proj && params.get('new') === '1') {
+      setStage('build')
+      // The project's NAME has to come along too: loadParcel decides
+      // between Stage 2 and Stage 1's "name your project" card by
+      // whether a name is set, so clicking a parcel here without one
+      // asked the user to create a new project instead of adding the
+      // tract to this one (owner 9/17, Map Portfolio → Add Tract).
+      let stop = false
+      getProject(proj)
+        .then((r) => { if (!stop && r.project?.name) setProjectName(r.project.name) })
+        .catch(() => { /* the name is a label; the save still targets `proj` */ })
+      return () => { stop = true }
+    }
     if (!saved && proj) {
       // 'Open' on a project: show its first tract rather than an empty
       // map. With no tracts yet this stays a blank canvas, which is what
