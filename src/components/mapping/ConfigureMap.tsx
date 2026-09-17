@@ -577,6 +577,28 @@ function Bubble({ animKey, children }: { animKey: string; children: React.ReactN
 export default function ConfigureMap() {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
+  /** Frame `bb` — but only once the canvas has its real size. Explore's
+   *  "Configure Map" button is a full page load, and on a cold load the
+   *  map container can still measure 0×0 (or MapLibre's 400×300
+   *  fallback) when the parcel arrives; fitBounds on a canvas with no
+   *  size resolves to zoom 0, so the screen opened all the way zoomed
+   *  out with the parcel loaded (owner 9/16). A fit asked for too early
+   *  is parked and applied, without animation, on the first `resize`
+   *  that gives the canvas a real size that matches its container. */
+  const pendingFitRef = useRef<{ bb: [[number, number], [number, number]]; opts: maplibregl.FitBoundsOptions } | null>(null)
+  const canvasReady = (map: maplibregl.Map) => {
+    const c = map.getCanvas()
+    const r = map.getContainer().getBoundingClientRect()
+    return c.clientWidth >= 50 && c.clientHeight >= 50
+      && Math.abs(c.clientWidth - Math.round(r.width)) <= 2
+      && Math.abs(c.clientHeight - Math.round(r.height)) <= 2
+  }
+  const fitMap = useCallback((bb: [[number, number], [number, number]] | null, opts: maplibregl.FitBoundsOptions) => {
+    const map = mapRef.current
+    if (!bb || !map) return
+    if (canvasReady(map)) { pendingFitRef.current = null; map.fitBounds(bb, opts); return }
+    pendingFitRef.current = { bb, opts }
+  }, [])
   const [ready, setReady] = useState(false)
 
   // ── Tracts: the owner's Stage 2/3 unit of ground ───────────────────
@@ -944,7 +966,7 @@ export default function ConfigureMap() {
           setSavedName('')
           setHits([])
           const bbR = bboxOf(diff.geometry?.coordinates)
-          if (bbR && mapRef.current) mapRef.current.fitBounds(bbR, { padding: 90, duration: 700 })
+          fitMap(bbR, { padding: 90, duration: 700 })
           return t
         }
       }
@@ -975,7 +997,7 @@ export default function ConfigureMap() {
       setSavedName('')
       setHits([])
       const bb = bboxOf(d.boundary?.coordinates)
-      if (bb && mapRef.current) mapRef.current.fitBounds(bb, { padding: 90, duration: 700 })
+      fitMap(bb, { padding: 90, duration: 700 })
       return t
     } catch (e: any) {
       setError(e?.message || 'Could not load that parcel.')
@@ -1118,7 +1140,7 @@ export default function ConfigureMap() {
         setStage('build')
         setSelectedId(null)
         const bb = bboxOf(rec.boundary?.coordinates)
-        if (bb && mapRef.current) mapRef.current.fitBounds(bb, { padding: 90, duration: 700 })
+        fitMap(bb, { padding: 90, duration: 700 })
       } catch (e: any) {
         setError(e?.message || 'Could not open that saved parcel.')
       } finally { setBusy(null) }
@@ -1176,6 +1198,14 @@ export default function ConfigureMap() {
     })
     mapRef.current = map
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-left')
+    // A fit that arrived while the canvas had no size (see `fitMap`)
+    // lands here, the moment the canvas is really sized.
+    map.on('resize', () => {
+      const p = pendingFitRef.current
+      if (!p || mapRef.current !== map || !canvasReady(map)) return
+      pendingFitRef.current = null
+      map.fitBounds(p.bb, { ...p.opts, duration: 0 })
+    })
 
     // The canvas is sized when the map is constructed, which happens
     // before the fixed-position layout has settled — without this the
@@ -2043,9 +2073,7 @@ export default function ConfigureMap() {
         .map((c2) => [c2.longitude, c2.latitude])
       if (detailRef.current?.boundary) pts.push(detailRef.current.boundary.coordinates)
       const bb = bboxOf(pts)
-      if (bb && mapRef.current) {
-        mapRef.current.fitBounds(bb, { padding: 90, maxZoom: 13, duration: 800 })
-      }
+      fitMap(bb, { padding: 90, maxZoom: 13, duration: 800 })
     } catch (e: any) {
       setError(e?.message || 'Could not load comparable sales.')
     } finally { setBusy(null) }
@@ -2487,7 +2515,7 @@ export default function ConfigureMap() {
     markCleanRef.current?.(t.shapes, t.boundary)
     const geom = polysToGeometry(t.boundary)
     const bb = geom ? bboxOf(geom.coordinates) : null
-    if (bb && mapRef.current) mapRef.current.fitBounds(bb, { padding: 90, duration: 700 })
+    fitMap(bb, { padding: 90, duration: 700 })
     return true
   }, [])
   openLocalTractRef.current = openLocalTract
@@ -2793,12 +2821,10 @@ export default function ConfigureMap() {
         setHits(r.parcels)
         setNote(r.parcels.length ? `${r.parcels.length} parcel${r.parcels.length === 1 ? '' : 's'} found` : 'No parcels matched.')
         const bb = bboxOf(r.parcels.map((p) => [p.lng, p.lat]))
-        if (bb && mapRef.current && r.parcels.length) {
-          mapRef.current.fitBounds(bb, { padding: 120, maxZoom: 15, duration: 700 })
-        }
+        if (r.parcels.length) fitMap(bb, { padding: 120, maxZoom: 15, duration: 700 })
       } else if (r.kind === 'flyto') {
         setNote(r.label)
-        if (r.bounds) mapRef.current?.fitBounds(r.bounds, { padding: 60, duration: 800 })
+        if (r.bounds) fitMap(r.bounds, { padding: 60, duration: 800 })
         else if (r.center) mapRef.current?.flyTo({ center: r.center, zoom: r.zoom ?? 15 })
       } else {
         setNote(r.message)
