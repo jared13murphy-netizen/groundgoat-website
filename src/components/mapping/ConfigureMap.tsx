@@ -546,7 +546,14 @@ function ToolButton({ icon: Icon, dot, label, onClick, active, disabled, primary
  *  off the right edge — `flexWrap` itself stays plain 'wrap', never
  *  'wrap-reverse'. `direction: 'ltr'` here un-flips that for the
  *  bubble's own content, so text and button order read normally. */
-function Bubble({ animKey, children }: { animKey: string; children: React.ReactNode }) {
+type SheetTab = 'what-to-do' | 'project' | 'tract' | 'data' | 'reports'
+
+/** True on a touch-first device (finger, not mouse): handles get bigger
+ *  hit targets and the long-press/tap gestures below. */
+const coarsePointer = () =>
+  typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(pointer: coarse)').matches
+
+function Bubble({ animKey, children, compact }: { animKey: string; children: React.ReactNode; compact?: boolean }) {
   return (
     <motion.div
       key={animKey}
@@ -563,10 +570,11 @@ function Bubble({ animKey, children }: { animKey: string; children: React.ReactN
         backdropFilter: 'blur(14px)',
         border: '1px solid rgba(255,255,255,0.10)',
         boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.12), 0 10px 30px rgba(0,0,0,0.55)',
-        borderRadius: 16, padding: 14, width: 340, color: '#ffffff',
+        borderRadius: 16, padding: 14, width: compact ? '100%' : 340, color: '#ffffff',
         // A bubble never grows past the column: it scrolls inside instead
-        // of burying the toolbar (auditor 9/16).
-        maxHeight: 'calc(100vh - 175px)', overflowY: 'auto',
+        // of burying the toolbar (auditor 9/16). In the tablet sheet it
+        // is the sheet's one card and scrolls within the sheet's height.
+        maxHeight: compact ? 'calc(46vh - 56px)' : 'calc(100vh - 175px)', overflowY: 'auto',
         display: 'flex', flexDirection: 'column', gap: 10, fontSize: 13,
       }}>
       {children}
@@ -620,6 +628,28 @@ export default function ConfigureMap() {
   // Owner 9/16: the cards can be tucked away while drawing polygons and
   // brought back with the same bounce they arrive with.
   const [bubblesHidden, setBubblesHidden] = useState(false)
+  /** Tablet / narrow layout (owner 9/17, iPad Safari: "the cards don't
+   *  fit on the screen"). Under 1100 px the floating bubbles become ONE
+   *  bottom sheet with a tab strip, and the toolbar row wraps instead of
+   *  scrolling sideways. */
+  const [compact, setCompact] = useState(false)
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 1100px)')
+    const apply = () => setCompact(mq.matches)
+    apply()
+    mq.addEventListener('change', apply)
+    return () => mq.removeEventListener('change', apply)
+  }, [])
+  const [sheetTab, setSheetTab] = useState<SheetTab>('what-to-do')
+  const toolbarRef = useRef<HTMLDivElement>(null)
+  const [toolbarH, setToolbarH] = useState(80)
+  useEffect(() => {
+    const el = toolbarRef.current
+    if (!el) return
+    const ro = new ResizeObserver(() => setToolbarH(el.getBoundingClientRect().height))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [compact])
   const [tracts, setTracts] = useState<Tract[]>([])
   const [selectedTractId, setSelectedTractId] = useState<string | null>(null)
   // A multi-parcel FRAME a set of tracts gets fit to ('Snap tracts' /
@@ -1489,6 +1519,15 @@ export default function ConfigureMap() {
           'circle-stroke-width': ['case', ['boolean', ['get', 'active'], false], 2, 1.2],
         },
       })
+      if (coarsePointer()) {
+        // Finger-sized handles on touch screens (owner 9/17): the hit
+        // test is the drawn circle, so a mouse-sized dot was a miss.
+        map.setPaintProperty(LYR_VERTS, 'circle-radius',
+          ['case', ['boolean', ['get', 'active'], false], 9, 6])
+        map.setPaintProperty(LYR_VERTS, 'circle-stroke-width',
+          ['case', ['boolean', ['get', 'active'], false], 3, 2])
+        map.setPaintProperty('cm-draft-dots', 'circle-radius', 8)
+      }
       // Comparable sales: a pin per sale, showing + to add and - to drop,
       // the same read as the Find Comparables screen.
       map.addLayer({
@@ -1539,26 +1578,50 @@ export default function ConfigureMap() {
       //    every point inside it is removed on release. Shift-clicking
       //    dots one at a time was unusable where a driveway had dozens.
       let box: Pt | null = null
-      map.on('mousedown', (e) => {
+      let boxStartPx: { x: number; y: number } | null = null
+      let boxEndPx: { x: number; y: number } | null = null
+      const onBoxStart = (e: { lngLat: maplibregl.LngLat; point: { x: number; y: number }; preventDefault: () => void }) => {
         if (toolRef.current !== 'erase') return
         e.preventDefault()
         box = [e.lngLat.lng, e.lngLat.lat]
+        boxStartPx = { x: e.point.x, y: e.point.y }
+        boxEndPx = boxStartPx
         setMarq([box, box])
         map.dragPan.disable()
-      })
-      map.on('mousemove', (e) => {
+        map.touchZoomRotate.disable()
+      }
+      const onBoxMove = (e: { lngLat: maplibregl.LngLat; point: { x: number; y: number } }) => {
         if (!box) return
+        boxEndPx = { x: e.point.x, y: e.point.y }
         setMarq([box, [e.lngLat.lng, e.lngLat.lat]])
-      })
+      }
       const endBox = () => {
         if (!box) return
-        const b = marqRef.current
-        box = null
+        let b = marqRef.current
+        // A TAP (no real drag) erases the dots under the finger — on a
+        // tablet a box drag is awkward, tapping a dot is not (owner 9/17).
+        // The mouse gets the same: a click in Erase mode takes out the
+        // dot it landed on.
+        if (boxStartPx && boxEndPx
+            && Math.abs(boxEndPx.x - boxStartPx.x) < 6 && Math.abs(boxEndPx.y - boxStartPx.y) < 6) {
+          const r = coarsePointer() ? 22 : 10
+          const a = map.unproject([boxEndPx.x - r, boxEndPx.y - r])
+          const c = map.unproject([boxEndPx.x + r, boxEndPx.y + r])
+          b = [[a.lng, a.lat], [c.lng, c.lat]]
+        }
+        box = null; boxStartPx = null; boxEndPx = null
         map.dragPan.enable()
+        map.touchZoomRotate.enable()
         setMarq(null)
         if (b) eraseInBoxRef.current(b)
       }
+      map.on('mousedown', onBoxStart)
+      map.on('mousemove', onBoxMove)
       map.on('mouseup', endBox)
+      map.on('touchstart', (e) => { if (e.points.length === 1) onBoxStart(e) })
+      map.on('touchmove', (e) => { if (box) { e.preventDefault(); onBoxMove(e) } })
+      map.on('touchend', endBox)
+      map.on('touchcancel', endBox)
 
       // ── vertex dragging ───────────────────────────────────────────
       let drag: { id: string; pi: number; ri: number; vi: number } | null = null
@@ -1566,27 +1629,11 @@ export default function ConfigureMap() {
       // Stage 2's own undo entry for a boundary drag — one per drag, not
       // per mousemove, same discipline as `took` below for shapes.
       let tookTract = false
-      map.on('mousedown', LYR_VERTS, (e) => {
-        // Belt and braces with the layer being empty: nothing to drag
-        // with no tract open (no boundary, no shapes).
-        if (!selectedTractIdRef.current) return
-        const f = e.features?.[0]
-        if (!f) return
-        e.preventDefault()
-        const owner = String(f.properties!.shapeId)
-
-        // Remove a boundary handle: right button, or Alt/Option-click.
-        // Handled on MOUSEDOWN rather than a 'contextmenu' listener —
-        // that fired inconsistently and the browser's own menu often
-        // won the event instead (the canvas listener below suppresses
-        // that menu). Alt-click is the fallback for anyone whose mouse
-        // or trackpad makes right-click awkward.
-        const oe = e.originalEvent as MouseEvent
-        if (owner === '__boundary__' && tractModeRef.current === 'outline'
-            && (oe.button === 2 || oe.altKey)) {
-          const pi = Number(f.properties!.pi)
-          const ri = Number(f.properties!.ri)
-          const vi = Number(f.properties!.vi)
+      /** Take one handle out: a boundary handle in outline mode, a
+       *  land-type point in Land Types. Right-click / Alt-click on a
+       *  mouse, LONG-PRESS on touch (owner 9/17). */
+      const removeVertex = (owner: string, pi: number, ri: number, vi: number) => {
+        if (owner === '__boundary__' && tractModeRef.current === 'outline') {
           setBoundaryRings((prev) => prev.map((rings, p2) => p2 !== pi ? rings
             : dropDegenerateHoles(rings.map((ring, i) => {
               if (i !== ri) return ring
@@ -1598,30 +1645,43 @@ export default function ConfigureMap() {
               return ring.filter((_, v) => v !== vi)
             }))))
           reclassifyOnBoundaryEdit(selectedTractIdRef.current!)
-          return
+          return true
         }
-
-        // Same gesture on a land-type point. This only ever worked on the
-        // boundary, which is why removing a point inside a polygon looked
-        // broken.
-        if (owner !== '__boundary__' && tractModeRef.current === 'landtypes'
-            && (oe.button === 2 || oe.altKey)) {
-          const pi = Number(f.properties!.pi)
-          const ri = Number(f.properties!.ri)
-          const vi = Number(f.properties!.vi)
+        if (owner !== '__boundary__' && tractModeRef.current === 'landtypes') {
           mutate((prev) => prev.map((sh) => sh.id !== owner ? sh : {
             ...sh,
             polys: sh.polys.map((rings, p2) => p2 !== pi ? rings
               : dropDegenerateHoles(rings.map((ring, i) => {
                 if (i !== ri) return ring
-                // Same rule inside a land-type polygon. This is why a
-                // hole could be whittled down but never actually
-                // removed — it stuck at a three-dot triangle.
+                // Same rule inside a land-type polygon.
                 if (ring.length <= 3) return ri === 0 ? ring : []
                 return ring.filter((_, v) => v !== vi)
               }))),
           }))
-          return
+          return true
+        }
+        return false
+      }
+      const onVertexDown = (e: any) => {
+        // Belt and braces with the layer being empty: nothing to drag
+        // with no tract open (no boundary, no shapes).
+        if (!selectedTractIdRef.current) return
+        // In Erase mode the press starts an erase box / tap instead.
+        if (toolRef.current === 'erase') return
+        const f = e.features?.[0]
+        if (!f) return
+        e.preventDefault()
+        const owner = String(f.properties!.shapeId)
+
+        // Remove a handle: right button, or Alt/Option-click. Handled on
+        // MOUSEDOWN rather than a 'contextmenu' listener — that fired
+        // inconsistently and the browser's own menu often won the event
+        // instead (the canvas listener below suppresses that menu).
+        // Alt-click is the fallback for anyone whose mouse or trackpad
+        // makes right-click awkward.
+        const oe = e.originalEvent as MouseEvent
+        if (oe.button === 2 || oe.altKey) {
+          if (removeVertex(owner, Number(f.properties!.pi), Number(f.properties!.ri), Number(f.properties!.vi))) return
         }
 
         if (owner !== '__boundary__' && owner !== selectedRef.current) setSelectedId(owner)
@@ -1629,8 +1689,9 @@ export default function ConfigureMap() {
         took = false
         tookTract = false
         map.dragPan.disable()
-      })
-      map.on('mousemove', (e) => {
+      }
+      map.on('mousedown', LYR_VERTS, onVertexDown)
+      const onDragMove = (e: { lngLat: maplibregl.LngLat }) => {
         if (!drag) return
         // One undo snapshot per drag, not per mousemove.
         const { id, pi, ri, vi } = drag
@@ -1684,7 +1745,8 @@ export default function ConfigureMap() {
             i !== ri ? r : r.map((pt, v) => v === vi ? [e.lngLat.lng, e.lngLat.lat] as Pt : pt)))
           return { ...s, polys }
         }))
-      })
+      }
+      map.on('mousemove', onDragMove)
       // Dragging a handle rewrites `shapes` directly, so nothing was
       // re-checking overlap: enforceNoOverlap only ran from finishDraft,
       // i.e. when a NEW shape was drawn. That let an edited polygon be
@@ -1714,6 +1776,53 @@ export default function ConfigureMap() {
       }
       map.on('mouseup', endDrag)
       map.on('mouseout', endDrag)
+
+      // ── touch: hold a dot to drag it; hold STILL to remove it ─────
+      // Everything above listens to mouse events only, so on an iPad a
+      // finger on a dot panned the map instead (owner 9/17). One finger
+      // on a handle starts the same drag; the map's own pan and pinch
+      // are paused for the duration. A press that never moves for
+      // 550 ms is a long-press and removes the handle (Undo restores
+      // it) — the touch stand-in for right-click.
+      let lpTimer: number | undefined
+      let lpStart: { x: number; y: number } | null = null
+      map.on('touchstart', LYR_VERTS, (e) => {
+        if (e.points.length !== 1) return
+        const f = e.features?.[0]
+        if (!f || !selectedTractIdRef.current || toolRef.current === 'erase') return
+        onVertexDown(e)
+        if (!drag) return
+        map.touchZoomRotate.disable()
+        lpStart = { x: e.point.x, y: e.point.y }
+        const owner = String(f.properties!.shapeId)
+        const pi = Number(f.properties!.pi), ri = Number(f.properties!.ri), vi = Number(f.properties!.vi)
+        window.clearTimeout(lpTimer)
+        lpTimer = window.setTimeout(() => {
+          if (!drag || !lpStart) return
+          drag = null; lpStart = null
+          map.dragPan.enable(); map.touchZoomRotate.enable()
+          if (removeVertex(owner, pi, ri, vi)) setSavedMsg('Point removed — Undo brings it back.')
+        }, 550)
+      })
+      map.on('touchmove', (e) => {
+        if (!drag) return
+        e.preventDefault()
+        if (lpStart && Math.hypot(e.point.x - lpStart.x, e.point.y - lpStart.y) > 8) {
+          lpStart = null
+          window.clearTimeout(lpTimer)
+        }
+        // Holding still: waiting to see whether this is a long-press.
+        if (lpStart) return
+        onDragMove(e)
+      })
+      const endTouchDrag = () => {
+        window.clearTimeout(lpTimer)
+        lpStart = null
+        map.touchZoomRotate.enable()
+        endDrag()
+      }
+      map.on('touchend', endTouchDrag)
+      map.on('touchcancel', endTouchDrag)
       map.on('mouseenter', LYR_VERTS, () => { map.getCanvas().style.cursor = 'move' })
       map.on('mouseleave', LYR_VERTS, () => { map.getCanvas().style.cursor = '' })
 
@@ -3248,6 +3357,18 @@ export default function ConfigureMap() {
   const undoDisabled = !shapeCanUndo && !tractUndoRef.current.length
   const redoDisabled = !shapeCanRedo && !tractRedoRef.current.length
 
+  // Tablet sheet: which bubbles exist right now, and which one is open.
+  // A tab that no longer applies (the tract closed) falls back to the
+  // first, so the sheet is never empty.
+  const sheetTabs: { key: SheetTab; label: string }[] = [
+    { key: 'what-to-do', label: 'What To Do' },
+    ...(stage === 'build' ? [{ key: 'project' as SheetTab, label: 'Project' }] : []),
+    ...(stage === 'build' && activeTract ? [{ key: 'tract' as SheetTab, label: 'Tract' }, { key: 'data' as SheetTab, label: 'Data' }] : []),
+    ...(stage === 'build' && activeTract && editingId ? [{ key: 'reports' as SheetTab, label: 'Reports' }] : []),
+  ]
+  const sheetKey: SheetTab = sheetTabs.some((t) => t.key === sheetTab) ? sheetTab : 'what-to-do'
+  const showBubble = (k: SheetTab) => !compact || sheetKey === k
+
   return (
     // Fixed + above the site chrome: this is a full-surface tool, and
     // the marketing header/footer would otherwise wrap around it.
@@ -3301,7 +3422,7 @@ export default function ConfigureMap() {
             "What To Do" bubble's body instead (same variable, same
             priority chain, just a different piece of JSX reading it). */}
         {stage === 'build' && (
-          <div style={toolbarRow}>
+          <div ref={toolbarRef} style={compact ? toolbarRowCompact : toolbarRow}>
             {tractMode === 'landtypes' && activeTract ? (
               <>
                 {/* Mirrors "2. Tracts" clicked from Step 3 — same
@@ -3417,12 +3538,26 @@ export default function ConfigureMap() {
           (owner 9/16, third pass: a round icon button in line with the
           others, text below), so the cards start at the very top. */}
       <motion.div
-        style={bubbleContainer}
+        style={compact ? { ...bubbleContainer, ...sheetContainer, bottom: toolbarH + 28 } : bubbleContainer}
         initial={false}
         animate={bubblesHidden
           ? { opacity: 0, scale: 0.85, y: 12, transition: { duration: 0.18 }, transitionEnd: { visibility: 'hidden' } }
           : { opacity: 1, scale: 1, y: 0, visibility: 'visible',
               transition: { type: 'spring', stiffness: 420, damping: 24, mass: 0.8 } }}>
+        {compact && (
+          // Tablet: one card at a time, picked from this strip. The
+          // strip is part of the sheet so Hide Cards tucks it away too.
+          <div style={sheetTabStrip}>
+            {sheetTabs.map((t) => (
+              <button key={t.key} onClick={() => setSheetTab(t.key)}
+                      style={{ ...sheetTabBtn,
+                               background: t.key === sheetKey ? GG_PINK : 'rgba(8,8,10,0.78)',
+                               color: t.key === sheetKey ? '#1a0a14' : '#fff' }}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+        )}
         <AnimatePresence>
           {/* Bubble 1 — What To Do. Header is the 1/2/3 step row
               (unchanged: same `cur`/`canJump` logic, same click
@@ -3433,7 +3568,8 @@ export default function ConfigureMap() {
               that used to feed the top-of-map banner pill (now
               removed) — and the footer is Cancel + Finish, exactly as
               the old pinned panel footer. */}
-          <Bubble key="what-to-do" animKey="what-to-do">
+          {showBubble('what-to-do') && (
+          <Bubble key="what-to-do" animKey="what-to-do" compact={compact}>
             {(() => {
               const cur = stage === 'project' ? 0 : (activeTract && tractMode === 'landtypes') ? 2 : 1
               const labels = ['1. Project', '2. Tracts', '3. Land Types']
@@ -3522,14 +3658,15 @@ export default function ConfigureMap() {
               </>
             )}
           </Bubble>
+          )}
 
           {/* Bubble 2 — Project: name (top bubble already has the step
               row, this is the project's own renameable name + portfolio
               link), the parcel search block, the getting-started card,
               and the tract list. Never on Step 1 — bubble 1 is the only
               one shown there. */}
-          {stage === 'build' && (
-            <Bubble key="project" animKey="project">
+          {stage === 'build' && showBubble('project') && (
+            <Bubble key="project" animKey="project" compact={compact}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0, flex: 1,
                               fontSize: 15, fontWeight: 700 }}>
@@ -3660,8 +3797,8 @@ export default function ConfigureMap() {
               card, and the dormant post-split `pieces` card. Both moved
               here rather than into Reports (gated on savedId) since
               neither of them requires a saved tract to show. */}
-          {stage === 'build' && activeTract && (
-            <Bubble key="tract" animKey="tract">
+          {stage === 'build' && activeTract && showBubble('tract') && (
+            <Bubble key="tract" animKey="tract" compact={compact}>
               {detail ? (
                 <div style={card}>
                   <div style={sectionLabel}>Tract data</div>
@@ -3739,8 +3876,8 @@ export default function ConfigureMap() {
               plus the polygon-fill-opacity slider (moved here from
               directly below that card, same relative position it always
               had). Gated on activeTract only, same as the card was. */}
-          {stage === 'build' && activeTract && (
-            <Bubble key="data" animKey="data">
+          {stage === 'build' && activeTract && showBubble('data') && (
+            <Bubble key="data" animKey="data" compact={compact}>
               <div style={card}>
                 <div style={sectionLabel}>Acres &amp; land types</div>
                 {tractMode === 'outline' ? (
@@ -3834,8 +3971,8 @@ export default function ConfigureMap() {
               named bubble in the spec either; it lives here because
               `cma` can only ever be set after `startCma` succeeds, which
               itself requires `editingId` — same gate as Reports. */}
-          {stage === 'build' && activeTract && editingId && (
-            <Bubble key="reports" animKey="reports">
+          {stage === 'build' && activeTract && editingId && showBubble('reports') && (
+            <Bubble key="reports" animKey="reports" compact={compact}>
               {cma && (
                 <div style={card}>
                   <div style={sectionLabel}>Market analysis</div>
@@ -4102,6 +4239,27 @@ const primaryBtn: React.CSSProperties = {
 // the owner's longest row (every landtypes-mode button, all full labels)
 // measures well inside 1400px, so it never needs to wrap there; auto-
 // scroll is the fallback for a narrower window rather than a silent clip.
+// Tablet: the circles wrap onto a second row instead of scrolling off
+// the right edge (owner 9/17: Redo was cut off on an iPad).
+const toolbarRowCompact: React.CSSProperties = {
+  position: 'absolute', bottom: 12, left: 12, right: 12, zIndex: 30,
+  display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'center',
+  columnGap: 10, rowGap: 4, padding: '4px 2px',
+}
+// Tablet sheet: one bubble at a time, full width, above the toolbar.
+const sheetContainer: React.CSSProperties = {
+  top: 'auto', left: 12, right: 12, direction: 'ltr',
+  flexDirection: 'column', flexWrap: 'nowrap', alignContent: 'stretch', alignItems: 'stretch',
+  transformOrigin: 'bottom center', rowGap: 8,
+}
+const sheetTabStrip: React.CSSProperties = {
+  display: 'flex', gap: 6, justifyContent: 'center', flexWrap: 'wrap', pointerEvents: 'auto',
+}
+const sheetTabBtn: React.CSSProperties = {
+  border: '1px solid rgba(255,255,255,0.18)', borderRadius: 999, padding: '7px 14px',
+  fontSize: 13, fontWeight: 700, cursor: 'pointer',
+  boxShadow: '0 4px 14px rgba(0,0,0,0.5)', backdropFilter: 'blur(10px)',
+}
 const toolbarRow: React.CSSProperties = {
   position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)', zIndex: 30,
   display: 'flex', flexWrap: 'nowrap', alignItems: 'flex-start', justifyContent: 'center',
