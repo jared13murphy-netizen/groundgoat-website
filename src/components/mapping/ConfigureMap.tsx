@@ -649,7 +649,10 @@ export default function ConfigureMap() {
     const ro = new ResizeObserver(() => setToolbarH(el.getBoundingClientRect().height))
     ro.observe(el)
     return () => ro.disconnect()
-  }, [compact])
+    // `stage` too: the toolbar only exists on the build step, and a cold
+    // tablet load starts on Step 1 — keyed on `compact` alone the
+    // observer never attached once the toolbar mounted (reviewer 9/17).
+  }, [compact, stage])
   const [tracts, setTracts] = useState<Tract[]>([])
   const [selectedTractId, setSelectedTractId] = useState<string | null>(null)
   // A multi-parcel FRAME a set of tracts gets fit to ('Snap tracts' /
