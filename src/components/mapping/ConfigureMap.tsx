@@ -897,6 +897,12 @@ export default function ConfigureMap() {
   const [confirmWhat, setConfirmWhat] = useState<
     null | 'switch' | 'leave' | 'removeTract' | 'clearPolygons' | 'startOver'
   >(null)
+  // Both exits out of Configurable Mapping — Back to Map and the Map
+  // Portfolio link — route through the same 'leave' confirm and the same
+  // dirty check; this just remembers which one asked, so the dialog's OK
+  // handler knows where to send the browser (reviewer defect 3: the
+  // Portfolio link used to be a plain <a> that skipped the guard).
+  const [leaveTo, setLeaveTo] = useState('/access')
   /** The tract `removeTract` is waiting on a 'removeTract' confirm for —
    *  set only when that tract is already saved server-side. */
   const [pendingRemoveId, setPendingRemoveId] = useState<string | null>(null)
@@ -3589,7 +3595,7 @@ export default function ConfigureMap() {
             where a back control belongs — the panel is for the tract. */}
         <button
           onClick={() => {
-            if (dirty || tracts.some((t) => !t.savedId || !t.saved)) { setConfirmWhat('leave'); return }
+            if (dirty || tracts.some((t) => !t.savedId || !t.saved)) { setLeaveTo('/access'); setConfirmWhat('leave'); return }
             window.location.href = '/access'
           }}
           style={{
@@ -3666,18 +3672,25 @@ export default function ConfigureMap() {
                 button below keeps a STABLE key across label toggles (e.g.
                 Add Polygon / Cancel Drawing is always "draw-polygon") so
                 it morphs in place instead of re-entering. */}
+            {/* popLayout needs a FLAT array of keyed elements as its
+                direct children — two bare `<>...</>` fragments (one per
+                mode) hid every button from AnimatePresence's presence
+                context, so a mode switch removed buttons with no exit
+                animation and no reflow (reviewer defect 1). Building the
+                array with an IIFE keeps every prop/handler identical to
+                before; only the JSX shape (fragments → array) changed. */}
             <AnimatePresence mode="popLayout" initial={false}>
-              {tractMode === 'landtypes' && activeTract ? (
-                <>
-                  {/* Mirrors "2. Tracts" clicked from Step 3 — same
-                      handler, just closer to hand (owner correction). */}
+              {(() => {
+                const buttons: React.ReactNode[] = tractMode === 'landtypes' && activeTract ? [
+                  // Mirrors "2. Tracts" clicked from Step 3 — same
+                  // handler, just closer to hand (owner correction).
                   <ToolButton key="outline" icon={PenTool} label="Outline"
-                              onClick={() => setTractMode('outline')} />
-                  {LAND_CLASSES.map((c) => (
+                              onClick={() => setTractMode('outline')} />,
+                  ...LAND_CLASSES.map((c) => (
                     <ToolButton key={c} dot={CLASS_COLOR[c]} label={CLASS_LABEL[c]}
                                 active={drawClass === c} title={CLASS_LABEL[c]}
                                 onClick={() => { setDrawClass(c); if (selectedId) setClassOf(selectedId, c) }} />
-                  ))}
+                  )),
                   <ToolButton key="draw-polygon" icon={(tool === 'draw' && drawing) ? X : Plus} active={tool === 'draw' && drawing}
                               label={(tool === 'draw' && drawing) ? 'Cancel Drawing' : 'Add Polygon'}
                               onClick={() => {
@@ -3686,31 +3699,31 @@ export default function ConfigureMap() {
                                   return
                                 }
                                 setTool('draw'); setDrawing(true); setDraft([])
-                              }} />
+                              }} />,
                   <ToolButton key="delete-polygon" icon={Trash2} label="Delete" disabled={!selectedId}
-                              onClick={() => selectedId && deleteShape(selectedId)} />
+                              onClick={() => selectedId && deleteShape(selectedId)} />,
                   <ToolButton key="split-polygon" icon={tool === 'cutpoly' ? X : Scissors} active={tool === 'cutpoly'}
                               label={tool === 'cutpoly' ? 'Cancel Cut' : 'Split Polygon'}
                               disabled={!selectedId && tool !== 'cutpoly'}
                               onClick={() => {
                                 if (tool === 'cutpoly') { setTool(null); setCutPts([]); return }
                                 setTool('cutpoly'); setCutPts([]); setDrawing(false); setDraft([])
-                              }} />
+                              }} />,
                   <ToolButton key="erase-points" icon={tool === 'erase' ? Check : Eraser} active={tool === 'erase'}
                               label={tool === 'erase' ? 'Done Erasing' : 'Erase Points'}
                               disabled={!selectedId && tool !== 'erase'}
-                              onClick={() => { setTool(tool === 'erase' ? null : 'erase'); setMarq(null) }} />
+                              onClick={() => { setTool(tool === 'erase' ? null : 'erase'); setMarq(null) }} />,
                   <ToolButton key="fill-holes" icon={PaintBucket}
                               label={`Fill Holes${holesOnSelected > 0 ? ` (${holesOnSelected})` : ''}`}
                               disabled={!selectedId || holesOnSelected === 0}
                               title="Remove every hole inside the selected polygon"
-                              onClick={() => selectedId && fillHoles(selectedId)} />
+                              onClick={() => selectedId && fillHoles(selectedId)} />,
                   <ToolButton key="clear-polygons" icon={X} label="Clear Polygons" disabled={!shapes.length}
-                              onClick={() => { if (shapes.length) setConfirmWhat('clearPolygons') }} />
+                              onClick={() => { if (shapes.length) setConfirmWhat('clearPolygons') }} />,
                   <ToolButton key="start-over" icon={Layers} label="Start Over" disabled={!detail?.polygons.length}
-                              onClick={() => { if (detail?.polygons.length) setConfirmWhat('startOver') }} />
-                  <ToolButton key="undo" icon={RotateCcw} label="Undo" disabled={undoDisabled} onClick={handleUndo} />
-                  <ToolButton key="redo" icon={RotateCw} label="Redo" disabled={redoDisabled} onClick={handleRedo} />
+                              onClick={() => { if (detail?.polygons.length) setConfirmWhat('startOver') }} />,
+                  <ToolButton key="undo" icon={RotateCcw} label="Undo" disabled={undoDisabled} onClick={handleUndo} />,
+                  <ToolButton key="redo" icon={RotateCw} label="Redo" disabled={redoDisabled} onClick={handleRedo} />,
                   <ToolButton key="save-tract" icon={Save} label="Save Tract" primary={activeUnsaved && !!activeTract?.name.trim()}
                               disabled={!!busy || (tool === 'draw' && drawing
                                 ? draft.length < 3 : !activeTract.name.trim())}
@@ -3732,11 +3745,9 @@ export default function ConfigureMap() {
                                   return
                                 }
                                 void saveAllTracts([selectedTractId])
-                              }} />
-                </>
-              ) : (
-                <>
-                  {/* The icon follows the label: an X while it says Cancel Drawing (owner 9/16 icon-follows-label rule). */}
+                              }} />,
+                ] : [
+                  // The icon follows the label: an X while it says Cancel Drawing (owner 9/16 icon-follows-label rule).
                   <ToolButton key="draw-tract" icon={(tool === 'drawtract' && drawing) ? X : PenTool} active={tool === 'drawtract' && drawing}
                               // The call to action while adding: pink so it is
                               // the obvious thing to press.
@@ -3749,14 +3760,14 @@ export default function ConfigureMap() {
                                   return
                                 }
                                 setTool('drawtract'); setDrawing(true); setDraft([])
-                              }} />
+                              }} />,
                   <ToolButton key="snap-tracts" icon={Magnet} label={tracts.length <= 1 ? 'Snap to Parcel' : 'Snap Tracts'}
                               disabled={!!busy || (tracts.length < 2
                                 && !(tracts.length === 1 && tracts[0].source.kind === 'parcel'))}
                               title={tracts.length <= 1
                                 ? 'Fits this tract to its own parcel boundary so the acres are exact.'
                                 : 'Fits every drawn tract to the frame and to each other so acres add up.'}
-                              onClick={() => void snapTracts()} />
+                              onClick={() => void snapTracts()} />,
                   <ToolButton key="save-tract" icon={Save} label="Save Tract" primary={activeUnsaved && !!activeTract?.name.trim()}
                               disabled={!!busy || (tool === 'drawtract' && drawing
                                 ? draft.length < 3
@@ -3781,32 +3792,38 @@ export default function ConfigureMap() {
                                   return
                                 }
                                 if (selectedTractId) void saveAllTracts([selectedTractId])
-                              }} />
-                  {/* Owner 9/16: a way to throw a tract polygon away and start
-                      over, on the map with the other tract tools; it always
-                      confirms first. */}
+                              }} />,
+                  // Owner 9/16: a way to throw a tract polygon away and start
+                  // over, on the map with the other tract tools; it always
+                  // confirms first.
                   <ToolButton key="delete-tract" icon={Trash2} label="Delete Tract"
                               disabled={!!busy || !activeTract}
                               title={!activeTract ? 'Open a tract to delete it.' : 'Removes this tract. You will be asked first.'}
-                              onClick={() => { if (selectedTractId) removeTract(selectedTractId) }} />
-                  <ToolButton key="undo" icon={RotateCcw} label="Undo" disabled={undoDisabled} onClick={handleUndo} />
-                  <ToolButton key="redo" icon={RotateCw} label="Redo" disabled={redoDisabled} onClick={handleRedo} />
-                  {/* The deliberate "next step" once a tract is open — filled
-                      pink rather than a peer of the rest (owner correction).
-                      Only ever rendered with a tract open (this branch also
-                      covers the empty-list/adding-a-tract states, which have
-                      no tract to switch), so there is no reachable disabled
-                      state worth building for it. */}
-                  {activeTract && (
+                              onClick={() => { if (selectedTractId) removeTract(selectedTractId) }} />,
+                  <ToolButton key="undo" icon={RotateCcw} label="Undo" disabled={undoDisabled} onClick={handleUndo} />,
+                  <ToolButton key="redo" icon={RotateCw} label="Redo" disabled={redoDisabled} onClick={handleRedo} />,
+                  // The deliberate "next step" once a tract is open — filled
+                  // pink rather than a peer of the rest (owner correction).
+                  // Only ever rendered with a tract open (this branch also
+                  // covers the empty-list/adding-a-tract states, which have
+                  // no tract to switch), so there is no reachable disabled
+                  // state worth building for it. Omitted from the array
+                  // entirely (rather than rendered disabled) when there is
+                  // no active tract, so AnimatePresence treats it as a real
+                  // mount/unmount.
+                  ...(activeTract ? [
                     <ToolButton key="land-types" icon={Layers} label="Land Types" primary
-                                onClick={() => setTractMode('landtypes')} />
-                  )}
-                </>
-              )}
-              <ToolButton key="toggle-cards" icon={bubblesHidden ? Eye : EyeOff}
-                          label={bubblesHidden ? 'Show Cards' : 'Hide Cards'}
-                          title={bubblesHidden ? 'Bring the cards back' : 'Tuck the cards away while you draw'}
-                          onClick={() => setBubblesHidden((v) => !v)} />
+                                onClick={() => setTractMode('landtypes')} />,
+                  ] : []),
+                ]
+                buttons.push(
+                  <ToolButton key="toggle-cards" icon={bubblesHidden ? Eye : EyeOff}
+                              label={bubblesHidden ? 'Show Cards' : 'Hide Cards'}
+                              title={bubblesHidden ? 'Bring the cards back' : 'Tuck the cards away while you draw'}
+                              onClick={() => setBubblesHidden((v) => !v)} />
+                )
+                return buttons
+              })()}
             </AnimatePresence>
             </motion.div>
           )}
@@ -3958,10 +3975,25 @@ export default function ConfigureMap() {
                   <TractName value={projectName} busy={!!busy} placeholder="Untitled project"
                              onCommit={(n) => setProjectName(n)} />
                 </div>
-                <a href="/map-portfolio"
-                   style={{ fontSize: 12, color: '#f58cde', textDecoration: 'none', flex: 'none' }}>
+                {/* Same exit as Back to Map — was a plain <a> that
+                    skipped the dirty check entirely (reviewer defect 3);
+                    now runs the identical guard into the same 'leave'
+                    confirm, just pointed at /map-portfolio instead of
+                    /access. */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (dirty || tracts.some((t) => !t.savedId || !t.saved)) {
+                      setLeaveTo('/map-portfolio'); setConfirmWhat('leave'); return
+                    }
+                    window.location.href = '/map-portfolio'
+                  }}
+                  style={{
+                    fontSize: 12, color: '#f58cde', textDecoration: 'none', flex: 'none',
+                    background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit',
+                  }}>
                   Map Portfolio
-                </a>
+                </button>
               </div>
 
               {/* Search */}
@@ -4421,7 +4453,7 @@ export default function ConfigureMap() {
               <button onClick={() => {
                         if (confirmWhat === 'leave') {
                           setConfirmWhat(null)
-                          window.location.href = '/access'
+                          window.location.href = leaveTo
                         } else if (confirmWhat === 'switch') {
                           // Save FIRST, and only switch if it worked —
                           // switching on a failed save would lose the
@@ -4538,10 +4570,15 @@ const sheetTabBtn: React.CSSProperties = {
 // row instead of the usual `left: 50%; transform: translateX(-50%)` —
 // framer-motion drives its own `transform` for the entrance animation
 // (see the `motion.div` wrapper), and the two would clobber each other.
+// `overflow: visible` + `flexWrap: 'wrap'` (reviewer defect 2, replacing
+// `overflowX: 'auto'`): a scrollable overflow-x forces overflow-y to
+// auto too and clips any button's exit `y: 28` animation mid-flight.
+// Wrapping instead of scrolling matches the compact row's own fallback
+// for a row that outgrows its width.
 const toolbarRow: React.CSSProperties = {
   position: 'absolute', bottom: 16, left: 0, right: 0, margin: '0 auto', width: 'fit-content', zIndex: 30,
-  display: 'flex', flexWrap: 'nowrap', alignItems: 'flex-start', justifyContent: 'center',
-  gap: 14, maxWidth: 'calc(100% - 32px)', overflowX: 'auto', padding: '4px 2px',
+  display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'center',
+  gap: 14, rowGap: 4, maxWidth: 'calc(100% - 32px)', overflow: 'visible', padding: '4px 2px',
 }
 // The floating-bubble panel (owner redesign 2026-09-16, replacing the
 // fixed right `<aside>`). Right-anchored, clearing the bottom toolbar
