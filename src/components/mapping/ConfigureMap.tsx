@@ -868,13 +868,13 @@ export default function ConfigureMap() {
   // Cancel throws away work, so it asks first.
   // Both of these throw away work, so both ask first.
   // 'switch' (opening another tract with edits pending), 'leave' (Back
-  // to Map, dirty), 'removeTract', the Row 2 'clearPolygons'/'startOver'
-  // one-shot wipes, and the footer's own 'discardFooter' (Cancel,
-  // brought back by the owner — same dirty check as Back to Map, its
-  // own "Discard"/"Keep editing" buttons instead of OK/Cancel) all have
-  // a trigger.
+  // to Map, dirty), 'removeTract', and the Row 2
+  // 'clearPolygons'/'startOver' one-shot wipes all have a trigger. The
+  // footer's own Cancel/'discardFooter' went with the Cancel+Finish
+  // footer (owner: Save Tract is the only commit, Back to Map the only
+  // exit) — 'leave' already covers the dirty check Back to Map needs.
   const [confirmWhat, setConfirmWhat] = useState<
-    null | 'switch' | 'leave' | 'removeTract' | 'clearPolygons' | 'startOver' | 'discardFooter'
+    null | 'switch' | 'leave' | 'removeTract' | 'clearPolygons' | 'startOver'
   >(null)
   /** The tract `removeTract` is waiting on a 'removeTract' confirm for —
    *  set only when that tract is already saved server-side. */
@@ -3380,10 +3380,10 @@ export default function ConfigureMap() {
 
   // `discardAndClose` and `addTractToProject` (the old footer Cancel
   // button's two destinations — close the parcel entirely, or stay in
-  // the project and start a fresh one) went with that button: item 8's
-  // Finish is the only commit now and "Back to Map" (top-left, its own
-  // dirty-confirm) is the only exit, so nothing calls either of these
-  // any more.
+  // the project and start a fresh one) went with that button, and the
+  // footer's Finish went the same way: Save Tract is the only commit
+  // now and "Back to Map" (top-left, its own dirty-confirm) is the
+  // only exit, so nothing calls either of these any more.
 
   // The draft line takes the colour of the land type being drawn, so
   // what you are drawing looks like what it will become. The draft
@@ -3786,11 +3786,12 @@ export default function ConfigureMap() {
               (unchanged: same `cur`/`canJump` logic, same click
               handlers). On Step 1 this is the ONLY bubble and its body
               becomes the "name this project" card, footer becomes the
-              single Continue button. On Steps 2/3 the body is
+              single Continue button. On Steps 2/3 the body is just
               `toolbarHint` — the same variable, same priority chain,
               that used to feed the top-of-map banner pill (now
-              removed) — and the footer is Cancel + Finish, exactly as
-              the old pinned panel footer. */}
+              removed) — with no footer: Save Tract is the only commit
+              and Back to Map (top-left) the only exit (owner ruling,
+              the Cancel+Finish footer is gone). */}
           {showBubble('what-to-do') && (
           <Bubble key="what-to-do" animKey="what-to-do" compact={compact}>
             {(() => {
@@ -3874,30 +3875,6 @@ export default function ConfigureMap() {
                 {toolbarHint && (
                   <div style={{ fontSize: 15, fontWeight: 600, lineHeight: 1.4 }}>{toolbarHint}</div>
                 )}
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button
-                    onClick={() => {
-                      // "Any changes" includes a tract that exists only in this
-                      // session — a parcel just clicked has no savedId yet and
-                      // leaving would silently drop it (owner 9/16).
-                      const unsaved = dirty || tracts.some((t) => !t.savedId || !t.saved)
-                      if (unsaved) { setConfirmWhat('discardFooter'); return }
-                      window.location.href = '/map-portfolio'
-                    }}
-                    disabled={!!busy}
-                    style={{ ...btn, flex: 1, justifyContent: 'center', padding: '9px 10px' }}>
-                    <X size={14} /> Cancel
-                  </button>
-                  <button
-                    onClick={() => void (async () => {
-                      const ok = await saveAllTracts()
-                      if (ok) window.location.href = '/map-portfolio'
-                    })()}
-                    disabled={!!busy || !tracts.length}
-                    style={{ ...primaryBtn, flex: 1, justifyContent: 'center', padding: '9px 10px' }}>
-                    <Save size={14} /> Finish
-                  </button>
-                </div>
               </>
             )}
           </Bubble>
@@ -3988,7 +3965,7 @@ export default function ConfigureMap() {
                     press <strong>Draw a Tract</strong> at the bottom of the map and click
                     the corners of your own shape.
                     {tracts.length === 0
-                      ? ' Add as many tracts as you need, then press Finish.'
+                      ? ' Add as many tracts as you need — each one is saved with Save Tract.'
                       : ' Clicking a parcel you have already used fills in what is left of it.'}
                   </div>
                 </div>
@@ -4008,7 +3985,7 @@ export default function ConfigureMap() {
                               // The tract you have OPEN persists its rename right
                               // away (doRename), same as the removed standalone
                               // name card used to — any other row's rename rides
-                              // along with that tract's next Save/Finish, same as
+                              // along with that tract's next Save Tract, same as
                               // every other edit made to a tract that is not open.
                               if (t.id === selectedTractId) void doRename(n)
                             }}
@@ -4353,7 +4330,6 @@ export default function ConfigureMap() {
                 : confirmWhat === 'leave' ? 'Leave without saving?'
                 : confirmWhat === 'clearPolygons' ? 'Clear every polygon?'
                 : confirmWhat === 'startOver' ? 'Start over from the engine?'
-                : confirmWhat === 'discardFooter' ? 'Discard your changes?'
                 : 'Remove this tract?'}
             </div>
             <div style={{ ...hint, marginTop: 0, marginBottom: 14, display: 'block' }}>
@@ -4370,8 +4346,6 @@ export default function ConfigureMap() {
                 ? 'Every polygon edit you have made will be thrown away and '
                   + 'replaced with the engine’s own land types for this '
                   + 'boundary. This cannot be undone with Redo once you navigate away.'
-                : confirmWhat === 'discardFooter'
-                ? 'Anything not saved with Save Tract or Finish will be lost.'
                 : (pendingRemoveId && tracts.find((x) => x.id === pendingRemoveId)?.savedId)
                 ? 'This tract is already saved. OK removes it here and deletes '
                   + 'its saved record too — that part cannot be undone.'
@@ -4383,14 +4357,6 @@ export default function ConfigureMap() {
                         if (confirmWhat === 'leave') {
                           setConfirmWhat(null)
                           window.location.href = '/access'
-                        } else if (confirmWhat === 'discardFooter') {
-                          // Same discard-without-saving destination as
-                          // Back to Map's own 'leave' confirm — only
-                          // the destination page differs (the footer
-                          // Cancel button always meant "back to the
-                          // portfolio", never "back to Explore").
-                          setConfirmWhat(null)
-                          window.location.href = '/map-portfolio'
                         } else if (confirmWhat === 'switch') {
                           // Save FIRST, and only switch if it worked —
                           // switching on a failed save would lose the
@@ -4419,15 +4385,15 @@ export default function ConfigureMap() {
                         }
                       }}
                       style={{
-                        ...(confirmWhat === 'discardFooter' ? dangerBtn : primaryBtn),
+                        ...primaryBtn,
                         flex: 1, justifyContent: 'center', padding: '9px 10px',
                       }}>
-                {confirmWhat === 'discardFooter' ? 'Discard' : 'OK'}
+                OK
               </button>
               <button onClick={() => { setConfirmWhat(null); setPendingOpen(null); setPendingRemoveId(null) }}
                       style={{ ...btn, flex: 1, justifyContent: 'center',
                                padding: '9px 10px' }}>
-                {confirmWhat === 'discardFooter' ? 'Keep editing' : 'Cancel'}
+                Cancel
               </button>
             </div>
           </div>
