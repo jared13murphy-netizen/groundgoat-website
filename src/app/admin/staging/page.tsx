@@ -426,6 +426,18 @@ export default function AdminStagingPage() {
 
   // Action state
   const [actionLoading, setActionLoading] = useState<number | null>(null)
+  // Owner 9/22: what happened to this URL in staging (created / ignored /
+  // rejected / verified / force re-scraped, by whom) — from staging_events.
+  const [historyFor, setHistoryFor] = useState<number | null>(null)
+  const [historyEvents, setHistoryEvents] = useState<{ staging_id: number | null; event: string; actor: string | null; note: string | null; created_at: string }[]>([])
+  const loadHistory = async (id: number, url: string) => {
+    if (historyFor === id) { setHistoryFor(null); return }
+    setHistoryFor(id); setHistoryEvents([])
+    try {
+      const r = await fetchWithAuth(`${API_URL}/api/admin/staging-events?url=${encodeURIComponent(url)}`)
+      if (r.ok) setHistoryEvents((await r.json()).events || [])
+    } catch { /* leave the list empty */ }
+  }
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
   const [copiedId, setCopiedId] = useState<number | null>(null)
 
@@ -2001,6 +2013,26 @@ export default function AdminStagingPage() {
                             >
                               {listing.source_url}
                             </a>
+                            <button
+                              type="button"
+                              onClick={() => loadHistory(listing.id, listing.source_url)}
+                              className="mt-1 text-[11px] text-gg-gray-500 hover:text-gg-pink underline underline-offset-2"
+                              title="Every time this page was staged, ignored, rejected, verified or re-scraped, and by whom"
+                            >
+                              {historyFor === listing.id ? 'Hide history' : 'History'}
+                            </button>
+                            {historyFor === listing.id && (
+                              <ul className="mt-1 space-y-0.5 text-[11px] text-gg-gray-400">
+                                {historyEvents.length === 0 && <li>No recorded events yet (history starts 9/22).</li>}
+                                {historyEvents.map((ev, k) => (
+                                  <li key={k}>
+                                    <span className="text-gg-gray-300">{new Date(ev.created_at).toLocaleString()}</span>
+                                    {' · '}<span className="font-medium text-gg-gray-200">{ev.event}</span>
+                                    {ev.actor ? ` · ${ev.actor}` : ''}{ev.note ? ` · ${ev.note}` : ''}
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
                             <div className="flex items-center gap-4 mt-1 text-sm text-gg-gray-400">
                               <span className="flex items-center gap-1">
                                 <Calendar size={14} />
