@@ -52,6 +52,11 @@ import { REGRID_PARCEL_LAYER_IDS } from '@/lib/regridParcelFilter'
 // "Show My Project Maps" toggle. All three share one gate — see
 // canUseProjectMaps below.
 import { fetchMappingAccess, allTractsGeometry, CLASS_COLOR, type PortfolioTract } from '@/lib/configurableMapping'
+
+// Zoom split for the user's project tracts (owner 9/22): below this the
+// map shows one badge per PROJECT, above it the individual tract names.
+// Same value the Map Portfolio uses.
+const MY_TRACTS_PROJECT_BADGE_MAX_ZOOM = 13
 // Utilities panel icons (2026-09-08). The map-outline + wrench trigger
 // icon itself now lives in PortalNavBar (top pill nav, owner ruling
 // 2026-09-08 moved it out of this file) — only the panel's own tile/action
@@ -2286,6 +2291,26 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }))
     ;(map.getSource('my-tracts') as maplibregl.GeoJSONSource)?.setData(
       { type: 'FeatureCollection', features: feats } as any)
+    // Label points: every tract (shown zoomed in) + one project badge on
+    // the project's largest tract (shown zoomed out). Owner 9/22.
+    const labelFeats: any[] = myTracts.filter(t => t.label_point).map(t => ({
+      type: 'Feature', geometry: t.label_point,
+      properties: { kind: 'tract', tractId: t.id, projectId: t.project_id, name: t.name || 'Untitled' },
+    }))
+    const largestByProject = new Map<string, PortfolioTract>()
+    for (const t of myTracts) {
+      if (!t.label_point) continue
+      const cur = largestByProject.get(t.project_id)
+      if (!cur || (t.acres ?? 0) > (cur.acres ?? 0)) largestByProject.set(t.project_id, t)
+    }
+    for (const t of Array.from(largestByProject.values())) {
+      labelFeats.push({
+        type: 'Feature', geometry: t.label_point,
+        properties: { kind: 'project', tractId: t.id, projectId: t.project_id, name: t.project_name || 'Untitled project' },
+      })
+    }
+    ;(map.getSource('my-tracts-labels') as maplibregl.GeoJSONSource)?.setData(
+      { type: 'FeatureCollection', features: labelFeats } as any)
 
     // The land types inside each tract, coloured exactly as Configure Map
     // colours them: tillable green, timber red, pasture orange, water
@@ -2306,7 +2331,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
     const vis = myTractsOn ? 'visible' : 'none'
     for (const id of ['my-tracts-fill', 'my-tract-shapes-fill',
-                      'my-tract-shapes-line', 'my-tracts-line', 'my-tracts-label']) {
+                      'my-tract-shapes-line', 'my-tracts-line', 'my-tracts-label', 'my-tracts-project-label']) {
       if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis)
     }
   }, [myTracts, myTractsOn, mapLoaded, reportIds])
@@ -4835,6 +4860,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // Off unless the Utilities panel's "Show My Project Maps" toggle
       // turns them on.
       map.addSource('my-tracts', { type: 'geojson', data: EMPTY_FC })
+      // Owner 9/22: label points for the user's project tracts — ONE badge
+      // per project (its name) when zoomed out, the tract names once
+      // zoomed in. Same rule and zoom split as the Map Portfolio.
+      map.addSource('my-tracts-labels', { type: 'geojson', data: EMPTY_FC })
       map.addSource('my-tract-shapes', { type: 'geojson', data: EMPTY_FC })
       map.addSource('tract-pins', { type: 'geojson', data: EMPTY_FC })
       map.addSource('county-counts', { type: 'geojson', data: EMPTY_FC })
@@ -5029,10 +5058,34 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           'line-width': ['case', ['boolean', ['get', 'inReport'], false], 4, 3],
         },
       })
+      // Owner 9/22: zoomed out, the PROJECT name (one badge per project,
+      // on its largest tract); zoomed in past 13, the tract names — the
+      // same split the Map Portfolio uses.
+      map.addLayer({
+        id: 'my-tracts-project-label',
+        type: 'symbol',
+        source: 'my-tracts-labels',
+        maxzoom: MY_TRACTS_PROJECT_BADGE_MAX_ZOOM,
+        filter: ['==', ['get', 'kind'], 'project'],
+        layout: {
+          visibility: 'none',
+          'text-field': ['get', 'name'],
+          'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'],
+          'text-size': 13,
+          'text-max-width': 14,
+        },
+        paint: {
+          'text-color': '#f58cde',
+          'text-halo-color': 'rgba(0,0,0,0.85)',
+          'text-halo-width': 1.6,
+        },
+      })
       map.addLayer({
         id: 'my-tracts-label',
         type: 'symbol',
-        source: 'my-tracts',
+        source: 'my-tracts-labels',
+        minzoom: MY_TRACTS_PROJECT_BADGE_MAX_ZOOM,
+        filter: ['==', ['get', 'kind'], 'tract'],
         layout: {
           visibility: 'none',
           'text-field': ['get', 'name'],
