@@ -166,6 +166,10 @@ export default function MapPortfolioPage() {
   }, [])
 
   const queueAerialMap = useCallback(async (p: Project) => {
+    // Belt and braces: the button is already disabled for this case, but
+    // never let a stray call (e.g. a race with the card re-rendering)
+    // queue a report for a project with nothing saved to print.
+    if ((p.summary?.parcels ?? 0) === 0) return
     setQueuingAerial(p.id); setError(null)
     try {
       await queueReport({ projectId: p.id }, 'aerial', {})
@@ -465,15 +469,29 @@ export default function MapPortfolioPage() {
                   {/* Project-level report (owner item 8): the whole
                       project's ground, at whatever imagery year is set
                       on it, as one PDF — queued here rather than opening
-                      ConfigureMap first. */}
-                  <button style={{ ...btn, whiteSpace: 'nowrap' }}
-                          disabled={!!busy || queuingAerial === p.id}
-                          onClick={() => void queueAerialMap(p)}>
-                    {queuingAerial === p.id
-                      ? <Loader2 size={13} className="animate-spin" />
-                      : <FileText size={13} />}
-                    {queuingAerial === p.id ? (REPORT_BUSY_LABEL.aerial || 'Working…') : 'Aerial Map'}
-                  </button>
+                      ConfigureMap first. Disabled while a build is
+                      already in flight (same rule ConfigureMap's Reports
+                      card uses: `queuingAerial` covers the click that
+                      just happened, the `projectReports` scan covers one
+                      queued from elsewhere — another tab, or
+                      ConfigureMap itself) and while the project has no
+                      saved tracts yet (nothing to print). */}
+                  {(() => {
+                    const aerialWorking = queuingAerial === p.id || (projectReports[p.id] || []).some(
+                      (r) => r.kind === 'aerial' && (r.status === 'queued' || r.status === 'running'))
+                    const noTracts = (p.summary?.parcels ?? 0) === 0
+                    return (
+                      <button style={{ ...btn, whiteSpace: 'nowrap' }}
+                              disabled={!!busy || aerialWorking || noTracts}
+                              title={noTracts ? 'Save at least one tract first.' : undefined}
+                              onClick={() => void queueAerialMap(p)}>
+                        {aerialWorking
+                          ? <Loader2 size={13} className="animate-spin" />
+                          : <FileText size={13} />}
+                        {aerialWorking ? (REPORT_BUSY_LABEL.aerial || 'Working…') : 'Aerial Map'}
+                      </button>
+                    )
+                  })()}
                   <button style={{ ...btn, whiteSpace: 'nowrap' }} disabled={!!busy}
                           onClick={() => void act(
                             p.archived_at ? 'Restoring…' : 'Archiving…',

@@ -3477,6 +3477,12 @@ export default function ConfigureMap() {
       setError('Save this parcel before building a report.')
       return
     }
+    // The Aerial Map prints whatever tracts are actually saved — a
+    // project with none yet has nothing to print, even once it exists.
+    if (isProjectLevel && !tracts.some((t) => !!t.savedId)) {
+      setError('Save at least one tract first.')
+      return
+    }
     setError(null); setQueuing(kind)
     try {
       await queueReport(
@@ -3488,7 +3494,7 @@ export default function ConfigureMap() {
     } catch (e: any) {
       setError(e?.message || 'Could not start that report.')
     } finally { setQueuing(null) }
-  }, [editingId, projectId, refreshReports, exaggeration])
+  }, [editingId, projectId, refreshReports, exaggeration, tracts])
 
   /** Discard unsaved edits. Falls back to the engine's own polygons when
    *  this parcel has never been saved, so Cancel always lands somewhere
@@ -3715,17 +3721,28 @@ export default function ConfigureMap() {
           }}>
           <ArrowLeft size={14} /> Back to Map
         </button>
-        {/* Aerial imagery year (owner item 5, 2026-09-22) — a pill
-            bottom-left, above the NavigationControl's zoom buttons, so
-            the bottom toolbar row (which is centred and unrelated)
-            stays exactly as it is. Opens the same 4-column year grid
-            Explore's Utilities "Map Year" view uses, styled the same
-            way, but this choice PERSISTS on the project instead of
-            resetting on reload. */}
-        <div style={{ position: 'absolute', bottom: 92, left: 10, zIndex: 30 }}>
+        {/* Aerial imagery year (owner item 5, 2026-09-22) — a pill that
+            opens the same 4-column year grid Explore's Utilities "Map
+            Year" view uses, styled the same way, but this choice
+            PERSISTS on the project instead of resetting on reload.
+            Layout-aware (reviewer defect 3): the desktop toolbar row is
+            centred and bottom-left is free, so the pill sits there,
+            above the NavigationControl's zoom buttons (`bottom: 16` the
+            control's own margin + its ~two-button ~74px height + an 8px
+            gap). In `compact` that corner is the bottom SHEET's turf
+            (and a wrapped toolbar can reach further up than the desktop
+            row ever does), so the pill moves to the top-left instead,
+            right under "Back to Map" — and its popup opens DOWNWARD
+            there instead of upward, so it never renders off the top of
+            the screen. `zIndex: 31` clears both the toolbar (30) and its
+            gradient band (20). */}
+        <div style={compact
+          ? { position: 'absolute', top: 58, left: 14, zIndex: 31 }
+          : { position: 'absolute', bottom: 16 + 74 + 8, left: 10, zIndex: 31 }}>
           {aerialPickerOpen && (
             <div style={{
-              position: 'absolute', bottom: '100%', left: 0, marginBottom: 8,
+              position: 'absolute', left: 0,
+              ...(compact ? { top: '100%', marginTop: 8 } : { bottom: '100%', marginBottom: 8 }),
               width: 220, padding: 10, borderRadius: 10,
               background: 'rgba(15,21,32,0.96)', border: '1px solid rgba(255,255,255,0.14)',
               boxShadow: '0 8px 24px rgba(0,0,0,0.55)', backdropFilter: 'blur(10px)',
@@ -4509,9 +4526,14 @@ export default function ConfigureMap() {
                     const working = queuing === k || reports.some(
                       (r) => r.kind === k && (r.status === 'queued' || r.status === 'running')
                         && (isProjectLevel ? r.parcel_id === null : r.parcel_id === editingId))
+                    // The Aerial Map prints whatever is saved — nothing
+                    // to print until at least one tract is.
+                    const noSavedTracts = isProjectLevel && !tracts.some((t) => !!t.savedId)
                     return (
                       <button key={k} onClick={() => void makeReport(k)}
-                              disabled={working} style={btn}>
+                              disabled={working || noSavedTracts}
+                              title={noSavedTracts ? 'Save at least one tract first.' : undefined}
+                              style={btn}>
                         {working
                           ? <Loader2 size={13} className="animate-spin" />
                           : <FileText size={13} />}
