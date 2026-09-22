@@ -2507,6 +2507,16 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
   }, [])
   const [selectedSale, setSelectedSale] = useState<SaleDetail | null>(null)
+  // Owner 9/22: a click on one of the user's OWN project tracts asks
+  // what they want — the parcel data under the click, or the tract in
+  // the Map Portfolio (selected and zoomed in).
+  const [myTractChoice, setMyTractChoice] = useState<{
+    tractId: string; projectId: string; name: string; projectName: string
+    lng: number; lat: number; x: number; y: number
+  } | null>(null)
+  // The regular parcel-click handler, so "Show Parcel Data" can open the
+  // parcel panel exactly as a click on bare ground would.
+  const parcelClickRef = useRef<((e: any) => void) | null>(null)
   // The PortalTractDetail deed refresh below replaced a matching one for
   // the comp-mode inline popup, which is gone (2026-08-18): comp mode now
   // opens the same slide-out panels explore mode does, so there is no
@@ -6369,6 +6379,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
     map.on('mousemove', FILL_LAYER, onMove)
     map.on('mouseleave', FILL_LAYER, onLeave)
+    parcelClickRef.current = onClick
     map.on('click', FILL_LAYER, onClick)
 
     // NOTE: previously had a dedup pump that wrote one Point per
@@ -9635,64 +9646,21 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // the full tract record, so it is resolved by id either way rather
     // than trusting whichever feature happened to be hit.
     const onMyTractClick = (e: any) => {
+      if (mapInteractionSuspendedRef.current) return
       const f = e.features?.[0]
       if (!f) return
       const hitId = f.properties?.tractId
       const t = myTractsRef.current.find(x => x.id === hitId)
       if (!t) return
-      const p = {
-        tractId: t.id,
-        name: t.name,
-        projectName: t.project_name,
-        acres: t.acres,
-        tillableAcres: t.tillable_acres,
-        county: t.county,
-        state: t.state,
-        soilRating: t.soil_rating,
-      } as any
-      // The tract's own outline — never the land-type polygon that was
-      // clicked, or a report/detail would draw one field instead of the
-      // whole tract.
-      const ring = (() => {
-        try {
-          const g: any = t.boundary
-          const c = g?.type === 'Polygon' ? g.coordinates?.[0]
-            : g?.type === 'MultiPolygon' ? g.coordinates?.[0]?.[0] : null
-          return Array.isArray(c) ? (c as [number, number][]) : null
-        } catch { return null }
-      })()
-      const saleData = {
-        // `cm:` so a drawn tract can never collide with an auction id.
-        id: `cm:${p.tractId}`,
-        tractId: `cm:${p.tractId}`,
-        listingId: null,
-        auctionDate: null,
-        totalAcres: p.acres ?? null,
-        tillableAcres: p.tillableAcres ?? null,
-        // The project reads as the "company" line (PortalTractDetail
-        // relabels it "Project" for a `cm:` id), the tract as the name.
-        companyName: p.projectName || null,
-        owner: p.name || null,
-        salePrice: null,
-        pricePerAcre: null,
-        county: p.county || '',
-        state: p.state || '',
-        soilRating: p.soilRating ?? null,
-        polygonCoordinates: ring,
-        saleStatus: null,
-        latitude: e.lngLat?.lat ?? null,
-        longitude: e.lngLat?.lng ?? null,
-      } as unknown as SaleDetail
-      // Same "one click, one panel" + Utilities-panel-closes rule as any
-      // other tract (see the Task #26 block above).
+      // Owner 9/22: ask, don't guess — a small two-choice popup at the
+      // click: the parcel data under it, or this tract in the Portfolio.
       setLandDetail(null)
       setUtilitiesOpen(false)
-      if (portalMode && onTractSelected) {
-        lastPortalSaleRef.current = saleData
-        onTractSelected(saleData)
-      } else {
-        setSelectedSale(saleData)
-      }
+      setMyTractChoice({
+        tractId: t.id, projectId: t.project_id, name: t.name || 'Untitled',
+        projectName: t.project_name || 'Untitled project',
+        lng: e.lngLat.lng, lat: e.lngLat.lat, x: e.point.x, y: e.point.y,
+      })
     }
     for (const lyr of ['my-tracts-fill', 'my-tract-shapes-fill']) {
       map.on('click', lyr, onMyTractClick)
@@ -10666,6 +10634,66 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   return (
     <div className="comparables-map-container" style={{ height }}>
       <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+
+      {/* Owner 9/22: two-choice popup for a click on one of the user's own
+          project tracts. */}
+      {myTractChoice && (
+        <div
+          style={{
+            position: 'absolute', zIndex: 40,
+            left: Math.max(8, Math.min(myTractChoice.x - 110, (containerRef.current?.clientWidth ?? 400) - 228)),
+            top: Math.max(8, myTractChoice.y - 118),
+            width: 220, padding: 10, borderRadius: 12,
+            background: 'rgba(8,8,10,0.92)', border: '1px solid rgba(255,255,255,0.14)',
+            boxShadow: '0 10px 30px rgba(0,0,0,0.55)', color: '#fff', fontSize: 13,
+          }}
+          onClick={(ev) => ev.stopPropagation()}>
+          <div style={{ fontWeight: 700, marginBottom: 2 }}>{myTractChoice.name}</div>
+          <div style={{ opacity: 0.7, fontSize: 12, marginBottom: 8 }}>{myTractChoice.projectName}</div>
+          <button
+            onClick={() => {
+              const c = myTractChoice
+              const map = mapRef.current
+              setMyTractChoice(null)
+              if (!map || !c) return
+              const fire = () => {
+                const point = map.project([c.lng, c.lat])
+                const feats = map.getLayer('regrid-parcels-fill')
+                  ? map.queryRenderedFeatures(point, { layers: ['regrid-parcels-fill'] }) : []
+                if (feats.length && parcelClickRef.current) {
+                  parcelClickRef.current({ features: feats, point, lngLat: { lng: c.lng, lat: c.lat }, originalEvent: {} })
+                  return true
+                }
+                return false
+              }
+              // Parcel lines only render zoomed in; if they are not on screen
+              // yet, zoom to the spot first and open the parcel once drawn.
+              if (fire()) return
+              map.once('idle', () => { fire() })
+              map.flyTo({ center: [c.lng, c.lat], zoom: Math.max(map.getZoom(), 15), duration: 600 })
+            }}
+            style={{ display: 'block', width: '100%', padding: '8px 10px', marginBottom: 6, borderRadius: 8,
+                     border: '1px solid rgba(255,255,255,0.18)', background: 'rgba(255,255,255,0.08)',
+                     color: '#fff', cursor: 'pointer', fontWeight: 600 }}>
+            Show Parcel Data
+          </button>
+          <button
+            onClick={() => {
+              const c = myTractChoice
+              setMyTractChoice(null)
+              if (!c) return
+              window.location.href = `/map-portfolio?project=${encodeURIComponent(c.projectId)}&tract=${encodeURIComponent(c.tractId)}`
+            }}
+            style={{ display: 'block', width: '100%', padding: '8px 10px', borderRadius: 8, border: 'none',
+                     background: 'linear-gradient(135deg, #ff7ad9 0%, #f58cde 100%)',
+                     color: '#1a0a14', cursor: 'pointer', fontWeight: 700 }}>
+            Show Configurable Map
+          </button>
+          <button onClick={() => setMyTractChoice(null)} aria-label="Close"
+                  style={{ position: 'absolute', top: 4, right: 6, background: 'none', border: 'none',
+                           color: 'rgba(255,255,255,0.6)', cursor: 'pointer', fontSize: 14 }}>×</button>
+        </div>
+      )}
 
       {/* State-gate banner (spec §2, owner 2026-09-15 item 18): always
           visible for any restricted user (non-null allowedStates), never

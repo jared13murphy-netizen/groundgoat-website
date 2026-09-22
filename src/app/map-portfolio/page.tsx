@@ -117,6 +117,18 @@ export default function MapPortfolioPage() {
 
   /** Clicking a tract on the map selects the project it belongs to —
    *  the same act as opening that project in the list. */
+  // Owner 9/22: Explore's "Show Configurable Map" lands here with the
+  // tract to select and zoom to (?project=&tract=).
+  useEffect(() => {
+    if (allowed !== true) return
+    try {
+      const q = new URLSearchParams(window.location.search)
+      const pid = q.get('project'); const tid = q.get('tract')
+      if (pid) pickProject(pid, tid || undefined)
+    } catch { /* no deep link */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allowed])
+
   const pickProject = useCallback((id: string, tractId?: string) => {
     setFocusTract(tractId || null)
     setOpenId((cur) => {

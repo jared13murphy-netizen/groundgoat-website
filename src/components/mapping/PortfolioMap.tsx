@@ -59,6 +59,7 @@ export default function PortfolioMap({
   const tractsRef = useRef<PortfolioTract[]>([]); tractsRef.current = tracts
   // Frame a project only when the SELECTION changes — not on every data
   // refresh, which would yank the camera back while someone is panning.
+  const framedTractRef = useRef<string | null>(null)
   const framedRef = useRef<string | null | undefined>(undefined)
   // The map finishes loading after the first render, and the tracts
   // arrive later still. Whichever lands last runs the current paint.
@@ -286,6 +287,13 @@ export default function PortfolioMap({
         framedRef.current = selectedProject
         const bb = bboxOf(shown.map((t) => t.boundary?.coordinates).filter(Boolean))
         if (bb) map.fitBounds(bb, { padding: 80, maxZoom: 15, duration: 700 })
+      }
+      // Owner 9/22: a tract picked from Explore (or the list) is framed on
+      // its own, once per pick, so "select this tract and zoom in" holds.
+      if (selectedTract && framedTractRef.current !== selectedTract) {
+        const t = shown.find((x) => x.id === selectedTract)
+        const tb = t?.boundary ? bboxOf(t.boundary.coordinates) : null
+        if (tb) { framedTractRef.current = selectedTract; map.fitBounds(tb, { padding: 90, maxZoom: 16, duration: 700 }) }
       }
     }
     paintRef.current = paint

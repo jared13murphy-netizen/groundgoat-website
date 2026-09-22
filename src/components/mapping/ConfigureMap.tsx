@@ -38,7 +38,7 @@ import {
   updateParcel, queueReport, listReports, downloadReport, getProject,
   REPORT_KINDS, REPORT_LABEL, REPORT_BUSY_LABEL, USES_ELEVATION, type ReportRow,
   deleteReport, projectGeometry, type ProjectTractGeometry, listCounties, renameParcel,
-  niceCounty, combineGeometry, fitTracts,
+  niceCounty, combineGeometry, fitTracts, listProjects,
   createCma, getCma, listCmas, cmaCandidates, setCmaComps, queueCmaReport, updateCma,
   parcelsUnder, differenceGeometry,
   type Cma, type CompCandidate,
@@ -846,6 +846,14 @@ export default function ConfigureMap() {
   // Project context. A single-parcel user never sees this: leaving it
   // blank makes the server create a project named after the parcel.
   const [projectId, setProjectId] = useState<string | null>(null)
+  // Owner 9/22: arriving from Explore with a parcel, Step 1 only offered a
+  // NEW project. The user's existing projects are offered too — picking
+  // one adds this tract to it.
+  const [existingProjects, setExistingProjects] = useState<{ id: string; name: string }[]>([])
+  useEffect(() => {
+    listProjects().then((r: any) => setExistingProjects((r?.projects ?? r ?? []).map((p: any) => ({ id: p.id, name: p.name }))))
+      .catch(() => { /* the new-project path still works */ })
+  }, [])
   const [projectName, setProjectName] = useState('')
   const projectNameRef = useRef(''); projectNameRef.current = projectName
   const [reports, setReports] = useState<ReportRow[]>([])
@@ -3628,6 +3636,26 @@ export default function ConfigureMap() {
                         style={{ ...primaryBtn, width: '100%', justifyContent: 'center', padding: '9px 10px' }}>
                   <ArrowRight size={14} /> Continue to the Map
                 </button>
+                {existingProjects.length > 0 && (
+                  <>
+                    <div style={{ textAlign: 'center', opacity: 0.6, fontSize: 12, margin: '6px 0 2px' }}>or</div>
+                    <div style={{ lineHeight: 1.5 }}>Add this tract to one of your existing projects:</div>
+                    <select
+                      defaultValue=""
+                      onChange={(e) => {
+                        const p = existingProjects.find((x) => x.id === e.target.value)
+                        if (!p) return
+                        setProjectId(p.id)
+                        setProjectName(p.name)
+                        setStage('build')
+                      }}
+                      style={{ ...inputStyle, width: '100%', marginTop: 4 }}
+                      title="The tract you opened joins this project; you can still draw more.">
+                      <option value="" disabled>Choose a project…</option>
+                      {existingProjects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                  </>
+                )}
               </>
             ) : (
               <>
