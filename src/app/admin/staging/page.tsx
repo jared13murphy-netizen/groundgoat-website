@@ -1979,6 +1979,14 @@ export default function AdminStagingPage() {
                                 {listing.scraped_data?.rescrape_listing_id && (
                                   <span className="px-2 py-0.5 bg-orange-500/20 text-orange-400 text-xs font-medium rounded-full">RESCRAPE</span>
                                 )}
+                                {/* Owner 9/22: a page the nightly scraper could not read a
+                                    date from twice is staged anyway, flagged — say so up front. */}
+                                {listing.is_incomplete && listing.incomplete_reason && (
+                                  <span className="px-2 py-0.5 bg-yellow-500/20 text-yellow-300 text-xs font-medium rounded-full"
+                                        title={listing.incomplete_reason}>
+                                    {listing.incomplete_reason.toLowerCase().includes('date') ? 'CONFIRM DATE' : 'INCOMPLETE'}
+                                  </span>
+                                )}
                               </h3>
                             )}
                             {/* Full source URL shown under the company name
