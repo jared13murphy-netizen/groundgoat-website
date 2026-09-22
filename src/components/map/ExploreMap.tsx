@@ -5083,6 +5083,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'],
           'text-size': 13,
           'text-max-width': 14,
+          // The subscriber's own project name must never lose the
+          // collision fight to the parcel owner labels around it (at z12
+          // in Hancock IL the badge was silently dropped every time).
+          'text-allow-overlap': true,
+          'text-ignore-placement': true,
         },
         paint: {
           'text-color': '#f58cde',
@@ -5102,6 +5107,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'],
           'text-size': 12,
           'text-max-width': 12,
+          'text-allow-overlap': true,
+          'text-ignore-placement': true,
         },
         paint: {
           'text-color': '#ffffff',
