@@ -22,7 +22,7 @@
  * against PostGIS, so stored figures never depend on this approximation.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import {
@@ -517,8 +517,22 @@ function ToolButton({ icon: Icon, dot, label, onClick, active, disabled, primary
     : (active || primary) ? GG_PINK
     : hover ? '#ffffff'
     : 'rgba(255,255,255,0.9)'
+  // Toolbar redesign (owner item 3, 2026-09-22): each button animates in
+  // from below and `layout` lets its siblings slide over when a button
+  // mounts/unmounts or the whole row's width changes. Respects
+  // prefers-reduced-motion via a zero-duration transition rather than
+  // skipping the animation props outright, so layout reflow still works.
+  const reduceMotion = useReducedMotion()
+  const toolButtonTransition = reduceMotion
+    ? { duration: 0 }
+    : { type: 'spring' as const, stiffness: 500, damping: 30 }
   return (
-    <button
+    <motion.button
+      layout
+      initial={{ y: 28, opacity: 0, scale: 0.9 }}
+      animate={{ y: 0, opacity: 1, scale: 1 }}
+      exit={{ y: 28, opacity: 0, scale: 0.9 }}
+      transition={toolButtonTransition}
       type="button"
       onClick={onClick}
       disabled={disabled}
@@ -557,7 +571,7 @@ function ToolButton({ icon: Icon, dot, label, onClick, active, disabled, primary
       }}>
         {label}
       </span>
-    </button>
+    </motion.button>
   )
 }
 
@@ -666,6 +680,13 @@ export default function ConfigureMap() {
     return () => mq.removeEventListener('change', apply)
   }, [])
   const [sheetTab, setSheetTab] = useState<SheetTab>('what-to-do')
+  // Toolbar redesign (owner item 3, 2026-09-22): the toolbar slides up
+  // over a gradient, and its buttons animate in / slide siblings over.
+  // `reduceMotion` collapses every transition below to zero duration.
+  const reduceMotion = useReducedMotion()
+  const toolbarEntranceTransition = reduceMotion
+    ? { duration: 0 }
+    : { type: 'spring' as const, stiffness: 420, damping: 32 }
   const toolbarRef = useRef<HTMLDivElement>(null)
   const [toolbarH, setToolbarH] = useState(80)
   useEffect(() => {
@@ -3582,6 +3603,31 @@ export default function ConfigureMap() {
           }}>
           <ArrowLeft size={14} /> Back to Map
         </button>
+        {/* Bottom gradient (owner item 3, 2026-09-22): "these buttons
+            aren't currently noticeable" — a non-interactive band pinned
+            under the toolbar (zIndex below its 30, above the map) so the
+            round buttons read against dark ground no matter what's under
+            them. Fades with the toolbar itself; sized to clear it (its
+            height + 56px) plus a fixed 150px on desktop, where the row
+            never wraps so a fixed height reads fine. Sits under the
+            tablet sheet's own 25 z-index, never over it. */}
+        <AnimatePresence>
+          {stage === 'build' && (
+            <motion.div
+              key="toolbar-gradient"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={reduceMotion ? { duration: 0 } : { duration: 0.26 }}
+              style={{
+                position: 'absolute', left: 0, right: 0, bottom: 0, zIndex: 20,
+                height: compact ? toolbarH + 56 : 150,
+                background: 'linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,0.55) 45%, rgba(0,0,0,0.92) 100%)',
+                pointerEvents: 'none',
+              }}
+            />
+          )}
+        </AnimatePresence>
         {/* Bottom-of-map toolbar (owner redesign 2026-09-16): every tool
             that touches a tract's polygons — boundary OR land type —
             lives HERE, not in the right panel ("the panel informs, the
@@ -3602,150 +3648,169 @@ export default function ConfigureMap() {
             floating bubbles) — `toolbarHint`'s value now shows as the
             "What To Do" bubble's body instead (same variable, same
             priority chain, just a different piece of JSX reading it). */}
-        {stage === 'build' && (
-          <div ref={toolbarRef} style={compact ? toolbarRowCompact : toolbarRow}>
-            {tractMode === 'landtypes' && activeTract ? (
-              <>
-                {/* Mirrors "2. Tracts" clicked from Step 3 — same
-                    handler, just closer to hand (owner correction). */}
-                <ToolButton icon={PenTool} label="Outline"
-                            onClick={() => setTractMode('outline')} />
-                {LAND_CLASSES.map((c) => (
-                  <ToolButton key={c} dot={CLASS_COLOR[c]} label={CLASS_LABEL[c]}
-                              active={drawClass === c} title={CLASS_LABEL[c]}
-                              onClick={() => { setDrawClass(c); if (selectedId) setClassOf(selectedId, c) }} />
-                ))}
-                <ToolButton icon={(tool === 'draw' && drawing) ? X : Plus} active={tool === 'draw' && drawing}
-                            label={(tool === 'draw' && drawing) ? 'Cancel Drawing' : 'Add Polygon'}
-                            onClick={() => {
-                              if (tool === 'draw' && drawing) {
-                                setDraft([]); setDrawing(false); setTool(null); dropDraftHist()
-                                return
-                              }
-                              setTool('draw'); setDrawing(true); setDraft([])
-                            }} />
-                <ToolButton icon={Trash2} label="Delete" disabled={!selectedId}
-                            onClick={() => selectedId && deleteShape(selectedId)} />
-                <ToolButton icon={tool === 'cutpoly' ? X : Scissors} active={tool === 'cutpoly'}
-                            label={tool === 'cutpoly' ? 'Cancel Cut' : 'Split Polygon'}
-                            disabled={!selectedId && tool !== 'cutpoly'}
-                            onClick={() => {
-                              if (tool === 'cutpoly') { setTool(null); setCutPts([]); return }
-                              setTool('cutpoly'); setCutPts([]); setDrawing(false); setDraft([])
-                            }} />
-                <ToolButton icon={tool === 'erase' ? Check : Eraser} active={tool === 'erase'}
-                            label={tool === 'erase' ? 'Done Erasing' : 'Erase Points'}
-                            disabled={!selectedId && tool !== 'erase'}
-                            onClick={() => { setTool(tool === 'erase' ? null : 'erase'); setMarq(null) }} />
-                <ToolButton icon={PaintBucket}
-                            label={`Fill Holes${holesOnSelected > 0 ? ` (${holesOnSelected})` : ''}`}
-                            disabled={!selectedId || holesOnSelected === 0}
-                            title="Remove every hole inside the selected polygon"
-                            onClick={() => selectedId && fillHoles(selectedId)} />
-                <ToolButton icon={X} label="Clear Polygons" disabled={!shapes.length}
-                            onClick={() => { if (shapes.length) setConfirmWhat('clearPolygons') }} />
-                <ToolButton icon={Layers} label="Start Over" disabled={!detail?.polygons.length}
-                            onClick={() => { if (detail?.polygons.length) setConfirmWhat('startOver') }} />
-                <ToolButton icon={RotateCcw} label="Undo" disabled={undoDisabled} onClick={handleUndo} />
-                <ToolButton icon={RotateCw} label="Redo" disabled={redoDisabled} onClick={handleRedo} />
-                <ToolButton icon={Save} label="Save Tract" primary={activeUnsaved && !!activeTract?.name.trim()}
-                            disabled={!!busy || (tool === 'draw' && drawing
-                              ? draft.length < 3 : !activeTract.name.trim())}
-                            title={tool === 'draw' && drawing
-                              ? (draft.length < 3 ? 'Needs at least 3 points.' : 'Finishes the polygon and saves the tract.')
-                              : !activeTract.name.trim() ? 'Name this tract before saving.'
-                              : 'Saves this tract to the project. You stay here.'}
-                            onClick={() => {
-                              if (!selectedTractId) return
-                              if (tool === 'draw' && drawing) {
-                                // The button is disabled under 3 points, so
-                                // this only ever runs with a finishable draft.
-                                const result = finishDraft()
-                                if (result?.kind === 'shape') {
-                                  void saveAllTracts([selectedTractId], { tractId: selectedTractId, shapes: result.shapes })
-                                } else {
-                                  void saveAllTracts([selectedTractId])
+        <AnimatePresence>
+          {stage === 'build' && (
+            <motion.div
+              ref={toolbarRef}
+              style={compact ? toolbarRowCompact : toolbarRow}
+              initial={{ y: 40, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 40, opacity: 0 }}
+              transition={toolbarEntranceTransition}
+            >
+            {/* Individual buttons animate in on top of the row's own
+                entrance above; `initial={false}` skips a double-animation
+                on first paint, and `layout` (set on ToolButton itself)
+                slides the rest of the row over whenever one mounts,
+                unmounts, or the mode branch below swaps wholesale. Every
+                button below keeps a STABLE key across label toggles (e.g.
+                Add Polygon / Cancel Drawing is always "draw-polygon") so
+                it morphs in place instead of re-entering. */}
+            <AnimatePresence mode="popLayout" initial={false}>
+              {tractMode === 'landtypes' && activeTract ? (
+                <>
+                  {/* Mirrors "2. Tracts" clicked from Step 3 — same
+                      handler, just closer to hand (owner correction). */}
+                  <ToolButton key="outline" icon={PenTool} label="Outline"
+                              onClick={() => setTractMode('outline')} />
+                  {LAND_CLASSES.map((c) => (
+                    <ToolButton key={c} dot={CLASS_COLOR[c]} label={CLASS_LABEL[c]}
+                                active={drawClass === c} title={CLASS_LABEL[c]}
+                                onClick={() => { setDrawClass(c); if (selectedId) setClassOf(selectedId, c) }} />
+                  ))}
+                  <ToolButton key="draw-polygon" icon={(tool === 'draw' && drawing) ? X : Plus} active={tool === 'draw' && drawing}
+                              label={(tool === 'draw' && drawing) ? 'Cancel Drawing' : 'Add Polygon'}
+                              onClick={() => {
+                                if (tool === 'draw' && drawing) {
+                                  setDraft([]); setDrawing(false); setTool(null); dropDraftHist()
+                                  return
                                 }
-                                return
-                              }
-                              void saveAllTracts([selectedTractId])
-                            }} />
-              </>
-            ) : (
-              <>
-                {/* The icon follows the label: an X while it says Cancel Drawing (owner 9/16 icon-follows-label rule). */}
-                <ToolButton icon={(tool === 'drawtract' && drawing) ? X : PenTool} active={tool === 'drawtract' && drawing}
-                            // The call to action while adding: pink so it is
-                            // the obvious thing to press.
-                            primary={addingTract && !(tool === 'drawtract' && drawing)}
-                            label={(tool === 'drawtract' && drawing) ? 'Cancel Drawing' : 'Draw a Tract'}
-                            disabled={!(addingTract || (tool === 'drawtract' && drawing))}
-                            onClick={() => {
-                              if (tool === 'drawtract' && drawing) {
-                                setDraft([]); setDrawing(false); setTool(null); dropDraftHist()
-                                return
-                              }
-                              setTool('drawtract'); setDrawing(true); setDraft([])
-                            }} />
-                <ToolButton icon={Magnet} label={tracts.length <= 1 ? 'Snap to Parcel' : 'Snap Tracts'}
-                            disabled={!!busy || (tracts.length < 2
-                              && !(tracts.length === 1 && tracts[0].source.kind === 'parcel'))}
-                            title={tracts.length <= 1
-                              ? 'Fits this tract to its own parcel boundary so the acres are exact.'
-                              : 'Fits every drawn tract to the frame and to each other so acres add up.'}
-                            onClick={() => void snapTracts()} />
-                <ToolButton icon={Save} label="Save Tract" primary={activeUnsaved && !!activeTract?.name.trim()}
-                            disabled={!!busy || (tool === 'drawtract' && drawing
-                              ? draft.length < 3
-                              : !activeTract || !activeTract.name.trim())}
-                            title={tool === 'drawtract' && drawing
-                              ? (draft.length < 3 ? 'Needs at least 3 points.' : 'Finishes the tract and saves it.')
-                              : !activeTract ? 'Open a tract to save it.'
-                              : !activeTract.name.trim() ? 'Name this tract before saving.'
-                              : 'Saves this tract to the project. You stay here.'}
-                            onClick={() => {
-                              if (tool === 'drawtract' && drawing) {
-                                // The button is disabled under 3 points, so
-                                // this only ever runs with a finishable draft.
-                                const result = finishDraft()
-                                if (result?.kind === 'tract') {
-                                  if (!result.tract.name.trim()) {
-                                    setError('Name this tract before saving.')
-                                    return
+                                setTool('draw'); setDrawing(true); setDraft([])
+                              }} />
+                  <ToolButton key="delete-polygon" icon={Trash2} label="Delete" disabled={!selectedId}
+                              onClick={() => selectedId && deleteShape(selectedId)} />
+                  <ToolButton key="split-polygon" icon={tool === 'cutpoly' ? X : Scissors} active={tool === 'cutpoly'}
+                              label={tool === 'cutpoly' ? 'Cancel Cut' : 'Split Polygon'}
+                              disabled={!selectedId && tool !== 'cutpoly'}
+                              onClick={() => {
+                                if (tool === 'cutpoly') { setTool(null); setCutPts([]); return }
+                                setTool('cutpoly'); setCutPts([]); setDrawing(false); setDraft([])
+                              }} />
+                  <ToolButton key="erase-points" icon={tool === 'erase' ? Check : Eraser} active={tool === 'erase'}
+                              label={tool === 'erase' ? 'Done Erasing' : 'Erase Points'}
+                              disabled={!selectedId && tool !== 'erase'}
+                              onClick={() => { setTool(tool === 'erase' ? null : 'erase'); setMarq(null) }} />
+                  <ToolButton key="fill-holes" icon={PaintBucket}
+                              label={`Fill Holes${holesOnSelected > 0 ? ` (${holesOnSelected})` : ''}`}
+                              disabled={!selectedId || holesOnSelected === 0}
+                              title="Remove every hole inside the selected polygon"
+                              onClick={() => selectedId && fillHoles(selectedId)} />
+                  <ToolButton key="clear-polygons" icon={X} label="Clear Polygons" disabled={!shapes.length}
+                              onClick={() => { if (shapes.length) setConfirmWhat('clearPolygons') }} />
+                  <ToolButton key="start-over" icon={Layers} label="Start Over" disabled={!detail?.polygons.length}
+                              onClick={() => { if (detail?.polygons.length) setConfirmWhat('startOver') }} />
+                  <ToolButton key="undo" icon={RotateCcw} label="Undo" disabled={undoDisabled} onClick={handleUndo} />
+                  <ToolButton key="redo" icon={RotateCw} label="Redo" disabled={redoDisabled} onClick={handleRedo} />
+                  <ToolButton key="save-tract" icon={Save} label="Save Tract" primary={activeUnsaved && !!activeTract?.name.trim()}
+                              disabled={!!busy || (tool === 'draw' && drawing
+                                ? draft.length < 3 : !activeTract.name.trim())}
+                              title={tool === 'draw' && drawing
+                                ? (draft.length < 3 ? 'Needs at least 3 points.' : 'Finishes the polygon and saves the tract.')
+                                : !activeTract.name.trim() ? 'Name this tract before saving.'
+                                : 'Saves this tract to the project. You stay here.'}
+                              onClick={() => {
+                                if (!selectedTractId) return
+                                if (tool === 'draw' && drawing) {
+                                  // The button is disabled under 3 points, so
+                                  // this only ever runs with a finishable draft.
+                                  const result = finishDraft()
+                                  if (result?.kind === 'shape') {
+                                    void saveAllTracts([selectedTractId], { tractId: selectedTractId, shapes: result.shapes })
+                                  } else {
+                                    void saveAllTracts([selectedTractId])
                                   }
-                                  void saveAllTracts([result.tract.id], { tract: result.tract })
+                                  return
                                 }
-                                return
-                              }
-                              if (selectedTractId) void saveAllTracts([selectedTractId])
-                            }} />
-                {/* Owner 9/16: a way to throw a tract polygon away and start
-                    over, on the map with the other tract tools; it always
-                    confirms first. */}
-                <ToolButton icon={Trash2} label="Delete Tract"
-                            disabled={!!busy || !activeTract}
-                            title={!activeTract ? 'Open a tract to delete it.' : 'Removes this tract. You will be asked first.'}
-                            onClick={() => { if (selectedTractId) removeTract(selectedTractId) }} />
-                <ToolButton icon={RotateCcw} label="Undo" disabled={undoDisabled} onClick={handleUndo} />
-                <ToolButton icon={RotateCw} label="Redo" disabled={redoDisabled} onClick={handleRedo} />
-                {/* The deliberate "next step" once a tract is open — filled
-                    pink rather than a peer of the rest (owner correction).
-                    Only ever rendered with a tract open (this branch also
-                    covers the empty-list/adding-a-tract states, which have
-                    no tract to switch), so there is no reachable disabled
-                    state worth building for it. */}
-                {activeTract && (
-                  <ToolButton icon={Layers} label="Land Types" primary
-                              onClick={() => setTractMode('landtypes')} />
-                )}
-              </>
-            )}
-            <ToolButton icon={bubblesHidden ? Eye : EyeOff}
-                        label={bubblesHidden ? 'Show Cards' : 'Hide Cards'}
-                        title={bubblesHidden ? 'Bring the cards back' : 'Tuck the cards away while you draw'}
-                        onClick={() => setBubblesHidden((v) => !v)} />
-          </div>
-        )}
+                                void saveAllTracts([selectedTractId])
+                              }} />
+                </>
+              ) : (
+                <>
+                  {/* The icon follows the label: an X while it says Cancel Drawing (owner 9/16 icon-follows-label rule). */}
+                  <ToolButton key="draw-tract" icon={(tool === 'drawtract' && drawing) ? X : PenTool} active={tool === 'drawtract' && drawing}
+                              // The call to action while adding: pink so it is
+                              // the obvious thing to press.
+                              primary={addingTract && !(tool === 'drawtract' && drawing)}
+                              label={(tool === 'drawtract' && drawing) ? 'Cancel Drawing' : 'Draw a Tract'}
+                              disabled={!(addingTract || (tool === 'drawtract' && drawing))}
+                              onClick={() => {
+                                if (tool === 'drawtract' && drawing) {
+                                  setDraft([]); setDrawing(false); setTool(null); dropDraftHist()
+                                  return
+                                }
+                                setTool('drawtract'); setDrawing(true); setDraft([])
+                              }} />
+                  <ToolButton key="snap-tracts" icon={Magnet} label={tracts.length <= 1 ? 'Snap to Parcel' : 'Snap Tracts'}
+                              disabled={!!busy || (tracts.length < 2
+                                && !(tracts.length === 1 && tracts[0].source.kind === 'parcel'))}
+                              title={tracts.length <= 1
+                                ? 'Fits this tract to its own parcel boundary so the acres are exact.'
+                                : 'Fits every drawn tract to the frame and to each other so acres add up.'}
+                              onClick={() => void snapTracts()} />
+                  <ToolButton key="save-tract" icon={Save} label="Save Tract" primary={activeUnsaved && !!activeTract?.name.trim()}
+                              disabled={!!busy || (tool === 'drawtract' && drawing
+                                ? draft.length < 3
+                                : !activeTract || !activeTract.name.trim())}
+                              title={tool === 'drawtract' && drawing
+                                ? (draft.length < 3 ? 'Needs at least 3 points.' : 'Finishes the tract and saves it.')
+                                : !activeTract ? 'Open a tract to save it.'
+                                : !activeTract.name.trim() ? 'Name this tract before saving.'
+                                : 'Saves this tract to the project. You stay here.'}
+                              onClick={() => {
+                                if (tool === 'drawtract' && drawing) {
+                                  // The button is disabled under 3 points, so
+                                  // this only ever runs with a finishable draft.
+                                  const result = finishDraft()
+                                  if (result?.kind === 'tract') {
+                                    if (!result.tract.name.trim()) {
+                                      setError('Name this tract before saving.')
+                                      return
+                                    }
+                                    void saveAllTracts([result.tract.id], { tract: result.tract })
+                                  }
+                                  return
+                                }
+                                if (selectedTractId) void saveAllTracts([selectedTractId])
+                              }} />
+                  {/* Owner 9/16: a way to throw a tract polygon away and start
+                      over, on the map with the other tract tools; it always
+                      confirms first. */}
+                  <ToolButton key="delete-tract" icon={Trash2} label="Delete Tract"
+                              disabled={!!busy || !activeTract}
+                              title={!activeTract ? 'Open a tract to delete it.' : 'Removes this tract. You will be asked first.'}
+                              onClick={() => { if (selectedTractId) removeTract(selectedTractId) }} />
+                  <ToolButton key="undo" icon={RotateCcw} label="Undo" disabled={undoDisabled} onClick={handleUndo} />
+                  <ToolButton key="redo" icon={RotateCw} label="Redo" disabled={redoDisabled} onClick={handleRedo} />
+                  {/* The deliberate "next step" once a tract is open — filled
+                      pink rather than a peer of the rest (owner correction).
+                      Only ever rendered with a tract open (this branch also
+                      covers the empty-list/adding-a-tract states, which have
+                      no tract to switch), so there is no reachable disabled
+                      state worth building for it. */}
+                  {activeTract && (
+                    <ToolButton key="land-types" icon={Layers} label="Land Types" primary
+                                onClick={() => setTractMode('landtypes')} />
+                  )}
+                </>
+              )}
+              <ToolButton key="toggle-cards" icon={bubblesHidden ? Eye : EyeOff}
+                          label={bubblesHidden ? 'Show Cards' : 'Hide Cards'}
+                          title={bubblesHidden ? 'Bring the cards back' : 'Tuck the cards away while you draw'}
+                          onClick={() => setBubblesHidden((v) => !v)} />
+            </AnimatePresence>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* Floating glass bubbles replace the fixed right panel (owner
@@ -4469,8 +4534,12 @@ const sheetTabBtn: React.CSSProperties = {
   fontSize: 13, fontWeight: 700, cursor: 'pointer',
   boxShadow: '0 4px 14px rgba(0,0,0,0.5)', backdropFilter: 'blur(10px)',
 }
+// `left: 0; right: 0; margin: 0 auto; width: fit-content` centres this
+// row instead of the usual `left: 50%; transform: translateX(-50%)` —
+// framer-motion drives its own `transform` for the entrance animation
+// (see the `motion.div` wrapper), and the two would clobber each other.
 const toolbarRow: React.CSSProperties = {
-  position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)', zIndex: 30,
+  position: 'absolute', bottom: 16, left: 0, right: 0, margin: '0 auto', width: 'fit-content', zIndex: 30,
   display: 'flex', flexWrap: 'nowrap', alignItems: 'flex-start', justifyContent: 'center',
   gap: 14, maxWidth: 'calc(100% - 32px)', overflowX: 'auto', padding: '4px 2px',
 }
