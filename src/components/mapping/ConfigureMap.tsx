@@ -1194,7 +1194,13 @@ export default function ConfigureMap() {
     // Already in this session's list: open it the way any local tract is
     // opened (clean fingerprint, classification, recentre) — a bare select
     // left it looking "unsaved" and unclassified (auditor 2026-09-15).
+    // openLocalTract itself cancels a live draft, so nothing extra is
+    // needed on this branch.
     if (already) { openLocalTractRef.current?.(already.id); return }
+    // The server-fetch path bypasses openLocalTract entirely — cancel any
+    // in-progress draft here too, for the same reason: it belongs to the
+    // tract being left, not the one about to load in.
+    if (drawingRef.current) { setDraft([]); setDrawing(false); setTool(null); dropDraftHist() }
     let cancelled = false
     await (async () => {
       setBusy('Opening saved parcel…')
@@ -1265,7 +1271,7 @@ export default function ConfigureMap() {
         setError(e?.message || 'Could not open that saved parcel.')
       } finally { setBusy(null) }
     })()
-  }, [addTract])
+  }, [addTract, dropDraftHist])
   const openSavedTractRef = useRef(openSavedTract); openSavedTractRef.current = openSavedTract
 
   // ── map ───────────────────────────────────────────────────────────
@@ -1746,7 +1752,12 @@ export default function ConfigureMap() {
         return false
       }
       const onVertexDown = (e: any) => {
-        const f = e.features?.[0]
+        // A draft dot sits on top of a finished shape's own handles at
+        // the same screen point often enough (drawing right over an
+        // existing polygon) that queryRenderedFeatures's default
+        // top-of-stack pick is not reliable — prefer the draft dot
+        // explicitly so it always wins the hit test while it exists.
+        const f = e.features?.find((ft: any) => String(ft.properties?.shapeId) === '__draft__') ?? e.features?.[0]
         if (!f) return
         const owner = String(f.properties!.shapeId)
         // Belt and braces with the layer being empty: nothing to drag
@@ -1890,7 +1901,8 @@ export default function ConfigureMap() {
       let lpStart: { x: number; y: number } | null = null
       map.on('touchstart', LYR_VERTS, (e) => {
         if (e.points.length !== 1) return
-        const f = e.features?.[0]
+        // Same draft-dot-wins-the-hit-test preference as onVertexDown.
+        const f = e.features?.find((ft: any) => String(ft.properties?.shapeId) === '__draft__') ?? e.features?.[0]
         if (!f || toolRef.current === 'erase') return
         if (!selectedTractIdRef.current && String(f.properties!.shapeId) !== '__draft__') return
         onVertexDown(e)
@@ -2757,7 +2769,11 @@ export default function ConfigureMap() {
   }, [fingerprint])
   markCleanRef.current = markClean
   useEffect(() => {
-    const d = fingerprint(shapes, boundaryRings) !== cleanRef.current
+    // A live draft (points placed but not yet finished into a shape or
+    // a tract) is unsaved work too — without this, switching tracts
+    // mid-draw fell straight through the "nothing to lose" path and
+    // silently dropped every point the user had placed.
+    const d = fingerprint(shapes, boundaryRings) !== cleanRef.current || (drawing && draft.length > 0)
     setDirty(d); dirtyRef.current = d
     // Mirrored onto the tract itself too — Stage 2's tract LIST will read
     // this per tract (an unsaved-work indicator next to its name) instead
@@ -2767,7 +2783,7 @@ export default function ConfigureMap() {
       setTracts((prev) => prev.map((t) =>
         t.id === selectedTractId && t.dirty !== d ? { ...t, dirty: d } : t))
     }
-  }, [shapes, boundaryRings, fingerprint, selectedTractId])
+  }, [shapes, boundaryRings, fingerprint, selectedTractId, drawing, draft])
 
   /** Switch to a tract already sitting in LOCAL state (this session's
    *  list, maybe never saved) — no server round trip, since a brand-new
@@ -2781,6 +2797,12 @@ export default function ConfigureMap() {
   const openLocalTract = useCallback((id: string) => {
     const t = tractsRef.current.find((x) => x.id === id)
     if (!t) return false
+    // A live draft belongs to whichever tract was open when it was
+    // started — it does not carry over to the tract being switched to,
+    // and left running it would go on placing/editing points against a
+    // boundary that is no longer even on screen. Cancel it the same way
+    // the toolbar's own "Cancel Drawing" button does.
+    if (drawingRef.current) { setDraft([]); setDrawing(false); setTool(null); dropDraftHist() }
     setSelectedTractId(id)
     setSelectedId(null)
     markCleanRef.current?.(t.shapes, t.boundary)
@@ -2788,7 +2810,7 @@ export default function ConfigureMap() {
     const bb = geom ? bboxOf(geom.coordinates) : null
     fitMap(bb, { padding: 90, duration: 700 })
     return true
-  }, [])
+  }, [dropDraftHist])
   openLocalTractRef.current = openLocalTract
 
   /** Switching to another tract behaves like Cancel: straight through
@@ -3628,7 +3650,7 @@ export default function ConfigureMap() {
                 <ToolButton icon={RotateCw} label="Redo" disabled={redoDisabled} onClick={handleRedo} />
                 <ToolButton icon={Save} label="Save Tract" primary={activeUnsaved && !!activeTract?.name.trim()}
                             disabled={!!busy || (tool === 'draw' && drawing
-                              ? false : !activeTract.name.trim())}
+                              ? draft.length < 3 : !activeTract.name.trim())}
                             title={tool === 'draw' && drawing
                               ? (draft.length < 3 ? 'Needs at least 3 points.' : 'Finishes the polygon and saves the tract.')
                               : !activeTract.name.trim() ? 'Name this tract before saving.'
@@ -3636,10 +3658,8 @@ export default function ConfigureMap() {
                             onClick={() => {
                               if (!selectedTractId) return
                               if (tool === 'draw' && drawing) {
-                                if (draftRef.current.length < 3) {
-                                  setSavedMsg('A polygon needs at least 3 points — draft discarded.')
-                                  return
-                                }
+                                // The button is disabled under 3 points, so
+                                // this only ever runs with a finishable draft.
                                 const result = finishDraft()
                                 if (result?.kind === 'shape') {
                                   void saveAllTracts([selectedTractId], { tractId: selectedTractId, shapes: result.shapes })
@@ -3685,10 +3705,8 @@ export default function ConfigureMap() {
                               : 'Saves this tract to the project. You stay here.'}
                             onClick={() => {
                               if (tool === 'drawtract' && drawing) {
-                                if (draftRef.current.length < 3) {
-                                  setSavedMsg('A polygon needs at least 3 points — draft discarded.')
-                                  return
-                                }
+                                // The button is disabled under 3 points, so
+                                // this only ever runs with a finishable draft.
                                 const result = finishDraft()
                                 if (result?.kind === 'tract') {
                                   if (!result.tract.name.trim()) {
