@@ -62,6 +62,17 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-p
  *  that field, not a separate shape. Rings are stored OPEN. */
 interface Shape { id: string; cls: LandClass; polys: Pt[][][] }
 
+/** ONE undo/redo history entry — shape edits, tract/boundary edits, and
+ *  draft-point edits all live on the same stack, in the order they
+ *  happened, so Undo always reverses the last thing done regardless of
+ *  which kind it was. `tractId` on a 'shapes' entry is the tract that
+ *  was open when it was taken — used to drop it if a different tract is
+ *  open by the time Undo would otherwise apply it. */
+type HistEntry =
+  | { kind: 'shapes'; prev: Shape[]; tractId: string }
+  | { kind: 'tracts'; prev: Tract[] }
+  | { kind: 'draft'; prev: Pt[] }
+
 /** One tract: the owner's Stage 2/3 unit of ground. A project holds
  *  many; Stage 3 (land types) edits one at a time via `shapes`.
  *
@@ -381,6 +392,20 @@ function dropDegenerateHoles(rings: Pt[][]): Pt[][] {
   return rings.filter((ring, i) => i === 0 || ring.length >= 3)
 }
 
+/** Is `pt` inside the tract boundary? `boundary` is an array of
+ *  polygons, each [outerRing, ...holeRings]; a point counts as inside
+ *  when it lands inside SOME polygon's outer ring and none of that
+ *  polygon's holes. Used to keep land-type drawing inside the tract
+ *  outline (owner spec) — a local ray-cast rather than a new dependency,
+ *  since @turf/boolean-point-in-polygon is not in package.json. */
+function pointInBoundary(pt: Pt, boundary: Pt[][][]): boolean {
+  return boundary.some((rings) => {
+    const outer = rings[0]
+    if (!outer || !pointInRing(pt, outer)) return false
+    return !rings.slice(1).some((hole) => pointInRing(pt, hole))
+  })
+}
+
 function ringCentre(polys: Pt[][][]): Pt | null {
   const ring = polys[0]?.[0]
   if (!ring || !ring.length) return null
@@ -679,33 +704,46 @@ export default function ConfigureMap() {
     if (tracts.length === 0 && !addingTract) setAddingTract(true)
   }, [tracts.length, addingTract])
 
-  // ── Stage 2's OWN undo/redo — boundary-level, separate from Stage 3's
-  // shape stack below (`undoRef`/`redoRef`). One entry per tract ADDED,
-  // REMOVED, DRAWN, snapped (`snapTracts`), or dragged (one entry per
-  // drag, not per mousemove — same discipline as the shape stack). Same
-  // snapshot-outside-the-updater shape as `snapshot`/`mutate` below, for
+  // ── ONE undo/redo history covering shape edits, tract/boundary
+  // edits, AND points placed/moved/removed while drawing (owner
+  // ruling: undo always undoes the last thing done, whatever kind it
+  // was — a second stack made shape edits and tract edits interleave
+  // wrongly). Same snapshot-outside-the-updater shape as before, for
   // the same reason: snapshotting inside a state updater is a side
-  // effect React may run twice.
-  const tractUndoRef = useRef<Tract[][]>([])
-  const tractRedoRef = useRef<Tract[][]>([])
-  const [, forceTractHist] = useState(0)
+  // effect React may run twice. A 'shapes' entry carries the tractId it
+  // belongs to, so switching tracts can drop only the entries that no
+  // longer apply (see the effect below) without touching 'tracts'
+  // entries, which are whole-list snapshots and stay valid across a
+  // switch.
+  const histRef = useRef<HistEntry[]>([])
+  const redoHistRef = useRef<HistEntry[]>([])
+  const [, forceHist] = useState(0)
+  const pushHist = useCallback((entry: HistEntry) => {
+    histRef.current.push(JSON.parse(JSON.stringify(entry)))
+    if (histRef.current.length > 200) histRef.current.shift()
+    redoHistRef.current = []
+    forceHist((t) => t + 1)
+  }, [])
   const snapshotTracts = useCallback((prev: Tract[]) => {
-    tractUndoRef.current.push(JSON.parse(JSON.stringify(prev)))
-    if (tractUndoRef.current.length > 100) tractUndoRef.current.shift()
-    tractRedoRef.current = []
-    forceTractHist((t) => t + 1)
+    pushHist({ kind: 'tracts', prev })
+  }, [pushHist])
+  /** Drop every 'draft' entry from both stacks — called when drawing
+   *  ends (finished, cancelled, or Escaped): the finished polygon/tract
+   *  is itself undoable through its own 'shapes'/'tracts' entry, so the
+   *  point-by-point draft history under it is no longer meaningful. */
+  const dropDraftHist = useCallback(() => {
+    histRef.current = histRef.current.filter((e) => e.kind !== 'draft')
+    redoHistRef.current = redoHistRef.current.filter((e) => e.kind !== 'draft')
+    forceHist((t) => t + 1)
   }, [])
-  const undoTracts = useCallback(() => {
-    const p = tractUndoRef.current.pop(); if (!p) return
-    setTracts((cur) => { tractRedoRef.current.push(JSON.parse(JSON.stringify(cur))); return p })
-    setSelectedTractId((cur) => (p.some((t) => t.id === cur) ? cur : (p[0]?.id ?? null)))
-    forceTractHist((t) => t + 1)
-  }, [])
-  const redoTracts = useCallback(() => {
-    const n = tractRedoRef.current.pop(); if (!n) return
-    setTracts((cur) => { tractUndoRef.current.push(JSON.parse(JSON.stringify(cur))); return n })
-    setSelectedTractId((cur) => (n.some((t) => t.id === cur) ? cur : (n[0]?.id ?? null)))
-    forceTractHist((t) => t + 1)
+  /** Drop 'shapes' entries for one tract — used where shape edits are
+   *  discarded (Cancel) without switching tracts, so the tract-switch
+   *  effect below never runs to do it. */
+  const dropShapesHistFor = useCallback((tractId: string | null) => {
+    if (!tractId) return
+    histRef.current = histRef.current.filter((e) => !(e.kind === 'shapes' && e.tractId === tractId))
+    redoHistRef.current = redoHistRef.current.filter((e) => !(e.kind === 'shapes' && e.tractId === tractId))
+    forceHist((t) => t + 1)
   }, [])
 
   /** A manual boundary edit (drag a vertex, click the line to insert
@@ -917,15 +955,9 @@ export default function ConfigureMap() {
   const draftRef = useRef(draft); draftRef.current = draft
   const drawClassRef = useRef(drawClass); drawClassRef.current = drawClass
 
-  const undoRef = useRef<Shape[][]>([])
-  const redoRef = useRef<Shape[][]>([])
-  const [, forceHist] = useState(0)
   const snapshot = useCallback((prev: Shape[]) => {
-    undoRef.current.push(JSON.parse(JSON.stringify(prev)))
-    if (undoRef.current.length > 100) undoRef.current.shift()
-    redoRef.current = []
-    forceHist((t) => t + 1)
-  }, [])
+    pushHist({ kind: 'shapes', prev, tractId: selectedTractIdRef.current || '' })
+  }, [pushHist])
   const mutate = useCallback((fn: (s: Shape[]) => Shape[]) => {
     // Snapshot OUTSIDE the updater. It used to run inside, which is a
     // side effect where React is allowed to run the updater twice — so
@@ -934,27 +966,64 @@ export default function ConfigureMap() {
     snapshot(shapesRef.current)
     setShapes(fn)
   }, [snapshot])
+  const snapshotDraft = useCallback((prev: Pt[]) => {
+    pushHist({ kind: 'draft', prev })
+  }, [pushHist])
   const undo = useCallback(() => {
-    const p = undoRef.current.pop(); if (!p) return
-    setShapes((cur) => { redoRef.current.push(JSON.parse(JSON.stringify(cur))); return p })
+    const e = histRef.current.pop(); if (!e) return
+    if (e.kind === 'shapes') {
+      setShapes((cur) => {
+        redoHistRef.current.push({ kind: 'shapes', prev: JSON.parse(JSON.stringify(cur)), tractId: e.tractId })
+        return e.prev
+      })
+    } else if (e.kind === 'tracts') {
+      setTracts((cur) => {
+        redoHistRef.current.push({ kind: 'tracts', prev: JSON.parse(JSON.stringify(cur)) })
+        return e.prev
+      })
+      setSelectedTractId((cur) => (e.prev.some((t) => t.id === cur) ? cur : (e.prev[0]?.id ?? null)))
+    } else {
+      setDraft((cur) => {
+        redoHistRef.current.push({ kind: 'draft', prev: JSON.parse(JSON.stringify(cur)) })
+        return e.prev
+      })
+    }
     forceHist((t) => t + 1)
   }, [])
   const redo = useCallback(() => {
-    const n = redoRef.current.pop(); if (!n) return
-    setShapes((cur) => { undoRef.current.push(JSON.parse(JSON.stringify(cur))); return n })
+    const e = redoHistRef.current.pop(); if (!e) return
+    if (e.kind === 'shapes') {
+      setShapes((cur) => {
+        histRef.current.push({ kind: 'shapes', prev: JSON.parse(JSON.stringify(cur)), tractId: e.tractId })
+        return e.prev
+      })
+    } else if (e.kind === 'tracts') {
+      setTracts((cur) => {
+        histRef.current.push({ kind: 'tracts', prev: JSON.parse(JSON.stringify(cur)) })
+        return e.prev
+      })
+      setSelectedTractId((cur) => (e.prev.some((t) => t.id === cur) ? cur : (e.prev[0]?.id ?? null)))
+    } else {
+      setDraft((cur) => {
+        histRef.current.push({ kind: 'draft', prev: JSON.parse(JSON.stringify(cur)) })
+        return e.prev
+      })
+    }
     forceHist((t) => t + 1)
   }, [])
 
-  /** AUDIT HIGH: this shape-level stack belongs to whichever tract is
-   *  open, and used to only be cleared on SOME of the paths that change
-   *  `selectedTractId` (a fresh parcel load, a re-classify) — not
-   *  `openLocalTract` (switching to an existing tract already in the
-   *  session) or the save-and-switch confirm, both of which go through
-   *  it. Undo on tract B could then pop an entry pushed while tract A
-   *  was open, overwriting B's shapes with A's. One place, keyed on the
-   *  tract itself, catches every switch regardless of path. */
+  /** AUDIT HIGH: the 'shapes' entries belong to whichever tract is
+   *  open, and used to be cleared wholesale on every path that changes
+   *  `selectedTractId` — now only the entries that no longer apply are
+   *  dropped: 'shapes' entries for a tract that is not the one now
+   *  open, and every 'draft' entry (a draft never survives a tract
+   *  switch). 'tracts' entries are whole-list snapshots and stay valid
+   *  regardless of which tract is open, so they are kept. */
   useEffect(() => {
-    undoRef.current = []; redoRef.current = []
+    const keep = (arr: HistEntry[]) => arr.filter((e) =>
+      e.kind === 'tracts' || (e.kind === 'shapes' && e.tractId === selectedTractId))
+    histRef.current = keep(histRef.current)
+    redoHistRef.current = keep(redoHistRef.current)
     forceHist((t) => t + 1)
   }, [selectedTractId])
 
@@ -1000,7 +1069,6 @@ export default function ConfigureMap() {
             name: d.parcel?.parcelnumb
               ? `Parcel ${d.parcel.parcelnumb}${carved ? ' (remaining)' : ''}` : '',
           })
-          undoRef.current = []; redoRef.current = []
           setStage(projectNameRef.current.trim() ? 'build' : 'project')
           markCleanRef.current?.([], t.boundary)
           setSelectedId(null)
@@ -1028,7 +1096,6 @@ export default function ConfigureMap() {
         source: { kind: 'parcel', ll_uuids: [uid] },
         name: d.parcel?.parcelnumb ? `Parcel ${d.parcel.parcelnumb}` : '',
       })
-      undoRef.current = []; redoRef.current = []
       // Owner (9/15): the project is NAMED before tracts are built. A parcel
       // arriving with no project name yet lands on Stage 1 with the parcel
       // already on the map; once named, every later parcel stays in Stage 2.
@@ -1508,16 +1575,13 @@ export default function ConfigureMap() {
         layout: { 'icon-image': 'cm-scissors', 'icon-size': 0.6,
                   'icon-allow-overlap': true, 'icon-ignore-placement': true },
       })
-      map.addLayer({
-        id: 'cm-draft-dots', type: 'circle', source: SRC.draft,
-        filter: ['==', ['geometry-type'], 'Point'],
-        paint: {
-          'circle-radius': 5,
-          'circle-color': '#ffffff',
-          'circle-stroke-color': VERTEX_LINE,   // repainted from drawClass
-          'circle-stroke-width': 3,
-        },
-      })
+      // A draft point being drawn now feeds into THIS layer (see the
+      // verts effect), rather than a separate 'cm-draft-dots' layer, so
+      // it gets the same drag/remove gestures a finished polygon's
+      // points already have. Its stroke falls back to VERTEX_LINE via
+      // `['coalesce', ['get','color'], VERTEX_LINE]` unless the feature
+      // carries its own `color` (a draft point does, to show the
+      // drawing colour).
       map.addLayer({
         id: LYR_VERTS, type: 'circle', source: SRC.verts,
         paint: {
@@ -1526,7 +1590,7 @@ export default function ConfigureMap() {
           // have to guess whether a shape can be reshaped.
           'circle-radius': ['case', ['boolean', ['get', 'active'], false], 5, 3.2],
           'circle-color': '#ffffff',
-          'circle-stroke-color': VERTEX_LINE,
+          'circle-stroke-color': ['coalesce', ['get', 'color'], VERTEX_LINE],
           'circle-stroke-width': ['case', ['boolean', ['get', 'active'], false], 2, 1.2],
         },
       })
@@ -1537,7 +1601,6 @@ export default function ConfigureMap() {
           ['case', ['boolean', ['get', 'active'], false], 9, 6])
         map.setPaintProperty(LYR_VERTS, 'circle-stroke-width',
           ['case', ['boolean', ['get', 'active'], false], 3, 2])
-        map.setPaintProperty('cm-draft-dots', 'circle-radius', 8)
       }
       // Comparable sales: a pin per sale, showing + to add and - to drop,
       // the same read as the Find Comparables screen.
@@ -1640,10 +1703,19 @@ export default function ConfigureMap() {
       // Stage 2's own undo entry for a boundary drag — one per drag, not
       // per mousemove, same discipline as `took` below for shapes.
       let tookTract = false
+      // Same discipline for a draft-point drag — one 'draft' history
+      // entry per drag, not per mousemove.
+      let tookDraft = false
       /** Take one handle out: a boundary handle in outline mode, a
-       *  land-type point in Land Types. Right-click / Alt-click on a
-       *  mouse, LONG-PRESS on touch (owner 9/17). */
+       *  land-type point in Land Types, or (owner spec) a DRAFT point
+       *  while a polygon/tract is still being drawn. Right-click /
+       *  Alt-click on a mouse, LONG-PRESS on touch (owner 9/17). */
       const removeVertex = (owner: string, pi: number, ri: number, vi: number) => {
+        if (owner === '__draft__') {
+          snapshotDraft(draftRef.current)
+          setDraft((prev) => prev.filter((_, i) => i !== vi))
+          return true
+        }
         if (owner === '__boundary__' && tractModeRef.current === 'outline') {
           setBoundaryRings((prev) => prev.map((rings, p2) => p2 !== pi ? rings
             : dropDegenerateHoles(rings.map((ring, i) => {
@@ -1674,15 +1746,17 @@ export default function ConfigureMap() {
         return false
       }
       const onVertexDown = (e: any) => {
-        // Belt and braces with the layer being empty: nothing to drag
-        // with no tract open (no boundary, no shapes).
-        if (!selectedTractIdRef.current) return
-        // In Erase mode the press starts an erase box / tap instead.
-        if (toolRef.current === 'erase') return
         const f = e.features?.[0]
         if (!f) return
-        e.preventDefault()
         const owner = String(f.properties!.shapeId)
+        // Belt and braces with the layer being empty: nothing to drag
+        // with no tract open (no boundary, no shapes) — except a DRAFT
+        // point, which exists precisely while free-hand 'drawtract'
+        // drawing has no open tract at all.
+        if (!selectedTractIdRef.current && owner !== '__draft__') return
+        // In Erase mode the press starts an erase box / tap instead.
+        if (toolRef.current === 'erase') return
+        e.preventDefault()
 
         // Remove a handle: right button, or Alt/Option-click. Handled on
         // MOUSEDOWN rather than a 'contextmenu' listener — that fired
@@ -1695,10 +1769,11 @@ export default function ConfigureMap() {
           if (removeVertex(owner, Number(f.properties!.pi), Number(f.properties!.ri), Number(f.properties!.vi))) return
         }
 
-        if (owner !== '__boundary__' && owner !== selectedRef.current) setSelectedId(owner)
+        if (owner !== '__boundary__' && owner !== '__draft__' && owner !== selectedRef.current) setSelectedId(owner)
         drag = { id: owner, pi: f.properties!.pi, ri: f.properties!.ri, vi: f.properties!.vi }
         took = false
         tookTract = false
+        tookDraft = false
         map.dragPan.disable()
       }
       map.on('mousedown', LYR_VERTS, onVertexDown)
@@ -1706,6 +1781,18 @@ export default function ConfigureMap() {
         if (!drag) return
         // One undo snapshot per drag, not per mousemove.
         const { id, pi, ri, vi } = drag
+        if (id === '__draft__') {
+          const newPt: Pt = [e.lngLat.lng, e.lngLat.lat]
+          // Land Types drawing stays inside the tract outline (owner
+          // spec) — a drag that would put the point outside is ignored,
+          // same as a click outside is ignored below. 'drawtract' is
+          // unrestricted (no boundary exists yet).
+          if (toolRef.current === 'draw' && boundaryRef.current.length
+              && !pointInBoundary(newPt, boundaryRef.current)) return
+          if (!tookDraft) { snapshotDraft(draftRef.current); tookDraft = true }
+          setDraft((prev) => prev.map((pt, i) => (i === vi ? newPt : pt)))
+          return
+        }
         if (id === '__boundary__') {
           let newPt: Pt = [e.lngLat.lng, e.lngLat.lat]
           // After a fit, an OUTER vertex (one that sits on the frame's
@@ -1768,6 +1855,10 @@ export default function ConfigureMap() {
       // overlap, since dragging the OUTLINE is what invalidates them.
       const endDrag = () => {
         if (!drag) return
+        // A draft-point drag ends here and nothing else — it is not a
+        // shape (no overlap to re-check) and not the boundary (nothing
+        // to reclassify).
+        if (drag.id === '__draft__') { drag = null; map.dragPan.enable(); return }
         const wasShape = drag.id !== '__boundary__'
         const draggedId = drag.id
         const movedBoundary = !wasShape && tookTract
@@ -1800,7 +1891,8 @@ export default function ConfigureMap() {
       map.on('touchstart', LYR_VERTS, (e) => {
         if (e.points.length !== 1) return
         const f = e.features?.[0]
-        if (!f || !selectedTractIdRef.current || toolRef.current === 'erase') return
+        if (!f || toolRef.current === 'erase') return
+        if (!selectedTractIdRef.current && String(f.properties!.shapeId) !== '__draft__') return
         onVertexDown(e)
         if (!drag) return
         map.touchZoomRotate.disable()
@@ -1934,6 +2026,10 @@ export default function ConfigureMap() {
           return
         }
         if (drawingRef.current) {
+          // A click that landed on an existing draft dot is a vertex
+          // interaction (drag/remove), handled by the LYR_VERTS
+          // listeners above — it must not ALSO drop a new point here.
+          if (map.queryRenderedFeatures(e.point, { layers: [LYR_VERTS] }).length) return
           let pt: Pt = [e.lngLat.lng, e.lngLat.lat]
           // "Draw a tract": magnet-snap the corner onto another tract's
           // edge or a live Regrid parcel line within ~30 ft (owner spec)
@@ -1943,6 +2039,15 @@ export default function ConfigureMap() {
             const snapped = snapPoint(map, pt, targets, 30)
             if (snapped.snapped) pt = snapped.point
           }
+          // Land Types: a click outside the open tract's boundary does
+          // not add a point (owner spec — land types stay inside the
+          // tract). 'drawtract' is unrestricted.
+          if (toolRef.current === 'draw' && boundaryRef.current.length
+              && !pointInBoundary(pt, boundaryRef.current)) {
+            setSavedMsg('Land types stay inside the tract outline.')
+            return
+          }
+          snapshotDraft(draftRef.current)
           setDraft((d) => [...d, pt])
           return
         }
@@ -2049,41 +2154,53 @@ export default function ConfigureMap() {
     }))
   }, [mutate])
 
-  const finishDraft = useCallback(() => {
+  /** Turns the current draft into a shape ('draw') or a tract
+   *  ('drawtract') and returns what it made, SYNCHRONOUSLY — computed
+   *  from `shapesRef`/`addTract`'s own return rather than left to
+   *  land via React's async state update, so a caller (Save Tract, see
+   *  below) can save the just-finished polygon/tract in the very same
+   *  press instead of racing the next render. Always drops the 'draft'
+   *  history entries: the finished result is itself undoable through
+   *  its own 'shapes'/'tracts' entry. */
+  const finishDraft = useCallback((): (
+    { kind: 'shape'; shapes: Shape[] } | { kind: 'tract'; tract: Tract } | null
+  ) => {
     const d = draftRef.current
+    let result: { kind: 'shape'; shapes: Shape[] } | { kind: 'tract'; tract: Tract } | null = null
     if (d.length >= 3) {
       const ring = simplifyRing(d, 0.000004)
       if (toolRef.current === 'drawtract') {
         // Stage 2: a free-hand tract, added to the list like any other.
-        addTract({ boundary: [[ring]], shapes: [], source: { kind: 'drawn' } })
-        undoRef.current = []; redoRef.current = []
+        const t = addTract({ boundary: [[ring]], shapes: [], source: { kind: 'drawn' } })
+        result = { kind: 'tract', tract: t }
       } else {
         const id = nextId()
-        mutate((prev) => {
-          const next = [...prev, { id, cls: drawClassRef.current, polys: [[ring]] }]
-          // Drawn last, so this one wins any overlap — then the server
-          // trims the others and clips everything to the boundary.
-          void enforceNoOverlapRef.current(next)
-          return next
-        })
+        const next = [...shapesRef.current, { id, cls: drawClassRef.current, polys: [[ring]] }]
+        mutate(() => next)
+        // Drawn last, so this one wins any overlap — then the server
+        // trims the others and clips everything to the boundary.
+        void enforceNoOverlapRef.current(next)
         setSelectedId(id)
+        result = { kind: 'shape', shapes: next }
       }
     }
+    dropDraftHist()
     setDraft([]); setDrawing(false); setTool(null)
-  }, [mutate, addTract])
+    return result
+  }, [mutate, addTract, dropDraftHist])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement)?.tagName === 'INPUT') return
       if (e.key === 'Enter' && drawingRef.current) { e.preventDefault(); finishDraft() }
-      if (e.key === 'Escape') { setDraft([]); setDrawing(false) }
+      if (e.key === 'Escape') { setDraft([]); setDrawing(false); dropDraftHist() }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
         e.preventDefault(); e.shiftKey ? redo() : undo()
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [finishDraft, undo, redo])
+  }, [finishDraft, undo, redo, dropDraftHist])
 
   /** Stage 2 -> Stage 3, ONE TRACT. Ask the ENGINE for the land types
    *  under the boundary the tract actually has right now — its original
@@ -2127,7 +2244,7 @@ export default function ConfigureMap() {
       }))
       if (tractId === selectedTractIdRef.current) {
         markCleanRef.current?.(loaded, t.boundary)
-        undoRef.current = []; redoRef.current = []
+        dropShapesHistFor(tractId)
         setSelectedId(loaded.length
           ? loaded.reduce((a, b) => (shapeAcres(b) > shapeAcres(a) ? b : a)).id
           : null)
@@ -2544,11 +2661,33 @@ export default function ConfigureMap() {
   /** Save EVERY named tract as its own record, all in the same project —
    *  the tracts-first equivalent of `savePieces` above, generalised to
    *  the whole list rather than one split's leftover pieces. */
-  const saveAllTracts = useCallback(async (only?: string[]): Promise<boolean> => {
+  const saveAllTracts = useCallback(async (
+    only?: string[],
+    // Save Tract can finish a polygon/tract and save it in the SAME
+    // press — `finishDraft`'s result lands in React state
+    // asynchronously, so this is how the just-finished shapes/tract get
+    // into the save that happens immediately after, in the same
+    // keystroke's worth of synchronous code. `tractId`+`shapes`: the
+    // open tract's shapes list, with the just-finished land-type
+    // polygon already in it. `tract`: a brand-new free-hand tract
+    // `addTract` just created (its own setTracts call may not have
+    // landed in `tractsRef` yet either).
+    override?: { tractId: string; shapes: Shape[] } | { tract: Tract },
+  ): Promise<boolean> => {
     if (savingAllRef.current) return false
+    // Reads `tractsRef.current`, not the `tracts` closure — this can be
+    // called synchronously right after `finishDraft`, before a render
+    // has landed the tract it just added/changed.
+    let pool = tractsRef.current
+    if (override && 'tract' in override && !pool.some((t) => t.id === override.tract.id)) {
+      pool = [...pool, override.tract]
+    }
+    if (override && 'shapes' in override) {
+      pool = pool.map((t) => (t.id === override.tractId ? { ...t, shapes: override.shapes } : t))
+    }
     // `only`: the Stage 2 "Save Tract" button saves ONE tract — the one
     // that is open — the user saves a tract at a time (owner 9/16).
-    const toSave = only ? tracts.filter((t) => only.includes(t.id)) : tracts
+    const toSave = only ? pool.filter((t) => only.includes(t.id)) : pool
     if (!toSave.length) return false
     if (toSave.some((t) => !t.name.trim())) {
       setError(only ? 'Name this tract before saving.' : 'Name every tract before saving.')
@@ -2602,7 +2741,7 @@ export default function ConfigureMap() {
       setError(e?.message || 'Save failed.')
       return false
     } finally { setBusy(null); savingAllRef.current = false }
-  }, [tracts, projectId, projectName, shapes, boundaryRings])
+  }, [projectId, projectName, shapes, boundaryRings])
 
   const fingerprint = useCallback((sh: Shape[], b: Pt[][][]) => JSON.stringify([
     sh.map((x) => [x.cls, x.polys]), b,
@@ -2816,9 +2955,23 @@ export default function ConfigureMap() {
           properties: { shapeId: sel.id, pi, ri, vi, active: true },
         }))))
     }
+    // Draft points, while drawing, feed into this SAME vertex layer so
+    // they get the same drag-to-move / right-click-or-long-press-to-
+    // remove gestures a finished polygon already has (owner spec) — the
+    // separate 'cm-draft-dots' circle layer is gone; these ARE the dots.
+    // They take the drawing colour (the land-type class for 'draw',
+    // white for 'drawtract') via `color`, read by LYR_VERTS's
+    // circle-stroke-color below.
+    if (drawing && draft.length) {
+      const draftColor = tool === 'draw' ? (CLASS_COLOR[drawClass] || '#ffffff') : '#ffffff'
+      draft.forEach((pt, vi) => verts.push({
+        type: 'Feature', geometry: { type: 'Point', coordinates: pt },
+        properties: { shapeId: '__draft__', pi: 0, ri: 0, vi, active: true, color: draftColor },
+      }))
+    }
     ;(map.getSource(SRC.verts) as maplibregl.GeoJSONSource)?.setData(
       { type: 'FeatureCollection', features: verts } as any)
-  }, [shapes, selectedId, activeTract, tractMode, boundaryRings, ready])
+  }, [shapes, selectedId, activeTract, tractMode, boundaryRings, draft, drawing, tool, drawClass, ready])
 
   useEffect(() => {
     const map = mapRef.current
@@ -2910,21 +3063,19 @@ export default function ConfigureMap() {
     if (!map || !ready) return
     ;(map.getSource(SRC.draft) as maplibregl.GeoJSONSource)?.setData({
       type: 'FeatureCollection',
-      features: [
-        // The closing segment is only drawn for an area being drawn, not
-        // for a split line -- a split is a cut ACROSS, never a ring.
-        ...(draft.length >= 2 ? [{
-          type: 'Feature', properties: {},
-          geometry: {
-            type: 'LineString',
-            coordinates: [...draft, draft[0]],
-          },
-        }] : []),
-        ...draft.map((pt, i) => ({
-          type: 'Feature', properties: { i },
-          geometry: { type: 'Point', coordinates: pt },
-        })),
-      ],
+      // The closing segment is only drawn for an area being drawn, not
+      // for a split line -- a split is a cut ACROSS, never a ring. The
+      // dots themselves no longer come from here — they are drawn by
+      // LYR_VERTS (see the verts effect above), which is what makes
+      // them draggable/removable the same way a finished polygon's
+      // points are.
+      features: draft.length >= 2 ? [{
+        type: 'Feature', properties: {},
+        geometry: {
+          type: 'LineString',
+          coordinates: [...draft, draft[0]],
+        },
+      }] : [],
     } as any)
   }, [draft, ready])
 
@@ -3202,7 +3353,7 @@ export default function ConfigureMap() {
     } else if (detail) {
       setShapes(simplifyShapes(explodeShapes(detail.polygons as any)))
     }
-    undoRef.current = []; redoRef.current = []
+    dropShapesHistFor(selectedTractIdRef.current)
   }, [editingId, detail])
 
   // `discardAndClose` and `addTractToProject` (the old footer Cancel
@@ -3212,16 +3363,16 @@ export default function ConfigureMap() {
   // dirty-confirm) is the only exit, so nothing calls either of these
   // any more.
 
-  // The draft takes the colour of the land type being drawn, so what you
-  // are drawing looks like what it will become.
+  // The draft line takes the colour of the land type being drawn, so
+  // what you are drawing looks like what it will become. The draft
+  // DOTS get their colour per-feature instead (see the verts effect —
+  // they are LYR_VERTS features now, not a separate layer), since that
+  // effect already recomputes on `drawClass`.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !ready) return
     const c = CLASS_COLOR[drawClass] || '#ffffff'
     if (map.getLayer('cm-draft-line')) map.setPaintProperty('cm-draft-line', 'line-color', c)
-    if (map.getLayer('cm-draft-dots')) {
-      map.setPaintProperty('cm-draft-dots', 'circle-stroke-color', c)
-    }
   }, [drawClass, ready])
 
   // Recompute the soil rating whenever the tillable ground changes.
@@ -3329,9 +3480,9 @@ export default function ConfigureMap() {
   // tool from either row — whichever is actually armed wins — plus a
   // default per-mode instruction when nothing is.
   const toolbarHint =
-    (tool === 'drawtract' && drawing) ? 'Click to place corners. Enter or double-click closes '
-      + 'the shape; edges and other tracts snap automatically.'
-    : (tool === 'draw' && drawing) ? 'Click to place corners. Save Polygon, Enter or double-click '
+    (tool === 'drawtract' && drawing) ? 'Click to place corners. Save Tract, Enter or double-click '
+      + 'closes the shape; edges and other tracts snap automatically.'
+    : (tool === 'draw' && drawing) ? 'Click to place corners. Save Tract, Enter or double-click '
       + 'closes the shape; Esc cancels.'
     : tool === 'cutpoly' ? 'Click once on each side of the selected polygon. It cuts on the second click.'
     : tool === 'erase' ? 'Drag a box over a run of dots and they are all removed at once. '
@@ -3353,20 +3504,17 @@ export default function ConfigureMap() {
     : tracts.length > 0 ? 'Click a tract in the list to open it, or press Add Another Tract.'
     : null
 
-  // Row 1's single Undo/Redo now routes to whichever stack actually has
-  // the user's most recent edit: the shape-level stack (undoRef/redoRef)
-  // while a tract is open and it has entries, otherwise the tract-level
-  // stack (tractUndoRef/tractRedoRef) for boundary/list edits.
+  // Row 1's single Undo/Redo now reads the ONE history stack directly —
+  // it always reverses whatever happened last, whether that was a shape
+  // edit, a tract/boundary edit, or a draft-point edit.
   // The open tract has work not on the server: edits since the last
   // save, or never saved at all. Drives the pink Save Tract button (owner
   // 9/16) and is what the switch/leave prompts should mean.
   const activeUnsaved = !!activeTract && (dirty || !activeTract.saved)
-  const shapeCanUndo = !!activeTract && undoRef.current.length > 0
-  const shapeCanRedo = !!activeTract && redoRef.current.length > 0
-  const handleUndo = () => { if (shapeCanUndo) undo(); else undoTracts() }
-  const handleRedo = () => { if (shapeCanRedo) redo(); else redoTracts() }
-  const undoDisabled = !shapeCanUndo && !tractUndoRef.current.length
-  const redoDisabled = !shapeCanRedo && !tractRedoRef.current.length
+  const handleUndo = () => undo()
+  const handleRedo = () => redo()
+  const undoDisabled = !histRef.current.length
+  const redoDisabled = !redoHistRef.current.length
 
   // Tablet sheet: which bubbles exist right now, and which one is open.
   // A tab that no longer applies (the tract closed) falls back to the
@@ -3445,10 +3593,13 @@ export default function ConfigureMap() {
                               active={drawClass === c} title={CLASS_LABEL[c]}
                               onClick={() => { setDrawClass(c); if (selectedId) setClassOf(selectedId, c) }} />
                 ))}
-                <ToolButton icon={(tool === 'draw' && drawing) ? Save : Plus} active={tool === 'draw' && drawing}
-                            label={(tool === 'draw' && drawing) ? 'Save Polygon' : 'Add Polygon'}
+                <ToolButton icon={(tool === 'draw' && drawing) ? X : Plus} active={tool === 'draw' && drawing}
+                            label={(tool === 'draw' && drawing) ? 'Cancel Drawing' : 'Add Polygon'}
                             onClick={() => {
-                              if (tool === 'draw' && drawing) { finishDraft(); return }
+                              if (tool === 'draw' && drawing) {
+                                setDraft([]); setDrawing(false); setTool(null); dropDraftHist()
+                                return
+                              }
                               setTool('draw'); setDrawing(true); setDraft([])
                             }} />
                 <ToolButton icon={Trash2} label="Delete" disabled={!selectedId}
@@ -3476,22 +3627,44 @@ export default function ConfigureMap() {
                 <ToolButton icon={RotateCcw} label="Undo" disabled={undoDisabled} onClick={handleUndo} />
                 <ToolButton icon={RotateCw} label="Redo" disabled={redoDisabled} onClick={handleRedo} />
                 <ToolButton icon={Save} label="Save Tract" primary={activeUnsaved && !!activeTract?.name.trim()}
-                            disabled={!!busy || !activeTract.name.trim()}
-                            title={!activeTract.name.trim() ? 'Name this tract before saving.'
+                            disabled={!!busy || (tool === 'draw' && drawing
+                              ? false : !activeTract.name.trim())}
+                            title={tool === 'draw' && drawing
+                              ? (draft.length < 3 ? 'Needs at least 3 points.' : 'Finishes the polygon and saves the tract.')
+                              : !activeTract.name.trim() ? 'Name this tract before saving.'
                               : 'Saves this tract to the project. You stay here.'}
-                            onClick={() => { if (selectedTractId) void saveAllTracts([selectedTractId]) }} />
+                            onClick={() => {
+                              if (!selectedTractId) return
+                              if (tool === 'draw' && drawing) {
+                                if (draftRef.current.length < 3) {
+                                  setSavedMsg('A polygon needs at least 3 points — draft discarded.')
+                                  return
+                                }
+                                const result = finishDraft()
+                                if (result?.kind === 'shape') {
+                                  void saveAllTracts([selectedTractId], { tractId: selectedTractId, shapes: result.shapes })
+                                } else {
+                                  void saveAllTracts([selectedTractId])
+                                }
+                                return
+                              }
+                              void saveAllTracts([selectedTractId])
+                            }} />
               </>
             ) : (
               <>
-                {/* The icon follows the label: a save icon while it says Save Polygon (owner 9/16). */}
-                <ToolButton icon={(tool === 'drawtract' && drawing) ? Save : PenTool} active={tool === 'drawtract' && drawing}
+                {/* The icon follows the label: an X while it says Cancel Drawing (owner 9/16 icon-follows-label rule). */}
+                <ToolButton icon={(tool === 'drawtract' && drawing) ? X : PenTool} active={tool === 'drawtract' && drawing}
                             // The call to action while adding: pink so it is
                             // the obvious thing to press.
                             primary={addingTract && !(tool === 'drawtract' && drawing)}
-                            label={(tool === 'drawtract' && drawing) ? 'Save Polygon' : 'Draw a Tract'}
+                            label={(tool === 'drawtract' && drawing) ? 'Cancel Drawing' : 'Draw a Tract'}
                             disabled={!(addingTract || (tool === 'drawtract' && drawing))}
                             onClick={() => {
-                              if (tool === 'drawtract' && drawing) { finishDraft(); return }
+                              if (tool === 'drawtract' && drawing) {
+                                setDraft([]); setDrawing(false); setTool(null); dropDraftHist()
+                                return
+                              }
                               setTool('drawtract'); setDrawing(true); setDraft([])
                             }} />
                 <ToolButton icon={Magnet} label={tracts.length <= 1 ? 'Snap to Parcel' : 'Snap Tracts'}
@@ -3502,11 +3675,32 @@ export default function ConfigureMap() {
                               : 'Fits every drawn tract to the frame and to each other so acres add up.'}
                             onClick={() => void snapTracts()} />
                 <ToolButton icon={Save} label="Save Tract" primary={activeUnsaved && !!activeTract?.name.trim()}
-                            disabled={!!busy || !activeTract || !activeTract.name.trim()}
-                            title={!activeTract ? 'Open a tract to save it.'
+                            disabled={!!busy || (tool === 'drawtract' && drawing
+                              ? draft.length < 3
+                              : !activeTract || !activeTract.name.trim())}
+                            title={tool === 'drawtract' && drawing
+                              ? (draft.length < 3 ? 'Needs at least 3 points.' : 'Finishes the tract and saves it.')
+                              : !activeTract ? 'Open a tract to save it.'
                               : !activeTract.name.trim() ? 'Name this tract before saving.'
                               : 'Saves this tract to the project. You stay here.'}
-                            onClick={() => { if (selectedTractId) void saveAllTracts([selectedTractId]) }} />
+                            onClick={() => {
+                              if (tool === 'drawtract' && drawing) {
+                                if (draftRef.current.length < 3) {
+                                  setSavedMsg('A polygon needs at least 3 points — draft discarded.')
+                                  return
+                                }
+                                const result = finishDraft()
+                                if (result?.kind === 'tract') {
+                                  if (!result.tract.name.trim()) {
+                                    setError('Name this tract before saving.')
+                                    return
+                                  }
+                                  void saveAllTracts([result.tract.id], { tract: result.tract })
+                                }
+                                return
+                              }
+                              if (selectedTractId) void saveAllTracts([selectedTractId])
+                            }} />
                 {/* Owner 9/16: a way to throw a tract polygon away and start
                     over, on the map with the other tract tools; it always
                     confirms first. */}
