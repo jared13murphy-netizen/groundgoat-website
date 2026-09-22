@@ -19,13 +19,15 @@
 import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
 import {
-  Archive, ArchiveRestore, ArrowLeft, Check, FileText, Loader2, Map as MapIcon,
+  Archive, ArchiveRestore, ArrowLeft, Check, Download, FileText, Loader2, Map as MapIcon,
   PenLine, Plus, Search, SquarePen, Users, X,
 } from 'lucide-react'
 import {
-  allTractsGeometry, archiveParcel, fetchMappingAccessState, getProject, listProjects,
+  allTractsGeometry, archiveParcel, downloadReport, fetchMappingAccessState, getProject,
+  listProjects, listReports, queueReport,
   firmMembers, niceCounty, projectShares, renameParcel, setProjectShares, updateProject,
-  type FirmMember, type PortfolioTract, type Project, type SavedParcelRow,
+  REPORT_BUSY_LABEL, REPORT_LABEL,
+  type FirmMember, type PortfolioTract, type Project, type ReportRow, type SavedParcelRow,
 } from '@/lib/configurableMapping'
 import PortfolioMap from '@/components/mapping/PortfolioMap'
 
@@ -147,6 +149,58 @@ export default function MapPortfolioPage() {
     catch (e: any) { setError(e?.message || 'That did not work.') }
     finally { setBusy(null) }
   }, [refresh])
+
+  // ── Aerial Map report, per project (owner item 8, 2026-09-22) ──────
+  // Same queue-then-poll pattern ConfigureMap's Reports card uses: the
+  // API only queues, a worker renders, so the button can never sit
+  // blocked. Keyed by project id since a card can have its own
+  // in-flight build independent of any other project's.
+  const [projectReports, setProjectReports] = useState<Record<string, ReportRow[]>>({})
+  const [queuingAerial, setQueuingAerial] = useState<string | null>(null)
+
+  const refreshProjectReports = useCallback(async (projectId: string) => {
+    try {
+      const r = await listReports({ projectId })
+      setProjectReports((prev) => ({ ...prev, [projectId]: r.reports }))
+    } catch { /* non-fatal — the card just shows no reports yet */ }
+  }, [])
+
+  const queueAerialMap = useCallback(async (p: Project) => {
+    setQueuingAerial(p.id); setError(null)
+    try {
+      await queueReport({ projectId: p.id }, 'aerial', {})
+      await refreshProjectReports(p.id)
+    } catch (e: any) {
+      setError(e?.message || 'Could not start that report.')
+    } finally { setQueuingAerial(null) }
+  }, [refreshProjectReports])
+
+  // Poll only the projects with something actually rendering — a
+  // boolean-driven interval, same reasoning as ConfigureMap's own
+  // reportsPending effect (a `reports`-keyed effect would re-arm on
+  // every poll tick, since each refresh makes a new array identity).
+  const pendingReportProjectIds = Object.entries(projectReports)
+    .filter(([, rows]) => rows.some((r) => r.status === 'queued' || r.status === 'running'))
+    .map(([id]) => id)
+  const pendingKey = pendingReportProjectIds.join(',')
+  useEffect(() => {
+    if (!pendingReportProjectIds.length) return
+    const t = setInterval(() => {
+      pendingReportProjectIds.forEach((id) => void refreshProjectReports(id))
+    }, 4000)
+    return () => clearInterval(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingKey, refreshProjectReports])
+
+  // Load each project's report rows once the list arrives, so a report
+  // built on an earlier visit (or from ConfigureMap) shows without
+  // needing the Aerial Map button pressed again.
+  useEffect(() => {
+    projects.forEach((p) => {
+      if (!(p.id in projectReports)) void refreshProjectReports(p.id)
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projects])
 
   if (allowed === undefined) return <Shell><p style={{ opacity: 0.6 }}>Loading…</p></Shell>
   // null = could not check (lapsed session), not "not entitled".
@@ -384,9 +438,12 @@ export default function MapPortfolioPage() {
                   {p.summary?.tillable_acres ? ` · ${p.summary.tillable_acres.toFixed(1)} ac tillable` : ''}
                   {p.county ? ` · ${niceCounty(p.county)} County ${p.state || ''}` : ''}
                   {p.shared && p.shared_by ? ` · shared by ${p.shared_by}` : ''}
+                  {p.aerial_year != null ? ` · Aerial ${p.aerial_year}` : ''}
                 </span>
-                {/* One row, never wrapping. */}
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'nowrap', alignItems: 'center' }}>
+                {/* Wraps on a narrow screen now that Aerial Map joined
+                    the row — five buttons at full label width no longer
+                    fit one line on a phone. */}
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', rowGap: 6, alignItems: 'center' }}>
                   <Link href={`/configure-map?project=${p.id}`} style={{ ...btn, whiteSpace: 'nowrap' }}>
                     <PenLine size={13} /> Open
                   </Link>
@@ -405,6 +462,18 @@ export default function MapPortfolioPage() {
                       <Users size={13} /> Share
                     </button>
                   )}
+                  {/* Project-level report (owner item 8): the whole
+                      project's ground, at whatever imagery year is set
+                      on it, as one PDF — queued here rather than opening
+                      ConfigureMap first. */}
+                  <button style={{ ...btn, whiteSpace: 'nowrap' }}
+                          disabled={!!busy || queuingAerial === p.id}
+                          onClick={() => void queueAerialMap(p)}>
+                    {queuingAerial === p.id
+                      ? <Loader2 size={13} className="animate-spin" />
+                      : <FileText size={13} />}
+                    {queuingAerial === p.id ? (REPORT_BUSY_LABEL.aerial || 'Working…') : 'Aerial Map'}
+                  </button>
                   <button style={{ ...btn, whiteSpace: 'nowrap' }} disabled={!!busy}
                           onClick={() => void act(
                             p.archived_at ? 'Restoring…' : 'Archiving…',
@@ -412,6 +481,29 @@ export default function MapPortfolioPage() {
                     {p.archived_at ? <><ArchiveRestore size={13} /> Restore</> : <><Archive size={13} /> Archive</>}
                   </button>
                 </div>
+                {/* Aerial Map status/download — the report rows for this
+                    project, aerial kind only (a project also has its
+                    tracts' own reports, which belong on ConfigureMap's
+                    card, not here). */}
+                {(projectReports[p.id] || [])
+                  .filter((r) => r.kind === 'aerial')
+                  .slice(0, 3)
+                  .map((r) => (
+                    <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11 }}>
+                      <span style={muted}>{REPORT_LABEL.aerial}</span>
+                      {r.status === 'done' ? (
+                        <button
+                          onClick={() => void downloadReport(r.id, `${p.name} Aerial Map.pdf`)}
+                          style={{ ...btn, padding: '2px 8px', fontSize: 11 }}>
+                          <Download size={11} /> Download
+                        </button>
+                      ) : (
+                        <span style={{ opacity: 0.65, color: r.status === 'failed' ? '#fca5a5' : undefined }}>
+                          {r.status === 'failed' ? (r.error || 'failed') : 'building…'}
+                        </span>
+                      )}
+                    </div>
+                  ))}
                 <span style={{ ...muted, fontSize: 11, display: 'block' }}>
                   edited {new Date(p.updated_at).toLocaleDateString()}
                 </span>

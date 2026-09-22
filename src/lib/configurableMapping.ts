@@ -186,6 +186,9 @@ export interface Project {
   shared_by?: string | null
   /** On YOUR projects: who you have shared it with. Empty when nobody. */
   shared_with?: { id: string; name: string }[]
+  /** Esri Wayback archive year the Configure Map + Aerial Map report use
+   *  for this project. Null = "Latest" (the current mosaic). */
+  aerial_year?: number | null
 }
 
 export interface SavedParcelRow {
@@ -228,11 +231,16 @@ export function listProjects(includeArchived = false) {
     `/api/mapping/projects${includeArchived ? '?include_archived=true' : ''}`)
 }
 
-export function createProject(name: string) {
+export function createProject(name: string, aerialYear?: number | null) {
+  const body: Record<string, any> = { name }
+  // Omit entirely when not given, rather than sending `undefined` —
+  // the backend treats a present `null` as "Latest", so leaving the
+  // key out entirely must mean "not set" (default), not "Latest".
+  if (aerialYear !== undefined) body.aerial_year = aerialYear
   return j<{ id: string; name: string }>('/api/mapping/projects', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify(body),
   })
 }
 
@@ -301,12 +309,25 @@ export function setProjectShares(id: string, userIds: string[]) {
   })
 }
 
-export function updateProject(id: string, patch: { name?: string; archived?: boolean }) {
+/** `aerial_year` omitted = unchanged, `null` = Latest, a number = that
+ *  Wayback year. Callers that only want to touch the year should use
+ *  `updateProjectAerialYear` below rather than build this patch by hand. */
+export function updateProject(
+  id: string, patch: { name?: string; archived?: boolean; aerial_year?: number | null },
+) {
   return j<{ ok: true }>(`/api/mapping/projects/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(patch),
   })
+}
+
+/** Persist the Configure Map imagery-year choice on a project. Split out
+ *  from `updateProject` so a caller that only has a year in hand (no
+ *  name/archived state to preserve) cannot accidentally send those keys
+ *  as `undefined` and have `JSON.stringify` silently drop them wrong. */
+export function updateProjectAerialYear(id: string, aerialYear: number | null) {
+  return updateProject(id, { aerial_year: aerialYear })
 }
 
 export function duplicateProject(id: string) {
@@ -427,16 +448,20 @@ export function differenceGeometry(geometry: any, subtract: any[]) {
 // bucket is private, so there is no direct link to hand out.
 
 export const REPORT_KINDS =
-  ['tillable', 'soil_rating', 'elevation_3d', 'fsa', 'topography', 'ground_goat'] as const
+  ['aerial', 'soil_map', 'tillable', 'ground_goat', 'elevation_3d'] as const
 export type ReportKind = (typeof REPORT_KINDS)[number]
 
+/** Reports queued at the PROJECT level (no parcel_id) rather than per
+ *  tract — right now just the Aerial Map, which prints the whole
+ *  project's ground at the chosen imagery year in one PDF. */
+export const PROJECT_REPORT_KINDS: readonly string[] = ['aerial']
+
 export const REPORT_LABEL: Record<string, string> = {
+  aerial: 'Aerial Map',
+  soil_map: 'Soil Map',
   tillable: 'Tillable Map',
-  soil_rating: 'Soil Rating Map',
-  fsa: 'FSA Map',
   ground_goat: 'Ground Goat Report',
   elevation_3d: '3D Elevation Map',
-  topography: 'Topography Map',
   cma: 'Market Analysis',
 }
 
@@ -447,18 +472,19 @@ export const REPORT_LABEL: Record<string, string> = {
  *  and kept dry rather than jokey — this is a tool a farm manager shows
  *  to a client. */
 export const REPORT_BUSY_LABEL: Record<string, string> = {
+  aerial: 'Framing the ground…',
+  soil_map: 'Reading the soils…',
   tillable: 'Counting rows…',
-  soil_rating: 'Grading the dirt…',
-  fsa: 'Pulling the file…',
   ground_goat: 'Rounding it up…',
   elevation_3d: 'Climbing the hill…',
-  topography: 'Walking contours…',
   cma: 'Reading the market…',
 }
 
 export interface ReportRow {
   id: string
-  parcel_id: string
+  /** Null on a project-level report (e.g. `aerial`) — those print the
+   *  whole project rather than one tract. */
+  parcel_id: string | null
   project_id: string
   kind: string
   status: 'queued' | 'running' | 'done' | 'failed'
@@ -469,19 +495,29 @@ export interface ReportRow {
 }
 
 /** Reports that read the elevation slider. */
-export const USES_ELEVATION: readonly string[] = ['elevation_3d', 'topography']
+export const USES_ELEVATION: readonly string[] = ['elevation_3d']
 
-export function queueReport(parcelId: string, kind: ReportKind, params: Record<string, any> = {}) {
+export function queueReport(
+  target: { parcelId?: string; projectId?: string },
+  kind: ReportKind,
+  params: Record<string, any> = {},
+) {
+  const body: Record<string, any> = { kind, params }
+  if (target.parcelId) body.parcel_id = target.parcelId
+  if (target.projectId) body.project_id = target.projectId
   return j<{ id: string; kind: string; status: string }>('/api/mapping/reports', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ parcel_id: parcelId, kind, params }),
+    body: JSON.stringify(body),
   })
 }
 
-export function listReports(parcelId?: string) {
-  const qs = parcelId ? `?parcel_id=${encodeURIComponent(parcelId)}` : ''
-  return j<{ reports: ReportRow[] }>(`/api/mapping/reports${qs}`)
+export function listReports(opts: { parcelId?: string; projectId?: string } = {}) {
+  const qs = new URLSearchParams()
+  if (opts.parcelId) qs.set('parcel_id', opts.parcelId)
+  if (opts.projectId) qs.set('project_id', opts.projectId)
+  const s = qs.toString()
+  return j<{ reports: ReportRow[] }>(`/api/mapping/reports${s ? `?${s}` : ''}`)
 }
 
 /** Removes one built report — the row and the stored PDF. */

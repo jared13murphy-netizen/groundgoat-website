@@ -35,8 +35,8 @@ import {
   CLASS_COLOR, CLASS_LABEL, LAND_CLASSES, PARCEL_LINE, SEARCH_DOT, VERTEX_LINE,
   archiveParcel, classifyBoundary, fetchParcel, getSavedParcel, saveParcel, searchMap,
   splitGeometry, normalizeGeometry, previewSoil,
-  updateParcel, queueReport, listReports, downloadReport, getProject,
-  REPORT_KINDS, REPORT_LABEL, REPORT_BUSY_LABEL, USES_ELEVATION, type ReportRow,
+  updateParcel, queueReport, listReports, downloadReport, getProject, updateProjectAerialYear,
+  REPORT_KINDS, REPORT_LABEL, REPORT_BUSY_LABEL, USES_ELEVATION, PROJECT_REPORT_KINDS, type ReportRow,
   deleteReport, projectGeometry, type ProjectTractGeometry, listCounties, renameParcel,
   niceCounty, combineGeometry, fitTracts, listProjects,
   createCma, getCma, listCmas, cmaCandidates, setCmaComps, queueCmaReport, updateCma,
@@ -47,7 +47,8 @@ import {
 import { addRegridLayer, buildRegridStateFilter, fetchRegridConfig } from '@/components/map/regridLayer'
 import { addPlaceLabels } from '@/components/map/placeLabels'
 import {
-  GLYPH_URL, MAP_CENTER, MAP_INITIAL_ZOOM, TILE_ATTRIBUTION, TILE_URL,
+  AERIAL_YEARS, GLYPH_URL, MAP_CENTER, MAP_INITIAL_ZOOM, TILE_ATTRIBUTION, TILE_URL,
+  aerialTileUrl,
 } from '@/components/map/mapConstants'
 import { polygonAcres } from '@/lib/polygonGeometry'
 import {
@@ -911,6 +912,72 @@ export default function ConfigureMap() {
   // Project context. A single-parcel user never sees this: leaving it
   // blank makes the server create a project named after the parcel.
   const [projectId, setProjectId] = useState<string | null>(null)
+  // ── Aerial imagery year (owner item 5, 2026-09-22) ──────────────────
+  // Same Esri Wayback archive as Explore's year picker, but PERSISTED on
+  // the project rather than reset on every visit (Explore stays
+  // session-only by its own rule; a Configure Map project is a working
+  // file someone reopens). null = "Latest".
+  const [aerialYear, setAerialYear] = useState<number | null>(null)
+  const [aerialPickerOpen, setAerialPickerOpen] = useState(false)
+  // A year chosen before the project exists yet (Stage 1, or a
+  // brand-new single-parcel canvas) has nowhere to PATCH — it is held
+  // here and flushed onto the project the moment the first save mints
+  // one. `undefined` = nothing held (either never touched, or already
+  // persisted); a held value is always the true current choice, so a
+  // second pick before that first save just overwrites it.
+  const pendingAerialYearRef = useRef<number | null | undefined>(undefined)
+
+  // Swaps the 'sat' source's tiles in place — same technique as
+  // Explore's `selectAerialYear` (MapLibre GL JS 5: `setTiles` reloads
+  // tiles without touching any other layer/source). Does NOT persist —
+  // used both by the user's own pick (which persists separately, right
+  // below) and by boot-time restore of a project's saved year, which
+  // must not immediately PATCH the value it just read back.
+  const applyAerialYear = useCallback((year: number | null) => {
+    const map = mapRef.current
+    const source = map?.getSource('sat') as maplibregl.RasterTileSource | undefined
+    if (source) {
+      if (year === null) {
+        source.setTiles([TILE_URL])
+      } else {
+        const match = AERIAL_YEARS.find((y) => y.year === year)
+        if (match) source.setTiles([aerialTileUrl(match.release)])
+      }
+    }
+    setAerialYear(year)
+  }, [])
+
+  // The user's own pick from the pill: swap the map, then persist it on
+  // the project. A project already exists → PATCH it now. No project
+  // yet (a brand-new canvas, or Stage 1) → hold it; saveAllTracts /
+  // savePieces flush it onto the project the moment their save mints one.
+  const selectCmAerialYear = useCallback((year: number | null) => {
+    applyAerialYear(year)
+    setAerialPickerOpen(false)
+    if (projectId) {
+      pendingAerialYearRef.current = undefined
+      void updateProjectAerialYear(projectId, year).catch(() => {
+        setError('Could not save the imagery year on this project.')
+      })
+    } else {
+      pendingAerialYearRef.current = year
+    }
+  }, [applyAerialYear, projectId])
+
+  /** A year picked before the project existed: flush it onto the
+   *  project a save has just minted. Called only when THIS save is the
+   *  one that created the project (the caller checks the prior,
+   *  closed-over `projectId` was null) — a save into an already-existing
+   *  project never has anything pending, since `selectCmAerialYear`
+   *  would have PATCHed it directly at pick time. */
+  const flushPendingAerialYear = useCallback((pid: string) => {
+    if (pendingAerialYearRef.current === undefined) return
+    const y = pendingAerialYearRef.current
+    pendingAerialYearRef.current = undefined
+    void updateProjectAerialYear(pid, y).catch(() => {
+      setError('Could not save the imagery year on this project.')
+    })
+  }, [])
   // Owner 9/22: arriving from Explore with a parcel, Step 1 only offered a
   // NEW project. The user's existing projects are offered too — picking
   // one adds this tract to it.
@@ -1169,7 +1236,11 @@ export default function ConfigureMap() {
       // tract to this one (owner 9/17, Map Portfolio → Add Tract).
       let stop = false
       getProject(proj)
-        .then((r) => { if (!stop && r.project?.name) setProjectName(r.project.name) })
+        .then((r) => {
+          if (stop) return
+          if (r.project?.name) setProjectName(r.project.name)
+          applyAerialYear(r.project?.aerial_year ?? null)
+        })
         .catch(() => { /* the name is a label; the save still targets `proj` */ })
       return () => { stop = true }
     }
@@ -1183,7 +1254,14 @@ export default function ConfigureMap() {
           const r = await getProject(proj)
           if (stop) return
           if (r.project?.name) setProjectName(r.project.name)
-          if (!r.parcels?.length) { setStage('build'); return }
+          if (!r.parcels?.length) {
+            applyAerialYear(r.project?.aerial_year ?? null)
+            setStage('build')
+            return
+          }
+          // A redirect to ?parcel= re-boots the page, which applies the
+          // project's aerial_year itself via openSavedTract below — no
+          // need to apply it here too.
           const url = new URL(window.location.href)
           url.searchParams.set('parcel', r.parcels[0].id)
           window.location.replace(url.toString())
@@ -1238,7 +1316,11 @@ export default function ConfigureMap() {
         setSavedName(rec.name)
         if (rec.project_id) {
           getProject(rec.project_id)
-            .then((r) => { if (!cancelled && r.project?.name) setProjectName(r.project.name) })
+            .then((r) => {
+              if (cancelled) return
+              if (r.project?.name) setProjectName(r.project.name)
+              applyAerialYear(r.project?.aerial_year ?? null)
+            })
             .catch(() => { /* the name is a label, not load-bearing */ })
         }
         const loadedShapes = simplifyShapes(explodeShapes(rec.polygons as any))
@@ -1298,7 +1380,7 @@ export default function ConfigureMap() {
         setError(e?.message || 'Could not open that saved parcel.')
       } finally { setBusy(null) }
     })()
-  }, [addTract, dropDraftHist])
+  }, [addTract, dropDraftHist, applyAerialYear])
   const openSavedTractRef = useRef(openSavedTract); openSavedTractRef.current = openSavedTract
 
   // ── map ───────────────────────────────────────────────────────────
@@ -2431,12 +2513,12 @@ export default function ConfigureMap() {
     setBusy('Queuing the analysis…'); setError(null)
     try {
       await queueCmaReport(cma.id)
-      if (editingId) await refreshReportsRef.current(editingId)
+      if (projectId) await refreshReportsRef.current(projectId)
       setSavedMsg('Market analysis queued — it will appear under Reports.')
     } catch (e: any) {
       setError(e?.message || 'Could not queue the analysis.')
     } finally { setBusy(null) }
-  }, [cma, editingId])
+  }, [cma, projectId])
 
   // ── split / open-saved ────────────────────────────────────────────
 
@@ -2559,6 +2641,9 @@ export default function ConfigureMap() {
         await archiveParcel(editingId)
         setEditingId(null)
       }
+      // `projectId` here is still the pre-save closed-over value — pid
+      // only differs from it when this save just created the project.
+      if (!projectId && pid) flushPendingAerialYear(pid)
       setProjectId(pid)
       setSavedMsg(
         `Saved ${pieces.length} tracts` +
@@ -2567,7 +2652,7 @@ export default function ConfigureMap() {
     } catch (e: any) {
       setError(e?.message || 'Could not save the tracts.')
     } finally { setBusy(null) }
-  }, [pieces, detail, projectId, projectName, name, shapes, sources, editingId])
+  }, [pieces, detail, projectId, projectName, name, shapes, sources, editingId, flushPendingAerialYear])
 
   /** Drop a tract from Stage 2's list. A tract that was already saved
    *  this session (has a `savedId`) is archived server-side too — same
@@ -2762,6 +2847,9 @@ export default function ConfigureMap() {
           soilRatingType: st.soil?.rating_type ?? x.soilRatingType,
         })))
       }
+      // `projectId` here is still the pre-save closed-over value — pid
+      // only differs from it when this save just created the project.
+      if (!projectId && pid) flushPendingAerialYear(pid)
       setProjectId(pid)
       setSavedMsg(toSave.length === 1 && only
         ? `Saved ${toSave[0].name.trim()}.`
@@ -2780,7 +2868,7 @@ export default function ConfigureMap() {
       setError(e?.message || 'Save failed.')
       return false
     } finally { setBusy(null); savingAllRef.current = false }
-  }, [projectId, projectName, shapes, boundaryRings])
+  }, [projectId, projectName, shapes, boundaryRings, flushPendingAerialYear])
 
   const fingerprint = useCallback((sh: Shape[], b: Pt[][][]) => JSON.stringify([
     sh.map((x) => [x.cls, x.polys]), b,
@@ -3326,8 +3414,15 @@ export default function ConfigureMap() {
   // ── reports ───────────────────────────────────────────────────────
   // Queue, then poll. Rendering happens on a worker, so the screen must
   // never sit blocked waiting for a PDF.
-  const refreshReports = useCallback(async (id: string) => {
-    try { setReports((await listReports(id)).reports) } catch { /* non-fatal */ }
+  //
+  // Keyed by PROJECT id, not the open tract's parcel id: the backend's
+  // `?project_id=` listing already returns every report for the
+  // project, tract-level AND project-level (e.g. the Aerial Map), so
+  // fetching by project is the only way the project-level rows show up
+  // here at all. The render below filters back down to "this tract's
+  // own reports, plus the project-level ones".
+  const refreshReports = useCallback(async (pid: string) => {
+    try { setReports((await listReports({ projectId: pid })).reports) } catch { /* non-fatal */ }
   }, [])
   refreshReportsRef.current = refreshReports
 
@@ -3342,22 +3437,22 @@ export default function ConfigureMap() {
   )
 
   useEffect(() => {
-    if (!editingId) {
+    if (!editingId || !projectId) {
       // Only ever assign when there is something to clear, so this can
       // never manufacture a new identity for an already-empty list.
       setReports((prev) => (prev.length ? [] : prev))
       return
     }
-    void refreshReports(editingId)
-  }, [editingId, refreshReports])
+    void refreshReports(projectId)
+  }, [editingId, projectId, refreshReports])
 
   // Poll only while something is actually rendering. A boolean flips at
   // most twice per report, so the interval is armed and cleared once.
   useEffect(() => {
-    if (!editingId || !reportsPending) return
-    const t = setInterval(() => void refreshReports(editingId), 4000)
+    if (!editingId || !projectId || !reportsPending) return
+    const t = setInterval(() => void refreshReports(projectId), 4000)
     return () => clearInterval(t)
-  }, [editingId, reportsPending, refreshReports])
+  }, [editingId, projectId, reportsPending, refreshReports])
 
   const removeReport = useCallback(async (id: string) => {
     setDeletingReport(id)
@@ -3373,16 +3468,27 @@ export default function ConfigureMap() {
   }, [])
 
   const makeReport = useCallback(async (kind: (typeof REPORT_KINDS)[number]) => {
-    if (!editingId) { setError('Save this parcel before building a report.'); return }
+    // The Aerial Map is PROJECT-level (owner item 8): it prints the whole
+    // project at the chosen imagery year, not one tract, so it targets
+    // `projectId` and only needs a project to exist — every other kind
+    // still targets the open tract and needs it saved first.
+    const isProjectLevel = PROJECT_REPORT_KINDS.includes(kind)
+    if (isProjectLevel ? !projectId : !editingId) {
+      setError('Save this parcel before building a report.')
+      return
+    }
     setError(null); setQueuing(kind)
     try {
-      await queueReport(editingId, kind,
-        USES_ELEVATION.includes(kind) ? { exaggeration } : {})
-      await refreshReports(editingId)
+      await queueReport(
+        isProjectLevel ? { projectId: projectId! } : { parcelId: editingId! },
+        kind,
+        USES_ELEVATION.includes(kind) ? { exaggeration } : {},
+      )
+      if (projectId) await refreshReports(projectId)
     } catch (e: any) {
       setError(e?.message || 'Could not start that report.')
     } finally { setQueuing(null) }
-  }, [editingId, refreshReports, exaggeration])
+  }, [editingId, projectId, refreshReports, exaggeration])
 
   /** Discard unsaved edits. Falls back to the engine's own polygons when
    *  this parcel has never been saved, so Cancel always lands somewhere
@@ -3609,6 +3715,60 @@ export default function ConfigureMap() {
           }}>
           <ArrowLeft size={14} /> Back to Map
         </button>
+        {/* Aerial imagery year (owner item 5, 2026-09-22) — a pill
+            bottom-left, above the NavigationControl's zoom buttons, so
+            the bottom toolbar row (which is centred and unrelated)
+            stays exactly as it is. Opens the same 4-column year grid
+            Explore's Utilities "Map Year" view uses, styled the same
+            way, but this choice PERSISTS on the project instead of
+            resetting on reload. */}
+        <div style={{ position: 'absolute', bottom: 92, left: 10, zIndex: 30 }}>
+          {aerialPickerOpen && (
+            <div style={{
+              position: 'absolute', bottom: '100%', left: 0, marginBottom: 8,
+              width: 220, padding: 10, borderRadius: 10,
+              background: 'rgba(15,21,32,0.96)', border: '1px solid rgba(255,255,255,0.14)',
+              boxShadow: '0 8px 24px rgba(0,0,0,0.55)', backdropFilter: 'blur(10px)',
+            }}>
+              <div style={{ color: '#fff', fontSize: 12, fontWeight: 700, marginBottom: 8 }}>
+                Aerial imagery year
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
+                {([{ year: null as number | null, label: 'Latest' },
+                   ...AERIAL_YEARS.map((y) => ({ year: y.year as number | null, label: String(y.year) }))])
+                  .map(({ year, label }) => {
+                    const selected = aerialYear === year
+                    return (
+                      <button
+                        key={label}
+                        onClick={() => selectCmAerialYear(year)}
+                        aria-pressed={selected}
+                        style={{
+                          height: 30, borderRadius: 6, border: 'none', cursor: 'pointer',
+                          backgroundColor: selected ? '#E91E8C' : 'rgba(255,255,255,0.08)',
+                          color: selected ? '#fff' : 'rgba(255,255,255,0.85)',
+                          fontSize: 11, fontWeight: 600,
+                        }}>
+                        {label}
+                      </button>
+                    )
+                  })}
+              </div>
+            </div>
+          )}
+          <button
+            onClick={() => setAerialPickerOpen((v) => !v)}
+            title="Choose the aerial imagery year"
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              padding: '7px 12px', borderRadius: 999, cursor: 'pointer',
+              fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.9)',
+              background: 'rgba(15,21,32,0.85)', border: '1px solid rgba(255,255,255,0.18)',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.5)', backdropFilter: 'blur(6px)',
+            }}>
+            Aerial: {aerialYear === null ? 'Latest' : aerialYear}
+          </button>
+        </div>
         {/* Bottom gradient (owner item 3, 2026-09-22): "these buttons
             aren't currently noticeable" — a non-interactive band pinned
             under the toolbar (zIndex below its 30, above the map) so the
@@ -4340,8 +4500,15 @@ export default function ConfigureMap() {
                 <div style={sectionLabel}>Reports</div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                   {REPORT_KINDS.map((k) => {
+                    // The Aerial Map is project-level — any tract's
+                    // in-flight build counts, since it is the same PDF
+                    // no matter which tract's card queued it. Every
+                    // other kind only cares about ITS tract's own report
+                    // (the list now carries the whole project's rows).
+                    const isProjectLevel = PROJECT_REPORT_KINDS.includes(k)
                     const working = queuing === k || reports.some(
-                      (r) => r.kind === k && (r.status === 'queued' || r.status === 'running'))
+                      (r) => r.kind === k && (r.status === 'queued' || r.status === 'running')
+                        && (isProjectLevel ? r.parcel_id === null : r.parcel_id === editingId))
                     return (
                       <button key={k} onClick={() => void makeReport(k)}
                               disabled={working} style={btn}>
@@ -4358,7 +4525,7 @@ export default function ConfigureMap() {
                 </button>
                 <div style={{ marginTop: 10 }}>
                   <div style={{ ...statRow, marginBottom: 2 }}>
-                    <span style={{ opacity: 0.65 }}>Elevation on 3D &amp; topography</span>
+                    <span style={{ opacity: 0.65 }}>Elevation on the 3D map</span>
                     <span>{exaggeration.toFixed(1)}x</span>
                   </div>
                   <input
@@ -4370,14 +4537,20 @@ export default function ConfigureMap() {
                     elevation change in feet alongside it.
                   </div>
                 </div>
-                {reports.map((r) => (
+                {/* This tract's own reports, plus the project-level ones
+                    (Aerial Map) — see refreshReports above for why the
+                    fetch is keyed by project rather than this parcel. */}
+                {reports.filter((r) => r.parcel_id === editingId || r.parcel_id === null).map((r) => (
                   <div key={r.id} style={statRow}>
-                    <span style={{ opacity: 0.8 }}>{REPORT_LABEL[r.kind] || r.kind}</span>
+                    <span style={{ opacity: 0.8 }}>
+                      {REPORT_LABEL[r.kind] || r.kind}
+                      {r.parcel_id === null ? ' · whole project' : ''}
+                    </span>
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
                       {r.status === 'done' ? (
                         <button
                           onClick={() => void downloadReport(
-                            r.id, `${name || 'parcel'} ${REPORT_LABEL[r.kind] || r.kind}.pdf`)}
+                            r.id, `${r.parcel_id === null ? (projectName || 'project') : (name || 'parcel')} ${REPORT_LABEL[r.kind] || r.kind}.pdf`)}
                           style={{ ...btn, padding: '2px 8px', fontSize: 11 }}>
                           <Download size={11} /> Download
                         </button>
