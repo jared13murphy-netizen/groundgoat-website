@@ -5,7 +5,7 @@ import fetchWithAuth from '@/lib/fetchWithAuth'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
-import { User, CreditCard, LogOut, MapPin, ChevronRight, CheckCircle, AlertCircle, Loader2, Users, Mail, Trash2, Bell } from 'lucide-react'
+import { User, CreditCard, LogOut, MapPin, ChevronRight, CheckCircle, AlertCircle, Loader2, Users, Mail, Trash2, Bell, Image as ImageIcon } from 'lucide-react'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -388,6 +388,17 @@ const handleResendVerification = async () => {
               label="Team Management"
               description="Add and manage your firm's team members"
               href="/account/team"
+            />
+          )}
+
+          {/* Company Branding - Only for Firm Admins: the name + logo
+              printed at the top of every report PDF the firm builds. */}
+          {user?.account_type === 'firm_admin' && (
+            <MenuItem
+              icon={<ImageIcon size={20} />}
+              label="Company Branding"
+              description="Your logo and name on report PDFs"
+              href="/account/branding"
             />
           )}
 

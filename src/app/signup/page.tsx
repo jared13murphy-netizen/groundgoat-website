@@ -3,10 +3,11 @@
 import { useState, useEffect, Suspense, useRef } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Check, ArrowLeft, ArrowRight, Eye, EyeOff, MapPin, ChevronDown, X, Loader2, Building2, Users, Plus, Mail } from 'lucide-react'
+import { Check, ArrowLeft, ArrowRight, Eye, EyeOff, MapPin, ChevronDown, X, Loader2, Building2, Users, Plus, Mail, Upload, Image as ImageIcon } from 'lucide-react'
 import { US_STATES, getCountiesForState, getStateAbbreviation } from '@/data/counties'
 import { parseApiError } from '@/lib/parseApiError'
 import { PRICING, displayPriceLabel, formatPrice } from '@/config/pricing'
+import { readLogoFile } from '@/lib/firmBranding'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -114,6 +115,10 @@ function SignUpContent() {
     firmState: '',
     firmZip: '',
   })
+  // Optional company logo (data URL) — printed on the firm's report PDFs.
+  const [firmLogo, setFirmLogo] = useState<string | null>(null)
+  const [firmLogoError, setFirmLogoError] = useState('')
+  const firmLogoInputRef = useRef<HTMLInputElement>(null)
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
   const [newMember, setNewMember] = useState<TeamMember>({
     email: '',
@@ -565,6 +570,7 @@ function SignUpContent() {
           admin_last_name: formData.lastName,
           firm_name: firmData.firmName,
           firm_website: firmData.firmWebsite || null,
+          firm_logo_base64: firmLogo,
           firm_phone: firmData.firmPhone.trim(),
           firm_address: firmData.firmAddress.trim(),
           firm_city: firmData.firmCity.trim(),
@@ -1212,6 +1218,56 @@ function SignUpContent() {
                       className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none"
                       placeholder="https://example.com"
                     />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gg-gray-300 mb-2">Company logo (optional)</label>
+                    <div className="flex items-center gap-4">
+                      <div className="w-24 h-16 rounded-lg bg-gg-gray-900 border border-gg-gray-700 flex items-center justify-center overflow-hidden flex-shrink-0">
+                        {firmLogo ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={firmLogo} alt="Company logo" className="w-full h-full object-contain p-1" />
+                        ) : (
+                          <ImageIcon size={20} className="text-gg-gray-500" />
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex flex-wrap gap-2">
+                          <label className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-gg-gray-700 text-gg-gray-200 hover:border-gg-pink cursor-pointer text-sm">
+                            <Upload size={16} />
+                            {firmLogo ? 'Replace logo' : 'Upload logo'}
+                            <input
+                              ref={firmLogoInputRef}
+                              type="file"
+                              accept="image/png,image/jpeg"
+                              className="hidden"
+                              onChange={async (e) => {
+                                const f = e.target.files?.[0]
+                                if (!f) return
+                                setFirmLogoError('')
+                                try { setFirmLogo(await readLogoFile(f)) } catch (err: any) {
+                                  setFirmLogoError(err?.message || 'Could not read that file.')
+                                }
+                                if (firmLogoInputRef.current) firmLogoInputRef.current.value = ''
+                              }}
+                            />
+                          </label>
+                          {firmLogo && (
+                            <button
+                              type="button"
+                              onClick={() => { setFirmLogo(null); setFirmLogoError('') }}
+                              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-gg-gray-700 text-gg-gray-400 hover:text-white text-sm"
+                            >
+                              <X size={16} />
+                              Remove
+                            </button>
+                          )}
+                        </div>
+                        <p className="text-xs text-gg-gray-500 mt-2">
+                          {firmLogoError || 'Prints at the top of your report PDFs. PNG or JPEG, under 2 MB. You can add or change it later under Account.'}
+                        </p>
+                      </div>
+                    </div>
                   </div>
 
                   <div>
