@@ -17,22 +17,30 @@
  * project by accident, and drawing it again is an afternoon.
  */
 import Link from 'next/link'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  Archive, ArchiveRestore, ArrowLeft, Check, Download, FileText, Loader2, Map as MapIcon,
-  PenLine, Plus, Search, SquarePen, Users, X,
+  Archive, ArchiveRestore, ArrowLeft, Check, Download, FileText, Image as ImageIcon, Loader2,
+  Map as MapIcon, PenLine, Plus, Search, SquarePen, Trash2, Upload, Users, X,
 } from 'lucide-react'
 import {
-  allTractsGeometry, archiveParcel, downloadReport, fetchMappingAccessState, getProject,
-  listProjects, listReports, queueReport,
-  firmMembers, niceCounty, projectShares, renameParcel, setProjectShares, updateProject,
+  allTractsGeometry, archiveParcel, downloadReport, fetchBrandingLogoUrl, fetchMappingAccessState,
+  getBranding, getProject, listProjects, listReports, queueReport,
+  firmMembers, niceCounty, projectShares, renameParcel, setBranding, setProjectShares, updateProject,
   REPORT_BUSY_LABEL, REPORT_LABEL,
   type FirmMember, type PortfolioTract, type Project, type ReportRow, type SavedParcelRow,
 } from '@/lib/configurableMapping'
+import fetchWithAuth from '@/lib/fetchWithAuth'
 import PortfolioMap from '@/components/mapping/PortfolioMap'
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
+/** Firm admins and Ground Goat staff are the only ones who can change
+ *  what prints on a firm's reports. */
+const BRANDING_ADMIN_ROLES = ['firm_admin', 'groundgoat_admin']
+const MAX_LOGO_BYTES = 2 * 1024 * 1024
 
 export default function MapPortfolioPage() {
   const [allowed, setAllowed] = useState<boolean | null | undefined>(undefined)
+  const [user, setUser] = useState<{ account_type: string } | null>(null)
   const [projects, setProjects] = useState<Project[]>([])
   const [showArchived, setShowArchived] = useState(false)
   const [openId, setOpenId] = useState<string | null>(null)
@@ -107,6 +115,101 @@ export default function MapPortfolioPage() {
 
   useEffect(() => { fetchMappingAccessState().then(setAllowed) }, [])
   useEffect(() => { if (allowed) void refresh() }, [allowed, refresh])
+
+  // Only a firm admin (or Ground Goat staff) may change what prints on
+  // a firm's reports, so we need to know who is signed in before the
+  // branding card can decide whether to render at all.
+  useEffect(() => {
+    if (allowed !== true) return
+    fetchWithAuth(`${API_URL}/api/auth/me`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then(setUser)
+      .catch(() => setUser(null))
+  }, [allowed])
+  const isBrandingAdmin = !!user && BRANDING_ADMIN_ROLES.includes(user.account_type)
+
+  // ── Report Branding (owner ask 9/23): the firm's name and logo print
+  // on every PDF report the firm builds. Loaded only for an admin — a
+  // regular firm user never sees the card, so no point fetching for them.
+  const [brandName, setBrandName] = useState('')
+  const [brandHasLogo, setBrandHasLogo] = useState(false)
+  const [brandLogoUrl, setBrandLogoUrl] = useState<string | null>(null)
+  const [brandLoading, setBrandLoading] = useState(false)
+  const [brandSaving, setBrandSaving] = useState<'name' | 'logo' | 'remove' | null>(null)
+  const [brandMsg, setBrandMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
+  const [localLogoPreview, setLocalLogoPreview] = useState<string | null>(null)
+  const logoInputRef = useRef<HTMLInputElement>(null)
+
+  const loadBranding = useCallback(async () => {
+    setBrandLoading(true)
+    try {
+      const b = await getBranding()
+      setBrandName(b.name || '')
+      setBrandHasLogo(b.has_logo)
+      setLocalLogoPreview(null)
+      if (b.has_logo) {
+        setBrandLogoUrl(await fetchBrandingLogoUrl(Date.now()))
+      } else {
+        setBrandLogoUrl(null)
+      }
+    } catch (e: any) {
+      setBrandMsg({ kind: 'err', text: e?.message || 'Could not load your branding.' })
+    } finally { setBrandLoading(false) }
+  }, [])
+
+  useEffect(() => { if (isBrandingAdmin) void loadBranding() }, [isBrandingAdmin, loadBranding])
+
+  const saveBrandName = async () => {
+    setBrandSaving('name'); setBrandMsg(null)
+    try {
+      await setBranding({ name: brandName.trim() })
+      setBrandMsg({ kind: 'ok', text: 'Company name saved.' })
+    } catch (e: any) {
+      setBrandMsg({ kind: 'err', text: e?.message || 'Could not save that name.' })
+    } finally { setBrandSaving(null) }
+  }
+
+  const uploadLogo = async (file: File) => {
+    if (file.size > MAX_LOGO_BYTES) {
+      setBrandMsg({ kind: 'err', text: 'That logo is too big — please use an image under 2 MB.' })
+      return
+    }
+    setBrandMsg(null)
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result))
+      reader.onerror = () => reject(new Error('Could not read that file.'))
+      reader.readAsDataURL(file)
+    }).catch((e: Error) => {
+      setBrandMsg({ kind: 'err', text: e.message })
+      return null
+    })
+    if (!dataUrl) return
+    setLocalLogoPreview(dataUrl)
+    setBrandSaving('logo')
+    try {
+      await setBranding({ logo_base64: dataUrl })
+      setBrandMsg({ kind: 'ok', text: 'Logo saved.' })
+      await loadBranding()
+    } catch (e: any) {
+      setBrandMsg({ kind: 'err', text: e?.message || 'Could not save that logo.' })
+    } finally {
+      setBrandSaving(null)
+      if (logoInputRef.current) logoInputRef.current.value = ''
+    }
+  }
+
+  const removeLogo = async () => {
+    if (!window.confirm('Remove your firm’s logo from report PDFs?')) return
+    setBrandSaving('remove'); setBrandMsg(null)
+    try {
+      await setBranding({ logo_base64: '' })
+      setBrandMsg({ kind: 'ok', text: 'Logo removed.' })
+      await loadBranding()
+    } catch (e: any) {
+      setBrandMsg({ kind: 'err', text: e?.message || 'Could not remove that logo.' })
+    } finally { setBrandSaving(null) }
+  }
 
   const openProject = useCallback(async (id: string) => {
     if (openId === id) { setOpenId(null); setOpenParcels([]); return }
@@ -321,6 +424,83 @@ export default function MapPortfolioPage() {
           </label>
 
         </div>
+
+        {isBrandingAdmin && (
+          <div style={{ ...card, marginBottom: 18 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+              <FileText size={14} style={{ opacity: 0.7 }} />
+              <span style={{ fontWeight: 600, fontSize: 13 }}>Report Branding</span>
+            </div>
+            <p style={{ ...muted, display: 'block', marginBottom: 12 }}>
+              Your name and logo print on every PDF report your firm builds.
+            </p>
+
+            {/* Row 1: company name. */}
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+              <input
+                value={brandName}
+                onChange={(e) => setBrandName(e.target.value)}
+                placeholder="Company name on reports"
+                maxLength={120}
+                disabled={brandLoading}
+                style={{ ...input, flex: 1, minWidth: 0 }} />
+              <button style={{ ...btn, whiteSpace: 'nowrap' }}
+                      disabled={brandLoading || brandSaving === 'name'}
+                      onClick={() => void saveBrandName()}>
+                {brandSaving === 'name' ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
+                Save
+              </button>
+            </div>
+
+            {/* Row 2: logo — preview, upload, remove. */}
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+              <div style={{
+                width: 44, height: 44, borderRadius: 6, flexShrink: 0,
+                background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+              }}>
+                {(localLogoPreview || brandLogoUrl) ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={localLogoPreview || brandLogoUrl || undefined} alt="Firm logo"
+                       style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                       onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                ) : (
+                  <ImageIcon size={16} style={{ opacity: 0.35 }} />
+                )}
+              </div>
+              <span style={muted}>
+                {brandHasLogo || localLogoPreview ? 'Current logo' : 'No logo yet'}
+              </span>
+              <div style={{ flex: 1 }} />
+              <label style={{ ...btn, whiteSpace: 'nowrap', cursor: brandSaving ? 'not-allowed' : 'pointer',
+                              opacity: brandSaving ? 0.6 : 1 }}>
+                {brandSaving === 'logo' ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
+                Upload logo
+                <input ref={logoInputRef} type="file" accept="image/png,image/jpeg"
+                       disabled={!!brandSaving} style={{ display: 'none' }}
+                       onChange={(e) => {
+                         const f = e.target.files?.[0]
+                         if (f) void uploadLogo(f)
+                       }} />
+              </label>
+              {(brandHasLogo || localLogoPreview) && (
+                <button style={{ ...btn, whiteSpace: 'nowrap' }}
+                        disabled={!!brandSaving}
+                        onClick={() => void removeLogo()}>
+                  {brandSaving === 'remove' ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                  Remove
+                </button>
+              )}
+            </div>
+
+            {brandMsg && (
+              <p style={{ ...muted, display: 'block', marginTop: 8,
+                          color: brandMsg.kind === 'err' ? '#fca5a5' : '#86efac' }}>
+                {brandMsg.text}
+              </p>
+            )}
+          </div>
+        )}
 
         {busy && <p style={muted}><Loader2 size={13} /> {busy}</p>}
         {error && <p style={{ ...muted, color: '#fca5a5' }}>{error}</p>}

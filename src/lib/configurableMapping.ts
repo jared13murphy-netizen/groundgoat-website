@@ -553,6 +553,23 @@ export function setBranding(patch: { name?: string; logo_base64?: string }) {
   })
 }
 
+/** The firm's current logo, as a local blob URL — the endpoint is
+ *  authenticated, so a plain `<img src>` can't carry the bearer token.
+ *  Null on any failure (no logo yet, 404, network) — callers treat that
+ *  as "no preview available", never as an error to surface. Caller must
+ *  revoke the returned URL when done with it. */
+export async function fetchBrandingLogoUrl(cacheBust?: number): Promise<string | null> {
+  try {
+    const qs = cacheBust ? `?v=${cacheBust}` : ''
+    const res = await fetchWithAuth(`${API_URL}/api/mapping/branding/logo${qs}`)
+    if (!res.ok) return null
+    const blob = await res.blob()
+    return URL.createObjectURL(blob)
+  } catch {
+    return null
+  }
+}
+
 /** Force drawn polygons to be non-overlapping and inside the boundary.
  *  Order matters: later shapes win, the way painting over something
  *  works. Run in PostGIS — boolean polygon algebra done by hand in the
