@@ -1081,6 +1081,30 @@ export default function TractMapEditor({
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right')
 
     map.on('load', () => {
+      // Owner 9/22: cache the parcels around this tract the moment the
+      // workshop opens, so "Snap to parcel" works in states our parcel
+      // table only covers sparsely. The server skips the six fully cached
+      // states and refuses boxes bigger than ~6 sq mi; when it wrote new
+      // rows we reload our parcel tiles so the lines appear straight away.
+      try {
+        const body: Record<string, unknown> = { state: listingState || null }
+        if (points.length >= 3) body.polygon = points
+        else if (Number.isFinite(centerLng) && Number.isFinite(centerLat)) {
+          body.bbox = [centerLng - 0.006, centerLat - 0.005, centerLng + 0.006, centerLat + 0.005]
+        }
+        if (body.polygon || body.bbox) {
+          fetchWithAuth(`${API_URL}/api/admin/parcels/ensure-cached`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+          }).then(async (r) => {
+            if (!r.ok) return
+            const d = await r.json()
+            if ((d?.written ?? 0) > 0 && mapRef.current === map && map.getSource('parcels')) {
+              const src = map.getSource('parcels') as maplibregl.VectorTileSource
+              src.setTiles([`${API_URL}/api/tiles/parcels/{z}/{x}/{y}.mvt?v=${Date.now()}`])
+            }
+          }).catch(() => { /* snap still has the server's fetch-on-miss path */ })
+        }
+      } catch { /* never block the editor over a cache warm-up */ }
       // ── Parcel boundary tiles (Soils-DB regrid_parcels) — added FIRST so
       // the drawn tract polygon + vertices render on top. Hidden until the
       // user turns on Snap-to-parcel. Live MVT, so new/edited parcels appear
@@ -1605,9 +1629,12 @@ export default function TractMapEditor({
       // Snap-to-parcel mode: a click toggles the parcel under the cursor into
       // the tract selection (which re-unions the boundary); never adds vertices.
       if (snapModeRef.current) {
-        const pf = map.getLayer('parcels-fill')
-          ? map.queryRenderedFeatures(ev.point, { layers: ['parcels-fill'] })
-          : []
+        // Our cached parcels first; then the live Regrid layer, which is
+        // what the map draws in every state outside the six bulk-imported
+        // ones. A click there used to do nothing at all (owner 9/22). The
+        // server fetches a parcel it has never seen before it unions.
+        const layers = ['parcels-fill', 'parcels-regrid-fill'].filter((id) => map.getLayer(id))
+        const pf = layers.length ? map.queryRenderedFeatures(ev.point, { layers }) : []
         const uuid = pf.length ? (pf[0].properties?.ll_uuid as string | undefined) : undefined
         if (uuid) snapClickRef.current(uuid)
         return
