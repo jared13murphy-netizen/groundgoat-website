@@ -147,11 +147,13 @@ export default function MapPortfolioPage() {
       setBrandName(b.name || '')
       setBrandHasLogo(b.has_logo)
       setLocalLogoPreview(null)
-      if (b.has_logo) {
-        setBrandLogoUrl(await fetchBrandingLogoUrl(Date.now()))
-      } else {
-        setBrandLogoUrl(null)
-      }
+      const next = b.has_logo ? await fetchBrandingLogoUrl(Date.now()) : null
+      // Each preview is a blob URL the browser holds until revoked — let
+      // the previous one go before swapping, or every save leaks one.
+      setBrandLogoUrl((prev) => {
+        if (prev && prev !== next) { try { URL.revokeObjectURL(prev) } catch { /* already gone */ } }
+        return next
+      })
     } catch (e: any) {
       setBrandMsg({ kind: 'err', text: e?.message || 'Could not load your branding.' })
     } finally { setBrandLoading(false) }
