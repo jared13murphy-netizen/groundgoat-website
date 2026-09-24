@@ -447,8 +447,11 @@ export function differenceGeometry(geometry: any, subtract: any[]) {
 // reports itself done, then downloads it through the API — the storage
 // bucket is private, so there is no direct link to hand out.
 
+/** The report buttons on the Reports card. 'tillable' still exists on
+ *  the API (old rows keep their label below) but is no longer offered —
+ *  owner 2026-09-24: "remove the Tillable Map report". */
 export const REPORT_KINDS =
-  ['aerial', 'soil_map', 'tillable', 'ground_goat', 'elevation_3d'] as const
+  ['aerial', 'soil_map', 'ground_goat', 'elevation_3d'] as const
 export type ReportKind = (typeof REPORT_KINDS)[number]
 
 /** Reports queued at the PROJECT level (no parcel_id) rather than per

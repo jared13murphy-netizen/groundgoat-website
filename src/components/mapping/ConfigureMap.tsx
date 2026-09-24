@@ -29,7 +29,7 @@ import {
   Loader2, Plus, Trash2, RotateCcw, RotateCw, Save, Search, X, Layers,
   Eye, EyeOff,
   Scissors, FileText, Download, BarChart3, Eraser, PenLine, PaintBucket, Check,
-  ArrowRight, ArrowLeft, PenTool, Magnet, type LucideIcon,
+  ArrowRight, ArrowLeft, PenTool, Magnet, MousePointerClick, type LucideIcon,
 } from 'lucide-react'
 import {
   CLASS_COLOR, CLASS_LABEL, LAND_CLASSES, PARCEL_LINE, SEARCH_DOT, VERTEX_LINE,
@@ -714,6 +714,12 @@ export default function ConfigureMap() {
   // protect) and snaps back to true whenever the list empties out again
   // (every tract removed) so the button is never stuck looking disabled.
   const [addingTract, setAddingTract] = useState(tracts.length === 0)
+  // Owner 9/24: "when it's time to either choose a parcel or draw, I want
+  // a pop up with those two buttons so the user knows exactly what
+  // they're doing." Shown once each time adding is armed (first tract,
+  // or Add Another Tract); either button dismisses it.
+  const [chooserDismissed, setChooserDismissed] = useState(false)
+  useEffect(() => { if (addingTract) setChooserDismissed(false) }, [addingTract])
   const selectedTractIdRef = useRef(selectedTractId); selectedTractIdRef.current = selectedTractId
   const tractsRef = useRef(tracts); tractsRef.current = tracts
   // No `stageRef` any more — every map handler that used to branch on
@@ -4604,6 +4610,48 @@ export default function ConfigureMap() {
       {/* Cancel throws away every unsaved edit and closes the parcel, so
           it confirms first. Was "sits inside the panel, over it" — now
           just a fixed overlay over the whole map, unchanged otherwise. */}
+      {(stage === 'build' && addingTract && !chooserDismissed
+        && !drawing && !tool && !busy && !confirmWhat) && (
+        <div style={{
+          position: 'absolute', inset: 0, zIndex: 39,
+          background: 'rgba(0,0,0,0.55)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 18,
+        }}>
+          <div style={{
+            width: '100%', maxWidth: 400,
+            background: 'linear-gradient(180deg, #1b1e23 0%, #0a0a0a 100%)',
+            border: '1px solid rgba(255,255,255,0.14)',
+            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.14), 0 10px 30px rgba(0,0,0,0.6)',
+            borderRadius: 11, padding: 18, textAlign: 'center',
+          }}>
+            <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>
+              {tracts.length === 0 ? 'How do you want to start your first tract?' : 'How do you want to add this tract?'}
+            </div>
+            <div style={{ ...hint, marginTop: 0, marginBottom: 14, display: 'block' }}>
+              Use a parcel boundary from the map, or draw your own shape corner by corner.
+            </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button
+                onClick={() => setChooserDismissed(true)}
+                style={{ ...primaryBtn, flex: 1, justifyContent: 'center', padding: '11px 10px', fontSize: 14 }}>
+                <MousePointerClick size={15} /> Choose a parcel
+              </button>
+              <button
+                onClick={() => {
+                  setChooserDismissed(true)
+                  setTool('drawtract'); setDrawing(true); setDraft([])
+                }}
+                style={{ ...primaryBtn, flex: 1, justifyContent: 'center', padding: '11px 10px', fontSize: 14 }}>
+                <PenTool size={15} /> Draw a tract
+              </button>
+            </div>
+            <div style={{ ...hint, marginTop: 10, display: 'block' }}>
+              Choose a parcel: then click any parcel on the map and its boundary becomes the tract.
+            </div>
+          </div>
+        </div>
+      )}
+
       {confirmWhat && (
         <div style={{
           position: 'absolute', inset: 0, zIndex: 40,
