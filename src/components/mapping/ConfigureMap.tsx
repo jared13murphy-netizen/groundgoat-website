@@ -36,7 +36,7 @@ import {
   archiveParcel, classifyBoundary, fetchParcel, getSavedParcel, saveParcel, searchMap,
   splitGeometry, normalizeGeometry, previewSoil,
   updateParcel, queueReport, listReports, downloadReport, getProject, updateProjectAerialYear,
-  REPORT_KINDS, REPORT_LABEL, REPORT_BUSY_LABEL, USES_ELEVATION, PROJECT_REPORT_KINDS, type ReportRow,
+  REPORT_KINDS, REPORT_LABEL, REPORT_BUSY_LABEL, USES_ELEVATION, PROJECT_REPORT_KINDS, reportFilename, type ReportRow,
   deleteReport, projectGeometry, type ProjectTractGeometry, listCounties, renameParcel,
   niceCounty, combineGeometry, fitTracts, listProjects,
   createCma, getCma, listCmas, cmaCandidates, setCmaComps, queueCmaReport, updateCma,
@@ -4577,8 +4577,7 @@ export default function ConfigureMap() {
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
                       {r.status === 'done' ? (
                         <button
-                          onClick={() => void downloadReport(
-                            r.id, `${r.parcel_id === null ? (projectName || 'project') : (name || 'parcel')} ${REPORT_LABEL[r.kind] || r.kind}.pdf`)}
+                          onClick={() => void downloadReport(r.id, reportFilename(projectName, r.kind))}
                           style={{ ...btn, padding: '2px 8px', fontSize: 11 }}>
                           <Download size={11} /> Download
                         </button>

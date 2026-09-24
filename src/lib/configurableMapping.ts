@@ -530,9 +530,30 @@ export function deleteReport(id: string) {
 
 /** Pulls the PDF through the authenticated API and hands it to the
  *  browser as a download. */
-export async function downloadReport(id: string, filename: string): Promise<void> {
+/** Letters and digits kept; every other run of characters becomes one
+ *  underscore, none leading or trailing. */
+function filenameSlug(value: string | null | undefined): string {
+  return String(value || '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
+}
+
+/** The saved PDF's name (owner 2026-09-24): project name, then report
+ *  type, then the date — underscores only, no dashes or periods, e.g.
+ *  "Smith_Estate_Auction_Ground_Goat_Report_2026_09_24.pdf". The API
+ *  sends the same name in Content-Disposition; this is the fallback
+ *  when that header cannot be read. */
+export function reportFilename(projectName: string | null | undefined, kind: string, when = new Date()): string {
+  const d = `${when.getFullYear()}_${String(when.getMonth() + 1).padStart(2, '0')}_${String(when.getDate()).padStart(2, '0')}`
+  return `${filenameSlug(projectName) || 'Project'}_${filenameSlug(REPORT_LABEL[kind] || kind) || 'Report'}_${d}.pdf`
+}
+
+export async function downloadReport(id: string, fallbackFilename: string): Promise<void> {
   const res = await fetchWithAuth(`${API_URL}/api/mapping/reports/${id}/download`)
   if (!res.ok) throw new Error(`That report could not be downloaded (${res.status}).`)
+  // Prefer the name the API chose (one rule, one place); fall back to
+  // the same rule computed here if the header is not readable.
+  const disposition = res.headers.get('content-disposition') || ''
+  const m = /filename="?([^";]+)"?/i.exec(disposition)
+  const filename = m?.[1] || fallbackFilename
   const blob = await res.blob()
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')

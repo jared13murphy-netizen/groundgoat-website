@@ -23,7 +23,7 @@ import {
   Map as MapIcon, PenLine, Plus, Search, SquarePen, Trash2, Upload, Users, X,
 } from 'lucide-react'
 import {
-  allTractsGeometry, archiveParcel, downloadReport, fetchBrandingLogoUrl, fetchMappingAccessState,
+  allTractsGeometry, archiveParcel, downloadReport, fetchBrandingLogoUrl, fetchMappingAccessState, reportFilename,
   getBranding, getProject, listProjects, listReports, queueReport,
   firmMembers, niceCounty, projectShares, renameParcel, setBranding, setProjectShares, updateProject,
   REPORT_BUSY_LABEL, REPORT_LABEL,
@@ -693,7 +693,7 @@ export default function MapPortfolioPage() {
                       <span style={muted}>{REPORT_LABEL.aerial}</span>
                       {r.status === 'done' ? (
                         <button
-                          onClick={() => void downloadReport(r.id, `${p.name} Aerial Map.pdf`)}
+                          onClick={() => void downloadReport(r.id, reportFilename(p.name, r.kind))}
                           style={{ ...btn, padding: '2px 8px', fontSize: 11 }}>
                           <Download size={11} /> Download
                         </button>
