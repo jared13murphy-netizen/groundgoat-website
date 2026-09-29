@@ -6,7 +6,7 @@ import dynamic from 'next/dynamic'
 import Image from 'next/image'
 import Link from 'next/link'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Loader2, BarChart3, ArrowLeft } from 'lucide-react'
+import { Loader2, BarChart3, ArrowLeft, X } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import liveEvents from '@/lib/liveEvents'
 import { SHOW_PRIVATE_TREATY } from '@/lib/featureFlags'
@@ -1274,6 +1274,27 @@ function AccessPortalPageInner() {
           narrows the dots correctly (county, acreage, price, date). Find
           Comps already clears any active search on entry, so hiding the
           panel here can't strand a search the user can no longer reach. */}
+      {/* Owner 2026-09-29: a premium state subscriber has no Goat Search,
+          so MapChatPanel — and with it the ONLY control that clears an
+          owner search (the bubble's X) — never renders for them. After
+          "Show Owned Ground" they were stuck with the owner's dots on the
+          map for good. This standalone bubble is the same affordance, in
+          the same spot, for anyone who cannot see the chat panel. */}
+      {!subjectTractId && activeSearchQuery &&
+        !(user?.can_use_goat_search || user?.account_type === 'groundgoat_admin') && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[540] flex flex-col items-center gap-2">
+          <div
+            className="flex items-center gap-2 pl-4 pr-1.5 py-1.5 rounded-full text-[12px] font-medium bg-black/70 border border-gg-pink/40 backdrop-blur-md text-white"
+            style={{ maxWidth: 'min(520px, calc(100vw - 96px))', filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.5))' }}
+          >
+            <span className="truncate">{activeSearchQuery}</span>
+            <button onClick={() => clearActiveSearch()} aria-label="Clear owned ground"
+              className="flex-shrink-0 w-6 h-6 rounded-full bg-white/12 hover:bg-white/20 flex items-center justify-center transition-colors">
+              <X size={12} />
+            </button>
+          </div>
+        </div>
+      )}
       {!subjectTractId &&
         (user?.can_use_goat_search || user?.account_type === 'groundgoat_admin') && (
         <MapChatPanel
