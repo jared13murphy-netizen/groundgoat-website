@@ -7,6 +7,7 @@ import { Check, ArrowLeft, ArrowRight, Eye, EyeOff, MapPin, ChevronDown, X, Load
 import { US_STATES, getCountiesForState, getStateAbbreviation } from '@/data/counties'
 import { parseApiError } from '@/lib/parseApiError'
 import { PRICING, displayPriceLabel, formatPrice } from '@/config/pricing'
+import { WhatIsGroundGoatButton } from '@/components/PromoVideo'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -779,6 +780,14 @@ function SignUpContent() {
             {step === 4 && selectedPlan !== 'firm' && 'Setting up your account...'}
             {step === 5 && 'Setting up your account...'}
           </p>
+          {/* Owner 9/29: one button that opens the home-page promo video in a
+              pop-up, on the first step only so the plan/state steps keep
+              their room. */}
+          {step === 1 && !codeSent && (
+            <div className="mt-5">
+              <WhatIsGroundGoatButton />
+            </div>
+          )}
         </div>
 
         {/* Progress Steps */}
