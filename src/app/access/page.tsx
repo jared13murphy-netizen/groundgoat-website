@@ -1133,6 +1133,8 @@ function AccessPortalPageInner() {
                  remove the only way to add a comparable for anyone who
                  reached comp mode without the flag. */
               compMode={Boolean(subjectTractId)}
+              isWatchlisted={selectedTract.listingId ? watchlistIds.has(selectedTract.listingId) : false}
+              onToggleWatchlist={user ? handleToggleWatchlist : undefined}
             />
           </motion.div>
         )}
