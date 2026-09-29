@@ -1622,7 +1622,7 @@ export default function ConfigureMap() {
       })
       map.addLayer({
         id: 'cm-boundary-line', type: 'line', source: SRC.boundary,
-        paint: { 'line-color': PARCEL_LINE, 'line-width': 4 },
+        paint: { 'line-color': PARCEL_LINE, 'line-width': 5.5 },
       })
       map.addLayer({
         id: 'cm-draft-line', type: 'line', source: SRC.draft,
