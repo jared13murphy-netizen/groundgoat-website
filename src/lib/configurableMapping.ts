@@ -39,7 +39,7 @@ export const CLASS_COLOR: Record<LandClass, string> = {
   other: '#9ca3af',
 }
 
-export const PARCEL_LINE = '#facc15'    // outer boundary colour (owner 2026-09-29: yellow to preview; was black)
+export const PARCEL_LINE = '#ff33cc'    // bright brand pink outer boundary (owner 2026-09-29; brighter than gg-pink so it reads on imagery)
 export const VERTEX_LINE = '#111827'    // ring around a draggable handle
 export const SEARCH_DOT = '#2563eb'     // blue search dots, per spec
 
