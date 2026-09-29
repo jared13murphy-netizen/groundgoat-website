@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { motion } from 'framer-motion'
-import { Loader2, Mountain, BarChart3, FileText, Mail, Download, Check, Play, Maximize2 } from 'lucide-react'
+import { Loader2, Mountain, BarChart3, FileText, Mail, Download, Check, Play, Maximize2, Bookmark } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import reportJobEnqueue from '@/lib/reportJobs'
 import { formatAcres } from '@/lib/format'
@@ -703,6 +703,10 @@ export interface TractDetailActionBarProps {
       looser gate (listingId OR sourceUrl, not listingId AND companyName)
       so it doesn't silently vanish on tracts where the popup showed it. */
   compMode?: boolean
+  /** Watching is per auction (listing): the button acts on tract.listingId
+      and is hidden when the tract has no listing or no toggle handler. */
+  isWatchlisted?: boolean
+  onToggleWatchlist?: (listingId: string) => void
 }
 
 export function TractDetailActionBar({
@@ -713,6 +717,8 @@ export function TractDetailActionBar({
   onViewListing,
   onFindComparables,
   compMode = false,
+  isWatchlisted = false,
+  onToggleWatchlist,
 }: TractDetailActionBarProps) {
   const hasBoundaries = !!(tract.polygonCoordinates && tract.polygonCoordinates.length > 0)
 
@@ -874,6 +880,23 @@ export function TractDetailActionBar({
           </button>
         )}
       </div>
+
+      {/* Add to / Remove from Watchlist — whole auction (listing). */}
+      {onToggleWatchlist && tract.listingId && (
+        <div className="flex gap-2 px-5 pb-4 -mt-2">
+          <button
+            onClick={() => onToggleWatchlist(tract.listingId!)}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl font-medium transition text-xs border ${
+              isWatchlisted
+                ? 'bg-gg-pink/10 text-gg-pink border-gg-pink/30'
+                : 'bg-white/5 text-white border-white/10 hover:bg-white/10'
+            }`}
+          >
+            <Bookmark size={14} fill={isWatchlisted ? 'currentColor' : 'none'} />
+            {isWatchlisted ? 'Remove from Watchlist' : 'Add to Watchlist'}
+          </button>
+        </div>
+      )}
 
       {/* Single-tract PDF report — separate row from the buttons above
           (which can already run to 4-wide at 480px; a 2nd row keeps
