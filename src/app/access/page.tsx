@@ -6,7 +6,7 @@ import dynamic from 'next/dynamic'
 import Image from 'next/image'
 import Link from 'next/link'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Loader2, BarChart3, ArrowLeft, X } from 'lucide-react'
+import { Loader2, BarChart3, ArrowLeft, X, Bookmark } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import liveEvents from '@/lib/liveEvents'
 import { SHOW_PRIVATE_TREATY } from '@/lib/featureFlags'
@@ -1071,6 +1071,20 @@ function AccessPortalPageInner() {
                         <ArrowLeft size={16} />
                       </button>
                       <h2 className={`text-lg font-bold text-white ${overlay ? 'drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]' : ''}`}>Tract Detail</h2>
+                      {/* Watchlist bookmark for the whole auction — the same
+                          icon-only bookmark the cards and Listing Detail use,
+                          at the top of the pane (owner 9/29), never a text
+                          button. Only for signed-in users on a tract that
+                          belongs to a listing. */}
+                      {user && selectedTract.listingId && (
+                        <button
+                          onClick={() => handleToggleWatchlist(selectedTract.listingId!)}
+                          aria-label={watchlistIds.has(selectedTract.listingId) ? 'Remove from watchlist' : 'Add to watchlist'}
+                          className={`ml-auto w-8 h-8 rounded-lg flex items-center justify-center transition shrink-0 pointer-events-auto ${overlay ? 'bg-black/45 hover:bg-black/65' : 'bg-white/5 hover:bg-white/10'}`}
+                        >
+                          <Bookmark size={14} className={watchlistIds.has(selectedTract.listingId) ? 'text-gg-pink fill-gg-pink' : 'text-white'} />
+                        </button>
+                      )}
                     </div>
                     <p className={`text-sm text-white mt-0.5 ml-11 ${overlay ? 'drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]' : ''}`}>
                       {selectedTract.county} County{selectedTract.state ? `, ${selectedTract.state}` : ''}
@@ -1133,8 +1147,6 @@ function AccessPortalPageInner() {
                  remove the only way to add a comparable for anyone who
                  reached comp mode without the flag. */
               compMode={Boolean(subjectTractId)}
-              isWatchlisted={selectedTract.listingId ? watchlistIds.has(selectedTract.listingId) : false}
-              onToggleWatchlist={user ? handleToggleWatchlist : undefined}
             />
           </motion.div>
         )}
