@@ -11116,7 +11116,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                     setSelectedSale(null)
                   }}
                 >
-                  View Listing →
+                  {(selectedSale.listingType || '').toLowerCase() === 'private_treaty' ? 'View Listing' : 'View Auction'} →
                 </button>
               ) : (
                 <a
@@ -11124,7 +11124,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                   className="sale-modal-action-btn"
                   style={{ textDecoration: 'none', marginBottom: '8px' }}
                 >
-                  View Listing →
+                  {(selectedSale.listingType || '').toLowerCase() === 'private_treaty' ? 'View Listing' : 'View Auction'} →
                 </a>
               )
             )}
