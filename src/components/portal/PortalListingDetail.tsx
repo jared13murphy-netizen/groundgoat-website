@@ -403,7 +403,7 @@ export default function PortalListingDetail({ listingId, onBack, onTractSelected
           className="flex items-center justify-center gap-2 w-full py-3 bg-gg-pink text-white font-semibold rounded-xl hover:bg-gg-pink/80 transition text-sm mb-4"
         >
           <ExternalLink size={16} />
-          {listing.bidding_url ? 'View Auction' : 'View Details'}
+          {isAuction || listing.bidding_url ? 'View Auction' : 'View Listing'}
         </a>
       )}
 

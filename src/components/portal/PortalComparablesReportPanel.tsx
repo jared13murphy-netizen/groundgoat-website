@@ -370,7 +370,7 @@ export default function PortalComparablesReportPanel({ subjectInfo, reportTracts
                           className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-[11px] font-medium text-gg-pink bg-gg-pink/10 hover:bg-gg-pink/20 rounded-md border border-gg-pink/30 transition"
                         >
                           <ExternalLink size={12} />
-                          View Details
+                          View Auction
                         </button>
                       )}
                     </div>
