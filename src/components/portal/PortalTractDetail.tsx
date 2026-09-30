@@ -859,7 +859,7 @@ export function TractDetailActionBar({
             }}
             className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-white/5 border border-white/10 text-white font-medium rounded-xl hover:bg-white/10 transition text-xs"
           >
-            View Listing
+            {(tract.listingType || '').toLowerCase() === 'private_treaty' ? 'View Listing' : 'View Auction'}
           </button>
         )}
 
