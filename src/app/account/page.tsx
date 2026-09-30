@@ -5,7 +5,7 @@ import fetchWithAuth from '@/lib/fetchWithAuth'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
-import { User, CreditCard, LogOut, MapPin, ChevronRight, CheckCircle, AlertCircle, Loader2, Users, Mail, Trash2, Bell } from 'lucide-react'
+import { User, CreditCard, LogOut, MapPin, ChevronRight, CheckCircle, AlertCircle, Loader2, Users, Mail, Trash2, Bell, Gift } from 'lucide-react'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -396,6 +396,14 @@ const handleResendVerification = async () => {
             label="Notifications"
             description="Choose what you hear about and how"
             href="/account/notifications"
+          />
+          {/* Owner 9/30: every user has a referral code; subscribers earn a
+              share of what people they refer pay in their first year. */}
+          <MenuItem
+            icon={<Gift size={20} />}
+            label="Share Ground Goat"
+            description="Your QR code and link, and what you've earned from referrals"
+            href="/account/referrals"
           />
         </div>
 
