@@ -68,6 +68,9 @@ export default function AdminReferralsPage() {
   const [error, setError] = useState<string | null>(null)
   const [rateDraft, setRateDraft] = useState<Record<string, string>>({})
   const [defaultDraft, setDefaultDraft] = useState('')
+  const [query, setQuery] = useState('')
+  const [found, setFound] = useState<Referrer[] | null>(null)
+  const [searching, setSearching] = useState(false)
 
   const load = useCallback(async () => {
     setError(null)
@@ -91,6 +94,20 @@ export default function AdminReferralsPage() {
 
   useEffect(() => { load() }, [load])
 
+  const search = async () => {
+    const q = query.trim()
+    if (q.length < 2) { setFound(null); return }
+    setSearching(true)
+    try {
+      const out = await fetchWithAuth(`${API_URL}/api/admin/referrals/lookup?q=${encodeURIComponent(q)}`).then(r => r.json())
+      setFound(out.referrers || [])
+    } catch {
+      setError('Search failed')
+    } finally {
+      setSearching(false)
+    }
+  }
+
   const toggle = async (id: string) => {
     if (open === id) { setOpen(null); return }
     setOpen(id)
@@ -112,6 +129,7 @@ export default function AdminReferralsPage() {
       if (!resp.ok) { const j = await resp.json().catch(() => ({})); setError(j.detail || 'Rate not saved'); return }
       setRateDraft(prev => { const n = { ...prev }; delete n[r.user_id]; return n })
       await load()
+      if (found) await search()
     } finally { setBusy(null) }
   }
 
@@ -123,6 +141,7 @@ export default function AdminReferralsPage() {
         body: JSON.stringify({ payouts_enabled: !r.payouts_enabled }),
       })
       await load()
+      if (found) await search()
     } finally { setBusy(null) }
   }
 
@@ -175,6 +194,93 @@ export default function AdminReferralsPage() {
   const totals = referrers.reduce((a, r) => ({
     gross: a.gross + r.gross_collected, earned: a.earned + r.earned, paid: a.paid + r.paid_out, owed: a.owed + r.payout_pending + r.unpaid,
   }), { gross: 0, earned: 0, paid: 0, owed: 0 })
+
+  const ReferrerTable = ({ rows }: { rows: Referrer[] }) => (
+      <table className="w-full text-sm">
+        <thead><tr className="text-gg-gray-400 text-left border-b border-gg-gray-800">
+          <th className="pb-3">Referrer</th><th className="pb-3">Code</th><th className="pb-3 text-right">Signed up</th><th className="pb-3 text-right">Paying</th>
+          <th className="pb-3 text-right">Collected</th><th className="pb-3 text-right">Earned</th><th className="pb-3 text-right">Paid</th><th className="pb-3 text-right">Owed</th>
+          <th className="pb-3 text-right">Rate</th><th className="pb-3"></th>
+        </tr></thead>
+        <tbody>
+          {rows.map(r => (
+            <>
+              <tr key={r.user_id} className="border-b border-gg-gray-800/60">
+                <td className="py-3 text-white">{r.name || r.email}<div className="text-gg-gray-500 text-xs">{r.email}{!r.payouts_enabled && <span className="ml-2 text-red-400">payouts off</span>}</div></td>
+                <td className="py-3 font-mono text-gg-gray-300">{r.referral_code}</td>
+                <td className="py-3 text-right text-gg-gray-300">{r.referred_count}</td>
+                <td className="py-3 text-right text-gg-gray-300">{r.paying_count}</td>
+                <td className="py-3 text-right text-gg-gray-300">{money(r.gross_collected)}</td>
+                <td className="py-3 text-right text-white">{money(r.earned)}</td>
+                <td className="py-3 text-right text-gg-gray-300">{money(r.paid_out)}</td>
+                <td className="py-3 text-right text-white font-semibold">{money(r.payout_pending + r.unpaid)}</td>
+                <td className="py-3 text-right">
+                  <div className="inline-flex items-center gap-1">
+                    <input
+                      value={rateDraft[r.user_id] ?? (r.rate_is_override ? String(Math.round(r.rate * 100)) : '')}
+                      placeholder={String(Math.round(r.rate * 100))}
+                      onChange={e => setRateDraft(prev => ({ ...prev, [r.user_id]: e.target.value }))}
+                      inputMode="numeric" title="Per-person rate. Blank = program default."
+                      className="w-14 bg-gg-gray-800 border border-gg-gray-700 rounded px-2 py-1 text-white text-right"
+                    />
+                    <span className="text-gg-gray-400">%</span>
+                    {rateDraft[r.user_id] !== undefined && (
+                      <button onClick={() => saveRate(r)} disabled={busy === r.user_id} className="text-gg-pink text-xs ml-1">Save</button>
+                    )}
+                  </div>
+                </td>
+                <td className="py-3 text-right whitespace-nowrap">
+                  <button onClick={() => togglePayouts(r)} disabled={busy === r.user_id} className="text-gg-gray-400 hover:text-white text-xs mr-3">
+                    {r.payouts_enabled ? 'Turn off' : 'Turn on'}
+                  </button>
+                  <button onClick={() => toggle(r.user_id)} className="text-gg-gray-400 hover:text-white inline-flex items-center">
+                    {open === r.user_id ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                  </button>
+                </td>
+              </tr>
+              {open === r.user_id && (
+                <tr key={`${r.user_id}-d`} className="bg-gg-gray-900/60">
+                  <td colSpan={10} className="p-4">
+                    {!detail[r.user_id] ? <Loader2 className="animate-spin text-gg-pink" size={18} /> : (
+                      <div className="grid md:grid-cols-2 gap-6">
+                        <div>
+                          <p className="text-gg-gray-400 text-xs uppercase tracking-wide mb-2">People they referred</p>
+                          {detail[r.user_id].referred.length === 0 ? <p className="text-gg-gray-500 text-sm">None yet</p> : (
+                            <ul className="space-y-1">
+                              {detail[r.user_id].referred.map(u => (
+                                <li key={u.user_id} className="flex justify-between text-sm">
+                                  <span className="text-white">{u.name || u.email}<span className="text-gg-gray-500 ml-2 text-xs">{u.status.replace('_', ' ')}</span></span>
+                                  <span className="text-gg-gray-300">{money(u.gross_collected)} → <span className="text-white">{money(u.earned)}</span></span>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                        <div>
+                          <p className="text-gg-gray-400 text-xs uppercase tracking-wide mb-2">Charges received</p>
+                          {detail[r.user_id].earnings.length === 0 ? <p className="text-gg-gray-500 text-sm">No paid charges yet</p> : (
+                            <ul className="space-y-1 max-h-64 overflow-y-auto">
+                              {detail[r.user_id].earnings.map(e => (
+                                <li key={e.id} className="flex justify-between text-sm">
+                                  <span className="text-gg-gray-300">{e.charged_at.slice(0, 10)} <span className="font-mono text-xs text-gg-gray-500">{e.charge_id}</span></span>
+                                  <span className={e.status === 'reversed' ? 'line-through text-gg-gray-500' : 'text-white'}>
+                                    {money(e.gross)} × {pct(e.rate)} = {money(e.earning)} <span className="text-gg-gray-500 text-xs">{e.status.replace('_', ' ')}</span>
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              )}
+            </>
+          ))}
+        </tbody>
+      </table>
+  )
 
   return (
     <div className="min-h-screen bg-gg-black pt-24 pb-12">
@@ -242,96 +348,36 @@ export default function AdminReferralsPage() {
           )}
         </div>
 
+        {/* Find a subscriber */}
+        <div className="card mb-6">
+          <p className="text-gg-gray-400 text-xs uppercase tracking-wide mb-2">Find a subscriber</p>
+          <form onSubmit={e => { e.preventDefault(); search() }} className="flex gap-2">
+            <input
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder="Name, email, or referral code"
+              className="flex-1 bg-gg-gray-800 border border-gg-gray-700 rounded px-3 py-2 text-white"
+            />
+            <button type="submit" disabled={searching} className="btn-secondary">{searching ? 'Searching…' : 'Search'}</button>
+            {found && <button type="button" onClick={() => { setFound(null); setQuery('') }} className="text-gg-gray-400 hover:text-white text-sm">Clear</button>}
+          </form>
+          <p className="text-gg-gray-500 text-xs mt-2">Anyone can be looked up here, even before their first referral. Set a rate to keep them in the list below.</p>
+          {found && (
+            <div className="mt-4 overflow-x-auto">
+              {found.length === 0 ? <p className="text-gg-gray-400 text-sm">No one matched.</p> : (
+                <ReferrerTable rows={found} />
+              )}
+            </div>
+          )}
+        </div>
+
         {/* Referrers */}
         <h2 className="text-xl font-semibold text-white mb-3 flex items-center gap-2"><Users size={18} className="text-gg-pink" /> Referrers ({referrers.length})</h2>
         <div className="card overflow-x-auto">
           {referrers.length === 0 ? (
             <p className="text-gg-gray-400 text-sm">Nobody has referred anyone yet.</p>
           ) : (
-            <table className="w-full text-sm">
-              <thead><tr className="text-gg-gray-400 text-left border-b border-gg-gray-800">
-                <th className="pb-3">Referrer</th><th className="pb-3">Code</th><th className="pb-3 text-right">Signed up</th><th className="pb-3 text-right">Paying</th>
-                <th className="pb-3 text-right">Collected</th><th className="pb-3 text-right">Earned</th><th className="pb-3 text-right">Paid</th><th className="pb-3 text-right">Owed</th>
-                <th className="pb-3 text-right">Rate</th><th className="pb-3"></th>
-              </tr></thead>
-              <tbody>
-                {referrers.map(r => (
-                  <>
-                    <tr key={r.user_id} className="border-b border-gg-gray-800/60">
-                      <td className="py-3 text-white">{r.name || r.email}<div className="text-gg-gray-500 text-xs">{r.email}{!r.payouts_enabled && <span className="ml-2 text-red-400">payouts off</span>}</div></td>
-                      <td className="py-3 font-mono text-gg-gray-300">{r.referral_code}</td>
-                      <td className="py-3 text-right text-gg-gray-300">{r.referred_count}</td>
-                      <td className="py-3 text-right text-gg-gray-300">{r.paying_count}</td>
-                      <td className="py-3 text-right text-gg-gray-300">{money(r.gross_collected)}</td>
-                      <td className="py-3 text-right text-white">{money(r.earned)}</td>
-                      <td className="py-3 text-right text-gg-gray-300">{money(r.paid_out)}</td>
-                      <td className="py-3 text-right text-white font-semibold">{money(r.payout_pending + r.unpaid)}</td>
-                      <td className="py-3 text-right">
-                        <div className="inline-flex items-center gap-1">
-                          <input
-                            value={rateDraft[r.user_id] ?? (r.rate_is_override ? String(Math.round(r.rate * 100)) : '')}
-                            placeholder={String(Math.round(r.rate * 100))}
-                            onChange={e => setRateDraft(prev => ({ ...prev, [r.user_id]: e.target.value }))}
-                            inputMode="numeric" title="Per-person rate. Blank = program default."
-                            className="w-14 bg-gg-gray-800 border border-gg-gray-700 rounded px-2 py-1 text-white text-right"
-                          />
-                          <span className="text-gg-gray-400">%</span>
-                          {rateDraft[r.user_id] !== undefined && (
-                            <button onClick={() => saveRate(r)} disabled={busy === r.user_id} className="text-gg-pink text-xs ml-1">Save</button>
-                          )}
-                        </div>
-                      </td>
-                      <td className="py-3 text-right whitespace-nowrap">
-                        <button onClick={() => togglePayouts(r)} disabled={busy === r.user_id} className="text-gg-gray-400 hover:text-white text-xs mr-3">
-                          {r.payouts_enabled ? 'Turn off' : 'Turn on'}
-                        </button>
-                        <button onClick={() => toggle(r.user_id)} className="text-gg-gray-400 hover:text-white inline-flex items-center">
-                          {open === r.user_id ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                        </button>
-                      </td>
-                    </tr>
-                    {open === r.user_id && (
-                      <tr key={`${r.user_id}-d`} className="bg-gg-gray-900/60">
-                        <td colSpan={10} className="p-4">
-                          {!detail[r.user_id] ? <Loader2 className="animate-spin text-gg-pink" size={18} /> : (
-                            <div className="grid md:grid-cols-2 gap-6">
-                              <div>
-                                <p className="text-gg-gray-400 text-xs uppercase tracking-wide mb-2">People they referred</p>
-                                {detail[r.user_id].referred.length === 0 ? <p className="text-gg-gray-500 text-sm">None yet</p> : (
-                                  <ul className="space-y-1">
-                                    {detail[r.user_id].referred.map(u => (
-                                      <li key={u.user_id} className="flex justify-between text-sm">
-                                        <span className="text-white">{u.name || u.email}<span className="text-gg-gray-500 ml-2 text-xs">{u.status.replace('_', ' ')}</span></span>
-                                        <span className="text-gg-gray-300">{money(u.gross_collected)} → <span className="text-white">{money(u.earned)}</span></span>
-                                      </li>
-                                    ))}
-                                  </ul>
-                                )}
-                              </div>
-                              <div>
-                                <p className="text-gg-gray-400 text-xs uppercase tracking-wide mb-2">Charges received</p>
-                                {detail[r.user_id].earnings.length === 0 ? <p className="text-gg-gray-500 text-sm">No paid charges yet</p> : (
-                                  <ul className="space-y-1 max-h-64 overflow-y-auto">
-                                    {detail[r.user_id].earnings.map(e => (
-                                      <li key={e.id} className="flex justify-between text-sm">
-                                        <span className="text-gg-gray-300">{e.charged_at.slice(0, 10)} <span className="font-mono text-xs text-gg-gray-500">{e.charge_id}</span></span>
-                                        <span className={e.status === 'reversed' ? 'line-through text-gg-gray-500' : 'text-white'}>
-                                          {money(e.gross)} × {pct(e.rate)} = {money(e.earning)} <span className="text-gg-gray-500 text-xs">{e.status.replace('_', ' ')}</span>
-                                        </span>
-                                      </li>
-                                    ))}
-                                  </ul>
-                                )}
-                              </div>
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    )}
-                  </>
-                ))}
-              </tbody>
-            </table>
+            <ReferrerTable rows={referrers} />
           )}
         </div>
 
